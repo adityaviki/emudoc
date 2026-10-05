@@ -1,0 +1,17 @@
+# secrets and local config
+.env
+
+# uploaded files and rendered page images
+backend/data/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# node
+node_modules/
+frontend/dist/
+*.tsbuildinfo

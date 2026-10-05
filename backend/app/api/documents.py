@@ -1,0 +1,255 @@
+import hashlib
+import shutil
+import tempfile
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from sqlalchemy import select
+
+from app.api.deps import DocumentDep, ProjectDep, SessionDep, Stage, WorkerDep
+from app.config import get_settings
+from app.indexing.pipeline import reset_stages
+from app.models import STAGES, Block, Document, Fact, Passage, Section
+from app.parsing import IMAGE_TYPES, SUPPORTED_EXTENSIONS
+from app.parsing.pdf import render_page
+from app.schemas import (
+    DocumentContent,
+    DocumentOut,
+    FactOut,
+    PassageOut,
+    RejectedFile,
+    SectionOut,
+    UploadResult,
+)
+
+router = APIRouter(tags=["documents"])
+
+MIME_TYPES = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    **IMAGE_TYPES,
+}
+CHUNK = 1024 * 1024
+
+
+@router.get("/projects/{project_id}/documents", response_model=list[DocumentOut])
+def list_documents(project: ProjectDep, session: SessionDep):
+    return session.scalars(
+        select(Document).where(Document.project_id == project.id).order_by(Document.id.desc())
+    ).all()
+
+
+@router.post("/projects/{project_id}/documents", response_model=UploadResult, status_code=201)
+def upload_documents(
+    project: ProjectDep, files: list[UploadFile], session: SessionDep, worker: WorkerDep
+):
+    settings = get_settings()
+    limit = settings.max_upload_mb * 1024 * 1024
+    documents: list[Document] = []
+    rejected: list[RejectedFile] = []
+
+    for upload in files:
+        filename = Path(upload.filename or "unnamed").name
+        suffix = Path(filename).suffix.lower()
+        if suffix not in SUPPORTED_EXTENSIONS:
+            supported = ", ".join(sorted(SUPPORTED_EXTENSIONS))
+            rejected.append(
+                RejectedFile(filename=filename, reason=f"Unsupported type. Use {supported}.")
+            )
+            continue
+
+        # Spool to disk while hashing: the hash identifies re-uploads of the same file.
+        digest = hashlib.sha256()
+        size = 0
+        settings.files_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=settings.files_dir, delete=False) as spool:
+            temp_path = Path(spool.name)
+            while chunk := upload.file.read(CHUNK):
+                size += len(chunk)
+                if size > limit:
+                    break
+                digest.update(chunk)
+                spool.write(chunk)
+
+        if size > limit or size == 0:
+            temp_path.unlink(missing_ok=True)
+            reason = "Empty file." if size == 0 else f"Larger than {settings.max_upload_mb} MB."
+            rejected.append(RejectedFile(filename=filename, reason=reason))
+            continue
+
+        sha256 = digest.hexdigest()
+        duplicate = session.scalar(
+            select(Document).where(Document.project_id == project.id, Document.sha256 == sha256)
+        )
+        if duplicate:
+            temp_path.unlink(missing_ok=True)
+            rejected.append(
+                RejectedFile(
+                    filename=filename,
+                    reason=f"Already in this project as {duplicate.filename!r}.",
+                )
+            )
+            continue
+
+        document = Document(
+            project_id=project.id,
+            filename=filename,
+            mime_type=MIME_TYPES[suffix],
+            size_bytes=size,
+            sha256=sha256,
+            storage_path="",
+            status="queued",
+            stages={name: {"status": "pending", "detail": ""} for name in STAGES},
+        )
+        session.add(document)
+        session.flush()
+        target = settings.files_dir / str(project.id) / str(document.id) / f"original{suffix}"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(temp_path, target)
+        document.storage_path = str(target)
+        session.commit()
+        documents.append(document)
+
+    if documents and worker:
+        worker.notify()
+    return UploadResult(documents=documents, rejected=rejected)
+
+
+@router.get("/documents/{document_id}", response_model=DocumentOut)
+def get_document(document: DocumentDep):
+    return document
+
+
+@router.delete("/documents/{document_id}", status_code=204)
+def delete_document(document: DocumentDep, session: SessionDep):
+    settings = get_settings()
+    session.delete(document)
+    session.commit()
+    shutil.rmtree(Path(document.storage_path).parent, ignore_errors=True)
+    shutil.rmtree(settings.pages_dir / str(document.id), ignore_errors=True)
+
+
+@router.post("/documents/{document_id}/reprocess", response_model=DocumentOut, status_code=202)
+def reprocess_document(
+    document: DocumentDep,
+    session: SessionDep,
+    worker: WorkerDep,
+    from_stage: Stage = "parse",
+):
+    if document.status == "processing":
+        raise HTTPException(409, "This document is being indexed right now")
+    reset_stages(document, from_stage)
+    session.commit()
+    if worker:
+        worker.notify()
+    return document
+
+
+@router.get("/documents/{document_id}/file")
+def download_file(document: DocumentDep):
+    path = Path(document.storage_path)
+    if not path.is_file():
+        raise HTTPException(404, "The original file is missing")
+    return FileResponse(
+        path,
+        media_type=document.mime_type,
+        filename=document.filename,
+        content_disposition_type="inline",
+    )
+
+
+@router.get("/documents/{document_id}/pages/{page}.png")
+def page_image(document: DocumentDep, page: int):
+    """A rendered PDF page, for showing where on the page a passage sits."""
+    if document.mime_type != "application/pdf":
+        raise HTTPException(404, "Only PDF documents have page images")
+    if not 1 <= page <= (document.page_count or 0):
+        raise HTTPException(404, "No such page")
+    cached = get_settings().pages_dir / str(document.id) / f"{page}.png"
+    if not cached.is_file():
+        cached.parent.mkdir(parents=True, exist_ok=True)
+        cached.write_bytes(render_page(Path(document.storage_path), page))
+    return FileResponse(cached, media_type="image/png", headers={"Cache-Control": "max-age=86400"})
+
+
+@router.get("/documents/{document_id}/outline", response_model=list[SectionOut])
+def get_outline(document: DocumentDep, session: SessionDep):
+    sections = session.scalars(
+        select(Section).where(Section.document_id == document.id).order_by(Section.ordinal)
+    ).all()
+    nodes = {
+        section.id: SectionOut(
+            id=section.id,
+            title=section.title,
+            level=section.level,
+            summary=section.summary,
+            page_start=section.page_start,
+            page_end=section.page_end,
+            block_start=section.block_start,
+            block_end=section.block_end,
+        )
+        for section in sections
+    }
+    roots: list[SectionOut] = []
+    for section in sections:
+        parent = nodes.get(section.parent_id) if section.parent_id else None
+        (parent.children if parent else roots).append(nodes[section.id])
+    return roots
+
+
+@router.get("/documents/{document_id}/content", response_model=DocumentContent)
+def get_content(document: DocumentDep, session: SessionDep):
+    blocks = session.scalars(
+        select(Block).where(Block.document_id == document.id).order_by(Block.ordinal)
+    ).all()
+    return DocumentContent(blocks=blocks, page_sizes=document.page_sizes or [])
+
+
+@router.get("/documents/{document_id}/facts", response_model=list[FactOut])
+def get_document_facts(document: DocumentDep, session: SessionDep):
+    facts = session.scalars(
+        select(Fact).where(Fact.document_id == document.id).order_by(Fact.name, Fact.id)
+    ).all()
+    return [fact_out(fact, document) for fact in facts]
+
+
+@router.get("/passages/{passage_id}", response_model=PassageOut)
+def get_passage(passage_id: int, session: SessionDep):
+    passage = session.get(Passage, passage_id)
+    if passage is None:
+        raise HTTPException(404, "Passage not found")
+    document = session.get(Document, passage.document_id)
+    return PassageOut(
+        id=passage.id,
+        document_id=passage.document_id,
+        document_title=document.display_title,
+        section_id=passage.section_id,
+        context=passage.context,
+        text=passage.text,
+        page_start=passage.page_start,
+        page_end=passage.page_end,
+        block_start=passage.block_start,
+        block_end=passage.block_end,
+    )
+
+
+def fact_out(fact: Fact, document: Document) -> FactOut:
+    return FactOut(
+        id=fact.id,
+        document_id=fact.document_id,
+        document_title=document.display_title,
+        name=fact.name,
+        value_type=fact.value_type,
+        value=fact.value,
+        number=fact.number,
+        date=fact.date,
+        currency=fact.currency,
+        quote=fact.quote,
+        page=fact.page,
+        block_ordinal=fact.block_ordinal,
+        passage_id=fact.passage_id,
+        verified=fact.verified,
+    )
