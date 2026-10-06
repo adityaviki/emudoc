@@ -1,6 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
+import { Moon, Sun } from 'lucide-react'
+import { useState } from 'react'
 import { Link, Route, Routes } from 'react-router'
 import { api } from './api.ts'
+import { IconButton } from './components/ui.tsx'
 import { AskTab } from './pages/AskTab.tsx'
 import { DocumentPage } from './pages/DocumentPage.tsx'
 import { DocumentsTab } from './pages/DocumentsTab.tsx'
@@ -17,7 +20,10 @@ function App() {
             <img src="/favicon.svg" alt="" className="size-5" />
             Paperless
           </Link>
-          <ServiceStatus />
+          <div className="flex items-center gap-4">
+            <ServiceStatus />
+            <ThemeToggle />
+          </div>
         </div>
       </header>
       <main className="mx-auto w-full max-w-7xl flex-1 px-6 py-6">
@@ -34,6 +40,29 @@ function App() {
         </Routes>
       </main>
     </div>
+  )
+}
+
+/** Switches between the default light theme and dark, remembering the choice in this browser. */
+function ThemeToggle() {
+  const [dark, setDark] = useState(() => document.documentElement.dataset.theme === 'dark')
+
+  function toggle() {
+    const next = !dark
+    setDark(next)
+    if (next) document.documentElement.dataset.theme = 'dark'
+    else delete document.documentElement.dataset.theme
+    try {
+      localStorage.setItem('theme', next ? 'dark' : 'light')
+    } catch {
+      // Storage can be blocked; the theme still applies for this visit.
+    }
+  }
+
+  return (
+    <IconButton label={dark ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggle}>
+      {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+    </IconButton>
   )
 }
 

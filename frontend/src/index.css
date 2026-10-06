@@ -1,5 +1,8 @@
 @import 'tailwindcss';
 
+/* Light is the default; dark applies only when the header toggle sets data-theme="dark". */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
 /* Semantic colours. Components use these names, so dark mode is a change of values only. */
 @theme {
   --font-sans: ui-sans-serif, system-ui, 'Segoe UI', Roboto, sans-serif;
@@ -19,25 +22,24 @@
   --color-mark: #fde68a;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-page: #131312;
-    --color-surface: #1c1c1a;
-    --color-sunken: #252523;
-    --color-line: #32312e;
-    --color-ink: #eceae5;
-    --color-muted: #9d9b95;
-    --color-accent: #91a7ff;
-    --color-accent-soft: #222a47;
-    --color-good: #6cc391;
-    --color-warn: #e2a850;
-    --color-bad: #f1887d;
-    --color-mark: #6a5a16;
-  }
+:root {
+  color-scheme: light;
 }
 
-:root {
-  color-scheme: light dark;
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --color-page: #131312;
+  --color-surface: #1c1c1a;
+  --color-sunken: #252523;
+  --color-line: #32312e;
+  --color-ink: #eceae5;
+  --color-muted: #9d9b95;
+  --color-accent: #91a7ff;
+  --color-accent-soft: #222a47;
+  --color-good: #6cc391;
+  --color-warn: #e2a850;
+  --color-bad: #f1887d;
+  --color-mark: #6a5a16;
 }
 
 body {
