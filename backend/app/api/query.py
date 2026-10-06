@@ -1,26 +1,14 @@
-"""Read-side endpoints over a project's indexes: search, facts and the agent chat."""
+"""Read-side endpoints over a project's indexes: search and facts."""
 
-import json
-from collections.abc import Iterator
 from typing import Annotated
 
 from fastapi import APIRouter, Query
-from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_, select
 
-from app.agent.loop import run_agent
 from app.api.deps import ProjectDep, ServicesDep, SessionDep
 from app.api.documents import fact_out
-from app.db import SessionLocal
-from app.models import Document, Fact, Project
-from app.schemas import (
-    ChatRequest,
-    FactList,
-    FactName,
-    SearchHitOut,
-    SearchOut,
-    SnippetSegment,
-)
+from app.models import Document, Fact
+from app.schemas import FactList, FactName, SearchHitOut, SearchOut, SnippetSegment
 from app.search import hybrid_search
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["query"])
@@ -104,37 +92,3 @@ def list_fact_names(project: ProjectDep, session: SessionDep):
         .order_by(func.count().desc(), Fact.name)
     ).all()
     return [FactName(name=name, count=count) for name, count in rows]
-
-
-@router.post("/chat")
-def chat(project: ProjectDep, body: ChatRequest, services: ServicesDep):
-    """Answer the last user message, streamed as server-sent events."""
-    messages = [
-        {"role": message.role, "content": message.content}
-        for message in body.messages
-        if message.content.strip()
-    ]
-    # The API requires the conversation to open with a user message.
-    while messages and messages[0]["role"] != "user":
-        messages.pop(0)
-    project_id = project.id
-
-    def events() -> Iterator[str]:
-        if not messages or messages[-1]["role"] != "user":
-            yield _sse({"type": "error", "message": "Send a question to get an answer."})
-            return
-        # The request's session closes when this endpoint returns; the stream outlives it.
-        with SessionLocal() as session:
-            current = session.get(Project, project_id)
-            for event in run_agent(session, services, current, messages):
-                yield _sse(event)
-
-    return StreamingResponse(
-        events(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-def _sse(event: dict) -> str:
-    return f"data: {json.dumps(event, default=str)}\n\n"

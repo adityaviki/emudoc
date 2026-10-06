@@ -5,7 +5,7 @@ from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import documents, projects, query
+from app.api import chats, documents, projects, query
 from app.api.deps import ServicesDep
 from app.config import ROOT_DIR, export_env_file, get_settings
 from app.db import init_db, reconcile_embeddings
@@ -58,7 +58,7 @@ def create_app(services: Services | None = None, start_worker: bool = True) -> F
             app.state.worker.stop()
 
     app = FastAPI(title="Paperless", lifespan=lifespan)
-    for router in (system, projects.router, documents.router, query.router):
+    for router in (system, projects.router, documents.router, query.router, chats.router):
         app.include_router(router, prefix="/api")
 
     if FRONTEND_DIST.is_dir():

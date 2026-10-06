@@ -19,9 +19,8 @@ from app.agent.tools import (
     read,
     search,
 )
-from app.llm import LLMUnavailable
 from app.models import Passage, Project, Section
-from tests.conftest import MISSING_KEY, FakeTurn
+from tests.conftest import FakeTurn
 
 
 def context(session, services, document) -> ToolContext:
@@ -247,51 +246,3 @@ def test_truncated_replies_and_refusals_stop_without_running_tools(session, serv
     services.llm.agent_turns = [FakeTurn(TextPart("partial"), finish_reason="content_filter")]
     events = run(session, services, indexed)
     assert events[-1] == {"type": "error", "message": "The model declined to answer this request."}
-
-
-def test_chat_endpoint_streams_events(client, session, services, indexed):
-    services.llm.agent_turns = [
-        FakeTurn(ToolCallPart("query_facts", {"names": ["notice_period"]}, "call_1")),
-        FakeTurn(TextPart("It is "), TextPart("90 days.")),
-    ]
-    response = client.post(
-        f"/api/projects/{indexed.project_id}/chat",
-        json={
-            "messages": [
-                {"role": "assistant", "content": "ignored leading turn"},
-                {"role": "user", "content": "Notice period?"},
-            ]
-        },
-    )
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/event-stream")
-    events = [
-        json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")
-    ]
-    assert [event["type"] for event in events] == [
-        "tool_call",
-        "sources",
-        "tool_result",
-        "text",
-        "text",
-        "done",
-    ]
-    assert "".join(event["text"] for event in events if event["type"] == "text") == "It is 90 days."
-    # The leading assistant turn is dropped: the conversation opens with the question.
-    (question,) = services.llm.agent_requests[0]
-    assert [part.content for part in question.parts] == ["Notice period?"]
-
-
-def test_chat_without_a_model_reports_it(client, session, services, indexed):
-    def unavailable(*args):
-        raise LLMUnavailable(MISSING_KEY)
-
-    services.llm.stream_agent = unavailable
-    response = client.post(
-        f"/api/projects/{indexed.project_id}/chat",
-        json={"messages": [{"role": "user", "content": "Hello"}]},
-    )
-    events = [
-        json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")
-    ]
-    assert events == [{"type": "error", "message": MISSING_KEY}]

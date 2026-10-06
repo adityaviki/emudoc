@@ -129,6 +129,38 @@ export interface Source {
   excerpt: string
 }
 
+export interface Chat {
+  id: number
+  project_id: number
+  title: string
+  created_at: string
+  updated_at: string
+}
+
+/** One tool call the agent made while answering. */
+export interface ChatStep {
+  id: string
+  name: string
+  input: Record<string, unknown>
+  summary: string
+  is_error: boolean
+}
+
+export interface ChatMessage {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  steps: ChatStep[]
+  sources: Source[]
+  notice: string | null
+  error: string | null
+  created_at: string
+}
+
+export interface ChatDetail extends Chat {
+  messages: ChatMessage[]
+}
+
 export type ChatEvent =
   | { type: 'text'; text: string }
   | { type: 'thinking' }
@@ -208,20 +240,26 @@ export const api = {
   },
   factNames: (projectId: number) =>
     request<{ name: string; count: number }[]>(`/projects/${projectId}/facts/names`),
+
+  chats: (projectId: number) => request<Chat[]>(`/projects/${projectId}/chats`),
+  createChat: (projectId: number) => request<Chat>(`/projects/${projectId}/chats`, { method: 'POST' }),
+  chat: (id: number) => request<ChatDetail>(`/chats/${id}`),
+  renameChat: (id: number, title: string) => request<Chat>(`/chats/${id}`, json('PATCH', { title })),
+  deleteChat: (id: number) => request<void>(`/chats/${id}`, { method: 'DELETE' }),
 }
 
 export const fileUrl = (documentId: number) => `/api/documents/${documentId}/file`
 export const pageImageUrl = (documentId: number, page: number) =>
   `/api/documents/${documentId}/pages/${page}.png`
 
-/** Ask the agent; yields its events as the server streams them. */
-export async function* chat(
-  projectId: number,
-  messages: { role: 'user' | 'assistant'; content: string }[],
+/** Add a question to a chat; yields the agent's events as the server streams them. */
+export async function* streamAnswer(
+  chatId: number,
+  content: string,
   signal: AbortSignal,
 ): AsyncGenerator<ChatEvent> {
-  const response = await fetch(`/api/projects/${projectId}/chat`, {
-    ...json('POST', { messages }),
+  const response = await fetch(`/api/chats/${chatId}/messages`, {
+    ...json('POST', { content }),
     signal,
   })
   if (!response.ok || !response.body) {

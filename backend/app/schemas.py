@@ -1,5 +1,5 @@
 import datetime as dt
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -144,13 +144,57 @@ class SearchOut(BaseModel):
     semantic: bool
 
 
-class ChatMessage(BaseModel):
+class ChatOut(_FromORM):
+    id: int
+    project_id: int
+    title: str
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+
+class ChatTitle(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+
+class QuestionIn(BaseModel):
+    content: str = Field(min_length=1)
+
+
+class ChatStep(BaseModel):
+    """One tool call the agent made while answering."""
+
+    id: str
+    name: str
+    input: dict[str, Any]
+    summary: str = ""
+    is_error: bool = False
+
+
+class SourceOut(BaseModel):
+    """A passage the agent was shown, which its answer may cite as [P<id>]."""
+
+    id: int
+    document_id: int
+    document_title: str
+    context: str
+    page_start: int | None
+    page_end: int | None
+    excerpt: str
+
+
+class ChatMessageOut(_FromORM):
+    id: int
     role: Literal["user", "assistant"]
     content: str
+    steps: list[ChatStep]
+    sources: list[SourceOut]
+    notice: str | None
+    error: str | None
+    created_at: dt.datetime
 
 
-class ChatRequest(BaseModel):
-    messages: list[ChatMessage] = Field(min_length=1)
+class ChatDetail(ChatOut):
+    messages: list[ChatMessageOut]
 
 
 class LLMStatus(BaseModel):

@@ -201,3 +201,54 @@ class Fact(Base):
     passage_id: Mapped[int | None] = mapped_column(ForeignKey("passages.id", ondelete="SET NULL"))
     # True when the quote was found in the source block.
     verified: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class Chat(Base):
+    """A conversation with the agent about one project's documents."""
+
+    __tablename__ = "chats"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    # Taken from the first question, until the user renames the chat.
+    title: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # When the last question was asked: the chat list shows the most recent conversation first.
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    messages: Mapped[list["ChatMessage"]] = relationship(
+        back_populates="chat",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ChatMessage.id",
+    )
+
+
+class ChatMessage(Base):
+    """One turn of a chat: a question, or the agent's answer with the steps that led to it."""
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    chat_id: Mapped[int] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), index=True)
+    # user | assistant
+    role: Mapped[str] = mapped_column(String(20))
+    content: Mapped[str] = mapped_column(Text)
+    # The tool calls an answer made: [{id, name, input, summary, is_error}]
+    steps: Mapped[list] = mapped_column(JSONB, default=list)
+    # The passages the agent was shown while answering, which the answer may cite.
+    sources: Mapped[list] = mapped_column(JSONB, default=list)
+    # How an answer ended when it did not end normally: a note (cut off, stopped) or an error.
+    notice: Mapped[str | None] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    chat: Mapped[Chat] = relationship(back_populates="messages")

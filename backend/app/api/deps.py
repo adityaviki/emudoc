@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.db import get_session
 from app.indexing.pipeline import Services
 from app.indexing.worker import Worker
-from app.models import Document, Project
+from app.models import Chat, Document, Project
 
 SessionDep = Annotated[Session, Depends(get_session)]
 # The stage a reprocess run starts from; later stages run too.
@@ -39,5 +39,13 @@ def get_document(document_id: int, session: SessionDep) -> Document:
     return document
 
 
+def get_chat(chat_id: int, session: SessionDep) -> Chat:
+    chat = session.get(Chat, chat_id)
+    if chat is None:
+        raise HTTPException(404, "Chat not found")
+    return chat
+
+
 ProjectDep = Annotated[Project, Depends(get_project)]
 DocumentDep = Annotated[Document, Depends(get_document)]
+ChatDep = Annotated[Chat, Depends(get_chat)]

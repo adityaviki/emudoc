@@ -27,6 +27,7 @@ function App() {
             <Route index element={<DocumentsTab />} />
             <Route path="search" element={<SearchTab />} />
             <Route path="ask" element={<AskTab />} />
+            <Route path="ask/:chatId" element={<AskTab />} />
             <Route path="documents/:documentId" element={<DocumentPage />} />
           </Route>
           <Route path="*" element={<p className="py-16 text-center text-muted">Page not found.</p>} />

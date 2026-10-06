@@ -25,6 +25,10 @@ The agent answers with five tools: `list_documents` and `get_outline` read the m
 reads the passage index (keywords and meaning, merged), `query_facts` reads the fact table, and
 `read` returns exact source text. Answers cite passages, and each citation opens the source.
 
+A project can hold any number of chats. Each one is saved with its answers, including the
+steps the agent took and the passages it was shown, so a chat can be reopened later and an
+answer keeps streaming while you look at another tab.
+
 ## Run it
 
 You need Docker, [uv](https://docs.astral.sh/uv/) and Node with pnpm.
@@ -93,6 +97,7 @@ backend/app/
 frontend/src/
   pages/        Projects, Documents, Search, Ask, Facts and the document viewer
   api.ts        the typed client for the backend
+  chat.ts       a chat's messages as the Ask tab holds them, and the answers being streamed
 ```
 
 ## Not built yet
@@ -101,4 +106,3 @@ frontend/src/
 - Schema migrations. Tables are created on start; after changing a table, reset the database
   with `docker compose down -v`.
 - More file types (spreadsheets, slides, email), and reading order for multi-column PDFs.
-- Saved conversations. A chat lives in the browser that started it.

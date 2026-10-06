@@ -1,34 +1,29 @@
-import { useQuery } from '@tanstack/react-query'
-import { ArrowUp, BookOpen, FileText, ListTree, Search, Square, Table2 } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  ArrowUp,
+  BookOpen,
+  FileText,
+  ListTree,
+  MessagesSquare,
+  Pencil,
+  Plus,
+  Search,
+  Square,
+  Table2,
+  Trash2,
+} from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
-import { api, chat, pageLabel, sectionPath } from '../api.ts'
-import type { ChatEvent, Source } from '../api.ts'
+import { Link, Navigate, useNavigate, useParams } from 'react-router'
+import { api, pageLabel, sectionPath } from '../api.ts'
+import type { Chat, Source } from '../api.ts'
+import { ask, chatKey, loadChat, stop, useStreaming } from '../chat.ts'
+import type { ChatData, Message, Step } from '../chat.ts'
 import { Markdown } from '../components/Markdown.tsx'
 import { PassagePanel } from '../components/PassagePanel.tsx'
-import { Button, Notice, Spinner } from '../components/ui.tsx'
+import { Button, IconButton, Loading, Notice, Spinner } from '../components/ui.tsx'
 import { useProject } from '../hooks.ts'
-
-interface Step {
-  id: string
-  name: string
-  input: Record<string, unknown>
-  summary?: string
-  isError?: boolean
-}
-
-interface Message {
-  role: 'user' | 'assistant'
-  content: string
-  steps: Step[]
-  sources: Record<number, Source>
-  thinking?: boolean
-  notice?: string
-  error?: string
-  // Length of `content` when the current model turn began, to discard a turn that is retried.
-  turnStart: number
-}
 
 const SUGGESTIONS = [
   'What documents are in this project?',
@@ -36,111 +31,201 @@ const SUGGESTIONS = [
   'List every date and deadline, with the document it comes from.',
 ]
 
-const storageKey = (projectId: number) => `paperless.chat.${projectId}`
-
-/** Mark an answer as finished: nothing in it is still running. */
-function settle(message: Message): Message {
-  return {
-    ...message,
-    thinking: false,
-    steps: message.steps.map((step) => (step.summary === undefined ? { ...step, summary: '' } : step)),
-  }
-}
-
-function loadMessages(projectId: number): Message[] {
-  try {
-    const saved: Message[] = JSON.parse(localStorage.getItem(storageKey(projectId)) ?? '[]')
-    return saved.map(settle)
-  } catch {
-    return []
-  }
-}
-
-function applyEvent(message: Message, event: ChatEvent): Message {
-  switch (event.type) {
-    case 'text':
-      return { ...message, content: message.content + event.text, thinking: false }
-    case 'thinking':
-      return { ...message, thinking: true }
-    case 'retry':
-      return { ...message, content: message.content.slice(0, message.turnStart) }
-    case 'tool_call':
-      return {
-        ...message,
-        thinking: false,
-        steps: [...message.steps, { id: event.id, name: event.name, input: event.input }],
-      }
-    case 'tool_result':
-      return {
-        ...message,
-        turnStart: message.content.length,
-        steps: message.steps.map((step) =>
-          step.id === event.id ? { ...step, summary: event.summary, isError: event.is_error } : step,
-        ),
-      }
-    case 'sources':
-      return {
-        ...message,
-        sources: { ...message.sources, ...Object.fromEntries(event.sources.map((s) => [s.id, s])) },
-      }
-    case 'notice':
-      return { ...message, notice: event.message }
-    case 'error':
-      return { ...message, thinking: false, error: event.message }
-    case 'done':
-      return { ...message, thinking: false }
-  }
-}
+const NO_MESSAGES: Message[] = []
 
 export function AskTab() {
   const project = useProject()
+  const { chatId: param } = useParams()
+  const chats = useQuery({ queryKey: ['chats', project.id], queryFn: () => api.chats(project.id) })
+  const [listOpen, setListOpen] = useState(false)
+
+  if (chats.isPending) return <Loading />
+  if (chats.isError) return <Notice tone="bad">Could not load chats: {chats.error.message}</Notice>
+  // The tab opens on the latest chat. "new" is an empty chat until its first question.
+  if (param === undefined && chats.data.length > 0) {
+    return <Navigate to={`/projects/${project.id}/ask/${chats.data[0].id}`} replace />
+  }
+  const chatId = param === undefined || param === 'new' ? null : Number(param)
+
+  return (
+    <div className="flex h-[calc(100vh-15rem)] min-h-96 gap-4">
+      <ChatList chats={chats.data} activeId={chatId} open={listOpen} onClose={() => setListOpen(false)} />
+      <Conversation key={chatId ?? 'new'} chatId={chatId} onShowList={() => setListOpen(true)} />
+    </div>
+  )
+}
+
+interface ChatListProps {
+  chats: Chat[]
+  activeId: number | null
+  open: boolean
+  onClose: () => void
+}
+
+function ChatList({ chats, activeId, open, onClose }: ChatListProps) {
+  const project = useProject()
+  const navigate = useNavigate()
+  return (
+    // On small screens the list is an overlay, opened from the conversation.
+    <div
+      onClick={onClose}
+      className={`${open ? 'fixed inset-0 z-10 bg-page/80 p-4' : 'hidden'} md:static md:block md:w-56 md:shrink-0 md:bg-transparent md:p-0`}
+    >
+      <aside
+        onClick={(event) => event.stopPropagation()}
+        className="flex h-full w-64 max-w-full flex-col gap-2 rounded-lg border border-line bg-surface p-2 md:w-auto md:border-0 md:bg-transparent md:p-0"
+      >
+        <Button
+          icon={<Plus className="size-4" />}
+          className="justify-center"
+          disabled={activeId === null}
+          onClick={() => {
+            navigate(`/projects/${project.id}/ask/new`)
+            onClose()
+          }}
+        >
+          New chat
+        </Button>
+        <ul className="flex-1 space-y-0.5 overflow-y-auto">
+          {chats.map((chat) => (
+            <ChatRow key={chat.id} chat={chat} active={chat.id === activeId} onOpen={onClose} />
+          ))}
+        </ul>
+      </aside>
+    </div>
+  )
+}
+
+function ChatRow({ chat, active, onOpen }: { chat: Chat; active: boolean; onOpen: () => void }) {
+  const project = useProject()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const streaming = useStreaming(chat.id)
+  const [renaming, setRenaming] = useState(false)
+  const rename = useMutation({
+    mutationFn: (title: string) => api.renameChat(chat.id, title),
+    onSuccess: (renamed) => {
+      queryClient.setQueryData<Chat[]>(['chats', project.id], (chats) =>
+        chats?.map((item) => (item.id === chat.id ? renamed : item)),
+      )
+      queryClient.setQueryData<ChatData>(chatKey(chat.id), (data) => data && { ...data, title: renamed.title })
+    },
+  })
+  const remove = useMutation({
+    mutationFn: () => {
+      stop(chat.id)
+      return api.deleteChat(chat.id)
+    },
+    onSuccess: () => {
+      queryClient.setQueryData<Chat[]>(['chats', project.id], (chats) => chats?.filter((item) => item.id !== chat.id))
+      queryClient.removeQueries({ queryKey: chatKey(chat.id) })
+      if (active) navigate(`/projects/${project.id}/ask`)
+    },
+  })
+
+  function commitTitle(value: string) {
+    const title = value.trim()
+    if (title && title !== chat.title) rename.mutate(title)
+    setRenaming(false)
+  }
+
+  const title = chat.title || 'New chat'
+  return (
+    <li className={`group flex items-center rounded-md ${active ? 'bg-sunken' : 'hover:bg-sunken'}`}>
+      {renaming ? (
+        <input
+          autoFocus
+          defaultValue={chat.title}
+          maxLength={200}
+          aria-label="Chat title"
+          className="min-w-0 flex-1 rounded-md border border-accent bg-surface px-2 py-1 text-sm outline-none"
+          onBlur={(event) => commitTitle(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') commitTitle(event.currentTarget.value)
+            if (event.key === 'Escape') setRenaming(false)
+          }}
+        />
+      ) : (
+        <Link
+          to={`/projects/${project.id}/ask/${chat.id}`}
+          onClick={onOpen}
+          title={title}
+          className="min-w-0 flex-1 truncate px-2.5 py-1.5 text-sm"
+        >
+          {title}
+        </Link>
+      )}
+      {streaming ? (
+        <Spinner className="mr-2.5 size-3.5 shrink-0" />
+      ) : (
+        active &&
+        !renaming && (
+          <span className="flex shrink-0 pr-0.5">
+            <IconButton label="Rename chat" onClick={() => setRenaming(true)}>
+              <Pencil className="size-3.5" />
+            </IconButton>
+            <IconButton
+              label="Delete chat"
+              danger
+              disabled={remove.isPending}
+              onClick={() => {
+                if (window.confirm(`Delete "${title}"?`)) remove.mutate()
+              }}
+            >
+              <Trash2 className="size-3.5" />
+            </IconButton>
+          </span>
+        )
+      )}
+    </li>
+  )
+}
+
+function Conversation({ chatId, onShowList }: { chatId: number | null; onShowList: () => void }) {
+  const project = useProject()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const health = useQuery({ queryKey: ['health'], queryFn: api.health })
-  const [messages, setMessages] = useState<Message[]>(() => loadMessages(project.id))
+  const chat = useQuery({
+    queryKey: chatKey(chatId),
+    queryFn: () => api.chat(chatId!).then(loadChat),
+    enabled: chatId != null,
+    // Answers stream straight into this data; the saved copy is only read when a chat is opened.
+    staleTime: Infinity,
+  })
+  const streaming = useStreaming(chatId)
   const [draft, setDraft] = useState('')
-  const [streaming, setStreaming] = useState(false)
   const [openPassage, setOpenPassage] = useState<number | null>(null)
-  const abort = useRef<AbortController | null>(null)
   const bottom = useRef<HTMLDivElement>(null)
+  // A chat is created with its first question, and the URL then moves to it.
+  const create = useMutation({
+    mutationFn: (question: string) => api.createChat(project.id).then((created) => ({ created, question })),
+    onSuccess: ({ created, question }) => {
+      queryClient.setQueryData<ChatData>(chatKey(created.id), { ...created, messages: [] })
+      queryClient.setQueryData<Chat[]>(['chats', project.id], (chats) => [
+        { ...created, title: question },
+        ...(chats ?? []),
+      ])
+      navigate(`/projects/${project.id}/ask/${created.id}`, { replace: true })
+      ask(queryClient, created.id, question)
+    },
+  })
 
+  const loading = chatId != null && chat.isPending
+  const messages = chat.data?.messages ?? NO_MESSAGES
   useEffect(() => {
-    localStorage.setItem(storageKey(project.id), JSON.stringify(messages))
     bottom.current?.scrollIntoView({ block: 'end' })
-  }, [messages, project.id])
+  }, [messages])
 
-  // Stop a running answer when leaving the tab.
-  useEffect(() => () => abort.current?.abort(), [])
-
-  async function send(text: string) {
+  function send(text: string) {
     const question = text.trim()
-    if (!question || streaming) return
-    const history = [
-      ...messages,
-      { role: 'user', content: question, steps: [], sources: {}, turnStart: 0 } satisfies Message,
-    ]
-    const answer: Message = { role: 'assistant', content: '', steps: [], sources: {}, thinking: true, turnStart: 0 }
-    setMessages([...history, answer])
-    setDraft('')
-    setStreaming(true)
-
-    const update = (change: (message: Message) => Message) =>
-      setMessages((current) => [...current.slice(0, -1), change(current[current.length - 1])])
-    const controller = new AbortController()
-    abort.current = controller
-    try {
-      const sent = history.map(({ role, content }) => ({ role, content }))
-      for await (const event of chat(project.id, sent, controller.signal)) {
-        update((message) => applyEvent(message, event))
-      }
-    } catch (error) {
-      const stopped = controller.signal.aborted
-      update((message) => ({
-        ...message,
-        ...(stopped ? { notice: 'Stopped.' } : { error: (error as Error).message }),
-      }))
-    } finally {
-      update(settle)
-      setStreaming(false)
+    if (!question || streaming || loading || chat.isError || create.isPending) return
+    if (chatId == null) {
+      create.mutate(question)
+      return
     }
+    setDraft('')
+    ask(queryClient, chatId, question)
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -152,8 +237,14 @@ export function AskTab() {
 
   const unavailable = health.data && !health.data.llm.available
   return (
-    <div className="flex h-[calc(100vh-15rem)] min-h-96 gap-4">
+    <div className="flex min-w-0 flex-1 gap-4">
       <div className="flex min-w-0 flex-1 flex-col">
+        <div className="mb-2 flex items-center gap-2 md:hidden">
+          <Button variant="ghost" icon={<MessagesSquare className="size-4" />} onClick={onShowList}>
+            Chats
+          </Button>
+          <p className="truncate text-sm text-muted">{chat.data?.title || 'New chat'}</p>
+        </div>
         <div className="flex-1 overflow-y-auto pr-1">
           <div className="mx-auto max-w-3xl space-y-5 pb-4">
             {unavailable && (
@@ -162,7 +253,16 @@ export function AskTab() {
                 to ask questions.
               </Notice>
             )}
-            {messages.length === 0 && (
+            {loading && <Loading />}
+            {chat.isError && (
+              <Notice tone="bad">
+                {chat.error.message}.{' '}
+                <Link to={`/projects/${project.id}/ask`} className="underline">
+                  Back to your chats
+                </Link>
+              </Notice>
+            )}
+            {!loading && !chat.isError && messages.length === 0 && (
               <div className="pt-10 text-center">
                 <p className="font-medium">Ask about the documents in {project.name}</p>
                 <p className="mt-1 text-sm text-muted">
@@ -198,6 +298,11 @@ export function AskTab() {
         </div>
 
         <div className="mx-auto w-full max-w-3xl">
+          {create.isError && (
+            <div className="mb-2">
+              <Notice tone="bad">Could not start a chat: {create.error.message}</Notice>
+            </div>
+          )}
           <div className="flex items-end gap-2 rounded-xl border border-line bg-surface p-2 focus-within:border-accent">
             <textarea
               value={draft}
@@ -205,33 +310,23 @@ export function AskTab() {
               onKeyDown={onKeyDown}
               rows={Math.min(6, draft.split('\n').length)}
               placeholder="Ask a question about these documents"
+              disabled={chat.isError}
               className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1 outline-none"
             />
             {streaming ? (
-              <Button icon={<Square className="size-3.5" />} onClick={() => abort.current?.abort()}>
+              <Button icon={<Square className="size-3.5" />} onClick={() => chatId != null && stop(chatId)}>
                 Stop
               </Button>
             ) : (
               <Button
                 variant="primary"
                 aria-label="Send"
-                disabled={!draft.trim() || unavailable}
+                disabled={!draft.trim() || unavailable || loading || chat.isError || create.isPending}
                 onClick={() => send(draft)}
                 icon={<ArrowUp className="size-4" />}
               />
             )}
           </div>
-          {messages.length > 0 && !streaming && (
-            <button
-              className="mt-1.5 text-xs text-muted hover:text-ink"
-              onClick={() => {
-                setMessages([])
-                setOpenPassage(null)
-              }}
-            >
-              Clear conversation
-            </button>
-          )}
         </div>
       </div>
 
@@ -351,7 +446,7 @@ function StepLine({ step }: { step: Step }) {
       <span className="min-w-0">
         {describeStep(step)}
         {step.summary && (
-          <span className={step.isError ? 'text-bad' : 'opacity-70'}> · {step.summary}</span>
+          <span className={step.is_error ? 'text-bad' : 'opacity-70'}> · {step.summary}</span>
         )}
       </span>
     </li>
