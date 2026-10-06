@@ -19,7 +19,7 @@ from app.agent.tools import (
     read,
     search,
 )
-from app.models import Passage, Project, Section
+from app.models import Folder, Passage, Project, Section
 from tests.conftest import FakeTurn
 
 
@@ -63,6 +63,54 @@ def test_list_documents(session, services, indexed):
     assert "Master Services" in list_documents(ctx, ListDocumentsInput(query="services"))
     assert list_documents(ctx, ListDocumentsInput(query="zebra")) == "No documents match."
     assert list_documents(ctx, ListDocumentsInput(doc_type="invoice")) == "No documents match."
+
+
+def test_tools_see_folders_and_work_within_one(
+    session, services, indexed, make_document, sample_docx
+):
+    project = session.get(Project, indexed.project_id)
+    contracts = Folder(project_id=project.id, name="Contracts")
+    invoices = Folder(project_id=project.id, name="Invoices")
+    session.add_all([contracts, invoices])
+    session.flush()
+    signed = Folder(project_id=project.id, parent_id=contracts.id, name="Signed")
+    session.add(signed)
+    session.flush()
+    indexed.folder_id = signed.id
+    make_document(sample_docx, project=project)  # at the root
+    ctx = context(session, services, indexed)
+
+    output = list_documents(ctx, ListDocumentsInput())
+    assert (
+        "Folders (documents in each): Contracts (0), Contracts/Signed (1), Invoices (0). "
+        "At the root: 1." in output
+    )
+    assert (
+        f"doc {indexed.id} · Master Services Agreement · file msa.pdf · folder Contracts/Signed"
+        in output
+    )
+
+    # A folder covers its subfolders, and its last part is enough when it is unambiguous.
+    scoped = list_documents(ctx, ListDocumentsInput(folder="contracts"))
+    assert "Documents 1-1 of 1." in scoped and "policy.docx" not in scoped
+    assert "Documents 1-1 of 1." in list_documents(ctx, ListDocumentsInput(folder="Signed/"))
+    assert list_documents(ctx, ListDocumentsInput(folder="Receipts")) == (
+        "No folder named 'Receipts'. "
+        "Folders in this project: Contracts, Contracts/Signed, Invoices."
+    )
+    session.add(Folder(project_id=project.id, parent_id=invoices.id, name="Signed"))
+    session.commit()
+    ctx = context(session, services, indexed)
+    assert "could be any of Contracts/Signed, Invoices/Signed" in list_documents(
+        ctx, ListDocumentsInput(folder="Signed")
+    )
+
+    assert "ninety (90) days" in search(ctx, SearchInput(query="termination", folder="Contracts"))
+    assert search(ctx, SearchInput(query="termination", folder="Invoices")) == (
+        "No documents in folder 'Invoices' to search."
+    )
+    assert "notice_period" in query_facts(ctx, QueryFactsInput(folder="Contracts/Signed"))
+    assert "No facts match" in query_facts(ctx, QueryFactsInput(folder="Invoices"))
 
 
 def test_get_outline_shows_the_tree_with_summaries(session, services, indexed):

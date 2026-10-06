@@ -13,7 +13,7 @@ export function ProjectsPage() {
   const [creating, setCreating] = useState(false)
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="mx-auto h-full max-w-4xl overflow-y-auto px-6 py-6">
       <div className="mb-5 flex items-center justify-between">
         <h1 className="text-xl font-semibold">Projects</h1>
         {!creating && (

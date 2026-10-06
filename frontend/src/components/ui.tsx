@@ -1,4 +1,5 @@
 import { LoaderCircle } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
 const BUTTON_VARIANTS = {
@@ -75,6 +76,34 @@ export function EmptyState({ icon, title, children }: { icon?: ReactNode; title:
       {icon && <div className="text-muted">{icon}</div>}
       <p className="font-medium">{title}</p>
       {children && <div className="max-w-md text-sm text-muted">{children}</div>}
+    </div>
+  )
+}
+
+interface SegmentedProps<T extends string> {
+  value: T
+  onChange: (value: T) => void
+  options: { value: T; label: string; icon?: LucideIcon }[]
+}
+
+/** A row of mutually exclusive choices, one of them pressed. */
+export function Segmented<T extends string>({ value, onChange, options }: SegmentedProps<T>) {
+  return (
+    <div className="flex shrink-0 rounded-md border border-line p-0.5 text-sm">
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          aria-pressed={value === option.value}
+          onClick={() => onChange(option.value)}
+          className={`flex items-center gap-1.5 rounded px-2.5 py-0.5 ${
+            value === option.value ? 'bg-sunken font-medium text-ink' : 'text-muted hover:text-ink'
+          }`}
+        >
+          {option.icon && <option.icon className="size-3.5" />}
+          {option.label}
+        </button>
+      ))}
     </div>
   )
 }

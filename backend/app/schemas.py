@@ -21,14 +21,42 @@ class ProjectOut(_FromORM):
     document_count: int = 0
 
 
+class FolderIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    parent_id: int | None = None
+
+
+class FolderPatch(BaseModel):
+    """Rename and/or move a folder. A field that is left out is left unchanged."""
+
+    name: str | None = Field(None, min_length=1, max_length=200)
+    parent_id: int | None = None
+
+
+class FolderOut(_FromORM):
+    id: int
+    project_id: int
+    parent_id: int | None
+    name: str
+    created_at: dt.datetime
+
+
 class StageOut(BaseModel):
     status: Literal["pending", "running", "done", "skipped", "failed"] = "pending"
     detail: str = ""
 
 
+class DocumentPatch(BaseModel):
+    """Rename and/or move a document. A field that is left out is left unchanged."""
+
+    filename: str | None = Field(None, min_length=1, max_length=500)
+    folder_id: int | None = None
+
+
 class DocumentOut(_FromORM):
     id: int
     project_id: int
+    folder_id: int | None
     filename: str
     mime_type: str
     size_bytes: int

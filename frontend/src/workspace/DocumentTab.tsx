@@ -1,0 +1,421 @@
+import { useQuery } from '@tanstack/react-query'
+import { ExternalLink, ListTree, X } from 'lucide-react'
+import { Fragment, useEffect, useState } from 'react'
+import { api, fileUrl, isImage, isPdf, isSheet, pageImageUrl, pageLabel, sectionPath } from '../api.ts'
+import type { Block, Document, DocumentContent, Section } from '../api.ts'
+import { IndexingStatus } from '../components/IndexingStatus.tsx'
+import { PipeTable } from '../components/Markdown.tsx'
+import { Chip, IconButton, Loading, Notice, Segmented } from '../components/ui.tsx'
+import { formatDate, parsePipeTable } from '../format.ts'
+import type { DocView } from './state.ts'
+import { useWorkspace } from './state.ts'
+import type { Focus } from './url.ts'
+
+/** The blocks to highlight and scroll to; `end` is exclusive. */
+interface BlockFocus {
+  start: number
+  end: number
+}
+
+interface DocumentTabProps {
+  document: Document
+  focus: Focus | null
+  view: DocView
+  onViewChange: (view: DocView) => void
+  onClearFocus: () => void
+}
+
+/** One open document: its file, or its extracted text with the outline beside it. */
+export function DocumentTab({ document, focus, view, onViewChange, onClearFocus }: DocumentTabProps) {
+  const workspace = useWorkspace()
+  const [outlineOpen, setOutlineOpen] = useState(true)
+  const status = document.status
+  const indexed = document.stages.structure?.status === 'done'
+  // Derived data is fetched again whenever indexing changes the document's status.
+  const outline = useQuery({
+    queryKey: ['outline', document.id, status],
+    queryFn: () => api.outline(document.id),
+    enabled: indexed,
+  })
+  const content = useQuery({
+    queryKey: ['content', document.id, status],
+    queryFn: () => api.content(document.id),
+    enabled: indexed,
+  })
+  const passageId = focus && 'passage' in focus ? focus.passage : null
+  const passage = useQuery({
+    queryKey: ['passage', passageId],
+    queryFn: () => api.passage(passageId!),
+    enabled: passageId != null,
+  })
+
+  let blockFocus: BlockFocus | null = null
+  if (passage.data && passage.data.document_id === document.id) {
+    blockFocus = { start: passage.data.block_start, end: passage.data.block_end }
+  } else if (focus && 'block' in focus) {
+    blockFocus = { start: focus.block, end: focus.block + 1 }
+  }
+  const focusStart = blockFocus?.start
+  const focusPage =
+    passage.data?.page_start ??
+    content.data?.blocks.find((block) => block.ordinal === focusStart)?.page ??
+    (focus && 'page' in focus ? focus.page : undefined)
+
+  const pdf = isPdf(document)
+  // Only PDFs have a file view and rendered pages, and those are all they offer: a PDF's text
+  // view is not shown (a tab saved with it before falls back to pages). Everything else shows its text.
+  const shown: DocView = pdf ? (view === 'text' ? 'pages' : view) : 'text'
+
+  const loaded = content.isSuccess
+  useEffect(() => {
+    if (focusStart == null || !loaded || shown === 'file') return
+    const target = shown === 'pages' ? `page-${focusPage}` : `block-${focusStart}`
+    window.document.getElementById(target)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [focusStart, focusPage, loaded, shown])
+
+  const hasOutline = shown === 'text' && !isImage(document) && !isSheet(document)
+  const focusLabel =
+    passage.data && blockFocus
+      ? [sectionPath(passage.data.context, passage.data.document_title), pageLabel(passage.data.page_start, passage.data.page_end)]
+          .filter(Boolean)
+          .join(' · ')
+      : focus && 'page' in focus
+        ? `Page ${focus.page}`
+        : focus && 'block' in focus
+          ? 'Selected text'
+          : null
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <header className="shrink-0 border-b border-line bg-surface px-4 py-2">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="truncate font-semibold" title={document.title ?? document.filename}>
+              {document.title ?? document.filename}
+            </h2>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+              {document.doc_type && <Chip tone="accent">{document.doc_type}</Chip>}
+              {document.title && <span className="truncate">{document.filename}</span>}
+              {document.doc_date && <span>dated {formatDate(document.doc_date)}</span>}
+              {document.page_count && (
+                <span>
+                  {document.page_count} page{document.page_count === 1 ? '' : 's'}
+                </span>
+              )}
+              <IndexingStatus document={document} />
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {pdf && (
+              <Segmented
+                value={shown}
+                onChange={onViewChange}
+                options={[
+                  { value: 'file', label: 'Viewer' },
+                  { value: 'pages', label: 'Pages' },
+                ]}
+              />
+            )}
+            {hasOutline && outline.data && outline.data.length > 0 && (
+              <IconButton label={outlineOpen ? 'Hide outline' : 'Show outline'} onClick={() => setOutlineOpen((open) => !open)}>
+                <ListTree className="size-4" />
+              </IconButton>
+            )}
+            <a
+              href={fileUrl(document.id)}
+              target="_blank"
+              rel="noreferrer"
+              title="Open the original file in a new tab"
+              className="rounded-md p-1.5 text-muted transition hover:bg-sunken hover:text-ink"
+            >
+              <ExternalLink className="size-4" />
+            </a>
+          </div>
+        </div>
+        {focusLabel && (
+          <p className="mt-1 flex items-center gap-1 text-xs text-muted">
+            <span className="truncate">Showing: {focusLabel}</span>
+            <IconButton label="Clear highlight" onClick={onClearFocus} className="p-0.5!">
+              <X className="size-3.5" />
+            </IconButton>
+          </p>
+        )}
+      </header>
+
+      {shown === 'file' && pdf ? (
+        <PdfFrame document={document} page={focusPage ?? 1} muted={workspace.draggingFiles} />
+      ) : !indexed ? (
+        <div className="p-4">
+          <Notice tone={document.status === 'failed' ? 'bad' : 'info'}>
+            {document.status === 'failed'
+              ? (document.error ?? 'Indexing failed.')
+              : 'This document is being indexed. Its text will appear here in a moment.'}
+          </Notice>
+          {isImage(document) && <ImagePreview document={document} />}
+        </div>
+      ) : content.isPending ? (
+        <Loading />
+      ) : content.isError ? (
+        <div className="p-4">
+          <Notice tone="bad">Could not load the text: {content.error.message}</Notice>
+        </div>
+      ) : shown === 'pages' ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <PagesView document={document} content={content.data} focus={blockFocus} />
+        </div>
+      ) : isImage(document) ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <ImagePreview document={document} />
+          <TextView blocks={content.data.blocks} focus={blockFocus} />
+        </div>
+      ) : isSheet(document) ? (
+        <SheetView blocks={content.data.blocks} focus={blockFocus} />
+      ) : (
+        <div className="flex min-h-0 flex-1">
+          {outlineOpen && outline.data && outline.data.length > 0 && (
+            <aside className="w-56 shrink-0 overflow-y-auto border-r border-line bg-surface p-2">
+              <ul>
+                {outline.data.map((section) => (
+                  <OutlineNode
+                    key={section.id}
+                    section={section}
+                    focusStart={focusStart}
+                    onSelect={(start) => workspace.openDocument(document.id, { block: start }, { replace: true })}
+                  />
+                ))}
+              </ul>
+            </aside>
+          )}
+          <div className="min-w-0 flex-1 overflow-y-auto">
+            <TextView blocks={content.data.blocks} focus={blockFocus} />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** The browser's own PDF viewer, opened at a page. */
+function PdfFrame({ document, page, muted }: { document: Document; page: number; muted: boolean }) {
+  return (
+    // The viewer swallows drag events, so it is switched off while files are dragged over the window.
+    <div className={`min-h-0 flex-1 bg-sunken ${muted ? 'pointer-events-none' : ''}`}>
+      <iframe
+        // Chrome's viewer ignores a changed #page on a loaded document; a new frame takes it.
+        key={`${document.id}:${page}`}
+        src={`${fileUrl(document.id)}#page=${page}`}
+        title={document.filename}
+        className="size-full border-0"
+      />
+    </div>
+  )
+}
+
+function ImagePreview({ document }: { document: Document }) {
+  return (
+    <div className="flex justify-center bg-sunken p-4">
+      <a href={fileUrl(document.id)} target="_blank" rel="noreferrer" title="Open the original image">
+        <img src={fileUrl(document.id)} alt={document.filename} className="max-h-[50vh] max-w-full rounded object-contain shadow-sm" />
+      </a>
+    </div>
+  )
+}
+
+interface OutlineNodeProps {
+  section: Section
+  focusStart: number | undefined
+  onSelect: (blockStart: number) => void
+}
+
+function OutlineNode({ section, focusStart, onSelect }: OutlineNodeProps) {
+  const inside = focusStart != null && focusStart >= section.block_start && focusStart < section.block_end
+  // The deepest section holding the focus is the active one.
+  const active = inside && !section.children.some((c) => focusStart >= c.block_start && focusStart < c.block_end)
+  return (
+    <li>
+      <button
+        onClick={() => onSelect(section.block_start)}
+        className={`block w-full rounded-md px-2 py-1.5 text-left transition hover:bg-sunken ${
+          active ? 'bg-accent-soft' : ''
+        }`}
+      >
+        <span className="flex items-baseline justify-between gap-2">
+          <span className="text-sm leading-snug font-medium">{section.title}</span>
+          <span className="shrink-0 text-xs text-muted">{pageLabel(section.page_start, section.page_end)}</span>
+        </span>
+        {section.summary && (
+          <span className="mt-0.5 line-clamp-2 text-xs leading-snug text-muted">{section.summary}</span>
+        )}
+      </button>
+      {section.children.length > 0 && (
+        <ul className="ml-2.5 border-l border-line pl-1.5">
+          {section.children.map((child) => (
+            <OutlineNode key={child.id} section={child} focusStart={focusStart} onSelect={onSelect} />
+          ))}
+        </ul>
+      )}
+    </li>
+  )
+}
+
+const inFocus = (block: Block, focus: BlockFocus | null) =>
+  focus != null && block.ordinal >= focus.start && block.ordinal < focus.end
+
+function TextView({ blocks, focus }: { blocks: Block[]; focus: BlockFocus | null }) {
+  // The blocks that open a new page get a divider above them.
+  const opensPage = new Set<number>()
+  let lastPage: number | null = null
+  for (const block of blocks) {
+    if (block.page != null && block.page !== lastPage) {
+      opensPage.add(block.ordinal)
+      lastPage = block.page
+    }
+  }
+  return (
+    <div className="mx-auto max-w-3xl space-y-2.5 px-6 py-5">
+      {blocks.map((block) => (
+        <Fragment key={block.ordinal}>
+          {opensPage.has(block.ordinal) && (
+            <div className="flex items-center gap-3 pt-2 text-xs text-muted select-none">
+              <span className="h-px flex-1 bg-line" />
+              Page {block.page}
+              <span className="h-px flex-1 bg-line" />
+            </div>
+          )}
+          <div
+            id={`block-${block.ordinal}`}
+            className={`rounded transition-colors ${inFocus(block, focus) ? '-mx-2 bg-mark/50 px-2 py-0.5' : ''}`}
+          >
+            <BlockBody block={block} />
+          </div>
+        </Fragment>
+      ))}
+    </div>
+  )
+}
+
+function BlockBody({ block }: { block: Block }) {
+  if (block.kind === 'heading') {
+    const size = block.level === 1 ? 'text-lg' : block.level === 2 ? 'text-base' : 'text-sm'
+    return <p className={`pt-2 font-semibold ${size}`}>{block.text}</p>
+  }
+  if (block.kind === 'table') {
+    const rows = parsePipeTable(block.text)
+    if (rows) return <PipeTable rows={rows} />
+  }
+  return (
+    <p className={`whitespace-pre-wrap ${block.kind === 'list_item' ? 'pl-5' : ''}`}>{block.text}</p>
+  )
+}
+
+interface PagesViewProps {
+  document: Document
+  content: DocumentContent
+  focus: BlockFocus | null
+}
+
+/** The rendered pages, with the focused blocks marked where they sit on the page. */
+function PagesView({ document, content, focus }: PagesViewProps) {
+  return (
+    <div className="space-y-4 bg-sunken p-4">
+      {content.page_sizes.map(([width, height], index) => {
+        const page = index + 1
+        const marked = content.blocks.filter(
+          (block) => block.page === page && block.bbox && inFocus(block, focus),
+        )
+        return (
+          <div
+            key={page}
+            id={`page-${page}`}
+            className="relative mx-auto max-w-3xl overflow-hidden rounded border border-line bg-white shadow-sm"
+            style={{ aspectRatio: `${width} / ${height}` }}
+          >
+            <img
+              src={pageImageUrl(document.id, page)}
+              alt={`Page ${page}`}
+              loading="lazy"
+              className="size-full"
+            />
+            {marked.map((block) => {
+              const [x0, top, x1, bottom] = block.bbox!
+              return (
+                <div
+                  key={block.ordinal}
+                  className="absolute rounded-sm bg-amber-300/45 mix-blend-multiply"
+                  style={{
+                    left: `${(x0 / width) * 100}%`,
+                    top: `${(top / height) * 100}%`,
+                    width: `${((x1 - x0) / width) * 100}%`,
+                    height: `${((bottom - top) / height) * 100}%`,
+                  }}
+                />
+              )
+            })}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+interface Sheet {
+  title: string
+  blocks: Block[]
+}
+
+/** A spreadsheet: one tab per sheet (its heading block), the sheet's tables below. */
+function SheetView({ blocks, focus }: { blocks: Block[]; focus: BlockFocus | null }) {
+  const sheets: Sheet[] = []
+  for (const block of blocks) {
+    if (block.kind === 'heading' && block.level === 1) {
+      sheets.push({ title: block.text, blocks: [] })
+    } else {
+      if (!sheets.length) sheets.push({ title: 'Data', blocks: [] })
+      sheets[sheets.length - 1].blocks.push(block)
+    }
+  }
+  const focusedIndex = sheets.findIndex((sheet) => sheet.blocks.some((block) => inFocus(block, focus)))
+  const [selected, setSelected] = useState(Math.max(0, focusedIndex))
+  // A new focus brings its sheet to the front; the user may then switch sheets freely.
+  const [lastFocused, setLastFocused] = useState(focusedIndex)
+  if (focusedIndex !== lastFocused) {
+    setLastFocused(focusedIndex)
+    if (focusedIndex >= 0) setSelected(focusedIndex)
+  }
+  const sheet = sheets[Math.min(selected, sheets.length - 1)]
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {sheets.length > 1 && (
+        <div className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-line bg-surface px-3 py-1.5 text-sm">
+          {sheets.map((item, index) => (
+            <button
+              key={index}
+              type="button"
+              aria-pressed={index === selected}
+              onClick={() => setSelected(index)}
+              className={`shrink-0 rounded px-2.5 py-0.5 ${
+                index === selected ? 'bg-sunken font-medium text-ink' : 'text-muted hover:text-ink'
+              }`}
+            >
+              {item.title}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="min-h-0 flex-1 overflow-auto p-4">
+        <div className="space-y-4">
+          {sheet?.blocks.map((block) => (
+            <div
+              key={block.ordinal}
+              id={`block-${block.ordinal}`}
+              className={`rounded ${inFocus(block, focus) ? 'ring-2 ring-accent/60' : ''}`}
+            >
+              <BlockBody block={block} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}

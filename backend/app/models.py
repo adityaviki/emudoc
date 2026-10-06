@@ -43,6 +43,24 @@ class Project(Base):
     )
 
 
+class Folder(Base):
+    """A folder in a project's library. Folders nest; a null parent is the project root."""
+
+    __tablename__ = "folders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("folders.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class Document(Base):
     __tablename__ = "documents"
     __table_args__ = (UniqueConstraint("project_id", "sha256"),)
@@ -50,6 +68,10 @@ class Document(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    # Deleting a folder deletes the documents in it, as a file manager would.
+    folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("folders.id", ondelete="CASCADE"), index=True
     )
     filename: Mapped[str] = mapped_column(String(500))
     mime_type: Mapped[str] = mapped_column(String(200))

@@ -346,6 +346,35 @@ def sample_pdf(tmp_path_factory) -> Path:
 
 
 @pytest.fixture(scope="session")
+def sample_xlsx(tmp_path_factory) -> Path:
+    """Three sheets: a budget table, an empty sheet, and a one-row totals sheet."""
+    import datetime as dt
+
+    from openpyxl import Workbook
+
+    path = tmp_path_factory.mktemp("files") / "budget.xlsx"
+    workbook = Workbook()
+    budget = workbook.active
+    budget.title = "Budget"
+    budget.append(["Item", "Amount", "Date", None, None])
+    budget.append(["Consulting", 1200.0, dt.datetime(2024, 3, 1)])
+    budget.append([None, None, None])
+    budget.append(["Support", 300.5, None])
+    workbook.create_sheet("Notes")
+    totals = workbook.create_sheet("Totals")
+    totals.append(["Total", 1500.5])
+    workbook.save(str(path))
+    return path
+
+
+@pytest.fixture(scope="session")
+def sample_csv(tmp_path_factory) -> Path:
+    path = tmp_path_factory.mktemp("files") / "people.csv"
+    path.write_text("name;city\nAda;London\nBob;Paris\n", encoding="utf-8")
+    return path
+
+
+@pytest.fixture(scope="session")
 def sample_docx(tmp_path_factory) -> Path:
     from docx import Document
 

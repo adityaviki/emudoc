@@ -10,7 +10,7 @@ IMAGE_TYPES = {
     ".jpeg": "image/jpeg",
     ".webp": "image/webp",
 }
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", *IMAGE_TYPES}
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".csv", ".txt", ".md", *IMAGE_TYPES}
 
 
 def parse_file(path: Path, filename: str) -> ParsedDocument:
@@ -24,6 +24,14 @@ def parse_file(path: Path, filename: str) -> ParsedDocument:
         from app.parsing.docx import parse_docx
 
         return parse_docx(path)
+    if suffix == ".xlsx":
+        from app.parsing.sheet import parse_xlsx
+
+        return parse_xlsx(path)
+    if suffix == ".csv":
+        from app.parsing.sheet import parse_csv
+
+        return parse_csv(path)
     if suffix in {".txt", ".md"}:
         from app.parsing.text import parse_text
 

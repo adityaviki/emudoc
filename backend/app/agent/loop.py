@@ -46,6 +46,10 @@ document's outline with a one-sentence summary per section.
 dates, parties, amounts and identifiers.
 - read returns exact source text.
 
+Documents are filed in folders, shown as paths such as Invoices/2024. list_documents lists the \
+folders; list_documents, search and query_facts take a `folder` to work within one folder and \
+its subfolders. Use it when the user names a folder or asks about part of the project.
+
 Choosing a route:
 - For a specific detail, search, then read around the best hit if the passage alone does \
 not settle the question.

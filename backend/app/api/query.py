@@ -7,9 +7,10 @@ from sqlalchemy import func, or_, select
 
 from app.api.deps import ProjectDep, ServicesDep, SessionDep
 from app.api.documents import fact_out
+from app.api.folders import resolve_folder, subtree_ids
 from app.models import Document, Fact
 from app.schemas import FactList, FactName, SearchHitOut, SearchOut, SnippetSegment
-from app.search import hybrid_search
+from app.search import SearchResult, hybrid_search
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["query"])
 
@@ -22,15 +23,21 @@ def search(
     q: str,
     limit: Annotated[int, Query(ge=1, le=50)] = 10,
     document_id: int | None = None,
+    folder_id: int | None = None,
 ):
-    result = hybrid_search(
-        session,
-        services.embedder,
-        project.id,
-        q,
-        limit,
-        [document_id] if document_id else None,
-    )
+    """Search the project's passages, within one document or one folder's subtree if asked."""
+    document_ids = [document_id] if document_id else None
+    folder = resolve_folder(session, project, folder_id)
+    if folder is not None:
+        in_folder = session.scalars(
+            select(Document.id).where(Document.folder_id.in_(subtree_ids(session, folder)))
+        ).all()
+        document_ids = [d for d in in_folder if document_ids is None or d in document_ids]
+    if document_ids == []:
+        # An empty folder: there is nothing to search, and no filter would mean everything.
+        result = SearchResult([], semantic=True)
+    else:
+        result = hybrid_search(session, services.embedder, project.id, q, limit, document_ids)
     return SearchOut(
         semantic=result.semantic,
         hits=[

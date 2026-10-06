@@ -16,9 +16,18 @@ export interface Project {
   document_count: number
 }
 
+export interface Folder {
+  id: number
+  project_id: number
+  parent_id: number | null
+  name: string
+  created_at: string
+}
+
 export interface Document {
   id: number
   project_id: number
+  folder_id: number | null
   filename: string
   mime_type: string
   size_bytes: number
@@ -213,13 +222,23 @@ export const api = {
       method: 'POST',
     }),
 
+  folders: (projectId: number) => request<Folder[]>(`/projects/${projectId}/folders`),
+  createFolder: (projectId: number, body: { name: string; parent_id: number | null }) =>
+    request<Folder>(`/projects/${projectId}/folders`, json('POST', body)),
+  updateFolder: (id: number, body: { name?: string; parent_id?: number | null }) =>
+    request<Folder>(`/folders/${id}`, json('PATCH', body)),
+  deleteFolder: (id: number) => request<void>(`/folders/${id}`, { method: 'DELETE' }),
+
   documents: (projectId: number) => request<Document[]>(`/projects/${projectId}/documents`),
-  upload: (projectId: number, files: File[]) => {
+  upload: (projectId: number, files: File[], folderId: number | null) => {
     const form = new FormData()
     for (const file of files) form.append('files', file)
-    return request<UploadResult>(`/projects/${projectId}/documents`, { method: 'POST', body: form })
+    const query = folderId == null ? '' : `?folder_id=${folderId}`
+    return request<UploadResult>(`/projects/${projectId}/documents${query}`, { method: 'POST', body: form })
   },
   document: (id: number) => request<Document>(`/documents/${id}`),
+  updateDocument: (id: number, body: { filename?: string; folder_id?: number | null }) =>
+    request<Document>(`/documents/${id}`, json('PATCH', body)),
   deleteDocument: (id: number) => request<void>(`/documents/${id}`, { method: 'DELETE' }),
   reprocessDocument: (id: number, fromStage: StageName) =>
     request<Document>(`/documents/${id}/reprocess?from_stage=${fromStage}`, { method: 'POST' }),
@@ -228,10 +247,11 @@ export const api = {
   documentFacts: (id: number) => request<Fact[]>(`/documents/${id}/facts`),
   passage: (id: number) => request<Passage>(`/passages/${id}`),
 
-  search: (projectId: number, query: string) =>
-    request<SearchResult>(
-      `/projects/${projectId}/search?${new URLSearchParams({ q: query, limit: '20' })}`,
-    ),
+  search: (projectId: number, query: string, folderId: number | null = null) => {
+    const params = new URLSearchParams({ q: query, limit: '20' })
+    if (folderId != null) params.set('folder_id', String(folderId))
+    return request<SearchResult>(`/projects/${projectId}/search?${params}`)
+  },
   facts: (projectId: number, filters: { name?: string; q?: string }) => {
     const params = new URLSearchParams({ limit: '500' })
     if (filters.name) params.set('name', filters.name)
@@ -251,6 +271,17 @@ export const api = {
 export const fileUrl = (documentId: number) => `/api/documents/${documentId}/file`
 export const pageImageUrl = (documentId: number, page: number) =>
   `/api/documents/${documentId}/pages/${page}.png`
+
+/** The file types the backend indexes (backend/app/parsing/__init__.py), for upload inputs. */
+export const ACCEPTED_EXTENSIONS = ['.pdf', '.docx', '.xlsx', '.csv', '.txt', '.md', '.png', '.jpg', '.jpeg', '.webp']
+export const ACCEPTED_TYPES_LABEL = 'PDF, Word, Excel, CSV, text, Markdown and images'
+
+export const isIndexing = (document: Document) =>
+  document.status === 'queued' || document.status === 'processing'
+export const isPdf = (document: Document) => document.mime_type === 'application/pdf'
+export const isImage = (document: Document) => document.mime_type.startsWith('image/')
+export const isSheet = (document: Document) =>
+  document.mime_type === 'text/csv' || document.mime_type.endsWith('spreadsheetml.sheet')
 
 /** Add a question to a chat; yields the agent's events as the server streams them. */
 export async function* streamAnswer(
@@ -291,14 +322,4 @@ export function sectionPath(context: string, documentTitle: string): string {
   const prefix = `${documentTitle} › `
   const path = context.startsWith(prefix) ? context.slice(prefix.length) : context
   return path === documentTitle ? '' : path
-}
-
-/** Where a fact sits in its document: its passage when known, else its block. */
-export function factLink(projectId: number, fact: Fact): string {
-  const target = fact.passage_id
-    ? `?passage=${fact.passage_id}`
-    : fact.block_ordinal != null
-      ? `?block=${fact.block_ordinal}`
-      : ''
-  return `/projects/${projectId}/documents/${fact.document_id}${target}`
 }

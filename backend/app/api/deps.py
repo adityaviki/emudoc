@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.db import get_session
 from app.indexing.pipeline import Services
 from app.indexing.worker import Worker
-from app.models import Chat, Document, Project
+from app.models import Chat, Document, Folder, Project
 
 SessionDep = Annotated[Session, Depends(get_session)]
 # The stage a reprocess run starts from; later stages run too.
@@ -39,6 +39,13 @@ def get_document(document_id: int, session: SessionDep) -> Document:
     return document
 
 
+def get_folder(folder_id: int, session: SessionDep) -> Folder:
+    folder = session.get(Folder, folder_id)
+    if folder is None:
+        raise HTTPException(404, "Folder not found")
+    return folder
+
+
 def get_chat(chat_id: int, session: SessionDep) -> Chat:
     chat = session.get(Chat, chat_id)
     if chat is None:
@@ -48,4 +55,5 @@ def get_chat(chat_id: int, session: SessionDep) -> Chat:
 
 ProjectDep = Annotated[Project, Depends(get_project)]
 DocumentDep = Annotated[Document, Depends(get_document)]
+FolderDep = Annotated[Folder, Depends(get_folder)]
 ChatDep = Annotated[Chat, Depends(get_chat)]

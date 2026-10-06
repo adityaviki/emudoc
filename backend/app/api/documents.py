@@ -5,17 +5,19 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.api.deps import DocumentDep, ProjectDep, SessionDep, Stage, WorkerDep
+from app.api.folders import folder_paths, resolve_folder
 from app.config import get_settings
 from app.indexing.pipeline import reset_stages
-from app.models import STAGES, Block, Document, Fact, Passage, Section
+from app.models import STAGES, Block, Document, Fact, Passage, Project, Section
 from app.parsing import IMAGE_TYPES, SUPPORTED_EXTENSIONS
 from app.parsing.pdf import render_page
 from app.schemas import (
     DocumentContent,
     DocumentOut,
+    DocumentPatch,
     FactOut,
     PassageOut,
     RejectedFile,
@@ -28,6 +30,8 @@ router = APIRouter(tags=["documents"])
 MIME_TYPES = {
     ".pdf": "application/pdf",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".csv": "text/csv",
     ".txt": "text/plain",
     ".md": "text/markdown",
     **IMAGE_TYPES,
@@ -44,10 +48,16 @@ def list_documents(project: ProjectDep, session: SessionDep):
 
 @router.post("/projects/{project_id}/documents", response_model=UploadResult, status_code=201)
 def upload_documents(
-    project: ProjectDep, files: list[UploadFile], session: SessionDep, worker: WorkerDep
+    project: ProjectDep,
+    files: list[UploadFile],
+    session: SessionDep,
+    worker: WorkerDep,
+    folder_id: int | None = None,
 ):
+    """Upload files into a folder of the project (the root when no folder is given)."""
     settings = get_settings()
     limit = settings.max_upload_mb * 1024 * 1024
+    folder = resolve_folder(session, project, folder_id)
     documents: list[Document] = []
     rejected: list[RejectedFile] = []
 
@@ -86,17 +96,21 @@ def upload_documents(
         )
         if duplicate:
             temp_path.unlink(missing_ok=True)
+            where = ""
+            if duplicate.folder_id is not None:
+                where = f" in {folder_paths(session, project.id)[duplicate.folder_id]}"
             rejected.append(
                 RejectedFile(
                     filename=filename,
-                    reason=f"Already in this project as {duplicate.filename!r}.",
+                    reason=f"Already in this project as {duplicate.filename!r}{where}.",
                 )
             )
             continue
 
         document = Document(
             project_id=project.id,
-            filename=filename,
+            folder_id=folder.id if folder else None,
+            filename=unique_filename(session, project.id, folder.id if folder else None, filename),
             mime_type=MIME_TYPES[suffix],
             size_bytes=size,
             sha256=sha256,
@@ -121,6 +135,65 @@ def upload_documents(
 @router.get("/documents/{document_id}", response_model=DocumentOut)
 def get_document(document: DocumentDep):
     return document
+
+
+@router.patch("/documents/{document_id}", response_model=DocumentOut)
+def update_document(document: DocumentDep, body: DocumentPatch, session: SessionDep):
+    """Rename the document, move it to another folder, or both."""
+    project = session.get(Project, document.project_id)
+    folder_id = document.folder_id
+    if "folder_id" in body.model_fields_set:
+        folder = resolve_folder(session, project, body.folder_id)
+        folder_id = folder.id if folder else None
+    filename = document.filename
+    if body.filename is not None:
+        filename = renamed(document.filename, body.filename)
+    if (filename, folder_id) != (document.filename, document.folder_id):
+        clash = session.scalar(
+            select(Document.id).where(
+                Document.project_id == project.id,
+                Document.folder_id == folder_id,
+                func.lower(Document.filename) == filename.lower(),
+                Document.id != document.id,
+            )
+        )
+        if clash is not None:
+            raise HTTPException(409, f"A file named {filename!r} already exists here")
+    document.filename = filename
+    document.folder_id = folder_id
+    session.commit()
+    return document
+
+
+def renamed(current: str, requested: str) -> str:
+    """The new file name, keeping the extension: the parser picks its format from it."""
+    name = Path(" ".join(requested.split())).name
+    if not name or name in {".", ".."}:
+        raise HTTPException(422, "A file name cannot be empty")
+    suffix = Path(current).suffix
+    if Path(name).suffix.lower() != suffix.lower():
+        name += suffix
+    return name
+
+
+def unique_filename(session: SessionDep, project_id: int, folder_id: int | None, name: str) -> str:
+    """The name, or "name (2).ext" and so on when a sibling already carries it."""
+    taken = {
+        existing.lower()
+        for existing in session.scalars(
+            select(Document.filename).where(
+                Document.project_id == project_id, Document.folder_id == folder_id
+            )
+        )
+    }
+    if name.lower() not in taken:
+        return name
+    stem, suffix = Path(name).stem, Path(name).suffix
+    for number in range(2, 10_000):
+        candidate = f"{stem} ({number}){suffix}"
+        if candidate.lower() not in taken:
+            return candidate
+    return name
 
 
 @router.delete("/documents/{document_id}", status_code=204)

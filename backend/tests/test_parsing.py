@@ -1,4 +1,4 @@
-from app.parsing import parse_file
+from app.parsing import parse_file, sheet
 from app.parsing.text import parse_text
 from app.parsing.types import table_to_markdown
 
@@ -54,6 +54,32 @@ def test_docx_styles_become_structure(sample_docx):
     table = next(b for b in parsed.blocks if b.kind == "table")
     assert "| Europe | EUR 60 |" in table.text
     assert all(b.page is None for b in parsed.blocks)
+
+
+def test_xlsx_sheets_become_headings_and_tables(sample_xlsx):
+    parsed = parse_file(sample_xlsx, "budget.xlsx")
+    assert [(b.kind, b.level) for b in parsed.blocks] == [
+        ("heading", 1),
+        ("table", None),
+        ("heading", 1),
+        ("table", None),
+    ]
+    # The empty "Notes" sheet is left out; empty rows and columns are trimmed.
+    assert parsed.blocks[0].text == "Budget" and parsed.blocks[2].text == "Totals"
+    table = parsed.blocks[1].text.splitlines()
+    assert table[0] == "| Item | Amount | Date |"
+    assert "| Consulting | 1200 | 2024-03-01 |" in table
+    assert "| Support | 300.5 |  |" in table
+    assert parsed.blocks[3].text == "| Total | 1500.5 |\n| --- | --- |"
+
+
+def test_csv_dialect_is_detected_and_rows_are_chunked(sample_csv, monkeypatch):
+    monkeypatch.setattr(sheet, "ROWS_PER_BLOCK", 1)
+    parsed = parse_file(sample_csv, "people.csv")
+    assert [b.text for b in parsed.blocks] == [
+        "| name | city |\n| --- | --- |\n| Ada | London |",
+        "| name | city |\n| --- | --- |\n| Bob | Paris |",
+    ]
 
 
 def test_markdown_blocks():

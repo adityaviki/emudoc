@@ -29,6 +29,18 @@ A project can hold any number of chats. Each one is saved with its answers, incl
 steps the agent took and the passages it was shown, so a chat can be reopened later and an
 answer keeps streaming while you look at another tab.
 
+## The workspace
+
+A project opens as two panes. On the left is the **library**: the project's documents filed in
+folders, with the usual file-manager moves (new folder, rename, drag to move, delete, upload by
+button or by dropping files, search). Opening a file adds a **tab** beside the Library tab, and
+the tabs stay open across reloads. PDFs open in the browser's own viewer, with the extracted text
+and rendered pages a toggle away; spreadsheets show one tab per sheet; images show the picture
+above the text read from it. On the right is the **agent**. Clicking a citation in an answer opens
+the cited document on the left at that passage. The agent sees the folders too: ask about
+"the invoices in Finance/2026" and `list_documents`, `search` and `query_facts` work within that
+folder.
+
 ## Run it
 
 You need Docker, [uv](https://docs.astral.sh/uv/) and Node with pnpm.
@@ -88,16 +100,18 @@ OpenRouter are checked through their real SDKs against recorded responses.
 
 ```text
 backend/app/
-  parsing/      PDF, Word, text and Markdown into blocks
+  parsing/      PDF, Word, Excel, CSV, text and Markdown into blocks
   indexing/     structure, enrich, the pipeline and its background worker
   search.py     hybrid search over passages
+  folders.py    the folder tree as paths and subtrees
   agent/        the five tools and the tool-use loop
   api/          HTTP endpoints
   llm.py        every call to the AI model
 frontend/src/
-  pages/        Projects, Documents, Search, Ask, Facts and the document viewer
+  pages/        the Projects page and the Workspace (two panes)
+  workspace/    the library, tabs, document viewers and the chat pane
   api.ts        the typed client for the backend
-  chat.ts       a chat's messages as the Ask tab holds them, and the answers being streamed
+  chat.ts       a chat's messages as the chat pane holds them, and the answers being streamed
 ```
 
 ## Not built yet
@@ -105,4 +119,4 @@ frontend/src/
 - Users and permissions. The app is single-user and has no login.
 - Schema migrations. Tables are created on start; after changing a table, reset the database
   with `docker compose down -v`.
-- More file types (spreadsheets, slides, email), and reading order for multi-column PDFs.
+- More file types (slides, email, legacy .doc and .xls), and reading order for multi-column PDFs.

@@ -27,6 +27,18 @@ def init_db() -> None:
     with engine.begin() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        # create_all never alters a table that exists: databases made before folders arrived
+        # get the column here.
+        conn.execute(
+            text(
+                "ALTER TABLE documents ADD COLUMN IF NOT EXISTS folder_id INTEGER "
+                "REFERENCES folders(id) ON DELETE CASCADE"
+            )
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_documents_folder_id ON documents (folder_id)")
+        )
 
 
 def reconcile_embeddings() -> int:

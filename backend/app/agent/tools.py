@@ -10,6 +10,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.embeddings import Embedder
+from app.folders import PATH_SEPARATOR, folder_paths
 from app.indexing.enrich import parse_iso_date
 from app.models import Document, Fact, Passage, Section
 from app.search import hybrid_search
@@ -17,6 +18,11 @@ from app.search import hybrid_search
 # Characters of source text one `read` returns before it asks the model to continue.
 READ_BUDGET = 12_000
 MAX_OUTLINE_SECTIONS = 400
+
+FOLDER_HELP = (
+    "Only documents in this folder and its subfolders, given as a path such as Invoices/2024 "
+    "(list_documents shows the folders)."
+)
 
 
 @dataclass
@@ -26,6 +32,13 @@ class ToolContext:
     project_id: int
     # Passages shown to the model, keyed by id: the only references an answer may cite.
     sources: dict[int, dict[str, Any]] = field(default_factory=dict)
+    _folder_paths: dict[int, str] | None = field(default=None, repr=False)
+
+    def folder_paths(self) -> dict[int, str]:
+        """Folder id → path, read once per answer."""
+        if self._folder_paths is None:
+            self._folder_paths = folder_paths(self.session, self.project_id)
+        return self._folder_paths
 
     def cite(self, passage: Passage, title: str) -> str:
         self.sources[passage.id] = {
@@ -49,6 +62,7 @@ class ListDocumentsInput(_Input):
         None, description="Words to look for in titles, file names and summaries."
     )
     doc_type: str | None = Field(None, description="Only documents of this type, e.g. invoice.")
+    folder: str | None = Field(None, description=FOLDER_HELP)
     limit: int = Field(50, ge=1, le=200, description="How many documents to return.")
     offset: int = Field(0, ge=0, description="Documents to skip, to page through a long list.")
 
@@ -65,12 +79,14 @@ class SearchInput(_Input):
         None,
         description="Search only these documents. Omit to search the whole project.",
     )
+    folder: str | None = Field(None, description=FOLDER_HELP)
     limit: int = Field(8, ge=1, le=25, description="How many passages to return.")
 
 
 class QueryFactsInput(_Input):
     names: list[str] | None = Field(None, description="Fact names to match, e.g. total_amount.")
     document_ids: list[int] | None = Field(None, description="Only facts from these documents.")
+    folder: str | None = Field(None, description=FOLDER_HELP)
     doc_type: str | None = Field(None, description="Only facts from documents of this type.")
     contains: str | None = Field(None, description="Only facts whose value contains this text.")
     min_number: float | None = Field(None, description="Numeric value at least this.")
@@ -98,6 +114,11 @@ class ReadInput(_Input):
 
 def list_documents(ctx: ToolContext, args: ListDocumentsInput) -> str:
     conditions = [Document.project_id == ctx.project_id]
+    if args.folder:
+        scope = _folder_scope(ctx, args.folder)
+        if isinstance(scope, str):
+            return scope
+        conditions.append(Document.id.in_(scope))
     if args.doc_type:
         conditions.append(func.lower(Document.doc_type) == args.doc_type.strip().lower())
     for word in (args.query or "").split():
@@ -130,12 +151,65 @@ def list_documents(ctx: ToolContext, args: ListDocumentsInput) -> str:
     lines = [f"Documents {args.offset + 1}-{args.offset + len(documents)} of {total}."]
     if types:
         lines.append("Types in this project: " + ", ".join(f"{name} ({n})" for name, n in types))
+    folders = _folder_summary(ctx)
+    if folders:
+        lines.append(folders)
+    paths = ctx.folder_paths()
     for document in documents:
         lines.append("")
-        lines.append(_document_line(document))
+        lines.append(_document_line(document, paths))
         if document.summary:
             lines.append(f"    {document.summary}")
     return "\n".join(lines)
+
+
+def _folder_summary(ctx: ToolContext) -> str:
+    """The project's folders with their document counts, so the model learns the tree."""
+    paths = ctx.folder_paths()
+    if not paths:
+        return ""
+    counts = dict(
+        ctx.session.execute(
+            select(Document.folder_id, func.count())
+            .where(Document.project_id == ctx.project_id)
+            .group_by(Document.folder_id)
+        ).all()
+    )
+    listed = ", ".join(
+        f"{path} ({counts.get(folder_id, 0)})"
+        for folder_id, path in sorted(paths.items(), key=lambda item: item[1].lower())
+    )
+    at_root = counts.get(None, 0)
+    return f"Folders (documents in each): {listed}. At the root: {at_root}."
+
+
+def _folder_scope(ctx: ToolContext, folder: str) -> list[int] | str:
+    """The ids of the documents in a folder and its subfolders, or a message when it is unclear."""
+    paths = ctx.folder_paths()
+    wanted = folder.strip().strip(PATH_SEPARATOR).lower()
+    matches = [folder_id for folder_id, path in paths.items() if path.lower() == wanted]
+    if not matches:
+        # The last part of a path is enough when it names one folder.
+        matches = [
+            folder_id
+            for folder_id, path in paths.items()
+            if path.lower().endswith(f"{PATH_SEPARATOR}{wanted}")
+        ]
+    if not matches:
+        known = ", ".join(sorted(paths.values(), key=str.lower)) or "none"
+        return f"No folder named {folder!r}. Folders in this project: {known}."
+    if len(matches) > 1:
+        options = ", ".join(sorted(paths[match] for match in matches))
+        return f"{folder!r} could be any of {options}. Give the full path."
+    root = paths[matches[0]]
+    subtree = [
+        folder_id
+        for folder_id, path in paths.items()
+        if path == root or path.startswith(f"{root}{PATH_SEPARATOR}")
+    ]
+    return list(
+        ctx.session.scalars(select(Document.id).where(Document.folder_id.in_(subtree))).all()
+    )
 
 
 def get_outline(ctx: ToolContext, args: GetOutlineInput) -> str:
@@ -145,7 +219,7 @@ def get_outline(ctx: ToolContext, args: GetOutlineInput) -> str:
     sections = ctx.session.scalars(
         select(Section).where(Section.document_id == document.id).order_by(Section.ordinal)
     ).all()
-    lines = [_document_line(document)]
+    lines = [_document_line(document, ctx.folder_paths())]
     if document.summary:
         lines.append(f"Summary: {document.summary}")
     lines.append("")
@@ -164,13 +238,21 @@ def get_outline(ctx: ToolContext, args: GetOutlineInput) -> str:
 
 
 def search(ctx: ToolContext, args: SearchInput) -> str:
+    document_ids = args.document_ids
+    if args.folder:
+        scope = _folder_scope(ctx, args.folder)
+        if isinstance(scope, str):
+            return scope
+        document_ids = [d for d in scope if document_ids is None or d in document_ids]
+        if not document_ids:
+            return f"No documents in folder {args.folder!r} to search."
     result = hybrid_search(
         ctx.session,
         ctx.embedder,
         ctx.project_id,
         args.query,
         args.limit,
-        args.document_ids,
+        document_ids,
     )
     if not result.hits:
         return f"No passages match {args.query!r}. Try other words, or browse with list_documents."
@@ -197,6 +279,11 @@ def query_facts(ctx: ToolContext, args: QueryFactsInput) -> str:
         filters.append(Fact.name.in_([name.strip().lower() for name in args.names]))
     if args.document_ids:
         filters.append(Fact.document_id.in_(args.document_ids))
+    if args.folder:
+        scope = _folder_scope(ctx, args.folder)
+        if isinstance(scope, str):
+            return scope
+        filters.append(Fact.document_id.in_(scope))
     if args.doc_type:
         filters.append(func.lower(Document.doc_type) == args.doc_type.strip().lower())
     if args.contains:
@@ -318,7 +405,7 @@ def read(ctx: ToolContext, args: ReadInput) -> str:
         return "Nothing to read there." if args.offset == 0 else "No more passages."
 
     document = ctx.session.get(Document, passages[0].document_id)
-    lines = [_document_line(document)]
+    lines = [_document_line(document, ctx.folder_paths())]
     used = 0
     last_context = None
     for index, passage in enumerate(passages):
@@ -366,10 +453,12 @@ def _document(ctx: ToolContext, document_id: int) -> Document | None:
     )
 
 
-def _document_line(document: Document) -> str:
+def _document_line(document: Document, folder_paths: dict[int, str]) -> str:
     parts = [f"doc {document.id} · {document.display_title}"]
     if document.title and document.title != document.filename:
         parts.append(f"file {document.filename}")
+    if document.folder_id is not None and document.folder_id in folder_paths:
+        parts.append(f"folder {folder_paths[document.folder_id]}")
     if document.doc_type:
         parts.append(document.doc_type)
     if document.doc_date:
@@ -420,9 +509,10 @@ TOOLS: dict[str, Tool] = {
     for tool in (
         Tool(
             "list_documents",
-            "List the project's documents with their type, date, length and summary. Call this "
-            "to see what the project contains, to find a document by name or kind, or to "
-            "enumerate every document of a type before checking each one.",
+            "List the project's documents with their folder, type, date, length and summary, "
+            "and the project's folders. Call this to see what the project contains, to find a "
+            "document by name or kind, or to enumerate every document of a type or in a folder "
+            "before checking each one.",
             ListDocumentsInput,
             list_documents,
         ),
