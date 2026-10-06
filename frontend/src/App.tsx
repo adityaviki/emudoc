@@ -4,7 +4,6 @@ import { api } from './api.ts'
 import { AskTab } from './pages/AskTab.tsx'
 import { DocumentPage } from './pages/DocumentPage.tsx'
 import { DocumentsTab } from './pages/DocumentsTab.tsx'
-import { FactsTab } from './pages/FactsTab.tsx'
 import { ProjectLayout } from './pages/ProjectLayout.tsx'
 import { ProjectsPage } from './pages/ProjectsPage.tsx'
 import { SearchTab } from './pages/SearchTab.tsx'
@@ -28,7 +27,6 @@ function App() {
             <Route index element={<DocumentsTab />} />
             <Route path="search" element={<SearchTab />} />
             <Route path="ask" element={<AskTab />} />
-            <Route path="facts" element={<FactsTab />} />
             <Route path="documents/:documentId" element={<DocumentPage />} />
           </Route>
           <Route path="*" element={<p className="py-16 text-center text-muted">Page not found.</p>} />

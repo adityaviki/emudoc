@@ -1,14 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
-import { Files, MessageSquare, Search, Table2 } from 'lucide-react'
+import { Files, MessageSquare, Search } from 'lucide-react'
 import { Link, NavLink, Outlet, useLocation, useParams } from 'react-router'
 import { api } from '../api.ts'
 import { Loading, Notice } from '../components/ui.tsx'
 
 const TABS = [
-  { to: '.', label: 'Documents', icon: Files, end: true },
-  { to: 'search', label: 'Search', icon: Search, end: false },
   { to: 'ask', label: 'Ask', icon: MessageSquare, end: false },
-  { to: 'facts', label: 'Facts', icon: Table2, end: false },
+  { to: 'search', label: 'Search', icon: Search, end: false },
+  { to: '.', label: 'Documents', icon: Files, end: true },
 ]
 
 export function ProjectLayout() {
