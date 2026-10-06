@@ -3,13 +3,12 @@ import { ArrowLeft, ExternalLink, X } from 'lucide-react'
 import { Fragment, useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { api, fileUrl, pageImageUrl, pageLabel, sectionPath } from '../api.ts'
-import type { Block, Document, DocumentContent, Fact, Section } from '../api.ts'
+import type { Block, Document, DocumentContent, Section } from '../api.ts'
 import { PipeTable } from '../components/Markdown.tsx'
 import { Chip, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { formatDate, parsePipeTable } from '../format.ts'
 import { useProject } from '../hooks.ts'
 import { IndexingStatus } from './DocumentsTab.tsx'
-import { Unverified } from './FactsTab.tsx'
 
 /** The blocks to highlight and scroll to; `end` is exclusive. */
 interface Focus {
@@ -42,11 +41,6 @@ export function DocumentPage() {
   const content = useQuery({
     queryKey: ['content', documentId, status],
     queryFn: () => api.content(documentId),
-    enabled: indexed,
-  })
-  const facts = useQuery({
-    queryKey: ['document-facts', documentId, status],
-    queryFn: () => api.documentFacts(documentId),
     enabled: indexed,
   })
   const passage = useQuery({
@@ -88,7 +82,7 @@ export function DocumentPage() {
       )}
 
       {indexed && (
-        <div className="grid items-start gap-4 lg:grid-cols-[15rem_minmax(0,1fr)_17rem]">
+        <div className="grid items-start gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
           <aside className="rounded-lg border border-line bg-surface p-2 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
             <p className="px-2 pt-1 pb-2 text-xs font-medium tracking-wide text-muted uppercase">Outline</p>
             <ul>
@@ -151,23 +145,6 @@ export function DocumentPage() {
                 <TextView blocks={content.data.blocks} focus={focus} />
               ))}
           </section>
-
-          <aside className="rounded-lg border border-line bg-surface p-3 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
-            <p className="pb-2 text-xs font-medium tracking-wide text-muted uppercase">Facts</p>
-            <FactList
-              facts={facts.data ?? []}
-              enrich={doc.data.stages.enrich?.status}
-              onSelect={(fact) =>
-                setParams(
-                  fact.passage_id
-                    ? { passage: String(fact.passage_id) }
-                    : fact.block_ordinal != null
-                      ? { block: String(fact.block_ordinal) }
-                      : {},
-                )
-              }
-            />
-          </aside>
         </div>
       )}
     </div>
@@ -350,42 +327,5 @@ function PagesView({ document, content, focus }: PagesViewProps) {
         )
       })}
     </div>
-  )
-}
-
-interface FactListProps {
-  facts: Fact[]
-  enrich: string | undefined
-  onSelect: (fact: Fact) => void
-}
-
-function FactList({ facts, enrich, onSelect }: FactListProps) {
-  if (facts.length === 0) {
-    return (
-      <p className="text-sm text-muted">
-        {enrich === 'skipped'
-          ? 'Facts are extracted by the AI model, which is not configured.'
-          : enrich === 'failed'
-            ? 'Fact extraction failed for this document.'
-            : 'No facts were found in this document.'}
-      </p>
-    )
-  }
-  return (
-    <ul className="space-y-2">
-      {facts.map((fact) => (
-        <li key={fact.id}>
-          <button onClick={() => onSelect(fact)} className="block w-full text-left hover:text-accent">
-            <span className="block font-mono text-xs text-muted">{fact.name}</span>
-            <span className="text-sm">
-              {fact.value}
-              {fact.currency && <span className="text-muted"> {fact.currency}</span>}
-            </span>
-            {fact.page != null && <span className="ml-1.5 text-xs text-muted">{pageLabel(fact.page)}</span>}
-          </button>
-          {!fact.verified && <Unverified />}
-        </li>
-      ))}
-    </ul>
   )
 }
