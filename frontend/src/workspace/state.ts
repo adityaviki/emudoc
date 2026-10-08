@@ -1,17 +1,13 @@
-// What the two panes share: the project's data, the open tabs, and the ways to move around.
+// What the panes share: the project's data, the open tabs, and the ways to move around.
 
 import { createContext, useContext } from 'react'
 import type { Document, Folder, Project } from '../api.ts'
 import type { FolderTree } from '../hooks.ts'
 import type { Focus, WorkspaceUrl } from './url.ts'
 
-/** How a document tab shows its file: the file itself, the extracted text, or rendered pages. */
-export type DocView = 'file' | 'text' | 'pages'
-
 export interface OpenTab {
   id: number
   focus?: Focus
-  view?: DocView
 }
 
 export interface TabsStore {
@@ -32,6 +28,9 @@ export function isTabsStore(value: unknown): value is TabsStore {
   )
 }
 
+/** The panes, left to right. The document pane is only there while a document is open. */
+export type Pane = 'library' | 'document' | 'chat'
+
 export interface Workspace {
   project: Project
   documents: Document[]
@@ -40,18 +39,18 @@ export interface Workspace {
   tree: FolderTree
   url: WorkspaceUrl
   openTabs: OpenTab[]
-  /** The document in front on the left, or null when the Library is. */
+  /** The document open in the middle pane, or null when there is none. */
   activeDocumentId: number | null
   openDocument(id: number, focus?: Focus | null, options?: { replace?: boolean }): void
   closeTabs(ids: number[]): void
-  setTabView(id: number, view: DocView): void
   clearFocus(): void
-  goToLibrary(folderId: number | null, options?: { replace?: boolean }): void
+  /** Shows a folder in the library; the open document stays where it is. */
+  goToFolder(folderId: number | null, options?: { replace?: boolean }): void
   setSearch(q: string): void
   openChat(chatId: number | 'new' | null, options?: { replace?: boolean }): void
   /** Which pane shows on a narrow screen, where only one fits. */
-  mobilePane: 'files' | 'chat'
-  setMobilePane(pane: 'files' | 'chat'): void
+  mobilePane: Pane
+  setMobilePane(pane: Pane): void
   /** True while files from the desktop are being dragged over the window. */
   draggingFiles: boolean
 }

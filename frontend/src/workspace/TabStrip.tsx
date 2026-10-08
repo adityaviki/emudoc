@@ -1,14 +1,14 @@
-import { ExternalLink, FileText, Library, X } from 'lucide-react'
+import { ExternalLink, FileText, X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import type { MouseEvent } from 'react'
 import { fileUrl } from '../api.ts'
 import type { Document } from '../api.ts'
 import { StatusDot } from '../components/IndexingStatus.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
-import { fileIcon } from './files.ts'
+import { fileKind } from './files.ts'
 import { useWorkspace } from './state.ts'
 
-/** The pinned Library tab, then one tab per open document. */
+/** One tab per open document, above the document pane. */
 export function TabStrip() {
   const workspace = useWorkspace()
   const { activeDocumentId, openTabs } = workspace
@@ -51,20 +51,11 @@ export function TabStrip() {
       }}
       className="no-scrollbar flex shrink-0 items-stretch overflow-x-auto border-b border-line bg-surface"
     >
-      <button
-        type="button"
-        role="tab"
-        aria-selected={activeDocumentId == null}
-        onClick={() => workspace.goToLibrary(workspace.url.tab.kind === 'library' ? workspace.url.tab.folderId : null)}
-        className={`${base} ${activeDocumentId == null ? active : inactive}`}
-      >
-        <Library className="size-4" />
-        Library
-      </button>
       {openTabs.map((tab) => {
         const document = workspace.documents.find((d) => d.id === tab.id)
         const selected = tab.id === activeDocumentId
-        const Icon = document ? fileIcon(document) : FileText
+        const kind = document ? fileKind(document) : null
+        const Icon = kind?.icon ?? FileText
         return (
           <div
             key={tab.id}
@@ -82,7 +73,7 @@ export function TabStrip() {
             onContextMenu={(event) => document && tabMenu(event, document)}
             className={`${base} max-w-52 cursor-pointer pr-1.5 ${selected ? active : inactive}`}
           >
-            <Icon className="size-4 shrink-0" />
+            <Icon className={`size-4 shrink-0 ${kind?.color ?? ''}`} />
             <span className="min-w-0 truncate">{document?.filename ?? `Document ${tab.id}`}</span>
             {document && <StatusDot document={document} />}
             <button

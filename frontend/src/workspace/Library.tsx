@@ -25,7 +25,7 @@ import { Button, Chip, EmptyState, IconButton, Loading, Notice, Segmented, Spinn
 import { useContextMenu } from '../components/useContextMenu.tsx'
 import { documentsIn, useFolders, useLocalStorage } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
-import { fileIcon } from './files.ts'
+import { fileKind } from './files.ts'
 import { useLibraryMutations } from './mutations.ts'
 import type { LibraryMutations } from './mutations.ts'
 import { useWorkspace } from './state.ts'
@@ -56,8 +56,7 @@ const isView = (value: unknown): value is View => value === 'grid' || value === 
 export function Library() {
   const workspace = useWorkspace()
   const { tree, project } = workspace
-  const folderId = workspace.url.tab.kind === 'library' ? workspace.url.tab.folderId : null
-  const query = workspace.url.tab.kind === 'library' ? workspace.url.tab.q : ''
+  const { folderId, q: query } = workspace.url.library
   const folders = useFolders(project.id)
   const mutations = useLibraryMutations()
   const health = useQuery({ queryKey: ['health'], queryFn: api.health })
@@ -70,7 +69,7 @@ export function Library() {
   // A folder that no longer exists falls back to the root.
   const folderMissing = folders.isSuccess && folderId != null && !tree.byId.has(folderId)
   useEffect(() => {
-    if (folderMissing) workspace.goToLibrary(null, { replace: true })
+    if (folderMissing) workspace.goToFolder(null, { replace: true })
   }, [folderMissing, workspace])
 
   const current = folderId == null ? null : tree.byId.get(folderId)
@@ -88,7 +87,7 @@ export function Library() {
 
   return (
     <div
-      className="relative flex h-full min-h-0 flex-col"
+      className="relative flex h-full min-h-0 flex-col bg-page"
       onDragOver={(event) => {
         if (!hasFiles(event)) return
         event.preventDefault()
@@ -248,7 +247,7 @@ function Breadcrumb({ folderId, mutations, dragging, onUpload }: BreadcrumbProps
             <button
               type="button"
               disabled={last}
-              onClick={() => workspace.goToLibrary(crumb.id)}
+              onClick={() => workspace.goToFolder(crumb.id)}
               onDragOver={(event) => {
                 if (last) return
                 if (hasItems(event) && !canDropItems(workspace.tree, crumb.id, dragging.current)) return
@@ -416,7 +415,7 @@ function Listing({
   }
 
   function open(item: Item) {
-    if (item.kind === 'folder') workspace.goToLibrary(item.folder.id)
+    if (item.kind === 'folder') workspace.goToFolder(item.folder.id)
     else workspace.openDocument(item.document.id)
   }
 
@@ -578,7 +577,7 @@ function Listing({
 
   function goUp() {
     const current = folderId == null ? null : tree.byId.get(folderId)
-    if (current) workspace.goToLibrary(current.parent_id)
+    if (current) workspace.goToFolder(current.parent_id)
   }
 
   function onDragStart(event: DragEvent, item: Item) {
@@ -729,7 +728,8 @@ interface RowProps {
 
 function ItemIcon({ item, className }: { item: Item; className: string }) {
   if (item.kind === 'folder') return <FolderIcon className={`${className} fill-accent/20 text-accent`} />
-  return createElement(fileIcon(item.document), { className: `${className} text-muted` })
+  const kind = fileKind(item.document)
+  return createElement(kind.icon, { className: `${className} ${kind.color}`, 'aria-label': kind.label })
 }
 
 /** The tone and wording of a tile's status line; ready documents say nothing. */

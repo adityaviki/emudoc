@@ -1,24 +1,27 @@
 import { useQuery } from '@tanstack/react-query'
-import { Files, MessageSquare } from 'lucide-react'
+import { FileText, Library as LibraryIcon, MessageSquare } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { api, isPdf } from '../api.ts'
-import type { Document } from '../api.ts'
+import { api } from '../api.ts'
 import { Loading, Notice, Segmented } from '../components/ui.tsx'
 import { useDocuments, useFolderTree, useFolders, useLocalStorage } from '../hooks.ts'
 import { ChatPane } from '../workspace/ChatPane.tsx'
 import { DocumentTab } from '../workspace/DocumentTab.tsx'
 import { Library } from '../workspace/Library.tsx'
-import { SplitPane } from '../workspace/SplitPane.tsx'
+import { SplitPanes } from '../workspace/SplitPane.tsx'
+import type { Pane as SplitPane } from '../workspace/SplitPane.tsx'
 import { TabStrip } from '../workspace/TabStrip.tsx'
 import { SPLIT_KEY, WorkspaceContext, isTabsStore, tabsStorageKey, useWorkspace } from '../workspace/state.ts'
-import type { DocView, OpenTab, TabsStore, Workspace as WorkspaceState } from '../workspace/state.ts'
+import type { OpenTab, Pane, TabsStore, Workspace as WorkspaceState } from '../workspace/state.ts'
 import { buildWorkspaceUrl, sameFocus, useWorkspaceUrl } from '../workspace/url.ts'
-import type { Focus, Go, WorkspaceUrl } from '../workspace/url.ts'
+import type { Go, WorkspaceUrl } from '../workspace/url.ts'
 
 const EMPTY_TABS: TabsStore = { v: 1, open: [] }
 
-/** A project's two panes: the library with its open files on the left, the agent on the right. */
+/**
+ * A project's panes: the library on the left, the agent on the right, and while a document is
+ * open, the document between them.
+ */
 export function Workspace() {
   const [url, go] = useWorkspaceUrl()
   const navigate = useNavigate()
@@ -40,11 +43,11 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
   const folders = useFolders(projectId)
   const tree = useFolderTree(folders.data)
   const [tabs, setTabs] = useLocalStorage(tabsStorageKey(projectId), EMPTY_TABS, isTabsStore)
-  const [mobilePane, setMobilePane] = useState<'files' | 'chat'>('files')
+  const [mobilePane, setMobilePane] = useState<Pane>('library')
   const draggingFiles = useFilesDragging()
 
-  const activeDocumentId = url.tab.kind === 'document' ? url.tab.documentId : null
-  const activeFocus = url.tab.kind === 'document' ? url.tab.focus : null
+  const activeDocumentId = url.document?.id ?? null
+  const activeFocus = url.document?.focus ?? null
 
   // The URL is the active tab: make sure it is in the open list, and remember where it points
   // so that coming back to it restores the highlight.
@@ -61,11 +64,6 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
     })
   }, [activeDocumentId, activeFocus, setTabs])
 
-  const goToLibrary = useCallback<WorkspaceState['goToLibrary']>(
-    (folderId, options) => go({ tab: { kind: 'library', folderId, q: '' } }, options),
-    [go],
-  )
-
   // Tabs whose documents are gone (deleted here or elsewhere) are closed.
   const known = documents.data
   useEffect(() => {
@@ -73,8 +71,13 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
     const ids = new Set(known.map((document) => document.id))
     if (tabs.open.every((tab) => ids.has(tab.id))) return
     setTabs((store) => ({ v: 1, open: store.open.filter((tab) => ids.has(tab.id)) }))
-    if (activeDocumentId != null && !ids.has(activeDocumentId)) goToLibrary(null, { replace: true })
-  }, [known, tabs.open, activeDocumentId, setTabs, goToLibrary])
+    if (activeDocumentId != null && !ids.has(activeDocumentId)) go({ document: null }, { replace: true })
+  }, [known, tabs.open, activeDocumentId, setTabs, go])
+
+  const goToFolder = useCallback<WorkspaceState['goToFolder']>(
+    (folderId, options) => go({ library: { folderId, q: '' } }, options),
+    [go],
+  )
 
   const openTabs = tabs.open
   const workspace = useMemo<WorkspaceState | null>(() => {
@@ -92,8 +95,8 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
         setTabs((store) =>
           store.open.some((tab) => tab.id === id) ? store : { v: 1, open: [...store.open, { id }] },
         )
-        setMobilePane('files')
-        go({ tab: { kind: 'document', documentId: id, focus } }, options)
+        setMobilePane('document')
+        go({ document: { id, focus } }, options)
       },
       closeTabs(ids) {
         const closing = new Set(ids)
@@ -102,23 +105,16 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
           const index = openTabs.findIndex((tab) => tab.id === activeDocumentId)
           const remaining = openTabs.filter((tab) => !closing.has(tab.id))
           const next = remaining.find((tab) => openTabs.indexOf(tab) > index) ?? remaining.at(-1)
-          if (next) go({ tab: { kind: 'document', documentId: next.id, focus: next.focus ?? null } }, { replace: true })
-          else goToLibrary(null, { replace: true })
+          go({ document: next ? { id: next.id, focus: next.focus ?? null } : null }, { replace: true })
         }
         setTabs((store) => ({ v: 1, open: store.open.filter((tab) => !closing.has(tab.id)) }))
       },
-      setTabView(id, view) {
-        setTabs((store) => ({ v: 1, open: store.open.map((tab) => (tab.id === id ? { ...tab, view } : tab)) }))
-      },
       clearFocus() {
-        if (activeDocumentId != null) {
-          go({ tab: { kind: 'document', documentId: activeDocumentId, focus: null } }, { replace: true })
-        }
+        if (activeDocumentId != null) go({ document: { id: activeDocumentId, focus: null } }, { replace: true })
       },
-      goToLibrary,
+      goToFolder,
       setSearch(q) {
-        const folderId = url.tab.kind === 'library' ? url.tab.folderId : null
-        go({ tab: { kind: 'library', folderId, q } }, { replace: true })
+        go({ library: { folderId: url.library.folderId, q } }, { replace: true })
       },
       openChat(chatId, options) {
         if (chatId === 'new') setMobilePane('chat')
@@ -128,7 +124,7 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
       setMobilePane,
       draggingFiles,
     }
-  }, [project.data, documents.data, documents.isSuccess, folders.data, tree, url, openTabs, activeDocumentId, mobilePane, draggingFiles, go, goToLibrary, setTabs])
+  }, [project.data, documents.data, documents.isSuccess, folders.data, tree, url, openTabs, activeDocumentId, mobilePane, draggingFiles, go, goToFolder, setTabs])
 
   if (project.isPending) return <Loading />
   if (project.isError || !workspace) {
@@ -144,48 +140,53 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
     )
   }
 
+  const hasDocument = activeDocumentId != null
+  // The document pane goes away with its last tab; a narrow screen then shows the library.
+  const shown: Pane = mobilePane === 'document' && !hasDocument ? 'library' : mobilePane
+  // Beside a document the library is a sidebar; alone with the agent it is the main view.
+  const panes: SplitPane[] = [
+    { key: 'library', node: <Library />, share: hasDocument ? 25 : 55, min: 240 },
+    ...(hasDocument ? [{ key: 'document', node: <DocumentPane />, share: 45, min: 360 }] : []),
+    { key: 'chat', node: <ChatPane />, share: hasDocument ? 30 : 45, min: 320 },
+  ]
+
   return (
     <WorkspaceContext value={workspace}>
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex justify-center border-b border-line bg-surface px-3 py-1.5 lg:hidden">
           <Segmented
-            value={mobilePane}
+            value={shown}
             onChange={setMobilePane}
             options={[
-              { value: 'files', label: 'Files', icon: Files },
+              { value: 'library', label: 'Library', icon: LibraryIcon },
+              ...(hasDocument ? [{ value: 'document' as const, label: 'Document', icon: FileText }] : []),
               { value: 'chat', label: 'Chat', icon: MessageSquare },
             ]}
           />
         </div>
         <div className="min-h-0 flex-1">
-          <SplitPane storageKey={SPLIT_KEY} shown={mobilePane === 'files' ? 'left' : 'right'} left={<LeftPane />} right={<ChatPane />} />
+          <SplitPanes storageKey={SPLIT_KEY} shown={shown} panes={panes} />
         </div>
       </div>
     </WorkspaceContext>
   )
 }
 
-/** The tab strip with the Library or the document in front below it. */
-function LeftPane() {
+/** The middle pane: the tab strip with the active document below it. */
+function DocumentPane() {
   const workspace = useWorkspace()
   const { activeDocumentId, url } = workspace
   const document = activeDocumentId == null ? null : workspace.documents.find((d) => d.id === activeDocumentId)
-  const tab = workspace.openTabs.find((t) => t.id === activeDocumentId)
-  const focus: Focus | null = url.tab.kind === 'document' ? url.tab.focus : null
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-page">
       <TabStrip />
       <div className="min-h-0 flex-1">
-        {activeDocumentId == null ? (
-          <Library />
-        ) : document ? (
+        {document ? (
           <DocumentTab
             key={document.id}
             document={document}
-            focus={focus}
-            view={tab?.view ?? defaultView(document)}
-            onViewChange={(view) => workspace.setTabView(document.id, view)}
+            focus={url.document?.focus ?? null}
             onClearFocus={workspace.clearFocus}
           />
         ) : workspace.documentsLoaded ? (
@@ -199,8 +200,6 @@ function LeftPane() {
     </div>
   )
 }
-
-const defaultView = (document: Document): DocView => (isPdf(document) ? 'file' : 'text')
 
 /**
  * Whether files from outside the browser are being dragged over the window. Also stops the

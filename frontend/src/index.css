@@ -20,6 +20,12 @@
   --color-warn: #9a5b06;
   --color-bad: #b42318;
   --color-mark: #fde68a;
+
+  /* File-type icon colours (frontend/src/workspace/files.ts). */
+  --color-file-pdf: #c2410c;
+  --color-file-word: #2b63c1;
+  --color-file-sheet: #1f7a4d;
+  --color-file-image: #8b3fb4;
 }
 
 :root {
@@ -40,6 +46,10 @@
   --color-warn: #e2a850;
   --color-bad: #f1887d;
   --color-mark: #6a5a16;
+  --color-file-pdf: #f1946a;
+  --color-file-word: #8db4f5;
+  --color-file-sheet: #6cc391;
+  --color-file-image: #c892e8;
 }
 
 body {
@@ -75,6 +85,19 @@ mark {
   color: inherit;
   border-radius: 2px;
   padding: 0 1px;
+}
+
+/* A block's text laid over a rendered page: invisible, but selectable, copyable and findable. */
+.page-text {
+  position: absolute;
+  overflow: hidden;
+  color: transparent;
+  line-height: 1;
+  cursor: text;
+}
+.page-text::selection {
+  color: transparent;
+  background: color-mix(in srgb, var(--color-accent) 35%, transparent);
 }
 
 /* Answers arrive as Markdown; these rules give it the spacing a document needs. */

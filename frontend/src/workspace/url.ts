@@ -1,19 +1,28 @@
-// The workspace's URL: which project, which tab is in front on the left, and which chat is open
-// on the right. Nothing else reads or writes the route shape.
+// The workspace's URL: which project, where the library is, which document is open in the middle
+// and which chat is open on the right. Nothing else reads or writes the route shape.
 
 import { useCallback, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 
-/** What a document tab is opened at: a cited passage, a block of its text, or a page. */
+/** What a document is opened at: a cited passage, a block of its text, or a page. */
 export type Focus = { passage: number } | { block: number } | { page: number }
 
-export type Tab =
-  | { kind: 'library'; folderId: number | null; q: string }
-  | { kind: 'document'; documentId: number; focus: Focus | null }
+/** The folder the library shows, and the search running in it. */
+export interface LibraryView {
+  folderId: number | null
+  q: string
+}
+
+export interface OpenDocument {
+  id: number
+  focus: Focus | null
+}
 
 export interface WorkspaceUrl {
   projectId: number
-  tab: Tab
+  library: LibraryView
+  /** The document in the middle pane; null leaves the library and the agent side by side. */
+  document: OpenDocument | null
   chatId: number | 'new' | null
   /** False for an old URL shape (/ask, /search) that should be rewritten to the current one. */
   canonical: boolean
@@ -29,14 +38,14 @@ export function parseWorkspaceUrl(pathname: string, search: string): WorkspaceUr
   const params = new URLSearchParams(search)
   const chat = params.get('chat')
   let chatId: WorkspaceUrl['chatId'] = chat === 'new' ? 'new' : id(chat)
-  const library: Tab = { kind: 'library', folderId: id(params.get('folder')), q: params.get('q') ?? '' }
+  const library: LibraryView = { folderId: id(params.get('folder')), q: params.get('q') ?? '' }
 
-  let tab: Tab = library
+  let document: OpenDocument | null = null
   let canonical = true
-  const document = /^documents\/(\d+)$/.exec(rest)
+  const opened = /^documents\/(\d+)$/.exec(rest)
   const legacyChat = /^ask(?:\/(\d+|new))?$/.exec(rest)
-  if (document) {
-    tab = { kind: 'document', documentId: Number(document[1]), focus: parseFocus(params) }
+  if (opened) {
+    document = { id: Number(opened[1]), focus: parseFocus(params) }
   } else if (legacyChat) {
     canonical = false
     chatId = legacyChat[1] === 'new' ? 'new' : (id(legacyChat[1] ?? null) ?? chatId)
@@ -45,7 +54,7 @@ export function parseWorkspaceUrl(pathname: string, search: string): WorkspaceUr
   } else if (rest !== '') {
     return null
   }
-  return { projectId, tab, chatId, canonical }
+  return { projectId, library, document, chatId, canonical }
 }
 
 function parseFocus(params: URLSearchParams): Focus | null {
@@ -64,17 +73,16 @@ function id(value: string | null): number | null {
 export function buildWorkspaceUrl(url: Omit<WorkspaceUrl, 'canonical'>): string {
   const params = new URLSearchParams()
   let path = `/projects/${url.projectId}`
-  if (url.tab.kind === 'document') {
-    path += `/documents/${url.tab.documentId}`
-    const focus = url.tab.focus
+  if (url.library.folderId != null) params.set('folder', String(url.library.folderId))
+  if (url.library.q) params.set('q', url.library.q)
+  if (url.document) {
+    path += `/documents/${url.document.id}`
+    const focus = url.document.focus
     if (focus) {
       if ('passage' in focus) params.set('passage', String(focus.passage))
       else if ('block' in focus) params.set('block', String(focus.block))
       else params.set('page', String(focus.page))
     }
-  } else {
-    if (url.tab.folderId != null) params.set('folder', String(url.tab.folderId))
-    if (url.tab.q) params.set('q', url.tab.q)
   }
   if (url.chatId != null) params.set('chat', String(url.chatId))
   const query = params.toString()

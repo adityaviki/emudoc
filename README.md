@@ -33,11 +33,13 @@ answer keeps streaming while you look at another tab.
 
 A project opens as two panes. On the left is the **library**: the project's documents filed in
 folders, with the usual file-manager moves (new folder, rename, drag to move, delete, upload by
-button or by dropping files, search). Opening a file adds a **tab** beside the Library tab, and
-the tabs stay open across reloads. PDFs open in the browser's own viewer, with the extracted text
-and rendered pages a toggle away; spreadsheets show one tab per sheet; images show the picture
-above the text read from it. On the right is the **agent**. Clicking a citation in an answer opens
-the cited document on the left at that passage. The agent sees the folders too: ask about
+button or by dropping files, search). Opening a file adds a third pane in the middle, the
+**document**, with a tab for each open file; the tabs stay open across reloads, and closing the
+last one leaves the library and the agent side by side again. PDFs show their rendered pages with
+the extracted text laid invisibly over them, so it can be selected and searched; spreadsheets show
+one tab per sheet; images show the picture above the text read from it. On the right is the **agent**. Clicking
+a citation in an answer opens the cited document in the middle at that passage, with the library
+still beside it. The agent sees the folders too: ask about
 "the invoices in Finance/2026" and `list_documents`, `search` and `query_facts` work within that
 folder.
 

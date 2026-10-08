@@ -5,9 +5,8 @@ import { api, fileUrl, isImage, isPdf, isSheet, pageImageUrl, pageLabel, section
 import type { Block, Document, DocumentContent, Section } from '../api.ts'
 import { IndexingStatus } from '../components/IndexingStatus.tsx'
 import { PipeTable } from '../components/Markdown.tsx'
-import { Chip, IconButton, Loading, Notice, Segmented } from '../components/ui.tsx'
+import { Chip, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { formatDate, parsePipeTable } from '../format.ts'
-import type { DocView } from './state.ts'
 import { useWorkspace } from './state.ts'
 import type { Focus } from './url.ts'
 
@@ -20,13 +19,11 @@ interface BlockFocus {
 interface DocumentTabProps {
   document: Document
   focus: Focus | null
-  view: DocView
-  onViewChange: (view: DocView) => void
   onClearFocus: () => void
 }
 
-/** One open document: its file, or its extracted text with the outline beside it. */
-export function DocumentTab({ document, focus, view, onViewChange, onClearFocus }: DocumentTabProps) {
+/** One open document: a PDF's rendered pages, or anything else's extracted text with the outline beside it. */
+export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps) {
   const workspace = useWorkspace()
   const [outlineOpen, setOutlineOpen] = useState(true)
   const status = document.status
@@ -61,19 +58,17 @@ export function DocumentTab({ document, focus, view, onViewChange, onClearFocus 
     content.data?.blocks.find((block) => block.ordinal === focusStart)?.page ??
     (focus && 'page' in focus ? focus.page : undefined)
 
-  const pdf = isPdf(document)
-  // Only PDFs have a file view and rendered pages, and those are all they offer: a PDF's text
-  // view is not shown (a tab saved with it before falls back to pages). Everything else shows its text.
-  const shown: DocView = pdf ? (view === 'text' ? 'pages' : view) : 'text'
+  // A PDF shows its rendered pages, with the text laid over them; everything else shows its text.
+  const pages = isPdf(document)
 
   const loaded = content.isSuccess
   useEffect(() => {
-    if (focusStart == null || !loaded || shown === 'file') return
-    const target = shown === 'pages' ? `page-${focusPage}` : `block-${focusStart}`
+    if (focusStart == null || !loaded) return
+    const target = pages ? `page-${focusPage}` : `block-${focusStart}`
     window.document.getElementById(target)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  }, [focusStart, focusPage, loaded, shown])
+  }, [focusStart, focusPage, loaded, pages])
 
-  const hasOutline = shown === 'text' && !isImage(document) && !isSheet(document)
+  const hasOutline = !pages && !isImage(document) && !isSheet(document)
   const focusLabel =
     passage.data && blockFocus
       ? [sectionPath(passage.data.context, passage.data.document_title), pageLabel(passage.data.page_start, passage.data.page_end)]
@@ -106,16 +101,6 @@ export function DocumentTab({ document, focus, view, onViewChange, onClearFocus 
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
-            {pdf && (
-              <Segmented
-                value={shown}
-                onChange={onViewChange}
-                options={[
-                  { value: 'file', label: 'Viewer' },
-                  { value: 'pages', label: 'Pages' },
-                ]}
-              />
-            )}
             {hasOutline && outline.data && outline.data.length > 0 && (
               <IconButton label={outlineOpen ? 'Hide outline' : 'Show outline'} onClick={() => setOutlineOpen((open) => !open)}>
                 <ListTree className="size-4" />
@@ -142,9 +127,7 @@ export function DocumentTab({ document, focus, view, onViewChange, onClearFocus 
         )}
       </header>
 
-      {shown === 'file' && pdf ? (
-        <PdfFrame document={document} page={focusPage ?? 1} muted={workspace.draggingFiles} />
-      ) : !indexed ? (
+      {!indexed ? (
         <div className="p-4">
           <Notice tone={document.status === 'failed' ? 'bad' : 'info'}>
             {document.status === 'failed'
@@ -159,7 +142,7 @@ export function DocumentTab({ document, focus, view, onViewChange, onClearFocus 
         <div className="p-4">
           <Notice tone="bad">Could not load the text: {content.error.message}</Notice>
         </div>
-      ) : shown === 'pages' ? (
+      ) : pages ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
           <PagesView document={document} content={content.data} focus={blockFocus} />
         </div>
@@ -191,22 +174,6 @@ export function DocumentTab({ document, focus, view, onViewChange, onClearFocus 
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-/** The browser's own PDF viewer, opened at a page. */
-function PdfFrame({ document, page, muted }: { document: Document; page: number; muted: boolean }) {
-  return (
-    // The viewer swallows drag events, so it is switched off while files are dragged over the window.
-    <div className={`min-h-0 flex-1 bg-sunken ${muted ? 'pointer-events-none' : ''}`}>
-      <iframe
-        // Chrome's viewer ignores a changed #page on a loaded document; a new frame takes it.
-        key={`${document.id}:${page}`}
-        src={`${fileUrl(document.id)}#page=${page}`}
-        title={document.filename}
-        className="size-full border-0"
-      />
     </div>
   )
 }
@@ -314,41 +281,51 @@ interface PagesViewProps {
   focus: BlockFocus | null
 }
 
-/** The rendered pages, with the focused blocks marked where they sit on the page. */
+/**
+ * The rendered pages. Each block's text lies invisibly over its place on the page, so the text
+ * can be selected, copied and found; the focused blocks are marked where they sit.
+ */
 function PagesView({ document, content, focus }: PagesViewProps) {
   return (
     <div className="space-y-4 bg-sunken p-4">
       {content.page_sizes.map(([width, height], index) => {
         const page = index + 1
-        const marked = content.blocks.filter(
-          (block) => block.page === page && block.bbox && inFocus(block, focus),
-        )
+        const placed = content.blocks.filter((block) => block.page === page && block.bbox)
         return (
           <div
             key={page}
             id={`page-${page}`}
-            className="relative mx-auto max-w-3xl overflow-hidden rounded border border-line bg-white shadow-sm"
+            className="relative mx-auto max-w-3xl overflow-hidden rounded border border-line bg-white shadow-sm @container"
             style={{ aspectRatio: `${width} / ${height}` }}
           >
             <img
               src={pageImageUrl(document.id, page)}
               alt={`Page ${page}`}
               loading="lazy"
-              className="size-full"
+              draggable={false}
+              className="size-full select-none"
             />
-            {marked.map((block) => {
+            {placed.map((block) => {
               const [x0, top, x1, bottom] = block.bbox!
+              const box = {
+                left: `${(x0 / width) * 100}%`,
+                top: `${(top / height) * 100}%`,
+                width: `${((x1 - x0) / width) * 100}%`,
+                height: `${((bottom - top) / height) * 100}%`,
+              }
               return (
-                <div
-                  key={block.ordinal}
-                  className="absolute rounded-sm bg-amber-300/45 mix-blend-multiply"
-                  style={{
-                    left: `${(x0 / width) * 100}%`,
-                    top: `${(top / height) * 100}%`,
-                    width: `${((x1 - x0) / width) * 100}%`,
-                    height: `${((bottom - top) / height) * 100}%`,
-                  }}
-                />
+                <Fragment key={block.ordinal}>
+                  <span
+                    className="page-text"
+                    // Sized in container units so the text scales with the page.
+                    style={{ ...box, fontSize: `${(fitFontSize(block.text, x1 - x0, bottom - top) / width) * 100}cqw` }}
+                  >
+                    {block.text}
+                  </span>
+                  {inFocus(block, focus) && (
+                    <div className="pointer-events-none absolute rounded-sm bg-amber-300/45 mix-blend-multiply" style={box} />
+                  )}
+                </Fragment>
               )
             })}
           </div>
@@ -356,6 +333,15 @@ function PagesView({ document, content, focus }: PagesViewProps) {
       })}
     </div>
   )
+}
+
+/**
+ * A font size at which `text` about fills a box of `width` x `height`, in the box's units. Taking
+ * a glyph as 0.5em wide and a line as 1em tall, the glyphs cover 0.5·size² each, so size² ≈ area / (0.5·n).
+ */
+function fitFontSize(text: string, width: number, height: number): number {
+  const chars = Math.max(1, text.length)
+  return Math.min(height, Math.sqrt((width * height) / (0.5 * chars)))
 }
 
 interface Sheet {
