@@ -70,30 +70,32 @@ function ChatHeader({ chats, activeId }: { chats: Chat[]; activeId: number | nul
   const close = () => setAnchor(null)
 
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-line bg-surface px-3 py-1.5">
+    <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line bg-surface px-3">
       <button
         ref={button}
         type="button"
         aria-haspopup="menu"
         aria-expanded={anchor !== null}
         onClick={(event) => setAnchor(anchor ? null : event.currentTarget.getBoundingClientRect())}
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-sunken"
+        className="flex h-7 min-w-0 max-w-full items-center gap-2 rounded-md px-2 text-left text-[13px] transition hover:bg-sunken"
       >
         <MessagesSquare className="size-4 shrink-0 text-muted" />
         <span className="min-w-0 truncate font-medium">{title}</span>
-        <ChevronDown className="size-4 shrink-0 text-muted" />
+        <ChevronDown className="size-3.5 shrink-0 text-muted" />
       </button>
+      <span className="flex-1" />
       <Button
+        variant="ghost"
         icon={<Plus className="size-4" />}
         disabled={activeId === null}
         onClick={() => workspace.openChat('new')}
       >
-        New
+        New chat
       </Button>
       {anchor && (
         <Floating anchor={anchor} onClose={close} ignore={button} className="w-80 max-w-[90vw]">
           {chats.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-muted">No chats yet. Ask a question to start one.</p>
+            <p className="px-3 py-2.5 text-[13px] text-muted">No chats yet. Ask a question to start one.</p>
           ) : (
             <ul className="max-h-80 space-y-0.5 overflow-y-auto p-1">
               {chats.map((chat) => (
@@ -149,7 +151,7 @@ function ChatRow({ chat, active, onOpen }: { chat: Chat; active: boolean; onOpen
           defaultValue={chat.title}
           maxLength={200}
           aria-label="Chat title"
-          className="min-w-0 flex-1 rounded-md border border-accent bg-surface px-2 py-1 text-sm outline-none"
+          className="field min-w-0 flex-1 px-2 py-1 text-[13px]"
           onBlur={(event) => commitTitle(event.target.value)}
           onKeyDown={(event) => {
             event.stopPropagation()
@@ -165,7 +167,7 @@ function ChatRow({ chat, active, onOpen }: { chat: Chat; active: boolean; onOpen
             onOpen()
           }}
           title={title}
-          className="min-w-0 flex-1 truncate px-2.5 py-1.5 text-left text-sm"
+          className="min-w-0 flex-1 truncate px-2.5 py-1.5 text-left text-[13px]"
         >
           {title}
         </button>
@@ -255,8 +257,8 @@ function Conversation({ chatId }: { chatId: number | null }) {
   const unavailable = health.data && !health.data.llm.available
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto px-4">
-        <div className="mx-auto max-w-3xl space-y-5 py-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5">
+        <div className="mx-auto max-w-3xl space-y-6 py-5">
           {unavailable && (
             <Notice>
               The AI model is not configured. {health.data?.llm.error} Then restart the backend to ask
@@ -273,21 +275,25 @@ function Conversation({ chatId }: { chatId: number | null }) {
             </Notice>
           )}
           {!loading && !chat.isError && messages.length === 0 && (
-            <div className="pt-10 text-center">
-              <p className="font-medium">Ask about the documents in {project.name}</p>
-              <p className="mt-1 text-sm text-muted">
+            <div className="mx-auto max-w-md pt-12 text-center">
+              <div className="mx-auto mb-4 flex size-11 items-center justify-center rounded-xl bg-accent-soft text-accent">
+                <MessagesSquare className="size-5" />
+              </div>
+              <p className="text-base font-semibold tracking-tight">Ask about the documents in {project.name}</p>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
                 Answers are read from the documents and cite the passages they rely on. Citations open
                 the document in the library.
               </p>
-              <div className="mt-5 flex flex-col items-center gap-2">
+              <div className="mt-6 flex flex-col gap-2 text-left">
                 {SUGGESTIONS.map((suggestion) => (
                   <button
                     key={suggestion}
                     onClick={() => send(suggestion)}
                     disabled={unavailable}
-                    className="rounded-full border border-line bg-surface px-3.5 py-1.5 text-sm transition hover:border-accent disabled:opacity-50"
+                    className="flex items-center justify-between gap-3 rounded-lg border border-line bg-surface px-3.5 py-2.5 text-[13px] shadow-xs transition hover:border-ink/15 hover:bg-sunken/50 disabled:opacity-50"
                   >
                     {suggestion}
+                    <ArrowUp className="size-3.5 shrink-0 rotate-45 text-muted" />
                   </button>
                 ))}
               </div>
@@ -296,7 +302,7 @@ function Conversation({ chatId }: { chatId: number | null }) {
           {messages.map((message, index) =>
             message.role === 'user' ? (
               <div key={index} className="flex justify-end">
-                <p className="max-w-[85%] rounded-2xl rounded-br-sm bg-accent-soft px-4 py-2 whitespace-pre-wrap">
+                <p className="max-w-[85%] rounded-2xl rounded-br-md bg-accent-soft px-4 py-2.5 leading-relaxed whitespace-pre-wrap">
                   {message.content}
                 </p>
               </div>
@@ -308,14 +314,14 @@ function Conversation({ chatId }: { chatId: number | null }) {
         </div>
       </div>
 
-      <div className="shrink-0 px-4 pb-3">
+      <div className="shrink-0 px-5 pb-4">
         <div className="mx-auto w-full max-w-3xl">
           {create.isError && (
             <div className="mb-2">
               <Notice tone="bad">Could not start a chat: {create.error.message}</Notice>
             </div>
           )}
-          <div className="flex min-w-0 items-end gap-2 rounded-xl border border-line bg-surface p-2 focus-within:border-accent">
+          <div className="flex min-w-0 items-end gap-2 rounded-xl border border-line bg-surface p-2 shadow-xs transition focus-within:border-accent focus-within:ring-3 focus-within:ring-accent/15">
             <textarea
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
@@ -323,22 +329,27 @@ function Conversation({ chatId }: { chatId: number | null }) {
               rows={Math.min(6, draft.split('\n').length)}
               placeholder="Ask a question about these documents"
               disabled={chat.isError}
-              className="max-h-40 min-w-0 flex-1 resize-none bg-transparent px-2 py-1 outline-none"
+              className="max-h-40 min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 outline-none placeholder:text-muted/70"
             />
             {streaming ? (
               <Button icon={<Square className="size-3.5" />} onClick={() => chatId != null && stop(chatId)}>
                 Stop
               </Button>
             ) : (
-              <Button
-                variant="primary"
+              <button
+                type="button"
                 aria-label="Send"
                 disabled={!draft.trim() || unavailable || loading || chat.isError || create.isPending}
                 onClick={() => send(draft)}
-                icon={<ArrowUp className="size-4" />}
-              />
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-ink shadow-xs transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ArrowUp className="size-4" strokeWidth={2.25} />
+              </button>
             )}
           </div>
+          <p className="mt-2 text-center text-[11px] text-muted/80">
+            Enter to send · Shift+Enter for a new line
+          </p>
         </div>
       </div>
     </div>
@@ -381,16 +392,22 @@ function Answer({ message, onOpen }: { message: Message; onOpen: (source: Source
       {message.notice && <p className="text-sm text-muted">{message.notice}</p>}
       {message.error && <Notice tone="bad">{message.error}</Notice>}
       {cited.length > 0 && (
-        <ol className="space-y-0.5 border-t border-line pt-2 text-xs text-muted">
-          {cited.map((id) => (
-            <li key={id}>
-              <button onClick={() => onOpen(message.sources[id])} className="flex gap-2 text-left hover:text-ink">
-                <span className="font-semibold text-accent">{numberOf(id)}</span>
-                {sourceLabel(message.sources[id])}
-              </button>
-            </li>
-          ))}
-        </ol>
+        <div className="border-t border-line pt-2.5">
+          <p className="mb-1 text-[11px] font-medium tracking-wide text-muted uppercase">Sources</p>
+          <ol className="space-y-0.5 text-xs text-muted">
+            {cited.map((id) => (
+              <li key={id}>
+                <button
+                  onClick={() => onOpen(message.sources[id])}
+                  className="flex gap-2 rounded px-1 py-0.5 -mx-1 text-left transition hover:bg-sunken hover:text-ink"
+                >
+                  <span className="w-3 shrink-0 font-semibold text-accent tabular-nums">{numberOf(id)}</span>
+                  {sourceLabel(message.sources[id])}
+                </button>
+              </li>
+            ))}
+          </ol>
+        </div>
       )}
     </div>
   )
@@ -422,15 +439,15 @@ function CitationChip({ number, source, onOpen }: { number: number; source: Sour
         onFocus={show}
         onBlur={hide}
         title={sourceLabel(source)}
-        className="ml-0.5 inline-flex size-5 items-center justify-center rounded bg-accent-soft align-text-top text-xs font-semibold text-accent hover:bg-accent hover:text-white"
+        className="ml-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded bg-accent-soft px-1 align-text-top text-[11px] font-semibold text-accent transition hover:bg-accent hover:text-accent-ink"
       >
         {number}
       </button>
       {anchor && (
         <Floating anchor={anchor} onClose={() => setAnchor(null)} ignore={chip} className="w-96 max-w-[90vw]">
-          <div onMouseEnter={show} onMouseLeave={hide} className="text-sm">
-            <div className="border-b border-line px-3 py-2">
-              <p className="truncate font-medium">{source.document_title}</p>
+          <div onMouseEnter={show} onMouseLeave={hide} className="text-[13px]">
+            <div className="border-b border-line bg-sunken/50 px-3 py-2">
+              <p className="truncate font-semibold">{source.document_title}</p>
               <p className="text-xs text-muted">
                 {[sectionPath(source.context, source.document_title), pageLabel(source.page_start, source.page_end)]
                   .filter(Boolean)
@@ -503,8 +520,8 @@ function StepLine({ step }: { step: Step }) {
   const Icon = STEP_ICONS[step.name] ?? Search
   const running = step.summary === undefined
   return (
-    <li className="flex items-start gap-2 text-sm text-muted">
-      {running ? <Spinner className="mt-0.5 size-4 shrink-0" /> : <Icon className="mt-0.5 size-4 shrink-0" />}
+    <li className="flex items-start gap-2 text-[13px] text-muted">
+      {running ? <Spinner className="mt-0.5 size-3.5 shrink-0" /> : <Icon className="mt-0.5 size-3.5 shrink-0" />}
       <span className="min-w-0">
         {describeStep(step)}
         {step.summary && (

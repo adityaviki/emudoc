@@ -104,21 +104,9 @@ export function Library() {
         uploadFiles([...event.dataTransfer.files], folderId)
       }}
     >
-      <div className="shrink-0 space-y-2 border-b border-line bg-surface px-3 py-2">
-        <Breadcrumb folderId={folderId} mutations={mutations} dragging={dragging} onUpload={uploadFiles} />
-        <div className="flex flex-wrap items-center gap-2">
-          <Button icon={<FolderPlus className="size-4" />} onClick={() => setCreating(true)} disabled={!!query}>
-            New folder
-          </Button>
-          <Button
-            icon={mutations.upload.isPending ? <Spinner /> : <Upload className="size-4" />}
-            onClick={() => fileInput.current?.click()}
-            disabled={mutations.upload.isPending}
-            title={ACCEPTED_TYPES_LABEL}
-          >
-            {mutations.upload.isPending ? 'Uploading…' : 'Upload'}
-          </Button>
-          <SearchBox query={query} scope={folderId == null ? null : currentName} />
+      <div className="shrink-0 border-b border-line bg-surface">
+        <div className="flex h-11 items-center justify-between gap-2 px-3">
+          <Breadcrumb folderId={folderId} mutations={mutations} dragging={dragging} onUpload={uploadFiles} />
           <Segmented
             value={view}
             onChange={setView}
@@ -127,6 +115,25 @@ export function Library() {
               { value: 'list', label: 'List', icon: List },
             ]}
           />
+        </div>
+        <div className="flex items-center gap-2 px-3 pb-2.5">
+          <SearchBox query={query} scope={folderId == null ? null : currentName} />
+          <Button
+            icon={<FolderPlus className="size-4" />}
+            onClick={() => setCreating(true)}
+            disabled={!!query}
+            title="New folder"
+            aria-label="New folder"
+            className="px-2"
+          />
+          <Button
+            icon={mutations.upload.isPending ? <Spinner /> : <Upload className="size-4" />}
+            onClick={() => fileInput.current?.click()}
+            disabled={mutations.upload.isPending}
+            title={ACCEPTED_TYPES_LABEL}
+          >
+            {mutations.upload.isPending ? 'Uploading…' : 'Upload'}
+          </Button>
         </div>
       </div>
 
@@ -209,11 +216,13 @@ export function Library() {
       />
 
       {workspace.draggingFiles && overPane && (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-page/70 p-4">
-          <div className="rounded-lg border-2 border-dashed border-accent bg-surface px-6 py-4 text-center text-sm shadow-sm">
-            <Upload className="mx-auto mb-1 size-5 text-accent" />
-            Drop to upload into <span className="font-medium">{currentName}</span>
-            <p className="text-xs text-muted">or onto a folder</p>
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-page/80 p-4 backdrop-blur-xs">
+          <div className="rounded-xl border-2 border-dashed border-accent/60 bg-surface px-8 py-6 text-center text-sm shadow-lg shadow-ink/5">
+            <div className="mx-auto mb-3 flex size-10 items-center justify-center rounded-full bg-accent-soft text-accent">
+              <Upload className="size-5" />
+            </div>
+            Drop to upload into <span className="font-semibold">{currentName}</span>
+            <p className="mt-0.5 text-xs text-muted">or onto a folder</p>
           </div>
         </div>
       )}
@@ -238,12 +247,12 @@ function Breadcrumb({ folderId, mutations, dragging, onUpload }: BreadcrumbProps
   const [over, setOver] = useState<number | null | 'none'>('none')
 
   return (
-    <nav aria-label="Folder path" className="flex min-w-0 flex-wrap items-center gap-0.5 text-sm">
+    <nav aria-label="Folder path" className="flex min-w-0 flex-wrap items-center gap-0.5 text-[13px]">
       {crumbs.map((crumb, index) => {
         const last = index === crumbs.length - 1
         return (
           <span key={crumb.id ?? 'root'} className="flex min-w-0 items-center gap-0.5">
-            {index > 0 && <ChevronRight className="size-3.5 shrink-0 text-muted" />}
+            {index > 0 && <ChevronRight className="size-3.5 shrink-0 text-muted/60" />}
             <button
               type="button"
               disabled={last}
@@ -270,7 +279,7 @@ function Breadcrumb({ folderId, mutations, dragging, onUpload }: BreadcrumbProps
                   onUpload([...event.dataTransfer.files], crumb.id)
                 }
               }}
-              className={`max-w-48 truncate rounded px-1.5 py-0.5 ${
+              className={`h-6.5 max-w-48 truncate rounded-md px-1.5 transition ${
                 last ? 'font-semibold text-ink' : 'text-muted hover:bg-sunken hover:text-ink'
               } ${over !== 'none' && over === crumb.id ? 'bg-accent-soft text-accent ring-1 ring-accent' : ''}`}
             >
@@ -317,7 +326,7 @@ function SearchBox({ query, scope }: { query: string; scope: string | null }) {
 
   return (
     <div className="relative min-w-40 flex-1">
-      <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted" />
+      <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted" />
       <input
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
@@ -326,14 +335,14 @@ function SearchBox({ query, scope }: { query: string; scope: string | null }) {
         }}
         placeholder={scope ? `Search in ${scope}` : 'Search the project'}
         aria-label="Search"
-        className="w-full rounded-md border border-line bg-surface py-1.5 pr-8 pl-8 text-sm outline-none focus:border-accent"
+        className="field h-8 pr-8 pl-8 text-[13px]"
       />
       {draft && (
         <button
           type="button"
           aria-label="Clear search"
           onClick={() => setDraft('')}
-          className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5 text-muted hover:text-ink"
+          className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5 text-muted transition hover:bg-sunken hover:text-ink"
         >
           <X className="size-3.5" />
         </button>
@@ -633,13 +642,13 @@ function Listing({
       onClick={(event) => {
         if (event.target === event.currentTarget) setSelected(new Set())
       }}
-      className={`min-h-0 flex-1 overflow-y-auto p-2 outline-none ${
-        view === 'grid' ? 'grid grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))] content-start gap-1' : ''
+      className={`min-h-0 flex-1 overflow-y-auto p-3 outline-none ${
+        view === 'grid' ? 'grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] content-start gap-1' : 'space-y-px'
       }`}
     >
       {empty && (
         <div className="col-span-full">
-          <EmptyState icon={<FolderIcon className="size-8" />} title={folderId == null ? 'This library is empty' : 'This folder is empty'}>
+          <EmptyState icon={<FolderIcon />} title={folderId == null ? 'This library is empty' : 'This folder is empty'}>
             Upload files or drop them here. Each one is parsed, outlined and indexed in the background.
             <br />
             {ACCEPTED_TYPES_LABEL}.
@@ -727,7 +736,7 @@ interface RowProps {
 }
 
 function ItemIcon({ item, className }: { item: Item; className: string }) {
-  if (item.kind === 'folder') return <FolderIcon className={`${className} fill-accent/20 text-accent`} />
+  if (item.kind === 'folder') return <FolderIcon className={`${className} fill-accent/15 text-accent`} />
   const kind = fileKind(item.document)
   return createElement(kind.icon, { className: `${className} ${kind.color}`, 'aria-label': kind.label })
 }
@@ -775,7 +784,7 @@ function Row(props: RowProps) {
     <IconButton
       label="More actions"
       className={`shrink-0 ${selected ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'} ${
-        grid ? 'absolute top-1 right-1 p-1!' : ''
+        grid ? 'absolute top-1.5 right-1.5 size-6!' : ''
       }`}
       onClick={(event) => {
         event.stopPropagation()
@@ -789,7 +798,7 @@ function Row(props: RowProps) {
   if (grid) {
     const status = item.kind === 'file' ? tileStatus(item.document) : null
     return (
-      <div {...handlers} className={`group relative flex flex-col items-center gap-1.5 rounded-md px-2 pt-3 pb-2 text-sm select-none ${state}`}>
+      <div {...handlers} className={`group relative flex flex-col items-center gap-2 rounded-lg px-2 pt-4 pb-3 text-[13px] transition-colors select-none ${state}`}>
         <ItemIcon item={item} className="size-10 shrink-0" />
         <div className="w-full min-w-0 text-center">
           {renaming ? (
@@ -799,7 +808,7 @@ function Row(props: RowProps) {
               <p className="line-clamp-2 leading-snug font-medium break-words" title={name}>
                 {name}
               </p>
-              <p className={`truncate text-xs ${status?.tone ?? 'text-muted'}`}>
+              <p className={`mt-0.5 truncate text-[11px] ${status?.tone ?? 'text-muted'}`}>
                 {item.kind === 'folder' ? `${folderCount ?? 0} item${folderCount === 1 ? '' : 's'}` : (status?.text ?? item.document.doc_type ?? '')}
               </p>
             </>
@@ -811,8 +820,8 @@ function Row(props: RowProps) {
   }
 
   return (
-    <div {...handlers} className={`group flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm select-none ${state}`}>
-      <ItemIcon item={item} className="size-4.5 shrink-0" />
+    <div {...handlers} className={`group flex items-center gap-3 rounded-md px-2.5 py-1.5 text-[13px] transition-colors select-none ${state}`}>
+      <ItemIcon item={item} className="size-5 shrink-0" />
       <div className="min-w-0 flex-1">
         {renaming ? (
           <RenameInput value={name} isFile={item.kind === 'file'} onCommit={props.onRename} onCancel={props.onCancelRename} />
@@ -878,7 +887,7 @@ function RenameInput({ value, isFile, onCommit, onCancel }: RenameInputProps) {
       onBlur={(event) => {
         if (!cancelled.current) onCommit(event.target.value)
       }}
-      className="w-full rounded border border-accent bg-surface px-1.5 py-0.5 text-sm outline-none"
+      className="field rounded px-1.5 py-0.5 text-[13px]"
     />
   )
 }
@@ -894,15 +903,15 @@ function GhostFolderRow({ view, onCommit, onCancel }: GhostFolderRowProps) {
   const input = <RenameInput value="New folder" isFile={false} onCommit={onCommit} onCancel={onCancel} />
   if (view === 'grid') {
     return (
-      <div className="flex flex-col items-center gap-1.5 rounded-md bg-accent-soft px-2 pt-3 pb-2 text-sm">
-        <FolderIcon className="size-10 shrink-0 fill-accent/20 text-accent" />
+      <div className="flex flex-col items-center gap-2 rounded-lg bg-accent-soft px-2 pt-4 pb-3 text-[13px]">
+        <FolderIcon className="size-10 shrink-0 fill-accent/15 text-accent" />
         <div className="w-full min-w-0">{input}</div>
       </div>
     )
   }
   return (
-    <div className="flex items-center gap-2.5 rounded-md bg-accent-soft px-2 py-1.5 text-sm">
-      <FolderIcon className="size-4.5 shrink-0 fill-accent/20 text-accent" />
+    <div className="flex items-center gap-3 rounded-md bg-accent-soft px-2.5 py-1.5 text-[13px]">
+      <FolderIcon className="size-5 shrink-0 fill-accent/15 text-accent" />
       <div className="min-w-0 flex-1">{input}</div>
     </div>
   )
@@ -951,10 +960,10 @@ function Hit({ hit, onOpen }: { hit: SearchHit; onOpen: () => void }) {
     <button
       type="button"
       onClick={onOpen}
-      className="block w-full rounded-lg border border-line bg-surface px-4 py-3 text-left transition hover:border-accent"
+      className="block w-full rounded-lg border border-line bg-surface px-4 py-3 text-left shadow-xs transition hover:border-ink/15 hover:shadow-sm"
     >
       <div className="flex items-baseline justify-between gap-3">
-        <p className="min-w-0 truncate font-medium">
+        <p className="min-w-0 truncate text-[13px] font-semibold">
           {hit.document_title}
           {hit.doc_type && (
             <span className="ml-2 align-middle">
@@ -962,12 +971,12 @@ function Hit({ hit, onOpen }: { hit: SearchHit; onOpen: () => void }) {
             </span>
           )}
         </p>
-        <span className="shrink-0 text-xs text-muted" title="How this passage was found">
+        <span className="shrink-0 text-[11px] text-muted" title="How this passage was found">
           {found}
         </span>
       </div>
-      {location && <p className="text-xs text-muted">{location}</p>}
-      <p className="mt-1.5 text-sm">
+      {location && <p className="mt-0.5 text-xs text-muted">{location}</p>}
+      <p className="mt-2 text-[13px] leading-relaxed text-ink/90">
         {hit.snippet.map((segment, index) =>
           segment.match ? <mark key={index}>{segment.text}</mark> : <span key={index}>{segment.text}</span>,
         )}

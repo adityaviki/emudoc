@@ -31,14 +31,14 @@ export function IndexingStatus({ document }: { document: Document }) {
   return (
     <div>
       <div className="flex items-center gap-2">
-        <span className="flex gap-1">
+        <span className="flex gap-0.75">
           {STAGES.map((name) => {
             const stage = document.stages[name] ?? { status: 'pending', detail: '' }
             return (
               <span
                 key={name}
                 title={`${STAGE_LABELS[name]}: ${stage.status}${stage.detail ? ` (${stage.detail})` : ''}`}
-                className={`size-2 rounded-full ${DOT_TONES[stage.status]}`}
+                className={`size-1.5 rounded-full ${DOT_TONES[stage.status]}`}
               />
             )
           })}

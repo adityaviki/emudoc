@@ -14,14 +14,14 @@ function App() {
     <div className="flex h-dvh flex-col overflow-hidden">
       <header className="shrink-0 border-b border-line bg-surface">
         <div className="flex h-12 items-center justify-between gap-4 px-4">
-          <div className="flex min-w-0 items-center gap-2">
-            <Link to="/" className="flex shrink-0 items-center gap-2 font-semibold tracking-tight">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Link to="/" className="flex shrink-0 items-center gap-2 rounded-md px-1 text-[15px] font-semibold tracking-tight">
               <img src="/favicon.svg" alt="" className="size-5" />
               Paperless
             </Link>
             <ProjectSwitcher />
           </div>
-          <div className="flex shrink-0 items-center gap-4">
+          <div className="flex shrink-0 items-center gap-3">
             <ServiceStatus />
             <ThemeToggle />
           </div>
@@ -64,17 +64,21 @@ function ProjectSwitcher() {
 
   return (
     <>
-      <span className="text-muted">/</span>
+      <span className="text-line select-none" aria-hidden>
+        <svg width="12" height="20" viewBox="0 0 12 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M9 2 3 18" />
+        </svg>
+      </span>
       <button
         ref={button}
         type="button"
         aria-haspopup="menu"
         aria-expanded={anchor !== null}
         onClick={(event) => setAnchor(anchor ? null : event.currentTarget.getBoundingClientRect())}
-        className="flex min-w-0 items-center gap-1 rounded-md px-2 py-1 text-sm font-medium hover:bg-sunken"
+        className="flex h-7 min-w-0 items-center gap-1 rounded-md px-2 text-[13px] font-medium transition hover:bg-sunken"
       >
         <span className="truncate">{current?.name ?? '…'}</span>
-        <ChevronDown className="size-4 shrink-0 text-muted" />
+        <ChevronDown className="size-3.5 shrink-0 text-muted" />
       </button>
       {anchor && (
         <Floating anchor={anchor} onClose={() => setAnchor(null)} ignore={button}>
@@ -129,10 +133,14 @@ function ServiceStatus() {
     },
   ]
   return (
-    <div className="hidden items-center gap-4 text-xs text-muted sm:flex">
+    <div className="hidden items-center gap-1 text-xs text-muted sm:flex">
       {items.map((item) => (
-        <span key={item.label} title={item.detail} className="flex cursor-help items-center gap-1.5">
-          <span className={`size-2 rounded-full ${item.ok ? 'bg-good' : 'bg-warn'}`} />
+        <span
+          key={item.label}
+          title={item.detail}
+          className="flex h-7 cursor-help items-center gap-1.5 rounded-md px-2 transition hover:bg-sunken hover:text-ink"
+        >
+          <span className={`size-1.5 rounded-full ${item.ok ? 'bg-good' : 'bg-warn'}`} />
           {item.label}
           {!item.ok && <span className="text-warn">off</span>}
         </span>

@@ -5,17 +5,20 @@
 
 /* Semantic colours. Components use these names, so dark mode is a change of values only. */
 @theme {
-  --font-sans: ui-sans-serif, system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: Inter, ui-sans-serif, system-ui, 'Segoe UI', Roboto, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
-  --color-page: #f6f6f3;
+  --color-page: #f6f6f8;
   --color-surface: #ffffff;
-  --color-sunken: #f0efeb;
-  --color-line: #e3e2dd;
-  --color-ink: #1d1c1a;
-  --color-muted: #6d6b66;
+  --color-sunken: #f0f0f3;
+  --color-line: #e4e4e8;
+  --color-ink: #19191c;
+  --color-muted: #6b6b76;
   --color-accent: #3b5bdb;
-  --color-accent-soft: #edf1fd;
+  --color-accent-hover: #3250c4;
+  --color-accent-soft: #eef1fc;
+  /* Text laid on a solid accent background. */
+  --color-accent-ink: #ffffff;
   --color-good: #2c7a4b;
   --color-warn: #9a5b06;
   --color-bad: #b42318;
@@ -34,17 +37,19 @@
 
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --color-page: #131312;
-  --color-surface: #1c1c1a;
-  --color-sunken: #252523;
-  --color-line: #32312e;
-  --color-ink: #eceae5;
-  --color-muted: #9d9b95;
+  --color-page: #121214;
+  --color-surface: #1a1a1d;
+  --color-sunken: #232327;
+  --color-line: #2e2e33;
+  --color-ink: #ececee;
+  --color-muted: #9a9aa3;
   --color-accent: #91a7ff;
-  --color-accent-soft: #222a47;
-  --color-good: #6cc391;
-  --color-warn: #e2a850;
-  --color-bad: #f1887d;
+  --color-accent-hover: #a6b8ff;
+  --color-accent-soft: #232a4a;
+  --color-accent-ink: #121214;
+  --color-good: #5fc08a;
+  --color-warn: #e0a64a;
+  --color-bad: #f08a80;
   --color-mark: #6a5a16;
   --color-file-pdf: #f1946a;
   --color-file-word: #8db4f5;
@@ -56,9 +61,10 @@ body {
   background: var(--color-page);
   color: var(--color-ink);
   font-family: var(--font-sans);
-  font-size: 15px;
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 button,
@@ -72,12 +78,41 @@ summary {
   outline-offset: 2px;
 }
 
+/* Thin, unobtrusive scrollbars everywhere. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-ink) 18%, transparent) transparent;
+}
+
 /* The tab strip scrolls sideways without showing a bar. */
 .no-scrollbar {
   scrollbar-width: none;
 }
 .no-scrollbar::-webkit-scrollbar {
   display: none;
+}
+
+/* A text input or textarea in its resting, hover and focused states. */
+@utility field {
+  width: 100%;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-line);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  outline: none;
+  transition:
+    border-color 120ms,
+    box-shadow 120ms;
+  &::placeholder {
+    color: color-mix(in srgb, var(--color-muted) 75%, transparent);
+  }
+  &:hover:not(:focus) {
+    border-color: color-mix(in srgb, var(--color-ink) 20%, var(--color-line));
+  }
+  &:focus {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 15%, transparent);
+  }
 }
 
 mark {
@@ -101,8 +136,11 @@ mark {
 }
 
 /* Answers arrive as Markdown; these rules give it the spacing a document needs. */
+.prose {
+  line-height: 1.6;
+}
 .prose > * + * {
-  margin-top: 0.7em;
+  margin-top: 0.75em;
 }
 .prose h1,
 .prose h2,
@@ -110,7 +148,8 @@ mark {
 .prose h4 {
   font-weight: 600;
   line-height: 1.3;
-  margin-top: 1.2em;
+  letter-spacing: -0.01em;
+  margin-top: 1.3em;
 }
 .prose h1 {
   font-size: 1.2em;
@@ -129,7 +168,13 @@ mark {
   list-style: decimal;
 }
 .prose li + li {
-  margin-top: 0.25em;
+  margin-top: 0.3em;
+}
+.prose li::marker {
+  color: var(--color-muted);
+}
+.prose strong {
+  font-weight: 600;
 }
 .prose blockquote {
   border-left: 3px solid var(--color-line);
@@ -140,17 +185,20 @@ mark {
   font-family: var(--font-mono);
   font-size: 0.9em;
   background: var(--color-sunken);
+  border: 1px solid var(--color-line);
   border-radius: 4px;
   padding: 0.1em 0.3em;
 }
 .prose pre {
   background: var(--color-sunken);
+  border: 1px solid var(--color-line);
   border-radius: 8px;
   padding: 0.8em 1em;
   overflow-x: auto;
 }
 .prose pre code {
   background: none;
+  border: 0;
   padding: 0;
 }
 .prose a {
@@ -164,17 +212,30 @@ mark {
 
 .data-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 0.93em;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  overflow: hidden;
 }
 .data-table th,
 .data-table td {
-  border: 1px solid var(--color-line);
-  padding: 0.35em 0.65em;
+  border-bottom: 1px solid var(--color-line);
+  padding: 0.4em 0.7em;
   text-align: left;
   vertical-align: top;
+}
+.data-table th + th,
+.data-table td + td {
+  border-left: 1px solid var(--color-line);
+}
+.data-table tr:last-child td {
+  border-bottom: 0;
 }
 .data-table th {
   background: var(--color-sunken);
   font-weight: 600;
+  color: var(--color-muted);
+  font-size: 0.92em;
 }

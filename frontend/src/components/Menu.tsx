@@ -78,7 +78,7 @@ export function Floating({ anchor, onClose, children, alignEnd, ignore, classNam
       // Scroll events inside the layer must not close it: stop them before the window hears them.
       onScroll={(event) => event.stopPropagation()}
       style={position ? { left: position.left, top: position.top } : { left: 0, top: 0, visibility: 'hidden' }}
-      className={`fixed z-50 rounded-lg border border-line bg-surface shadow-lg ${className}`}
+      className={`fixed z-50 overflow-hidden rounded-lg border border-line bg-surface shadow-xl shadow-ink/8 ${className}`}
     >
       {children}
     </div>,
@@ -127,10 +127,10 @@ export function Menu({ items, onClose }: MenuProps) {
   }
 
   return (
-    <div ref={ref} role="menu" onKeyDown={onKeyDown} className="min-w-44 py-1">
+    <div ref={ref} role="menu" onKeyDown={onKeyDown} className="min-w-44 p-1">
       {items.map((item, index) =>
         item === 'separator' ? (
-          <div key={index} role="separator" className="my-1 border-t border-line" />
+          <div key={index} role="separator" className="-mx-1 my-1 border-t border-line" />
         ) : (
           <button
             key={index}
@@ -141,13 +141,13 @@ export function Menu({ items, onClose }: MenuProps) {
               onClose()
               item.onSelect()
             }}
-            className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-sm outline-none hover:bg-sunken focus-visible:bg-sunken disabled:opacity-40 ${
+            className={`flex h-8 w-full items-center gap-2.5 rounded-[5px] px-2 text-left text-[13px] outline-none hover:bg-sunken focus-visible:bg-sunken disabled:opacity-40 ${
               item.danger ? 'text-bad' : 'text-ink'
             }`}
           >
             {item.icon && <item.icon className="size-4 shrink-0 opacity-70" />}
             <span className="flex-1">{item.label}</span>
-            {item.shortcut && <span className="text-xs text-muted">{item.shortcut}</span>}
+            {item.shortcut && <span className="text-[11px] text-muted">{item.shortcut}</span>}
           </button>
         ),
       )}

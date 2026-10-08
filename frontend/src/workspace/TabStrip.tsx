@@ -37,9 +37,10 @@ export function TabStrip() {
     ])
   }
 
-  const base = 'group flex h-9 shrink-0 items-center gap-1.5 border-r border-line px-3 text-sm whitespace-nowrap'
-  const inactive = 'text-muted hover:bg-sunken hover:text-ink'
-  const active = 'bg-page text-ink shadow-[inset_0_-2px_0_var(--color-accent)]'
+  const base =
+    'group flex h-9 shrink-0 items-center gap-2 border-r border-line px-3 text-[13px] whitespace-nowrap transition-colors'
+  const inactive = 'text-muted hover:bg-sunken/60 hover:text-ink'
+  const active = 'bg-page font-medium text-ink shadow-[inset_0_-2px_0_var(--color-accent)]'
 
   return (
     <div
@@ -83,7 +84,7 @@ export function TabStrip() {
                 event.stopPropagation()
                 workspace.closeTabs([tab.id])
               }}
-              className={`ml-0.5 rounded p-0.5 hover:bg-line ${selected ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
+              className={`-mr-0.5 rounded p-0.5 text-muted transition hover:bg-line hover:text-ink ${selected ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
             >
               <X className="size-3.5" />
             </button>

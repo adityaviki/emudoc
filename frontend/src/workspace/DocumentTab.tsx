@@ -82,13 +82,13 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="shrink-0 border-b border-line bg-surface px-4 py-2">
+      <header className="shrink-0 border-b border-line bg-surface px-4 py-2.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="truncate font-semibold" title={document.title ?? document.filename}>
+            <h2 className="truncate text-[15px] font-semibold tracking-tight" title={document.title ?? document.filename}>
               {document.title ?? document.filename}
             </h2>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
               {document.doc_type && <Chip tone="accent">{document.doc_type}</Chip>}
               {document.title && <span className="truncate">{document.filename}</span>}
               {document.doc_date && <span>dated {formatDate(document.doc_date)}</span>}
@@ -111,16 +111,16 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
               target="_blank"
               rel="noreferrer"
               title="Open the original file in a new tab"
-              className="rounded-md p-1.5 text-muted transition hover:bg-sunken hover:text-ink"
+              className="inline-flex size-7 items-center justify-center rounded-md text-muted transition hover:bg-sunken hover:text-ink"
             >
               <ExternalLink className="size-4" />
             </a>
           </div>
         </div>
         {focusLabel && (
-          <p className="mt-1 flex items-center gap-1 text-xs text-muted">
+          <p className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-md bg-mark/40 py-0.5 pr-0.5 pl-2 text-xs">
             <span className="truncate">Showing: {focusLabel}</span>
-            <IconButton label="Clear highlight" onClick={onClearFocus} className="p-0.5!">
+            <IconButton label="Clear highlight" onClick={onClearFocus} className="size-5!">
               <X className="size-3.5" />
             </IconButton>
           </p>
@@ -156,7 +156,8 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
       ) : (
         <div className="flex min-h-0 flex-1">
           {outlineOpen && outline.data && outline.data.length > 0 && (
-            <aside className="w-56 shrink-0 overflow-y-auto border-r border-line bg-surface p-2">
+            <aside className="w-60 shrink-0 overflow-y-auto border-r border-line bg-surface p-2">
+              <p className="px-2 pt-1 pb-2 text-[11px] font-medium tracking-wide text-muted uppercase">Outline</p>
               <ul>
                 {outline.data.map((section) => (
                   <OutlineNode
@@ -203,12 +204,12 @@ function OutlineNode({ section, focusStart, onSelect }: OutlineNodeProps) {
       <button
         onClick={() => onSelect(section.block_start)}
         className={`block w-full rounded-md px-2 py-1.5 text-left transition hover:bg-sunken ${
-          active ? 'bg-accent-soft' : ''
+          active ? 'bg-accent-soft text-accent' : ''
         }`}
       >
         <span className="flex items-baseline justify-between gap-2">
-          <span className="text-sm leading-snug font-medium">{section.title}</span>
-          <span className="shrink-0 text-xs text-muted">{pageLabel(section.page_start, section.page_end)}</span>
+          <span className="text-[13px] leading-snug font-medium">{section.title}</span>
+          <span className="shrink-0 text-[11px] text-muted tabular-nums">{pageLabel(section.page_start, section.page_end)}</span>
         </span>
         {section.summary && (
           <span className="mt-0.5 line-clamp-2 text-xs leading-snug text-muted">{section.summary}</span>
@@ -239,11 +240,11 @@ function TextView({ blocks, focus }: { blocks: Block[]; focus: BlockFocus | null
     }
   }
   return (
-    <div className="mx-auto max-w-3xl space-y-2.5 px-6 py-5">
+    <div className="mx-auto max-w-3xl space-y-3 px-8 py-6 leading-relaxed">
       {blocks.map((block) => (
         <Fragment key={block.ordinal}>
           {opensPage.has(block.ordinal) && (
-            <div className="flex items-center gap-3 pt-2 text-xs text-muted select-none">
+            <div className="flex items-center gap-3 pt-3 text-[11px] font-medium tracking-wide text-muted uppercase select-none">
               <span className="h-px flex-1 bg-line" />
               Page {block.page}
               <span className="h-px flex-1 bg-line" />
@@ -264,7 +265,7 @@ function TextView({ blocks, focus }: { blocks: Block[]; focus: BlockFocus | null
 function BlockBody({ block }: { block: Block }) {
   if (block.kind === 'heading') {
     const size = block.level === 1 ? 'text-lg' : block.level === 2 ? 'text-base' : 'text-sm'
-    return <p className={`pt-2 font-semibold ${size}`}>{block.text}</p>
+    return <p className={`pt-3 font-semibold tracking-tight ${size}`}>{block.text}</p>
   }
   if (block.kind === 'table') {
     const rows = parsePipeTable(block.text)
@@ -287,7 +288,7 @@ interface PagesViewProps {
  */
 function PagesView({ document, content, focus }: PagesViewProps) {
   return (
-    <div className="space-y-4 bg-sunken p-4">
+    <div className="space-y-5 bg-sunken p-5">
       {content.page_sizes.map(([width, height], index) => {
         const page = index + 1
         const placed = content.blocks.filter((block) => block.page === page && block.bbox)
@@ -295,7 +296,7 @@ function PagesView({ document, content, focus }: PagesViewProps) {
           <div
             key={page}
             id={`page-${page}`}
-            className="relative mx-auto max-w-3xl overflow-hidden rounded border border-line bg-white shadow-sm @container"
+            className="relative mx-auto max-w-3xl overflow-hidden rounded-md bg-white shadow-md shadow-ink/8 ring-1 ring-ink/8 @container"
             style={{ aspectRatio: `${width} / ${height}` }}
           >
             <img
@@ -373,15 +374,15 @@ function SheetView({ blocks, focus }: { blocks: Block[]; focus: BlockFocus | nul
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {sheets.length > 1 && (
-        <div className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-line bg-surface px-3 py-1.5 text-sm">
+        <div className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-line bg-surface px-3 py-1.5 text-[13px]">
           {sheets.map((item, index) => (
             <button
               key={index}
               type="button"
               aria-pressed={index === selected}
               onClick={() => setSelected(index)}
-              className={`shrink-0 rounded px-2.5 py-0.5 ${
-                index === selected ? 'bg-sunken font-medium text-ink' : 'text-muted hover:text-ink'
+              className={`h-7 shrink-0 rounded-md px-2.5 transition ${
+                index === selected ? 'bg-sunken font-medium text-ink' : 'text-muted hover:bg-sunken/60 hover:text-ink'
               }`}
             >
               {item.title}

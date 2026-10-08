@@ -3,10 +3,10 @@ import type { LucideIcon } from 'lucide-react'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
 const BUTTON_VARIANTS = {
-  primary: 'bg-accent text-white hover:opacity-90 dark:text-page',
-  secondary: 'border border-line bg-surface text-ink hover:bg-sunken',
+  primary: 'bg-accent text-accent-ink shadow-xs hover:bg-accent-hover',
+  secondary: 'border border-line bg-surface text-ink shadow-xs hover:bg-sunken',
   ghost: 'text-muted hover:bg-sunken hover:text-ink',
-  danger: 'text-bad hover:bg-sunken',
+  danger: 'text-bad hover:bg-bad/10',
 }
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -18,7 +18,7 @@ export function Button({ variant = 'secondary', icon, children, className = '', 
   return (
     <button
       type="button"
-      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${BUTTON_VARIANTS[variant]} ${className}`}
+      className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium whitespace-nowrap transition disabled:cursor-not-allowed disabled:opacity-50 ${BUTTON_VARIANTS[variant]} ${className}`}
       {...props}
     >
       {icon}
@@ -38,7 +38,9 @@ export function IconButton({ label, danger, children, className = '', ...props }
       type="button"
       title={label}
       aria-label={label}
-      className={`rounded-md p-1.5 text-muted transition hover:bg-sunken disabled:opacity-40 ${danger ? 'hover:text-bad' : 'hover:text-ink'} ${className}`}
+      className={`inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-sunken disabled:opacity-40 ${
+        danger ? 'hover:text-bad' : 'hover:text-ink'
+      } ${className}`}
       {...props}
     >
       {children}
@@ -46,13 +48,16 @@ export function IconButton({ label, danger, children, className = '', ...props }
   )
 }
 
+/** The look of a text input or textarea; see the `field` utility in index.css. */
+export const FIELD = 'field px-3 py-1.5 text-sm'
+
 export function Chip({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'accent' }) {
   const tones = {
     neutral: 'bg-sunken text-muted',
     accent: 'bg-accent-soft text-accent',
   }
   return (
-    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium ${tones[tone]}`}>
+    <span className={`inline-flex items-center rounded px-1.5 py-px text-[11px] font-medium ${tones[tone]}`}>
       {children}
     </span>
   )
@@ -72,10 +77,14 @@ export function Loading() {
 
 export function EmptyState({ icon, title, children }: { icon?: ReactNode; title: string; children?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center gap-2 px-6 py-16 text-center">
-      {icon && <div className="text-muted">{icon}</div>}
+    <div className="flex flex-col items-center gap-1.5 px-6 py-16 text-center">
+      {icon && (
+        <div className="mb-2 flex size-12 items-center justify-center rounded-full bg-sunken text-muted [&_svg]:size-5">
+          {icon}
+        </div>
+      )}
       <p className="font-medium">{title}</p>
-      {children && <div className="max-w-md text-sm text-muted">{children}</div>}
+      {children && <div className="max-w-md text-[13px] leading-relaxed text-muted">{children}</div>}
     </div>
   )
 }
@@ -89,15 +98,15 @@ interface SegmentedProps<T extends string> {
 /** A row of mutually exclusive choices, one of them pressed. */
 export function Segmented<T extends string>({ value, onChange, options }: SegmentedProps<T>) {
   return (
-    <div className="flex shrink-0 rounded-md border border-line p-0.5 text-sm">
+    <div className="flex shrink-0 rounded-md bg-sunken p-0.5 text-[13px]">
       {options.map((option) => (
         <button
           key={option.value}
           type="button"
           aria-pressed={value === option.value}
           onClick={() => onChange(option.value)}
-          className={`flex items-center gap-1.5 rounded px-2.5 py-0.5 ${
-            value === option.value ? 'bg-sunken font-medium text-ink' : 'text-muted hover:text-ink'
+          className={`flex h-6.5 items-center gap-1.5 rounded-[5px] px-2.5 transition ${
+            value === option.value ? 'bg-surface font-medium text-ink shadow-xs' : 'text-muted hover:text-ink'
           }`}
         >
           {option.icon && <option.icon className="size-3.5" />}
@@ -110,9 +119,9 @@ export function Segmented<T extends string>({ value, onChange, options }: Segmen
 
 export function Notice({ tone = 'warn', children }: { tone?: 'warn' | 'bad' | 'info'; children: ReactNode }) {
   const tones = {
-    warn: 'border-warn/30 text-warn',
-    bad: 'border-bad/30 text-bad',
-    info: 'border-line text-muted',
+    warn: 'border-warn/25 bg-warn/5 text-warn',
+    bad: 'border-bad/25 bg-bad/5 text-bad',
+    info: 'border-line bg-surface text-muted',
   }
-  return <div className={`rounded-md border bg-surface px-3 py-2 text-sm ${tones[tone]}`}>{children}</div>
+  return <div className={`rounded-md border px-3 py-2 text-[13px] leading-relaxed ${tones[tone]}`}>{children}</div>
 }

@@ -5,7 +5,7 @@ import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { api } from '../api.ts'
 import type { Project } from '../api.ts'
-import { Button, EmptyState, IconButton, Loading, Notice } from '../components/ui.tsx'
+import { Button, EmptyState, FIELD, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
 
 export function ProjectsPage() {
@@ -13,29 +13,38 @@ export function ProjectsPage() {
   const [creating, setCreating] = useState(false)
 
   return (
-    <div className="mx-auto h-full max-w-4xl overflow-y-auto px-6 py-6">
-      <div className="mb-5 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Projects</h1>
-        {!creating && (
-          <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
-            New project
-          </Button>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-5xl px-6 py-10">
+        <div className="mb-6 flex items-end justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
+            <p className="mt-1 text-[13px] text-muted">
+              A project holds a set of documents that are indexed and queried together.
+            </p>
+          </div>
+          {!creating && (
+            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
+              New project
+            </Button>
+          )}
+        </div>
+
+        {creating && <NewProjectForm onClose={() => setCreating(false)} />}
+        {projects.isPending && <Loading />}
+        {projects.isError && <Notice tone="bad">Could not load projects: {projects.error.message}</Notice>}
+        {projects.data?.length === 0 && !creating && (
+          <div className="rounded-xl border border-dashed border-line">
+            <EmptyState icon={<FolderOpen />} title="No projects yet">
+              Create one to start uploading documents and asking questions about them.
+            </EmptyState>
+          </div>
         )}
-      </div>
 
-      {creating && <NewProjectForm onClose={() => setCreating(false)} />}
-      {projects.isPending && <Loading />}
-      {projects.isError && <Notice tone="bad">Could not load projects: {projects.error.message}</Notice>}
-      {projects.data?.length === 0 && !creating && (
-        <EmptyState icon={<FolderOpen className="size-8" />} title="No projects yet">
-          A project holds a set of documents that are indexed and queried together.
-        </EmptyState>
-      )}
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        {projects.data?.map((project) => (
-          <ProjectCard key={project.id} project={project} />
-        ))}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {projects.data?.map((project) => (
+            <ProjectCard key={project.id} project={project} />
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -59,26 +68,45 @@ function NewProjectForm({ onClose }: { onClose: () => void }) {
     if (name.trim()) create.mutate({ name, description })
   }
 
-  const field = 'w-full rounded-md border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-accent'
+  const label = 'mb-1 block text-xs font-medium text-muted'
   return (
-    <form onSubmit={submit} className="mb-5 space-y-3 rounded-lg border border-line bg-surface p-4">
-      <input
-        autoFocus
-        className={field}
-        placeholder="Project name"
-        value={name}
-        maxLength={200}
-        onChange={(event) => setName(event.target.value)}
-      />
-      <input
-        className={field}
-        placeholder="What is it for? (optional)"
-        value={description}
-        maxLength={2000}
-        onChange={(event) => setDescription(event.target.value)}
-      />
-      {create.isError && <Notice tone="bad">{create.error.message}</Notice>}
-      <div className="flex justify-end gap-2">
+    <form onSubmit={submit} className="mb-6 rounded-xl border border-line bg-surface p-5 shadow-xs">
+      <h2 className="mb-4 font-semibold">New project</h2>
+      <div className="space-y-3">
+        <div>
+          <label htmlFor="project-name" className={label}>
+            Name
+          </label>
+          <input
+            id="project-name"
+            autoFocus
+            className={FIELD}
+            placeholder="e.g. Supplier contracts"
+            value={name}
+            maxLength={200}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </div>
+        <div>
+          <label htmlFor="project-description" className={label}>
+            Description <span className="font-normal">(optional)</span>
+          </label>
+          <input
+            id="project-description"
+            className={FIELD}
+            placeholder="What is it for?"
+            value={description}
+            maxLength={2000}
+            onChange={(event) => setDescription(event.target.value)}
+          />
+        </div>
+      </div>
+      {create.isError && (
+        <div className="mt-3">
+          <Notice tone="bad">{create.error.message}</Notice>
+        </div>
+      )}
+      <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>
           Cancel
         </Button>
@@ -104,12 +132,22 @@ function ProjectCard({ project }: { project: Project }) {
   }
 
   return (
-    <div className="group relative rounded-lg border border-line bg-surface transition hover:border-accent">
-      <Link to={`/projects/${project.id}`} className="block p-4">
-        <p className="pr-8 font-medium">{project.name}</p>
-        {project.description && <p className="mt-0.5 line-clamp-2 text-sm text-muted">{project.description}</p>}
-        <p className="mt-3 text-xs text-muted">
-          {project.document_count} document{project.document_count === 1 ? '' : 's'} · created{' '}
+    <div className="group relative rounded-xl border border-line bg-surface shadow-xs transition hover:border-ink/15 hover:shadow-sm">
+      <Link to={`/projects/${project.id}`} className="flex h-full flex-col rounded-xl p-5">
+        <div className="mb-4 flex size-9 items-center justify-center rounded-lg bg-accent-soft text-accent">
+          <FolderOpen className="size-4.5" />
+        </div>
+        <p className="truncate pr-8 font-semibold" title={project.name}>
+          {project.name}
+        </p>
+        {project.description ? (
+          <p className="mt-1 line-clamp-2 text-[13px] leading-relaxed text-muted">{project.description}</p>
+        ) : (
+          <p className="mt-1 text-[13px] text-muted/60">No description</p>
+        )}
+        <p className="mt-auto pt-5 text-xs text-muted tabular-nums">
+          {project.document_count} document{project.document_count === 1 ? '' : 's'}
+          <span className="mx-1.5 text-line">·</span>
           {formatDate(project.created_at)}
         </p>
       </Link>
