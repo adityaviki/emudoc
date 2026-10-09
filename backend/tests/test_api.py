@@ -1,4 +1,7 @@
+from io import BytesIO
 from pathlib import Path
+
+from PIL import Image
 
 from app.indexing.pipeline import process_document
 from tests.conftest import MISSING_KEY
@@ -106,9 +109,27 @@ def test_document_views_after_indexing(client, services, sample_pdf):
     assert page.status_code == 200 and page.content.startswith(b"\x89PNG")
     assert client.get(f"/api/documents/{document_id}/pages/3.png").status_code == 404
 
+    thumbnail = client.get(f"/api/documents/{document_id}/thumbnail.png")
+    assert thumbnail.status_code == 200
+    with Image.open(BytesIO(thumbnail.content)) as image:
+        assert image.format == "PNG" and image.height == 320 and image.width < 320
+
     original = client.get(f"/api/documents/{document_id}/file")
     assert original.content == sample_pdf.read_bytes()
     assert original.headers["content-disposition"].startswith("inline")
+
+
+def test_thumbnails_for_images_only_besides_pdfs(client, sample_docx, tmp_path):
+    picture = tmp_path / "photo.png"
+    Image.new("RGB", (800, 400), "white").save(picture)
+    project = create_project(client)
+    photo, policy = upload(client, project["id"], picture, sample_docx)["documents"]
+
+    thumbnail = client.get(f"/api/documents/{photo['id']}/thumbnail.png")
+    assert thumbnail.status_code == 200
+    with Image.open(BytesIO(thumbnail.content)) as image:
+        assert image.size == (320, 160)
+    assert client.get(f"/api/documents/{policy['id']}/thumbnail.png").status_code == 404
 
 
 def test_search_and_facts_endpoints(client, services, sample_pdf, sample_docx):

@@ -5,6 +5,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from PIL import Image, ImageOps, UnidentifiedImageError
+from pypdfium2 import PdfiumError
 from sqlalchemy import func, select
 
 from app.api.deps import DocumentDep, ProjectDep, SessionDep, Stage, WorkerDep
@@ -13,7 +15,7 @@ from app.config import get_settings
 from app.indexing.pipeline import reset_stages
 from app.models import STAGES, Block, Document, Fact, Passage, Project, Section
 from app.parsing import IMAGE_TYPES, SUPPORTED_EXTENSIONS
-from app.parsing.pdf import render_page
+from app.parsing.pdf import render_page, render_thumbnail
 from app.schemas import (
     DocumentContent,
     DocumentOut,
@@ -37,6 +39,8 @@ MIME_TYPES = {
     **IMAGE_TYPES,
 }
 CHUNK = 1024 * 1024
+# The longer side of a thumbnail, in pixels: enough for a tile on a high-density screen.
+THUMBNAIL_SIZE = 320
 
 
 @router.get("/projects/{project_id}/documents", response_model=list[DocumentOut])
@@ -245,6 +249,32 @@ def page_image(document: DocumentDep, page: int):
     if not cached.is_file():
         cached.parent.mkdir(parents=True, exist_ok=True)
         cached.write_bytes(render_page(Path(document.storage_path), page))
+    return FileResponse(cached, media_type="image/png", headers={"Cache-Control": "max-age=86400"})
+
+
+@router.get("/documents/{document_id}/thumbnail.png")
+def thumbnail(document: DocumentDep):
+    """A small picture of the document for the library: a PDF's first page, or the image itself."""
+    if document.mime_type != "application/pdf" and document.mime_type not in IMAGE_TYPES.values():
+        raise HTTPException(404, "Only PDF and image documents have thumbnails")
+    path = Path(document.storage_path)
+    if not path.is_file():
+        raise HTTPException(404, "The original file is missing")
+    cached = get_settings().pages_dir / str(document.id) / "thumbnail.png"
+    if not cached.is_file():
+        try:
+            if document.mime_type == "application/pdf":
+                image = render_thumbnail(path, THUMBNAIL_SIZE)
+            else:
+                with Image.open(path) as original:
+                    image = ImageOps.exif_transpose(original)
+                    image.thumbnail((THUMBNAIL_SIZE, THUMBNAIL_SIZE))
+                    if image.mode == "CMYK":
+                        image = image.convert("RGB")
+        except (PdfiumError, UnidentifiedImageError, OSError, IndexError) as error:
+            raise HTTPException(404, "The file could not be rendered") from error
+        cached.parent.mkdir(parents=True, exist_ok=True)
+        image.save(cached, format="PNG", optimize=True)
     return FileResponse(cached, media_type="image/png", headers={"Cache-Control": "max-age=86400"})
 
 

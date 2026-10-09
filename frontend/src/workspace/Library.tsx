@@ -17,7 +17,16 @@ import {
 } from 'lucide-react'
 import { createElement, useEffect, useRef, useState } from 'react'
 import type { DragEvent, KeyboardEvent, MouseEvent, RefObject } from 'react'
-import { ACCEPTED_EXTENSIONS, ACCEPTED_TYPES_LABEL, api, fileUrl, pageLabel, sectionPath } from '../api.ts'
+import {
+  ACCEPTED_EXTENSIONS,
+  ACCEPTED_TYPES_LABEL,
+  api,
+  fileUrl,
+  hasThumbnail,
+  pageLabel,
+  sectionPath,
+  thumbnailUrl,
+} from '../api.ts'
 import type { Document, Folder, SearchHit } from '../api.ts'
 import { IndexingStatus } from '../components/IndexingStatus.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
@@ -741,6 +750,39 @@ function ItemIcon({ item, className }: { item: Item; className: string }) {
   return createElement(kind.icon, { className: `${className} ${kind.color}`, 'aria-label': kind.label })
 }
 
+interface ThumbnailProps {
+  item: Item
+  /** The box the picture or icon sits in; the picture fills it, the icon is centred. */
+  frame: string
+  icon: string
+  /** How the picture fits: whole and page-shaped (grid), or cropped to the frame (list). */
+  fit: 'contain' | 'cover'
+}
+
+/** A small picture of a file where the backend can draw one; otherwise its icon. */
+function Thumbnail({ item, frame, icon, fit }: ThumbnailProps) {
+  const [failed, setFailed] = useState(false)
+  const pictured = item.kind === 'file' && hasThumbnail(item.document) && !failed
+  return (
+    <div className={`flex shrink-0 items-center justify-center ${frame}`}>
+      {pictured ? (
+        <img
+          src={thumbnailUrl(item.document.id)}
+          alt=""
+          draggable={false}
+          loading="lazy"
+          onError={() => setFailed(true)}
+          className={`rounded-sm border border-line bg-surface ${
+            fit === 'contain' ? 'max-h-full max-w-full object-contain' : 'size-full object-cover object-top'
+          }`}
+        />
+      ) : (
+        <ItemIcon item={item} className={icon} />
+      )}
+    </div>
+  )
+}
+
 /** The tone and wording of a tile's status line; ready documents say nothing. */
 function tileStatus(document: Document): { text: string; tone: string } | null {
   switch (document.status) {
@@ -798,8 +840,8 @@ function Row(props: RowProps) {
   if (grid) {
     const status = item.kind === 'file' ? tileStatus(item.document) : null
     return (
-      <div {...handlers} className={`group relative flex flex-col items-center gap-2 rounded-lg px-2 pt-4 pb-3 text-[13px] transition-colors select-none ${state}`}>
-        <ItemIcon item={item} className="size-10 shrink-0" />
+      <div {...handlers} className={`group relative flex flex-col items-center gap-2 rounded-lg px-2 pt-3 pb-3 text-[13px] transition-colors select-none ${state}`}>
+        <Thumbnail item={item} frame="h-24 w-full" icon="size-12" fit="contain" />
         <div className="w-full min-w-0 text-center">
           {renaming ? (
             <RenameInput value={name} isFile={item.kind === 'file'} onCommit={props.onRename} onCancel={props.onCancelRename} />
@@ -821,7 +863,7 @@ function Row(props: RowProps) {
 
   return (
     <div {...handlers} className={`group flex items-center gap-3 rounded-md px-2.5 py-1.5 text-[13px] transition-colors select-none ${state}`}>
-      <ItemIcon item={item} className="size-5 shrink-0" />
+      <Thumbnail item={item} frame="size-9" icon="size-5" fit="cover" />
       <div className="min-w-0 flex-1">
         {renaming ? (
           <RenameInput value={name} isFile={item.kind === 'file'} onCommit={props.onRename} onCancel={props.onCancelRename} />
@@ -903,15 +945,19 @@ function GhostFolderRow({ view, onCommit, onCancel }: GhostFolderRowProps) {
   const input = <RenameInput value="New folder" isFile={false} onCommit={onCommit} onCancel={onCancel} />
   if (view === 'grid') {
     return (
-      <div className="flex flex-col items-center gap-2 rounded-lg bg-accent-soft px-2 pt-4 pb-3 text-[13px]">
-        <FolderIcon className="size-10 shrink-0 fill-accent/15 text-accent" />
+      <div className="flex flex-col items-center gap-2 rounded-lg bg-accent-soft px-2 pt-3 pb-3 text-[13px]">
+        <div className="flex h-24 w-full items-center justify-center">
+          <FolderIcon className="size-12 shrink-0 fill-accent/15 text-accent" />
+        </div>
         <div className="w-full min-w-0">{input}</div>
       </div>
     )
   }
   return (
     <div className="flex items-center gap-3 rounded-md bg-accent-soft px-2.5 py-1.5 text-[13px]">
-      <FolderIcon className="size-5 shrink-0 fill-accent/15 text-accent" />
+      <div className="flex size-9 shrink-0 items-center justify-center">
+        <FolderIcon className="size-5 fill-accent/15 text-accent" />
+      </div>
       <div className="min-w-0 flex-1">{input}</div>
     </div>
   )

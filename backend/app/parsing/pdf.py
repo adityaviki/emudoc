@@ -162,15 +162,26 @@ def render_page(path: Path, page_number: int, scale: float = 2.0) -> bytes:
     """Render one page (1-based) to PNG bytes."""
     import io
 
-    with _pdfium_lock:
-        pdf = pdfium.PdfDocument(str(path))
-        try:
-            image = pdf[page_number - 1].render(scale=scale).to_pil()
-        finally:
-            pdf.close()
+    image = _render(path, page_number, lambda width, height: scale)
     buffer = io.BytesIO()
     image.save(buffer, format="PNG", optimize=True)
     return buffer.getvalue()
+
+
+def render_thumbnail(path: Path, max_size: int):
+    """The first page as a PIL image, scaled so its longer side is `max_size` pixels."""
+    return _render(path, 1, lambda width, height: max_size / max(width, height, 1.0))
+
+
+def _render(path: Path, page_number: int, scale_for):
+    """Render one page; `scale_for` picks the scale from the page's size in points."""
+    with _pdfium_lock:
+        pdf = pdfium.PdfDocument(str(path))
+        try:
+            page = pdf[page_number - 1]
+            return page.render(scale=scale_for(*page.get_size())).to_pil()
+        finally:
+            pdf.close()
 
 
 def _metadata_title(value: object) -> str | None:

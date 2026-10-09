@@ -271,6 +271,7 @@ export const api = {
 export const fileUrl = (documentId: number) => `/api/documents/${documentId}/file`
 export const pageImageUrl = (documentId: number, page: number) =>
   `/api/documents/${documentId}/pages/${page}.png`
+export const thumbnailUrl = (documentId: number) => `/api/documents/${documentId}/thumbnail.png`
 
 /** The file types the backend indexes (backend/app/parsing/__init__.py), for upload inputs. */
 export const ACCEPTED_EXTENSIONS = ['.pdf', '.docx', '.xlsx', '.csv', '.txt', '.md', '.png', '.jpg', '.jpeg', '.webp']
@@ -282,6 +283,8 @@ export const isPdf = (document: Document) => document.mime_type === 'application
 export const isImage = (document: Document) => document.mime_type.startsWith('image/')
 export const isSheet = (document: Document) =>
   document.mime_type === 'text/csv' || document.mime_type.endsWith('spreadsheetml.sheet')
+/** Whether the backend can draw the document (backend/app/api/documents.py, `thumbnail`). */
+export const hasThumbnail = (document: Document) => isPdf(document) || isImage(document)
 
 /** Add a question to a chat; yields the agent's events as the server streams them. */
 export async function* streamAnswer(

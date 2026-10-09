@@ -4,6 +4,7 @@ import hashlib
 import math
 import os
 import re
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -42,6 +43,7 @@ from pydantic_ai.messages import (  # noqa: E402
 from pydantic_ai.usage import RequestUsage  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
+from app.config import get_settings  # noqa: E402
 from app.db import Base, SessionLocal, engine, init_db  # noqa: E402
 from app.embeddings import EmbeddingError  # noqa: E402
 from app.indexing.enrich import (  # noqa: E402
@@ -238,6 +240,8 @@ def session():
     with SessionLocal() as session_:
         session_.execute(text("TRUNCATE projects RESTART IDENTITY CASCADE"))
         session_.commit()
+        # Ids start over, so rendered pages cached for an earlier test's documents must go too.
+        shutil.rmtree(get_settings().pages_dir, ignore_errors=True)
         yield session_
 
 
