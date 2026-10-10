@@ -17,7 +17,7 @@ function App() {
           <div className="flex min-w-0 items-center gap-1.5">
             <Link to="/" className="flex shrink-0 items-center gap-2 rounded-md px-1 text-[15px] font-semibold tracking-tight">
               <img src="/favicon.svg" alt="" className="size-5" />
-              Paperless
+              Emudoc
             </Link>
             <ProjectSwitcher />
           </div>

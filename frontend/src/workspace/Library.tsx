@@ -45,7 +45,7 @@ const itemKey = (item: Item) => (item.kind === 'folder' ? `f:${item.folder.id}` 
 const itemName = (item: Item) => (item.kind === 'folder' ? item.folder.name : item.document.filename)
 
 // Internal drags carry the selected items under this type; drags from the desktop carry Files.
-const ITEMS_TYPE = 'application/x-paperless-items'
+const ITEMS_TYPE = 'application/x-emudoc-items'
 interface DragPayload {
   folderIds: number[]
   documentIds: number[]
@@ -58,7 +58,7 @@ const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files'
 
 // How a folder's contents are laid out: tiles in a grid, or one row per item with its details.
 type View = 'grid' | 'list'
-const VIEW_KEY = 'paperless.library-view'
+const VIEW_KEY = 'emudoc.library-view'
 const isView = (value: unknown): value is View => value === 'grid' || value === 'list'
 
 /** The file manager: a folder's contents, with search over the whole project or the folder. */

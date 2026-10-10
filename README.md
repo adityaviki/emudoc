@@ -1,4 +1,4 @@
-# Paperless
+# Emudoc
 
 Upload documents into a project, and ask an AI agent about them. Each document is parsed once,
 then indexed three ways so the agent can find anything quickly and cite where it found it.
@@ -94,7 +94,7 @@ cd backend && uv run pytest          # needs the database container
 cd frontend && pnpm lint && pnpm build
 ```
 
-The backend tests use a separate `paperless_test` database and make no network calls: the AI
+The backend tests use a separate `emudoc_test` database and make no network calls: the AI
 model and the embedding model are replaced by stand-ins, and the requests to Gemini, Claude and
 OpenRouter are checked through their real SDKs against recorded responses.
 

@@ -17,7 +17,7 @@ Effort = Literal["", "minimal", "low", "medium", "high", "xhigh"]
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ROOT_DIR / ".env", extra="ignore")
 
-    database_url: str = "postgresql+psycopg://paperless:paperless@127.0.0.1:5437/paperless"
+    database_url: str = "postgresql+psycopg://emudoc:emudoc@127.0.0.1:5437/emudoc"
     data_dir: Path = BACKEND_DIR / "data"
     max_upload_mb: int = 100
 

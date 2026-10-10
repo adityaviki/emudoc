@@ -11,8 +11,8 @@ from pathlib import Path
 import psycopg
 import pytest
 
-SERVER = os.environ.get("TEST_DATABASE_SERVER", "paperless:paperless@127.0.0.1:5437")
-TEST_DATABASE = "paperless_test"
+SERVER = os.environ.get("TEST_DATABASE_SERVER", "emudoc:emudoc@127.0.0.1:5437")
+TEST_DATABASE = "emudoc_test"
 
 
 def _ensure_database() -> None:
@@ -27,7 +27,7 @@ def _ensure_database() -> None:
 # The app reads its settings at import time, so the environment is set before importing it.
 _ensure_database()
 os.environ["DATABASE_URL"] = f"postgresql+psycopg://{SERVER}/{TEST_DATABASE}"
-os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="paperless-test-")
+os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="emudoc-test-")
 # Pinned, so the tests do not follow whichever models the developer's .env selects.
 os.environ["AGENT_MODEL"] = os.environ["INDEX_MODEL"] = "google:gemini-2.5-flash-lite"
 

@@ -15,8 +15,8 @@ export interface TabsStore {
   open: OpenTab[]
 }
 
-export const tabsStorageKey = (projectId: number) => `paperless.tabs.${projectId}`
-export const SPLIT_KEY = 'paperless.split'
+export const tabsStorageKey = (projectId: number) => `emudoc.tabs.${projectId}`
+export const SPLIT_KEY = 'emudoc.split'
 
 export function isTabsStore(value: unknown): value is TabsStore {
   if (typeof value !== 'object' || value === null) return false

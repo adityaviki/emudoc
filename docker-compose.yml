@@ -2,15 +2,15 @@ services:
   db:
     image: pgvector/pgvector:pg17
     environment:
-      POSTGRES_USER: paperless
-      POSTGRES_PASSWORD: paperless
-      POSTGRES_DB: paperless
+      POSTGRES_USER: emudoc
+      POSTGRES_PASSWORD: emudoc
+      POSTGRES_DB: emudoc
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5437}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U paperless -d paperless"]
+      test: ["CMD-SHELL", "pg_isready -U emudoc -d emudoc"]
       interval: 5s
       timeout: 3s
       retries: 10

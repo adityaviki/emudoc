@@ -57,7 +57,7 @@ def create_app(services: Services | None = None, start_worker: bool = True) -> F
         if app.state.worker:
             app.state.worker.stop()
 
-    app = FastAPI(title="Paperless", lifespan=lifespan)
+    app = FastAPI(title="Emudoc", lifespan=lifespan)
     for router in (
         system,
         projects.router,
