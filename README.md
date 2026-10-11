@@ -132,7 +132,9 @@ cd frontend && pnpm lint && pnpm build
 The backend tests use a separate `emudoc_test` database and make no network calls: the AI
 model, the embedding model, the mailer and the identity providers are replaced by stand-ins, and
 the requests to Gemini, Claude and OpenRouter are checked through their real SDKs against recorded
-responses.
+responses. The tests empty that database, so they refuse to run against any other, and against a
+server that is not on this machine unless `TEST_DATABASE_ALLOW_REMOTE=1` is set; the server comes
+from `TEST_DATABASE_SERVER` (default `emudoc:emudoc@127.0.0.1:5437`).
 
 ## Layout
 

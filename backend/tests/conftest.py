@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+import ipaddress
 import json
 import math
 import os
@@ -14,9 +15,52 @@ from urllib.parse import parse_qs, parse_qsl, urlsplit
 import httpx
 import psycopg
 import pytest
+from sqlalchemy.engine import URL, make_url
 
 SERVER = os.environ.get("TEST_DATABASE_SERVER", "emudoc:emudoc@127.0.0.1:5437")
 TEST_DATABASE = "emudoc_test"
+TEST_DATABASE_URL = f"postgresql+psycopg://{SERVER}/{TEST_DATABASE}"
+# Set to run against a server that is not on this machine, such as a CI job's database container
+# reached by its service name.
+ALLOW_REMOTE = "TEST_DATABASE_ALLOW_REMOTE"
+
+
+def _on_this_machine(host: str | None) -> bool:
+    # No host means a Unix socket.
+    if not host or host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def refuse_unless_test_database(url: str | URL) -> None:
+    """Stop the run before anything connects unless `url` is the local test database.
+
+    The suite truncates tables, drops the schema and rebuilds a column, so it must never reach a
+    database that holds anything. Two things could point it at one: the app reading its settings
+    before this module set `DATABASE_URL` (they are cached at import, so the engine would be the
+    developer's own), and `TEST_DATABASE_SERVER` naming a shared server, where the suite would
+    create and wreck an `emudoc_test`. A `UsageError` makes pytest stop with the message and
+    collect nothing.
+    """
+    url = make_url(url)
+    shown = url.render_as_string(hide_password=True)
+    if url.database != TEST_DATABASE:
+        raise pytest.UsageError(
+            f"The tests would run against {shown}, which is not the {TEST_DATABASE} database "
+            "they truncate and rebuild. The app's settings were read before tests/conftest.py "
+            "chose the database: run `uv run pytest` from the backend directory, so that the "
+            "app is only imported through tests/conftest.py."
+        )
+    if not _on_this_machine(url.host) and not os.environ.get(ALLOW_REMOTE):
+        raise pytest.UsageError(
+            f"The tests would run against {shown}, a server that is not on this machine, and "
+            f"they create, truncate and drop tables in its {TEST_DATABASE} database. Point "
+            f"TEST_DATABASE_SERVER at a local server, or set {ALLOW_REMOTE}=1 if that server "
+            "exists for the tests."
+        )
 
 
 def _ensure_database() -> None:
@@ -29,8 +73,9 @@ def _ensure_database() -> None:
 
 
 # The app reads its settings at import time, so the environment is set before importing it.
+refuse_unless_test_database(TEST_DATABASE_URL)
 _ensure_database()
-os.environ["DATABASE_URL"] = f"postgresql+psycopg://{SERVER}/{TEST_DATABASE}"
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="emudoc-test-")
 # Pinned, so the tests do not follow whichever models the developer's .env selects. The
 # embedding size is the one `FakeEmbedder` produces and the migrations size the column by.
@@ -71,6 +116,10 @@ from app.indexing.pipeline import Services, process_document  # noqa: E402
 from app.llm import OcrBlock, OcrPage  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models import Document, Membership, Organization, Project, User  # noqa: E402
+
+# The engine is what every fixture below destroys data through; had the app been imported before
+# the environment above was set, it would point at the database in `.env`.
+refuse_unless_test_database(engine.url)
 
 
 class FakeEmbedder:
