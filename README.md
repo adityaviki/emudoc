@@ -83,6 +83,8 @@ servers. Port 8000 still serves the last build, so it does not show your edits.
 
 The header shows which of the two is available. After adding a key, restart the backend and
 press "Run the model on them" in the Documents tab to enrich what was indexed without it.
+Running without the model is for development: with `ENVIRONMENT=production` the backend
+refuses to start until the key is in the environment.
 
 ## Configuration
 
@@ -92,11 +94,16 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   copies the model keys from `.env` into its environment, where the model libraries read them.
   A production deployment injects every secret through the environment or a secret manager
   instead; the backend then copies nothing from `.env`, and a missing key is reported as one to
-  set in the environment.
+  set in the environment. Production also refuses to start, listing what to change, when the
+  settings are development's: the `docker compose` database's password, `LOCAL_ACCOUNT=true`,
+  no `DATA_DIR`, no `APP_URL`, no `SMTP_URL`, or no key for the model. It does not serve the
+  interactive API docs at `/docs`.
 - `DATABASE_URL` names the database as a SQLAlchemy URL. There is no default: a process that
   is not told its database stops at once and says so. `.env.example` names the
   `docker compose` container, which only this machine can reach; a deployment sets the
   variable in the environment.
+- `DATA_DIR` is where uploaded files and page images are kept. The default is `backend/data`
+  inside the checkout; a deployment names a directory of its own.
 - `AGENT_MODEL` and `INDEX_MODEL` name the AI models as `provider:model`. Both default to
   `google:gemini-2.5-flash-lite`. Indexing is the high-volume side and the agent answers
   questions, so the two can differ, even across providers.

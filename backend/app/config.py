@@ -7,11 +7,17 @@ from typing import Any, Literal
 from dotenv import dotenv_values
 from pydantic import ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 ROOT_DIR = BACKEND_DIR.parent
 
 Effort = Literal["", "minimal", "low", "medium", "high", "xhigh"]
+
+# The password of the database docker-compose.yml runs, which only this machine can reach.
+# A deployment that carries it has copied the development setup, so production refuses it.
+DEVELOPMENT_PASSWORD = "emudoc"
 
 
 class Settings(BaseSettings):
@@ -94,6 +100,45 @@ class Settings(BaseSettings):
             raise ValueError("fts_language must be a Postgres text search configuration name")
         return value
 
+    def production_problems(self) -> list[str]:
+        """What stops these settings from serving a deployment, each as the step that fixes it.
+
+        Development's conveniences are production's holes: the well-known database password,
+        requests without a session acting as the owner, sign-in links written to the log, and
+        files and links whose place depends on where the process happens to run. Empty in
+        development, and for settings that are fit.
+        """
+        if self.environment != "production":
+            return []
+        problems = []
+        if _password_of(self.database_url) == DEVELOPMENT_PASSWORD:
+            problems.append(
+                "DATABASE_URL carries the development database's password; give the "
+                "deployment's database a password of its own."
+            )
+        if self.local_account:
+            problems.append(
+                "LOCAL_ACCOUNT is true, which lets any request without a session act as the "
+                "owner; remove it."
+            )
+        if "data_dir" not in self.model_fields_set:
+            problems.append(
+                "DATA_DIR is not set; name the directory the deployment keeps uploaded files "
+                "and page images in."
+            )
+        if not self.app_url:
+            problems.append(
+                "APP_URL is not set; set it to the address users open the app at, such as "
+                "https://emudoc.example.com, so that the links in emails and the OAuth "
+                "redirect do not depend on what a proxy says."
+            )
+        if not self.smtp_url:
+            problems.append(
+                "SMTP_URL is not set, so verification and password-reset links would be "
+                "written to the log; name an SMTP relay."
+            )
+        return problems
+
     @property
     def files_dir(self) -> Path:
         return self.data_dir / "files"
@@ -110,19 +155,39 @@ MISSING_DATABASE = (
 )
 
 
+def unfit_for_production(problems: list[str]) -> str:
+    """The message a process stops with when ENVIRONMENT is production and the settings are
+    not; `problems` are what `Settings.production_problems` found."""
+    lines = "\n".join(f"  - {problem}" for problem in problems)
+    return f"ENVIRONMENT is production, but these settings are not fit for a deployment:\n{lines}"
+
+
+def _password_of(url: str) -> str | None:
+    try:
+        return make_url(url).password
+    except ArgumentError:
+        # Not a URL at all; the engine says so when it is built.
+        return None
+
+
 def load_settings(**values: Any) -> Settings:
-    """Read the settings, and stop the process with what to do when no database is named.
+    """Read the settings, and stop the process with what to do when it must not run with them.
 
     The settings are read as the app is imported, by uvicorn, alembic and the maintenance
     command alike, so the alternative is pydantic's validation traceback from each of them.
-    Other mistakes are rare enough to keep that traceback, which names the setting.
+    Two mistakes get one message instead: no database named, and production asked for with
+    settings that only a development machine should run with. Other mistakes are rare enough
+    to keep that traceback, which names the setting.
     """
     try:
-        return Settings(**values)
+        settings = Settings(**values)
     except ValidationError as error:
         if any(problem["loc"] == ("database_url",) for problem in error.errors()):
             raise SystemExit(MISSING_DATABASE) from None
         raise
+    if problems := settings.production_problems():
+        raise SystemExit(unfit_for_production(problems))
+    return settings
 
 
 @lru_cache

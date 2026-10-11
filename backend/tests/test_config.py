@@ -1,15 +1,25 @@
-"""The settings name no database by themselves: a process that is not told one stops and says
-what to do, from uvicorn, alembic and the maintenance command alike."""
+"""What the settings refuse to run with: no database named, or ENVIRONMENT=production with
+settings that only a development machine should have. Either stops the process with one
+message, from uvicorn, alembic and the maintenance command alike."""
 
 import os
 import subprocess
 import sys
 
 import pytest
+from fastapi.testclient import TestClient
 
-from app.config import BACKEND_DIR, MISSING_DATABASE, ROOT_DIR, load_settings
+from app.config import BACKEND_DIR, MISSING_DATABASE, ROOT_DIR, get_settings, load_settings
+from app.main import create_app
 
 A_DATABASE = "postgresql+psycopg://app:secret@db.internal:5432/emudoc"
+# The compose container's password on a server elsewhere: a copied development setup.
+WITH_THE_DEVELOPMENT_PASSWORD = "postgresql+psycopg://emudoc:emudoc@db.internal:5432/emudoc"
+API_DOCS = {"/openapi.json", "/docs", "/redoc"}
+
+
+def paths_of(app) -> set[str]:
+    return {getattr(route, "path", "") for route in app.routes}
 
 
 def test_a_process_without_a_database_stops_with_what_to_do(monkeypatch):
@@ -66,3 +76,130 @@ def test_a_command_without_a_database_prints_the_sentence_and_no_traceback():
     assert run.returncode == 1
     assert run.stderr.strip() == MISSING_DATABASE
     assert "Traceback" not in run.stderr
+
+
+@pytest.fixture
+def deployment(tmp_path, monkeypatch) -> dict[str, object]:
+    """A complete production configuration, as arguments for `load_settings`.
+
+    The suite's own environment is a development one, so every variable the checks look at is
+    cleared from it first; what a test leaves out is then really missing.
+    """
+    for name in ("ENVIRONMENT", "DATABASE_URL", "DATA_DIR", "LOCAL_ACCOUNT", "APP_URL", "SMTP_URL"):
+        monkeypatch.delenv(name, raising=False)
+    return {
+        "_env_file": None,
+        "environment": "production",
+        "database_url": A_DATABASE,
+        "data_dir": tmp_path / "data",
+        "app_url": "https://emudoc.example.com",
+        "smtp_url": "smtp://mailer:secret@smtp.example.com:587",
+    }
+
+
+def test_a_complete_production_configuration_is_accepted(deployment):
+    settings = load_settings(**deployment)
+    assert settings.environment == "production"
+    assert settings.production_problems() == []
+
+
+def test_production_refuses_every_development_convenience_in_one_message(deployment):
+    # An operator fixes the whole list in one go instead of one setting per restart.
+    for name in ("data_dir", "app_url", "smtp_url"):
+        del deployment[name]
+    deployment["database_url"] = WITH_THE_DEVELOPMENT_PASSWORD
+    deployment["local_account"] = True
+
+    with pytest.raises(SystemExit) as stop:
+        load_settings(**deployment)
+    message = stop.value.code
+    assert message.startswith("ENVIRONMENT is production, but")
+    for variable in ("DATABASE_URL", "LOCAL_ACCOUNT", "DATA_DIR", "APP_URL", "SMTP_URL"):
+        assert variable in message
+    # Each line says what to do; none repeats the database's address or password.
+    assert "emudoc:emudoc" not in message and "db.internal" not in message
+
+
+@pytest.mark.parametrize(
+    ("change", "variable"),
+    [
+        ({"database_url": WITH_THE_DEVELOPMENT_PASSWORD}, "DATABASE_URL"),
+        ({"local_account": True}, "LOCAL_ACCOUNT"),
+        ({"data_dir": None}, "DATA_DIR"),
+        ({"app_url": ""}, "APP_URL"),
+        ({"smtp_url": ""}, "SMTP_URL"),
+    ],
+)
+def test_each_development_setting_is_refused_on_its_own(deployment, change, variable):
+    for name, value in change.items():
+        if value is None:
+            del deployment[name]
+        else:
+            deployment[name] = value
+
+    with pytest.raises(SystemExit) as stop:
+        load_settings(**deployment)
+    lines = stop.value.code.splitlines()
+    assert len(lines) == 2 and variable in lines[1]
+
+
+def test_development_runs_with_everything_production_refuses(deployment):
+    deployment.update(
+        environment="development",
+        database_url=WITH_THE_DEVELOPMENT_PASSWORD,
+        local_account=True,
+        app_url="",
+        smtp_url="",
+    )
+    del deployment["data_dir"]
+    assert load_settings(**deployment).production_problems() == []
+
+
+def test_a_production_command_with_development_settings_prints_the_list_and_no_traceback():
+    # The suite's environment is development's: the test database with the compose password,
+    # LOCAL_ACCOUNT on, and here no app address or mail relay either.
+    env = dict(os.environ, ENVIRONMENT="production", APP_URL="", SMTP_URL="")
+    run = subprocess.run(
+        [sys.executable, "-m", "app.maintenance", "rebuild-embeddings"],
+        cwd=BACKEND_DIR,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert run.returncode == 1
+    assert run.stderr.startswith("ENVIRONMENT is production, but")
+    for variable in ("DATABASE_URL", "LOCAL_ACCOUNT", "APP_URL", "SMTP_URL"):
+        assert variable in run.stderr
+    assert "Traceback" not in run.stderr
+
+
+@pytest.fixture
+def production(monkeypatch):
+    """The running suite's settings, switched to production for the app's own start-up checks.
+    The settings object is cached and shared, so the attribute is patched, never the object."""
+    monkeypatch.setattr(get_settings(), "environment", "production")
+
+
+def test_a_production_start_needs_the_model(production, services, monkeypatch):
+    # Development degrades to parsing and search without a key; a deployment stops and says so.
+    for name in ("GOOGLE_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(RuntimeError, match="production does not start without it") as error:
+        with TestClient(create_app(start_worker=False)):
+            pass
+    assert "Set GOOGLE_API_KEY in the environment" in str(error.value)
+
+    # With a usable model the same start goes through.
+    with TestClient(create_app(services=services, start_worker=False)) as client:
+        assert client.get("/api/health").json() == {"status": "ok"}
+
+
+def test_the_interactive_api_docs_are_served_in_development_only(client, services, production):
+    # `client` was built before the switch to production, so it is the development app.
+    assert client.get("/openapi.json").json()["info"]["title"] == "Emudoc"
+    assert client.get("/docs").status_code == 200
+    assert API_DOCS <= paths_of(client.app)
+
+    app = create_app(services=services, start_worker=False)
+    assert not API_DOCS & paths_of(app)

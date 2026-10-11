@@ -9,7 +9,7 @@ from sqlalchemy import text
 
 from app.api import auth, chats, documents, folders, projects, query
 from app.api.deps import AccountDep, ServicesDep, SessionDep, refuse_cross_site
-from app.config import ROOT_DIR, export_env_file, get_settings
+from app.config import ROOT_DIR, Settings, export_env_file, get_settings
 from app.db import check_schema
 from app.embeddings import Embedder
 from app.indexing.pipeline import Services
@@ -52,6 +52,19 @@ def status(services: ServicesDep, account: AccountDep):
     )
 
 
+def check_model(settings: Settings, llm: LLM) -> None:
+    """In production, refuse to start without a usable model.
+
+    Development runs without one, with summaries, facts and the Ask tab off (README, "What
+    works without what"). A deployment that silently offered that much less is misconfigured,
+    not degraded, so it stops at once with the key to set.
+    """
+    if settings.environment == "production" and (problem := llm.problem()):
+        raise RuntimeError(
+            f"The model cannot be used, and production does not start without it. {problem}"
+        )
+
+
 def create_app(
     services: Services | None = None,
     start_worker: bool = True,
@@ -72,6 +85,7 @@ def create_app(
         if services is None:
             export_env_file(settings)
         app.state.services = services or Services(LLM(settings), Embedder(settings))
+        check_model(settings, app.state.services.llm)
         app.state.mailer = mailer or mailer_from_settings(settings)
         app.state.http = http or httpx.Client(timeout=10)
         app.state.worker = None
@@ -83,7 +97,13 @@ def create_app(
             app.state.worker.stop()
         app.state.http.close()
 
-    app = FastAPI(title="Emudoc", lifespan=lifespan)
+    app = FastAPI(
+        title="Emudoc",
+        lifespan=lifespan,
+        # The schema, and with it the interactive docs at /docs and /redoc, is a development
+        # convenience; a deployment does not serve it.
+        openapi_url="/openapi.json" if settings.environment == "development" else None,
+    )
     for router in (
         system,
         auth.router,
