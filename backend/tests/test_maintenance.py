@@ -1,11 +1,29 @@
-import time
+"""The upkeep around the app: the embedding checks at start, the operator command that rebuilds
+the vectors, and the background worker.
 
+The size tests rebuild the column at 4 and put 768 back in a `finally`, because the whole run
+shares the schema and `FakeEmbedder.dim` is 768.
+"""
+
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 
 from app.config import get_settings
-from app.db import reconcile_embeddings
+from app.db import MIGRATION_LOCK, engine
 from app.indexing.pipeline import process_document
 from app.indexing.worker import Worker
+from app.main import create_app
+from app.maintenance import (
+    REBUILD_COMMAND,
+    check_embeddings,
+    main,
+    rebuild_embeddings,
+    requeue_stale_embeddings,
+)
 from app.models import Passage
 
 
@@ -22,15 +40,22 @@ def embedding_dim(session) -> int:
     )
 
 
-def test_changing_the_embedding_model_requeues_only_the_embed_stage(
-    session, services, indexed, monkeypatch
-):
+@pytest.fixture
+def embedder_settings(services, monkeypatch):
+    """The settings named after the fake embedder, as a deployment's are after its model."""
     settings = get_settings()
     monkeypatch.setattr(settings, "embedding_model", services.embedder.model)
-    assert reconcile_embeddings() == 0
+    monkeypatch.setattr(settings, "embedding_dim", services.embedder.dim)
+    return settings
 
-    monkeypatch.setattr(settings, "embedding_model", "another-model")
-    assert reconcile_embeddings() == 1
+
+def test_changing_the_embedding_model_requeues_only_the_embed_stage(
+    session, services, indexed, embedder_settings, monkeypatch
+):
+    assert requeue_stale_embeddings() == 0
+
+    monkeypatch.setattr(embedder_settings, "embedding_model", "another-model")
+    assert requeue_stale_embeddings() == 1
     session.refresh(indexed)
     assert indexed.status == "queued"
     assert stage_statuses(indexed) == {
@@ -47,16 +72,34 @@ def test_changing_the_embedding_model_requeues_only_the_embed_stage(
         session.scalars(select(Passage.embedding_model).where(Passage.document_id == indexed.id))
     )
     assert models == {"another-model"}
-    assert reconcile_embeddings() == 0
+    assert requeue_stale_embeddings() == 0
 
 
-def test_changing_the_embedding_size_rebuilds_the_column(session, services, indexed, monkeypatch):
-    settings = get_settings()
-    monkeypatch.setattr(settings, "embedding_model", services.embedder.model)
+def test_app_refuses_a_database_whose_embeddings_have_another_size(
+    session, services, indexed, embedder_settings, monkeypatch
+):
+    check_embeddings()
+
+    # The setting changed, the column did not: nothing is altered, the message says what to run.
+    monkeypatch.setattr(embedder_settings, "embedding_dim", 4)
+    with pytest.raises(RuntimeError, match="holds embeddings of size 768, but EMBEDDING_DIM is 4"):
+        check_embeddings()
+    with pytest.raises(RuntimeError, match=REBUILD_COMMAND):
+        with TestClient(create_app(services=services, start_worker=False)):
+            pass
+    assert embedding_dim(session) == 768
+    session.refresh(indexed)
+    assert indexed.status == "ready"
+
+
+def test_the_command_rebuilds_the_column_at_the_new_size(
+    session, services, indexed, embedder_settings, monkeypatch
+):
     try:
-        monkeypatch.setattr(settings, "embedding_dim", 4)
-        assert reconcile_embeddings() == 1
+        monkeypatch.setattr(embedder_settings, "embedding_dim", 4)
+        assert rebuild_embeddings() == 1
         assert embedding_dim(session) == 4
+        check_embeddings()
         session.refresh(indexed)
         assert indexed.status == "queued" and indexed.stages["embed"]["status"] == "pending"
         assert (
@@ -68,12 +111,38 @@ def test_changing_the_embedding_size_rebuilds_the_column(session, services, inde
         ).all()
         assert "ix_passages_embedding" in indexes
     finally:
-        # The schema is shared by the whole test run: put the column back. Altering the table
-        # needs an exclusive lock, so this session's open transaction has to end first.
+        # Altering the table needs an exclusive lock, so this session's open transaction has to
+        # end first.
         session.rollback()
-        monkeypatch.setattr(settings, "embedding_dim", 768)
-        reconcile_embeddings()
+        monkeypatch.setattr(embedder_settings, "embedding_dim", 768)
+        rebuild_embeddings()
     assert embedding_dim(session) == 768
+
+
+def test_the_command_keeps_the_vectors_while_the_size_matches(
+    session, services, indexed, embedder_settings, capsys
+):
+    # Run for another reason (a changed prefix, say), it queues every document but leaves the
+    # column and its vectors, which serve searches until the embed stage replaces them.
+    main(["rebuild-embeddings"])
+    assert "Queued 1 document to be embedded again with fake-embedder" in capsys.readouterr().out
+    session.refresh(indexed)
+    assert indexed.status == "queued" and indexed.stages["embed"]["status"] == "pending"
+    assert (
+        session.scalar(select(Passage.embedding).where(Passage.document_id == indexed.id))
+        is not None
+    )
+
+
+def test_the_command_waits_for_a_migration_run(session, embedder_settings):
+    # A rebuild holds the lock a migration run holds, so the two never alter the table at once.
+    with engine.connect() as holder, ThreadPoolExecutor(1) as pool:
+        holder.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": MIGRATION_LOCK})
+        waiting = pool.submit(rebuild_embeddings)
+        with pytest.raises(TimeoutError):
+            waiting.result(timeout=0.5)
+        holder.rollback()
+        assert waiting.result(timeout=10) == 0
 
 
 def test_worker_indexes_queued_documents_and_recovers_interrupted_ones(

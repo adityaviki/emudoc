@@ -10,12 +10,13 @@ from sqlalchemy import text
 from app.api import auth, chats, documents, folders, projects, query
 from app.api.deps import AccountDep, ServicesDep, SessionDep, refuse_cross_site
 from app.config import ROOT_DIR, export_env_file, get_settings
-from app.db import check_schema, reconcile_embeddings
+from app.db import check_schema
 from app.embeddings import Embedder
 from app.indexing.pipeline import Services
 from app.indexing.worker import Worker
 from app.llm import LLM
 from app.mail import Mailer, mailer_from_settings
+from app.maintenance import check_embeddings, requeue_stale_embeddings
 from app.schemas import EmbeddingStatus, HealthOut, LLMStatus, StatusOut
 
 FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
@@ -64,7 +65,8 @@ def create_app(
         settings.files_dir.mkdir(parents=True, exist_ok=True)
         settings.pages_dir.mkdir(parents=True, exist_ok=True)
         check_schema()
-        reconcile_embeddings()
+        check_embeddings()
+        requeue_stale_embeddings()
         if services is None:
             export_env_file()
         app.state.services = services or Services(LLM(settings), Embedder(settings))

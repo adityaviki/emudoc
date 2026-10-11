@@ -96,8 +96,11 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   lines and restart. [Pydantic AI](https://pydantic.dev/docs/ai/models/overview/) makes the
   requests, so any model it supports can be named.
 - `AGENT_EFFORT` and `INDEX_EFFORT` set how hard a model thinks, for models that can.
-- `EMBEDDING_MODEL` and `EMBEDDING_DIM` select the embedding model. Changing either re-embeds
-  every document on the next start.
+- `EMBEDDING_MODEL` and `EMBEDDING_DIM` select the embedding model. Changing the model re-embeds
+  every document on the next start. Changing the size changes the type of the column the
+  vectors live in, which discards them, so the backend refuses to start until
+  `uv run python -m app.maintenance rebuild-embeddings` (in `backend/`, with the app stopped)
+  has resized the column and queued every document to be embedded again.
 - Sign-in: `LOCAL_ACCOUNT=true` lets a request without a session act as a local owner account,
   for development on one machine (off by default); `APP_URL` is the address the links in emails
   point at; `SMTP_URL` sends the verification and reset emails (without it they go to the log);
@@ -144,6 +147,8 @@ backend/app/
   auth.py       passwords, sessions, one-time links and authenticator codes
   oidc.py       sign-in with Google and Microsoft
   mail.py       the emails the app sends
+  maintenance.py
+                the embedding checks at start and the command that rebuilds the vectors
   api/          HTTP endpoints
   llm.py        every call to the AI model
 backend/migrations/
