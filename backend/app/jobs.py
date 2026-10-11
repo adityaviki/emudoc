@@ -12,12 +12,19 @@ way `max_attempts` times is given up rather than run forever.
 The row is the claim and the retry bookkeeping. What the job is about keeps its own user-visible
 state: a document's `status` and `stages` are what the UI shows, and the index job writes them
 through the pipeline as before.
+
+An index job runs whatever stages its document has not finished, so two queued for the same
+document would do the same work twice, or at once on two workers: queuing one replaces any
+still queued for that document (`queue_index`), keeping the better priority of the two. That is
+how "Index again" overtakes a retry waiting for its backoff, and how a retry never doubles a
+job the user queued meanwhile.
 """
 
 import logging
 from datetime import datetime, timedelta
 
-from sqlalchemy import Connection, select, text
+from sqlalchemy import Connection, DateTime, bindparam, select, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -81,15 +88,27 @@ _RELEASE = text(
     """
 )
 _PRUNE = text("DELETE FROM jobs WHERE status IN ('done', 'failed') AND finished_at < now() - :age")
-_INSERT_INDEX = text(
+# A queued job for the same document is replaced, and the new one takes the better priority of
+# the two: an upload's job stays ahead of bulk work when a project reprocess overtakes it.
+_QUEUE_INDEX = text(
     """
-    INSERT INTO jobs (org_id, project_id, kind, payload, priority)
-    SELECT p.org_id, d.project_id, 'index_document', jsonb_build_object('document_id', d.id),
-           :priority
+    WITH superseded AS (
+        DELETE FROM jobs
+        WHERE kind = 'index_document' AND status = 'queued'
+          AND (payload->>'document_id')::bigint = ANY(:ids)
+        RETURNING (payload->>'document_id')::bigint AS document_id, priority
+    )
+    INSERT INTO jobs (org_id, project_id, kind, payload, priority, max_attempts, run_at)
+    SELECT p.org_id, d.project_id, 'index_document',
+           jsonb_build_object('document_id', d.id) || :extra,
+           least(:priority, (SELECT min(s.priority) FROM superseded AS s
+                             WHERE s.document_id = d.id)),
+           :max_attempts, coalesce(:run_at, now())
     FROM documents AS d JOIN projects AS p ON p.id = d.project_id
     WHERE d.id = ANY(:ids)
+    RETURNING *
     """
-)
+).bindparams(bindparam("extra", type_=JSONB), bindparam("run_at", type_=DateTime(timezone=True)))
 
 
 def enqueue(
@@ -119,16 +138,25 @@ def enqueue(
     return job
 
 
-def queue_index(session: Session, document: Document, org_id: int, priority: int = 0) -> Job:
-    """Queue a document for the pipeline; its stages say where the run starts."""
-    return enqueue(
-        session,
-        INDEX_DOCUMENT,
-        org_id=org_id,
-        project_id=document.project_id,
-        payload={"document_id": document.id},
-        priority=priority,
-    )
+def queue_index(
+    session: Session,
+    document: Document,
+    priority: int = 0,
+    *,
+    run_at: datetime | None = None,
+    retry: int = 0,
+) -> Job:
+    """Queue a document for the pipeline; its stages say where the run starts.
+
+    `run_at` holds the job back until then, and `retry` counts the automatic retries so far
+    for the job that decides on the next (app/worker.py); both are for the retry after a
+    transient failure. The job replaces any still queued for the document (the module's
+    docstring says why), and is queued when the caller commits, with the document's changes.
+    """
+    return session.scalars(
+        select(Job).from_statement(_QUEUE_INDEX),
+        _queue_params([document.id], priority, run_at, retry),
+    ).one()
 
 
 def queue_index_by_id(connection: Connection, document_ids: list[int], priority: int = 0) -> int:
@@ -136,7 +164,19 @@ def queue_index_by_id(connection: Connection, document_ids: list[int], priority:
     maintenance that queues every document after a model change). Returns how many."""
     if not document_ids:
         return 0
-    return connection.execute(_INSERT_INDEX, {"ids": document_ids, "priority": priority}).rowcount
+    return connection.execute(_QUEUE_INDEX, _queue_params(document_ids, priority)).rowcount
+
+
+def _queue_params(
+    document_ids: list[int], priority: int, run_at: datetime | None = None, retry: int = 0
+) -> dict:
+    return {
+        "ids": document_ids,
+        "priority": priority,
+        "extra": {"retry": retry} if retry else {},
+        "max_attempts": MAX_ATTEMPTS,
+        "run_at": run_at,
+    }
 
 
 def claim(worker_id: str, kinds: list[str]) -> Job | None:

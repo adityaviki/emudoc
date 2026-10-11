@@ -10,6 +10,11 @@ for (`HANDLERS`). In development the API process runs the same threads itself, s
 A stop is graceful: the threads stop claiming, the jobs they are running get a grace period to
 finish, and the ones that did not finish are handed back to the queue with their lease cleared,
 so that the next worker takes them at once rather than when the lease would have run out.
+
+A stage that failed because a provider or the storage was out of reach is tried again: the index
+handler queues the document again from that stage after a wait that doubles each time, a few
+times, and the stage's detail says so for as long as the user looks. A stage that failed for a
+reason that will not pass on its own (the file, the key, the model's reply) is not.
 """
 
 import argparse
@@ -23,15 +28,22 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import text
 
 from app.config import Settings, get_settings
 from app.db import SessionLocal
-from app.indexing.pipeline import Services, process_document
-from app.jobs import INDEX_DOCUMENT, LEASE, claim, extend_leases, finish, release
+from app.indexing.pipeline import (
+    Services,
+    StageFailure,
+    await_retry,
+    give_up_retrying,
+    process_document,
+)
+from app.jobs import INDEX_DOCUMENT, LEASE, claim, extend_leases, finish, queue_index, release
 from app.maintenance import housekeeping
-from app.models import Job
+from app.models import Document, Job
 from app.startup import prepare
 from app.storage import StorageError
 
@@ -53,6 +65,11 @@ HOUSEKEEPING_INTERVAL = 6 * 3600.0
 GRACE = 8.0
 
 CRASHED = "Indexing stopped unexpectedly. Try reprocessing."
+# How many times a stage that failed for a passing reason is run again, and how long the first
+# wait is; each wait is twice the one before, so four retries span a quarter of an hour. An
+# outage longer than that leaves the stage failed until the user presses "Index again".
+MAX_RETRIES = 4
+FIRST_BACKOFF = timedelta(minutes=1)
 
 
 @dataclass(frozen=True)
@@ -70,12 +87,72 @@ class Handler:
 
 
 def _run_index(job: Job, services: Services) -> None:
+    document_id = job.payload["document_id"]
     try:
-        process_document(job.payload["document_id"], services)
+        failures = process_document(document_id, services)
     except Exception:
         # Each stage catches its own errors; this is the pipeline itself failing around them.
-        _fail_document(job.payload["document_id"], CRASHED)
+        _fail_document(document_id, CRASHED)
         raise
+    # From the first stage worth running again; the ones behind it run again with it.
+    if failure := next((failure for failure in failures if failure.transient), None):
+        _retry_index(job, failure)
+
+
+def _retry_index(job: Job, failure: StageFailure) -> None:
+    """Queue the document to run again from the failed stage after the next backoff, or give up
+    once it has been retried MAX_RETRIES times, saying either in the stage's detail."""
+    document_id = job.payload["document_id"]
+    retry = job.payload.get("retry", 0) + 1
+    with SessionLocal() as session:
+        document = session.get(Document, document_id)
+        if document is None or document.stages.get(failure.stage, {}).get("status") != "failed":
+            # Deleted, or queued again by the user since the run ended: that job runs the stage.
+            return
+        if retry > MAX_RETRIES:
+            tries = MAX_RETRIES + 1
+            waited = FIRST_BACKOFF * (2**MAX_RETRIES - 1)
+            give_up_retrying(
+                document,
+                failure,
+                f'Tried {tries} times over {_minutes(waited)}; use "Index again" once the '
+                "service is back.",
+            )
+            session.commit()
+            log.warning(
+                "Document %s: stage %s failed %s times for a passing reason and is not tried "
+                "again (%s)",
+                document_id,
+                failure.stage,
+                tries,
+                failure.message,
+            )
+            return
+        wait = FIRST_BACKOFF * 2 ** (retry - 1)
+        await_retry(document, failure, f"Retrying in {_minutes(wait)} ({retry} of {MAX_RETRIES}).")
+        queue_index(
+            session,
+            document,
+            job.priority,
+            run_at=datetime.now(UTC) + wait,
+            retry=retry,
+        )
+        session.commit()
+    log.info(
+        "Document %s: stage %s failed for a passing reason, running it again in %s "
+        "(retry %s of %s): %s",
+        document_id,
+        failure.stage,
+        _minutes(wait),
+        retry,
+        MAX_RETRIES,
+        failure.message,
+    )
+
+
+def _minutes(delta: timedelta) -> str:
+    minutes = max(1, round(delta.total_seconds() / 60))
+    return f"{minutes} minute" if minutes == 1 else f"{minutes} minutes"
 
 
 def _abandon_index(job: Job, services: Services, reason: str) -> None:

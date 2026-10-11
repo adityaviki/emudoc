@@ -164,33 +164,39 @@ def test_ocr_sends_the_image_before_the_instruction():
 
 
 @pytest.mark.parametrize(
-    ("replies", "expected"),
+    ("replies", "expected", "transient"),
     [
-        ([ModelResponse(parts=[], finish_reason="content_filter")], "declined"),
+        ([ModelResponse(parts=[], finish_reason="content_filter")], "declined", False),
         # A reply cut off at the output limit is asked for once more before giving up.
         (
             [ModelResponse(parts=[TextPart('{"title": "cut')], finish_reason="length")] * 2,
             "cut off",
+            False,
         ),
         (
             [ModelHTTPError(401, "m", {"error": {"message": "bad key"}})],
             "The API key for m was rejected. The provider said: bad key",
+            False,
         ),
-        ([ModelHTTPError(403, "m")], "This API key is not allowed to use m."),
-        ([ModelHTTPError(404, "m")], "The model m was not found"),
+        ([ModelHTTPError(403, "m")], "This API key is not allowed to use m.", False),
+        ([ModelHTTPError(404, "m")], "The model m was not found", False),
+        # The provider, not the request, is the problem: worth asking again in a while.
         (
             [ModelHTTPError(429, "m", {"message": "Quota exceeded."})],
             "rate limit .* Quota exceeded.",
+            True,
         ),
-        ([ModelHTTPError(400, "m", "No such field.")], r"failed \(400\). .* No such field."),
-        ([ModelAPIError("m", "Connection error.")], "Could not reach the provider of m"),
-        ([RuntimeError("boom")], "failed unexpectedly"),
+        ([ModelHTTPError(503, "m", "Overloaded.")], r"failed \(503\). .* Overloaded.", True),
+        ([ModelHTTPError(400, "m", "No such field.")], r"failed \(400\). .* No such field.", False),
+        ([ModelAPIError("m", "Connection error.")], "Could not reach the provider of m", True),
+        ([RuntimeError("boom")], "failed unexpectedly", False),
     ],
 )
-def test_failures_become_readable_errors(replies, expected):
+def test_failures_become_readable_errors(replies, expected, transient):
     llm = scripted_llm(FunctionModel(Script(*replies)))
-    with pytest.raises(LLMError, match=expected):
+    with pytest.raises(LLMError, match=expected) as error:
         llm.structured("the document", DocumentAnalysis)
+    assert error.value.transient is transient
 
 
 @pytest.mark.parametrize(

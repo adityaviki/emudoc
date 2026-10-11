@@ -65,6 +65,10 @@ def test_changing_the_embedding_model_requeues_only_the_embed_stage(
     session, services, indexed, embedder_settings, monkeypatch
 ):
     assert requeue_stale_embeddings() == 0
+    # The fixture ran the pipeline itself; a worker would have settled the upload's job, and a
+    # job still queued would be replaced rather than joined (tests/test_jobs.py).
+    session.execute(text("UPDATE jobs SET status = 'done'"))
+    session.commit()
 
     monkeypatch.setattr(embedder_settings, "embedding_model", "another-model")
     assert requeue_stale_embeddings() == 1

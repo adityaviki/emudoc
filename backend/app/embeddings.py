@@ -3,13 +3,16 @@
 import httpx
 
 from app.config import Settings
+from app.errors import AppError
 
 BATCH_SIZE = 32
 # Passages are far shorter; this only guards the model's context window.
 MAX_INPUT_CHARS = 6000
+# The statuses an endpoint answers with when it, not the request, is the problem for the moment.
+TRANSIENT_STATUSES = {408, 429}
 
 
-class EmbeddingError(Exception):
+class EmbeddingError(AppError):
     pass
 
 
@@ -56,13 +59,16 @@ class Embedder:
             response.raise_for_status()
             data = response.json()["data"]
         except httpx.HTTPStatusError as error:
+            status = error.response.status_code
             detail = error.response.text[:200]
             raise EmbeddingError(
-                f"Embedding endpoint returned {error.response.status_code}: {detail}"
+                f"Embedding endpoint returned {status}: {detail}",
+                transient=status in TRANSIENT_STATUSES or status >= 500,
             ) from error
         except httpx.HTTPError as error:
+            # Not reached, or the connection dropped: the endpoint may well be back in a while.
             raise EmbeddingError(
-                f"Embedding endpoint unreachable at {self._client.base_url}"
+                f"Embedding endpoint unreachable at {self._client.base_url}", transient=True
             ) from error
         except (KeyError, ValueError) as error:
             raise EmbeddingError("Embedding endpoint returned an unexpected response") from error

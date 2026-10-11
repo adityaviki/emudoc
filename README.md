@@ -13,7 +13,12 @@ Upload ──> Parse ──> Structure ──┼──> Hierarchical map ──�
 
 Every upload queues a job that runs it through four stages in the background. Jobs are rows in
 Postgres that the worker claims with a lease, so a job whose worker died is picked up again by
-the next one. Each stage stores its output, so any stage can be run again on its own.
+the next one. Each stage stores its output, so any stage can be run again on its own. A stage
+that failed because the model, the embedding endpoint or the bucket was out of reach (down,
+rate limiting, a dropped connection) is run again by itself after 1, 2, 4 and 8 minutes; the
+stage says so in the document's status until it succeeds, and after the last try it stays
+failed until "Index again". A stage that failed for a reason that will not pass on its own, such
+as a rejected key or a file nothing can be read from, is not retried.
 
 | Stage     | What it does                                                                      | Needs      |
 | --------- | --------------------------------------------------------------------------------- | ---------- |

@@ -143,11 +143,12 @@ class FakeEmbedder:
     dim = 768
 
     def __init__(self):
+        # An endpoint that cannot be reached, which is a passing condition to the pipeline.
         self.fail = False
 
     def _vector(self, text_: str) -> list[float]:
         if self.fail:
-            raise EmbeddingError("Embedding endpoint unreachable")
+            raise EmbeddingError("Embedding endpoint unreachable", transient=True)
         vector = [0.0] * self.dim
         for word in re.findall(r"[a-z0-9]+", text_.lower()):
             vector[int(hashlib.md5(word.encode()).hexdigest(), 16) % self.dim] += 1.0
@@ -176,6 +177,9 @@ class FakeLLM:
 
     def __init__(self):
         self.available = True
+        # Raised by every indexing request while set: a provider that is down (transient) or
+        # one that refuses the request (not), as the pipeline sees them.
+        self.failure: Exception | None = None
         self.calls: list[tuple[str, object]] = []
         self.agent_turns: list[FakeTurn] = []
         self.agent_requests: list[list] = []
@@ -185,6 +189,8 @@ class FakeLLM:
 
     def structured(self, content, schema):
         self.calls.append((schema.__name__, content))
+        if self.failure is not None:
+            raise self.failure
         if schema is OcrPage:
             return OcrPage(
                 blocks=[
@@ -286,8 +292,12 @@ class FakeS3Client:
         # When each object was written; a test sets one back to age it.
         self.modified: dict[str, datetime] = {}
         self.calls: list[str] = []
+        # Raised by every call while set: the bucket throttling or out of reach.
+        self.outage: Exception | None = None
 
     def _check_bucket(self, bucket: str, operation: str) -> None:
+        if self.outage is not None:
+            raise self.outage
         if bucket not in self.buckets:
             raise ClientError(
                 {"Error": {"Code": "NoSuchBucket", "Message": "The bucket does not exist"}},
@@ -544,7 +554,7 @@ def make_document(session, account, services):
         session.flush()
         document.storage_key = original_key(project.org_id, project.id, document.id, suffix)
         services.storage.put(document.storage_key, path, document.mime_type)
-        queue_index(session, document, project.org_id)
+        queue_index(session, document)
         session.commit()
         return document
 

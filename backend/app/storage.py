@@ -41,10 +41,12 @@ from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import quote, unquote, urlsplit
 
-from botocore.exceptions import BotoCoreError, ClientError
+from botocore.exceptions import BotoCoreError, ClientError, HTTPClientError
+from botocore.exceptions import ConnectionError as BotoConnectionError
 from starlette.responses import FileResponse, RedirectResponse, Response
 
 from app.config import Settings
+from app.errors import AppError
 
 log = logging.getLogger(__name__)
 
@@ -58,7 +60,7 @@ ROOT_PREFIX = "orgs/"
 _RENDERED = re.compile(r"orgs/\d+/projects/\d+/documents/\d+/(pages/\d+|thumbnail)\.png")
 
 
-class StorageError(Exception):
+class StorageError(AppError):
     """The storage could not do what was asked, said in words the user or operator can act on."""
 
 
@@ -373,6 +375,29 @@ def _describe(error: Exception) -> str:
     return str(error)
 
 
+# What a bucket answers while it is throttling or overloaded: S3 says SlowDown with a 503 and
+# RequestTimeout with a 400, and other services use the status alone.
+_TRANSIENT_CODES = {"SlowDown", "RequestTimeout", "InternalError", "ServiceUnavailable"}
+_TRANSIENT_STATUSES = {408, 429}
+
+
+def _transient(error: Exception) -> bool:
+    """Whether the bucket may answer if asked again in a while: it is throttling, overloaded or
+    out of reach, rather than refusing the key, the bucket or the request."""
+    if isinstance(error, ClientError):
+        status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0)
+        code = error.response.get("Error", {}).get("Code")
+        return code in _TRANSIENT_CODES or status in _TRANSIENT_STATUSES or status >= 500
+    return isinstance(error, BotoConnectionError | HTTPClientError)
+
+
+def _unreadable(error: Exception) -> StorageError:
+    return StorageError(
+        f"The file could not be read from the bucket ({_describe(error)}).",
+        transient=_transient(error),
+    )
+
+
 class S3Storage(Storage):
     """An S3-compatible bucket, reached through boto3, with every key under one prefix."""
 
@@ -409,23 +434,18 @@ class S3Storage(Storage):
         except (ClientError, BotoCoreError) as error:
             raise StorageError(
                 f"The file could not be stored in the bucket ({_describe(error)}). Try again, "
-                "and check the bucket's permissions if it keeps failing."
+                "and check the bucket's permissions if it keeps failing.",
+                transient=_transient(error),
             ) from error
 
     def _body(self, key: str) -> Any:
         """The object's streaming body; `FileNotFoundError` when the bucket has no such key."""
         try:
             return self.client.get_object(Bucket=self.bucket, Key=self._key(key))["Body"]
-        except ClientError as error:
-            if _missing(error):
+        except (ClientError, BotoCoreError) as error:
+            if isinstance(error, ClientError) and _missing(error):
                 raise FileNotFoundError(key) from None
-            raise StorageError(
-                f"The file could not be read from the bucket ({_describe(error)})."
-            ) from error
-        except BotoCoreError as error:
-            raise StorageError(
-                f"The file could not be read from the bucket ({_describe(error)})."
-            ) from error
+            raise _unreadable(error) from error
 
     def get(self, key: str) -> bytes:
         return self._body(key).read()
@@ -433,15 +453,12 @@ class S3Storage(Storage):
     def exists(self, key: str) -> bool:
         try:
             self.client.head_object(Bucket=self.bucket, Key=self._key(key))
-        except ClientError as error:
-            if _missing(error):
+        except (ClientError, BotoCoreError) as error:
+            if isinstance(error, ClientError) and _missing(error):
                 return False
             raise StorageError(
-                f"The bucket could not be asked for the file ({_describe(error)})."
-            ) from error
-        except BotoCoreError as error:
-            raise StorageError(
-                f"The bucket could not be asked for the file ({_describe(error)})."
+                f"The bucket could not be asked for the file ({_describe(error)}).",
+                transient=_transient(error),
             ) from error
         return True
 
@@ -452,8 +469,12 @@ class S3Storage(Storage):
         handle, name = tempfile.mkstemp(prefix="emudoc-", suffix=Path(key).suffix)
         path = Path(name)
         try:
-            with os.fdopen(handle, "wb") as out:
-                shutil.copyfileobj(body, out)
+            try:
+                with os.fdopen(handle, "wb") as out:
+                    shutil.copyfileobj(body, out)
+            except (ClientError, BotoCoreError) as error:
+                # The connection dropped partway through the object.
+                raise _unreadable(error) from error
             yield path
         finally:
             path.unlink(missing_ok=True)
@@ -486,7 +507,8 @@ class S3Storage(Storage):
                 page = self.client.list_objects_v2(Bucket=self.bucket, Prefix=folder, **more)
             except (ClientError, BotoCoreError) as error:
                 raise StorageError(
-                    f"The bucket could not be listed ({_describe(error)})."
+                    f"The bucket could not be listed ({_describe(error)}).",
+                    transient=_transient(error),
                 ) from error
             for entry in page.get("Contents", []):
                 yield StoredObject(
@@ -505,7 +527,8 @@ class S3Storage(Storage):
                 )
             except (ClientError, BotoCoreError) as error:
                 raise StorageError(
-                    f"The objects could not be deleted from the bucket ({_describe(error)})."
+                    f"The objects could not be deleted from the bucket ({_describe(error)}).",
+                    transient=_transient(error),
                 ) from error
 
     def delete_prefix(self, prefix: str) -> None:

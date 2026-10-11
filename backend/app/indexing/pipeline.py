@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import SessionLocal
 from app.embeddings import Embedder, EmbeddingError
+from app.errors import AppError
 from app.indexing.enrich import (
     ExtractedFact,
     analyze_document,
@@ -48,7 +49,7 @@ class Services:
     storage: Storage
 
 
-class PipelineError(Exception):
+class PipelineError(AppError):
     """A stage failed for a reason the user can act on."""
 
 
@@ -56,31 +57,56 @@ class StageSkipped(Exception):
     pass
 
 
+@dataclass(frozen=True)
+class StageFailure:
+    """A stage that failed in this run: which, why, and whether running it again in a while may
+    succeed (the cause was a provider or the storage being out of reach, not the document)."""
+
+    stage: str
+    message: str
+    transient: bool
+
+
 Stage = Callable[[Session, Document, Services], str]
 
 
-def process_document(document_id: int, services: Services) -> None:
-    """Run every stage that is not already done, in order."""
+def process_document(document_id: int, services: Services) -> list[StageFailure]:
+    """Run every stage that is not already done, in order, and report the stages that failed.
+
+    A failed required stage ends the run with the document failed; a failed optional stage
+    leaves it ready without that stage's output. The job that runs the pipeline decides from
+    the failures whether to queue the document again (app/worker.py).
+    """
     with SessionLocal() as session:
         document = session.get(Document, document_id)
         if document is None:
-            return
+            return []
+        todo = [name for name in STAGES if document.stages.get(name, {}).get("status") != "done"]
+        if not todo:
+            # A job queued for a document that another job has since finished, such as a retry
+            # that "Index again" overtook.
+            document.status = "ready"
+            session.commit()
+            return []
         document.status = "processing"
         document.error = None
         session.commit()
 
-        for name in STAGES:
-            if document.stages.get(name, {}).get("status") == "done":
+        failures: list[StageFailure] = []
+        for name in todo:
+            failure = _run_stage(session, document, name, _STAGES[name], services)
+            if failure is None:
                 continue
-            error = _run_stage(session, document, name, _STAGES[name], services)
-            if error and name in REQUIRED_STAGES:
+            failures.append(failure)
+            if name in REQUIRED_STAGES:
                 document.status = "failed"
-                document.error = error
+                document.error = failure.message
                 session.commit()
-                return
+                return failures
 
         document.status = "ready"
         session.commit()
+        return failures
 
 
 def reset_stages(document: Document, from_stage: str = "parse") -> None:
@@ -96,10 +122,38 @@ def reset_stages(document: Document, from_stage: str = "parse") -> None:
     document.error = None
 
 
+def await_retry(document: Document, failure: StageFailure, notice: str) -> None:
+    """Set the document up to run again from the failed stage, with the notice in that stage's
+    detail for as long as the retry waits.
+
+    The stage keeps saying it failed, and why, with the notice after it; the stages behind it
+    run again too, as they do for "Index again". Without a required stage the document is
+    queued, as a fresh upload is; without an optional one it stays ready, and what was indexed
+    serves until the retry.
+    """
+    ready = document.status == "ready"
+    reset_stages(document, failure.stage)
+    document.stages = {
+        **document.stages,
+        failure.stage: {"status": "failed", "detail": f"{failure.message} {notice}"},
+    }
+    if ready:
+        document.status = "ready"
+
+
+def give_up_retrying(document: Document, failure: StageFailure, notice: str) -> None:
+    """Leave the document as the last run left it, with the notice after the stage's error, and
+    in the document's own error when the stage was a required one."""
+    detail = f"{failure.message} {notice}"
+    document.stages = {**document.stages, failure.stage: {"status": "failed", "detail": detail}}
+    if document.status == "failed":
+        document.error = detail
+
+
 def _run_stage(
     session: Session, document: Document, name: str, stage: Stage, services: Services
-) -> str | None:
-    """Run one stage and record its outcome. Returns the error message if it failed."""
+) -> StageFailure | None:
+    """Run one stage and record its outcome. Returns the failure, if it failed."""
     _set_stage(session, document, name, "running")
     try:
         detail = stage(session, document, services)
@@ -110,13 +164,14 @@ def _run_stage(
     except (PipelineError, UnsupportedFile, LLMError, EmbeddingError, StorageError) as error:
         session.rollback()
         _set_stage(session, document, name, "failed", str(error))
-        return str(error)
+        transient = isinstance(error, AppError) and error.transient
+        return StageFailure(name, str(error), transient)
     except Exception as error:
         session.rollback()
         log.exception("Stage %s failed for document %s", name, document.id)
         message = f"Unexpected error: {type(error).__name__}"
         _set_stage(session, document, name, "failed", message)
-        return message
+        return StageFailure(name, message, transient=False)
     _set_stage(session, document, name, "done", detail)
     return None
 

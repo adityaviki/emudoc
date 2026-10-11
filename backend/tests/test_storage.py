@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from botocore.exceptions import ClientError, EndpointConnectionError, ReadTimeoutError
 from fastapi.testclient import TestClient
 from starlette.responses import FileResponse, RedirectResponse
 
@@ -243,6 +244,55 @@ def test_bucket_failures_are_reported_in_words():
         storage.delete(["k"])
     # A delete after the rows are gone is logged, not raised.
     storage.discard("orgs/1/")
+
+
+def bucket_error(code: str, status: int) -> ClientError:
+    return ClientError(
+        {
+            "Error": {"Code": code, "Message": "as the bucket put it"},
+            "ResponseMetadata": {"HTTPStatusCode": status},
+        },
+        "GetObject",
+    )
+
+
+def test_bucket_outages_may_pass_and_refusals_will_not(monkeypatch):
+    # A missing bucket (the test above) is a refusal; so is a denied key. Throttling, an
+    # overloaded service and a connection that could not be made or dropped are passing
+    # conditions, which the pipeline tells apart to run the stage again later.
+    client = FakeS3Client()
+    storage = S3Storage(client, "bucket")
+    for outage in (
+        bucket_error("SlowDown", 503),
+        bucket_error("RequestTimeout", 400),
+        bucket_error("InternalError", 500),
+        EndpointConnectionError(endpoint_url="http://bucket"),
+    ):
+        client.outage = outage
+        with pytest.raises(StorageError, match="could not be asked") as error:
+            storage.exists("k")
+        assert error.value.transient, outage
+        with pytest.raises(StorageError, match="could not be read") as error:
+            storage.get("k")
+        assert error.value.transient, outage
+    client.outage = bucket_error("AccessDenied", 403)
+    with pytest.raises(StorageError, match="could not be read") as error:
+        storage.get("k")
+    assert not error.value.transient
+    client.outage = None
+    with pytest.raises(StorageError, match="could not be stored") as error:
+        S3Storage(client, "other").put("k", b"x")
+    assert not error.value.transient
+
+    # The connection dropped partway through the object the parse stage was copying here.
+    class DroppedBody:
+        def read(self, size: int = -1) -> bytes:
+            raise ReadTimeoutError(endpoint_url="http://bucket")
+
+    monkeypatch.setattr(client, "get_object", lambda **kw: {"Body": DroppedBody()})
+    with pytest.raises(StorageError, match="could not be read") as error, storage.localize("k"):
+        pass
+    assert error.value.transient
 
 
 def test_storage_from_settings_reads_the_url(tmp_path):

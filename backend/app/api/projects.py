@@ -92,7 +92,7 @@ def reprocess_project(
     for document in documents:
         reset_stages(document, from_stage)
         # Behind fresh uploads, which someone is waiting for.
-        queue_index(session, document, project.org_id, priority=BULK)
+        queue_index(session, document, priority=BULK)
     session.commit()
     if worker:
         worker.notify()

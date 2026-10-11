@@ -38,6 +38,7 @@ from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.tools import ToolDefinition
 
 from app.config import Settings
+from app.errors import AppError
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +48,8 @@ T = TypeVar("T", bound=BaseModel)
 INDEX_MAX_TOKENS = 16000
 # Attempts at one Gemini request, the first included.
 GOOGLE_ATTEMPTS = 3
+# The statuses a provider answers with when it, not the request, is the problem for the moment.
+TRANSIENT_STATUSES = {408, 429}
 
 # The library greets its first run with a banner; this process keeps its output to its log.
 pydantic_ai.BANNER_ENABLED = False
@@ -58,7 +61,7 @@ INDEX_SYSTEM = (
 )
 
 
-class LLMError(Exception):
+class LLMError(AppError):
     pass
 
 
@@ -126,7 +129,15 @@ def _failure(error: Exception) -> LLMError:
         return error
     expected = isinstance(error, ModelAPIError | UnexpectedModelBehavior | UserError)
     log.warning("Model request failed: %.500s", error, exc_info=None if expected else error)
-    return LLMError(describe_error(error))
+    return LLMError(describe_error(error), transient=_transient(error))
+
+
+def _transient(error: Exception) -> bool:
+    """Whether the same request may succeed in a while: the provider was overloaded, rate
+    limiting or out of reach, rather than refusing the key, the model or the request."""
+    if isinstance(error, ModelHTTPError):
+        return error.status_code in TRANSIENT_STATUSES or error.status_code >= 500
+    return isinstance(error, ModelAPIError)
 
 
 def _setup_problem(name: str, error: Exception, settings: Settings) -> str:

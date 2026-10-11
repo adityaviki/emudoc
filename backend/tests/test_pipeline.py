@@ -4,7 +4,7 @@ from PIL import Image
 from sqlalchemy import select
 
 from app.indexing import enrich
-from app.indexing.pipeline import process_document, reset_stages
+from app.indexing.pipeline import StageFailure, process_document, reset_stages
 from app.models import Block, Fact, Passage, Section
 
 
@@ -99,7 +99,10 @@ def test_without_a_model_documents_are_still_parsed_and_searchable(
 def test_embedding_outage_does_not_fail_the_document(session, services, make_document, sample_pdf):
     services.embedder.fail = True
     document = make_document(sample_pdf)
-    process_document(document.id, services)
+    # The run reports the stage for the job to run again later (tests/test_jobs.py).
+    assert process_document(document.id, services) == [
+        StageFailure("embed", "Embedding endpoint unreachable", transient=True)
+    ]
     session.refresh(document)
 
     assert document.status == "ready"

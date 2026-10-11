@@ -35,10 +35,12 @@ from app.jobs import (
     finish,
     release,
 )
+from app.llm import LLMError
 from app.main import create_app
 from app.maintenance import housekeeping
 from app.models import Document, Job, Project
-from app.worker import HANDLERS, Handler, Worker, serve
+from app.worker import HANDLERS, MAX_RETRIES, Handler, Worker, serve
+from tests.test_pipeline import stage_statuses
 
 INDEX = ["index_document"]
 
@@ -96,16 +98,35 @@ def test_uploads_and_reprocesses_queue_index_jobs(client, session, sample_pdf, s
     }
     assert {(job.attempts, job.max_attempts) for job in queued} == {(0, MAX_ATTEMPTS)}
     assert all(job.run_at <= datetime.now(UTC) for job in queued)
+    first, second = (job.id for job in queued)
 
-    # One document again is a user waiting; the whole project is bulk work behind uploads.
+    # A job runs every stage its document has not finished, so one queued for a document
+    # replaces any still queued for it: a reprocess before the worker got to the upload leaves
+    # one job, not two runs. The whole project is bulk work behind uploads, but a job that
+    # replaces an upload's keeps the upload's place in the queue.
     assert client.post(f"/api/documents/{ids[0]}/reprocess").status_code == 202
+    kept, replaced = all_jobs(session)
+    assert (replaced.payload, replaced.priority) == ({"document_id": ids[0]}, 0)
+    assert replaced.id > second and kept.id == second
     assert client.post(f"/api/projects/{project['id']}/reprocess").json() == {"queued": 2}
-    later = all_jobs(session)[2:]
-    assert [(job.payload["document_id"], job.priority) for job in later] == [
+    assert {(job.payload["document_id"], job.priority) for job in all_jobs(session)} == {
         (ids[0], 0),
-        (ids[0], BULK),
-        (ids[1], BULK),
-    ]
+        (ids[1], 0),
+    }
+    # Once the upload's job has run, a reprocess of the project queues bulk work for it.
+    session.execute(
+        text("UPDATE jobs SET status = 'done' WHERE payload->>'document_id' = :id"),
+        {"id": str(ids[0])},
+    )
+    session.commit()
+    assert client.post(f"/api/projects/{project['id']}/reprocess").json() == {"queued": 2}
+    assert {
+        (job.payload["document_id"], job.priority, job.status) for job in all_jobs(session)
+    } == {
+        (ids[0], 0, "done"),
+        (ids[1], 0, "queued"),
+        (ids[0], BULK, "queued"),
+    }
 
 
 def test_the_claim_takes_jobs_in_order_and_leases_them(session, account):
@@ -520,3 +541,152 @@ def test_the_worker_command_starts_and_stops_on_sigterm(session):
     assert process.returncode == 0
     assert "Worker" in output and "stopped" in output
     assert "Traceback" not in output
+
+
+# Retries: a stage that failed because a provider was out of reach runs again after a backoff.
+
+RATE_LIMITED = LLMError("The rate limit for m was reached. Try again shortly.", transient=True)
+DECLINED = LLMError("The model declined to process this content.")
+
+
+def run_index(job: Job, services) -> None:
+    HANDLERS["index_document"].run(job, services)
+
+
+def test_a_passing_failure_queues_the_stage_again_with_a_growing_backoff(
+    client, session, services, make_document, sample_pdf
+):
+    document = make_document(sample_pdf)
+    services.llm.failure = RATE_LIMITED
+    run_index(claim("w:1", INDEX), services)
+
+    # The document stays ready without summaries, the stage says why and when it runs again,
+    # and the stage behind it runs again with it, as it does for "Index again".
+    session.refresh(document)
+    assert document.status == "ready" and document.error is None
+    assert stage_statuses(document) == {
+        "parse": "done",
+        "structure": "done",
+        "enrich": "failed",
+        "embed": "pending",
+    }
+    assert document.stages["enrich"]["detail"] == (
+        f"{RATE_LIMITED} Retrying in 1 minute (1 of {MAX_RETRIES})."
+    )
+    first, retry = all_jobs(session)
+    assert (first.status, retry.status) == ("running", "queued")
+    assert retry.payload == {"document_id": document.id, "retry": 1}
+    assert retry.priority == 0 and retry.attempts == 0
+    assert retry.run_at - datetime.now(UTC) > timedelta(seconds=50)
+    assert claim("w:1", INDEX) is None
+
+    # The second retry waits twice as long.
+    session.execute(text("UPDATE jobs SET run_at = now() WHERE id = :id"), {"id": retry.id})
+    session.commit()
+    taken = claim("w:1", INDEX)
+    assert taken.id == retry.id
+    run_index(taken, services)
+    session.refresh(document)
+    assert document.stages["enrich"]["detail"].endswith(
+        f"Retrying in 2 minutes (2 of {MAX_RETRIES})."
+    )
+    second = all_jobs(session)[-1]
+    assert second.payload == {"document_id": document.id, "retry": 2}
+    assert second.run_at - datetime.now(UTC) > timedelta(seconds=110)
+
+    # "Index again" meanwhile overtakes the waiting retry: one job, now, from the start.
+    assert client.post(f"/api/documents/{document.id}/reprocess").status_code == 202
+    assert [job.status for job in all_jobs(session)] == ["running", "running", "queued"]
+    manual = all_jobs(session)[-1]
+    assert manual.payload == {"document_id": document.id}
+    assert manual.run_at <= datetime.now(UTC)
+    session.refresh(document)
+    assert document.status == "queued" and set(stage_statuses(document).values()) == {"pending"}
+
+
+def test_a_failure_that_will_not_pass_is_not_retried(session, services, make_document, sample_pdf):
+    document = make_document(sample_pdf)
+    services.llm.failure = DECLINED
+    run_index(claim("w:1", INDEX), services)
+
+    session.refresh(document)
+    assert document.status == "ready"
+    assert stage_statuses(document) == {
+        "parse": "done",
+        "structure": "done",
+        "enrich": "failed",
+        "embed": "done",
+    }
+    assert document.stages["enrich"]["detail"] == str(DECLINED)
+    assert len(all_jobs(session)) == 1
+
+
+def test_a_required_stage_waits_for_its_retry_as_queued_and_gives_up_as_failed(
+    session, services, make_document, tmp_path
+):
+    from PIL import Image
+
+    path = tmp_path / "scan.png"
+    Image.new("RGB", (400, 300), "white").save(path)
+    document = make_document(path)
+    services.llm.failure = RATE_LIMITED
+    run_index(claim("w:1", INDEX), services)
+
+    # Reading the scan needs the model, so nothing is indexed yet: the document is queued, as
+    # a fresh upload is, until the retry.
+    session.refresh(document)
+    assert (document.status, document.error) == ("queued", None)
+    assert stage_statuses(document) == {
+        "parse": "failed",
+        "structure": "pending",
+        "enrich": "pending",
+        "embed": "pending",
+    }
+    assert document.stages["parse"]["detail"].endswith(
+        f"Retrying in 1 minute (1 of {MAX_RETRIES})."
+    )
+
+    # The last retry fails too: the document is failed, and its error says it was tried.
+    session.execute(
+        text("UPDATE jobs SET run_at = now(), payload = payload || :retry WHERE status = 'queued'"),
+        {"retry": f'{{"retry": {MAX_RETRIES}}}'},
+    )
+    session.commit()
+    run_index(claim("w:1", INDEX), services)
+    session.refresh(document)
+    assert document.status == "failed"
+    assert document.error == (
+        f'{RATE_LIMITED} Tried {MAX_RETRIES + 1} times over 15 minutes; use "Index again" '
+        "once the service is back."
+    )
+    assert document.stages["parse"]["detail"] == document.error
+    assert [job.status for job in all_jobs(session)] == ["running", "running"]
+
+
+def test_the_worker_retries_until_the_outage_passes(
+    session, services, make_document, sample_pdf, monkeypatch
+):
+    document = make_document(sample_pdf)
+    services.llm.failure = RATE_LIMITED
+    monkeypatch.setattr(worker_module, "FIRST_BACKOFF", timedelta(milliseconds=50))
+    monkeypatch.setattr(worker_module, "POLL_SECONDS", 0.05)
+    worker = Worker(services, concurrency=1)
+    worker.start()
+    try:
+        wait_until(lambda: len(all_jobs(session)) == 2 and all_jobs(session)[0].status == "done")
+        # The provider is back before the retry runs.
+        services.llm.failure = None
+
+        def enriched() -> bool:
+            session.expire_all()
+            return document.stages.get("enrich", {}).get("status") == "done"
+
+        wait_until(enriched)
+        wait_until(lambda: all_jobs(session)[1].status == "done")
+    finally:
+        worker.stop()
+    session.refresh(document)
+    assert document.status == "ready"
+    assert set(stage_statuses(document).values()) == {"done"}
+    assert "Retrying" not in document.stages["enrich"]["detail"]
+    assert [job.payload.get("retry", 0) for job in all_jobs(session)] == [0, 1]

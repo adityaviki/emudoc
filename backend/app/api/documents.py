@@ -128,7 +128,7 @@ def upload_documents(
             # and the error says what happened (`storage_unavailable` in main.py).
             services.storage.put(document.storage_key, spool, document.mime_type)
             # The document and the job that indexes it are committed together.
-            queue_index(session, document, project.org_id)
+            queue_index(session, document)
             session.commit()
             documents.append(document)
         finally:
@@ -238,7 +238,7 @@ def reprocess_document(
     if document.status == "processing":
         raise HTTPException(409, "This document is being indexed right now")
     reset_stages(document, from_stage)
-    queue_index(session, document, session.get(Project, document.project_id).org_id)
+    queue_index(session, document)
     session.commit()
     if worker:
         worker.notify()
