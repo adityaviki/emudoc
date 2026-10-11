@@ -201,7 +201,7 @@ function Conversation({ chatId }: { chatId: number | null }) {
   const workspace = useWorkspace()
   const project = workspace.project
   const queryClient = useQueryClient()
-  const health = useQuery({ queryKey: ['health'], queryFn: api.health })
+  const health = useQuery({ queryKey: ['status'], queryFn: api.status })
   const chat = useQuery({
     queryKey: chatKey(chatId),
     queryFn: () => api.chat(chatId!).then(loadChat),

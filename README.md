@@ -33,15 +33,15 @@ answer keeps streaming while you look at another tab.
 
 A project opens as two panes. On the left is the **library**: the project's documents filed in
 folders, with the usual file-manager moves (new folder, rename, drag to move, delete, upload by
-button or by dropping files, search). Opening a file adds a third pane in the middle, the
-**document**, with a tab for each open file; the tabs stay open across reloads, and closing the
-last one leaves the library and the agent side by side again. PDFs show their rendered pages with
-the extracted text laid invisibly over them, so it can be selected and searched; spreadsheets show
-one tab per sheet; images show the picture above the text read from it. On the right is the **agent**. Clicking
-a citation in an answer opens the cited document in the middle at that passage, with the library
-still beside it. The agent sees the folders too: ask about
-"the invoices in Finance/2026" and `list_documents`, `search` and `query_facts` work within that
-folder.
+button or by dropping files, search), shown as a tree that opens folders in place. Opening a file
+adds a third pane in the middle, the **document**, with a tab for each open file; the tabs stay
+open across reloads, and closing the last one leaves the library and the agent side by side again.
+PDFs show their rendered pages with the extracted text laid invisibly over them, so it can be
+selected and searched; spreadsheets show one tab per sheet; images show the picture above the text
+read from it. On the right is the **agent**. Clicking a citation in an answer opens the cited
+document in the middle at that passage, with the library still beside it. The agent sees the
+folders too: ask about "the invoices in Finance/2026" and `list_documents`, `search` and
+`query_facts` work within that folder.
 
 ## Run it
 
@@ -59,8 +59,10 @@ Open <http://127.0.0.1:8000>. The backend serves the API and the built frontend.
 For semantic search, run [Ollama](https://ollama.com) with `ollama pull nomic-embed-text`, or
 point `EMBEDDING_BASE_URL` at any OpenAI-compatible embeddings endpoint.
 
-When working on the frontend, run `pnpm dev` in `frontend/` and open <http://localhost:5173>;
-it reloads on change and proxies `/api` to the backend.
+When working on the app, run `./dev.sh` instead and open <http://localhost:5173>. It starts the
+database, the backend (restarting when Python changes) and the frontend dev server (updating the
+open page as you edit, no build needed), which proxies `/api` to the backend. Ctrl+C stops both
+servers. Port 8000 still serves the last build, so it does not show your edits.
 
 ## What works without what
 

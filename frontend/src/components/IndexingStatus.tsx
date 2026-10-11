@@ -1,58 +1,69 @@
+import { CircleAlert, CircleCheck } from 'lucide-react'
 import { STAGES, isIndexing } from '../api.ts'
-import type { Document, Stage, StageName } from '../api.ts'
+import type { Document, Stage } from '../api.ts'
+import { STAGE_LABELS, STATUS_LABELS, missingStages, stageOf, statusLabel, statusTitle } from '../indexing.ts'
 
-const STAGE_LABELS: Record<StageName, string> = {
-  parse: 'Parse',
-  structure: 'Outline',
-  enrich: 'Summaries and facts',
-  embed: 'Embeddings',
+// Each stage's arc in the ring while the document is indexed.
+const ARC_TONES: Record<Stage['status'], string> = {
+  done: 'text-accent',
+  running: 'text-accent/50 animate-pulse',
+  failed: 'text-bad',
+  skipped: 'text-muted/30',
+  pending: 'text-line',
 }
 
-const DOT_TONES: Record<Stage['status'], string> = {
-  done: 'bg-good',
-  running: 'bg-accent animate-pulse',
-  failed: 'bg-bad',
-  skipped: 'border border-muted',
-  pending: 'bg-line',
+/**
+ * The document's indexing state as one icon: while it is indexed, a ring with an arc per stage that
+ * fills in as they finish; once ready, a check, green with every stage done and grey without one
+ * of them; an alert when it failed.
+ */
+export function StatusIcon({ document, className = 'size-3.5' }: { document: Document; className?: string }) {
+  const title = statusTitle(document)
+  return (
+    <span role="img" aria-label={title} title={title} className="inline-flex shrink-0">
+      {document.status === 'failed' ? (
+        <CircleAlert className={`text-bad ${className}`} />
+      ) : document.status === 'ready' ? (
+        <CircleCheck className={`${missingStages(document).length ? 'text-muted' : 'text-good'} ${className}`} />
+      ) : (
+        // Four arcs on a circle of circumference 100, each a quarter less a gap, starting at the top.
+        <svg viewBox="0 0 16 16" fill="none" strokeWidth={2} className={`-rotate-90 ${className}`}>
+          {STAGES.map((name, index) => (
+            <circle
+              key={name}
+              cx={8}
+              cy={8}
+              r={6}
+              pathLength={100}
+              strokeDasharray="19 81"
+              strokeDashoffset={-(index * 25 + 3)}
+              strokeLinecap="round"
+              className={`stroke-current ${ARC_TONES[stageOf(document, name).status]}`}
+            />
+          ))}
+        </svg>
+      )}
+    </span>
+  )
 }
 
-const STATUS_LABELS: Record<Document['status'], string> = {
-  queued: 'Queued',
-  processing: 'Indexing',
-  ready: 'Ready',
-  failed: 'Failed',
-}
-
-/** One dot per indexing stage, with the document's overall state beside them. */
+/** The status icon with the document's state beside it, and what went wrong or was left out. */
 export function IndexingStatus({ document }: { document: Document }) {
-  // A ready document may still be missing an optional stage; say which.
-  const partial = STAGES.filter((name) => ['failed', 'skipped'].includes(document.stages[name]?.status ?? ''))
+  const missing = missingStages(document)
+  const tone = document.status === 'failed' ? 'text-bad' : isIndexing(document) ? 'text-accent' : 'text-muted'
 
   return (
     <div>
-      <div className="flex items-center gap-2">
-        <span className="flex gap-0.75">
-          {STAGES.map((name) => {
-            const stage = document.stages[name] ?? { status: 'pending', detail: '' }
-            return (
-              <span
-                key={name}
-                title={`${STAGE_LABELS[name]}: ${stage.status}${stage.detail ? ` (${stage.detail})` : ''}`}
-                className={`size-1.5 rounded-full ${DOT_TONES[stage.status]}`}
-              />
-            )
-          })}
-        </span>
-        <span className={document.status === 'failed' ? 'text-bad' : 'text-muted'}>
-          {STATUS_LABELS[document.status]}
-        </span>
+      <div className={`flex items-center gap-1.5 ${tone}`}>
+        <StatusIcon document={document} />
+        <span>{statusLabel(document)}</span>
       </div>
       {document.status === 'failed' && document.error && (
         <p className="mt-0.5 max-w-xs text-xs text-bad">{document.error}</p>
       )}
-      {document.status === 'ready' && partial.length > 0 && (
+      {document.status === 'ready' && missing.length > 0 && (
         <p className="mt-0.5 text-xs text-muted">
-          Without {partial.map((name) => STAGE_LABELS[name].toLowerCase()).join(', ')}
+          Without {missing.map((name) => STAGE_LABELS[name].toLowerCase()).join(', ')}
         </p>
       )}
     </div>

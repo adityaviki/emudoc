@@ -114,7 +114,7 @@ function ThemeToggle() {
 
 /** Shows whether the two optional services, the AI model and embeddings, are usable. */
 function ServiceStatus() {
-  const { data } = useQuery({ queryKey: ['health'], queryFn: api.health, refetchInterval: 60_000 })
+  const { data } = useQuery({ queryKey: ['status'], queryFn: api.status, refetchInterval: 60_000 })
   if (!data) return null
   const items = [
     {
