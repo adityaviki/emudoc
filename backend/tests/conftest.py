@@ -32,8 +32,11 @@ def _ensure_database() -> None:
 _ensure_database()
 os.environ["DATABASE_URL"] = f"postgresql+psycopg://{SERVER}/{TEST_DATABASE}"
 os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="emudoc-test-")
-# Pinned, so the tests do not follow whichever models the developer's .env selects.
+# Pinned, so the tests do not follow whichever models the developer's .env selects. The
+# embedding size is the one `FakeEmbedder` produces and the migrations size the column by.
 os.environ["AGENT_MODEL"] = os.environ["INDEX_MODEL"] = "google:gemini-2.5-flash-lite"
+os.environ["EMBEDDING_MODEL"] = "nomic-embed-text"
+os.environ["EMBEDDING_DIM"] = "768"
 # Most tests drive the API as the local account; `signed_in_only` restores the production rule.
 os.environ["LOCAL_ACCOUNT"] = "true"
 
