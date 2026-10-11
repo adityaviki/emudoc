@@ -15,8 +15,9 @@ them: it runs in a transaction and the filesystem does not.
 one walk over the storage (`sweep_storage`) that removes the rendered pages and thumbnails older
 than PAGE_IMAGE_DAYS, which are rendered again when asked for, and the objects of documents and
 projects that no longer exist, which a delete leaves behind when the storage fails after the rows
-are gone. `sweep-page-images` runs the first part by hand, after lowering the setting;
-`sweep-orphans` lists the second part and removes it with `--delete`.
+are gone; and the pruning of jobs that finished longer ago than the queue keeps them.
+`sweep-page-images` runs the first part by hand, after lowering the setting; `sweep-orphans`
+lists the second part and removes it with `--delete`.
 """
 
 import argparse
@@ -33,6 +34,7 @@ from sqlalchemy import Connection, select, text
 
 from app.config import get_settings
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine
+from app.jobs import BULK, HISTORY, prune_finished, queue_index_by_id
 from app.models import Document
 from app.parsing import MIME_TYPES
 from app.storage import (
@@ -363,6 +365,9 @@ def housekeeping(storage: Storage) -> None:
             log.warning("Housekeeping: %s", sweep.refusal)
         else:
             remove_orphans(storage, sweep.orphans)
+        pruned = prune_finished(connection)
+    if pruned:
+        log.info("Housekeeping: removed %s finished jobs older than %s days", pruned, HISTORY.days)
     if sweep.images:
         log.info(
             "Housekeeping: %s",
@@ -426,14 +431,17 @@ def _prune_empty(folder: Path) -> None:
 def _queue_embed_stage(connection: Connection, documents: str) -> int:
     """Send the documents the subquery names back to the embed stage; the other stages keep
     their output. Failed documents are left alone: they have nothing to embed."""
-    return connection.execute(
+    queued = connection.scalars(
         text(
             "UPDATE documents SET status = 'queued', "
             "stages = jsonb_set(stages, '{embed}', CAST(:pending AS jsonb)) "
-            f"WHERE status <> 'failed' AND id IN ({documents})"
+            f"WHERE status <> 'failed' AND id IN ({documents}) RETURNING id"
         ),
         {"model": get_settings().embedding_model, "pending": _PENDING},
-    ).rowcount
+    ).all()
+    # Bulk work: an upload made meanwhile is not held up behind every old document.
+    queue_index_by_id(connection, queued, priority=BULK)
+    return len(queued)
 
 
 def main(argv: list[str] | None = None) -> None:

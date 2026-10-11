@@ -11,8 +11,9 @@ Upload ──> Parse ──> Structure ──┼──> Hierarchical map ──�
                                  └──> Fact table ────────┘
 ```
 
-Every upload runs through four stages in the background. Each stage stores its output, so any
-stage can be run again on its own.
+Every upload queues a job that runs it through four stages in the background. Jobs are rows in
+Postgres that the worker claims with a lease, so a job whose worker died is picked up again by
+the next one. Each stage stores its output, so any stage can be run again on its own.
 
 | Stage     | What it does                                                                      | Needs      |
 | --------- | --------------------------------------------------------------------------------- | ---------- |
@@ -180,6 +181,7 @@ from `TEST_DATABASE_SERVER` (default: the `docker compose` container, `emudoc:em
 backend/app/
   parsing/      PDF, Word, Excel, CSV, text and Markdown into blocks
   indexing/     structure, enrich, the pipeline and its background worker
+  jobs.py       the job queue: background work as rows the worker claims with leases
   search.py     hybrid search over passages
   folders.py    the folder tree as paths and subtrees
   agent/        the five tools and the tool-use loop

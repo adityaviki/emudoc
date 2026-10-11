@@ -1,13 +1,12 @@
-"""The upkeep around the app: the embedding checks at start, the operator commands, the sweep of
-the storage (stale rendered pages, and what a failed delete left behind), and the background
-worker.
+"""The upkeep around the app: the embedding checks at start, the operator commands, and the
+sweep of the storage (stale rendered pages, and what a failed delete left behind). The worker
+and the job queue are in tests/test_jobs.py.
 
 The size tests rebuild the column at 4 and put 768 back in a `finally`, because the whole run
 shares the schema and `FakeEmbedder.dim` is 768.
 """
 
 import os
-import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
@@ -15,12 +14,11 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 
-import app.indexing.worker as worker_module
 import app.maintenance as maintenance
 from app.config import get_settings
 from app.db import MIGRATION_LOCK, engine
 from app.indexing.pipeline import process_document
-from app.indexing.worker import Worker
+from app.jobs import BULK
 from app.main import create_app
 from app.maintenance import (
     HOUSEKEEPING_LOCK,
@@ -36,7 +34,7 @@ from app.maintenance import (
     requeue_stale_embeddings,
     sweep_storage,
 )
-from app.models import Passage, Project
+from app.models import Job, Passage, Project
 from app.storage import LocalStorage, S3Storage, Storage, document_prefix, project_prefix
 from tests.conftest import STORAGE_ROOT, FakeS3Client
 
@@ -72,6 +70,9 @@ def test_changing_the_embedding_model_requeues_only_the_embed_stage(
     assert requeue_stale_embeddings() == 1
     session.refresh(indexed)
     assert indexed.status == "queued"
+    # The queue gets the job the worker runs, behind any upload a user is waiting for.
+    job = session.scalars(select(Job).order_by(Job.id.desc())).first()
+    assert (job.payload, job.priority) == ({"document_id": indexed.id}, BULK)
     assert stage_statuses(indexed) == {
         "parse": "done",
         "structure": "done",
@@ -452,54 +453,6 @@ def test_the_sweep_command_runs_at_once(session, services, indexed, monkeypatch,
         main(["sweep-page-images"])
     assert stop.value.code == 2
     assert "PAGE_IMAGE_DAYS is 0" in capsys.readouterr().err
-
-
-def test_the_worker_keeps_house_after_a_delay(session, services, indexed, monkeypatch):
-    page = indexed.page_image_key(1)
-    services.storage.put(page, b"old page", "image/png")
-    age(services.storage, page, days=31)
-    monkeypatch.setattr(worker_module, "HOUSEKEEPING_DELAY", 0.05)
-
-    worker = Worker(services, concurrency=1)
-    worker.start()
-    try:
-        deadline = time.monotonic() + 10
-        while services.storage.exists(page) and time.monotonic() < deadline:
-            time.sleep(0.05)
-    finally:
-        worker.stop()
-    assert not services.storage.exists(page)
-    assert services.storage.exists(indexed.storage_key)
-
-
-def test_worker_indexes_queued_documents_and_recovers_interrupted_ones(
-    session, services, make_document, sample_pdf, sample_docx
-):
-    queued = make_document(sample_pdf)
-    # A document a previous process was working on when it stopped.
-    interrupted = make_document(
-        sample_docx, project=session.get(type(queued.project), queued.project_id)
-    )
-    interrupted.status = "processing"
-    session.commit()
-
-    worker = Worker(services, concurrency=2)
-    worker.start()
-    try:
-        worker.notify()
-        deadline = time.monotonic() + 10
-        while time.monotonic() < deadline:
-            session.expire_all()
-            session.refresh(queued)
-            session.refresh(interrupted)
-            if queued.status == "ready" and interrupted.status == "ready":
-                break
-            time.sleep(0.05)
-    finally:
-        worker.stop()
-
-    assert queued.status == "ready" and interrupted.status == "ready"
-    assert stage_statuses(interrupted)["embed"] == "done"
 
 
 def test_unknown_api_paths_are_not_swallowed_by_the_frontend(client):

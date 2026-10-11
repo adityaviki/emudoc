@@ -30,6 +30,17 @@ STAGES = ("parse", "structure", "enrich", "embed")
 ROLES = ("owner", "admin", "member", "viewer")
 # A chat is private to the member who started it until they share it with the project.
 CHAT_VISIBILITIES = ("private", "project")
+# What a background job can be (app/jobs.py). A worker only claims the kinds it has a handler
+# for, so a kind can be queued by a newer API before an older worker knows it.
+JOB_KINDS = (
+    "index_document",
+    "render_pages",
+    "send_email",
+    "purge_trash",
+    "sync_connector",
+    "run_workflow",
+)
+JOB_STATUSES = ("queued", "running", "done", "failed")
 
 
 def _one_of(column: str, values: tuple[str, ...], table: str) -> CheckConstraint:
@@ -528,3 +539,52 @@ class ChatMessage(Base):
     )
 
     chat: Mapped[Chat] = relationship(back_populates="messages")
+
+
+class Job(Base):
+    """A unit of background work, claimed by a worker with `FOR UPDATE SKIP LOCKED` (app/jobs.py).
+
+    The row is the claim and the retry bookkeeping; what the job is about keeps its own
+    user-visible state (a document's `status` and `stages`). A running job holds a lease that
+    its worker extends while it works, so a job whose worker died is claimed again once the
+    lease runs out, and a job that was lost that way `max_attempts` times is given up.
+    """
+
+    __tablename__ = "jobs"
+    __table_args__ = (
+        _one_of("kind", JOB_KINDS, "jobs"),
+        _one_of("status", JOB_STATUSES, "jobs"),
+        # What a claim scans: the queued jobs in the order they run.
+        Index("ix_jobs_queue", "status", "priority", "run_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    # Null for work that belongs to the organisation rather than to one project, such as mail.
+    project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(40))
+    # What the job is about, by the kind's convention: {"document_id": 7} for index_document.
+    payload: Mapped[dict] = mapped_column(JSONB)
+    # queued | running | done | failed
+    status: Mapped[str] = mapped_column(String(20), default="queued", server_default="queued")
+    # Lower runs first: an upload a user is waiting for goes before a reprocess of a project.
+    priority: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # How many times the job was claimed, and how many claims it gets before it is given up.
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3, server_default="3")
+    # The job is not claimed before this; a retry with backoff moves it into the future.
+    run_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # While running: when the claim expires unless the worker extends it.
+    lease_until: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    # The process that holds or last held the job, as host:pid.
+    worker_id: Mapped[str | None] = mapped_column(String(100))
+    # Why the last attempt failed, for the operator; the user sees the document's own error.
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    finished_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))

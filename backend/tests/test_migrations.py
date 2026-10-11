@@ -16,11 +16,14 @@ from sqlalchemy import inspect, text
 
 from app.config import get_settings
 from app.db import MIGRATION_LOCK, UPGRADE_COMMAND, Base, alembic_config, check_schema, engine
+from app.indexing.pipeline import process_document
 from app.main import create_app
+from app.models import Project
 from tests.conftest import STORAGE_ROOT, build_schema, drop_schema
 
 INITIAL_SCHEMA = "bedb624406a6"
 PASSAGE_LANGUAGE = "27bd56b4a29e"
+STORAGE_KEYS = "5c1e7a9d2b40"
 
 
 def current_revision() -> str | None:
@@ -124,6 +127,38 @@ def test_documents_get_keys_from_their_old_paths(rebuilt_afterwards, indexed, se
     command.upgrade(alembic_config(), "head")
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT storage_key FROM documents")) == key
+
+
+def test_waiting_documents_get_jobs_when_the_queue_arrives(
+    rebuilt_afterwards, session, services, make_document, sample_pdf, sample_docx, sample_csv
+):
+    # Before the queue, a worker claimed documents by their status. Coming forward, every
+    # document that was waiting gets its job, the one a worker of the old version held is
+    # queued once more, and a finished one gets nothing.
+    queued = make_document(sample_pdf)
+    project = session.get(Project, queued.project_id)
+    held = make_document(sample_docx, project=project)
+    held.status = "processing"
+    finished = make_document(sample_csv, project=project)
+    session.commit()
+    process_document(finished.id, services)
+
+    command.downgrade(alembic_config(), STORAGE_KEYS)
+    assert "jobs" not in table_names()
+    command.upgrade(alembic_config(), "head")
+    with engine.connect() as connection:
+        jobs = connection.execute(
+            text(
+                "SELECT (payload->>'document_id')::int, kind, status, org_id, project_id "
+                "FROM jobs ORDER BY id"
+            )
+        ).all()
+        statuses = connection.scalars(text("SELECT status FROM documents ORDER BY id")).all()
+    assert jobs == [
+        (queued.id, "index_document", "queued", 1, project.id),
+        (held.id, "index_document", "queued", 1, project.id),
+    ]
+    assert statuses == ["queued", "queued", "ready"]
 
 
 def test_database_made_before_migrations_cannot_be_upgraded(rebuilt_afterwards):

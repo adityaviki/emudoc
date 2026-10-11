@@ -121,6 +121,7 @@ from app.indexing.enrich import (  # noqa: E402
     WindowAnalysis,
 )
 from app.indexing.pipeline import Services, process_document  # noqa: E402
+from app.jobs import queue_index  # noqa: E402
 from app.llm import OcrBlock, OcrPage  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models import Document, Membership, Organization, Project, User  # noqa: E402
@@ -516,8 +517,8 @@ def act_as(client):
 
 @pytest.fixture
 def make_document(session, account, services):
-    """Store a file as a queued document, creating a project unless one is given: what an
-    upload does, without the request."""
+    """Store a file as a queued document with its index job, creating a project unless one is
+    given: what an upload does, without the request."""
 
     def make(path: Path, filename: str | None = None, project: Project | None = None) -> Document:
         if project is None:
@@ -540,6 +541,7 @@ def make_document(session, account, services):
         session.flush()
         document.storage_key = original_key(project.org_id, project.id, document.id, suffix)
         services.storage.put(document.storage_key, path, document.mime_type)
+        queue_index(session, document, project.org_id)
         session.commit()
         return document
 

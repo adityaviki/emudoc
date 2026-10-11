@@ -24,6 +24,7 @@ from app.api.deps import (
 from app.api.folders import folder_paths, resolve_folder
 from app.config import get_settings
 from app.indexing.pipeline import reset_stages
+from app.jobs import queue_index
 from app.models import STAGES, Block, Document, Fact, Project, Section
 from app.parsing import IMAGE_TYPES, MIME_TYPES, SUPPORTED_EXTENSIONS
 from app.parsing.pdf import render_page, render_thumbnail
@@ -126,6 +127,8 @@ def upload_documents(
             # Stored before the row is committed: a storage that fails leaves no row behind,
             # and the error says what happened (`storage_unavailable` in main.py).
             services.storage.put(document.storage_key, spool, document.mime_type)
+            # The document and the job that indexes it are committed together.
+            queue_index(session, document, project.org_id)
             session.commit()
             documents.append(document)
         finally:
@@ -235,6 +238,7 @@ def reprocess_document(
     if document.status == "processing":
         raise HTTPException(409, "This document is being indexed right now")
     reset_stages(document, from_stage)
+    queue_index(session, document, session.get(Project, document.project_id).org_id)
     session.commit()
     if worker:
         worker.notify()

@@ -12,6 +12,7 @@ from app.api.deps import (
     WorkerDep,
 )
 from app.indexing.pipeline import reset_stages
+from app.jobs import BULK, queue_index
 from app.models import Document, Project
 from app.schemas import ProjectIn, ProjectOut
 from app.storage import project_prefix
@@ -90,6 +91,8 @@ def reprocess_project(
     ).all()
     for document in documents:
         reset_stages(document, from_stage)
+        # Behind fresh uploads, which someone is waiting for.
+        queue_index(session, document, project.org_id, priority=BULK)
     session.commit()
     if worker:
         worker.notify()
