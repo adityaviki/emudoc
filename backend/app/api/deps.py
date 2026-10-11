@@ -11,6 +11,10 @@ everyone but the member who started it until they share it with the project.
 
 Reading needs any role; changing something needs the member role or better, which the
 `Editable...` dependencies check after the object itself is found.
+
+A request that changes something must also carry the header the app's own requests send.
+The browser attaches the session cookie to a request from any site, so without that proof a
+page elsewhere could act as the signed-in user; `refuse_cross_site` runs on every route.
 """
 
 from typing import Annotated, Literal
@@ -41,6 +45,15 @@ READ_ONLY = (
     "Your role in this organisation is viewer, which can only read. "
     "Ask an owner or admin of the organisation to make you a member."
 )
+# The app sends this header with every request. A form on another site cannot add a header,
+# and a script there that adds one makes the browser ask first with a CORS preflight, which
+# this app never answers; so the header proves the request did not come from another site.
+SAME_APP_HEADER = "X-Requested-With"
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+CROSS_SITE = (
+    "This request would change something but did not come from the Emudoc app: it lacks the "
+    f"{SAME_APP_HEADER} header. If you call the API yourself, send that header with any value."
+)
 
 
 def get_services(request: Request) -> Services:
@@ -64,6 +77,12 @@ ServicesDep = Annotated[Services, Depends(get_services)]
 WorkerDep = Annotated[Worker | None, Depends(get_worker)]
 MailerDep = Annotated[Mailer, Depends(get_mailer)]
 HttpDep = Annotated[httpx.Client, Depends(get_http)]
+
+
+def refuse_cross_site(request: Request) -> None:
+    """Refuse a change that a page on another site could have made with the user's cookie."""
+    if request.method not in SAFE_METHODS and SAME_APP_HEADER not in request.headers:
+        raise HTTPException(403, CROSS_SITE)
 
 
 def get_account(request: Request, session: SessionDep) -> Account:

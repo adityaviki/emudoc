@@ -194,8 +194,18 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Every request carries this header. The server refuses a change without it, which is what
+ * keeps a page on another site from making one with the user's cookie (backend/app/api/deps.py).
+ */
+function send(path: string, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers)
+  headers.set('X-Requested-With', 'fetch')
+  return fetch(`/api${path}`, { ...init, headers })
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api${path}`, init)
+  const response = await send(path, init)
   if (!response.ok) {
     let message = response.statusText
     try {
@@ -295,10 +305,7 @@ export async function* streamAnswer(
   content: string,
   signal: AbortSignal,
 ): AsyncGenerator<ChatEvent> {
-  const response = await fetch(`/api/chats/${chatId}/messages`, {
-    ...json('POST', { content }),
-    signal,
-  })
+  const response = await send(`/chats/${chatId}/messages`, { ...json('POST', { content }), signal })
   if (!response.ok || !response.body) {
     throw new ApiError(response.status, 'The server could not start an answer.')
   }

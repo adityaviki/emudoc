@@ -100,8 +100,11 @@ they own; a verification link goes out by email. Sign-in sets a session cookie; 
 user's sessions and revokes any of them, resets a forgotten password by email, and can require a
 code from an authenticator app at sign-in (with recovery codes for a lost phone). Google and
 Microsoft accounts sign in through OpenID Connect and are linked to an existing account only when
-both sides have verified the address. The routes are under `/api/auth`; the pages that use them
-are not built yet, so by default a request without a session still acts as the local owner.
+both sides have verified the address. Every request that changes something must carry an
+`X-Requested-With` header, which the app's own requests do and a page on another site cannot
+add, so the cookie alone changes nothing; send the header when calling the API by hand. The
+routes are under `/api/auth`; the pages that use them are not built yet, so by default a request
+without a session still acts as the local owner.
 
 ## Tests
 

@@ -2,13 +2,13 @@ import logging
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from app.api import auth, chats, documents, folders, projects, query
-from app.api.deps import AccountDep, ServicesDep, SessionDep
+from app.api.deps import AccountDep, ServicesDep, SessionDep, refuse_cross_site
 from app.config import ROOT_DIR, export_env_file, get_settings
 from app.db import init_db, reconcile_embeddings
 from app.embeddings import Embedder
@@ -89,7 +89,7 @@ def create_app(
         query.router,
         chats.router,
     ):
-        app.include_router(router, prefix="/api")
+        app.include_router(router, prefix="/api", dependencies=[Depends(refuse_cross_site)])
 
     if FRONTEND_DIST.is_dir():
         # Serve the built frontend; unknown paths fall back to index.html for client routing.

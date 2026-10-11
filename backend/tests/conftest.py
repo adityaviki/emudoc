@@ -48,7 +48,7 @@ from pydantic_ai.usage import RequestUsage  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
 from app.accounts import Account, local_account  # noqa: E402
-from app.api.deps import SessionDep, get_account  # noqa: E402
+from app.api.deps import SAME_APP_HEADER, SessionDep, get_account  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.db import Base, SessionLocal, engine, init_db  # noqa: E402
 from app.embeddings import EmbeddingError  # noqa: E402
@@ -98,6 +98,8 @@ class FakeEmbedder:
 _BLOCK_LINE = re.compile(r"^\[B(\d+)\](?: \(p\.\d+\))? (.*)$", re.MULTILINE)
 
 MISSING_KEY = "Set GOOGLE_API_KEY in .env to use google:gemini-2.5-flash-lite."
+# What the frontend sends with every request; a change without it is refused as cross-site.
+APP_HEADERS = {SAME_APP_HEADER: "fetch"}
 
 
 class FakeLLM:
@@ -389,7 +391,7 @@ def identity_provider() -> FakeIdentityProvider:
 def client(services, session, mailer, identity_provider):
     http = httpx.Client(transport=httpx.MockTransport(identity_provider.handler))
     app = create_app(services=services, start_worker=False, mailer=mailer, http=http)
-    with TestClient(app) as test_client:
+    with TestClient(app, headers=APP_HEADERS) as test_client:
         yield test_client
 
 

@@ -10,10 +10,11 @@ from fastapi.testclient import TestClient
 
 from app.accounts import LOCAL_OWNER_EMAIL
 from app.api.auth import CODE_INVALID, LINK_INVALID, MFA_FIRST, SIGN_IN_FAILED
-from app.api.deps import SIGN_IN
+from app.api.deps import CROSS_SITE, SAME_APP_HEADER, SIGN_IN
 from app.auth import totp_code, totp_step
 from app.config import get_settings
 from app.oidc import Handshake
+from tests.conftest import APP_HEADERS
 
 PASSWORD = "correct horse battery"
 NEW_PASSWORD = "staple of a new life"
@@ -39,7 +40,7 @@ def me(client):
 
 def another_browser(client, **headers) -> TestClient:
     """A second client against the same app, with its own cookies."""
-    return TestClient(client.app, headers=headers)
+    return TestClient(client.app, headers={**APP_HEADERS, **headers})
 
 
 # Accounts, passwords and sessions
@@ -234,6 +235,44 @@ def test_other_users_sessions_are_out_of_reach(client, signed_in_only):
     signup(other, "bob@example.com", name="Bob")
     assert other.delete(f"/api/auth/sessions/{own['id']}").status_code == 404
     assert me(client).status_code == 200
+
+
+# Requests from other sites
+
+
+def test_a_change_needs_the_header_the_app_sends(client, signed_in_only):
+    """The browser attaches the session cookie to a request from any site; only the app's own
+    requests carry the header, so a change without it is refused and reading stays open."""
+    signup(client)
+    project = client.post("/api/projects", json={"name": "Audit"}).json()
+    # The same browser session, driven by a page on another site: the cookie, not the header.
+    elsewhere = TestClient(client.app, cookies=client.cookies)
+    assert elsewhere.get("/api/projects").status_code == 200
+    files = [("files", ("note.txt", b"A note."))]
+    for refused in (
+        elsewhere.post("/api/projects", json={"name": "Theirs"}),
+        elsewhere.delete(f"/api/projects/{project['id']}"),
+        elsewhere.post(f"/api/projects/{project['id']}/documents", files=files),
+        elsewhere.post("/api/auth/logout"),
+        elsewhere.post("/api/auth/login", json={"email": "ada@example.com", "password": PASSWORD}),
+    ):
+        assert refused.status_code == 403, refused.text
+        assert refused.json()["detail"] == CROSS_SITE
+    assert [p["name"] for p in client.get("/api/projects").json()] == ["Audit"]
+    assert client.get(f"/api/projects/{project['id']}/documents").json() == []
+    assert me(elsewhere).status_code == 200
+    # The header is the proof, whatever its value.
+    elsewhere.headers[SAME_APP_HEADER] = "XMLHttpRequest"
+    uploaded = elsewhere.post(f"/api/projects/{project['id']}/documents", files=files)
+    assert uploaded.status_code == 201, uploaded.text
+    assert [d["filename"] for d in uploaded.json()["documents"]] == ["note.txt"]
+
+
+def test_the_local_account_is_shielded_from_other_sites_too(client):
+    elsewhere = TestClient(client.app)
+    assert elsewhere.get("/api/projects").status_code == 200
+    refused = elsewhere.post("/api/projects", json={"name": "Theirs"})
+    assert refused.status_code == 403 and refused.json()["detail"] == CROSS_SITE
 
 
 # Two-factor sign-in
