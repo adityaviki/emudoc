@@ -57,8 +57,17 @@ uv run uvicorn app.main:app
 ```
 
 Open <http://127.0.0.1:8000> and create an account. The backend serves the API and the built
-frontend. To skip signing in while developing on your own machine, put `LOCAL_ACCOUNT=true` in
-`.env`: every request then acts as a local owner account.
+frontend, and in development it runs the background worker too, so that one process indexes
+what it serves. To skip signing in while developing on your own machine, put
+`LOCAL_ACCOUNT=true` in `.env`: every request then acts as a local owner account.
+
+In production the API runs no worker. Start `uv run python -m app.worker` (in `backend/`) as a
+process of its own next to the API, as many as the backlog needs: it reads the same settings,
+refuses the same misconfigurations, and claims jobs from the queue in Postgres. Ctrl+C or
+SIGTERM stops it: the jobs it is running get a few seconds to finish (`--grace`, 8 by default,
+under Docker's 10), and the rest are queued again for the next worker to take at once. Without
+any worker, uploads stay queued. `RUN_WORKER=true` runs the worker inside the API process
+instead, for a small deployment.
 
 The database schema is a set of migrations in `backend/migrations/`; `uv run alembic upgrade
 head` applies the ones the database has not seen yet, so run it again after updating. The backend
@@ -91,6 +100,9 @@ refuses to start until the key is in the environment.
 
 Settings live in `.env`; `.env.example` lists them all with their defaults. The ones that matter:
 
+- `RUN_WORKER` is whether the process runs the background worker as well. Unset, it does in
+  development and does not in production, where the worker is `uv run python -m app.worker`,
+  a process of its own ("Run it" above).
 - `ENVIRONMENT` is `development` (the default) or `production`. In development the backend
   copies the model keys from `.env` into its environment, where the model libraries read them.
   A production deployment injects every secret through the environment or a secret manager
@@ -180,8 +192,10 @@ from `TEST_DATABASE_SERVER` (default: the `docker compose` container, `emudoc:em
 ```text
 backend/app/
   parsing/      PDF, Word, Excel, CSV, text and Markdown into blocks
-  indexing/     structure, enrich, the pipeline and its background worker
+  indexing/     structure, enrich and the pipeline
   jobs.py       the job queue: background work as rows the worker claims with leases
+  worker.py     the worker that claims and runs the jobs; its own process in production
+  startup.py    the checks and the services every process starts with
   search.py     hybrid search over passages
   folders.py    the folder tree as paths and subtrees
   agent/        the five tools and the tool-use loop

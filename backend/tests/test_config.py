@@ -110,6 +110,7 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "LOCAL_ACCOUNT",
         "APP_URL",
         "SMTP_URL",
+        "RUN_WORKER",
     ):
         monkeypatch.delenv(name, raising=False)
     return {
@@ -168,6 +169,18 @@ def test_each_development_setting_is_refused_on_its_own(deployment, change, vari
     assert len(lines) == 2 and variable in lines[1]
 
 
+def test_the_api_runs_the_worker_itself_in_development_only(deployment, monkeypatch):
+    # Unset, the choice follows the environment: one process in development, and in production
+    # a `python -m app.worker` of its own. Either can be said outright; a blank line is unset.
+    assert load_settings(**deployment).run_worker is False
+    assert load_settings(**deployment, run_worker=True).run_worker is True
+    deployment["environment"] = "development"
+    assert load_settings(**deployment).run_worker is True
+    assert load_settings(**deployment, run_worker=False).run_worker is False
+    monkeypatch.setenv("RUN_WORKER", "")
+    assert load_settings(**deployment).run_worker is True
+
+
 def test_development_runs_with_everything_production_refuses(deployment):
     deployment.update(
         environment="development",
@@ -211,12 +224,12 @@ def test_a_production_start_needs_the_model(production, services, monkeypatch):
     for name in ("GOOGLE_API_KEY", "GEMINI_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     with pytest.raises(RuntimeError, match="production does not start without it") as error:
-        with TestClient(create_app(start_worker=False)):
+        with TestClient(create_app()):
             pass
     assert "Set GOOGLE_API_KEY in the environment" in str(error.value)
 
     # With a usable model the same start goes through.
-    with TestClient(create_app(services=services, start_worker=False)) as client:
+    with TestClient(create_app(services=services)) as client:
         assert client.get("/api/health").json() == {"status": "ok"}
 
 
@@ -226,5 +239,5 @@ def test_the_interactive_api_docs_are_served_in_development_only(client, service
     assert client.get("/docs").status_code == 200
     assert API_DOCS <= paths_of(client.app)
 
-    app = create_app(services=services, start_worker=False)
+    app = create_app(services=services)
     assert not API_DOCS & paths_of(app)

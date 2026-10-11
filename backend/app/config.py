@@ -6,7 +6,7 @@ from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from dotenv import dotenv_values
-from pydantic import Field, ValidationError, field_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -79,6 +79,12 @@ class Settings(BaseSettings):
     # its query with each passage's own, so changing this only affects later uploads.
     fts_language: str = "english"
     worker_concurrency: int = 2
+    # Whether this process runs the background worker (app/worker.py) as well. Unset, it does
+    # in development, so that one `uvicorn` indexes what it serves, and does not in production,
+    # where the deployment runs `python -m app.worker` as its own process and scales it apart
+    # from the API. True runs both in one process on a small deployment; false in development
+    # is for trying the worker as its own process.
+    run_worker: bool | None = None
 
     # Development on one machine: a request that carries no session acts as the local owner
     # account instead of being refused. Off by default, so a deployment never opens up by
@@ -131,6 +137,20 @@ class Settings(BaseSettings):
         if not re.fullmatch(r"[a-z_]+", value):
             raise ValueError("fts_language must be a Postgres text search configuration name")
         return value
+
+    @field_validator("run_worker", mode="before")
+    @classmethod
+    def _blank_means_unset(cls, value: object) -> object:
+        # A blank `RUN_WORKER=` line leaves the choice to the environment, like no line at all.
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def _run_the_worker_unless_deployed(self) -> "Settings":
+        if self.run_worker is None:
+            self.run_worker = self.environment == "development"
+        return self
 
     def production_problems(self) -> list[str]:
         """What stops these settings from serving a deployment, each as the step that fixes it.

@@ -100,7 +100,7 @@ def test_app_refuses_a_database_whose_embeddings_have_another_size(
     with pytest.raises(RuntimeError, match="holds embeddings of size 768, but EMBEDDING_DIM is 4"):
         check_embeddings()
     with pytest.raises(RuntimeError, match=REBUILD_COMMAND):
-        with TestClient(create_app(services=services, start_worker=False)):
+        with TestClient(create_app(services=services)):
             pass
     assert embedding_dim(session) == 768
     session.refresh(indexed)
@@ -179,7 +179,7 @@ def test_relocate_files_moves_the_old_layout_to_the_keys(
     lay_out_the_old_way(STORAGE_ROOT, indexed, sample_pdf)
     assert old_layout_dir(services.storage) == STORAGE_ROOT
     with caplog.at_level("WARNING"):
-        with TestClient(create_app(services=services, start_worker=False)):
+        with TestClient(create_app(services=services)):
             pass
     assert RELOCATE_COMMAND in caplog.text
 

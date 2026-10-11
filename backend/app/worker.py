@@ -1,21 +1,39 @@
-"""Background work: threads that claim jobs from the queue (app/jobs.py) and run them, one that
-keeps their leases alive, and one that keeps the stored data tidy at intervals."""
+"""The background worker: threads that claim jobs from the queue (app/jobs.py) and run them,
+one that keeps their leases alive, and one that keeps the stored data tidy at intervals.
 
+It is its own process, `python -m app.worker`, so that a deployment scales it apart from the
+API: the API replicas serve requests while as many workers as the backlog needs index documents.
+A worker starts like the API does (app/startup.py) and claims the kinds of job it has a handler
+for (`HANDLERS`). In development the API process runs the same threads itself, so that one
+`uvicorn` does everything (RUN_WORKER in app/config.py).
+
+A stop is graceful: the threads stop claiming, the jobs they are running get a grace period to
+finish, and the ones that did not finish are handed back to the queue with their lease cleared,
+so that the next worker takes them at once rather than when the lease would have run out.
+"""
+
+import argparse
 import logging
 import os
+import signal
 import socket
+import sys
 import threading
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 
 from sqlalchemy import text
 
+from app.config import Settings, get_settings
 from app.db import SessionLocal
 from app.indexing.pipeline import Services, process_document
-from app.jobs import INDEX_DOCUMENT, claim, extend_leases, finish
+from app.jobs import INDEX_DOCUMENT, LEASE, claim, extend_leases, finish, release
 from app.maintenance import housekeeping
 from app.models import Job
+from app.startup import prepare
+from app.storage import StorageError
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +47,10 @@ HEARTBEAT_SECONDS = 60.0
 # restarted in a loop does not walk the storage every time, and then at this interval.
 HOUSEKEEPING_DELAY = 60.0
 HOUSEKEEPING_INTERVAL = 6 * 3600.0
+# How long a stopping worker lets the jobs it is running finish before it hands them back.
+# Under the 10 seconds Docker allows by default before it kills a container; a deployment that
+# allows more can pass more with --grace.
+GRACE = 8.0
 
 CRASHED = "Indexing stopped unexpectedly. Try reprocessing."
 
@@ -37,9 +59,10 @@ CRASHED = "Indexing stopped unexpectedly. Try reprocessing."
 class Handler:
     """What the worker does with one kind of job.
 
-    `run` does the work; it may be run again after a lost lease, so it resumes or repeats
-    safely. `abandon` is called instead when the job is given up because every attempt was lost
-    to a process that died: it leaves what the job was about in a state the user can act on.
+    `run` does the work; it may be run again after a lost lease or a stop, so it resumes or
+    repeats safely. `abandon` is called instead when the job is given up because every attempt
+    was lost to a process that died: it leaves what the job was about in a state the user can
+    act on.
     """
 
     run: Callable[[Job, Services], None]
@@ -85,6 +108,11 @@ class Worker:
         self._held: set[int] = set()
         self._held_lock = threading.Lock()
 
+    @property
+    def id(self) -> str:
+        """What the jobs this worker claims carry as `worker_id`."""
+        return self._id
+
     def start(self) -> None:
         for index in range(self._concurrency):
             self._spawn(self._loop, f"indexer-{index}")
@@ -96,11 +124,39 @@ class Worker:
         thread.start()
         self._threads.append(thread)
 
-    def stop(self) -> None:
+    def stop(self, grace: float = GRACE) -> None:
+        """Stop claiming, let the running jobs finish for `grace` seconds, and hand back the rest.
+
+        A job handed back is queued again with its lease cleared, so the next worker takes it at
+        once. Nothing stops the thread that is still running it, but the process exits right
+        after this returns, so the thread gets no further than its next statement; and a
+        handler resumes or repeats safely anyway, as it must after a lost lease.
+        """
         self._stop.set()
         self._wake.set()
+        deadline = time.monotonic() + grace
         for thread in self._threads:
-            thread.join(timeout=5)
+            thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        with self._held_lock:
+            unfinished = sorted(self._held)
+        if not unfinished:
+            return
+        try:
+            released = release(unfinished, self._id)
+        except Exception:
+            log.exception(
+                "Jobs %s did not finish within %s seconds and could not be handed back; "
+                "another worker takes them once their lease runs out, in %s",
+                unfinished,
+                grace,
+                LEASE,
+            )
+            return
+        log.warning(
+            "Jobs %s did not finish within %s seconds and were queued again",
+            sorted(released),
+            grace,
+        )
 
     def notify(self) -> None:
         """Wake the workers after jobs were queued."""
@@ -119,7 +175,10 @@ class Worker:
                 continue
             if job is None:
                 self._wake.wait(POLL_SECONDS)
-                self._wake.clear()
+                # A stop sets the wake event once for every thread; one that cleared it would
+                # leave the others waiting out a whole poll.
+                if not self._stop.is_set():
+                    self._wake.clear()
                 continue
             self._run(job)
 
@@ -158,7 +217,7 @@ class Worker:
     def _finish(self, job: Job, status: str, error: str | None = None) -> None:
         if not finish(job, self._id, status, error):
             log.warning(
-                "Job %s (%s) was taken over or removed before this worker finished it",
+                "Job %s (%s) was taken over, handed back or removed before this worker finished it",
                 job.id,
                 job.kind,
             )
@@ -203,3 +262,54 @@ class Worker:
                     "Housekeeping failed; it runs again in %s hours", HOUSEKEEPING_INTERVAL / 3600
                 )
             delay = HOUSEKEEPING_INTERVAL
+
+
+def serve(
+    services: Services, settings: Settings, stopping: threading.Event, grace: float = GRACE
+) -> None:
+    """Run the worker until `stopping` is set, then stop it within `grace` seconds."""
+    worker = Worker(services, settings.worker_concurrency)
+    worker.start()
+    log.info("Worker %s is running, %s jobs at a time", worker.id, settings.worker_concurrency)
+    stopping.wait()
+    log.info("Stopping; the running jobs have %s seconds to finish", grace)
+    worker.stop(grace)
+    log.info("Worker %s stopped", worker.id)
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        prog="python -m app.worker",
+        description="Run the background worker, which indexes uploaded documents and keeps the "
+        "stored data tidy. Run it in the backend directory with `uv run`; it reads the same .env "
+        "as the API, and refuses the same misconfigurations. Ctrl+C or SIGTERM stops it: the "
+        "running jobs get a moment to finish, and the rest are queued again for the next worker.",
+    )
+    parser.add_argument(
+        "--grace",
+        type=float,
+        default=GRACE,
+        metavar="SECONDS",
+        help="how long the running jobs get to finish at stop (default: %(default)s); keep it "
+        "under what the deployment allows before it kills the process",
+    )
+    args = parser.parse_args(argv)
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+    # The schema check sets up a migration context, which announces itself; nothing to act on.
+    logging.getLogger("alembic.runtime.migration").setLevel(logging.WARNING)
+
+    settings = get_settings()
+    try:
+        services = prepare(settings)
+    except (RuntimeError, StorageError) as error:
+        sys.exit(str(error))
+    stopping = threading.Event()
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(signum, lambda *_: stopping.set())
+    serve(services, settings, stopping, args.grace)
+
+
+if __name__ == "__main__":
+    main()

@@ -9,17 +9,13 @@ from sqlalchemy import text
 
 from app.api import auth, chats, documents, folders, projects, query
 from app.api.deps import AccountDep, ServicesDep, SessionDep, refuse_cross_site
-from app.config import ROOT_DIR, Settings, export_env_file, get_settings
-from app.db import check_schema
-from app.embeddings import Embedder
+from app.config import ROOT_DIR, get_settings
 from app.indexing.pipeline import Services
-from app.indexing.worker import Worker
-from app.llm import LLM
 from app.mail import Mailer, mailer_from_settings
-from app.maintenance import check_embeddings, requeue_stale_embeddings, warn_about_old_layout
 from app.schemas import EmbeddingStatus, HealthOut, LLMStatus, StatusOut
-from app.search import check_fts_language
-from app.storage import StorageError, storage_from_settings
+from app.startup import prepare
+from app.storage import StorageError
+from app.worker import Worker
 
 FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
 
@@ -53,19 +49,6 @@ def status(services: ServicesDep, account: AccountDep):
     )
 
 
-def check_model(settings: Settings, llm: LLM) -> None:
-    """In production, refuse to start without a usable model.
-
-    Development runs without one, with summaries, facts and the Ask tab off (README, "What
-    works without what"). A deployment that silently offered that much less is misconfigured,
-    not degraded, so it stops at once with the key to set.
-    """
-    if settings.environment == "production" and (problem := llm.problem()):
-        raise RuntimeError(
-            f"The model cannot be used, and production does not start without it. {problem}"
-        )
-
-
 def storage_unavailable(request, error: Exception) -> JSONResponse:
     """A storage that failed mid-request is reported like any other error the user can act on:
     the message says what happened, and 503 says it was not the request's fault."""
@@ -74,7 +57,6 @@ def storage_unavailable(request, error: Exception) -> JSONResponse:
 
 def create_app(
     services: Services | None = None,
-    start_worker: bool = True,
     mailer: Mailer | None = None,
     http: httpx.Client | None = None,
 ) -> FastAPI:
@@ -83,24 +65,13 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        check_schema()
-        check_embeddings()
-        check_fts_language()
-        requeue_stale_embeddings()
-        if services is None:
-            # Before the services are built: the model providers and boto3 read their keys
-            # from the environment as they are created.
-            export_env_file(settings)
-        app.state.services = services or Services(
-            LLM(settings), Embedder(settings), storage_from_settings(settings)
-        )
-        app.state.services.storage.check()
-        warn_about_old_layout(app.state.services.storage)
-        check_model(settings, app.state.services.llm)
+        app.state.services = prepare(settings, services)
         app.state.mailer = mailer or mailer_from_settings(settings)
         app.state.http = http or httpx.Client(timeout=10)
+        # The worker is the API's own in development and a process of its own in production
+        # (RUN_WORKER); without it, an upload waits for a worker elsewhere.
         app.state.worker = None
-        if start_worker:
+        if settings.run_worker:
             app.state.worker = Worker(app.state.services, settings.worker_concurrency)
             app.state.worker.start()
         yield

@@ -71,6 +71,15 @@ _FINISH = text(
     WHERE id = :id AND worker_id = :worker AND status = 'running'
     """
 )
+_RELEASE = text(
+    """
+    UPDATE jobs
+    SET status = 'queued', lease_until = NULL, worker_id = NULL,
+        attempts = greatest(attempts - 1, 0)
+    WHERE id = ANY(:ids) AND worker_id = :worker AND status = 'running'
+    RETURNING id
+    """
+)
 _PRUNE = text("DELETE FROM jobs WHERE status IN ('done', 'failed') AND finished_at < now() - :age")
 _INSERT_INDEX = text(
     """
@@ -166,6 +175,22 @@ def finish(job: Job, worker_id: str, status: str, error: str | None = None) -> b
         ).rowcount
         session.commit()
     return settled == 1
+
+
+def release(job_ids: list[int], worker_id: str) -> set[int]:
+    """Hand the jobs this worker holds back to the queue, as a worker that is stopping does.
+
+    The next claim takes them at once rather than when their lease would have run out. The
+    attempt is not counted: it was cut short by the operator, not lost to a process that died,
+    and a job must not be given up for having been restarted three times mid-run. Returns the
+    ids that were still this worker's.
+    """
+    if not job_ids:
+        return set()
+    with SessionLocal() as session:
+        released = set(session.scalars(_RELEASE, {"ids": job_ids, "worker": worker_id}))
+        session.commit()
+        return released
 
 
 def prune_finished(connection: Connection, age: timedelta = HISTORY) -> int:

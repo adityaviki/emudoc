@@ -101,7 +101,7 @@ def test_app_refuses_a_text_search_configuration_the_database_lacks(services, mo
         check_fts_language()
     assert "english" in str(error.value) and "simple" in str(error.value)
     with pytest.raises(RuntimeError, match="FTS_LANGUAGE"):
-        with TestClient(create_app(services=services, start_worker=False)):
+        with TestClient(create_app(services=services)):
             pass
 
 

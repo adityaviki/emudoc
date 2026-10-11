@@ -69,7 +69,7 @@ def test_app_refuses_a_database_that_is_not_at_the_newest_migration(services, re
     assert UPGRADE_COMMAND in str(error.value)
     # The check is what stops the app from serving.
     with pytest.raises(RuntimeError, match="has no schema yet"):
-        with TestClient(create_app(services=services, start_worker=False)):
+        with TestClient(create_app(services=services)):
             pass
 
     # A database ahead of the code, after a rollback of a release, is named as such.

@@ -92,6 +92,9 @@ os.environ["EMBEDDING_DIM"] = "768"
 os.environ["LOCAL_ACCOUNT"] = "true"
 # The messages the tests pin tell a developer to edit `.env`; a production shell says otherwise.
 os.environ["ENVIRONMENT"] = "development"
+# The app under test starts no worker threads of its own: tests run the pipeline directly, or
+# build a `Worker` by hand (tests/test_jobs.py) and stop it.
+os.environ["RUN_WORKER"] = "false"
 
 from alembic import command  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -570,7 +573,7 @@ def identity_provider() -> FakeIdentityProvider:
 @pytest.fixture
 def client(services, session, mailer, identity_provider):
     http = httpx.Client(transport=httpx.MockTransport(identity_provider.handler))
-    app = create_app(services=services, start_worker=False, mailer=mailer, http=http)
+    app = create_app(services=services, mailer=mailer, http=http)
     with TestClient(app, headers=APP_HEADERS) as test_client:
         yield test_client
 

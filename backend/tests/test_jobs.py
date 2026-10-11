@@ -3,21 +3,28 @@ lease, kept alive while they run, finished, given up when every attempt is lost,
 they are old; and the worker threads that do all that.
 
 The worker tests run real threads against the test database and wait for what they expect,
-with a deadline, so a regression shows up as a timeout rather than a hang.
+with a deadline, so a regression shows up as a timeout rather than a hang. The last one runs
+the worker command as the process a deployment runs, and stops it the way a deployment does.
 """
 
+import os
+import signal
+import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from select import select as wait_readable
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 
-import app.indexing.worker as worker_module
+import app.worker as worker_module
 from app import jobs
+from app.config import BACKEND_DIR, get_settings
 from app.db import engine
-from app.indexing.worker import HANDLERS, Handler, Worker
 from app.jobs import (
     BULK,
     LEASE,
@@ -26,9 +33,12 @@ from app.jobs import (
     enqueue,
     extend_leases,
     finish,
+    release,
 )
+from app.main import create_app
 from app.maintenance import housekeeping
 from app.models import Document, Job, Project
+from app.worker import HANDLERS, Handler, Worker, serve
 
 INDEX = ["index_document"]
 
@@ -362,3 +372,151 @@ def test_the_worker_keeps_house_after_a_delay(session, services, indexed, monkey
     finally:
         worker.stop()
     assert services.storage.exists(indexed.storage_key)
+
+
+def test_the_api_runs_the_worker_itself_only_when_the_settings_say_so(
+    session, services, make_document, sample_pdf, monkeypatch
+):
+    # The suite starts the API without a worker (RUN_WORKER=false in tests/conftest.py), as a
+    # deployment does; with the setting on, as in development, the API indexes what it serves
+    # and stops its threads at shutdown.
+    with TestClient(create_app(services=services)) as client:
+        assert client.app.state.worker is None
+
+    monkeypatch.setattr(get_settings(), "run_worker", True)
+    document = make_document(sample_pdf)
+    with TestClient(create_app(services=services)) as client:
+        worker = client.app.state.worker
+        assert isinstance(worker, Worker)
+
+        def ready() -> bool:
+            session.expire_all()
+            return document.status == "ready"
+
+        wait_until(ready)
+    assert not any(thread.is_alive() for thread in worker._threads)
+
+
+def test_release_hands_back_only_this_workers_running_jobs(session, account):
+    project = Project(org_id=account.organization.id, name="P")
+    session.add(project)
+    session.flush()
+    for _ in range(2):
+        enqueue(session, "index_document", org_id=project.org_id, project_id=project.id)
+    session.commit()
+    mine = claim("a:1", INDEX)
+    theirs = claim("b:1", INDEX)
+
+    assert release([mine.id, theirs.id], "a:1") == {mine.id}
+    assert release([], "a:1") == set()
+    session.expire_all()
+    mine, theirs = all_jobs(session)
+    # Queued again at its old place in the order, with the cut-short attempt not counted.
+    assert (mine.status, mine.attempts, mine.worker_id, mine.lease_until) == (
+        "queued",
+        0,
+        None,
+        None,
+    )
+    assert (theirs.status, theirs.attempts, theirs.worker_id) == ("running", 1, "b:1")
+    assert claim("c:1", INDEX).id == mine.id
+
+
+def test_a_stopping_worker_lets_a_quick_job_finish(
+    session, services, make_document, sample_pdf, monkeypatch
+):
+    make_document(sample_pdf)
+    monkeypatch.setitem(
+        HANDLERS, "index_document", Handler(lambda job, services_: time.sleep(0.3), lambda *a: None)
+    )
+    worker = Worker(services, concurrency=1)
+    worker.start()
+    wait_until(lambda: all_jobs(session)[0].status == "running")
+    worker.stop(grace=5)
+    assert all_jobs(session)[0].status == "done"
+
+
+def test_a_stopping_worker_hands_back_the_job_it_could_not_finish(
+    session, services, make_document, sample_pdf, monkeypatch, caplog
+):
+    make_document(sample_pdf)
+    let_go = threading.Event()
+
+    def hold(job, services_):
+        let_go.wait(10)
+
+    monkeypatch.setitem(HANDLERS, "index_document", Handler(hold, lambda *args: None))
+    worker = Worker(services, concurrency=1)
+    worker.start()
+    try:
+        wait_until(lambda: all_jobs(session)[0].status == "running")
+        with caplog.at_level("WARNING", logger="app.worker"):
+            worker.stop(grace=0.2)
+    finally:
+        let_go.set()
+    # Queued again with its lease cleared, so the next worker takes it at once rather than in
+    # LEASE; and the attempt uncounted, so a job restarted mid-run three times is not given up.
+    (job,) = all_jobs(session)
+    assert (job.status, job.attempts, job.worker_id, job.lease_until) == ("queued", 0, None, None)
+    assert "were queued again" in caplog.text
+    taken = claim("next:1", INDEX)
+    assert (taken.id, taken.attempts) == (job.id, 1)
+
+
+def test_serve_runs_the_worker_until_told_to_stop(session, services, make_document, sample_pdf):
+    document = make_document(sample_pdf)
+    stopping = threading.Event()
+    thread = threading.Thread(
+        target=serve, args=(services, get_settings(), stopping), kwargs={"grace": 1}, daemon=True
+    )
+    thread.start()
+    try:
+
+        def ready() -> bool:
+            session.expire_all()
+            return document.status == "ready"
+
+        wait_until(ready)
+    finally:
+        stopping.set()
+    thread.join(timeout=10)
+    assert not thread.is_alive()
+
+
+def read_until(stream, marker: str, timeout: float) -> str:
+    """What a process wrote to `stream` up to and including the line that holds `marker`."""
+    deadline = time.monotonic() + timeout
+    output = b""
+    while marker.encode() not in output:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(f"The worker did not report {marker!r} in time:\n{output.decode()}")
+        ready, _, _ = wait_readable([stream], [], [], remaining)
+        if ready:
+            chunk = os.read(stream.fileno(), 4096)
+            if not chunk:
+                raise AssertionError(f"The worker exited before it was running:\n{output.decode()}")
+            output += chunk
+    return output.decode()
+
+
+def test_the_worker_command_starts_and_stops_on_sigterm(session):
+    # The process a deployment runs: it starts with the same checks as the API (the refusals
+    # are in test_config.py), says when it is running, and SIGTERM stops it cleanly. The queue
+    # is empty here, so the real services it builds are never called.
+    process = subprocess.Popen(
+        [sys.executable, "-m", "app.worker", "--grace", "1"],
+        cwd=BACKEND_DIR,
+        env=dict(os.environ),
+        stderr=subprocess.PIPE,
+    )
+    try:
+        output = read_until(process.stderr, "is running", timeout=60)
+        process.send_signal(signal.SIGTERM)
+        _, rest = process.communicate(timeout=30)
+        output += rest.decode()
+    finally:
+        process.kill()
+    assert process.returncode == 0
+    assert "Worker" in output and "stopped" in output
+    assert "Traceback" not in output

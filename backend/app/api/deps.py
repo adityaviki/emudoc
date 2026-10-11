@@ -29,9 +29,9 @@ from app.auth import SESSION_COOKIE, find_session, touch_session
 from app.config import get_settings
 from app.db import get_session
 from app.indexing.pipeline import Services
-from app.indexing.worker import Worker
 from app.mail import Mailer
 from app.models import Chat, Document, Folder, Passage, Project, User
+from app.worker import Worker
 
 SessionDep = Annotated[Session, Depends(get_session)]
 # The stage a reprocess run starts from; later stages run too.

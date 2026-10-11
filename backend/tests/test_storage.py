@@ -276,7 +276,7 @@ def bucket_client(session, mailer):
     """The API over a bucket: the same app, with the storage behind it swapped."""
     s3 = FakeS3Client("bucket")
     services = Services(FakeLLM(), FakeEmbedder(), S3Storage(s3, "bucket", "emudoc"))
-    app = create_app(services=services, start_worker=False, mailer=mailer)
+    app = create_app(services=services, mailer=mailer)
     with TestClient(app, headers=APP_HEADERS, follow_redirects=False) as client:
         client.s3 = s3
         client.services = services
@@ -343,7 +343,7 @@ def test_a_bucket_that_fails_mid_upload_leaves_no_row(bucket_client, sample_pdf)
 def test_the_app_refuses_to_start_without_its_bucket(session, mailer):
     services = Services(FakeLLM(), FakeEmbedder(), S3Storage(FakeS3Client("other"), "bucket"))
     with pytest.raises(StorageError, match="The bucket 'bucket' cannot be used"):
-        with TestClient(create_app(services=services, start_worker=False, mailer=mailer)):
+        with TestClient(create_app(services=services, mailer=mailer)):
             pass
 
 
