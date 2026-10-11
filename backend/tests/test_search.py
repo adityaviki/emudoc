@@ -1,10 +1,20 @@
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+
+from app.config import get_settings
 from app.indexing.pipeline import process_document
-from app.models import Project
-from app.search import _segments, hybrid_search
+from app.main import create_app
+from app.models import Passage, Project
+from app.search import _segments, check_fts_language, hybrid_search
 
 
 def search(session, services, document, query, **kwargs):
     return hybrid_search(session, services.embedder, document.project_id, query, **kwargs)
+
+
+def languages_of(session, document) -> set[str]:
+    return set(session.scalars(select(Passage.language).where(Passage.document_id == document.id)))
 
 
 def test_finds_the_passage_and_marks_the_matched_words(session, services, indexed):
@@ -58,6 +68,41 @@ def test_document_filter(session, services, make_document, indexed, sample_docx)
     assert {hit.document_id for hit in everything.hits} == {indexed.id, policy.id}
     only_policy = search(session, services, indexed, "days", document_ids=[policy.id])
     assert {hit.document_id for hit in only_policy.hits} == {policy.id}
+
+
+def test_each_passage_is_matched_in_the_language_it_was_indexed_with(
+    session, services, make_document, indexed, sample_docx, monkeypatch
+):
+    # The policy is indexed with the `simple` configuration, which keeps words as they are,
+    # into the project that already holds the contract indexed in English.
+    monkeypatch.setattr(get_settings(), "fts_language", "simple")
+    policy = make_document(sample_docx, project=session.get(Project, indexed.project_id))
+    process_document(policy.id, services)
+    assert languages_of(session, policy) == {"simple"}
+    assert languages_of(session, indexed) == {"english"}
+
+    services.embedder.fail = True  # keywords only, so every hit below is a text match
+    # English stemming still applies to the contract: "terminate" finds "termination".
+    assert "ninety (90) days" in search(session, services, indexed, "terminate").hits[0].text
+    # The policy is parsed as `simple`, so only the exact word finds "Submit receipts".
+    assert search(session, services, indexed, "receipt").hits == []
+    hits = search(session, services, indexed, "receipts").hits
+    assert [hit.document_id for hit in hits] == [policy.id]
+    assert [text for text, is_match in hits[0].snippet if is_match] == ["receipts"]
+    # Restricting the search to one document only considers that document's language.
+    assert search(session, services, indexed, "receipts", document_ids=[indexed.id]).hits == []
+
+
+def test_app_refuses_a_text_search_configuration_the_database_lacks(services, monkeypatch):
+    check_fts_language()
+
+    monkeypatch.setattr(get_settings(), "fts_language", "klingon")
+    with pytest.raises(RuntimeError, match="FTS_LANGUAGE is 'klingon'") as error:
+        check_fts_language()
+    assert "english" in str(error.value) and "simple" in str(error.value)
+    with pytest.raises(RuntimeError, match="FTS_LANGUAGE"):
+        with TestClient(create_app(services=services, start_worker=False)):
+            pass
 
 
 def test_keyword_search_survives_an_embedding_outage(session, services, indexed):

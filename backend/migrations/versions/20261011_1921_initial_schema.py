@@ -5,9 +5,10 @@ Revision bedb624406a6, written 2026-10-11.
 Every table as the models stood when migrations were introduced, right after organisations,
 users and sign-in arrived: accounts and sessions, projects and folders, documents with their
 blocks, sections, passages and facts, and chats. Two columns depend on settings, as they did when
-`create_all` made them: `passages.tsv` bakes in FTS_LANGUAGE, and `passages.embedding` is sized
-by EMBEDDING_DIM (`rebuild_embeddings` in app/maintenance.py remakes it when that changes). The
-`vector` extension is created first and is left in place by the downgrade.
+`create_all` made them: `passages.tsv` bakes in FTS_LANGUAGE (the next migration moves it into
+a column), and `passages.embedding` is sized by EMBEDDING_DIM (`rebuild_embeddings` in
+app/maintenance.py remakes it when that changes). The `vector` extension is created first and
+is left in place by the downgrade.
 
 A database that already has tables but no version was made by `create_all` before there were
 migrations. Those made right before this migration were stamped by the app at the time; any

@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     embedding_query_prefix: str = "search_query: "
     embedding_document_prefix: str = "search_document: "
 
+    # The text search configuration written into each passage as it is indexed; a search parses
+    # its query with each passage's own, so changing this only affects later uploads.
     fts_language: str = "english"
     worker_concurrency: int = 2
 
@@ -70,7 +72,7 @@ class Settings(BaseSettings):
     @field_validator("fts_language")
     @classmethod
     def _plain_identifier(cls, value: str) -> str:
-        # Interpolated into DDL and queries as a regconfig name.
+        # A regconfig name; whether the database has one by that name is checked at start.
         if not re.fullmatch(r"[a-z_]+", value):
             raise ValueError("fts_language must be a Postgres text search configuration name")
         return value

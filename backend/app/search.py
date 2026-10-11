@@ -25,14 +25,24 @@ _VECTOR_CTE = """
     LIMIT :candidates
 """
 _QUERY = """
-WITH q AS (
+WITH langs AS (
+    -- Each passage was indexed with a text search configuration; the query is parsed once per
+    -- configuration in use and matched against the passages indexed with it. A project holds
+    -- one or two, and the text index is probed once for each.
+    SELECT DISTINCT p.language
+    FROM passages p
+    WHERE p.project_id = :project_id {doc_filter}
+),
+q AS (
     -- Any query word may match; ranking then favours passages that match more of them.
-    SELECT to_tsquery('{cfg}',
-        NULLIF(replace(plainto_tsquery('{cfg}', :query)::text, ' & ', ' | '), '')) AS tsq
+    SELECT l.language, to_tsquery(l.language,
+        NULLIF(replace(plainto_tsquery(l.language, :query)::text, ' & ', ' | '), '')) AS tsq
+    FROM langs l
 ),
 kw AS (
     SELECT p.id, row_number() OVER (ORDER BY ts_rank_cd(p.tsv, q.tsq) DESC, p.id) AS rank
-    FROM passages p, q
+    FROM passages p
+    JOIN q ON q.language = p.language
     WHERE p.project_id = :project_id AND p.tsv @@ q.tsq {doc_filter}
     ORDER BY ts_rank_cd(p.tsv, q.tsq) DESC, p.id
     LIMIT :candidates
@@ -42,14 +52,14 @@ SELECT p.id, p.document_id, p.section_id, p.context, p.text, p.page_start, p.pag
        d.title, d.filename, d.doc_type,
        kw.rank AS keyword_rank, vec.rank AS vector_rank,
        COALESCE(1.0 / (:k + kw.rank), 0) + COALESCE(1.0 / (:k + vec.rank), 0) AS score,
-       ts_headline('{cfg}', p.text, q.tsq,
+       ts_headline(p.language, p.text, q.tsq,
            'MaxFragments=2, MaxWords=32, MinWords=12, StartSel={start}, StopSel={stop}') AS headline
 FROM (SELECT id FROM kw UNION SELECT id FROM vec) hits
 JOIN passages p ON p.id = hits.id
 JOIN documents d ON d.id = p.document_id
+JOIN q ON q.language = p.language
 LEFT JOIN kw ON kw.id = p.id
 LEFT JOIN vec ON vec.id = p.id
-CROSS JOIN q
 ORDER BY score DESC, p.id
 LIMIT :limit
 """
@@ -99,7 +109,6 @@ def hybrid_search(
 
     doc_filter = "AND p.document_id = ANY(:document_ids)" if document_ids else ""
     sql = _QUERY.format(
-        cfg=get_settings().fts_language,
         doc_filter=doc_filter,
         vector_cte=_VECTOR_CTE.format(doc_filter=doc_filter) if vector else _NO_VECTOR_CTE,
         start=HIT_START,
@@ -163,6 +172,23 @@ def _segments(headline: str | None) -> list[tuple[str, bool]]:
         if rest:
             segments.append((rest, False))
     return segments
+
+
+def check_fts_language() -> None:
+    """Refuse to serve when FTS_LANGUAGE names no text search configuration in the database.
+
+    The name is written into every passage as it is indexed, so a wrong one would fail every
+    upload in a background job rather than here, where the message can say what to set.
+    """
+    name = get_settings().fts_language
+    with engine.connect() as connection:
+        known = connection.scalars(text("SELECT cfgname FROM pg_ts_config ORDER BY 1")).all()
+    if name in known:
+        return
+    raise RuntimeError(
+        f"FTS_LANGUAGE is '{name}', but the database has no text search configuration of that "
+        f"name. Set it to one of: {', '.join(known)}; then start the app again."
+    )
 
 
 @lru_cache

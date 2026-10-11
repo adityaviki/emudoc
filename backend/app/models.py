@@ -17,14 +17,13 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
+from sqlalchemy.dialects.postgresql import JSONB, REGCONFIG, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.config import get_settings
 from app.db import Base
 
 _settings = get_settings()
-_fts = _settings.fts_language
 
 STAGES = ("parse", "structure", "enrich", "embed")
 # From most to least permitted: each role may do everything the roles after it may.
@@ -386,6 +385,9 @@ class Passage(Base):
 
     __tablename__ = "passages"
     __table_args__ = (
+        # A search first lists the languages a project holds, then probes the text index once
+        # per language; the leading column serves every lookup by project as well.
+        Index("ix_passages_project_language", "project_id", "language"),
         Index("ix_passages_tsv", "tsv", postgresql_using="gin"),
         Index(
             "ix_passages_embedding",
@@ -399,9 +401,7 @@ class Passage(Base):
     document_id: Mapped[int] = mapped_column(
         ForeignKey("documents.id", ondelete="CASCADE"), index=True
     )
-    project_id: Mapped[int] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), index=True
-    )
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
     section_id: Mapped[int] = mapped_column(
         ForeignKey("sections.id", ondelete="CASCADE"), index=True
     )
@@ -414,11 +414,17 @@ class Passage(Base):
     block_start: Mapped[int] = mapped_column(Integer)
     block_end: Mapped[int] = mapped_column(Integer)
 
+    # The text search configuration the passage was indexed with: the one `tsv` is built from
+    # and the one a search parses its query with for this row. It is `regconfig`, not text,
+    # because a generated column's expression must be immutable and casting text to a
+    # configuration is not. Today every passage gets FTS_LANGUAGE; per-document detection
+    # will write what it finds here.
+    language: Mapped[str] = mapped_column(REGCONFIG, server_default="english")
     tsv: Mapped[str] = mapped_column(
         TSVECTOR,
         Computed(
-            f"setweight(to_tsvector('{_fts}', coalesce(context, '')), 'B') || "
-            f"setweight(to_tsvector('{_fts}', text), 'A')",
+            "setweight(to_tsvector(language, coalesce(context, '')), 'B') || "
+            "setweight(to_tsvector(language, text), 'A')",
             persisted=True,
         ),
     )

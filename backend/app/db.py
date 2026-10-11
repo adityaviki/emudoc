@@ -6,9 +6,16 @@ from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import MetaData, create_engine
+from sqlalchemy.dialects.postgresql import REGCONFIG
+from sqlalchemy.dialects.postgresql.base import ischema_names
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import BACKEND_DIR, get_settings
+
+# SQLAlchemy can write a `regconfig` column (`passages.language`) but does not recognise one it
+# reads back from the catalog, so the migration check would see an untyped column and warn.
+# Registering the name is what pgvector does for `vector`.
+ischema_names.setdefault("regconfig", REGCONFIG)
 
 engine = create_engine(get_settings().database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(engine, expire_on_commit=False)

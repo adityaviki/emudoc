@@ -12,6 +12,7 @@ from PIL import Image
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db import SessionLocal
 from app.embeddings import Embedder, EmbeddingError
 from app.indexing.enrich import (
@@ -228,6 +229,7 @@ def _structure(session: Session, document: Document, services: Services) -> str:
         session.flush()  # children need the parent's id
         rows[id(draft)] = row
 
+    language = get_settings().fts_language
     session.add_all(
         Passage(
             document_id=document.id,
@@ -236,6 +238,7 @@ def _structure(session: Session, document: Document, services: Services) -> str:
             ordinal=ordinal,
             text=draft.text,
             context=rows[id(draft.section)].path,
+            language=language,
             page_start=draft.page_start,
             page_end=draft.page_end,
             block_start=draft.block_start,

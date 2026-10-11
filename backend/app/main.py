@@ -18,6 +18,7 @@ from app.llm import LLM
 from app.mail import Mailer, mailer_from_settings
 from app.maintenance import check_embeddings, requeue_stale_embeddings
 from app.schemas import EmbeddingStatus, HealthOut, LLMStatus, StatusOut
+from app.search import check_fts_language
 
 FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
 
@@ -66,6 +67,7 @@ def create_app(
         settings.pages_dir.mkdir(parents=True, exist_ok=True)
         check_schema()
         check_embeddings()
+        check_fts_language()
         requeue_stale_embeddings()
         if services is None:
             export_env_file()

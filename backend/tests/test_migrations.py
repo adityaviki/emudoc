@@ -14,6 +14,7 @@ from alembic.util import CommandError
 from fastapi.testclient import TestClient
 from sqlalchemy import inspect, text
 
+from app.config import get_settings
 from app.db import MIGRATION_LOCK, UPGRADE_COMMAND, Base, alembic_config, check_schema, engine
 from app.main import create_app
 from tests.conftest import build_schema, drop_schema
@@ -70,6 +71,33 @@ def test_app_refuses_a_database_that_is_not_at_the_newest_migration(services, re
         connection.execute(text("INSERT INTO alembic_version VALUES ('0000')"))
     with pytest.raises(RuntimeError, match="is at schema revision 0000, and this version"):
         check_schema()
+
+
+def test_passages_keep_the_language_their_text_index_was_built_with(
+    rebuilt_afterwards, indexed, session, monkeypatch
+):
+    # Before the language column, `tsv` was generated with FTS_LANGUAGE baked into the schema.
+    # Going back to that revision and forward again, the rows get the configured language,
+    # which is the one their index was built with; new rows default to English.
+    monkeypatch.setattr(get_settings(), "fts_language", "simple")
+    command.downgrade(alembic_config(), "-1")
+    with engine.connect() as connection:
+        columns = {column["name"] for column in inspect(connection).get_columns("passages")}
+    assert "language" not in columns
+
+    command.upgrade(alembic_config(), "head")
+    with engine.connect() as connection:
+        languages = connection.execute(text("SELECT DISTINCT language FROM passages")).scalars()
+        assert set(languages) == {"simple"}
+        column = next(
+            column
+            for column in inspect(connection).get_columns("passages")
+            if column["name"] == "language"
+        )
+        assert column["default"] == "'english'::regconfig"
+        assert connection.scalar(
+            text("SELECT count(*) FROM passages WHERE tsv @@ plainto_tsquery('simple', 'notice')")
+        )
 
 
 def test_database_made_before_migrations_cannot_be_upgraded(rebuilt_afterwards):
