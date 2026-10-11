@@ -70,7 +70,7 @@ def create_app(
         check_fts_language()
         requeue_stale_embeddings()
         if services is None:
-            export_env_file()
+            export_env_file(settings)
         app.state.services = services or Services(LLM(settings), Embedder(settings))
         app.state.mailer = mailer or mailer_from_settings(settings)
         app.state.http = http or httpx.Client(timeout=10)

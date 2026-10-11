@@ -84,6 +84,8 @@ os.environ["EMBEDDING_MODEL"] = "nomic-embed-text"
 os.environ["EMBEDDING_DIM"] = "768"
 # Most tests drive the API as the local account; `signed_in_only` restores the production rule.
 os.environ["LOCAL_ACCOUNT"] = "true"
+# The messages the tests pin tell a developer to edit `.env`; a production shell says otherwise.
+os.environ["ENVIRONMENT"] = "development"
 
 from alembic import command  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

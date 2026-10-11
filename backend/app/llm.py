@@ -129,11 +129,14 @@ def _failure(error: Exception) -> LLMError:
     return LLMError(describe_error(error))
 
 
-def _setup_problem(name: str, error: Exception) -> str:
+def _setup_problem(name: str, error: Exception, settings: Settings) -> str:
     """What stops the model `name` from being set up, said as the step that fixes it."""
     message = str(error)
     if variable := re.search(r"Set the `(\w+)` environment variable", message):
-        return f"Set {variable[1]} in .env to use {name}."
+        # Only a development process reads its keys from `.env`; a production one is given
+        # them by its deployment, so the fix is to be found there.
+        where = ".env" if settings.environment == "development" else "the environment"
+        return f"Set {variable[1]} in {where} to use {name}."
     if extra := re.search(r"pydantic-ai-slim\[[\w-]+\]", message):
         return (
             f"{name} needs a package that is not installed. Run `uv add '{extra[0]}'` in backend/."
@@ -262,7 +265,7 @@ class LLM:
                     self._models[name] = infer_model(name, _provider)
                 except Exception as error:
                     # An unknown name, a missing key, or a provider whose package is absent.
-                    raise LLMUnavailable(_setup_problem(name, error)) from error
+                    raise LLMUnavailable(_setup_problem(name, error, self._settings)) from error
             return self._models[name]
 
     def structured(self, content: str | Sequence[UserContent], schema: type[T]) -> T:

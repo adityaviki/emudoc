@@ -17,6 +17,12 @@ Effort = Literal["", "minimal", "low", "medium", "high", "xhigh"]
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ROOT_DIR / ".env", extra="ignore")
 
+    # How the process is run. In development, `.env` is the place for everything, the model
+    # keys included (see `export_env_file`). In production the process is configured by its
+    # environment, set by the deployment or a secret manager, and secrets never go through a
+    # file in the repository; a staging deployment is production too.
+    environment: Literal["development", "production"] = "development"
+
     database_url: str = "postgresql+psycopg://emudoc:emudoc@127.0.0.1:5437/emudoc"
     data_dir: Path = BACKEND_DIR / "data"
     max_upload_mb: int = 100
@@ -91,12 +97,17 @@ def get_settings() -> Settings:
     return Settings()
 
 
-def export_env_file() -> None:
-    """Copy `.env` into the process environment, where the model providers look for their keys.
+def export_env_file(settings: Settings) -> None:
+    """In development, copy `.env` into the process environment, where the model providers look
+    for their keys.
 
     Variables that are already set win, and empty entries are left out so that a blank
-    `GOOGLE_API_KEY=` line reads as no key at all.
+    `GOOGLE_API_KEY=` line reads as no key at all. In production nothing is copied: the keys
+    reach the environment through the deployment, so a `.env` file that is lying around cannot
+    put a key into a process that was not given one.
     """
+    if settings.environment != "development":
+        return
     for name, value in dotenv_values(ROOT_DIR / ".env").items():
         if value:
             os.environ.setdefault(name, value)

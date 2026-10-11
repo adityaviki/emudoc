@@ -88,6 +88,11 @@ press "Run the model on them" in the Documents tab to enrich what was indexed wi
 
 Settings live in `.env`; `.env.example` lists them all with their defaults. The ones that matter:
 
+- `ENVIRONMENT` is `development` (the default) or `production`. In development the backend
+  copies the model keys from `.env` into its environment, where the model libraries read them.
+  A production deployment injects every secret through the environment or a secret manager
+  instead; the backend then copies nothing from `.env`, and a missing key is reported as one to
+  set in the environment.
 - `AGENT_MODEL` and `INDEX_MODEL` name the AI models as `provider:model`. Both default to
   `google:gemini-2.5-flash-lite`. Indexing is the high-volume side and the agent answers
   questions, so the two can differ, even across providers.

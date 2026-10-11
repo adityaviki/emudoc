@@ -225,17 +225,48 @@ def test_both_models_need_their_keys(monkeypatch):
     assert mixed.problem() == f"Set ANTHROPIC_API_KEY in .env to use {CLAUDE}."
 
 
-def test_env_file_supplies_keys_the_environment_does_not_have(tmp_path, monkeypatch):
+def test_in_production_a_missing_key_is_set_in_the_environment(monkeypatch):
+    # A production process is given its keys by the deployment, never by `.env`, so the fix
+    # the message names must be the environment.
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    settings = Settings(_env_file=None, environment="production", index_model=GEMINI)
+    assert LLM(settings).problem() == f"Set GOOGLE_API_KEY in the environment to use {GEMINI}."
+
+
+def env_file_in(tmp_path, monkeypatch) -> dict[str, str]:
+    """A `.env` with keys beside a shell that set one of them; returns the shell's environment."""
     (tmp_path / ".env").write_text(
         "GOOGLE_API_KEY=from-file\nANTHROPIC_API_KEY=\nOPENROUTER_API_KEY=from-file\n"
     )
     environ = {"OPENROUTER_API_KEY": "from-shell"}
     monkeypatch.setattr(os, "environ", environ)
     monkeypatch.setattr("app.config.ROOT_DIR", tmp_path)
+    return environ
 
-    export_env_file()
+
+def test_in_development_the_env_file_supplies_keys_the_environment_does_not_have(
+    tmp_path, monkeypatch
+):
+    environ = env_file_in(tmp_path, monkeypatch)
+
+    export_env_file(Settings(_env_file=None, environment="development"))
     # What the shell set wins, and a blank entry counts as no key at all.
     assert environ == {"OPENROUTER_API_KEY": "from-shell", "GOOGLE_API_KEY": "from-file"}
+
+
+def test_in_production_the_env_file_is_not_copied_into_the_environment(tmp_path, monkeypatch):
+    environ = env_file_in(tmp_path, monkeypatch)
+
+    export_env_file(Settings(_env_file=None, environment="production"))
+    # Whatever the file holds, a production process only has the keys its deployment gave it.
+    assert environ == {"OPENROUTER_API_KEY": "from-shell"}
+
+
+def test_environment_is_development_or_production():
+    assert Settings(_env_file=None).environment == "development"
+    with pytest.raises(ValueError, match="environment"):
+        Settings(_env_file=None, environment="staging")
 
 
 def on_new_thread(function, *args):
