@@ -1,17 +1,22 @@
-"""The migrations build the schema the models describe, and a database from before them is
-taken over rather than rebuilt.
+"""The migrations build the schema the models describe; the app checks the result at start and
+leaves applying them to `alembic upgrade head`.
 
 Each test leaves the schema as it found it, since the whole run shares it.
 """
+
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
+from alembic.util import CommandError
+from fastapi.testclient import TestClient
 from sqlalchemy import inspect, text
 
-from app.db import FIRST_REVISION, Base, alembic_config, engine, migrate
-from tests.conftest import drop_schema
+from app.db import MIGRATION_LOCK, UPGRADE_COMMAND, Base, alembic_config, check_schema, engine
+from app.main import create_app
+from tests.conftest import build_schema, drop_schema
 
 
 def current_revision() -> str | None:
@@ -29,7 +34,7 @@ def rebuilt_afterwards():
     """Put the migrated schema back once a test has torn it down."""
     yield
     drop_schema()
-    migrate()
+    build_schema()
 
 
 def test_migrations_and_models_agree():
@@ -48,27 +53,47 @@ def test_downgrade_removes_every_table(rebuilt_afterwards):
     assert current_revision() is None
 
 
-def test_database_made_before_migrations_is_stamped(rebuilt_afterwards):
-    # Builds before migrations made the tables with `create_all` and kept no version.
+def test_app_refuses_a_database_that_is_not_at_the_newest_migration(services, rebuilt_afterwards):
+    check_schema()
+
+    command.downgrade(alembic_config(), "base")
+    with pytest.raises(RuntimeError, match="has no schema yet") as error:
+        check_schema()
+    assert UPGRADE_COMMAND in str(error.value)
+    # The check is what stops the app from serving.
+    with pytest.raises(RuntimeError, match="has no schema yet"):
+        with TestClient(create_app(services=services, start_worker=False)):
+            pass
+
+    # A database ahead of the code, after a rollback of a release, is named as such.
+    with engine.begin() as connection:
+        connection.execute(text("INSERT INTO alembic_version VALUES ('0000')"))
+    with pytest.raises(RuntimeError, match="is at schema revision 0000, and this version"):
+        check_schema()
+
+
+def test_database_made_before_migrations_cannot_be_upgraded(rebuilt_afterwards):
+    # Builds before migrations made the tables with `create_all` and kept no version. The
+    # first migration would fail on its first table; it says what to do instead.
     drop_schema()
     with engine.begin() as connection:
         connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         Base.metadata.create_all(connection)
 
-    migrate()
-
-    assert current_revision() == FIRST_REVISION
-    assert table_names() == set(Base.metadata.tables) | {"alembic_version"}
-
-
-def test_database_missing_tables_is_refused(rebuilt_afterwards):
-    drop_schema()
-    with engine.begin() as connection:
-        connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        Base.metadata.create_all(connection)
-        connection.execute(text("DROP TABLE chat_messages, chats"))
-
-    with pytest.raises(RuntimeError, match="lacks the tables chat_messages, chats") as error:
-        migrate()
-    assert "docker compose down -v" in str(error.value)
+    with pytest.raises(CommandError, match="docker compose down -v"):
+        build_schema()
     assert current_revision() is None
+    assert table_names() == set(Base.metadata.tables)
+
+
+def test_migration_runs_take_turns():
+    # Replicas of a release all run `alembic upgrade head` at once; the second waits for the
+    # first instead of altering the same tables, and then finds nothing left to do.
+    with engine.connect() as holder, ThreadPoolExecutor(1) as pool:
+        holder.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": MIGRATION_LOCK})
+        waiting = pool.submit(build_schema)
+        with pytest.raises(TimeoutError):
+            waiting.result(timeout=0.5)
+        holder.rollback()
+        waiting.result(timeout=10)
+    check_schema()

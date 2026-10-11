@@ -51,24 +51,27 @@ You need Docker, [uv](https://docs.astral.sh/uv/) and Node with pnpm.
 cp .env.example .env                 # then add your GOOGLE_API_KEY
 docker compose up -d                 # Postgres with pgvector on 127.0.0.1:5437
 cd frontend && pnpm install && pnpm build && cd ..
-cd backend && uv run uvicorn app.main:app
+cd backend && uv run alembic upgrade head   # creates or updates the database schema
+uv run uvicorn app.main:app
 ```
 
 Open <http://127.0.0.1:8000> and create an account. The backend serves the API and the built
 frontend. To skip signing in while developing on your own machine, put `LOCAL_ACCOUNT=true` in
 `.env`: every request then acts as a local owner account.
 
-The backend brings the database schema up to date when it starts, from the migrations in
-`backend/migrations/`. A database made by an earlier version, before there were migrations, is
-taken over as it is; one older than the accounts tables cannot be, and the backend says so at
-start: reset it with `docker compose down -v`.
+The database schema is a set of migrations in `backend/migrations/`; `uv run alembic upgrade
+head` applies the ones the database has not seen yet, so run it again after updating. The backend
+never alters the database itself: at start it checks that the schema is current and refuses to
+serve otherwise, naming that command. A database made by a version from before there were
+migrations cannot be upgraded; the command says so, and `docker compose down -v` resets it.
 
 For semantic search, run [Ollama](https://ollama.com) with `ollama pull nomic-embed-text`, or
 point `EMBEDDING_BASE_URL` at any OpenAI-compatible embeddings endpoint.
 
 When working on the app, run `./dev.sh` instead and open <http://localhost:5173>. It starts the
-database, the backend (restarting when Python changes) and the frontend dev server (updating the
-open page as you edit, no build needed), which proxies `/api` to the backend. Ctrl+C stops both
+database, applies the migrations, and runs the backend (restarting when Python changes) and the
+frontend dev server (updating the open page as you edit, no build needed), which proxies `/api` to
+the backend. Ctrl+C stops both
 servers. Port 8000 still serves the last build, so it does not show your edits.
 
 ## What works without what

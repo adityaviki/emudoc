@@ -1,11 +1,12 @@
-"""The database engine, the base every table derives from, and the schema's upkeep at start."""
+"""The database engine, the base every table derives from, and the schema check at start."""
 
 import logging
 from collections.abc import Iterator
 
-from alembic import command
 from alembic.config import Config
-from sqlalchemy import MetaData, create_engine, inspect, text
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
+from sqlalchemy import MetaData, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import BACKEND_DIR, get_settings
@@ -26,9 +27,11 @@ NAMING_CONVENTION = {
 }
 
 MIGRATIONS_DIR = BACKEND_DIR / "migrations"
-# The migration whose tables a database made by `create_all`, before there were migrations,
-# already has.
-FIRST_REVISION = "bedb624406a6"
+# The advisory lock a migration run holds (migrations/env.py), so that two processes upgrading
+# the same database take turns instead of both altering tables. Any fixed number works as long
+# as nothing else in the database locks on it.
+MIGRATION_LOCK = 20261011
+UPGRADE_COMMAND = "uv run alembic upgrade head"
 
 
 class Base(DeclarativeBase):
@@ -47,31 +50,29 @@ def alembic_config() -> Config:
     return config
 
 
-def migrate() -> None:
-    """Apply the migrations the database has not seen yet.
+def check_schema() -> None:
+    """Refuse to serve a database whose schema is not the one this code was written for.
 
-    Before there were migrations the tables came from `create_all`, and every change to a table
-    meant a reset, so a database that has all the tables but no version is at the first
-    migration and is stamped as such. One that has only some of them is older than that and
-    cannot be upgraded; the error says to reset it.
+    The migrations are applied by `alembic upgrade head`, run before the app starts (`dev.sh`
+    does it; a deployment does it as a release step), not by the app itself: several replicas
+    starting at once would race one another altering tables, and a migration that fails should
+    stop a release rather than take the app down with it. So at start the app only compares the
+    database's revision with the newest migration and says what to run when they differ.
     """
-    from app import models  # noqa: F401  (registers the tables on Base.metadata)
-
-    config = alembic_config()
-    with engine.begin() as connection:
-        config.attributes["connection"] = connection
-        tables = set(inspect(connection).get_table_names())
-        if tables and "alembic_version" not in tables:
-            missing = sorted(set(Base.metadata.tables) - tables)
-            if missing:
-                raise RuntimeError(
-                    "The database was made by an older version of Emudoc and lacks the tables "
-                    f"{', '.join(missing)}, so it cannot be upgraded. Reset it with "
-                    "`docker compose down -v` and start the app again."
-                )
-            log.info("Recording a database made before migrations as revision %s", FIRST_REVISION)
-            command.stamp(config, FIRST_REVISION)
-        command.upgrade(config, "head")
+    head = ScriptDirectory.from_config(alembic_config()).get_current_head()
+    with engine.connect() as connection:
+        current = MigrationContext.configure(connection).get_current_revision()
+    if current == head:
+        return
+    state = (
+        "has no schema yet"
+        if current is None
+        else f"is at schema revision {current}, and this version of Emudoc needs {head}"
+    )
+    raise RuntimeError(
+        f"The database {state}. Run `{UPGRADE_COMMAND}` in the backend directory, then start "
+        "the app again."
+    )
 
 
 def reconcile_embeddings() -> int:

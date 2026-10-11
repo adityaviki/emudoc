@@ -37,6 +37,7 @@ os.environ["AGENT_MODEL"] = os.environ["INDEX_MODEL"] = "google:gemini-2.5-flash
 # Most tests drive the API as the local account; `signed_in_only` restores the production rule.
 os.environ["LOCAL_ACCOUNT"] = "true"
 
+from alembic import command  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from pydantic_ai.messages import (  # noqa: E402
     BinaryContent,
@@ -52,7 +53,7 @@ from sqlalchemy import text  # noqa: E402
 from app.accounts import Account, local_account  # noqa: E402
 from app.api.deps import SAME_APP_HEADER, SessionDep, get_account  # noqa: E402
 from app.config import get_settings  # noqa: E402
-from app.db import Base, SessionLocal, engine, migrate  # noqa: E402
+from app.db import Base, SessionLocal, alembic_config, engine  # noqa: E402
 from app.embeddings import EmbeddingError  # noqa: E402
 from app.indexing.enrich import (  # noqa: E402
     DocumentAnalysis,
@@ -285,12 +286,17 @@ def drop_schema() -> None:
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
 
 
+def build_schema() -> None:
+    """Apply the migrations, as `alembic upgrade head` does before a deployment starts."""
+    command.upgrade(alembic_config(), "head")
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _schema():
     # The tests run against the schema the migrations make, as a deployment does, not against
     # `create_all`: a model change without its migration fails here.
     drop_schema()
-    migrate()
+    build_schema()
     yield
     engine.dispose()
 

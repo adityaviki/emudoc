@@ -6,6 +6,9 @@ cd "$(dirname "$0")"
 
 docker compose up -d --wait
 [ -d frontend/node_modules ] || (cd frontend && pnpm install)
+# The backend refuses to serve a database that is behind the migrations, and it must not
+# upgrade one itself (it restarts on every edit below), so the schema is brought up to date here.
+(cd backend && uv run alembic upgrade head)
 
 # Stop everything when either server exits or the script is interrupted.
 cleanup() {

@@ -8,12 +8,17 @@ blocks, sections, passages and facts, and chats. Two columns depend on settings,
 `create_all` made them: `passages.tsv` bakes in FTS_LANGUAGE, and `passages.embedding` is sized
 by EMBEDDING_DIM (`reconcile_embeddings` in app/db.py rebuilds it when that changes). The
 `vector` extension is created first and is left in place by the downgrade.
+
+A database that already has tables but no version was made by `create_all` before there were
+migrations. Those made right before this migration were stamped by the app at the time; any
+other cannot be upgraded, and the migration says so instead of failing on the first table.
 """
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from alembic.util import CommandError
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects import postgresql
 
@@ -29,6 +34,13 @@ _fts = _settings.fts_language
 
 
 def upgrade() -> None:
+    existing = set(sa.inspect(op.get_bind()).get_table_names()) - {"alembic_version"}
+    if existing:
+        raise CommandError(
+            "The database already has tables but no migration version, so it was made by a "
+            "version of Emudoc from before there were migrations and cannot be upgraded. Reset "
+            "it with `docker compose down -v` and run this command again."
+        )
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
     op.create_table(
         "organizations",

@@ -1,19 +1,20 @@
 """Alembic's entry point: where the migrations run and what they compare the models against.
 
 The database comes from the app's settings, so the command line and the app see the same one.
-When the app applies the migrations itself (`app.db.migrate`), it hands its connection over
-through `config.attributes["connection"]` and the migrations run inside its transaction.
+The app does not run migrations itself; `alembic upgrade head` is a step before it starts, and
+the app only checks the result (`check_schema` in app/db.py).
 """
 
+import logging
 from logging.config import fileConfig
 
 from alembic import context
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Connection
+from sqlalchemy import Connection, text
 
 from app import models  # noqa: F401  (registers every table on Base.metadata)
 from app.config import get_settings
-from app.db import Base, engine
+from app.db import MIGRATION_LOCK, Base, engine
 
 config = context.config
 target_metadata = Base.metadata
@@ -41,15 +42,12 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connection: Connection | None = config.attributes.get("connection")
-    if connection is not None:
+    # The command line logs which migrations run. A process that has set up logging already,
+    # such as the test suite, keeps its own.
+    if config.config_file_name and not logging.getLogger().hasHandlers():
+        fileConfig(config.config_file_name, disable_existing_loggers=False)
+    with engine.connect() as connection:
         run_on(connection)
-        return
-    # From the command line: log what runs, on a connection of its own.
-    if config.config_file_name:
-        fileConfig(config.config_file_name)
-    with engine.connect() as own_connection:
-        run_on(own_connection)
 
 
 def run_on(connection: Connection) -> None:
@@ -57,6 +55,10 @@ def run_on(connection: Connection) -> None:
         connection=connection, target_metadata=target_metadata, render_item=render_item
     )
     with context.begin_transaction():
+        # Two processes upgrading the same database at once (replicas of a new release) wait
+        # for each other here, and the second finds nothing left to do. The lock lasts for the
+        # transaction, which is the whole run, and Alembic itself takes none.
+        connection.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": MIGRATION_LOCK})
         context.run_migrations()
 
 
