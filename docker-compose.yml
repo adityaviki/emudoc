@@ -1,3 +1,7 @@
+# The development database, for this machine only. It is published on the loopback address,
+# so nothing else can reach it, and its password is the well-known `emudoc` on purpose, so
+# that `cp .env.example .env` works. The app has no such default: a deployment runs its own
+# database and names it in DATABASE_URL.
 services:
   db:
     image: pgvector/pgvector:pg17

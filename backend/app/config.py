@@ -2,10 +2,10 @@ import os
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from dotenv import dotenv_values
-from pydantic import field_validator
+from pydantic import ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -23,7 +23,10 @@ class Settings(BaseSettings):
     # file in the repository; a staging deployment is production too.
     environment: Literal["development", "production"] = "development"
 
-    database_url: str = "postgresql+psycopg://emudoc:emudoc@127.0.0.1:5437/emudoc"
+    # The database, as a SQLAlchemy URL. There is no default: a process that was not told its
+    # database stops (see `load_settings`) rather than reach for a loopback server with a
+    # well-known password. `.env.example` names the docker-compose.yml container.
+    database_url: str
     data_dir: Path = BACKEND_DIR / "data"
     max_upload_mb: int = 100
 
@@ -75,6 +78,14 @@ class Settings(BaseSettings):
     # that organisation's directory.
     microsoft_oauth_tenant: str = "common"
 
+    @field_validator("database_url")
+    @classmethod
+    def _names_a_database(cls, value: str) -> str:
+        # A blank `DATABASE_URL=` line reads as not set, not as a database with no name.
+        if not value.strip():
+            raise ValueError("DATABASE_URL is empty")
+        return value
+
     @field_validator("fts_language")
     @classmethod
     def _plain_identifier(cls, value: str) -> str:
@@ -92,9 +103,31 @@ class Settings(BaseSettings):
         return self.data_dir / "pages"
 
 
+MISSING_DATABASE = (
+    "DATABASE_URL is not set, and the app has no default database. Put the database's URL, "
+    "such as postgresql+psycopg://user:password@host:5432/emudoc, in .env for development "
+    "(.env.example names the docker compose database) or in the environment for a deployment."
+)
+
+
+def load_settings(**values: Any) -> Settings:
+    """Read the settings, and stop the process with what to do when no database is named.
+
+    The settings are read as the app is imported, by uvicorn, alembic and the maintenance
+    command alike, so the alternative is pydantic's validation traceback from each of them.
+    Other mistakes are rare enough to keep that traceback, which names the setting.
+    """
+    try:
+        return Settings(**values)
+    except ValidationError as error:
+        if any(problem["loc"] == ("database_url",) for problem in error.errors()):
+            raise SystemExit(MISSING_DATABASE) from None
+        raise
+
+
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    return load_settings()
 
 
 def export_env_file(settings: Settings) -> None:

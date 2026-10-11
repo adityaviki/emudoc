@@ -93,6 +93,10 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   A production deployment injects every secret through the environment or a secret manager
   instead; the backend then copies nothing from `.env`, and a missing key is reported as one to
   set in the environment.
+- `DATABASE_URL` names the database as a SQLAlchemy URL. There is no default: a process that
+  is not told its database stops at once and says so. `.env.example` names the
+  `docker compose` container, which only this machine can reach; a deployment sets the
+  variable in the environment.
 - `AGENT_MODEL` and `INDEX_MODEL` name the AI models as `provider:model`. Both default to
   `google:gemini-2.5-flash-lite`. Indexing is the high-volume side and the agent answers
   questions, so the two can differ, even across providers.
@@ -139,7 +143,7 @@ model, the embedding model, the mailer and the identity providers are replaced b
 the requests to Gemini, Claude and OpenRouter are checked through their real SDKs against recorded
 responses. The tests empty that database, so they refuse to run against any other, and against a
 server that is not on this machine unless `TEST_DATABASE_ALLOW_REMOTE=1` is set; the server comes
-from `TEST_DATABASE_SERVER` (default `emudoc:emudoc@127.0.0.1:5437`).
+from `TEST_DATABASE_SERVER` (default: the `docker compose` container, `emudoc:emudoc@127.0.0.1:5437`).
 
 ## Layout
 

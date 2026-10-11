@@ -17,6 +17,7 @@ import psycopg
 import pytest
 from sqlalchemy.engine import URL, make_url
 
+# The container docker-compose.yml runs; the app itself has no default database.
 SERVER = os.environ.get("TEST_DATABASE_SERVER", "emudoc:emudoc@127.0.0.1:5437")
 TEST_DATABASE = "emudoc_test"
 TEST_DATABASE_URL = f"postgresql+psycopg://{SERVER}/{TEST_DATABASE}"

@@ -234,6 +234,10 @@ def test_in_production_a_missing_key_is_set_in_the_environment(monkeypatch):
     assert LLM(settings).problem() == f"Set GOOGLE_API_KEY in the environment to use {GEMINI}."
 
 
+# The settings need a database; these tests replace the environment, which held one.
+DB = "postgresql+psycopg://app:secret@db.internal:5432/emudoc"
+
+
 def env_file_in(tmp_path, monkeypatch) -> dict[str, str]:
     """A `.env` with keys beside a shell that set one of them; returns the shell's environment."""
     (tmp_path / ".env").write_text(
@@ -250,7 +254,7 @@ def test_in_development_the_env_file_supplies_keys_the_environment_does_not_have
 ):
     environ = env_file_in(tmp_path, monkeypatch)
 
-    export_env_file(Settings(_env_file=None, environment="development"))
+    export_env_file(Settings(_env_file=None, environment="development", database_url=DB))
     # What the shell set wins, and a blank entry counts as no key at all.
     assert environ == {"OPENROUTER_API_KEY": "from-shell", "GOOGLE_API_KEY": "from-file"}
 
@@ -258,7 +262,7 @@ def test_in_development_the_env_file_supplies_keys_the_environment_does_not_have
 def test_in_production_the_env_file_is_not_copied_into_the_environment(tmp_path, monkeypatch):
     environ = env_file_in(tmp_path, monkeypatch)
 
-    export_env_file(Settings(_env_file=None, environment="production"))
+    export_env_file(Settings(_env_file=None, environment="production", database_url=DB))
     # Whatever the file holds, a production process only has the keys its deployment gave it.
     assert environ == {"OPENROUTER_API_KEY": "from-shell"}
 
