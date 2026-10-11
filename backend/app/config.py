@@ -21,6 +21,15 @@ DEVELOPMENT_PASSWORD = "emudoc"
 
 
 class Settings(BaseSettings):
+    """How this process runs, read once from the environment and `.env` and shared.
+
+    These are read as the app is imported (`app/db.py` builds the engine from them, `app/models.py`
+    sizes the vector column) and cached for the life of the process, so they can only hold what
+    is the same for every organisation the process serves. Anything that varies per organisation,
+    such as a plan, a quota or a bring-your-own model key, belongs in a table read through the
+    account of the request, never here.
+    """
+
     model_config = SettingsConfigDict(env_file=ROOT_DIR / ".env", extra="ignore")
 
     # How the process is run. In development, `.env` is the place for everything, the model
