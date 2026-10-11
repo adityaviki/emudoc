@@ -114,6 +114,12 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   storage keys (October 2026) keeps them in the old layout: run
   `uv run python -m app.maintenance relocate-files` once in `backend/` with the app stopped (the
   backend logs a reminder while they are there), or `docker compose down -v` and upload again.
+- `PAGE_IMAGE_DAYS` is how long a rendered page image or thumbnail is kept after it was
+  rendered (30 by default). Pages are rendered from the original the first time they are asked
+  for and kept beside it; every few hours the backend removes the ones older than this, and a
+  page asked for again is rendered again, so nothing is lost. `0` keeps them for good.
+  `uv run python -m app.maintenance sweep-page-images` (in `backend/`) runs the sweep at once,
+  say after lowering the setting.
 - `AGENT_MODEL` and `INDEX_MODEL` name the AI models as `provider:model`. Both default to
   `google:gemini-2.5-flash-lite`. Indexing is the high-volume side and the agent answers
   questions, so the two can differ, even across providers.

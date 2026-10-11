@@ -256,7 +256,7 @@ def download_file(document: DocumentDep, services: ServicesDep) -> Response:
 @router.get("/documents/{document_id}/pages/{page}.png")
 def page_image(document: DocumentDep, page: int, services: ServicesDep) -> Response:
     """A rendered PDF page, for showing where on the page a passage sits. Pages are rendered
-    the first time they are asked for and kept beside the original."""
+    the first time they are asked for and kept beside the original for PAGE_IMAGE_DAYS."""
     if document.mime_type != "application/pdf":
         raise HTTPException(404, "Only PDF documents have page images")
     if not 1 <= page <= (document.page_count or 0):

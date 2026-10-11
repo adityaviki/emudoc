@@ -10,12 +10,17 @@ races between replicas, so the app refuses to start and names `rebuild-embedding
 under `files/{project}/{document}/` and `pages/{document}/` in the data directory, to where their
 keys say, in whatever storage STORAGE_URL names. The migration that made the keys could not move
 them: it runs in a transaction and the filesystem does not.
+
+`housekeeping` is what the app does on its own at intervals (the worker's housekeeper thread):
+today, removing the rendered pages and thumbnails older than PAGE_IMAGE_DAYS, which are rendered
+again when asked for. `sweep-page-images` runs that sweep by hand, after lowering the setting.
 """
 
 import argparse
 import logging
 import shutil
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import Connection, select, text
@@ -24,12 +29,22 @@ from app.config import get_settings
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine
 from app.models import Document
 from app.parsing import MIME_TYPES
-from app.storage import LocalStorage, Storage, storage_from_settings
+from app.storage import (
+    DELETE_BATCH,
+    ROOT_PREFIX,
+    LocalStorage,
+    Storage,
+    is_rendered,
+    storage_from_settings,
+)
 
 log = logging.getLogger(__name__)
 
 REBUILD_COMMAND = "uv run python -m app.maintenance rebuild-embeddings"
 RELOCATE_COMMAND = "uv run python -m app.maintenance relocate-files"
+# The advisory lock a housekeeping round holds, so that replicas take turns instead of all
+# walking the storage at once; a different number from the migrations' lock.
+HOUSEKEEPING_LOCK = MIGRATION_LOCK + 1
 # The folders of the layout before storage keys, under the data directory.
 OLD_LAYOUT = ("files", "pages")
 
@@ -185,6 +200,63 @@ def relocate_files(storage: Storage, old_root: Path) -> tuple[int, int]:
     return moved, left
 
 
+def sweep_rendered_images(
+    storage: Storage, keep: timedelta, now: datetime | None = None
+) -> tuple[int, int]:
+    """Delete the rendered pages and thumbnails that were rendered more than `keep` ago.
+
+    They are a cache of the originals, so nothing is lost: a page asked for again is rendered
+    again. Returns how many were deleted and how many bytes they held. The whole storage is
+    walked, which a listing does in pages, and the stale objects go in batches as they are
+    found rather than all at the end, so a storage of any size takes bounded memory.
+    """
+    cutoff = (now or datetime.now(UTC)) - keep
+    deleted = freed = 0
+    batch: list[str] = []
+    for entry in storage.list(ROOT_PREFIX):
+        if not is_rendered(entry.key) or entry.modified_at >= cutoff:
+            continue
+        batch.append(entry.key)
+        freed += entry.size
+        if len(batch) == DELETE_BATCH:
+            storage.delete(batch)
+            deleted += len(batch)
+            batch.clear()
+    storage.delete(batch)
+    return deleted + len(batch), freed
+
+
+def housekeeping(storage: Storage) -> None:
+    """One round of what the app does to the stored data on its own, at intervals.
+
+    Every replica reaches its interval, so a round first takes an advisory lock and skips when
+    another replica holds it: the work is idempotent, and walking the storage once is enough.
+    The lock is transaction-level and the transaction reads nothing, so it ends with the block.
+    """
+    settings = get_settings()
+    if not settings.page_image_days:
+        return
+    with engine.begin() as connection:
+        taken = connection.scalar(
+            text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": HOUSEKEEPING_LOCK}
+        )
+        if not taken:
+            log.info("Housekeeping skipped: another process is on it")
+            return
+        deleted, freed = sweep_rendered_images(storage, timedelta(days=settings.page_image_days))
+    if deleted:
+        log.info("Housekeeping: %s", describe_sweep(deleted, freed, settings.page_image_days))
+
+
+def describe_sweep(deleted: int, freed: int, days: int) -> str:
+    """What a sweep did, for the log and the command."""
+    what = "rendered page or thumbnail" if deleted == 1 else "rendered pages and thumbnails"
+    return (
+        f"Removed {deleted} {what} older than {days} days ({round(freed / 1_000_000, 1)} MB); "
+        "they are rendered again when asked for"
+    )
+
+
 def _prune_empty(folder: Path) -> None:
     """Remove the folder and whatever folders under it hold no files."""
     if not folder.is_dir():
@@ -237,6 +309,14 @@ def main(argv: list[str] | None = None) -> None:
         type=Path,
         help="the data directory of the old layout; the directory STORAGE_URL names by default",
     )
+    commands.add_parser(
+        "sweep-page-images",
+        help="remove the rendered pages and thumbnails older than PAGE_IMAGE_DAYS now",
+        description="Remove the rendered pages and thumbnails that are older than "
+        "PAGE_IMAGE_DAYS from the storage STORAGE_URL names. The running app does this on its "
+        "own every few hours; this runs it at once, say after lowering the setting. Nothing "
+        "is lost: a page asked for again is rendered again from the original.",
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     # The schema check sets up a migration context, which announces itself; nothing to act on.
@@ -276,6 +356,18 @@ def main(argv: list[str] | None = None) -> None:
                     "is reading the right database."
                 )
             print("Start the app again.")
+        elif args.command == "sweep-page-images":
+            if not settings.page_image_days:
+                parser.error(
+                    "PAGE_IMAGE_DAYS is 0, which keeps rendered pages for good; set it to the "
+                    "number of days to keep them, then run this again."
+                )
+            storage = storage_from_settings(settings)
+            storage.check()
+            deleted, freed = sweep_rendered_images(
+                storage, timedelta(days=settings.page_image_days)
+            )
+            print(describe_sweep(deleted, freed, settings.page_image_days) + ".")
     except RuntimeError as error:
         sys.exit(str(error))
 

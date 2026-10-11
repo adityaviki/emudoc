@@ -173,7 +173,7 @@ def test_reprocess_and_delete(client, services, sample_pdf):
     assert services.storage.exists(key)
     assert client.get(f"/api/documents/{document_id}/pages/1.png").status_code == 200
     prefix = key.rsplit("/", 1)[0] + "/"
-    assert list(services.storage.list(prefix)) == [key, f"{prefix}pages/1.png"]
+    assert [entry.key for entry in services.storage.list(prefix)] == [key, f"{prefix}pages/1.png"]
 
     queued = client.post(f"/api/documents/{document_id}/reprocess", params={"from_stage": "enrich"})
     assert queued.status_code == 202

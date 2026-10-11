@@ -6,7 +6,7 @@ from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from dotenv import dotenv_values
-from pydantic import ValidationError, field_validator
+from pydantic import Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     # the checkout, for development.
     storage_url: str = (BACKEND_DIR / "data").as_uri()
     max_upload_mb: int = 100
+    # How long a rendered page or thumbnail is kept after it was rendered, in days. They are a
+    # cache of the original (see app/storage.py): one that is asked for again is rendered
+    # again. Zero keeps them for good.
+    page_image_days: int = Field(default=30, ge=0)
 
     # The model behind structure inference, summaries, facts, OCR and the agent, as
     # provider:model. Each provider reads its own key from the environment (see .env.example).

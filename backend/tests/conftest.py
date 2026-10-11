@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit
 
@@ -268,7 +269,9 @@ class FakeLLM:
 class FakeS3Client:
     """boto3's S3 client reduced to the calls `S3Storage` makes, over a dict of objects.
 
-    Listings come two keys at a time, so that the storage's paging is exercised.
+    Listings come two keys at a time, so that the storage's paging is exercised, and continue
+    after the last key returned, as a bucket's do, so that deleting what was listed does not
+    move the page.
     """
 
     PAGE = 2
@@ -276,6 +279,8 @@ class FakeS3Client:
     def __init__(self, *buckets: str):
         self.buckets = set(buckets) or {"bucket"}
         self.objects: dict[str, tuple[bytes, str | None]] = {}
+        # When each object was written; a test sets one back to age it.
+        self.modified: dict[str, datetime] = {}
         self.calls: list[str] = []
 
     def _check_bucket(self, bucket: str, operation: str) -> None:
@@ -295,6 +300,7 @@ class FakeS3Client:
         self._check_bucket(Bucket, "PutObject")
         data = Body if isinstance(Body, bytes) else Body.read()
         self.objects[Key] = (data, ContentType)
+        self.modified[Key] = datetime.now(UTC)
         return {}
 
     def get_object(self, *, Bucket: str, Key: str) -> dict:
@@ -319,13 +325,19 @@ class FakeS3Client:
     ) -> dict:
         self.calls.append("list_objects_v2")
         self._check_bucket(Bucket, "ListObjectsV2")
-        keys = sorted(key for key in self.objects if key.startswith(Prefix))
-        start = int(ContinuationToken or 0)
-        page = keys[start : start + self.PAGE]
-        truncated = start + self.PAGE < len(keys)
-        listing: dict = {"Contents": [{"Key": key} for key in page], "IsTruncated": truncated}
+        after = ContinuationToken or ""
+        keys = sorted(key for key in self.objects if key.startswith(Prefix) and key > after)
+        page = keys[: self.PAGE]
+        truncated = len(keys) > self.PAGE
+        listing: dict = {
+            "Contents": [
+                {"Key": key, "Size": len(self.objects[key][0]), "LastModified": self.modified[key]}
+                for key in page
+            ],
+            "IsTruncated": truncated,
+        }
         if truncated:
-            listing["NextContinuationToken"] = str(start + self.PAGE)
+            listing["NextContinuationToken"] = page[-1]
         return listing
 
     def delete_objects(self, *, Bucket: str, Delete: dict) -> dict:
@@ -333,6 +345,7 @@ class FakeS3Client:
         self._check_bucket(Bucket, "DeleteObjects")
         for entry in Delete["Objects"]:
             self.objects.pop(entry["Key"], None)
+            self.modified.pop(entry["Key"], None)
         return {}
 
     def generate_presigned_url(self, ClientMethod: str, Params: dict, ExpiresIn: int) -> str:

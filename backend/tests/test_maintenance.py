@@ -1,34 +1,41 @@
-"""The upkeep around the app: the embedding checks at start, the operator command that rebuilds
-the vectors, and the background worker.
+"""The upkeep around the app: the embedding checks at start, the operator commands, the sweep of
+rendered pages, and the background worker.
 
 The size tests rebuild the column at 4 and put 768 back in a `finally`, because the whole run
 shares the schema and `FakeEmbedder.dim` is 768.
 """
 
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 
+import app.indexing.worker as worker_module
+import app.maintenance as maintenance
 from app.config import get_settings
 from app.db import MIGRATION_LOCK, engine
 from app.indexing.pipeline import process_document
 from app.indexing.worker import Worker
 from app.main import create_app
 from app.maintenance import (
+    HOUSEKEEPING_LOCK,
     REBUILD_COMMAND,
     RELOCATE_COMMAND,
     check_embeddings,
+    housekeeping,
     main,
     old_layout_dir,
     rebuild_embeddings,
     relocate_files,
     requeue_stale_embeddings,
+    sweep_rendered_images,
 )
 from app.models import Passage
-from app.storage import S3Storage
+from app.storage import LocalStorage, S3Storage, Storage, document_prefix
 from tests.conftest import STORAGE_ROOT, FakeS3Client
 
 
@@ -207,7 +214,7 @@ def test_relocate_files_can_fill_a_bucket_from_the_old_directory(
 
     assert relocate_files(bucket, old_root) == (1, 0)
     assert bucket.get(indexed.storage_key) == sample_pdf.read_bytes()
-    assert sorted(bucket.list(indexed.storage_prefix)) == [
+    assert [entry.key for entry in bucket.list(indexed.storage_prefix)] == [
         indexed.storage_key,
         indexed.page_image_key(1),
         indexed.thumbnail_key,
@@ -221,6 +228,105 @@ def test_relocate_files_needs_the_old_directory_when_the_storage_is_a_bucket(mon
         main(["relocate-files"])
     assert stop.value.code == 2
     assert "--from /path/to/the/data/directory" in capsys.readouterr().err
+
+
+def age(storage: Storage, key: str, days: int) -> None:
+    """Make an object look as if it was written `days` ago."""
+    then = datetime.now(UTC) - timedelta(days=days)
+    if isinstance(storage, LocalStorage):
+        os.utime(storage.root / key, (then.timestamp(), then.timestamp()))
+    else:
+        storage.client.modified[key] = then
+
+
+@pytest.fixture(params=["local", "s3"])
+def any_storage(request, tmp_path) -> Storage:
+    if request.param == "local":
+        return LocalStorage(tmp_path / "data")
+    return S3Storage(FakeS3Client("bucket"), "bucket")
+
+
+def test_the_sweep_removes_old_rendered_pages_and_never_originals(any_storage, monkeypatch):
+    storage = any_storage
+    contract, invoice = document_prefix(1, 2, 3), document_prefix(1, 2, 4)
+    kept = [f"{contract}original.pdf", f"{contract}pages/2.png", f"{invoice}original.pdf"]
+    stale = [f"{contract}pages/1.png", f"{contract}thumbnail.png"]
+    stale += [f"{invoice}pages/{n}.png" for n in range(1, 4)]
+    for key in kept + stale:
+        storage.put(key, b"x" * 10, "image/png")
+    for key in stale + [f"{contract}original.pdf", f"{invoice}original.pdf"]:
+        age(storage, key, days=31)
+    age(storage, f"{contract}pages/2.png", days=29)
+
+    # Five stale objects in batches of two: the last, short batch goes too.
+    monkeypatch.setattr(maintenance, "DELETE_BATCH", 2)
+    assert sweep_rendered_images(storage, timedelta(days=30)) == (5, 50)
+    assert [entry.key for entry in storage.list("orgs/")] == kept
+    if isinstance(storage, S3Storage):
+        assert storage.client.calls.count("delete_objects") == 3
+    # Nothing left to do the second time.
+    assert sweep_rendered_images(storage, timedelta(days=30)) == (0, 0)
+
+
+def test_housekeeping_sweeps_once_across_processes_and_not_at_all_when_off(
+    session, services, indexed, monkeypatch, caplog
+):
+    page = indexed.page_image_key(1)
+    services.storage.put(page, b"old page", "image/png")
+    age(services.storage, page, days=31)
+
+    # Another process holds the round's lock: this one skips rather than walk the storage too.
+    with engine.connect() as holder:
+        holder.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": HOUSEKEEPING_LOCK})
+        housekeeping(services.storage)
+        assert services.storage.exists(page)
+        holder.rollback()
+
+    with caplog.at_level("INFO", logger="app.maintenance"):
+        housekeeping(services.storage)
+    assert not services.storage.exists(page)
+    assert services.storage.exists(indexed.storage_key)
+    assert "Removed 1 rendered page or thumbnail older than 30 days (0.0 MB)" in caplog.text
+
+    # PAGE_IMAGE_DAYS=0 keeps rendered pages for good.
+    services.storage.put(page, b"old page", "image/png")
+    age(services.storage, page, days=400)
+    monkeypatch.setattr(get_settings(), "page_image_days", 0)
+    housekeeping(services.storage)
+    assert services.storage.exists(page)
+
+
+def test_the_sweep_command_runs_at_once(session, services, indexed, monkeypatch, capsys):
+    page = indexed.page_image_key(1)
+    services.storage.put(page, b"old page", "image/png")
+    age(services.storage, page, days=31)
+    main(["sweep-page-images"])
+    assert "Removed 1 rendered page or thumbnail older than 30 days" in capsys.readouterr().out
+    assert not services.storage.exists(page)
+
+    monkeypatch.setattr(get_settings(), "page_image_days", 0)
+    with pytest.raises(SystemExit) as stop:
+        main(["sweep-page-images"])
+    assert stop.value.code == 2
+    assert "PAGE_IMAGE_DAYS is 0" in capsys.readouterr().err
+
+
+def test_the_worker_keeps_house_after_a_delay(session, services, indexed, monkeypatch):
+    page = indexed.page_image_key(1)
+    services.storage.put(page, b"old page", "image/png")
+    age(services.storage, page, days=31)
+    monkeypatch.setattr(worker_module, "HOUSEKEEPING_DELAY", 0.05)
+
+    worker = Worker(services, concurrency=1)
+    worker.start()
+    try:
+        deadline = time.monotonic() + 10
+        while services.storage.exists(page) and time.monotonic() < deadline:
+            time.sleep(0.05)
+    finally:
+        worker.stop()
+    assert not services.storage.exists(page)
+    assert services.storage.exists(indexed.storage_key)
 
 
 def test_worker_indexes_queued_documents_and_recovers_interrupted_ones(

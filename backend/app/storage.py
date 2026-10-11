@@ -11,6 +11,11 @@ Everything a document owns sits under its prefix and every document of a project
 project's, so deleting either is deleting a prefix. The database holds the original's key
 (`documents.storage_key`) and the other keys derive from it (`Document.storage_prefix`).
 
+The pages and the thumbnail are a cache: rendered from the original the first time they are
+asked for, and removed again once they are older than PAGE_IMAGE_DAYS (`sweep_rendered_images`
+in app/maintenance.py), since a 500-page PDF would otherwise stay 500 pictures of a few megabytes
+each for good. `is_rendered` tells those keys apart; a listing carries each object's age for it.
+
 The parsers open files by path, so `localize` gives the parse stage a local copy of an object
 for as long as it needs one; the local storage hands out the file itself. Serving goes through
 `response`, after the route has checked who asks: the local storage sends the file, a bucket
@@ -20,11 +25,14 @@ and the bucket itself is never public.
 
 import logging
 import os
+import re
 import shutil
 import tempfile
 from abc import ABC, abstractmethod
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from itertools import batched
 from pathlib import Path
 from typing import Any, Protocol
@@ -42,6 +50,9 @@ log = logging.getLogger(__name__)
 URL_LIFETIME = 15 * 60
 # A bucket deletes up to a thousand objects per request.
 DELETE_BATCH = 1000
+# The prefix every key sits under, for a sweep that walks the whole storage.
+ROOT_PREFIX = "orgs/"
+_RENDERED = re.compile(r"orgs/\d+/projects/\d+/documents/\d+/(pages/\d+|thumbnail)\.png")
 
 
 class StorageError(Exception):
@@ -59,6 +70,21 @@ def document_prefix(org_id: int, project_id: int, document_id: int) -> str:
 def original_key(org_id: int, project_id: int, document_id: int, suffix: str) -> str:
     """The key of an uploaded file; `suffix` is its lower-cased extension with the dot."""
     return f"{document_prefix(org_id, project_id, document_id)}original{suffix}"
+
+
+def is_rendered(key: str) -> bool:
+    """Whether the key names a rendered page or a thumbnail, which can be made again from the
+    original, as opposed to the original itself."""
+    return _RENDERED.fullmatch(key) is not None
+
+
+@dataclass(frozen=True)
+class StoredObject:
+    """One object as a listing reports it; `modified_at` is when it was last written."""
+
+    key: str
+    size: int
+    modified_at: datetime
 
 
 def content_disposition(filename: str) -> str:
@@ -114,8 +140,12 @@ class Storage(ABC):
         storage has no such thing and the app serves the object itself."""
 
     @abstractmethod
-    def list(self, prefix: str) -> Iterator[str]:
-        """Every key under the prefix, which names a folder and ends with '/'."""
+    def list(self, prefix: str) -> Iterator[StoredObject]:
+        """Every object under the prefix, which names a folder and ends with '/', in key order."""
+
+    @abstractmethod
+    def delete(self, keys: Iterable[str]) -> None:
+        """Delete these objects; one that is already gone is nothing to report."""
 
     @abstractmethod
     def delete_prefix(self, prefix: str) -> None:
@@ -258,12 +288,40 @@ class LocalStorage(Storage):
             headers=_cache_headers(max_age),
         )
 
-    def list(self, prefix: str) -> Iterator[str]:
+    def list(self, prefix: str) -> Iterator[StoredObject]:
         folder = self._path(_folder(prefix))
         if not folder.is_dir():
             return
         for path in sorted(path for path in folder.rglob("*") if path.is_file()):
-            yield path.relative_to(self.root).as_posix()
+            try:
+                stat = path.stat()
+            except FileNotFoundError:
+                # Deleted since the walk, by a sweep or a delete running beside this one.
+                continue
+            yield StoredObject(
+                path.relative_to(self.root).as_posix(),
+                stat.st_size,
+                datetime.fromtimestamp(stat.st_mtime, UTC),
+            )
+
+    def delete(self, keys: Iterable[str]) -> None:
+        for key in keys:
+            path = self._path(key)
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as error:
+                raise StorageError(
+                    f"The file {key} could not be deleted ({error.strerror})."
+                ) from error
+            # A folder holds nothing but keys, so one left empty means nothing and goes too.
+            for parent in path.parents:
+                if parent == self.root:
+                    break
+                try:
+                    parent.rmdir()
+                except OSError:
+                    # Not empty, or already gone: either way there is nothing more to prune.
+                    break
 
     def delete_prefix(self, prefix: str) -> None:
         folder = self._path(_folder(prefix))
@@ -412,7 +470,7 @@ class S3Storage(Storage):
             params["ResponseContentDisposition"] = content_disposition(filename)
         return self.client.generate_presigned_url("get_object", Params=params, ExpiresIn=expires_in)
 
-    def list(self, prefix: str) -> Iterator[str]:
+    def list(self, prefix: str) -> Iterator[StoredObject]:
         folder = self._key(_folder(prefix))
         token: str | None = None
         while True:
@@ -424,23 +482,29 @@ class S3Storage(Storage):
                     f"The bucket could not be listed ({_describe(error)})."
                 ) from error
             for entry in page.get("Contents", []):
-                yield entry["Key"][len(self.prefix) :]
+                yield StoredObject(
+                    entry["Key"][len(self.prefix) :], entry["Size"], entry["LastModified"]
+                )
             if not page.get("IsTruncated"):
                 return
             token = page["NextContinuationToken"]
 
-    def delete_prefix(self, prefix: str) -> None:
-        keys = [self._key(key) for key in self.list(prefix)]
+    def delete(self, keys: Iterable[str]) -> None:
         for batch in batched(keys, DELETE_BATCH, strict=False):
             try:
                 self.client.delete_objects(
                     Bucket=self.bucket,
-                    Delete={"Objects": [{"Key": key} for key in batch], "Quiet": True},
+                    Delete={"Objects": [{"Key": self._key(key)} for key in batch], "Quiet": True},
                 )
             except (ClientError, BotoCoreError) as error:
                 raise StorageError(
-                    f"The objects under {prefix} could not be deleted ({_describe(error)})."
+                    f"The objects could not be deleted from the bucket ({_describe(error)})."
                 ) from error
+
+    def delete_prefix(self, prefix: str) -> None:
+        # Deleted as they are listed; a listing continues after the last key it returned, so
+        # what is gone behind it does not move it.
+        self.delete(entry.key for entry in self.list(prefix))
 
 
 def storage_from_settings(settings: Settings) -> Storage:

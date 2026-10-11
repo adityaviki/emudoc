@@ -4,6 +4,7 @@ The two implementations are held to the same contract; the bucket one runs again
 the few boto3 calls it makes, since the suite makes no network calls.
 """
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,7 @@ from app.storage import (
     StorageError,
     content_disposition,
     document_prefix,
+    is_rendered,
     original_key,
     project_prefix,
     storage_from_settings,
@@ -38,10 +40,24 @@ def storage(request, tmp_path):
     return S3Storage(FakeS3Client("bucket"), "bucket", "emudoc")
 
 
+def keys(storage, prefix: str) -> list[str]:
+    return [entry.key for entry in storage.list(prefix)]
+
+
 def test_keys_follow_the_layout():
     assert project_prefix(1, 2) == "orgs/1/projects/2/"
     assert DOCUMENT == "orgs/1/projects/2/documents/3/"
     assert original_key(1, 2, 3, ".pdf") == "orgs/1/projects/2/documents/3/original.pdf"
+
+
+def test_rendered_pages_and_thumbnails_are_told_from_originals():
+    assert is_rendered(f"{DOCUMENT}pages/1.png")
+    assert is_rendered(f"{DOCUMENT}pages/120.png")
+    assert is_rendered(f"{DOCUMENT}thumbnail.png")
+    assert not is_rendered(f"{DOCUMENT}original.pdf")
+    assert not is_rendered(f"{DOCUMENT}original.png")
+    assert not is_rendered(f"{DOCUMENT}pages/1.png.part")
+    assert not is_rendered(f"other/{DOCUMENT}pages/1.png")
 
 
 def test_objects_are_stored_read_and_found(storage, tmp_path):
@@ -91,17 +107,31 @@ def test_a_prefix_lists_and_deletes_exactly_what_is_under_it(storage):
         storage.put(key, key.encode())
 
     # Five objects in the document and its neighbour: more than one page of a bucket listing.
-    assert list(storage.list(DOCUMENT)) == [
+    assert keys(storage, DOCUMENT) == [
         f"{DOCUMENT}original.pdf",
         f"{DOCUMENT}pages/1.png",
         f"{DOCUMENT}pages/2.png",
         f"{DOCUMENT}thumbnail.png",
     ]
-    assert len(list(storage.list(project_prefix(1, 2)))) == 5
+    assert len(keys(storage, project_prefix(1, 2))) == 5
+    # A listing says how big each object is and when it was written, for the sweeps.
+    (first, *_) = storage.list(DOCUMENT)
+    assert first.size == len(f"{DOCUMENT}original.pdf")
+    assert first.modified_at.tzinfo is not None
+    assert datetime.now(UTC) - first.modified_at < timedelta(minutes=1)
+
+    # Single objects go without taking their neighbours; one already gone is nothing to report.
+    storage.delete([f"{DOCUMENT}pages/1.png", f"{DOCUMENT}pages/2.png", f"{DOCUMENT}pages/9.png"])
+    assert keys(storage, DOCUMENT) == [f"{DOCUMENT}original.pdf", f"{DOCUMENT}thumbnail.png"]
+    storage.delete([])
+    if isinstance(storage, LocalStorage):
+        # An emptied folder goes with its last key; one that still holds keys stays.
+        assert not (storage.root / DOCUMENT / "pages").exists()
+        assert (storage.root / DOCUMENT).is_dir()
 
     # `documents/3/` must not take `documents/30/` with it.
     storage.delete_prefix(DOCUMENT)
-    assert list(storage.list(DOCUMENT)) == []
+    assert keys(storage, DOCUMENT) == []
     assert storage.exists(f"{neighbour}original.pdf")
     assert storage.exists(f"{other_project}original.pdf")
 
@@ -110,7 +140,7 @@ def test_a_prefix_lists_and_deletes_exactly_what_is_under_it(storage):
     assert storage.exists(f"{other_project}original.pdf")
     # Deleting what is already gone is nothing to report.
     storage.delete_prefix(project_prefix(1, 2))
-    assert list(storage.list("orgs/")) == [f"{other_project}original.pdf"]
+    assert keys(storage, "orgs/") == [f"{other_project}original.pdf"]
 
     with pytest.raises(ValueError, match="ends with '/'"):
         storage.delete_prefix("orgs/1/projects/2/documents/3")
@@ -205,6 +235,8 @@ def test_bucket_failures_are_reported_in_words():
         storage.exists("k")
     with pytest.raises(StorageError, match="could not be listed"):
         storage.delete_prefix("orgs/")
+    with pytest.raises(StorageError, match="could not be deleted"):
+        storage.delete(["k"])
     # A delete after the rows are gone is logged, not raised.
     storage.discard("orgs/1/")
 
