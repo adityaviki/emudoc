@@ -42,9 +42,9 @@ class Settings(BaseSettings):
     worker_concurrency: int = 2
 
     # Development on one machine: a request that carries no session acts as the local owner
-    # account. Off, every request must be signed in. Becomes false by default once the sign-in
-    # pages exist.
-    local_account: bool = True
+    # account instead of being refused. Off by default, so a deployment never opens up by
+    # accident; the test suite turns it on.
+    local_account: bool = False
     # Where the app is reached, for the links in emails and the OAuth redirect URI. Empty takes
     # the origin of the request that needs it, which is right in development.
     app_url: str = ""

@@ -12,7 +12,7 @@ from app.accounts import LOCAL_OWNER_EMAIL
 from app.api.auth import CODE_INVALID, LINK_INVALID, MFA_FIRST, SIGN_IN_FAILED
 from app.api.deps import CROSS_SITE, SAME_APP_HEADER, SIGN_IN
 from app.auth import totp_code, totp_step
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.oidc import Handshake
 from tests.conftest import APP_HEADERS
 
@@ -119,6 +119,13 @@ def test_login_and_logout(client, signed_in_only):
     client.cookies.set("emudoc_session", cookie)
     assert me(client).status_code == 401
     assert me(client).json()["detail"] == SIGN_IN
+
+
+def test_sign_in_is_required_unless_the_local_account_is_switched_on():
+    # The suite switches it on through the environment; a deployment that sets nothing refuses
+    # requests without a session.
+    assert Settings.model_fields["local_account"].default is False
+    assert get_settings().local_account is True
 
 
 def test_without_a_session_only_the_local_account_fallback_lets_a_request_through(

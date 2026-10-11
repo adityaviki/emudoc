@@ -37,8 +37,8 @@ from app.schemas import (
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-# Pages of the frontend: the links in emails and the redirects after an OAuth sign-in point at
-# them. The pages themselves are the next roadmap item.
+# Pages of the frontend (frontend/src/account/): the links in emails and the redirects after an
+# OAuth sign-in point at them.
 LOGIN_PAGE = "/login"
 VERIFY_PAGE = "/verify"
 RESET_PAGE = "/reset-password"

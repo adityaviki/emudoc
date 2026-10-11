@@ -24,3 +24,7 @@ export function parsePipeTable(text: string): string[][] | null {
     )
   return rows.length ? rows : null
 }
+
+export function formatDateTime(value: string): string {
+  return new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+}

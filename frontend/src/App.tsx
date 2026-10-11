@@ -1,15 +1,87 @@
-import { useQuery } from '@tanstack/react-query'
-import { Check, ChevronDown, Moon, Sun } from 'lucide-react'
-import { useRef, useState } from 'react'
-import { Link, Route, Routes, useMatch, useNavigate } from 'react-router'
-import { api } from './api.ts'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Check, ChevronDown, X } from 'lucide-react'
+import { useContext, useEffect, useRef, useState } from 'react'
+import { Link, Navigate, Outlet, Route, Routes, useLocation, useMatch, useNavigate } from 'react-router'
+import { AccountPage } from './account/AccountPage.tsx'
+import { LoginPage } from './account/LoginPage.tsx'
+import { ForgotPasswordPage, ResetPasswordPage } from './account/PasswordPages.tsx'
+import { SignupPage } from './account/SignupPage.tsx'
+import { UserMenu } from './account/UserMenu.tsx'
+import { VerifyPage } from './account/VerifyPage.tsx'
+import { AuthLayout } from './account/shared.tsx'
+import { api, auth, handleUnauthorized } from './api.ts'
+import type { Me } from './api.ts'
+import { MeContext, loginPath, setSignedIn, useMeQuery } from './auth.ts'
 import { Floating, Menu } from './components/Menu.tsx'
 import type { MenuItem } from './components/Menu.tsx'
-import { IconButton } from './components/ui.tsx'
+import { ThemeToggle } from './components/ThemeToggle.tsx'
+import { Button, IconButton, Spinner } from './components/ui.tsx'
+import { useLocalStorage } from './hooks.ts'
 import { ProjectsPage } from './pages/ProjectsPage.tsx'
 import { Workspace } from './pages/Workspace.tsx'
 
+/**
+ * Asks who is signed in before showing anything. The sign-in pages render on their own; every
+ * other page sits in the shell, which sends a visitor without a session to sign in first.
+ */
 function App() {
+  const me = useMeQuery()
+  const queryClient = useQueryClient()
+
+  // A session the server stopped accepting: forget the user, and the shell leaves for sign-in.
+  useEffect(() => {
+    handleUnauthorized(() => setSignedIn(queryClient, null))
+    return () => handleUnauthorized(null)
+  }, [queryClient])
+
+  if (me.isPending) {
+    return (
+      <div className="flex h-dvh items-center justify-center">
+        <Spinner className="size-5" />
+      </div>
+    )
+  }
+  if (me.isError) {
+    return (
+      <div className="flex h-dvh items-center justify-center px-6">
+        <div className="max-w-sm text-center">
+          <p className="font-medium">Emudoc cannot reach its server.</p>
+          <p className="mt-1 text-[13px] text-muted">{me.error.message}</p>
+          <Button className="mt-4" onClick={() => me.refetch()}>
+            Try again
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <MeContext value={me.data}>
+      <Routes>
+        <Route element={<AuthLayout />}>
+          <Route path="login" element={<LoginPage />} />
+          <Route path="signup" element={<SignupPage />} />
+          <Route path="forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="reset-password" element={<ResetPasswordPage />} />
+          <Route path="verify" element={<VerifyPage />} />
+        </Route>
+        <Route element={<Shell />}>
+          <Route index element={<ProjectsPage />} />
+          <Route path="account" element={<AccountPage />} />
+          <Route path="projects/:projectId/*" element={<Workspace />} />
+          <Route path="*" element={<p className="py-16 text-center text-muted">Page not found.</p>} />
+        </Route>
+      </Routes>
+    </MeContext>
+  )
+}
+
+/** The header and the page below it, for a signed-in user only. */
+function Shell() {
+  const me = useContext(MeContext)
+  const location = useLocation()
+  if (!me) return <Navigate to={loginPath(location.pathname + location.search)} replace />
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
       <header className="shrink-0 border-b border-line bg-surface">
@@ -19,22 +91,34 @@ function App() {
               <img src="/favicon.svg" alt="" className="size-5" />
               Emudoc
             </Link>
+            <Crumb />
+            <span className="hidden min-w-0 truncate px-1 text-[13px] text-muted sm:block" title="Your organisation">
+              {me.organization.name}
+            </span>
             <ProjectSwitcher />
           </div>
           <div className="flex shrink-0 items-center gap-3">
             <ServiceStatus />
             <ThemeToggle />
+            <UserMenu />
           </div>
         </div>
+        <VerifyBanner me={me} />
       </header>
       <main className="min-h-0 flex-1">
-        <Routes>
-          <Route index element={<ProjectsPage />} />
-          <Route path="projects/:projectId/*" element={<Workspace />} />
-          <Route path="*" element={<p className="py-16 text-center text-muted">Page not found.</p>} />
-        </Routes>
+        <Outlet />
       </main>
     </div>
+  )
+}
+
+function Crumb() {
+  return (
+    <span className="text-line select-none" aria-hidden>
+      <svg width="12" height="20" viewBox="0 0 12 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path d="M9 2 3 18" />
+      </svg>
+    </span>
   )
 }
 
@@ -64,11 +148,7 @@ function ProjectSwitcher() {
 
   return (
     <>
-      <span className="text-line select-none" aria-hidden>
-        <svg width="12" height="20" viewBox="0 0 12 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path d="M9 2 3 18" />
-        </svg>
-      </span>
+      <Crumb />
       <button
         ref={button}
         type="button"
@@ -89,26 +169,38 @@ function ProjectSwitcher() {
   )
 }
 
-/** Switches between the default light theme and dark, remembering the choice in this browser. */
-function ThemeToggle() {
-  const [dark, setDark] = useState(() => document.documentElement.dataset.theme === 'dark')
-
-  function toggle() {
-    const next = !dark
-    setDark(next)
-    if (next) document.documentElement.dataset.theme = 'dark'
-    else delete document.documentElement.dataset.theme
-    try {
-      localStorage.setItem('theme', next ? 'dark' : 'light')
-    } catch {
-      // Storage can be blocked; the theme still applies for this visit.
-    }
-  }
+/** Asks a new account to confirm its address, once; the account page keeps showing the state. */
+function VerifyBanner({ me }: { me: Me }) {
+  const [dismissed, setDismissed] = useLocalStorage(
+    `verify-dismissed:${me.id}`,
+    false,
+    (value): value is boolean => typeof value === 'boolean',
+  )
+  const resend = useMutation({ mutationFn: auth.resendVerification })
+  if (me.email_verified || dismissed) return null
 
   return (
-    <IconButton label={dark ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggle}>
-      {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
-    </IconButton>
+    <div className="flex items-center justify-center gap-3 border-t border-line bg-accent-soft px-4 py-1.5 text-[13px]">
+      <span className="min-w-0 truncate">
+        Confirm your email address: a link went to <span className="font-medium">{me.email}</span>.
+      </span>
+      {resend.isSuccess ? (
+        <span className="shrink-0 text-muted">Sent again.</span>
+      ) : (
+        <button
+          type="button"
+          onClick={() => resend.mutate()}
+          disabled={resend.isPending}
+          className="shrink-0 font-medium text-accent hover:underline disabled:opacity-50"
+        >
+          Resend
+        </button>
+      )}
+      {resend.isError && <span className="shrink-0 text-bad">{resend.error.message}</span>}
+      <IconButton label="Dismiss" onClick={() => setDismissed(true)}>
+        <X className="size-3.5" />
+      </IconButton>
+    </div>
   )
 }
 

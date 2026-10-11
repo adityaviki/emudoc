@@ -34,6 +34,8 @@ os.environ["DATABASE_URL"] = f"postgresql+psycopg://{SERVER}/{TEST_DATABASE}"
 os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="emudoc-test-")
 # Pinned, so the tests do not follow whichever models the developer's .env selects.
 os.environ["AGENT_MODEL"] = os.environ["INDEX_MODEL"] = "google:gemini-2.5-flash-lite"
+# Most tests drive the API as the local account; `signed_in_only` restores the production rule.
+os.environ["LOCAL_ACCOUNT"] = "true"
 
 from fastapi.testclient import TestClient  # noqa: E402
 from pydantic_ai.messages import (  # noqa: E402

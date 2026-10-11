@@ -3,10 +3,17 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router'
 import './index.css'
+import { ApiError } from './api.ts'
 import App from './App.tsx'
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
+  defaultOptions: {
+    queries: {
+      // One retry for a network or server failure; a refusal (401, 403, 404) will not change.
+      retry: (failures, error) => failures < 1 && !(error instanceof ApiError && error.status < 500),
+      refetchOnWindowFocus: false,
+    },
+  },
 })
 
 createRoot(document.getElementById('root')!).render(

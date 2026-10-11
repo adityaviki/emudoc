@@ -1,6 +1,7 @@
 import { LoaderCircle } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import { useId } from 'react'
+import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react'
 
 const BUTTON_VARIANTS = {
   primary: 'bg-accent text-accent-ink shadow-xs hover:bg-accent-hover',
@@ -50,6 +51,32 @@ export function IconButton({ label, danger, children, className = '', ...props }
 
 /** The look of a text input or textarea; see the `field` utility in index.css. */
 export const FIELD = 'field px-3 py-1.5 text-sm'
+
+export interface InputFieldProps extends InputHTMLAttributes<HTMLInputElement> {
+  label: ReactNode
+  /** A line under the input: what is expected, or what went wrong. */
+  hint?: ReactNode
+  /** Something small at the right end of the label line, such as a "Forgot?" link. */
+  corner?: ReactNode
+}
+
+/** A labelled text input, as the sign-in and account forms use it. */
+export function InputField({ label, hint, corner, id, className = '', ...props }: InputFieldProps) {
+  const generated = useId()
+  const inputId = id ?? generated
+  return (
+    <div className={className}>
+      <div className="mb-1 flex items-baseline justify-between gap-2 text-xs">
+        <label htmlFor={inputId} className="font-medium text-muted">
+          {label}
+        </label>
+        {corner}
+      </div>
+      <input id={inputId} className={FIELD} {...props} />
+      {hint && <p className="mt-1 text-xs text-muted">{hint}</p>}
+    </div>
+  )
+}
 
 export function Chip({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'accent' }) {
   const tones = {

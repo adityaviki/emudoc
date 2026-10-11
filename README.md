@@ -54,7 +54,9 @@ cd frontend && pnpm install && pnpm build && cd ..
 cd backend && uv run uvicorn app.main:app
 ```
 
-Open <http://127.0.0.1:8000>. The backend serves the API and the built frontend.
+Open <http://127.0.0.1:8000> and create an account. The backend serves the API and the built
+frontend. To skip signing in while developing on your own machine, put `LOCAL_ACCOUNT=true` in
+`.env`: every request then acts as a local owner account.
 
 For semantic search, run [Ollama](https://ollama.com) with `ollama pull nomic-embed-text`, or
 point `EMBEDDING_BASE_URL` at any OpenAI-compatible embeddings endpoint.
@@ -88,23 +90,26 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
 - `AGENT_EFFORT` and `INDEX_EFFORT` set how hard a model thinks, for models that can.
 - `EMBEDDING_MODEL` and `EMBEDDING_DIM` select the embedding model. Changing either re-embeds
   every document on the next start.
-- Sign-in: `LOCAL_ACCOUNT` (true by default) lets a request without a session act as a local
-  owner account, for development on one machine; `SMTP_URL` sends the verification and reset
-  emails (without it they go to the log); `GOOGLE_OAUTH_CLIENT_ID` and
-  `MICROSOFT_OAUTH_CLIENT_ID` with their secrets offer sign-in with those providers.
+- Sign-in: `LOCAL_ACCOUNT=true` lets a request without a session act as a local owner account,
+  for development on one machine (off by default); `APP_URL` is the address the links in emails
+  point at; `SMTP_URL` sends the verification and reset emails (without it they go to the log);
+  `GOOGLE_OAUTH_CLIENT_ID` and `MICROSOFT_OAUTH_CLIENT_ID` with their secrets offer sign-in with
+  those providers.
 
 ## Accounts
 
 Signing up with an email and a password makes a user and an organisation of their own, which
-they own; a verification link goes out by email. Sign-in sets a session cookie; the API lists a
-user's sessions and revokes any of them, resets a forgotten password by email, and can require a
-code from an authenticator app at sign-in (with recovery codes for a lost phone). Google and
-Microsoft accounts sign in through OpenID Connect and are linked to an existing account only when
-both sides have verified the address. Every request that changes something must carry an
-`X-Requested-With` header, which the app's own requests do and a page on another site cannot
-add, so the cookie alone changes nothing; send the header when calling the API by hand. The
-routes are under `/api/auth`; the pages that use them are not built yet, so by default a request
-without a session still acts as the local owner.
+they own; a verification link goes out by email, and a banner asks for it until it is used.
+Sign-in sets a session cookie. The account page (the initials in the header) changes the
+password, turns on a code from an authenticator app at sign-in (shown as a QR code to scan, with
+recovery codes for a lost phone), lists the browsers and devices that are signed in and signs any
+of them out; a forgotten password is reset through a link sent by email, which signs the account
+out everywhere. Google and Microsoft accounts sign in through OpenID Connect and are linked to an
+existing account only when both sides have verified the address. A visitor without a session is
+sent to `/login` and returns to the page they wanted. Every request that changes something must
+carry an `X-Requested-With` header, which the app's own requests do and a page on another site
+cannot add, so the cookie alone changes nothing; send the header when calling the API by hand.
+The routes are under `/api/auth`, the pages in `frontend/src/account/`.
 
 ## Tests
 
@@ -136,16 +141,17 @@ backend/app/
 frontend/src/
   pages/        the Projects page and the Workspace (two panes)
   workspace/    the library, tabs, document viewers and the chat pane
+  account/      sign-in, sign-up, the email links, and the account page
   api.ts        the typed client for the backend
+  auth.ts       who is signed in, for the shell and its pages
   chat.ts       a chat's messages as the chat pane holds them, and the answers being streamed
 ```
 
 ## Not built yet
 
-- The sign-in pages. The API signs users in (see Accounts) and scopes every route to the
-  caller's organisation and role (viewers read, members change, a chat is private until
-  shared), but the frontend has no login, sign-up or verification pages yet, so it runs as the
-  local owner account.
+- Invitations: an organisation has the one member who created it until the invitation routes
+  and the page that accepts them exist; the roles (viewers read, members change, a chat is
+  private until shared) are already enforced.
 - Schema migrations. Tables are created on start; after changing a table, reset the database
   with `docker compose down -v`.
 - More file types (slides, email, legacy .doc and .xls), and reading order for multi-column PDFs.

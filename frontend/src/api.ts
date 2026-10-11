@@ -185,6 +185,50 @@ export type ChatEvent =
   | { type: 'error'; message: string }
   | { type: 'done'; usage: { input_tokens: number; output_tokens: number } }
 
+export interface Organization {
+  id: number
+  name: string
+  slug: string
+}
+
+/** The signed-in user, and the organisation and role they act with. */
+export interface Me {
+  id: number
+  email: string
+  name: string
+  email_verified: boolean
+  mfa_enabled: boolean
+  /** Providers the account can sign in through, such as "google". */
+  identities: string[]
+  organization: Organization
+  role: string
+}
+
+export interface OAuthProvider {
+  name: string
+  label: string
+}
+
+/** A signed-in browser or device. */
+export interface UserSession {
+  id: number
+  user_agent: string
+  ip: string | null
+  created_at: string
+  last_seen_at: string
+  /** The session this very browser holds. */
+  current: boolean
+}
+
+export interface MfaSetup {
+  secret: string
+  otpauth_url: string
+}
+
+// The password rules the server applies (backend/app/schemas.py), so forms can say so first.
+export const PASSWORD_MIN_LENGTH = 8
+export const PASSWORD_MAX_LENGTH = 200
+
 export class ApiError extends Error {
   status: number
 
@@ -194,14 +238,27 @@ export class ApiError extends Error {
   }
 }
 
+let onUnauthorized: (() => void) | null = null
+
+/**
+ * What happens when the server no longer accepts the session: the app registers a handler
+ * that returns to the sign-in page. Sign-in's own routes are left out, since a wrong password
+ * or code answers 401 too and those are shown on the form.
+ */
+export function handleUnauthorized(handler: (() => void) | null) {
+  onUnauthorized = handler
+}
+
 /**
  * Every request carries this header. The server refuses a change without it, which is what
  * keeps a page on another site from making one with the user's cookie (backend/app/api/deps.py).
  */
-function send(path: string, init?: RequestInit): Promise<Response> {
+async function send(path: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers)
   headers.set('X-Requested-With', 'fetch')
-  return fetch(`/api${path}`, { ...init, headers })
+  const response = await fetch(`/api${path}`, { ...init, headers })
+  if (response.status === 401 && !path.startsWith('/auth/')) onUnauthorized?.()
+  return response
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -222,6 +279,50 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 function json(method: string, body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
 }
+
+/** Sign-in and the account. Mirrors the routes in backend/app/api/auth.py. */
+export const auth = {
+  /** The signed-in user, or null when there is no usable session. */
+  me: async (): Promise<Me | null> => {
+    const response = await send('/auth/me')
+    if (response.status === 401) return null
+    if (!response.ok) throw new ApiError(response.status, response.statusText)
+    return response.json()
+  },
+  options: () => request<{ providers: OAuthProvider[] }>('/auth/options'),
+  signup: (body: { email: string; name: string; password: string }) =>
+    request<Me>('/auth/signup', json('POST', body)),
+  /** With two-factor on, the session grants nothing until `verifyMfa` succeeds. */
+  login: (body: { email: string; password: string }) =>
+    request<{ mfa_required: boolean }>('/auth/login', json('POST', body)),
+  verifyMfa: (code: string) => request<Me>('/auth/mfa/verify', json('POST', { code })),
+  logout: () => request<void>('/auth/logout', { method: 'POST' }),
+
+  verifyEmail: (token: string) => request<void>('/auth/verify', json('POST', { token })),
+  resendVerification: () => request<void>('/auth/verify/resend', { method: 'POST' }),
+  forgotPassword: (email: string) => request<void>('/auth/password/forgot', json('POST', { email })),
+  resetPassword: (body: { token: string; password: string }) =>
+    request<void>('/auth/password/reset', json('POST', body)),
+  changePassword: (body: { current_password: string; new_password: string }) =>
+    request<void>('/auth/password', json('POST', body)),
+
+  sessions: () => request<UserSession[]>('/auth/sessions'),
+  revokeSession: (id: number) => request<void>(`/auth/sessions/${id}`, { method: 'DELETE' }),
+  revokeOtherSessions: () => request<void>('/auth/sessions', { method: 'DELETE' }),
+
+  setupMfa: () => request<MfaSetup>('/auth/mfa/setup', { method: 'POST' }),
+  /** Returns the recovery codes, shown once. */
+  enableMfa: (code: string) => request<{ recovery_codes: string[] }>('/auth/mfa/enable', json('POST', { code })),
+  disableMfa: (body: { password?: string; code?: string }) =>
+    request<void>('/auth/mfa/disable', json('POST', body)),
+}
+
+/**
+ * Where a sign-in with a provider starts. It is a navigation, not a fetch: the provider sends
+ * the browser back to `next`, or to /login with `mfa=1` or an `error` to show.
+ */
+export const oauthStartUrl = (provider: string, next: string) =>
+  `/api/auth/oauth/${provider}/start?${new URLSearchParams({ next })}`
 
 export const api = {
   status: () => request<SystemStatus>('/status'),
