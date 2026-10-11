@@ -119,7 +119,13 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   for and kept beside it; every few hours the backend removes the ones older than this, and a
   page asked for again is rendered again, so nothing is lost. `0` keeps them for good.
   `uv run python -m app.maintenance sweep-page-images` (in `backend/`) runs the sweep at once,
-  say after lowering the setting.
+  say after lowering the setting. The same walk removes what a failed delete left behind: the
+  files of documents and projects that no longer exist in the database (files under an hour
+  old are left alone, as an upload whose row is not committed yet).
+  `uv run python -m app.maintenance sweep-orphans` lists them and `--delete` removes them at
+  once. Neither removes anything while the database holds no documents at all, since the
+  storage is then more likely another deployment's than all orphans; the message says what to
+  check.
 - `AGENT_MODEL` and `INDEX_MODEL` name the AI models as `provider:model`. Both default to
   `google:gemini-2.5-flash-lite`. Indexing is the high-volume side and the agent answers
   questions, so the two can differ, even across providers.

@@ -12,14 +12,20 @@ keys say, in whatever storage STORAGE_URL names. The migration that made the key
 them: it runs in a transaction and the filesystem does not.
 
 `housekeeping` is what the app does on its own at intervals (the worker's housekeeper thread):
-today, removing the rendered pages and thumbnails older than PAGE_IMAGE_DAYS, which are rendered
-again when asked for. `sweep-page-images` runs that sweep by hand, after lowering the setting.
+one walk over the storage (`sweep_storage`) that removes the rendered pages and thumbnails older
+than PAGE_IMAGE_DAYS, which are rendered again when asked for, and the objects of documents and
+projects that no longer exist, which a delete leaves behind when the storage fails after the rows
+are gone. `sweep-page-images` runs the first part by hand, after lowering the setting;
+`sweep-orphans` lists the second part and removes it with `--delete`.
 """
 
 import argparse
 import logging
+import re
 import shutil
 import sys
+from collections.abc import Iterable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -34,7 +40,9 @@ from app.storage import (
     ROOT_PREFIX,
     LocalStorage,
     Storage,
+    StorageError,
     is_rendered,
+    project_prefix,
     storage_from_settings,
 )
 
@@ -42,11 +50,20 @@ log = logging.getLogger(__name__)
 
 REBUILD_COMMAND = "uv run python -m app.maintenance rebuild-embeddings"
 RELOCATE_COMMAND = "uv run python -m app.maintenance relocate-files"
+ORPHANS_COMMAND = "uv run python -m app.maintenance sweep-orphans"
 # The advisory lock a housekeeping round holds, so that replicas take turns instead of all
 # walking the storage at once; a different number from the migrations' lock.
 HOUSEKEEPING_LOCK = MIGRATION_LOCK + 1
 # The folders of the layout before storage keys, under the data directory.
 OLD_LAYOUT = ("files", "pages")
+# An upload stores its file before its row is committed, so an object with no row that is this
+# young is an upload in flight, not something left behind.
+UPLOAD_GRACE = timedelta(hours=1)
+# How many documents or projects one query checks for their rows during a sweep.
+CHECK_BATCH = 500
+# What a key belongs to: the document's prefix when it has one, else the project's. The match
+# is the owner's prefix, as `document_prefix` and `project_prefix` in app/storage.py build it.
+_OWNER = re.compile(r"orgs/\d+/projects/\d+/(?:documents/\d+/)?")
 
 # pgvector keeps a column's size as the type's modifier, so the catalog has it without a scan.
 _STORED_DIM = text(
@@ -54,6 +71,9 @@ _STORED_DIM = text(
     "WHERE attrelid = 'passages'::regclass AND attname = 'embedding'"
 )
 _PENDING = '{"status": "pending", "detail": ""}'
+_DOCUMENT_KEYS = text("SELECT storage_key FROM documents WHERE id = ANY(:ids)")
+_PROJECT_IDS = text("SELECT org_id, id FROM projects WHERE id = ANY(:ids)")
+_ANY_DOCUMENTS = text("SELECT EXISTS (SELECT 1 FROM documents)")
 
 
 def stored_embedding_dim(connection: Connection) -> int:
@@ -200,30 +220,126 @@ def relocate_files(storage: Storage, old_root: Path) -> tuple[int, int]:
     return moved, left
 
 
-def sweep_rendered_images(
-    storage: Storage, keep: timedelta, now: datetime | None = None
-) -> tuple[int, int]:
-    """Delete the rendered pages and thumbnails that were rendered more than `keep` ago.
+@dataclass(frozen=True)
+class Orphan:
+    """A document's or a project's prefix in the storage that has no row behind it any more."""
 
-    They are a cache of the originals, so nothing is lost: a page asked for again is rendered
-    again. Returns how many were deleted and how many bytes they held. The whole storage is
-    walked, which a listing does in pages, and the stale objects go in batches as they are
-    found rather than all at the end, so a storage of any size takes bounded memory.
+    prefix: str
+    objects: int
+    size: int
+
+
+@dataclass
+class Sweep:
+    """What one walk of the storage did and found."""
+
+    # The rendered pages and thumbnails past their age, removed during the walk.
+    images: int = 0
+    image_bytes: int = 0
+    # The prefixes with no row, in key order, for the caller to remove with `delete_prefix`;
+    # a list of prefixes, not of objects, so a storage of any size takes bounded memory.
+    orphans: list[Orphan] = field(default_factory=list)
+    # Why the orphans must not be removed, when the database looks like the wrong one.
+    refusal: str | None = None
+
+
+@dataclass
+class _Owned:
+    """What a walk has seen of one prefix so far."""
+
+    objects: int = 0
+    size: int = 0
+    # Written within UPLOAD_GRACE: an upload in flight, whose row is about to be committed.
+    recent: bool = False
+
+
+def sweep_storage(
+    storage: Storage,
+    connection: Connection | None = None,
+    keep_images: timedelta | None = None,
+) -> Sweep:
+    """Walk the whole storage once, for both of the things the app tidies.
+
+    The rendered pages and thumbnails older than `keep_images` are deleted as they are found,
+    in batches, so nothing waits for the end of the walk; they are a cache of the originals and
+    a page asked for again is rendered again. Every other object is matched to the document or
+    project its key names, and the prefixes whose row is gone from the database `connection`
+    reaches are returned as orphans: what a delete left behind when the storage failed after
+    the rows were gone. Each part is skipped when its argument is None.
+
+    Rows are checked in batches of CHECK_BATCH prefixes, never one query per object. A key
+    outside the layout is nobody's and is left alone, and so is any prefix with an object
+    younger than UPLOAD_GRACE, which is an upload whose row is not committed yet.
     """
-    cutoff = (now or datetime.now(UTC)) - keep
-    deleted = freed = 0
-    batch: list[str] = []
+    now = datetime.now(UTC)
+    image_cutoff = now - keep_images if keep_images else None
+    settled = now - UPLOAD_GRACE
+    sweep = Sweep()
+    stale: list[str] = []
+    pending: dict[str, _Owned] = {}
+
     for entry in storage.list(ROOT_PREFIX):
-        if not is_rendered(entry.key) or entry.modified_at >= cutoff:
+        if image_cutoff and is_rendered(entry.key) and entry.modified_at < image_cutoff:
+            stale.append(entry.key)
+            sweep.images += 1
+            sweep.image_bytes += entry.size
+            if len(stale) == DELETE_BATCH:
+                storage.delete(stale)
+                stale.clear()
             continue
-        batch.append(entry.key)
-        freed += entry.size
-        if len(batch) == DELETE_BATCH:
-            storage.delete(batch)
-            deleted += len(batch)
-            batch.clear()
-    storage.delete(batch)
-    return deleted + len(batch), freed
+        if connection is None or (owner := _OWNER.match(entry.key)) is None:
+            continue
+        # A listing comes in key order, so a document's objects arrive together: a batch is
+        # only checked between two owners, never in the middle of one.
+        if owner.group() not in pending and len(pending) == CHECK_BATCH:
+            _find_orphans(connection, pending, sweep.orphans)
+        owned = pending.setdefault(owner.group(), _Owned())
+        owned.objects += 1
+        owned.size += entry.size
+        owned.recent |= entry.modified_at >= settled
+    storage.delete(stale)
+    if connection is not None:
+        _find_orphans(connection, pending, sweep.orphans)
+        # Pointed at a database that is not the storage's, this would remove every file. The
+        # app ties itself to its database by schema revision, which is not the same thing.
+        if sweep.orphans and not connection.scalar(_ANY_DOCUMENTS):
+            sweep.refusal = (
+                "The database holds no documents at all, but the storage holds "
+                f"{_orphan_summary(sweep.orphans)} it does not know. Nothing was removed: "
+                "check that DATABASE_URL and STORAGE_URL belong to the same deployment, and "
+                "empty the storage by hand if they do."
+            )
+    return sweep
+
+
+def _find_orphans(connection: Connection, pending: dict[str, _Owned], found: list[Orphan]) -> None:
+    """Add the settled prefixes in `pending` that have no row to `found`, and empty it."""
+    settled = {prefix for prefix, owned in pending.items() if not owned.recent}
+    for prefix in sorted(settled - _live_prefixes(connection, settled)):
+        found.append(Orphan(prefix, pending[prefix].objects, pending[prefix].size))
+    pending.clear()
+
+
+def _live_prefixes(connection: Connection, prefixes: set[str]) -> set[str]:
+    """Which of these document and project prefixes still have their row.
+
+    A document's prefix is checked against the key its row holds, not only its id, so a row
+    with the same id in another organisation or project does not vouch for it.
+    """
+    documents = {prefix for prefix in prefixes if "/documents/" in prefix}
+    projects = prefixes - documents
+    live: set[str] = set()
+    if documents:
+        keys = connection.scalars(_DOCUMENT_KEYS, {"ids": [_last_id(p) for p in documents]})
+        live.update(key.rpartition("/")[0] + "/" for key in keys)
+    if projects:
+        rows = connection.execute(_PROJECT_IDS, {"ids": [_last_id(p) for p in projects]})
+        live.update(project_prefix(org_id, project_id) for org_id, project_id in rows)
+    return live & prefixes
+
+
+def _last_id(prefix: str) -> int:
+    return int(prefix.rstrip("/").rpartition("/")[2])
 
 
 def housekeeping(storage: Storage) -> None:
@@ -231,11 +347,10 @@ def housekeeping(storage: Storage) -> None:
 
     Every replica reaches its interval, so a round first takes an advisory lock and skips when
     another replica holds it: the work is idempotent, and walking the storage once is enough.
-    The lock is transaction-level and the transaction reads nothing, so it ends with the block.
+    The lock is transaction-level, so it ends with the block.
     """
     settings = get_settings()
-    if not settings.page_image_days:
-        return
+    keep = timedelta(days=settings.page_image_days) if settings.page_image_days else None
     with engine.begin() as connection:
         taken = connection.scalar(
             text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": HOUSEKEEPING_LOCK}
@@ -243,18 +358,58 @@ def housekeeping(storage: Storage) -> None:
         if not taken:
             log.info("Housekeeping skipped: another process is on it")
             return
-        deleted, freed = sweep_rendered_images(storage, timedelta(days=settings.page_image_days))
-    if deleted:
-        log.info("Housekeeping: %s", describe_sweep(deleted, freed, settings.page_image_days))
+        sweep = sweep_storage(storage, connection, keep)
+        if sweep.refusal:
+            log.warning("Housekeeping: %s", sweep.refusal)
+        else:
+            remove_orphans(storage, sweep.orphans)
+    if sweep.images:
+        log.info(
+            "Housekeeping: %s",
+            describe_sweep(sweep.images, sweep.image_bytes, settings.page_image_days),
+        )
+    if sweep.orphans and not sweep.refusal:
+        log.info("Housekeeping: %s", describe_orphans(sweep.orphans, "Removed"))
+
+
+def remove_orphans(storage: Storage, orphans: Iterable[Orphan]) -> None:
+    for orphan in orphans:
+        storage.delete_prefix(orphan.prefix)
 
 
 def describe_sweep(deleted: int, freed: int, days: int) -> str:
-    """What a sweep did, for the log and the command."""
+    """What a sweep of the rendered images did, for the log and the command."""
     what = "rendered page or thumbnail" if deleted == 1 else "rendered pages and thumbnails"
     return (
-        f"Removed {deleted} {what} older than {days} days ({round(freed / 1_000_000, 1)} MB); "
-        "they are rendered again when asked for"
+        f"Removed {deleted} {what} older than {days} days ({_mb(freed)} MB); they are "
+        "rendered again when asked for"
     )
+
+
+def describe_orphans(orphans: list[Orphan], verb: str) -> str:
+    """What a sweep found or removed of deleted documents and projects, for the log and the
+    command: "Removed 12 objects (4.2 MB) of 3 documents and 1 project that no longer exist"."""
+    exist = "exists" if len(orphans) == 1 else "exist"
+    return f"{verb} {_orphan_summary(orphans)} that no longer {exist}"
+
+
+def _orphan_summary(orphans: list[Orphan]) -> str:
+    documents = sum("/documents/" in orphan.prefix for orphan in orphans)
+    owners = [(documents, "document"), (len(orphans) - documents, "project")]
+    objects = sum(orphan.objects for orphan in orphans)
+    size = sum(orphan.size for orphan in orphans)
+    return (
+        f"{_count(objects, 'object')} ({_mb(size)} MB) of "
+        f"{' and '.join(_count(number, noun) for number, noun in owners if number)}"
+    )
+
+
+def _count(number: int, noun: str) -> str:
+    return f"{number} {noun}{'' if number == 1 else 's'}"
+
+
+def _mb(size: int) -> float:
+    return round(size / 1_000_000, 1)
 
 
 def _prune_empty(folder: Path) -> None:
@@ -317,6 +472,18 @@ def main(argv: list[str] | None = None) -> None:
         "own every few hours; this runs it at once, say after lowering the setting. Nothing "
         "is lost: a page asked for again is rendered again from the original.",
     )
+    orphans = commands.add_parser(
+        "sweep-orphans",
+        help="list, or with --delete remove, the files of documents that no longer exist",
+        description="List the files in the storage STORAGE_URL names that belong to no "
+        "document or project in the database: what a delete left behind when the storage "
+        "failed after the rows were gone. The running app removes them on its own every few "
+        "hours; this shows them at once, and removes them with --delete. Files under an hour "
+        "old are left alone, as uploads whose row is not committed yet.",
+    )
+    orphans.add_argument(
+        "--delete", action="store_true", help="remove the files instead of listing them"
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     # The schema check sets up a migration context, which announces itself; nothing to act on.
@@ -364,11 +531,37 @@ def main(argv: list[str] | None = None) -> None:
                 )
             storage = storage_from_settings(settings)
             storage.check()
-            deleted, freed = sweep_rendered_images(
-                storage, timedelta(days=settings.page_image_days)
-            )
-            print(describe_sweep(deleted, freed, settings.page_image_days) + ".")
-    except RuntimeError as error:
+            sweep = sweep_storage(storage, keep_images=timedelta(days=settings.page_image_days))
+            print(describe_sweep(sweep.images, sweep.image_bytes, settings.page_image_days) + ".")
+        elif args.command == "sweep-orphans":
+            storage = storage_from_settings(settings)
+            check_schema()
+            storage.check()
+            with engine.begin() as connection:
+                # The app's own round waits rather than running beside this one.
+                connection.execute(
+                    text("SELECT pg_advisory_xact_lock(:key)"), {"key": HOUSEKEEPING_LOCK}
+                )
+                sweep = sweep_storage(storage, connection)
+                if sweep.refusal:
+                    sys.exit(sweep.refusal)
+                if not sweep.orphans:
+                    print(
+                        "Found nothing left behind: every file older than an hour belongs to "
+                        "a document or project in the database."
+                    )
+                elif args.delete:
+                    remove_orphans(storage, sweep.orphans)
+                    print(describe_orphans(sweep.orphans, "Removed") + ".")
+                else:
+                    print(describe_orphans(sweep.orphans, "Found") + ":")
+                    for orphan in sweep.orphans:
+                        print(
+                            f"  {orphan.prefix}  {_count(orphan.objects, 'object')}, "
+                            f"{_mb(orphan.size)} MB"
+                        )
+                    print("Run again with --delete to remove them.")
+    except (RuntimeError, StorageError) as error:
         sys.exit(str(error))
 
 

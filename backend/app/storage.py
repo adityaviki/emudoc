@@ -12,9 +12,12 @@ project's, so deleting either is deleting a prefix. The database holds the origi
 (`documents.storage_key`) and the other keys derive from it (`Document.storage_prefix`).
 
 The pages and the thumbnail are a cache: rendered from the original the first time they are
-asked for, and removed again once they are older than PAGE_IMAGE_DAYS (`sweep_rendered_images`
-in app/maintenance.py), since a 500-page PDF would otherwise stay 500 pictures of a few megabytes
+asked for, and removed again once they are older than PAGE_IMAGE_DAYS (`sweep_storage` in
+app/maintenance.py), since a 500-page PDF would otherwise stay 500 pictures of a few megabytes
 each for good. `is_rendered` tells those keys apart; a listing carries each object's age for it.
+The same walk finds what a delete left behind when the storage failed after the rows were gone:
+a prefix whose document or project has no row is removed, once it is old enough not to be an
+upload still in flight.
 
 The parsers open files by path, so `localize` gives the parse stage a local copy of an object
 for as long as it needs one; the local storage hands out the file itself. Serving goes through
@@ -313,15 +316,7 @@ class LocalStorage(Storage):
                 raise StorageError(
                     f"The file {key} could not be deleted ({error.strerror})."
                 ) from error
-            # A folder holds nothing but keys, so one left empty means nothing and goes too.
-            for parent in path.parents:
-                if parent == self.root:
-                    break
-                try:
-                    parent.rmdir()
-                except OSError:
-                    # Not empty, or already gone: either way there is nothing more to prune.
-                    break
+            self._prune(path.parent)
 
     def delete_prefix(self, prefix: str) -> None:
         folder = self._path(_folder(prefix))
@@ -333,6 +328,18 @@ class LocalStorage(Storage):
             raise StorageError(
                 f"The files under {folder} could not be deleted ({error.strerror})."
             ) from error
+        self._prune(folder.parent)
+
+    def _prune(self, folder: Path) -> None:
+        # A folder holds nothing but keys, so one left empty means nothing and goes too, and so
+        # do its parents, up to the root.
+        while folder != self.root and folder.is_relative_to(self.root):
+            try:
+                folder.rmdir()
+            except OSError:
+                # Not empty, or already gone: either way there is nothing more to prune.
+                return
+            folder = folder.parent
 
 
 class S3Client(Protocol):

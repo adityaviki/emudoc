@@ -1,5 +1,6 @@
 """The upkeep around the app: the embedding checks at start, the operator commands, the sweep of
-rendered pages, and the background worker.
+the storage (stale rendered pages, and what a failed delete left behind), and the background
+worker.
 
 The size tests rebuild the column at 4 and put 768 back in a `finally`, because the whole run
 shares the schema and `FakeEmbedder.dim` is 768.
@@ -31,11 +32,12 @@ from app.maintenance import (
     old_layout_dir,
     rebuild_embeddings,
     relocate_files,
+    remove_orphans,
     requeue_stale_embeddings,
-    sweep_rendered_images,
+    sweep_storage,
 )
-from app.models import Passage
-from app.storage import LocalStorage, S3Storage, Storage, document_prefix
+from app.models import Passage, Project
+from app.storage import LocalStorage, S3Storage, Storage, document_prefix, project_prefix
 from tests.conftest import STORAGE_ROOT, FakeS3Client
 
 
@@ -260,12 +262,153 @@ def test_the_sweep_removes_old_rendered_pages_and_never_originals(any_storage, m
 
     # Five stale objects in batches of two: the last, short batch goes too.
     monkeypatch.setattr(maintenance, "DELETE_BATCH", 2)
-    assert sweep_rendered_images(storage, timedelta(days=30)) == (5, 50)
+    sweep = sweep_storage(storage, keep_images=timedelta(days=30))
+    assert (sweep.images, sweep.image_bytes) == (5, 50)
     assert [entry.key for entry in storage.list("orgs/")] == kept
     if isinstance(storage, S3Storage):
         assert storage.client.calls.count("delete_objects") == 3
-    # Nothing left to do the second time.
-    assert sweep_rendered_images(storage, timedelta(days=30)) == (0, 0)
+    # Nothing left to do the second time, and without a database nothing is an orphan.
+    sweep = sweep_storage(storage, keep_images=timedelta(days=30))
+    assert (sweep.images, sweep.image_bytes, sweep.orphans) == (0, 0, [])
+
+
+def test_the_sweep_finds_what_a_failed_delete_left_behind(
+    session, any_storage, make_document, sample_pdf, sample_docx, monkeypatch
+):
+    # The rows are what an upload makes; the objects go into the storage under test by hand.
+    storage = any_storage
+    kept = make_document(sample_pdf)
+    project = session.get(Project, kept.project_id)
+    gone = make_document(sample_docx, project=project)
+    org = project.org_id
+    settled = {
+        kept.storage_key: 2,
+        kept.page_image_key(1): 31,
+        gone.storage_key: 2,
+        gone.page_image_key(1): 2,
+        gone.thumbnail_key: 2,
+        # A document that never had a row, and a row's id under another organisation.
+        f"{document_prefix(org, project.id, 999)}original.pdf": 2,
+        f"{document_prefix(org + 1, project.id, kept.id)}original.pdf": 2,
+        # A project whose delete failed after its rows were gone: its own objects and its
+        # documents' are both found, each under its owner.
+        f"{project_prefix(org, 77)}notes.txt": 2,
+        f"{document_prefix(org, 77, 5)}original.pdf": 2,
+        # A key outside the layout is nobody's.
+        "orgs/readme.txt": 2,
+    }
+    for key, days in settled.items():
+        storage.put(key, b"x" * 10)
+        age(storage, key, days=days)
+    # A fresh page of a live document, and an upload in flight: an object with no row yet.
+    storage.put(kept.page_image_key(2), b"x" * 10)
+    storage.put(f"{document_prefix(org, project.id, 998)}original.pdf", b"x" * 10)
+    session.delete(gone)
+    session.commit()
+
+    # Eight owners checked two at a time: the batches are exercised, and a document's objects
+    # are never split across two.
+    monkeypatch.setattr(maintenance, "CHECK_BATCH", 2)
+    with engine.begin() as connection:
+        sweep = sweep_storage(storage, connection, keep_images=timedelta(days=30))
+    assert (sweep.images, sweep.image_bytes, sweep.refusal) == (1, 10, None)
+    assert not storage.exists(kept.page_image_key(1))
+    assert sorted((orphan.prefix, orphan.objects, orphan.size) for orphan in sweep.orphans) == [
+        (gone.storage_prefix, 3, 30),
+        (document_prefix(org, project.id, 999), 1, 10),
+        (project_prefix(org, 77), 1, 10),
+        (document_prefix(org, 77, 5), 1, 10),
+        (document_prefix(org + 1, project.id, kept.id), 1, 10),
+    ]
+
+    remove_orphans(storage, sweep.orphans)
+    assert [entry.key for entry in storage.list("orgs/")] == [
+        kept.storage_key,
+        kept.page_image_key(2),
+        f"{document_prefix(org, project.id, 998)}original.pdf",
+        "orgs/readme.txt",
+    ]
+    if isinstance(storage, LocalStorage):
+        # The folders of what was removed went with it; the live project's are still there.
+        assert not (storage.root / project_prefix(org, 77)).exists()
+        assert (storage.root / project_prefix(org, project.id)).is_dir()
+
+
+def test_housekeeping_removes_orphans_and_refuses_an_empty_database(
+    session, services, make_document, sample_pdf, sample_docx, monkeypatch, caplog
+):
+    storage = services.storage
+    kept = make_document(sample_pdf)
+    gone = make_document(sample_docx, project=session.get(Project, kept.project_id))
+    storage.put(gone.page_image_key(1), b"page", "image/png")
+    for key in (gone.storage_key, gone.page_image_key(1)):
+        age(storage, key, days=1)
+    session.delete(gone)
+    session.commit()
+
+    # PAGE_IMAGE_DAYS=0 keeps rendered pages for good; it says nothing about orphans.
+    monkeypatch.setattr(get_settings(), "page_image_days", 0)
+    with caplog.at_level("INFO", logger="app.maintenance"):
+        housekeeping(storage)
+    assert [entry.key for entry in storage.list("orgs/")] == [kept.storage_key]
+    assert "Removed 2 objects (0.0 MB) of 1 document that no longer exists" in caplog.text
+
+    # A database with no documents at all is more likely another deployment's than the owner
+    # of a storage full of orphans: nothing goes, and the log says what to check.
+    age(storage, kept.storage_key, days=1)
+    session.delete(kept)
+    session.commit()
+    caplog.clear()
+    with caplog.at_level("WARNING", logger="app.maintenance"):
+        housekeeping(storage)
+    assert storage.exists(kept.storage_key)
+    assert (
+        "The database holds no documents at all, but the storage holds 1 object (0.0 MB) of "
+        "1 document it does not know. Nothing was removed: check that DATABASE_URL and "
+        "STORAGE_URL belong to the same deployment"
+    ) in caplog.text
+
+    # With a document in the database the sweep is itself again.
+    make_document(sample_pdf)
+    housekeeping(storage)
+    assert not storage.exists(kept.storage_key)
+
+
+def test_the_orphan_command_lists_and_removes_on_request(
+    session, services, make_document, sample_pdf, sample_docx, capsys
+):
+    storage = services.storage
+    kept = make_document(sample_pdf)
+    gone = make_document(sample_docx, project=session.get(Project, kept.project_id))
+    age(storage, gone.storage_key, days=1)
+    session.delete(gone)
+    session.commit()
+
+    main(["sweep-orphans"])
+    out = capsys.readouterr().out
+    assert "Found 1 object (0.0 MB) of 1 document that no longer exists:" in out
+    assert f"  {gone.storage_prefix}  1 object, 0.0 MB" in out
+    assert "Run again with --delete to remove them." in out
+    assert storage.exists(gone.storage_key)
+
+    main(["sweep-orphans", "--delete"])
+    assert "Removed 1 object (0.0 MB) of 1 document that no longer exists." in (
+        capsys.readouterr().out
+    )
+    assert not storage.exists(gone.storage_key)
+    assert storage.exists(kept.storage_key)
+
+    main(["sweep-orphans"])
+    assert "Found nothing left behind" in capsys.readouterr().out
+
+    # The command refuses an empty database like the app does, with or without --delete.
+    age(storage, kept.storage_key, days=1)
+    session.delete(kept)
+    session.commit()
+    with pytest.raises(SystemExit) as stop:
+        main(["sweep-orphans", "--delete"])
+    assert "The database holds no documents at all" in str(stop.value.code)
+    assert storage.exists(kept.storage_key)
 
 
 def test_housekeeping_sweeps_once_across_processes_and_not_at_all_when_off(

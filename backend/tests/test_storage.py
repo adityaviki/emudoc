@@ -138,6 +138,10 @@ def test_a_prefix_lists_and_deletes_exactly_what_is_under_it(storage):
     storage.delete_prefix(project_prefix(1, 2))
     assert not storage.exists(f"{neighbour}original.pdf")
     assert storage.exists(f"{other_project}original.pdf")
+    if isinstance(storage, LocalStorage):
+        # The folders left empty above the prefix go with it, up to one still in use.
+        assert not (storage.root / "orgs/1/projects/2").exists()
+        assert (storage.root / "orgs/1/projects").is_dir()
     # Deleting what is already gone is nothing to report.
     storage.delete_prefix(project_prefix(1, 2))
     assert keys(storage, "orgs/") == [f"{other_project}original.pdf"]
