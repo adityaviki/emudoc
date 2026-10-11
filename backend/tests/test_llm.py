@@ -365,7 +365,9 @@ def ask(llm: LLM, session, services, document) -> list[dict]:
     """Run the agent on one question about the indexed sample contract."""
     project = session.get(Project, document.project_id)
     question = [{"role": "user", "content": "What is the notice period?"}]
-    return list(run_agent(session, Services(llm, services.embedder), project, question))
+    return list(
+        run_agent(session, Services(llm, services.embedder, services.storage), project, question)
+    )
 
 
 def assert_searched_then_answered(events: list[dict]) -> None:

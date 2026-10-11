@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from app.indexing.pipeline import process_document
-from tests.test_api import _storage_path, create_project, upload
+from tests.test_api import create_project, storage_key, upload
 
 
 def make_folder(client, project_id, name, parent_id=None):
@@ -64,13 +64,13 @@ def test_deleting_a_folder_removes_its_subtree_and_files(client, services, sampl
     (docx,) = upload(client, project["id"], sample_docx)["documents"]
     assert pdf["folder_id"] == signed["id"] and docx["folder_id"] is None
     process_document(pdf["id"], services)
-    stored = Path(_storage_path(client, pdf["id"]))
-    assert stored.is_file()
+    key = storage_key(pdf["id"])
+    assert services.storage.exists(key)
 
     assert client.delete(f"/api/folders/{contracts['id']}").status_code == 204
     assert client.get(f"/api/projects/{project['id']}/folders").json() == []
     assert client.get(f"/api/documents/{pdf['id']}").status_code == 404
-    assert not stored.exists()
+    assert not services.storage.exists(key)
     remaining = client.get(f"/api/projects/{project['id']}/documents").json()
     assert [d["id"] for d in remaining] == [docx["id"]]
 

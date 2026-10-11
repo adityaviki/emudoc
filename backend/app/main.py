@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
@@ -16,9 +16,10 @@ from app.indexing.pipeline import Services
 from app.indexing.worker import Worker
 from app.llm import LLM
 from app.mail import Mailer, mailer_from_settings
-from app.maintenance import check_embeddings, requeue_stale_embeddings
+from app.maintenance import check_embeddings, requeue_stale_embeddings, warn_about_old_layout
 from app.schemas import EmbeddingStatus, HealthOut, LLMStatus, StatusOut
 from app.search import check_fts_language
+from app.storage import StorageError, storage_from_settings
 
 FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
 
@@ -65,6 +66,12 @@ def check_model(settings: Settings, llm: LLM) -> None:
         )
 
 
+def storage_unavailable(request, error: Exception) -> JSONResponse:
+    """A storage that failed mid-request is reported like any other error the user can act on:
+    the message says what happened, and 503 says it was not the request's fault."""
+    return JSONResponse({"detail": str(error)}, status_code=503)
+
+
 def create_app(
     services: Services | None = None,
     start_worker: bool = True,
@@ -76,15 +83,19 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        settings.files_dir.mkdir(parents=True, exist_ok=True)
-        settings.pages_dir.mkdir(parents=True, exist_ok=True)
         check_schema()
         check_embeddings()
         check_fts_language()
         requeue_stale_embeddings()
         if services is None:
+            # Before the services are built: the model providers and boto3 read their keys
+            # from the environment as they are created.
             export_env_file(settings)
-        app.state.services = services or Services(LLM(settings), Embedder(settings))
+        app.state.services = services or Services(
+            LLM(settings), Embedder(settings), storage_from_settings(settings)
+        )
+        app.state.services.storage.check()
+        warn_about_old_layout(app.state.services.storage)
         check_model(settings, app.state.services.llm)
         app.state.mailer = mailer or mailer_from_settings(settings)
         app.state.http = http or httpx.Client(timeout=10)
@@ -104,6 +115,7 @@ def create_app(
         # convenience; a deployment does not serve it.
         openapi_url="/openapi.json" if settings.environment == "development" else None,
     )
+    app.add_exception_handler(StorageError, storage_unavailable)
     for router in (
         system,
         auth.router,

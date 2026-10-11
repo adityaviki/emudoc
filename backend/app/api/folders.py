@@ -1,14 +1,16 @@
 """Folders: the tree of a project's library. A document sits in one folder or at the root."""
 
-import shutil
-from pathlib import Path
-
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import EditableFolderDep, EditableProjectDep, ProjectDep, SessionDep
-from app.config import get_settings
+from app.api.deps import (
+    EditableFolderDep,
+    EditableProjectDep,
+    ProjectDep,
+    ServicesDep,
+    SessionDep,
+)
 from app.folders import PATH_SEPARATOR, folder_paths, subtree_ids
 from app.models import Document, Folder, Project
 from app.schemas import FolderIn, FolderOut, FolderPatch
@@ -56,19 +58,14 @@ def update_folder(folder: EditableFolderDep, body: FolderPatch, session: Session
 
 
 @router.delete("/folders/{folder_id}", status_code=204)
-def delete_folder(folder: EditableFolderDep, session: SessionDep):
+def delete_folder(folder: EditableFolderDep, session: SessionDep, services: ServicesDep):
     """Delete the folder with its subfolders and every document in them."""
-    settings = get_settings()
-    stored = session.execute(
-        select(Document.id, Document.storage_path).where(
-            Document.folder_id.in_(subtree_ids(session, folder))
-        )
+    documents = session.scalars(
+        select(Document).where(Document.folder_id.in_(subtree_ids(session, folder)))
     ).all()
     session.delete(folder)
     session.commit()
-    for document_id, storage_path in stored:
-        shutil.rmtree(Path(storage_path).parent, ignore_errors=True)
-        shutil.rmtree(settings.pages_dir / str(document_id), ignore_errors=True)
+    services.storage.discard(*(document.storage_prefix for document in documents))
 
 
 def clean_name(name: str) -> str:

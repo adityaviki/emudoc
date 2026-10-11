@@ -1,5 +1,3 @@
-import shutil
-
 from fastapi import APIRouter
 from sqlalchemy import func, select
 
@@ -8,14 +6,15 @@ from app.api.deps import (
     EditableProjectDep,
     EditorDep,
     ProjectDep,
+    ServicesDep,
     SessionDep,
     Stage,
     WorkerDep,
 )
-from app.config import get_settings
 from app.indexing.pipeline import reset_stages
 from app.models import Document, Project
 from app.schemas import ProjectIn, ProjectOut
+from app.storage import project_prefix
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -71,16 +70,11 @@ def update_project(project: EditableProjectDep, body: ProjectIn, session: Sessio
 
 
 @router.delete("/{project_id}", status_code=204)
-def delete_project(project: EditableProjectDep, session: SessionDep):
-    settings = get_settings()
-    document_ids = session.scalars(
-        select(Document.id).where(Document.project_id == project.id)
-    ).all()
+def delete_project(project: EditableProjectDep, session: SessionDep, services: ServicesDep):
     session.delete(project)
     session.commit()
-    shutil.rmtree(settings.files_dir / str(project.id), ignore_errors=True)
-    for document_id in document_ids:
-        shutil.rmtree(settings.pages_dir / str(document_id), ignore_errors=True)
+    # Every file of every document in the project sits under the project's prefix.
+    services.storage.discard(project_prefix(project.org_id, project.id))
 
 
 @router.post("/{project_id}/reprocess", status_code=202)

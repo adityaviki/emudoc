@@ -305,7 +305,9 @@ class Document(Base):
     mime_type: Mapped[str] = mapped_column(String(200))
     size_bytes: Mapped[int] = mapped_column(BigInteger)
     sha256: Mapped[str] = mapped_column(String(64))
-    storage_path: Mapped[str] = mapped_column(Text)
+    # The key of the uploaded file in the storage (app/storage.py); the document's other
+    # objects sit under the same prefix.
+    storage_key: Mapped[str] = mapped_column(Text)
 
     # queued | processing | ready | failed
     status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
@@ -333,6 +335,18 @@ class Document(Base):
     @property
     def display_title(self) -> str:
         return self.title or self.filename
+
+    @property
+    def storage_prefix(self) -> str:
+        """The prefix in the storage that everything this document owns sits under."""
+        return self.storage_key.rpartition("/")[0] + "/"
+
+    def page_image_key(self, page: int) -> str:
+        return f"{self.storage_prefix}pages/{page}.png"
+
+    @property
+    def thumbnail_key(self) -> str:
+        return f"{self.storage_prefix}thumbnail.png"
 
 
 class Block(Base):

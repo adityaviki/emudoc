@@ -19,5 +19,25 @@ services:
       timeout: 3s
       retries: 10
 
+
+  # An S3-compatible bucket for trying STORAGE_URL=s3://emudoc by hand; nothing starts it unless
+  # asked: `docker compose --profile s3 up -d --wait`. versitygw serves a directory as buckets,
+  # so the `emudoc` bucket is a folder made before it starts. Then in .env:
+  #   STORAGE_URL=s3://emudoc  AWS_ENDPOINT_URL=http://127.0.0.1:9000  AWS_DEFAULT_REGION=us-east-1
+  #   AWS_ACCESS_KEY_ID=emudoc  AWS_SECRET_ACCESS_KEY=emudoc-secret
+  # The tests never need it: they run the bucket storage against a fake.
+  s3:
+    image: versity/versitygw
+    profiles: ["s3"]
+    entrypoint: ["sh", "-c", "mkdir -p /data/emudoc && exec versitygw posix /data"]
+    environment:
+      ROOT_ACCESS_KEY: emudoc
+      ROOT_SECRET_KEY: emudoc-secret
+    ports:
+      - "127.0.0.1:${S3_PORT:-9000}:7070"
+    volumes:
+      - s3data:/data
+
 volumes:
   pgdata:
+  s3data:

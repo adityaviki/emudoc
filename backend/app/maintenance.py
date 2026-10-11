@@ -1,24 +1,37 @@
-"""Upkeep of the stored embeddings: what the app checks at start, and the operator command that
-rebuilds them (`uv run python -m app.maintenance rebuild-embeddings`).
+"""Upkeep around the stored data: what the app checks at start, and the operator commands
+(`uv run python -m app.maintenance <command>`).
 
 The app never alters the schema at start. A changed EMBEDDING_MODEL only needs data queued
 again, which is safe for any number of replicas to do at once, so the app does it. A changed
 EMBEDDING_DIM needs the vector column dropped and remade, which discards every stored vector and
-races between replicas, so the app refuses to start and names the command instead.
+races between replicas, so the app refuses to start and names `rebuild-embeddings` instead.
+
+`relocate-files` moves the files of a checkout from before storage keys (2026-10-11), which lay
+under `files/{project}/{document}/` and `pages/{document}/` in the data directory, to where their
+keys say, in whatever storage STORAGE_URL names. The migration that made the keys could not move
+them: it runs in a transaction and the filesystem does not.
 """
 
 import argparse
 import logging
+import shutil
 import sys
+from pathlib import Path
 
-from sqlalchemy import Connection, text
+from sqlalchemy import Connection, select, text
 
 from app.config import get_settings
-from app.db import MIGRATION_LOCK, check_schema, engine
+from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine
+from app.models import Document
+from app.parsing import MIME_TYPES
+from app.storage import LocalStorage, Storage, storage_from_settings
 
 log = logging.getLogger(__name__)
 
 REBUILD_COMMAND = "uv run python -m app.maintenance rebuild-embeddings"
+RELOCATE_COMMAND = "uv run python -m app.maintenance relocate-files"
+# The folders of the layout before storage keys, under the data directory.
+OLD_LAYOUT = ("files", "pages")
 
 # pgvector keeps a column's size as the type's modifier, so the catalog has it without a scan.
 _STORED_DIM = text(
@@ -112,6 +125,77 @@ def rebuild_embeddings() -> int:
     return queued
 
 
+def old_layout_dir(storage: Storage) -> Path | None:
+    """The data directory, when it still holds files in the layout before storage keys."""
+    if isinstance(storage, LocalStorage) and any(
+        (storage.root / folder).is_dir() for folder in OLD_LAYOUT
+    ):
+        return storage.root
+    return None
+
+
+def warn_about_old_layout(storage: Storage) -> None:
+    """At start: files left in the old layout are the originals the app now reports missing."""
+    if old_layout_dir(storage) is not None:
+        log.warning(
+            "%s still holds files in the layout before storage keys, which the app no longer "
+            "reads. Run `%s` in the backend directory to move them to where the documents "
+            "expect them.",
+            storage.root,
+            RELOCATE_COMMAND,
+        )
+
+
+def relocate_files(storage: Storage, old_root: Path) -> tuple[int, int]:
+    """Move every document's files from the old layout under `old_root` into the storage, under
+    the document's key, and remove the folders that are empty afterwards.
+
+    Returns how many documents had files to move and how many files were left behind. A
+    document whose files are nowhere is left as it is, and so is a file that belongs to no
+    document: it may be an orphan of a deleted document, or the command may have been run
+    against the wrong database, and only the operator can tell which.
+    """
+    moved = 0
+    with SessionLocal() as session:
+        documents = session.scalars(select(Document).order_by(Document.id)).all()
+    for document in documents:
+        old_files = old_root / OLD_LAYOUT[0] / str(document.project_id) / str(document.id)
+        old_pages = old_root / OLD_LAYOUT[1] / str(document.id)
+        originals = sorted(old_files.glob("original.*")) if old_files.is_dir() else []
+        pages = sorted(old_pages.glob("*.png")) if old_pages.is_dir() else []
+        if not originals and not pages:
+            continue
+        for original in originals:
+            storage.put(document.storage_key, original, MIME_TYPES.get(original.suffix.lower()))
+        for image in pages:
+            key = (
+                document.thumbnail_key
+                if image.stem == "thumbnail"
+                else f"{document.storage_prefix}pages/{image.name}"
+            )
+            storage.put(key, image, "image/png")
+        shutil.rmtree(old_files, ignore_errors=True)
+        shutil.rmtree(old_pages, ignore_errors=True)
+        moved += 1
+    left = 0
+    for folder in OLD_LAYOUT:
+        _prune_empty(old_root / folder)
+        if (old_root / folder).is_dir():
+            left += sum(1 for path in (old_root / folder).rglob("*") if path.is_file())
+    return moved, left
+
+
+def _prune_empty(folder: Path) -> None:
+    """Remove the folder and whatever folders under it hold no files."""
+    if not folder.is_dir():
+        return
+    for child in folder.iterdir():
+        if child.is_dir():
+            _prune_empty(child)
+    if not any(folder.iterdir()):
+        folder.rmdir()
+
+
 def _queue_embed_stage(connection: Connection, documents: str) -> int:
     """Send the documents the subquery names back to the embed stage; the other stages keep
     their output. Failed documents are left alone: they have nothing to embed."""
@@ -139,6 +223,20 @@ def main(argv: list[str] | None = None) -> None:
         "start while they differ) and queue every document to be embedded again with "
         "EMBEDDING_MODEL. Resizing discards the stored vectors, so run it with the app stopped.",
     )
+    relocate = commands.add_parser(
+        "relocate-files",
+        help="move the files of a checkout from before storage keys to where STORAGE_URL says",
+        description="Move uploaded files and rendered pages from the layout before storage "
+        "keys (files/ and pages/ in the data directory) into the storage STORAGE_URL names, "
+        "under each document's key, and remove the old folders. Run it once after upgrading a "
+        "checkout from before 2026-10-11, with the app stopped.",
+    )
+    relocate.add_argument(
+        "--from",
+        dest="old_root",
+        type=Path,
+        help="the data directory of the old layout; the directory STORAGE_URL names by default",
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     # The schema check sets up a migration context, which announces itself; nothing to act on.
@@ -153,6 +251,31 @@ def main(argv: list[str] | None = None) -> None:
                 f"with {settings.embedding_model} at size {settings.embedding_dim}. The app's "
                 "worker embeds them while it runs; start the app if it is stopped."
             )
+        elif args.command == "relocate-files":
+            storage = storage_from_settings(settings)
+            old_root = args.old_root
+            if old_root is None:
+                if not isinstance(storage, LocalStorage):
+                    parser.error(
+                        "STORAGE_URL names a bucket, so say where the old files are: "
+                        "--from /path/to/the/data/directory"
+                    )
+                old_root = storage.root
+            check_schema()
+            storage.check()
+            moved, left = relocate_files(storage, old_root)
+            print(
+                f"Moved the files of {moved} document{'' if moved == 1 else 's'} from "
+                f"{old_root} into the storage."
+            )
+            if left:
+                print(
+                    f"{left} file{' belongs' if left == 1 else 's belong'} to no document in "
+                    f"the database and {'was' if left == 1 else 'were'} left in {old_root}: "
+                    f"{', '.join(OLD_LAYOUT)}. Delete them by hand once you are sure the app "
+                    "is reading the right database."
+                )
+            print("Start the app again.")
     except RuntimeError as error:
         sys.exit(str(error))
 

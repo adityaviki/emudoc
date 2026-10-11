@@ -168,8 +168,12 @@ def test_reprocess_and_delete(client, services, sample_pdf):
     project = create_project(client)
     document_id = upload(client, project["id"], sample_pdf)["documents"][0]["id"]
     process_document(document_id, services)
-    stored = Path(_storage_path(client, document_id))
-    assert stored.is_file()
+    key = storage_key(document_id)
+    assert key == f"orgs/1/projects/{project['id']}/documents/{document_id}/original.pdf"
+    assert services.storage.exists(key)
+    assert client.get(f"/api/documents/{document_id}/pages/1.png").status_code == 200
+    prefix = key.rsplit("/", 1)[0] + "/"
+    assert list(services.storage.list(prefix)) == [key, f"{prefix}pages/1.png"]
 
     queued = client.post(f"/api/documents/{document_id}/reprocess", params={"from_stage": "enrich"})
     assert queued.status_code == 202
@@ -188,16 +192,17 @@ def test_reprocess_and_delete(client, services, sample_pdf):
 
     assert client.delete(f"/api/documents/{document_id}").status_code == 204
     assert client.get(f"/api/documents/{document_id}").status_code == 404
-    assert not stored.exists()
+    # The original and the pages rendered for it go together.
+    assert list(services.storage.list(prefix)) == []
     assert client.get(f"/api/projects/{project['id']}/documents").json() == []
 
 
-def _storage_path(client, document_id) -> str:
+def storage_key(document_id) -> str:
     from app.db import SessionLocal
     from app.models import Document
 
     with SessionLocal() as session:
-        return session.get(Document, document_id).storage_path
+        return session.get(Document, document_id).storage_key
 
 
 def test_health_says_only_that_the_app_is_up(client):

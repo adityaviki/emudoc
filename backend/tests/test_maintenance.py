@@ -19,12 +19,17 @@ from app.indexing.worker import Worker
 from app.main import create_app
 from app.maintenance import (
     REBUILD_COMMAND,
+    RELOCATE_COMMAND,
     check_embeddings,
     main,
+    old_layout_dir,
     rebuild_embeddings,
+    relocate_files,
     requeue_stale_embeddings,
 )
 from app.models import Passage
+from app.storage import S3Storage
+from tests.conftest import STORAGE_ROOT, FakeS3Client
 
 
 def stage_statuses(document):
@@ -143,6 +148,79 @@ def test_the_command_waits_for_a_migration_run(session, embedder_settings):
             waiting.result(timeout=0.5)
         holder.rollback()
         assert waiting.result(timeout=10) == 0
+
+
+def lay_out_the_old_way(root, document, sample_pdf) -> None:
+    """Put a document's files where a checkout from before storage keys kept them."""
+    old_files = root / "files" / str(document.project_id) / str(document.id)
+    old_files.mkdir(parents=True)
+    (old_files / "original.pdf").write_bytes(sample_pdf.read_bytes())
+    old_pages = root / "pages" / str(document.id)
+    old_pages.mkdir(parents=True)
+    (old_pages / "1.png").write_bytes(b"page one")
+    (old_pages / "thumbnail.png").write_bytes(b"thumb")
+
+
+def test_relocate_files_moves_the_old_layout_to_the_keys(
+    session, services, indexed, sample_pdf, caplog, capsys
+):
+    # The migration gave the rows keys; the files are still where the old layout left them.
+    services.storage.delete_prefix(indexed.storage_prefix)
+    lay_out_the_old_way(STORAGE_ROOT, indexed, sample_pdf)
+    assert old_layout_dir(services.storage) == STORAGE_ROOT
+    with caplog.at_level("WARNING"):
+        with TestClient(create_app(services=services, start_worker=False)):
+            pass
+    assert RELOCATE_COMMAND in caplog.text
+
+    # A file of a document the database does not know stays where it is, and is reported.
+    stray = STORAGE_ROOT / "files" / "9" / "99" / "original.pdf"
+    stray.parent.mkdir(parents=True)
+    stray.write_bytes(b"orphan")
+    (STORAGE_ROOT / "pages" / "98").mkdir(parents=True)
+
+    main(["relocate-files"])
+    out = capsys.readouterr().out
+    assert "Moved the files of 1 document from" in out
+    assert "1 file belongs to no document in the database and was left in" in out
+    assert stray.read_bytes() == b"orphan"
+    assert not (STORAGE_ROOT / "pages").exists()
+    stray.unlink()
+    assert relocate_files(services.storage, STORAGE_ROOT) == (0, 0)
+    assert services.storage.get(indexed.storage_key) == sample_pdf.read_bytes()
+    assert services.storage.get(indexed.page_image_key(1)) == b"page one"
+    assert services.storage.get(indexed.thumbnail_key) == b"thumb"
+    assert not (STORAGE_ROOT / "files").exists() and not (STORAGE_ROOT / "pages").exists()
+    assert old_layout_dir(services.storage) is None
+    # Nothing left to move the second time, and nothing lost.
+    assert relocate_files(services.storage, STORAGE_ROOT) == (0, 0)
+    assert services.storage.exists(indexed.storage_key)
+
+
+def test_relocate_files_can_fill_a_bucket_from_the_old_directory(
+    session, indexed, sample_pdf, tmp_path
+):
+    old_root = tmp_path / "old-data"
+    lay_out_the_old_way(old_root, indexed, sample_pdf)
+    bucket = S3Storage(FakeS3Client("bucket"), "bucket")
+    assert old_layout_dir(bucket) is None
+
+    assert relocate_files(bucket, old_root) == (1, 0)
+    assert bucket.get(indexed.storage_key) == sample_pdf.read_bytes()
+    assert sorted(bucket.list(indexed.storage_prefix)) == [
+        indexed.storage_key,
+        indexed.page_image_key(1),
+        indexed.thumbnail_key,
+    ]
+    assert not (old_root / "files").exists()
+
+
+def test_relocate_files_needs_the_old_directory_when_the_storage_is_a_bucket(monkeypatch, capsys):
+    monkeypatch.setattr(get_settings(), "storage_url", "s3://bucket/emudoc")
+    with pytest.raises(SystemExit) as stop:
+        main(["relocate-files"])
+    assert stop.value.code == 2
+    assert "--from /path/to/the/data/directory" in capsys.readouterr().err
 
 
 def test_worker_indexes_queued_documents_and_recovers_interrupted_ones(

@@ -61,6 +61,24 @@ def test_other_mistakes_keep_the_validation_error_that_names_the_setting():
         load_settings(_env_file=None, environment="staging")
 
 
+@pytest.mark.parametrize(
+    "url", ["/var/lib/emudoc", "file://data", "s3://", "s3://bucket/prefix?region=x", "gs://b"]
+)
+def test_a_storage_url_names_a_directory_or_a_bucket(url):
+    # A bare path, a relative file URL, a bucket-less s3 URL or another scheme is refused with
+    # the two forms that work.
+    with pytest.raises(ValueError, match="STORAGE_URL names a directory as file:///") as error:
+        load_settings(_env_file=None, storage_url=url)
+    assert repr(url) in str(error.value)
+
+
+def test_the_storage_defaults_to_the_data_directory_in_the_checkout(monkeypatch):
+    monkeypatch.delenv("STORAGE_URL")
+    settings = load_settings(_env_file=None)
+    assert settings.storage_url == (BACKEND_DIR / "data").as_uri()
+    assert settings.storage_url.startswith("file:///")
+
+
 def test_a_command_without_a_database_prints_the_sentence_and_no_traceback():
     # What an operator sees: the one message, exit status 1, no traceback. An empty variable
     # takes precedence over any `.env` beside the app, so the run does not depend on that file.
@@ -85,13 +103,20 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
     The suite's own environment is a development one, so every variable the checks look at is
     cleared from it first; what a test leaves out is then really missing.
     """
-    for name in ("ENVIRONMENT", "DATABASE_URL", "DATA_DIR", "LOCAL_ACCOUNT", "APP_URL", "SMTP_URL"):
+    for name in (
+        "ENVIRONMENT",
+        "DATABASE_URL",
+        "STORAGE_URL",
+        "LOCAL_ACCOUNT",
+        "APP_URL",
+        "SMTP_URL",
+    ):
         monkeypatch.delenv(name, raising=False)
     return {
         "_env_file": None,
         "environment": "production",
         "database_url": A_DATABASE,
-        "data_dir": tmp_path / "data",
+        "storage_url": (tmp_path / "data").as_uri(),
         "app_url": "https://emudoc.example.com",
         "smtp_url": "smtp://mailer:secret@smtp.example.com:587",
     }
@@ -105,7 +130,7 @@ def test_a_complete_production_configuration_is_accepted(deployment):
 
 def test_production_refuses_every_development_convenience_in_one_message(deployment):
     # An operator fixes the whole list in one go instead of one setting per restart.
-    for name in ("data_dir", "app_url", "smtp_url"):
+    for name in ("storage_url", "app_url", "smtp_url"):
         del deployment[name]
     deployment["database_url"] = WITH_THE_DEVELOPMENT_PASSWORD
     deployment["local_account"] = True
@@ -114,7 +139,7 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         load_settings(**deployment)
     message = stop.value.code
     assert message.startswith("ENVIRONMENT is production, but")
-    for variable in ("DATABASE_URL", "LOCAL_ACCOUNT", "DATA_DIR", "APP_URL", "SMTP_URL"):
+    for variable in ("DATABASE_URL", "LOCAL_ACCOUNT", "STORAGE_URL", "APP_URL", "SMTP_URL"):
         assert variable in message
     # Each line says what to do; none repeats the database's address or password.
     assert "emudoc:emudoc" not in message and "db.internal" not in message
@@ -125,7 +150,7 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
     [
         ({"database_url": WITH_THE_DEVELOPMENT_PASSWORD}, "DATABASE_URL"),
         ({"local_account": True}, "LOCAL_ACCOUNT"),
-        ({"data_dir": None}, "DATA_DIR"),
+        ({"storage_url": None}, "STORAGE_URL"),
         ({"app_url": ""}, "APP_URL"),
         ({"smtp_url": ""}, "SMTP_URL"),
     ],
@@ -151,7 +176,7 @@ def test_development_runs_with_everything_production_refuses(deployment):
         app_url="",
         smtp_url="",
     )
-    del deployment["data_dir"]
+    del deployment["storage_url"]
     assert load_settings(**deployment).production_problems() == []
 
 

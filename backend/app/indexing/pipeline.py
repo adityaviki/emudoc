@@ -28,6 +28,7 @@ from app.models import STAGES, Block, Document, Fact, Passage, Section
 from app.parsing import IMAGE_TYPES, ParsedBlock, UnsupportedFile, parse_file
 from app.parsing.pdf import render_page
 from app.parsing.types import clean_text
+from app.storage import Storage, StorageError
 
 log = logging.getLogger(__name__)
 
@@ -35,12 +36,16 @@ log = logging.getLogger(__name__)
 REQUIRED_STAGES = ("parse", "structure")
 # Longest image edge sent for OCR; larger scans are scaled down to this.
 MAX_IMAGE_EDGE = 2576
+MISSING_ORIGINAL = (
+    "The uploaded file is missing from the storage. Delete this document and upload it again."
+)
 
 
 @dataclass
 class Services:
     llm: LLM
     embedder: Embedder
+    storage: Storage
 
 
 class PipelineError(Exception):
@@ -102,7 +107,7 @@ def _run_stage(
         session.rollback()
         _set_stage(session, document, name, "skipped", str(skipped))
         return None
-    except (PipelineError, UnsupportedFile, LLMError, EmbeddingError) as error:
+    except (PipelineError, UnsupportedFile, LLMError, EmbeddingError, StorageError) as error:
         session.rollback()
         _set_stage(session, document, name, "failed", str(error))
         return str(error)
@@ -124,23 +129,27 @@ def _set_stage(
 
 
 def _parse(session: Session, document: Document, services: Services) -> str:
-    path = Path(document.storage_path)
-    parsed = parse_file(path, document.filename)
-    blocks = parsed.blocks
-    note = ""
+    if not services.storage.exists(document.storage_key):
+        raise PipelineError(MISSING_ORIGINAL)
+    # The parsers and the page renderer open files by path, so a remote original is copied to
+    # this machine for the stage; the local storage hands out the file itself.
+    with services.storage.localize(document.storage_key) as path:
+        parsed = parse_file(path, document.filename)
+        blocks = parsed.blocks
+        note = ""
 
-    if parsed.ocr_pages:
-        if services.llm.available:
-            blocks = _with_ocr(
-                path, document.filename, parsed.blocks, parsed.ocr_pages, services.llm
-            )
-        elif blocks:
-            note = f"; {len(parsed.ocr_pages)} scanned pages skipped (OCR needs the AI model)"
-        else:
-            raise PipelineError(
-                "This file has no text layer, and reading scans and images needs the AI model. "
-                f"{services.llm.problem()}"
-            )
+        if parsed.ocr_pages:
+            if services.llm.available:
+                blocks = _with_ocr(
+                    path, document.filename, parsed.blocks, parsed.ocr_pages, services.llm
+                )
+            elif blocks:
+                note = f"; {len(parsed.ocr_pages)} scanned pages skipped (OCR needs the AI model)"
+            else:
+                raise PipelineError(
+                    "This file has no text layer, and reading scans and images needs the AI "
+                    f"model. {services.llm.problem()}"
+                )
     if not blocks:
         raise PipelineError("No text could be extracted from this file.")
 

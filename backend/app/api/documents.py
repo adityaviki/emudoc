@@ -1,10 +1,11 @@
 import hashlib
-import shutil
+import io
 import tempfile
 from pathlib import Path
+from typing import BinaryIO
 
 from fastapi import APIRouter, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pypdfium2 import PdfiumError
 from sqlalchemy import func, select
@@ -15,6 +16,7 @@ from app.api.deps import (
     EditableProjectDep,
     PassageDep,
     ProjectDep,
+    ServicesDep,
     SessionDep,
     Stage,
     WorkerDep,
@@ -23,7 +25,7 @@ from app.api.folders import folder_paths, resolve_folder
 from app.config import get_settings
 from app.indexing.pipeline import reset_stages
 from app.models import STAGES, Block, Document, Fact, Project, Section
-from app.parsing import IMAGE_TYPES, SUPPORTED_EXTENSIONS
+from app.parsing import IMAGE_TYPES, MIME_TYPES, SUPPORTED_EXTENSIONS
 from app.parsing.pdf import render_page, render_thumbnail
 from app.schemas import (
     DocumentContent,
@@ -35,21 +37,16 @@ from app.schemas import (
     SectionOut,
     UploadResult,
 )
+from app.storage import original_key
 
 router = APIRouter(tags=["documents"])
 
-MIME_TYPES = {
-    ".pdf": "application/pdf",
-    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    ".csv": "text/csv",
-    ".txt": "text/plain",
-    ".md": "text/markdown",
-    **IMAGE_TYPES,
-}
 CHUNK = 1024 * 1024
 # The longer side of a thumbnail, in pixels: enough for a tile on a high-density screen.
 THUMBNAIL_SIZE = 320
+# How long the browser may keep a rendered page or thumbnail; they never change.
+IMAGE_MAX_AGE = 86400
+MISSING_FILE = "The original file is missing from the storage"
 
 
 @router.get("/projects/{project_id}/documents", response_model=list[DocumentOut])
@@ -64,6 +61,7 @@ def upload_documents(
     project: EditableProjectDep,
     files: list[UploadFile],
     session: SessionDep,
+    services: ServicesDep,
     worker: WorkerDep,
     folder_id: int | None = None,
 ):
@@ -84,65 +82,76 @@ def upload_documents(
             )
             continue
 
-        # Spool to disk while hashing: the hash identifies re-uploads of the same file.
-        digest = hashlib.sha256()
-        size = 0
-        settings.files_dir.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(dir=settings.files_dir, delete=False) as spool:
-            temp_path = Path(spool.name)
-            while chunk := upload.file.read(CHUNK):
-                size += len(chunk)
-                if size > limit:
-                    break
-                digest.update(chunk)
-                spool.write(chunk)
+        # Spooled to a local temporary file while hashing: the hash finds a re-upload of the
+        # same bytes before anything is stored, and the key needs the row's id. The spool goes
+        # whether the file is kept, rejected or fails to store.
+        spool, size, sha256 = _spool(upload.file, limit)
+        try:
+            if size > limit or size == 0:
+                reason = "Empty file." if size == 0 else f"Larger than {settings.max_upload_mb} MB."
+                rejected.append(RejectedFile(filename=filename, reason=reason))
+                continue
 
-        if size > limit or size == 0:
-            temp_path.unlink(missing_ok=True)
-            reason = "Empty file." if size == 0 else f"Larger than {settings.max_upload_mb} MB."
-            rejected.append(RejectedFile(filename=filename, reason=reason))
-            continue
-
-        sha256 = digest.hexdigest()
-        duplicate = session.scalar(
-            select(Document).where(Document.project_id == project.id, Document.sha256 == sha256)
-        )
-        if duplicate:
-            temp_path.unlink(missing_ok=True)
-            where = ""
-            if duplicate.folder_id is not None:
-                where = f" in {folder_paths(session, project.id)[duplicate.folder_id]}"
-            rejected.append(
-                RejectedFile(
-                    filename=filename,
-                    reason=f"Already in this project as {duplicate.filename!r}{where}.",
-                )
+            duplicate = session.scalar(
+                select(Document).where(Document.project_id == project.id, Document.sha256 == sha256)
             )
-            continue
+            if duplicate:
+                where = ""
+                if duplicate.folder_id is not None:
+                    where = f" in {folder_paths(session, project.id)[duplicate.folder_id]}"
+                rejected.append(
+                    RejectedFile(
+                        filename=filename,
+                        reason=f"Already in this project as {duplicate.filename!r}{where}.",
+                    )
+                )
+                continue
 
-        document = Document(
-            project_id=project.id,
-            folder_id=folder.id if folder else None,
-            filename=unique_filename(session, project.id, folder.id if folder else None, filename),
-            mime_type=MIME_TYPES[suffix],
-            size_bytes=size,
-            sha256=sha256,
-            storage_path="",
-            status="queued",
-            stages={name: {"status": "pending", "detail": ""} for name in STAGES},
-        )
-        session.add(document)
-        session.flush()
-        target = settings.files_dir / str(project.id) / str(document.id) / f"original{suffix}"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(temp_path, target)
-        document.storage_path = str(target)
-        session.commit()
-        documents.append(document)
+            document = Document(
+                project_id=project.id,
+                folder_id=folder.id if folder else None,
+                filename=unique_filename(
+                    session, project.id, folder.id if folder else None, filename
+                ),
+                mime_type=MIME_TYPES[suffix],
+                size_bytes=size,
+                sha256=sha256,
+                storage_key="",
+                status="queued",
+                stages={name: {"status": "pending", "detail": ""} for name in STAGES},
+            )
+            session.add(document)
+            session.flush()
+            document.storage_key = original_key(project.org_id, project.id, document.id, suffix)
+            # Stored before the row is committed: a storage that fails leaves no row behind,
+            # and the error says what happened (`storage_unavailable` in main.py).
+            services.storage.put(document.storage_key, spool, document.mime_type)
+            session.commit()
+            documents.append(document)
+        finally:
+            spool.unlink(missing_ok=True)
 
     if documents and worker:
         worker.notify()
     return UploadResult(documents=documents, rejected=rejected)
+
+
+def _spool(upload: BinaryIO, limit: int) -> tuple[Path, int, str]:
+    """Copy the upload to a temporary file, up to the limit, hashing it on the way.
+
+    Returns the file, how many bytes were read and the hash; a file over the limit stops at the
+    first byte past it, so the size reported is just above the limit, never the upload's.
+    """
+    digest = hashlib.sha256()
+    size = 0
+    with tempfile.NamedTemporaryFile(prefix="emudoc-upload-", delete=False) as spool:
+        while chunk := upload.read(CHUNK):
+            size += len(chunk)
+            if size > limit:
+                break
+            digest.update(chunk)
+            spool.write(chunk)
+    return Path(spool.name), size, digest.hexdigest()
 
 
 @router.get("/documents/{document_id}", response_model=DocumentOut)
@@ -210,12 +219,10 @@ def unique_filename(session: SessionDep, project_id: int, folder_id: int | None,
 
 
 @router.delete("/documents/{document_id}", status_code=204)
-def delete_document(document: EditableDocumentDep, session: SessionDep):
-    settings = get_settings()
+def delete_document(document: EditableDocumentDep, session: SessionDep, services: ServicesDep):
     session.delete(document)
     session.commit()
-    shutil.rmtree(Path(document.storage_path).parent, ignore_errors=True)
-    shutil.rmtree(settings.pages_dir / str(document.id), ignore_errors=True)
+    services.storage.discard(document.storage_prefix)
 
 
 @router.post("/documents/{document_id}/reprocess", response_model=DocumentOut, status_code=202)
@@ -235,56 +242,63 @@ def reprocess_document(
 
 
 @router.get("/documents/{document_id}/file")
-def download_file(document: DocumentDep):
-    path = Path(document.storage_path)
-    if not path.is_file():
-        raise HTTPException(404, "The original file is missing")
-    return FileResponse(
-        path,
-        media_type=document.mime_type,
-        filename=document.filename,
-        content_disposition_type="inline",
+def download_file(document: DocumentDep, services: ServicesDep) -> Response:
+    """The uploaded file as it was uploaded; the storage decides whether it is sent from here or
+    from a signed URL."""
+    storage = services.storage
+    if not storage.exists(document.storage_key):
+        raise HTTPException(404, MISSING_FILE)
+    return storage.response(
+        document.storage_key, media_type=document.mime_type, filename=document.filename
     )
 
 
 @router.get("/documents/{document_id}/pages/{page}.png")
-def page_image(document: DocumentDep, page: int):
-    """A rendered PDF page, for showing where on the page a passage sits."""
+def page_image(document: DocumentDep, page: int, services: ServicesDep) -> Response:
+    """A rendered PDF page, for showing where on the page a passage sits. Pages are rendered
+    the first time they are asked for and kept beside the original."""
     if document.mime_type != "application/pdf":
         raise HTTPException(404, "Only PDF documents have page images")
     if not 1 <= page <= (document.page_count or 0):
         raise HTTPException(404, "No such page")
-    cached = get_settings().pages_dir / str(document.id) / f"{page}.png"
-    if not cached.is_file():
-        cached.parent.mkdir(parents=True, exist_ok=True)
-        cached.write_bytes(render_page(Path(document.storage_path), page))
-    return FileResponse(cached, media_type="image/png", headers={"Cache-Control": "max-age=86400"})
+    storage = services.storage
+    key = document.page_image_key(page)
+    if not storage.exists(key):
+        try:
+            with storage.localize(document.storage_key) as original:
+                storage.put(key, render_page(original, page), "image/png")
+        except FileNotFoundError:
+            raise HTTPException(404, MISSING_FILE) from None
+    return storage.response(key, media_type="image/png", max_age=IMAGE_MAX_AGE)
 
 
 @router.get("/documents/{document_id}/thumbnail.png")
-def thumbnail(document: DocumentDep):
+def thumbnail(document: DocumentDep, services: ServicesDep) -> Response:
     """A small picture of the document for the library: a PDF's first page, or the image itself."""
     if document.mime_type != "application/pdf" and document.mime_type not in IMAGE_TYPES.values():
         raise HTTPException(404, "Only PDF and image documents have thumbnails")
-    path = Path(document.storage_path)
-    if not path.is_file():
-        raise HTTPException(404, "The original file is missing")
-    cached = get_settings().pages_dir / str(document.id) / "thumbnail.png"
-    if not cached.is_file():
+    storage = services.storage
+    if not storage.exists(document.thumbnail_key):
         try:
-            if document.mime_type == "application/pdf":
-                image = render_thumbnail(path, THUMBNAIL_SIZE)
-            else:
-                with Image.open(path) as original:
-                    image = ImageOps.exif_transpose(original)
-                    image.thumbnail((THUMBNAIL_SIZE, THUMBNAIL_SIZE))
-                    if image.mode == "CMYK":
-                        image = image.convert("RGB")
+            with storage.localize(document.storage_key) as original:
+                image = _thumbnail_of(original, document.mime_type)
+        except FileNotFoundError:
+            raise HTTPException(404, MISSING_FILE) from None
         except (PdfiumError, UnidentifiedImageError, OSError, IndexError) as error:
             raise HTTPException(404, "The file could not be rendered") from error
-        cached.parent.mkdir(parents=True, exist_ok=True)
-        image.save(cached, format="PNG", optimize=True)
-    return FileResponse(cached, media_type="image/png", headers={"Cache-Control": "max-age=86400"})
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG", optimize=True)
+        storage.put(document.thumbnail_key, buffer.getvalue(), "image/png")
+    return storage.response(document.thumbnail_key, media_type="image/png", max_age=IMAGE_MAX_AGE)
+
+
+def _thumbnail_of(path: Path, mime_type: str) -> Image.Image:
+    if mime_type == "application/pdf":
+        return render_thumbnail(path, THUMBNAIL_SIZE)
+    with Image.open(path) as original:
+        image = ImageOps.exif_transpose(original)
+        image.thumbnail((THUMBNAIL_SIZE, THUMBNAIL_SIZE))
+        return image.convert("RGB") if image.mode == "CMYK" else image
 
 
 @router.get("/documents/{document_id}/outline", response_model=list[SectionOut])

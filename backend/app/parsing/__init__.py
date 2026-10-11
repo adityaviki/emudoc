@@ -11,6 +11,16 @@ IMAGE_TYPES = {
     ".webp": "image/webp",
 }
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".csv", ".txt", ".md", *IMAGE_TYPES}
+# The type a document of each extension is stored and served as.
+MIME_TYPES = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".csv": "text/csv",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    **IMAGE_TYPES,
+}
 
 
 def parse_file(path: Path, filename: str) -> ParsedDocument:
@@ -45,6 +55,7 @@ def parse_file(path: Path, filename: str) -> ParsedDocument:
 
 __all__ = [
     "IMAGE_TYPES",
+    "MIME_TYPES",
     "SUPPORTED_EXTENSIONS",
     "ParsedBlock",
     "ParsedDocument",

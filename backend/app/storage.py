@@ -1,0 +1,462 @@
+"""Where uploaded files and rendered pages are kept: a directory on this machine or an S3 bucket.
+
+Objects are named by keys, never by paths, so that the data can move and one layout serves both
+backends:
+
+    orgs/{org}/projects/{project}/documents/{document}/original.pdf
+    orgs/{org}/projects/{project}/documents/{document}/pages/{n}.png
+    orgs/{org}/projects/{project}/documents/{document}/thumbnail.png
+
+Everything a document owns sits under its prefix and every document of a project under the
+project's, so deleting either is deleting a prefix. The database holds the original's key
+(`documents.storage_key`) and the other keys derive from it (`Document.storage_prefix`).
+
+The parsers open files by path, so `localize` gives the parse stage a local copy of an object
+for as long as it needs one; the local storage hands out the file itself. Serving goes through
+`response`, after the route has checked who asks: the local storage sends the file, a bucket
+redirects to a URL signed for a few minutes, so a large original never streams through the app
+and the bucket itself is never public.
+"""
+
+import logging
+import os
+import shutil
+import tempfile
+from abc import ABC, abstractmethod
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, contextmanager
+from itertools import batched
+from pathlib import Path
+from typing import Any, Protocol
+from urllib.parse import quote, unquote, urlsplit
+
+from botocore.exceptions import BotoCoreError, ClientError
+from starlette.responses import FileResponse, RedirectResponse, Response
+
+from app.config import Settings
+
+log = logging.getLogger(__name__)
+
+# How long a signed URL stays valid. The browser follows the redirect at once; the margin is
+# for a download that starts late, and a redirect is cached for less than this (see `response`).
+URL_LIFETIME = 15 * 60
+# A bucket deletes up to a thousand objects per request.
+DELETE_BATCH = 1000
+
+
+class StorageError(Exception):
+    """The storage could not do what was asked, said in words the user or operator can act on."""
+
+
+def project_prefix(org_id: int, project_id: int) -> str:
+    return f"orgs/{org_id}/projects/{project_id}/"
+
+
+def document_prefix(org_id: int, project_id: int, document_id: int) -> str:
+    return f"{project_prefix(org_id, project_id)}documents/{document_id}/"
+
+
+def original_key(org_id: int, project_id: int, document_id: int, suffix: str) -> str:
+    """The key of an uploaded file; `suffix` is its lower-cased extension with the dot."""
+    return f"{document_prefix(org_id, project_id, document_id)}original{suffix}"
+
+
+def content_disposition(filename: str) -> str:
+    """An inline Content-Disposition that names the file, as a browser saves it; names outside
+    ASCII go in the encoded form browsers read."""
+    quoted = quote(filename)
+    if quoted != filename:
+        return f"inline; filename*=utf-8''{quoted}"
+    return f'inline; filename="{filename}"'
+
+
+def _folder(prefix: str) -> str:
+    # `documents/1/` and `documents/10/` share the characters of `documents/1`, so a prefix
+    # that is deleted or listed must name a folder, and a folder ends with the separator.
+    if not prefix.endswith("/"):
+        raise ValueError(f"{prefix!r} does not name a folder of keys: a prefix ends with '/'")
+    return prefix
+
+
+class Storage(ABC):
+    """What the app asks of wherever its files are kept; one implementation per place."""
+
+    @abstractmethod
+    def check(self) -> None:
+        """Make sure the storage can be used, or raise `StorageError` saying what to fix."""
+
+    @abstractmethod
+    def put(self, key: str, source: Path | bytes, content_type: str | None = None) -> None:
+        """Store the bytes, or a copy of the local file, under the key, replacing what was there."""
+
+    @abstractmethod
+    def get(self, key: str) -> bytes:
+        """The whole object; `FileNotFoundError` when there is none."""
+
+    @abstractmethod
+    def exists(self, key: str) -> bool: ...
+
+    @abstractmethod
+    def localize(self, key: str) -> AbstractContextManager[Path]:
+        """The object as a file on this machine for the duration of the block, for the parsers
+        and renderers, which open files by path; `FileNotFoundError` when there is none."""
+
+    @abstractmethod
+    def presigned_url(
+        self,
+        key: str,
+        *,
+        content_type: str,
+        filename: str | None = None,
+        expires_in: int = URL_LIFETIME,
+    ) -> str | None:
+        """A URL that serves the object to whoever holds it until it expires, or None when the
+        storage has no such thing and the app serves the object itself."""
+
+    @abstractmethod
+    def list(self, prefix: str) -> Iterator[str]:
+        """Every key under the prefix, which names a folder and ends with '/'."""
+
+    @abstractmethod
+    def delete_prefix(self, prefix: str) -> None:
+        """Delete every object under the prefix, which names a folder and ends with '/'."""
+
+    def response(
+        self,
+        key: str,
+        *,
+        media_type: str,
+        filename: str | None = None,
+        max_age: int | None = None,
+    ) -> Response:
+        """Hand the object to the browser, once the route has checked who asks.
+
+        A storage that signs URLs gets a redirect to one, so the bytes never pass through the
+        app. The redirect may be cached, but for less time than the URL it leads to stays
+        valid, so a cached redirect never leads to an expired URL.
+        """
+        url = self.presigned_url(key, content_type=media_type, filename=filename)
+        if url is None:
+            headers = {"Content-Disposition": content_disposition(filename)} if filename else {}
+            headers.update(_cache_headers(max_age))
+            return Response(self.get(key), media_type=media_type, headers=headers)
+        max_age = min(max_age, URL_LIFETIME - 60) if max_age else None
+        return RedirectResponse(url, status_code=307, headers=_cache_headers(max_age))
+
+    def discard(self, *prefixes: str) -> None:
+        """Delete what rows that are already gone owned.
+
+        The user's delete has happened by the time this runs, so a storage that fails here is
+        logged rather than reported as a failed request; what it leaves behind is for the
+        orphan sweep to find.
+        """
+        for prefix in prefixes:
+            try:
+                self.delete_prefix(prefix)
+            except StorageError as error:
+                log.warning("Could not delete the objects under %s: %s", prefix, error)
+
+
+def _cache_headers(max_age: int | None) -> dict[str, str]:
+    # What is served belongs to one organisation, so only the browser that asked may keep it.
+    return {"Cache-Control": f"private, max-age={max_age}"} if max_age else {}
+
+
+class LocalStorage(Storage):
+    """A directory on this machine; keys are paths under it."""
+
+    def __init__(self, root: Path):
+        self.root = root
+
+    def check(self) -> None:
+        try:
+            self.root.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise StorageError(
+                f"The storage directory {self.root} cannot be created ({error.strerror}). "
+                "Point STORAGE_URL at a directory this process may write to."
+            ) from error
+        if not os.access(self.root, os.W_OK):
+            raise StorageError(
+                f"The storage directory {self.root} is not writable by this process. Fix its "
+                "permissions or point STORAGE_URL at another directory."
+            )
+
+    def _path(self, key: str) -> Path:
+        # Keys are the app's own, built from ids, but one that could leave the root must never
+        # reach the filesystem.
+        parts = Path(key).parts
+        if not key or key.startswith("/") or ".." in parts or not parts:
+            raise ValueError(f"{key!r} is not a storage key")
+        return self.root / key
+
+    def put(self, key: str, source: Path | bytes, content_type: str | None = None) -> None:
+        path = self._path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Written beside the target and renamed into place, so a reader never sees half an
+        # object and two renders of the same page do not interleave.
+        handle, name = tempfile.mkstemp(dir=path.parent, prefix=".part-")
+        partial = Path(name)
+        try:
+            if isinstance(source, bytes):
+                with os.fdopen(handle, "wb") as out:
+                    out.write(source)
+            else:
+                os.close(handle)
+                shutil.copyfile(source, partial)
+            os.replace(partial, path)
+        except OSError as error:
+            partial.unlink(missing_ok=True)
+            raise StorageError(
+                f"The file could not be written to {self.root} ({error.strerror}). Check the "
+                "disk space and permissions of the storage directory."
+            ) from error
+
+    def get(self, key: str) -> bytes:
+        try:
+            return self._path(key).read_bytes()
+        except FileNotFoundError:
+            raise FileNotFoundError(key) from None
+
+    def exists(self, key: str) -> bool:
+        return self._path(key).is_file()
+
+    @contextmanager
+    def localize(self, key: str) -> Iterator[Path]:
+        path = self._path(key)
+        if not path.is_file():
+            raise FileNotFoundError(key)
+        yield path
+
+    def presigned_url(
+        self,
+        key: str,
+        *,
+        content_type: str,
+        filename: str | None = None,
+        expires_in: int = URL_LIFETIME,
+    ) -> str | None:
+        # A directory has no URLs of its own; `response` serves the file.
+        return None
+
+    def response(
+        self,
+        key: str,
+        *,
+        media_type: str,
+        filename: str | None = None,
+        max_age: int | None = None,
+    ) -> Response:
+        path = self._path(key)
+        if not path.is_file():
+            raise FileNotFoundError(key)
+        return FileResponse(
+            path,
+            media_type=media_type,
+            filename=filename,
+            content_disposition_type="inline",
+            headers=_cache_headers(max_age),
+        )
+
+    def list(self, prefix: str) -> Iterator[str]:
+        folder = self._path(_folder(prefix))
+        if not folder.is_dir():
+            return
+        for path in sorted(path for path in folder.rglob("*") if path.is_file()):
+            yield path.relative_to(self.root).as_posix()
+
+    def delete_prefix(self, prefix: str) -> None:
+        folder = self._path(_folder(prefix))
+        if not folder.exists():
+            return
+        try:
+            shutil.rmtree(folder)
+        except OSError as error:
+            raise StorageError(
+                f"The files under {folder} could not be deleted ({error.strerror})."
+            ) from error
+
+
+class S3Client(Protocol):
+    """The calls the bucket storage makes on boto3's S3 client; the tests stand in for it."""
+
+    def head_bucket(self, *, Bucket: str) -> Any: ...
+
+    def put_object(self, *, Bucket: str, Key: str, Body: Any, ContentType: str = ...) -> Any: ...
+
+    def get_object(self, *, Bucket: str, Key: str) -> Any: ...
+
+    def head_object(self, *, Bucket: str, Key: str) -> Any: ...
+
+    def list_objects_v2(self, *, Bucket: str, Prefix: str, ContinuationToken: str = ...) -> Any: ...
+
+    def delete_objects(self, *, Bucket: str, Delete: dict[str, Any]) -> Any: ...
+
+    def generate_presigned_url(
+        self, ClientMethod: str, Params: dict[str, Any], ExpiresIn: int
+    ) -> str: ...
+
+
+def _missing(error: ClientError) -> bool:
+    return error.response.get("Error", {}).get("Code") in {"404", "NoSuchKey", "NotFound"}
+
+
+def _describe(error: Exception) -> str:
+    if isinstance(error, ClientError):
+        details = error.response.get("Error", {})
+        return f"{details.get('Code', 'error')}: {details.get('Message', '')}".rstrip(": ")
+    return str(error)
+
+
+class S3Storage(Storage):
+    """An S3-compatible bucket, reached through boto3, with every key under one prefix."""
+
+    def __init__(self, client: S3Client, bucket: str, prefix: str = ""):
+        self.client = client
+        self.bucket = bucket
+        prefix = prefix.strip("/")
+        self.prefix = f"{prefix}/" if prefix else ""
+
+    def _key(self, key: str) -> str:
+        return self.prefix + key
+
+    def check(self) -> None:
+        try:
+            self.client.head_bucket(Bucket=self.bucket)
+        except (ClientError, BotoCoreError) as error:
+            raise StorageError(
+                f"The bucket {self.bucket!r} cannot be used ({_describe(error)}). Check the "
+                "bucket in STORAGE_URL, and AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, "
+                "AWS_DEFAULT_REGION and, for a service other than AWS, AWS_ENDPOINT_URL in the "
+                "environment."
+            ) from error
+
+    def put(self, key: str, source: Path | bytes, content_type: str | None = None) -> None:
+        extra = {"ContentType": content_type} if content_type else {}
+        try:
+            if isinstance(source, bytes):
+                self.client.put_object(Bucket=self.bucket, Key=self._key(key), Body=source, **extra)
+            else:
+                with source.open("rb") as body:
+                    self.client.put_object(
+                        Bucket=self.bucket, Key=self._key(key), Body=body, **extra
+                    )
+        except (ClientError, BotoCoreError) as error:
+            raise StorageError(
+                f"The file could not be stored in the bucket ({_describe(error)}). Try again, "
+                "and check the bucket's permissions if it keeps failing."
+            ) from error
+
+    def _body(self, key: str) -> Any:
+        """The object's streaming body; `FileNotFoundError` when the bucket has no such key."""
+        try:
+            return self.client.get_object(Bucket=self.bucket, Key=self._key(key))["Body"]
+        except ClientError as error:
+            if _missing(error):
+                raise FileNotFoundError(key) from None
+            raise StorageError(
+                f"The file could not be read from the bucket ({_describe(error)})."
+            ) from error
+        except BotoCoreError as error:
+            raise StorageError(
+                f"The file could not be read from the bucket ({_describe(error)})."
+            ) from error
+
+    def get(self, key: str) -> bytes:
+        return self._body(key).read()
+
+    def exists(self, key: str) -> bool:
+        try:
+            self.client.head_object(Bucket=self.bucket, Key=self._key(key))
+        except ClientError as error:
+            if _missing(error):
+                return False
+            raise StorageError(
+                f"The bucket could not be asked for the file ({_describe(error)})."
+            ) from error
+        except BotoCoreError as error:
+            raise StorageError(
+                f"The bucket could not be asked for the file ({_describe(error)})."
+            ) from error
+        return True
+
+    @contextmanager
+    def localize(self, key: str) -> Iterator[Path]:
+        body = self._body(key)
+        # The copy keeps the extension: the parsers pick their format from the file name too.
+        handle, name = tempfile.mkstemp(prefix="emudoc-", suffix=Path(key).suffix)
+        path = Path(name)
+        try:
+            with os.fdopen(handle, "wb") as out:
+                shutil.copyfileobj(body, out)
+            yield path
+        finally:
+            path.unlink(missing_ok=True)
+
+    def presigned_url(
+        self,
+        key: str,
+        *,
+        content_type: str,
+        filename: str | None = None,
+        expires_in: int = URL_LIFETIME,
+    ) -> str | None:
+        # The type and the name are fixed when the URL is signed, so whoever holds the URL
+        # gets the object as the app would have served it.
+        params: dict[str, Any] = {
+            "Bucket": self.bucket,
+            "Key": self._key(key),
+            "ResponseContentType": content_type,
+        }
+        if filename:
+            params["ResponseContentDisposition"] = content_disposition(filename)
+        return self.client.generate_presigned_url("get_object", Params=params, ExpiresIn=expires_in)
+
+    def list(self, prefix: str) -> Iterator[str]:
+        folder = self._key(_folder(prefix))
+        token: str | None = None
+        while True:
+            more = {"ContinuationToken": token} if token else {}
+            try:
+                page = self.client.list_objects_v2(Bucket=self.bucket, Prefix=folder, **more)
+            except (ClientError, BotoCoreError) as error:
+                raise StorageError(
+                    f"The bucket could not be listed ({_describe(error)})."
+                ) from error
+            for entry in page.get("Contents", []):
+                yield entry["Key"][len(self.prefix) :]
+            if not page.get("IsTruncated"):
+                return
+            token = page["NextContinuationToken"]
+
+    def delete_prefix(self, prefix: str) -> None:
+        keys = [self._key(key) for key in self.list(prefix)]
+        for batch in batched(keys, DELETE_BATCH, strict=False):
+            try:
+                self.client.delete_objects(
+                    Bucket=self.bucket,
+                    Delete={"Objects": [{"Key": key} for key in batch], "Quiet": True},
+                )
+            except (ClientError, BotoCoreError) as error:
+                raise StorageError(
+                    f"The objects under {prefix} could not be deleted ({_describe(error)})."
+                ) from error
+
+
+def storage_from_settings(settings: Settings) -> Storage:
+    """The storage STORAGE_URL names: a directory for `file:///...`, a bucket for `s3://...`.
+
+    The bucket's credentials, region and, for a service other than AWS, endpoint come from the
+    standard `AWS_*` variables in the process environment, which boto3 reads itself; in
+    development `export_env_file` has copied them there from `.env`.
+    """
+    parts = urlsplit(settings.storage_url)
+    if parts.scheme == "file":
+        return LocalStorage(Path(unquote(parts.path)))
+    import boto3
+    from botocore.config import Config
+
+    # Signature version 4 is what every current service accepts; boto3 would otherwise sign
+    # requests to a bucket in the default region the old way, which some services refuse.
+    client = boto3.client("s3", config=Config(signature_version="s3v4"))
+    return S3Storage(client, parts.netloc, unquote(parts.path))

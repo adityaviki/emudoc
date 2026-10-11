@@ -3,6 +3,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from dotenv import dotenv_values
 from pydantic import ValidationError, field_validator
@@ -18,6 +19,10 @@ Effort = Literal["", "minimal", "low", "medium", "high", "xhigh"]
 # The password of the database docker-compose.yml runs, which only this machine can reach.
 # A deployment that carries it has copied the development setup, so production refuses it.
 DEVELOPMENT_PASSWORD = "emudoc"
+STORAGE_URL_FORMS = (
+    "STORAGE_URL names a directory as file:///var/lib/emudoc or an S3-compatible bucket as "
+    "s3://bucket/prefix"
+)
 
 
 class Settings(BaseSettings):
@@ -42,7 +47,11 @@ class Settings(BaseSettings):
     # database stops (see `load_settings`) rather than reach for a loopback server with a
     # well-known password. `.env.example` names the docker-compose.yml container.
     database_url: str
-    data_dir: Path = BACKEND_DIR / "data"
+    # Where uploaded files and rendered pages are kept (see app/storage.py): a directory on
+    # this machine as file:///var/lib/emudoc, or an S3-compatible bucket as s3://bucket/prefix,
+    # reached with the AWS_* variables in the environment. The default is backend/data inside
+    # the checkout, for development.
+    storage_url: str = (BACKEND_DIR / "data").as_uri()
     max_upload_mb: int = 100
 
     # The model behind structure inference, summaries, facts, OCR and the agent, as
@@ -101,6 +110,16 @@ class Settings(BaseSettings):
             raise ValueError("DATABASE_URL is empty")
         return value
 
+    @field_validator("storage_url")
+    @classmethod
+    def _names_a_directory_or_a_bucket(cls, value: str) -> str:
+        parts = urlsplit(value)
+        if parts.scheme == "file" and parts.path and not parts.netloc:
+            return value
+        if parts.scheme == "s3" and parts.netloc and not parts.query and not parts.fragment:
+            return value
+        raise ValueError(f"{STORAGE_URL_FORMS}; {value!r} is neither")
+
     @field_validator("fts_language")
     @classmethod
     def _plain_identifier(cls, value: str) -> str:
@@ -130,10 +149,11 @@ class Settings(BaseSettings):
                 "LOCAL_ACCOUNT is true, which lets any request without a session act as the "
                 "owner; remove it."
             )
-        if "data_dir" not in self.model_fields_set:
+        if "storage_url" not in self.model_fields_set:
             problems.append(
-                "DATA_DIR is not set; name the directory the deployment keeps uploaded files "
-                "and page images in."
+                "STORAGE_URL is not set; name where the deployment keeps uploaded files and "
+                "page images, a directory as file:///var/lib/emudoc or a bucket as "
+                "s3://bucket/emudoc."
             )
         if not self.app_url:
             problems.append(
@@ -147,14 +167,6 @@ class Settings(BaseSettings):
                 "written to the log; name an SMTP relay."
             )
         return problems
-
-    @property
-    def files_dir(self) -> Path:
-        return self.data_dir / "files"
-
-    @property
-    def pages_dir(self) -> Path:
-        return self.data_dir / "pages"
 
 
 MISSING_DATABASE = (

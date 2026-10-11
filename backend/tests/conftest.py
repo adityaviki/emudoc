@@ -1,7 +1,8 @@
-"""Test setup: a separate database, a temporary data directory, and fake AI services."""
+"""Test setup: a separate database, a temporary storage directory, and fake AI services."""
 
 import base64
 import hashlib
+import io
 import ipaddress
 import json
 import math
@@ -10,11 +11,12 @@ import re
 import shutil
 import tempfile
 from pathlib import Path
-from urllib.parse import parse_qs, parse_qsl, urlsplit
+from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit
 
 import httpx
 import psycopg
 import pytest
+from botocore.exceptions import ClientError
 from sqlalchemy.engine import URL, make_url
 
 # The container docker-compose.yml runs; the app itself has no default database.
@@ -77,7 +79,9 @@ def _ensure_database() -> None:
 refuse_unless_test_database(TEST_DATABASE_URL)
 _ensure_database()
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
-os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="emudoc-test-")
+# The local storage of the whole run; `session` empties it with the tables.
+STORAGE_ROOT = Path(tempfile.mkdtemp(prefix="emudoc-test-"))
+os.environ["STORAGE_URL"] = STORAGE_ROOT.as_uri()
 # Pinned, so the tests do not follow whichever models the developer's .env selects. The
 # embedding size is the one `FakeEmbedder` produces and the migrations size the column by.
 os.environ["AGENT_MODEL"] = os.environ["INDEX_MODEL"] = "google:gemini-2.5-flash-lite"
@@ -119,6 +123,8 @@ from app.indexing.pipeline import Services, process_document  # noqa: E402
 from app.llm import OcrBlock, OcrPage  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models import Document, Membership, Organization, Project, User  # noqa: E402
+from app.parsing import MIME_TYPES  # noqa: E402
+from app.storage import original_key, storage_from_settings  # noqa: E402
 
 # The engine is what every fixture below destroys data through; had the app been imported before
 # the environment above was set, it would point at the database in `.env`.
@@ -259,6 +265,87 @@ class FakeLLM:
         return self.agent_turns.pop(0)
 
 
+class FakeS3Client:
+    """boto3's S3 client reduced to the calls `S3Storage` makes, over a dict of objects.
+
+    Listings come two keys at a time, so that the storage's paging is exercised.
+    """
+
+    PAGE = 2
+
+    def __init__(self, *buckets: str):
+        self.buckets = set(buckets) or {"bucket"}
+        self.objects: dict[str, tuple[bytes, str | None]] = {}
+        self.calls: list[str] = []
+
+    def _check_bucket(self, bucket: str, operation: str) -> None:
+        if bucket not in self.buckets:
+            raise ClientError(
+                {"Error": {"Code": "NoSuchBucket", "Message": "The bucket does not exist"}},
+                operation,
+            )
+
+    def head_bucket(self, *, Bucket: str) -> dict:
+        self.calls.append("head_bucket")
+        self._check_bucket(Bucket, "HeadBucket")
+        return {}
+
+    def put_object(self, *, Bucket: str, Key: str, Body, ContentType: str | None = None) -> dict:
+        self.calls.append("put_object")
+        self._check_bucket(Bucket, "PutObject")
+        data = Body if isinstance(Body, bytes) else Body.read()
+        self.objects[Key] = (data, ContentType)
+        return {}
+
+    def get_object(self, *, Bucket: str, Key: str) -> dict:
+        self.calls.append("get_object")
+        self._check_bucket(Bucket, "GetObject")
+        if Key not in self.objects:
+            raise ClientError(
+                {"Error": {"Code": "NoSuchKey", "Message": "The key does not exist"}}, "GetObject"
+            )
+        data, content_type = self.objects[Key]
+        return {"Body": io.BytesIO(data), "ContentType": content_type}
+
+    def head_object(self, *, Bucket: str, Key: str) -> dict:
+        self.calls.append("head_object")
+        self._check_bucket(Bucket, "HeadObject")
+        if Key not in self.objects:
+            raise ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject")
+        return {"ContentLength": len(self.objects[Key][0])}
+
+    def list_objects_v2(
+        self, *, Bucket: str, Prefix: str, ContinuationToken: str | None = None
+    ) -> dict:
+        self.calls.append("list_objects_v2")
+        self._check_bucket(Bucket, "ListObjectsV2")
+        keys = sorted(key for key in self.objects if key.startswith(Prefix))
+        start = int(ContinuationToken or 0)
+        page = keys[start : start + self.PAGE]
+        truncated = start + self.PAGE < len(keys)
+        listing: dict = {"Contents": [{"Key": key} for key in page], "IsTruncated": truncated}
+        if truncated:
+            listing["NextContinuationToken"] = str(start + self.PAGE)
+        return listing
+
+    def delete_objects(self, *, Bucket: str, Delete: dict) -> dict:
+        self.calls.append("delete_objects")
+        self._check_bucket(Bucket, "DeleteObjects")
+        for entry in Delete["Objects"]:
+            self.objects.pop(entry["Key"], None)
+        return {}
+
+    def generate_presigned_url(self, ClientMethod: str, Params: dict, ExpiresIn: int) -> str:
+        self.calls.append("generate_presigned_url")
+        assert ClientMethod == "get_object"
+        query = {
+            "response-content-type": Params["ResponseContentType"],
+            "response-content-disposition": Params.get("ResponseContentDisposition", ""),
+            "X-Amz-Expires": str(ExpiresIn),
+        }
+        return f"https://{Params['Bucket']}.s3.example/{Params['Key']}?{urlencode(query)}"
+
+
 class FakeMailer:
     """Keeps the messages the app sends, so a test can follow the link in one."""
 
@@ -358,7 +445,9 @@ def _schema():
 
 @pytest.fixture
 def services() -> Services:
-    return Services(llm=FakeLLM(), embedder=FakeEmbedder())
+    return Services(
+        llm=FakeLLM(), embedder=FakeEmbedder(), storage=storage_from_settings(get_settings())
+    )
 
 
 @pytest.fixture
@@ -366,8 +455,9 @@ def session():
     with SessionLocal() as session_:
         session_.execute(text("TRUNCATE projects, organizations, users RESTART IDENTITY CASCADE"))
         session_.commit()
-        # Ids start over, so rendered pages cached for an earlier test's documents must go too.
-        shutil.rmtree(get_settings().pages_dir, ignore_errors=True)
+        # Ids start over, so the files and rendered pages of an earlier test's documents would
+        # be served for a new test's; the storage is emptied with the tables.
+        shutil.rmtree(STORAGE_ROOT, ignore_errors=True)
         yield session_
 
 
@@ -412,8 +502,9 @@ def act_as(client):
 
 
 @pytest.fixture
-def make_document(session, account):
-    """Register a file as a queued document, creating a project unless one is given."""
+def make_document(session, account, services):
+    """Store a file as a queued document, creating a project unless one is given: what an
+    upload does, without the request."""
 
     def make(path: Path, filename: str | None = None, project: Project | None = None) -> Document:
         if project is None:
@@ -421,17 +512,21 @@ def make_document(session, account):
             session.add(project)
             session.flush()
         data = path.read_bytes()
+        suffix = Path(filename or path.name).suffix.lower()
         document = Document(
             project_id=project.id,
             filename=filename or path.name,
-            mime_type="application/octet-stream",
+            mime_type=MIME_TYPES.get(suffix, "application/octet-stream"),
             size_bytes=len(data),
             sha256=hashlib.sha256(data).hexdigest(),
-            storage_path=str(path),
+            storage_key="",
             status="queued",
             stages={},
         )
         session.add(document)
+        session.flush()
+        document.storage_key = original_key(project.org_id, project.id, document.id, suffix)
+        services.storage.put(document.storage_key, path, document.mime_type)
         session.commit()
         return document
 

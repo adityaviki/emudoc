@@ -17,7 +17,10 @@ from sqlalchemy import inspect, text
 from app.config import get_settings
 from app.db import MIGRATION_LOCK, UPGRADE_COMMAND, Base, alembic_config, check_schema, engine
 from app.main import create_app
-from tests.conftest import build_schema, drop_schema
+from tests.conftest import STORAGE_ROOT, build_schema, drop_schema
+
+INITIAL_SCHEMA = "bedb624406a6"
+PASSAGE_LANGUAGE = "27bd56b4a29e"
 
 
 def current_revision() -> str | None:
@@ -80,7 +83,10 @@ def test_passages_keep_the_language_their_text_index_was_built_with(
     # Going back to that revision and forward again, the rows get the configured language,
     # which is the one their index was built with; new rows default to English.
     monkeypatch.setattr(get_settings(), "fts_language", "simple")
-    command.downgrade(alembic_config(), "-1")
+    # The migrations on the way back alter tables this session has read, which needs its open
+    # transaction to end first.
+    session.rollback()
+    command.downgrade(alembic_config(), INITIAL_SCHEMA)
     with engine.connect() as connection:
         columns = {column["name"] for column in inspect(connection).get_columns("passages")}
     assert "language" not in columns
@@ -98,6 +104,26 @@ def test_passages_keep_the_language_their_text_index_was_built_with(
         assert connection.scalar(
             text("SELECT count(*) FROM passages WHERE tsv @@ plainto_tsquery('simple', 'notice')")
         )
+
+
+def test_documents_get_keys_from_their_old_paths(rebuilt_afterwards, indexed, session):
+    # Before storage keys, `storage_path` was the absolute path of the original under the data
+    # directory. Going back gives the row that path, and coming forward derives the key from
+    # the organisation, the ids and the extension.
+    key, project_id, document_id = indexed.storage_key, indexed.project_id, indexed.id
+    assert key == f"orgs/1/projects/{project_id}/documents/{document_id}/original.pdf"
+    # Renaming the column needs an exclusive lock, so this session's open transaction ends first.
+    session.rollback()
+    command.downgrade(alembic_config(), PASSAGE_LANGUAGE)
+    with engine.connect() as connection:
+        columns = {column["name"] for column in inspect(connection).get_columns("documents")}
+        assert "storage_key" not in columns and "storage_path" in columns
+        path = connection.scalar(text("SELECT storage_path FROM documents"))
+    assert path == str(STORAGE_ROOT / "files" / str(project_id) / str(document_id) / "original.pdf")
+
+    command.upgrade(alembic_config(), "head")
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT storage_key FROM documents")) == key
 
 
 def test_database_made_before_migrations_cannot_be_upgraded(rebuilt_afterwards):
