@@ -52,7 +52,7 @@ from sqlalchemy import text  # noqa: E402
 from app.accounts import Account, local_account  # noqa: E402
 from app.api.deps import SAME_APP_HEADER, SessionDep, get_account  # noqa: E402
 from app.config import get_settings  # noqa: E402
-from app.db import Base, SessionLocal, engine, init_db  # noqa: E402
+from app.db import Base, SessionLocal, engine, migrate  # noqa: E402
 from app.embeddings import EmbeddingError  # noqa: E402
 from app.indexing.enrich import (  # noqa: E402
     DocumentAnalysis,
@@ -278,12 +278,19 @@ class FakeTurn:
         )
 
 
+def drop_schema() -> None:
+    """Empty the test database of tables, so the migrations build the schema from nothing."""
+    with engine.begin() as connection:
+        Base.metadata.drop_all(connection)
+        connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _schema():
-    init_db()
-    # Rebuild from the current models: create_all never alters a table that already exists.
-    Base.metadata.drop_all(engine)
-    init_db()
+    # The tests run against the schema the migrations make, as a deployment does, not against
+    # `create_all`: a model change without its migration fails here.
+    drop_schema()
+    migrate()
     yield
     engine.dispose()
 

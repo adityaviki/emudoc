@@ -58,6 +58,11 @@ Open <http://127.0.0.1:8000> and create an account. The backend serves the API a
 frontend. To skip signing in while developing on your own machine, put `LOCAL_ACCOUNT=true` in
 `.env`: every request then acts as a local owner account.
 
+The backend brings the database schema up to date when it starts, from the migrations in
+`backend/migrations/`. A database made by an earlier version, before there were migrations, is
+taken over as it is; one older than the accounts tables cannot be, and the backend says so at
+start: reset it with `docker compose down -v`.
+
 For semantic search, run [Ollama](https://ollama.com) with `ollama pull nomic-embed-text`, or
 point `EMBEDDING_BASE_URL` at any OpenAI-compatible embeddings endpoint.
 
@@ -138,6 +143,8 @@ backend/app/
   mail.py       the emails the app sends
   api/          HTTP endpoints
   llm.py        every call to the AI model
+backend/migrations/
+                the database schema as Alembic migrations, one file per change
 frontend/src/
   pages/        the Projects page and the Workspace (two panes)
   workspace/    the library, tabs, document viewers and the chat pane
@@ -152,6 +159,4 @@ frontend/src/
 - Invitations: an organisation has the one member who created it until the invitation routes
   and the page that accepts them exist; the roles (viewers read, members change, a chat is
   private until shared) are already enforced.
-- Schema migrations. Tables are created on start; after changing a table, reset the database
-  with `docker compose down -v`.
 - More file types (slides, email, legacy .doc and .xls), and reading order for multi-column PDFs.

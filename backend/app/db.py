@@ -1,19 +1,38 @@
+"""The database engine, the base every table derives from, and the schema's upkeep at start."""
+
 import logging
 from collections.abc import Iterator
 
-from sqlalchemy import create_engine, text
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import MetaData, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-from app.config import get_settings
+from app.config import BACKEND_DIR, get_settings
 
 log = logging.getLogger(__name__)
 
 engine = create_engine(get_settings().database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
 
+# Constraints are named the way Postgres names them when left unnamed, so a migration can name
+# the constraint it drops, and a database made before there were migrations needs no renaming.
+# Check constraints are named by hand in models.py.
+NAMING_CONVENTION = {
+    "ix": "ix_%(column_0_label)s",
+    "uq": "%(table_name)s_%(column_0_N_name)s_key",
+    "fk": "%(table_name)s_%(column_0_N_name)s_fkey",
+    "pk": "%(table_name)s_pkey",
+}
+
+MIGRATIONS_DIR = BACKEND_DIR / "migrations"
+# The migration whose tables a database made by `create_all`, before there were migrations,
+# already has.
+FIRST_REVISION = "bedb624406a6"
+
 
 class Base(DeclarativeBase):
-    pass
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
 def get_session() -> Iterator[Session]:
@@ -21,24 +40,38 @@ def get_session() -> Iterator[Session]:
         yield session
 
 
-def init_db() -> None:
+def alembic_config() -> Config:
+    """Alembic set up for this backend, wherever the process was started from."""
+    config = Config(BACKEND_DIR / "alembic.ini")
+    config.set_main_option("script_location", str(MIGRATIONS_DIR))
+    return config
+
+
+def migrate() -> None:
+    """Apply the migrations the database has not seen yet.
+
+    Before there were migrations the tables came from `create_all`, and every change to a table
+    meant a reset, so a database that has all the tables but no version is at the first
+    migration and is stamped as such. One that has only some of them is older than that and
+    cannot be upgraded; the error says to reset it.
+    """
     from app import models  # noqa: F401  (registers the tables on Base.metadata)
 
-    with engine.begin() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-    Base.metadata.create_all(engine)
-    with engine.begin() as conn:
-        # create_all never alters a table that exists: databases made before folders arrived
-        # get the column here.
-        conn.execute(
-            text(
-                "ALTER TABLE documents ADD COLUMN IF NOT EXISTS folder_id INTEGER "
-                "REFERENCES folders(id) ON DELETE CASCADE"
-            )
-        )
-        conn.execute(
-            text("CREATE INDEX IF NOT EXISTS ix_documents_folder_id ON documents (folder_id)")
-        )
+    config = alembic_config()
+    with engine.begin() as connection:
+        config.attributes["connection"] = connection
+        tables = set(inspect(connection).get_table_names())
+        if tables and "alembic_version" not in tables:
+            missing = sorted(set(Base.metadata.tables) - tables)
+            if missing:
+                raise RuntimeError(
+                    "The database was made by an older version of Emudoc and lacks the tables "
+                    f"{', '.join(missing)}, so it cannot be upgraded. Reset it with "
+                    "`docker compose down -v` and start the app again."
+                )
+            log.info("Recording a database made before migrations as revision %s", FIRST_REVISION)
+            command.stamp(config, FIRST_REVISION)
+        command.upgrade(config, "head")
 
 
 def reconcile_embeddings() -> int:

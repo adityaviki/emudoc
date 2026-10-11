@@ -10,7 +10,7 @@ from sqlalchemy import text
 from app.api import auth, chats, documents, folders, projects, query
 from app.api.deps import AccountDep, ServicesDep, SessionDep, refuse_cross_site
 from app.config import ROOT_DIR, export_env_file, get_settings
-from app.db import init_db, reconcile_embeddings
+from app.db import migrate, reconcile_embeddings
 from app.embeddings import Embedder
 from app.indexing.pipeline import Services
 from app.indexing.worker import Worker
@@ -63,7 +63,7 @@ def create_app(
     async def lifespan(app: FastAPI):
         settings.files_dir.mkdir(parents=True, exist_ok=True)
         settings.pages_dir.mkdir(parents=True, exist_ok=True)
-        init_db()
+        migrate()
         reconcile_embeddings()
         if services is None:
             export_env_file()
