@@ -200,8 +200,12 @@ def _storage_path(client, document_id) -> str:
         return session.get(Document, document_id).storage_path
 
 
-def test_health_reports_what_is_missing(client, services):
-    health = client.get("/api/health").json()
+def test_health_says_only_that_the_app_is_up(client):
+    assert client.get("/api/health").json() == {"status": "ok"}
+
+
+def test_status_reports_what_is_missing(client, services):
+    health = client.get("/api/status").json()
     assert health["llm"] == {
         "available": True,
         "agent_model": "google:gemini-2.5-flash-lite",
@@ -212,7 +216,7 @@ def test_health_reports_what_is_missing(client, services):
 
     services.embedder.fail = True
     services.llm.available = False
-    health = client.get("/api/health").json()
+    health = client.get("/api/status").json()
     assert health["llm"]["available"] is False
     assert health["llm"]["error"] == MISSING_KEY
     assert health["embeddings"] == {

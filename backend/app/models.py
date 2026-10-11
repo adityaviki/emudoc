@@ -4,6 +4,7 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Computed,
     Date,
     DateTime,
@@ -26,18 +27,246 @@ _settings = get_settings()
 _fts = _settings.fts_language
 
 STAGES = ("parse", "structure", "enrich", "embed")
+# From most to least permitted: each role may do everything the roles after it may.
+ROLES = ("owner", "admin", "member", "viewer")
+# A chat is private to the member who started it until they share it with the project.
+CHAT_VISIBILITIES = ("private", "project")
+
+
+def _one_of(column: str, values: tuple[str, ...], table: str) -> CheckConstraint:
+    # A misspelt role or visibility would otherwise grant nothing silently, or show a chat to
+    # nobody, so the database refuses it.
+    allowed = ", ".join(f"'{value}'" for value in values)
+    return CheckConstraint(f"{column} IN ({allowed})", name=f"ck_{table}_{column}")
+
+
+def _role_check(table: str) -> CheckConstraint:
+    return _one_of("role", ROLES, table)
+
+
+class User(Base):
+    """A person who signs in. What they may see follows from their organisation memberships."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Lower-cased before it is stored, so sign-in and invitations match however it was typed.
+    email: Mapped[str] = mapped_column(String(320), unique=True)
+    name: Mapped[str] = mapped_column(String(200), default="")
+    # Null for accounts that only sign in through an identity provider.
+    password_hash: Mapped[str | None] = mapped_column(Text)
+    email_verified_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    # Two-factor sign-in with an authenticator app. The secret is set when setup starts and
+    # counts only once `totp_enabled_at` is set by a correct code; the step of the last accepted
+    # code is kept so that a code cannot be used twice.
+    totp_secret: Mapped[str | None] = mapped_column(String(64))
+    totp_enabled_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    totp_last_step: Mapped[int | None] = mapped_column(BigInteger)
+    # SHA-256 hashes of the one-time codes that replace the authenticator when it is lost.
+    recovery_code_hashes: Mapped[list] = mapped_column(JSONB, default=list)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    memberships: Mapped[list["Membership"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", passive_deletes=True
+    )
+    identities: Mapped[list["Identity"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+    @property
+    def mfa_enabled(self) -> bool:
+        return self.totp_enabled_at is not None
+
+
+class Identity(Base):
+    """A sign-in through an identity provider, tied to the subject the provider issues.
+
+    The subject, not the email, names the person: an email can change hands at the provider,
+    a subject never does.
+    """
+
+    __tablename__ = "identities"
+    __table_args__ = (UniqueConstraint("provider", "subject"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # google | microsoft
+    provider: Mapped[str] = mapped_column(String(40))
+    subject: Mapped[str] = mapped_column(String(255))
+    # The address the provider reported at the last sign-in, for the account's security view.
+    email: Mapped[str] = mapped_column(String(320), default="")
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    user: Mapped[User] = relationship(back_populates="identities")
+
+
+# What a one-time link does when it is opened.
+AUTH_TOKEN_PURPOSES = ("verify_email", "reset_password")
+
+
+class AuthToken(Base):
+    """A one-time link sent by email: to confirm an address or to reset a password.
+
+    The link carries a random token; only its SHA-256 is stored, as for sessions.
+    """
+
+    __tablename__ = "auth_tokens"
+    __table_args__ = (_one_of("purpose", AUTH_TOKEN_PURPOSES, "auth_tokens"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    purpose: Mapped[str] = mapped_column(String(20))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    # The address the link was sent to, which a verification confirms.
+    email: Mapped[str] = mapped_column(String(320))
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class Organization(Base):
+    """The tenant. Projects belong to an organisation, and so do its plan, usage and billing."""
+
+    __tablename__ = "organizations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    # Appears in URLs and API responses, so it is unique across all tenants.
+    slug: Mapped[str] = mapped_column(String(100), unique=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    memberships: Mapped[list["Membership"]] = relationship(
+        back_populates="organization", cascade="all, delete-orphan", passive_deletes=True
+    )
+    projects: Mapped[list["Project"]] = relationship(
+        back_populates="organization", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class Membership(Base):
+    """A user's role in an organisation; one row per user and organisation."""
+
+    __tablename__ = "memberships"
+    __table_args__ = (UniqueConstraint("org_id", "user_id"), _role_check("memberships"))
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    role: Mapped[str] = mapped_column(String(20))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    organization: Mapped[Organization] = relationship(back_populates="memberships")
+    user: Mapped[User] = relationship(back_populates="memberships")
+
+
+class Invitation(Base):
+    """An invitation to join an organisation: sent by email, accepted through a link."""
+
+    __tablename__ = "invitations"
+    __table_args__ = (_role_check("invitations"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    role: Mapped[str] = mapped_column(String(20), default="member")
+    # The link carries a random token; only its SHA-256 is stored, as for sessions and API keys,
+    # so a copy of the database cannot be used to accept, sign in or call the API.
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    invited_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    accepted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class UserSession(Base):
+    """A signed-in browser or device. The cookie holds a random token; only its hash is stored."""
+
+    __tablename__ = "sessions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    # True between a correct password and the authenticator code that must follow it: the
+    # session exists, but grants nothing until the code is entered.
+    needs_mfa: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Shown in the session list so the user can tell which device to revoke.
+    user_agent: Mapped[str] = mapped_column(String(500), default="")
+    ip: Mapped[str | None] = mapped_column(String(45))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    last_seen_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ApiKey(Base):
+    """A key for programmatic access to an organisation's projects.
+
+    Only the hash is stored; the prefix is shown in the UI so one key can be told from another.
+    """
+
+    __tablename__ = "api_keys"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    name: Mapped[str] = mapped_column(String(200))
+    key_prefix: Mapped[str] = mapped_column(String(12))
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    # Scope names the key is limited to; empty means the whole API its organisation may use.
+    scopes: Mapped[list] = mapped_column(JSONB, default=list)
+    last_used_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class Project(Base):
+    """A set of documents and the chats about them. Everything below it is scoped by project."""
+
     __tablename__ = "projects"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # The tenant: every read of the project's documents, passages, facts and chats checks this.
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 
+    organization: Mapped[Organization] = relationship(back_populates="projects")
     documents: Mapped[list["Document"]] = relationship(
         back_populates="project", cascade="all, delete-orphan", passive_deletes=True
     )
@@ -229,11 +458,16 @@ class Chat(Base):
     """A conversation with the agent about one project's documents."""
 
     __tablename__ = "chats"
+    __table_args__ = (_one_of("visibility", CHAT_VISIBILITIES, "chats"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), index=True
     )
+    # Who started the chat. A private chat is theirs alone, so it goes when their account does.
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # private | project
+    visibility: Mapped[str] = mapped_column(String(20), default="private")
     # Taken from the first question, until the user renames the chat.
     title: Mapped[str] = mapped_column(String(200), default="")
     created_at: Mapped[dt.datetime] = mapped_column(

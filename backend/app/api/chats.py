@@ -8,14 +8,14 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.agent.loop import run_agent
-from app.api.deps import ChatDep, ProjectDep, ServicesDep, SessionDep
+from app.api.deps import AccountDep, ChatDep, OwnChatDep, ProjectDep, ServicesDep, SessionDep
 from app.db import SessionLocal
 from app.indexing.pipeline import Services
 from app.models import Chat, ChatMessage, Project
-from app.schemas import ChatDetail, ChatOut, ChatTitle, QuestionIn
+from app.schemas import ChatDetail, ChatOut, ChatPatch, QuestionIn
 
 log = logging.getLogger(__name__)
 
@@ -25,17 +25,21 @@ TITLE_LENGTH = 60
 
 
 @router.get("/projects/{project_id}/chats", response_model=list[ChatOut])
-def list_chats(project: ProjectDep, session: SessionDep):
+def list_chats(project: ProjectDep, session: SessionDep, account: AccountDep):
+    """The caller's own chats in the project, and the ones other members shared with it."""
     return session.scalars(
         select(Chat)
-        .where(Chat.project_id == project.id)
+        .where(
+            Chat.project_id == project.id,
+            or_(Chat.user_id == account.user.id, Chat.visibility == "project"),
+        )
         .order_by(Chat.updated_at.desc(), Chat.id.desc())
     ).all()
 
 
 @router.post("/projects/{project_id}/chats", response_model=ChatOut, status_code=201)
-def create_chat(project: ProjectDep, session: SessionDep):
-    chat = Chat(project_id=project.id)
+def create_chat(project: ProjectDep, session: SessionDep, account: AccountDep):
+    chat = Chat(project_id=project.id, user_id=account.user.id)
     session.add(chat)
     session.commit()
     return chat
@@ -47,20 +51,24 @@ def get_chat(chat: ChatDep):
 
 
 @router.patch("/chats/{chat_id}", response_model=ChatOut)
-def rename_chat(chat: ChatDep, body: ChatTitle, session: SessionDep):
-    chat.title = body.title.strip()
+def update_chat(chat: OwnChatDep, body: ChatPatch, session: SessionDep):
+    """Rename the chat, or share it with the project and take it private again."""
+    if body.title is not None:
+        chat.title = body.title.strip()
+    if body.visibility is not None:
+        chat.visibility = body.visibility
     session.commit()
     return chat
 
 
 @router.delete("/chats/{chat_id}", status_code=204)
-def delete_chat(chat: ChatDep, session: SessionDep):
+def delete_chat(chat: OwnChatDep, session: SessionDep):
     session.delete(chat)
     session.commit()
 
 
 @router.post("/chats/{chat_id}/messages")
-def ask(chat: ChatDep, body: QuestionIn, session: SessionDep, services: ServicesDep):
+def ask(chat: OwnChatDep, body: QuestionIn, session: SessionDep, services: ServicesDep):
     """Add a question to the chat and answer it, streamed as server-sent events."""
     question = body.content.strip()
     if not question:

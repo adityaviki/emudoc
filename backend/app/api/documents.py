@@ -9,11 +9,20 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from pypdfium2 import PdfiumError
 from sqlalchemy import func, select
 
-from app.api.deps import DocumentDep, ProjectDep, SessionDep, Stage, WorkerDep
+from app.api.deps import (
+    DocumentDep,
+    EditableDocumentDep,
+    EditableProjectDep,
+    PassageDep,
+    ProjectDep,
+    SessionDep,
+    Stage,
+    WorkerDep,
+)
 from app.api.folders import folder_paths, resolve_folder
 from app.config import get_settings
 from app.indexing.pipeline import reset_stages
-from app.models import STAGES, Block, Document, Fact, Passage, Project, Section
+from app.models import STAGES, Block, Document, Fact, Project, Section
 from app.parsing import IMAGE_TYPES, SUPPORTED_EXTENSIONS
 from app.parsing.pdf import render_page, render_thumbnail
 from app.schemas import (
@@ -52,7 +61,7 @@ def list_documents(project: ProjectDep, session: SessionDep):
 
 @router.post("/projects/{project_id}/documents", response_model=UploadResult, status_code=201)
 def upload_documents(
-    project: ProjectDep,
+    project: EditableProjectDep,
     files: list[UploadFile],
     session: SessionDep,
     worker: WorkerDep,
@@ -142,7 +151,7 @@ def get_document(document: DocumentDep):
 
 
 @router.patch("/documents/{document_id}", response_model=DocumentOut)
-def update_document(document: DocumentDep, body: DocumentPatch, session: SessionDep):
+def update_document(document: EditableDocumentDep, body: DocumentPatch, session: SessionDep):
     """Rename the document, move it to another folder, or both."""
     project = session.get(Project, document.project_id)
     folder_id = document.folder_id
@@ -201,7 +210,7 @@ def unique_filename(session: SessionDep, project_id: int, folder_id: int | None,
 
 
 @router.delete("/documents/{document_id}", status_code=204)
-def delete_document(document: DocumentDep, session: SessionDep):
+def delete_document(document: EditableDocumentDep, session: SessionDep):
     settings = get_settings()
     session.delete(document)
     session.commit()
@@ -211,7 +220,7 @@ def delete_document(document: DocumentDep, session: SessionDep):
 
 @router.post("/documents/{document_id}/reprocess", response_model=DocumentOut, status_code=202)
 def reprocess_document(
-    document: DocumentDep,
+    document: EditableDocumentDep,
     session: SessionDep,
     worker: WorkerDep,
     from_stage: Stage = "parse",
@@ -320,10 +329,7 @@ def get_document_facts(document: DocumentDep, session: SessionDep):
 
 
 @router.get("/passages/{passage_id}", response_model=PassageOut)
-def get_passage(passage_id: int, session: SessionDep):
-    passage = session.get(Passage, passage_id)
-    if passage is None:
-        raise HTTPException(404, "Passage not found")
+def get_passage(passage: PassageDep, session: SessionDep):
     document = session.get(Document, passage.document_id)
     return PassageOut(
         id=passage.id,

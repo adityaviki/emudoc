@@ -34,8 +34,10 @@ def test_section_titles_are_searchable_through_the_path(session, services, index
     assert result.hits[0].context.endswith("1.1 Interpretation")
 
 
-def test_results_never_cross_projects(session, services, make_document, indexed, sample_docx):
-    other = Project(name="Other")
+def test_results_never_cross_projects(
+    session, services, account, make_document, indexed, sample_docx
+):
+    other = Project(org_id=account.organization.id, name="Other")
     session.add(other)
     session.flush()
     policy = make_document(sample_docx, project=other)

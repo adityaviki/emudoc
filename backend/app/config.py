@@ -41,6 +41,32 @@ class Settings(BaseSettings):
     fts_language: str = "english"
     worker_concurrency: int = 2
 
+    # Development on one machine: a request that carries no session acts as the local owner
+    # account. Off, every request must be signed in. Becomes false by default once the sign-in
+    # pages exist.
+    local_account: bool = True
+    # Where the app is reached, for the links in emails and the OAuth redirect URI. Empty takes
+    # the origin of the request that needs it, which is right in development.
+    app_url: str = ""
+    session_days: int = 30
+
+    # Verification and password-reset mail. Empty SMTP_URL writes the messages to the log,
+    # which is enough to click the links in development. Otherwise smtp://user:pass@host:587
+    # (STARTTLS) or smtps://user:pass@host:465 (TLS).
+    smtp_url: str = ""
+    mail_from: str = "Emudoc <no-reply@localhost>"
+
+    # Sign-in with Google and Microsoft: an OAuth client per provider, registered with the
+    # redirect URI {APP_URL}/api/auth/oauth/{provider}/callback. A provider without an id is
+    # not offered.
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+    microsoft_oauth_client_id: str = ""
+    microsoft_oauth_client_secret: str = ""
+    # "common" accepts work, school and personal accounts; a tenant id restricts sign-in to
+    # that organisation's directory.
+    microsoft_oauth_tenant: str = "common"
+
     @field_validator("fts_language")
     @classmethod
     def _plain_identifier(cls, value: str) -> str:

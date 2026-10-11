@@ -187,8 +187,8 @@ def test_query_facts(session, services, indexed):
     assert "not a date" in query_facts(ctx, QueryFactsInput(date_from="March"))
 
 
-def test_tools_cannot_reach_another_project(session, services, indexed):
-    other = Project(name="Other")
+def test_tools_cannot_reach_another_project(session, services, account, indexed):
+    other = Project(org_id=account.organization.id, name="Other")
     session.add(other)
     session.commit()
     ctx = ToolContext(session, services.embedder, other.id)

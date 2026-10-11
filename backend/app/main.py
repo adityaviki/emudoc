@@ -1,19 +1,22 @@
 import logging
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
-from app.api import chats, documents, folders, projects, query
-from app.api.deps import ServicesDep
+from app.api import auth, chats, documents, folders, projects, query
+from app.api.deps import AccountDep, ServicesDep, SessionDep
 from app.config import ROOT_DIR, export_env_file, get_settings
 from app.db import init_db, reconcile_embeddings
 from app.embeddings import Embedder
 from app.indexing.pipeline import Services
 from app.indexing.worker import Worker
 from app.llm import LLM
-from app.schemas import EmbeddingStatus, HealthOut, LLMStatus
+from app.mail import Mailer, mailer_from_settings
+from app.schemas import EmbeddingStatus, HealthOut, LLMStatus, StatusOut
 
 FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
 
@@ -21,12 +24,22 @@ system = APIRouter(tags=["system"])
 
 
 @system.get("/health", response_model=HealthOut)
-def health(services: ServicesDep):
+def health(session: SessionDep):
+    """Whether the app can serve requests, for load balancers and uptime checks.
+
+    It says nothing else: this route is public, so it must not reveal how the app is set up.
+    """
+    session.execute(text("SELECT 1"))
+    return HealthOut(status="ok")
+
+
+@system.get("/status", response_model=StatusOut)
+def status(services: ServicesDep, account: AccountDep):
     """Report which optional services are usable, so the UI can say what is missing."""
     settings = get_settings()
     error = services.embedder.check()
     problem = services.llm.problem()
-    return HealthOut(
+    return StatusOut(
         llm=LLMStatus(
             available=problem is None,
             agent_model=settings.agent_model,
@@ -37,7 +50,13 @@ def health(services: ServicesDep):
     )
 
 
-def create_app(services: Services | None = None, start_worker: bool = True) -> FastAPI:
+def create_app(
+    services: Services | None = None,
+    start_worker: bool = True,
+    mailer: Mailer | None = None,
+    http: httpx.Client | None = None,
+) -> FastAPI:
+    """The application. Tests pass fakes for the services, the mailer and the outbound client."""
     settings = get_settings()
 
     @asynccontextmanager
@@ -49,6 +68,8 @@ def create_app(services: Services | None = None, start_worker: bool = True) -> F
         if services is None:
             export_env_file()
         app.state.services = services or Services(LLM(settings), Embedder(settings))
+        app.state.mailer = mailer or mailer_from_settings(settings)
+        app.state.http = http or httpx.Client(timeout=10)
         app.state.worker = None
         if start_worker:
             app.state.worker = Worker(app.state.services, settings.worker_concurrency)
@@ -56,10 +77,12 @@ def create_app(services: Services | None = None, start_worker: bool = True) -> F
         yield
         if app.state.worker:
             app.state.worker.stop()
+        app.state.http.close()
 
     app = FastAPI(title="Emudoc", lifespan=lifespan)
     for router in (
         system,
+        auth.router,
         projects.router,
         folders.router,
         documents.router,

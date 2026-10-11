@@ -35,12 +35,18 @@ def test_chat_crud(client, indexed):
 
     chat = new_chat(client, project_id)
     assert chat["title"] == "" and chat["project_id"] == project_id
+    assert chat["visibility"] == "private"
     assert client.get(f"/api/chats/{chat['id']}").json()["messages"] == []
     assert [c["id"] for c in client.get(f"/api/projects/{project_id}/chats").json()] == [chat["id"]]
 
     renamed = client.patch(f"/api/chats/{chat['id']}", json={"title": "Notice periods"}).json()
     assert renamed["title"] == "Notice periods"
     assert client.patch(f"/api/chats/{chat['id']}", json={"title": ""}).status_code == 422
+
+    shared = client.patch(f"/api/chats/{chat['id']}", json={"visibility": "project"}).json()
+    assert shared["visibility"] == "project" and shared["title"] == "Notice periods"
+    public = client.patch(f"/api/chats/{chat['id']}", json={"visibility": "public"})
+    assert public.status_code == 422
 
     assert client.delete(f"/api/chats/{chat['id']}").status_code == 204
     assert client.get(f"/api/chats/{chat['id']}").status_code == 404
@@ -101,9 +107,9 @@ def test_the_latest_chat_comes_first_and_long_titles_are_cut(client, services, i
     assert listed[0]["title"] == "Please list every payment obligation in the agreement and…"
 
 
-def test_a_stopped_answer_keeps_what_arrived(session, services, indexed):
+def test_a_stopped_answer_keeps_what_arrived(session, services, account, indexed):
     services.llm.agent_turns = [FakeTurn(TextPart("The notice period "), TextPart("is 90 days."))]
-    chat = Chat(project_id=indexed.project_id, title="Notice")
+    chat = Chat(project_id=indexed.project_id, user_id=account.user.id, title="Notice")
     session.add(chat)
     session.flush()
     session.add(ChatMessage(chat_id=chat.id, role="user", content="Notice period?"))

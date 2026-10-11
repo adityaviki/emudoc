@@ -1,16 +1,46 @@
+"""What a request may touch: the account behind it, and the objects it may see or change.
+
+The account is the user the session cookie names, in their organisation. Without a valid
+session the request is refused, unless the local account is on for development, in which case
+it acts as the local owner.
+
+Every object is reached through the account's organisation: a project must belong to it, and a
+document, folder, passage or chat must lie in one of its projects. Anything else is reported as
+not found, so a guessed id reveals nothing about other tenants. A chat is also hidden from
+everyone but the member who started it until they share it with the project.
+
+Reading needs any role; changing something needs the member role or better, which the
+`Editable...` dependencies check after the object itself is found.
+"""
+
 from typing import Annotated, Literal
 
+import httpx
 from fastapi import Depends, HTTPException, Request
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.accounts import Account, account_for_user, local_account
+from app.auth import SESSION_COOKIE, find_session, touch_session
+from app.config import get_settings
 from app.db import get_session
 from app.indexing.pipeline import Services
 from app.indexing.worker import Worker
-from app.models import Chat, Document, Folder, Project
+from app.mail import Mailer
+from app.models import Chat, Document, Folder, Passage, Project, User
 
 SessionDep = Annotated[Session, Depends(get_session)]
 # The stage a reprocess run starts from; later stages run too.
 Stage = Literal["parse", "structure", "enrich", "embed"]
+
+SIGN_IN = "Sign in to continue."
+NO_ORGANISATION = (
+    "Your account is not a member of any organisation. Ask for an invitation, or contact support."
+)
+READ_ONLY = (
+    "Your role in this organisation is viewer, which can only read. "
+    "Ask an owner or admin of the organisation to make you a member."
+)
 
 
 def get_services(request: Request) -> Services:
@@ -21,39 +51,132 @@ def get_worker(request: Request) -> Worker | None:
     return request.app.state.worker
 
 
+def get_mailer(request: Request) -> Mailer:
+    return request.app.state.mailer
+
+
+def get_http(request: Request) -> httpx.Client:
+    """The client for calls the app makes to other services, such as the OAuth providers."""
+    return request.app.state.http
+
+
 ServicesDep = Annotated[Services, Depends(get_services)]
 WorkerDep = Annotated[Worker | None, Depends(get_worker)]
+MailerDep = Annotated[Mailer, Depends(get_mailer)]
+HttpDep = Annotated[httpx.Client, Depends(get_http)]
 
 
-def get_project(project_id: int, session: SessionDep) -> Project:
-    project = session.get(Project, project_id)
+def get_account(request: Request, session: SessionDep) -> Account:
+    """The organisation and user a request acts as: the session's user, or the local account."""
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        user_session = find_session(session, token)
+        # A session that still waits for the authenticator code grants nothing yet.
+        if user_session is not None and not user_session.needs_mfa:
+            user = session.get(User, user_session.user_id)
+            account = account_for_user(session, user, user_session.id)
+            if account is None:
+                raise HTTPException(403, NO_ORGANISATION)
+            touch_session(session, user_session)
+            return account
+    if get_settings().local_account:
+        return local_account(session)
+    raise HTTPException(401, SIGN_IN)
+
+
+AccountDep = Annotated[Account, Depends(get_account)]
+
+
+def get_editor(account: AccountDep) -> Account:
+    """The account, provided its role allows changing what the organisation holds."""
+    if not account.is_at_least("member"):
+        raise HTTPException(403, READ_ONLY)
+    return account
+
+
+EditorDep = Annotated[Account, Depends(get_editor)]
+
+
+def get_project(project_id: int, session: SessionDep, account: AccountDep) -> Project:
+    project = session.scalar(
+        select(Project).where(Project.id == project_id, Project.org_id == account.organization.id)
+    )
     if project is None:
         raise HTTPException(404, "Project not found")
     return project
 
 
-def get_document(document_id: int, session: SessionDep) -> Document:
-    document = session.get(Document, document_id)
+def get_document(document_id: int, session: SessionDep, account: AccountDep) -> Document:
+    document = _in_organization(session, account, Document, document_id)
     if document is None:
         raise HTTPException(404, "Document not found")
     return document
 
 
-def get_folder(folder_id: int, session: SessionDep) -> Folder:
-    folder = session.get(Folder, folder_id)
+def get_folder(folder_id: int, session: SessionDep, account: AccountDep) -> Folder:
+    folder = _in_organization(session, account, Folder, folder_id)
     if folder is None:
         raise HTTPException(404, "Folder not found")
     return folder
 
 
-def get_chat(chat_id: int, session: SessionDep) -> Chat:
-    chat = session.get(Chat, chat_id)
-    if chat is None:
+def get_passage(passage_id: int, session: SessionDep, account: AccountDep) -> Passage:
+    passage = _in_organization(session, account, Passage, passage_id)
+    if passage is None:
+        raise HTTPException(404, "Passage not found")
+    return passage
+
+
+def get_chat(chat_id: int, session: SessionDep, account: AccountDep) -> Chat:
+    chat = _in_organization(session, account, Chat, chat_id)
+    if chat is None or (chat.visibility == "private" and chat.user_id != account.user.id):
         raise HTTPException(404, "Chat not found")
     return chat
+
+
+def _in_organization[T: (Document, Folder, Passage, Chat)](
+    session: Session, account: Account, model: type[T], object_id: int
+) -> T | None:
+    """The row with this id, provided its project belongs to the account's organisation."""
+    return session.scalar(
+        select(model)
+        .join(Project, Project.id == model.project_id)
+        .where(model.id == object_id, Project.org_id == account.organization.id)
+    )
 
 
 ProjectDep = Annotated[Project, Depends(get_project)]
 DocumentDep = Annotated[Document, Depends(get_document)]
 FolderDep = Annotated[Folder, Depends(get_folder)]
+PassageDep = Annotated[Passage, Depends(get_passage)]
 ChatDep = Annotated[Chat, Depends(get_chat)]
+
+
+def get_editable_project(project: ProjectDep, account: AccountDep) -> Project:
+    get_editor(account)
+    return project
+
+
+def get_editable_document(document: DocumentDep, account: AccountDep) -> Document:
+    get_editor(account)
+    return document
+
+
+def get_editable_folder(folder: FolderDep, account: AccountDep) -> Folder:
+    get_editor(account)
+    return folder
+
+
+def get_own_chat(chat: ChatDep, account: AccountDep) -> Chat:
+    """The chat, for changing it or asking in it: a shared chat is still its starter's to run."""
+    if chat.user_id != account.user.id:
+        raise HTTPException(
+            403, "Only the member who started this chat can change it or ask in it."
+        )
+    return chat
+
+
+EditableProjectDep = Annotated[Project, Depends(get_editable_project)]
+EditableDocumentDep = Annotated[Document, Depends(get_editable_document)]
+EditableFolderDep = Annotated[Folder, Depends(get_editable_folder)]
+OwnChatDep = Annotated[Chat, Depends(get_own_chat)]

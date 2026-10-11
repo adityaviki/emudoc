@@ -86,6 +86,20 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
 - `AGENT_EFFORT` and `INDEX_EFFORT` set how hard a model thinks, for models that can.
 - `EMBEDDING_MODEL` and `EMBEDDING_DIM` select the embedding model. Changing either re-embeds
   every document on the next start.
+- Sign-in: `LOCAL_ACCOUNT` (true by default) lets a request without a session act as a local
+  owner account, for development on one machine; `SMTP_URL` sends the verification and reset
+  emails (without it they go to the log); `GOOGLE_OAUTH_CLIENT_ID` and
+  `MICROSOFT_OAUTH_CLIENT_ID` with their secrets offer sign-in with those providers.
+
+## Accounts
+
+Signing up with an email and a password makes a user and an organisation of their own, which
+they own; a verification link goes out by email. Sign-in sets a session cookie; the API lists a
+user's sessions and revokes any of them, resets a forgotten password by email, and can require a
+code from an authenticator app at sign-in (with recovery codes for a lost phone). Google and
+Microsoft accounts sign in through OpenID Connect and are linked to an existing account only when
+both sides have verified the address. The routes are under `/api/auth`; the pages that use them
+are not built yet, so by default a request without a session still acts as the local owner.
 
 ## Tests
 
@@ -95,8 +109,9 @@ cd frontend && pnpm lint && pnpm build
 ```
 
 The backend tests use a separate `emudoc_test` database and make no network calls: the AI
-model and the embedding model are replaced by stand-ins, and the requests to Gemini, Claude and
-OpenRouter are checked through their real SDKs against recorded responses.
+model, the embedding model, the mailer and the identity providers are replaced by stand-ins, and
+the requests to Gemini, Claude and OpenRouter are checked through their real SDKs against recorded
+responses.
 
 ## Layout
 
@@ -107,6 +122,10 @@ backend/app/
   search.py     hybrid search over passages
   folders.py    the folder tree as paths and subtrees
   agent/        the five tools and the tool-use loop
+  accounts.py   who a request acts as; signing up makes a user and their organisation
+  auth.py       passwords, sessions, one-time links and authenticator codes
+  oidc.py       sign-in with Google and Microsoft
+  mail.py       the emails the app sends
   api/          HTTP endpoints
   llm.py        every call to the AI model
 frontend/src/
@@ -118,7 +137,10 @@ frontend/src/
 
 ## Not built yet
 
-- Users and permissions. The app is single-user and has no login.
+- The sign-in pages. The API signs users in (see Accounts) and scopes every route to the
+  caller's organisation and role (viewers read, members change, a chat is private until
+  shared), but the frontend has no login, sign-up or verification pages yet, so it runs as the
+  local owner account.
 - Schema migrations. Tables are created on start; after changing a table, reset the database
   with `docker compose down -v`.
 - More file types (slides, email, legacy .doc and .xls), and reading order for multi-column PDFs.

@@ -1,13 +1,17 @@
 """Test setup: a separate database, a temporary data directory, and fake AI services."""
 
+import base64
 import hashlib
+import json
 import math
 import os
 import re
 import shutil
 import tempfile
 from pathlib import Path
+from urllib.parse import parse_qs, parse_qsl, urlsplit
 
+import httpx
 import psycopg
 import pytest
 
@@ -43,6 +47,8 @@ from pydantic_ai.messages import (  # noqa: E402
 from pydantic_ai.usage import RequestUsage  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
+from app.accounts import Account, local_account  # noqa: E402
+from app.api.deps import SessionDep, get_account  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.db import Base, SessionLocal, engine, init_db  # noqa: E402
 from app.embeddings import EmbeddingError  # noqa: E402
@@ -58,7 +64,7 @@ from app.indexing.enrich import (  # noqa: E402
 from app.indexing.pipeline import Services, process_document  # noqa: E402
 from app.llm import OcrBlock, OcrPage  # noqa: E402
 from app.main import create_app  # noqa: E402
-from app.models import Document, Project  # noqa: E402
+from app.models import Document, Membership, Organization, Project, User  # noqa: E402
 
 
 class FakeEmbedder:
@@ -193,6 +199,54 @@ class FakeLLM:
         return self.agent_turns.pop(0)
 
 
+class FakeMailer:
+    """Keeps the messages the app sends, so a test can follow the link in one."""
+
+    def __init__(self):
+        self.sent: list[tuple[str, str, str]] = []
+
+    def send(self, to: str, subject: str, body: str) -> None:
+        self.sent.append((to, subject, body))
+
+    def link(self, index: int = -1) -> str:
+        """The first link in a message's body, the last message by default."""
+        return re.search(r"https?://\S+", self.sent[index][2]).group()
+
+    def token(self, index: int = -1) -> str:
+        return parse_qs(urlsplit(self.link(index)).query)["token"][0]
+
+
+class FakeIdentityProvider:
+    """Stands in for Google's and Microsoft's token endpoints: hands out the claims it is told."""
+
+    def __init__(self):
+        self.claims: dict = {}
+        self.requests: list[dict[str, str]] = []
+        self.status = 200
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(dict(parse_qsl(request.content.decode())))
+        if self.status != 200:
+            return httpx.Response(self.status, json={"error": "invalid_grant"})
+        return httpx.Response(
+            200,
+            json={
+                "id_token": unsigned_jwt(self.claims),
+                "access_token": "x",
+                "token_type": "Bearer",
+            },
+        )
+
+
+def unsigned_jwt(claims: dict) -> str:
+    """A JWT with an empty signature: the app trusts the token endpoint, not the signature."""
+
+    def segment(obj: dict) -> str:
+        return base64.urlsafe_b64encode(json.dumps(obj).encode()).rstrip(b"=").decode()
+
+    return f"{segment({'alg': 'none'})}.{segment(claims)}."
+
+
 class FakeTurn:
     """One scripted model turn, shaped like `app.llm.ModelStream`."""
 
@@ -238,7 +292,7 @@ def services() -> Services:
 @pytest.fixture
 def session():
     with SessionLocal() as session_:
-        session_.execute(text("TRUNCATE projects RESTART IDENTITY CASCADE"))
+        session_.execute(text("TRUNCATE projects, organizations, users RESTART IDENTITY CASCADE"))
         session_.commit()
         # Ids start over, so rendered pages cached for an earlier test's documents must go too.
         shutil.rmtree(get_settings().pages_dir, ignore_errors=True)
@@ -246,12 +300,52 @@ def session():
 
 
 @pytest.fixture
-def make_document(session):
+def account(session) -> Account:
+    """The local organisation and owner that the API acts as while there is no sign-in."""
+    return local_account(session)
+
+
+@pytest.fixture
+def make_account(session):
+    """A user with a role in an organisation: a new one, or the one given."""
+
+    def make(email: str, organization: Organization | None = None, role: str = "owner") -> Account:
+        user = User(email=email, name=email.split("@")[0].title())
+        if organization is None:
+            slug = email.split("@")[1].split(".")[0]
+            organization = Organization(name=slug.title(), slug=slug)
+        session.add_all([user, organization])
+        session.flush()
+        session.add(Membership(org_id=organization.id, user_id=user.id, role=role))
+        session.commit()
+        return Account(organization, user, role)
+
+    return make
+
+
+@pytest.fixture
+def act_as(client):
+    """Make the API act as the given account instead of the local one, as sign-in will."""
+
+    def act_as(account: Account) -> None:
+        org_id, user_id, role = account.organization.id, account.user.id, account.role
+
+        def signed_in(session: SessionDep) -> Account:
+            return Account(session.get(Organization, org_id), session.get(User, user_id), role)
+
+        client.app.dependency_overrides[get_account] = signed_in
+
+    yield act_as
+    client.app.dependency_overrides.pop(get_account, None)
+
+
+@pytest.fixture
+def make_document(session, account):
     """Register a file as a queued document, creating a project unless one is given."""
 
     def make(path: Path, filename: str | None = None, project: Project | None = None) -> Document:
         if project is None:
-            project = Project(name="Test project")
+            project = Project(org_id=account.organization.id, name="Test project")
             session.add(project)
             session.flush()
         data = path.read_bytes()
@@ -282,9 +376,28 @@ def indexed(session, services, make_document, sample_pdf) -> Document:
 
 
 @pytest.fixture
-def client(services, session):
-    with TestClient(create_app(services=services, start_worker=False)) as test_client:
+def mailer() -> FakeMailer:
+    return FakeMailer()
+
+
+@pytest.fixture
+def identity_provider() -> FakeIdentityProvider:
+    return FakeIdentityProvider()
+
+
+@pytest.fixture
+def client(services, session, mailer, identity_provider):
+    http = httpx.Client(transport=httpx.MockTransport(identity_provider.handler))
+    app = create_app(services=services, start_worker=False, mailer=mailer, http=http)
+    with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def signed_in_only(monkeypatch):
+    """Require a session on every request, as production does; development falls back to the
+    local account instead."""
+    monkeypatch.setattr(get_settings(), "local_account", False)
 
 
 @pytest.fixture(scope="session")

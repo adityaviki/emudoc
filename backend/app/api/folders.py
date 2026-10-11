@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import FolderDep, ProjectDep, SessionDep
+from app.api.deps import EditableFolderDep, EditableProjectDep, ProjectDep, SessionDep
 from app.config import get_settings
 from app.folders import PATH_SEPARATOR, folder_paths, subtree_ids
 from app.models import Document, Folder, Project
@@ -27,7 +27,7 @@ def list_folders(project: ProjectDep, session: SessionDep):
 
 
 @router.post("/projects/{project_id}/folders", response_model=FolderOut, status_code=201)
-def create_folder(project: ProjectDep, body: FolderIn, session: SessionDep):
+def create_folder(project: EditableProjectDep, body: FolderIn, session: SessionDep):
     parent = resolve_folder(session, project, body.parent_id)
     name = clean_name(body.name)
     check_folder_name(session, project.id, parent.id if parent else None, name)
@@ -38,7 +38,7 @@ def create_folder(project: ProjectDep, body: FolderIn, session: SessionDep):
 
 
 @router.patch("/folders/{folder_id}", response_model=FolderOut)
-def update_folder(folder: FolderDep, body: FolderPatch, session: SessionDep):
+def update_folder(folder: EditableFolderDep, body: FolderPatch, session: SessionDep):
     """Rename the folder, move it, or both."""
     project = session.get(Project, folder.project_id)
     parent_id = folder.parent_id
@@ -56,7 +56,7 @@ def update_folder(folder: FolderDep, body: FolderPatch, session: SessionDep):
 
 
 @router.delete("/folders/{folder_id}", status_code=204)
-def delete_folder(folder: FolderDep, session: SessionDep):
+def delete_folder(folder: EditableFolderDep, session: SessionDep):
     """Delete the folder with its subfolders and every document in them."""
     settings = get_settings()
     stored = session.execute(
