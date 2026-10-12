@@ -34,25 +34,40 @@ it, and both would then write the same document. So the pipeline renews the leas
 the transaction of every commit it makes, and a renewal that finds the job no longer this
 worker's ends the run with `LeaseLost` before anything of that stage is written. The same test
 stops a run whose job a stopping worker handed back to the queue.
+
+Queuing a job also sends a NOTIFY on CHANNEL, delivered when the transaction commits, and the
+worker listens for it (`listen`) on a connection of its own: a question is picked up the moment
+the API commits it rather than at the worker's next poll, which is what makes answers as jobs
+feel like answers in the request.
 """
 
 import logging
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+import psycopg
 from sqlalchemy import Connection, DateTime, bindparam, select, text
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db import SessionLocal
 from app.models import JOB_KINDS, Document, Job
 
 log = logging.getLogger(__name__)
 
 INDEX_DOCUMENT = "index_document"
-# Lower runs first. An upload is work a user is waiting for; a reprocess of a whole project, or
-# of everything after a model change, is bulk work that should not hold an upload up.
+ANSWER_QUESTION = "answer_question"
+# Lower runs first. An answer is work a user is watching for; an upload is work a user is
+# waiting for; a reprocess of a whole project, or of everything after a model change, is bulk
+# work that should not hold either up.
+LIVE = -10
 BULK = 10
+# The channel a queued job is announced on, for the workers that listen.
+CHANNEL = "jobs"
 # How far back the claim remembers which organisation had the workers: a job finished longer
 # ago than this no longer counts towards its organisation's share. A few minutes keeps one
 # worker thread alternating between two organisations' backlogs (the shares it compares are
@@ -135,6 +150,7 @@ _RENEW = text(
     """
 )
 _PRUNE = text("DELETE FROM jobs WHERE status IN ('done', 'failed') AND finished_at < now() - :age")
+_NOTIFY = text(f"SELECT pg_notify('{CHANNEL}', '')")
 # A queued job for the same document is replaced, and the new one takes the better priority of
 # the two: an upload's job stays ahead of bulk work when a project reprocess overtakes it.
 _QUEUE_INDEX = text(
@@ -203,6 +219,7 @@ def enqueue(
     if run_at is not None:
         job.run_at = run_at
     session.add(job)
+    session.execute(_NOTIFY)
     return job
 
 
@@ -221,10 +238,12 @@ def queue_index(
     transient failure. The job replaces any still queued for the document (the module's
     docstring says why), and is queued when the caller commits, with the document's changes.
     """
-    return session.scalars(
+    job = session.scalars(
         select(Job).from_statement(_QUEUE_INDEX),
         _queue_params([document.id], priority, run_at, retry),
     ).one()
+    session.execute(_NOTIFY)
+    return job
 
 
 def queue_index_by_id(connection: Connection, document_ids: list[int], priority: int = 0) -> int:
@@ -232,7 +251,9 @@ def queue_index_by_id(connection: Connection, document_ids: list[int], priority:
     maintenance that queues every document after a model change). Returns how many."""
     if not document_ids:
         return 0
-    return connection.execute(_QUEUE_INDEX, _queue_params(document_ids, priority)).rowcount
+    queued = connection.execute(_QUEUE_INDEX, _queue_params(document_ids, priority)).rowcount
+    connection.execute(_NOTIFY)
+    return queued
 
 
 def _queue_params(
@@ -322,3 +343,19 @@ def release(job_ids: list[int], worker_id: str) -> set[int]:
 def prune_finished(connection: Connection, age: timedelta = HISTORY) -> int:
     """Remove the jobs that finished longer ago than `age`; returns how many."""
     return connection.execute(_PRUNE, {"age": age}).rowcount
+
+
+def listen(stop: threading.Event, woken: Callable[[], None], timeout: float) -> None:
+    """Call `woken` each time a job is queued, until `stop` is set.
+
+    The connection is the process's own, outside the pool: a pooled one would be held for the
+    life of the process and counted against the pool. It is checked for a notification every
+    `timeout` seconds without a query, which is how often a stop is noticed. A connection that
+    fails ends the call with the error; the caller decides whether to listen again.
+    """
+    url = make_url(get_settings().database_url).set(drivername="postgresql")
+    with psycopg.connect(url.render_as_string(hide_password=False), autocommit=True) as conn:
+        conn.execute(f"LISTEN {CHANNEL}")
+        while not stop.is_set():
+            for _ in conn.notifies(timeout=timeout):
+                woken()

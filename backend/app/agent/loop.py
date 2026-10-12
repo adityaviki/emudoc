@@ -237,7 +237,7 @@ def _run_tool(context: ToolContext, name: str, raw_input: Any) -> tuple[str, boo
         return tool.run(context, arguments), False
     except PoolTimeout:
         # Not the tool's doing, and nothing the model can work around: the answer ends with the
-        # sentence that says to try again (`stream_answer` in app/api/chats.py).
+        # sentence that says to try again (`answer` in app/answers.py).
         raise
     except Exception:
         log.exception("Tool %s failed", name)

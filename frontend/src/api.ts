@@ -159,6 +159,12 @@ export interface ChatStep {
   is_error: boolean
 }
 
+/**
+ * How far an answer is. While it is `streaming` the row is empty and its events, streamed by
+ * `streamEvents`, are the answer so far; a question is always `done`.
+ */
+export type MessageStatus = 'streaming' | 'done' | 'stopped' | 'failed'
+
 export interface ChatMessage {
   id: number
   role: 'user' | 'assistant'
@@ -167,6 +173,7 @@ export interface ChatMessage {
   sources: Source[]
   notice: string | null
   error: string | null
+  status: MessageStatus
   created_at: string
 }
 
@@ -174,16 +181,25 @@ export interface ChatDetail extends Chat {
   messages: ChatMessage[]
 }
 
+/** A question as saved, and the empty answer whose events the client follows. */
+export interface AskResult {
+  question: ChatMessage
+  answer: ChatMessage
+}
+
 export type ChatEvent =
   | { type: 'text'; text: string }
   | { type: 'thinking' }
   | { type: 'retry' }
+  | { type: 'restart' }
   | { type: 'tool_call'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; id: string; summary: string; is_error: boolean }
   | { type: 'sources'; sources: Source[] }
   | { type: 'notice'; message: string }
   | { type: 'error'; message: string }
   | { type: 'done'; usage: { input_tokens: number; output_tokens: number } }
+  // Sent by the events route itself, last, once the answer is settled.
+  | { type: 'end'; status: MessageStatus }
 
 export interface Organization {
   id: number
@@ -387,6 +403,12 @@ export const api = {
   shareChat: (id: number, visibility: ChatVisibility) =>
     request<Chat>(`/chats/${id}`, json('PATCH', { visibility })),
   deleteChat: (id: number) => request<void>(`/chats/${id}`, { method: 'DELETE' }),
+  /** Add a question; the worker writes the answer, which `streamEvents` follows. */
+  ask: (chatId: number, content: string, signal?: AbortSignal) =>
+    request<AskResult>(`/chats/${chatId}/messages`, { ...json('POST', { content }), signal }),
+  /** End an answer with what arrived so far. */
+  stopAnswer: (chatId: number, messageId: number) =>
+    request<ChatMessage>(`/chats/${chatId}/messages/${messageId}/stop`, { method: 'POST' }),
 }
 
 export const fileUrl = (documentId: number) => `/api/documents/${documentId}/file`
@@ -404,17 +426,27 @@ export const isImage = (document: Document) => document.mime_type.startsWith('im
 export const isSheet = (document: Document) =>
   document.mime_type === 'text/csv' || document.mime_type.endsWith('spreadsheetml.sheet')
 
-/** Add a question to a chat; yields the agent's events as the server streams them. */
-export async function* streamAnswer(
+/** An event of an answer, with the id the server gave it; `end` has none. */
+export interface NumberedEvent {
+  seq: number | null
+  event: ChatEvent
+}
+
+/**
+ * Follow an answer's events as the server streams them, from the start or past the event
+ * with id `after`. The stream ends after an `end` event; ending without one means the
+ * connection dropped and the caller follows again from the last id it saw.
+ */
+export async function* streamEvents(
   chatId: number,
-  content: string,
+  messageId: number,
+  after: number | null,
   signal: AbortSignal,
-): AsyncGenerator<ChatEvent> {
-  const response = await send(`/chats/${chatId}/messages`, { ...json('POST', { content }), signal })
+): AsyncGenerator<NumberedEvent> {
+  const headers: Record<string, string> = after == null ? {} : { 'Last-Event-ID': String(after) }
+  const response = await send(`/chats/${chatId}/messages/${messageId}/events`, { headers, signal })
   if (!response.ok || !response.body) {
-    // A refusal says why in its body (too many answers in flight, every connection in use):
-    // that sentence is shown as the answer's error, in place of what the server could not start.
-    throw new ApiError(response.status, await detailOf(response, 'The server could not start an answer.'))
+    throw new ApiError(response.status, await detailOf(response, 'The answer could not be followed.'))
   }
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
   let buffer = ''
@@ -422,12 +454,18 @@ export async function* streamAnswer(
     const { value, done } = await reader.read()
     if (done) return
     buffer += value
-    // Server-sent events are separated by a blank line.
+    // Server-sent events are separated by a blank line; each is an id line and a data line.
     let end: number
     while ((end = buffer.indexOf('\n\n')) >= 0) {
-      const line = buffer.slice(0, end)
+      const block = buffer.slice(0, end)
       buffer = buffer.slice(end + 2)
-      if (line.startsWith('data: ')) yield JSON.parse(line.slice(6)) as ChatEvent
+      let seq: number | null = null
+      let data: string | null = null
+      for (const line of block.split('\n')) {
+        if (line.startsWith('id: ')) seq = Number(line.slice(4))
+        else if (line.startsWith('data: ')) data = line.slice(6)
+      }
+      if (data !== null) yield { seq, event: JSON.parse(data) as ChatEvent }
     }
   }
 }

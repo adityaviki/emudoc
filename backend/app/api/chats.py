@@ -1,32 +1,35 @@
-"""Chats with the agent: any number per project, each saved with its answers."""
+"""Chats with the agent: any number per project, each saved with its answers.
 
-import json
+A question is answered by the worker, not in the request (app/answers.py): `ask` saves the
+question and an empty answer, queues the job and returns both at once; the client then follows
+the answer's events through `events`, a server-sent event stream read from the table, and can
+pick it up again from the last event it saw after a reload or a dropped connection. `stop`
+ends an answer early with what arrived so far.
+"""
+
 import logging
-import threading
-from collections.abc import Iterator
-from dataclasses import dataclass, field
-from typing import Any
+from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, HTTPException
+import anyio
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import TimeoutError as PoolTimeout
+from sqlalchemy.orm import Session
 
-from app.agent.loop import run_agent
+from app.answers import STOPPED, answers_in_flight, events_after, fold, settle, sse, start_answer
 from app.api.deps import (
     RETRY_AFTER,
     AccountDep,
     ChatDep,
     OwnChatDep,
     ProjectDep,
-    ServicesDep,
     SessionDep,
 )
 from app.config import get_settings
-from app.db import BUSY, SessionLocal
-from app.indexing.pipeline import Services
-from app.models import Chat, ChatMessage, Project
-from app.schemas import ChatDetail, ChatOut, ChatPatch, QuestionIn
+from app.db import SessionLocal
+from app.models import Chat, ChatMessage
+from app.schemas import AskOut, ChatDetail, ChatMessageOut, ChatOut, ChatPatch, QuestionIn
 
 log = logging.getLogger(__name__)
 
@@ -34,34 +37,13 @@ router = APIRouter(tags=["chats"])
 
 TITLE_LENGTH = 60
 TOO_MANY_ANSWERS = "Too many questions are being answered right now. Wait a moment and ask again."
-
-
-class Answers:
-    """The answers this process is streaming, counted so that `ask` can stop at MAX_ANSWERS.
-
-    An answer runs on a request thread for the length of every model call, and the threads
-    come from one pool shared with every other request (THREAD_HEADROOM in app/main.py says
-    how it is sized), so the count is what keeps the chats from crowding out the rest.
-    """
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self.live = 0
-
-    def start(self, cap: int) -> bool:
-        """Count one more answer, unless the cap is reached."""
-        with self._lock:
-            if self.live >= cap:
-                return False
-            self.live += 1
-            return True
-
-    def end(self) -> None:
-        with self._lock:
-            self.live -= 1
-
-
-answers = Answers()
+STILL_ANSWERING = (
+    "This chat is still being answered. Wait for the answer, or stop it, before asking again."
+)
+# How often the events route looks for new events of an answer it is following. Each look is
+# one short query from a thread; the wait between them holds no thread.
+EVENT_POLL_SECONDS = 0.1
+SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
 
 @router.get("/projects/{project_id}/chats", response_model=list[ChatOut])
@@ -107,80 +89,126 @@ def delete_chat(chat: OwnChatDep, session: SessionDep):
     session.commit()
 
 
-@router.post("/chats/{chat_id}/messages")
-def ask(chat: OwnChatDep, body: QuestionIn, session: SessionDep, services: ServicesDep):
-    """Add a question to the chat and answer it, streamed as server-sent events."""
+@router.post("/chats/{chat_id}/messages", response_model=AskOut, status_code=201)
+def ask(
+    chat: OwnChatDep,
+    body: QuestionIn,
+    session: SessionDep,
+    account: AccountDep,
+):
+    """Add a question to the chat and queue its answer, which `events` streams."""
     question = body.content.strip()
     if not question:
         raise HTTPException(422, "Send a question to get an answer.")
-    # The place in the count is taken before the question is saved, or a refused question
-    # would sit in the chat with no answer.
-    if not answers.start(get_settings().max_answers):
+    if chat.messages and chat.messages[-1].status == "streaming":
+        raise HTTPException(409, STILL_ANSWERING)
+    # The count is taken before the question is saved, or a refused question would sit in the
+    # chat with no answer.
+    cap = get_settings().max_answers
+    if (in_flight := answers_in_flight(session, account.organization.id)) >= cap:
         log.warning(
-            "A question in chat %s was refused: this process is answering %s already, "
+            "A question in chat %s was refused: organisation %s has %s answers in flight, "
             "the most MAX_ANSWERS allows",
             chat.id,
-            answers.live,
+            account.organization.id,
+            in_flight,
         )
         raise HTTPException(429, TOO_MANY_ANSWERS, headers={"Retry-After": str(RETRY_AFTER)})
-    try:
-        if not chat.title:
-            chat.title = _title(question)
-        chat.updated_at = func.now()
-        session.add(ChatMessage(chat_id=chat.id, role="user", content=question))
-        session.commit()
-    except BaseException:
-        answers.end()
-        raise
+    if not chat.title:
+        chat.title = _title(question)
+    chat.updated_at = func.now()
+    asked, answer = start_answer(session, chat, question)
+    session.commit()
+    return AskOut(question=asked, answer=answer)
+
+
+@router.get("/chats/{chat_id}/messages/{message_id}/events")
+def events(chat: ChatDep, message_id: int, request: Request, session: SessionDep):
+    """Follow an answer as server-sent events, from the start or from the `Last-Event-ID` the
+    client saw last. The stream ends with an `end` event once the answer is finished, stopped
+    or failed, and without one when the connection drops, which the client takes as a cue to
+    follow again."""
+    message = _message_in(chat, message_id, session)
     return StreamingResponse(
-        _counted(stream_answer(chat.id, services)),
+        _follow(message.id, _last_seen(request)),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers=SSE_HEADERS,
     )
 
 
-def _counted(events: Iterator[str]) -> Iterator[str]:
-    """Give the answer's place in the count back when its events end, however they end."""
-    try:
-        yield from events
-    finally:
-        answers.end()
+@router.post("/chats/{chat_id}/messages/{message_id}/stop", response_model=ChatMessageOut)
+def stop(chat: OwnChatDep, message_id: int, session: SessionDep):
+    """End the answer with what arrived so far. The row is settled here, not by the worker, so
+    that a stop takes effect at once whether or not a worker is alive: the worker's next
+    write finds the answer settled and ends its run (app/answers.py)."""
+    message = _message_in(chat, message_id, session)
+    # The lock orders this with the worker's appends: one in flight lands before the fold, and
+    # the ones after it find the row settled.
+    session.execute(select(ChatMessage.id).where(ChatMessage.id == message.id).with_for_update())
+    session.refresh(message)
+    if message.status == "streaming":
+        reply = fold(session, message.id)
+        reply.notice = STOPPED
+        settle(session, message.id, reply, "stopped")
+        session.commit()
+        session.refresh(message)
+    return message
 
 
-def stream_answer(chat_id: int, services: Services) -> Iterator[str]:
-    """Answer the chat's last question, saving the answer when it ends or the client stops it."""
-    reply = _Reply()
+def _message_in(chat: Chat, message_id: int, session: Session) -> ChatMessage:
+    message = session.scalar(
+        select(ChatMessage).where(ChatMessage.id == message_id, ChatMessage.chat_id == chat.id)
+    )
+    if message is None or message.role != "assistant":
+        raise HTTPException(404, "Answer not found")
+    return message
+
+
+def _last_seen(request: Request) -> int:
+    """The seq of the last event the client saw, from the header a reconnecting client sends."""
     try:
-        # The request's session closes when the endpoint returns; the stream outlives it.
-        with SessionLocal() as session:
-            chat = session.get(Chat, chat_id)
-            project = session.get(Project, chat.project_id)
-            # Answers without text, such as failed ones, are left out of the conversation.
-            history = [
-                {"role": message.role, "content": message.content}
-                for message in chat.messages
-                if message.content.strip()
-            ]
-            for event in run_agent(session, services, project, history):
-                reply.apply(event)
-                yield _sse(event)
-    except GeneratorExit:
-        # The client stopped the answer: the generator is closed where it last yielded.
-        reply.notice = "Stopped."
-        raise
-    except PoolTimeout:
-        # Every database connection was in use when a tool needed one (a request is refused
-        # the same way, `pool_exhausted` in app/main.py): the answer ends with the sentence
-        # that says to try again, and the operator sees the pool, not a traceback.
-        log.warning("Answering in chat %s stopped: every database connection is in use", chat_id)
-        reply.error = BUSY
-        yield _sse({"type": "error", "message": BUSY})
-    except Exception:
-        log.exception("Answering in chat %s failed", chat_id)
-        reply.error = "The answer failed unexpectedly."
-        yield _sse({"type": "error", "message": reply.error})
-    finally:
-        reply.save(chat_id)
+        return int(request.headers.get("Last-Event-ID", -1))
+    except ValueError:
+        return -1
+
+
+def _poll(message_id: int, after: int) -> tuple[str | None, list[tuple[int, dict]]]:
+    """The answer's status, then the events past `after`: in that order, so that a status that
+    says the answer is finished was read before the last events were, never after."""
+    with SessionLocal() as session:
+        status = session.scalar(select(ChatMessage.status).where(ChatMessage.id == message_id))
+        if status is None:
+            return None, []
+        return status, events_after(session, message_id, after)
+
+
+async def _follow(message_id: int, after: int) -> AsyncIterator[str]:
+    """Send the events as they are written until the answer is settled.
+
+    Async, so that waiting for the next event holds no request thread; each look at the table
+    takes one for the length of a query.
+    """
+    while True:
+        try:
+            status, rows = await anyio.to_thread.run_sync(_poll, message_id, after)
+        except PoolTimeout:
+            # Every connection was in use for DB_POOL_TIMEOUT: the stream ends without an end
+            # event, and the client follows again from where it was once it notices.
+            log.warning(
+                "Following answer %s stopped: every database connection is in use", message_id
+            )
+            return
+        for seq, event in rows:
+            yield sse(seq, event)
+            after = seq
+        if status is None:
+            # Removed with its chat while being followed.
+            return
+        if status != "streaming":
+            yield sse(None, {"type": "end", "status": status})
+            return
+        if not rows:
+            await anyio.sleep(EVENT_POLL_SECONDS)
 
 
 def _title(question: str) -> str:
@@ -190,73 +218,3 @@ def _title(question: str) -> str:
         return line
     cut = line.rfind(" ", 0, TITLE_LENGTH)
     return line[: cut if cut > 0 else TITLE_LENGTH - 1] + "…"
-
-
-def _sse(event: dict) -> str:
-    return f"data: {json.dumps(event, default=str)}\n\n"
-
-
-@dataclass
-class _Reply:
-    """The answer as the client assembles it from the events (applyEvent in the frontend)."""
-
-    content: str = ""
-    steps: list[dict[str, Any]] = field(default_factory=list)
-    sources: dict[int, dict[str, Any]] = field(default_factory=dict)
-    notice: str | None = None
-    error: str | None = None
-    # Length of `content` when the current model turn began, to discard a turn that is retried.
-    turn_start: int = 0
-
-    def apply(self, event: dict[str, Any]) -> None:
-        match event["type"]:
-            case "text":
-                self.content += event["text"]
-            case "retry":
-                self.content = self.content[: self.turn_start]
-            case "tool_call":
-                self.steps.append(
-                    {
-                        "id": event["id"],
-                        "name": event["name"],
-                        "input": event["input"],
-                        "summary": "",
-                        "is_error": False,
-                    }
-                )
-            case "tool_result":
-                self.turn_start = len(self.content)
-                for step in self.steps:
-                    if step["id"] == event["id"]:
-                        step.update(summary=event["summary"], is_error=event["is_error"])
-            case "sources":
-                self.sources.update((source["id"], source) for source in event["sources"])
-            case "notice":
-                self.notice = event["message"]
-            case "error":
-                self.error = event["message"]
-
-    def save(self, chat_id: int) -> None:
-        try:
-            with SessionLocal() as session:
-                # The chat may have been deleted while the answer was being written.
-                if session.get(Chat, chat_id) is not None:
-                    session.add(
-                        ChatMessage(
-                            chat_id=chat_id,
-                            role="assistant",
-                            content=self.content,
-                            steps=self.steps,
-                            sources=list(self.sources.values()),
-                            notice=self.notice,
-                            error=self.error,
-                        )
-                    )
-                    session.commit()
-        except PoolTimeout:
-            # The pool that stopped the answer is still full. The user has the answer as far as
-            # it got, on screen; the chat keeps the question alone.
-            log.warning(
-                "The answer in chat %s was not saved: every database connection is in use",
-                chat_id,
-            )

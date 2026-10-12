@@ -35,6 +35,7 @@ from pathlib import Path
 
 from sqlalchemy import Connection, select, text
 
+from app.answers import EVENT_HISTORY, prune_events
 from app.config import get_settings
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine
 from app.deadletters import describe, failed_jobs, requeue
@@ -370,8 +371,15 @@ def housekeeping(storage: Storage) -> None:
         else:
             remove_orphans(storage, sweep.orphans)
         pruned = prune_finished(connection)
+        events = prune_events(connection)
     if pruned:
         log.info("Housekeeping: removed %s finished jobs older than %s days", pruned, HISTORY.days)
+    if events:
+        log.info(
+            "Housekeeping: removed the %s events of answers finished more than %s days ago",
+            events,
+            EVENT_HISTORY.days,
+        )
     if sweep.images:
         log.info(
             "Housekeeping: %s",

@@ -2,7 +2,6 @@
 rather than a traceback after a half-minute hang, and handed back by an answer while the model
 thinks, so that the answers in flight are not what fills it."""
 
-import json
 import time
 
 import pytest
@@ -11,11 +10,11 @@ from sqlalchemy import select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 
-from app.api.chats import stream_answer
+from app.answers import answer, start_answer
 from app.api.deps import RETRY_AFTER
 from app.config import get_settings
 from app.db import BUSY, SessionLocal, engine, make_engine
-from app.models import Chat, ChatMessage
+from app.models import Chat, ChatEvent, ChatMessage
 from tests.conftest import FakeTurn
 
 
@@ -93,10 +92,11 @@ def test_an_answer_holds_no_connection_while_the_model_thinks(session, services,
     chat = Chat(project_id=indexed.project_id, user_id=account.user.id, title="Notice")
     session.add(chat)
     session.flush()
-    session.add(ChatMessage(chat_id=chat.id, role="user", content="Notice period?"))
+    _, reply = start_answer(session, chat, "Notice period?")
     session.commit()
 
-    events = [json.loads(line[6:]) for line in stream_answer(chat.id, services)]
+    answer(reply.id, services)
+    events = session.scalars(select(ChatEvent.event).order_by(ChatEvent.seq)).all()
     assert [event["type"] for event in events] == [
         "tool_call",
         "sources",
@@ -107,8 +107,10 @@ def test_an_answer_holds_no_connection_while_the_model_thinks(session, services,
     # Before the first model turn, and again after the search ran and before the second, the
     # answer's session holds nothing: the pool is whole for every other request meanwhile.
     assert checked_out == [0, 0]
+    session.expire_all()
     saved = session.scalars(
         select(ChatMessage).where(ChatMessage.chat_id == chat.id).order_by(ChatMessage.id)
     ).all()
     assert [message.role for message in saved] == ["user", "assistant"]
     assert saved[1].content == "90 days." and saved[1].error is None
+    assert saved[1].status == "done"

@@ -16,6 +16,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, REGCONFIG, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -34,6 +35,7 @@ CHAT_VISIBILITIES = ("private", "project")
 # for, so a kind can be queued by a newer API before an older worker knows it.
 JOB_KINDS = (
     "index_document",
+    "answer_question",
     "render_pages",
     "send_email",
     "purge_trash",
@@ -41,6 +43,9 @@ JOB_KINDS = (
     "run_workflow",
 )
 JOB_STATUSES = ("queued", "running", "done", "failed")
+# How far an answer is: being written by the worker (app/answers.py), finished, stopped by the
+# user, or failed. A question is always `done`.
+MESSAGE_STATUSES = ("streaming", "done", "stopped", "failed")
 
 
 def _one_of(column: str, values: tuple[str, ...], table: str) -> CheckConstraint:
@@ -518,15 +523,32 @@ class Chat(Base):
 
 
 class ChatMessage(Base):
-    """One turn of a chat: a question, or the agent's answer with the steps that led to it."""
+    """One turn of a chat: a question, or the agent's answer with the steps that led to it.
+
+    An answer is created empty with its question and written by the worker (app/answers.py):
+    while `status` is `streaming` its events in `chat_events` are what a client follows, and
+    the row holds the finished answer once the status is anything else.
+    """
 
     __tablename__ = "chat_messages"
+    __table_args__ = (
+        _one_of("status", MESSAGE_STATUSES, "chat_messages"),
+        # What `ask` counts against MAX_ANSWERS and checks for a chat that is still being
+        # answered: the handful of rows in flight, out of every answer ever given.
+        Index(
+            "ix_chat_messages_streaming",
+            "chat_id",
+            postgresql_where=text("status = 'streaming'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     chat_id: Mapped[int] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), index=True)
     # user | assistant
     role: Mapped[str] = mapped_column(String(20))
     content: Mapped[str] = mapped_column(Text)
+    # streaming | done | stopped | failed
+    status: Mapped[str] = mapped_column(String(20), default="done", server_default="done")
     # The tool calls an answer made: [{id, name, input, summary, is_error}]
     steps: Mapped[list] = mapped_column(JSONB, default=list)
     # The passages the agent was shown while answering, which the answer may cite.
@@ -539,6 +561,24 @@ class ChatMessage(Base):
     )
 
     chat: Mapped[Chat] = relationship(back_populates="messages")
+
+
+class ChatEvent(Base):
+    """One event of an answer being written, in order: what the worker appends as the agent
+    runs (app/answers.py) and the API relays to whoever is following the answer, so that a
+    reload, another tab or a new API process picks the stream up where it was. The events of
+    a finished answer are redundant with its row and pruned after a day (app/maintenance.py).
+    """
+
+    __tablename__ = "chat_events"
+
+    message_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("chat_messages.id", ondelete="CASCADE"), primary_key=True
+    )
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # The event as the agent loop yields it (app/agent/loop.py), plus `restart` when a run
+    # that was lost starts the answer over.
+    event: Mapped[dict] = mapped_column(JSONB)
 
 
 class Job(Base):

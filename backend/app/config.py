@@ -19,8 +19,9 @@ Effort = Literal["", "minimal", "low", "medium", "high", "xhigh"]
 # The password of the database docker-compose.yml runs, which only this machine can reach.
 # A deployment that carries it has copied the development setup, so production refuses it.
 DEVELOPMENT_PASSWORD = "emudoc"
-# The threads a worker runs besides its indexing threads, each of which takes a connection now
-# and then: the heartbeat, the housekeeper and the alerter (app/worker.py).
+# The threads a worker runs besides its indexing and answering threads that take a connection
+# from the pool now and then: the heartbeat, the housekeeper and the alerter (app/worker.py).
+# The listener holds a connection of its own outside the pool.
 WORKER_HELPER_THREADS = 3
 STORAGE_URL_FORMS = (
     "STORAGE_URL names a directory as file:///var/lib/emudoc or an S3-compatible bucket as "
@@ -91,25 +92,30 @@ class Settings(BaseSettings):
     # The text search configuration written into each passage as it is indexed; a search parses
     # its query with each passage's own, so changing this only affects later uploads.
     fts_language: str = "english"
+    # The threads a worker runs: this many index documents, and ANSWER_CONCURRENCY answer
+    # questions (app/worker.py), in lanes of their own so that neither holds the other up.
+    # An answer's thread is idle while the model thinks, so the answers cost memory and a
+    # connection each more than anything else; raise them together with the pool.
     worker_concurrency: int = 2
+    answer_concurrency: int = Field(default=8, ge=0)
     # The connections this process keeps to the database: DB_POOL_SIZE kept open, and up to
     # DB_MAX_OVERFLOW more opened while all of those are in use and closed as they come back.
     # A session holds one from its first statement to its next commit or rollback, so an API
-    # replica needs about one per request in flight (an answer hands its back while the model
-    # thinks, see app/agent/loop.py), and a worker one per job it runs at once plus one for
-    # each helper thread; the sum over every replica stays under the database's
-    # max_connections (100 for Postgres). When every connection is in use, a request waits
-    # DB_POOL_TIMEOUT seconds for one and is then refused with 503 and a sentence that says to
-    # try again (app/main.py), rather than hanging.
+    # replica needs about one per request in flight, and a worker one per document and per
+    # answer it runs at once (an answer hands its back while the model thinks, see
+    # app/agent/loop.py) plus one for each helper thread; the sum over every replica stays
+    # under the database's max_connections (100 for Postgres). When every connection is in
+    # use, a request waits DB_POOL_TIMEOUT seconds for one and is then refused with 503 and a
+    # sentence that says to try again (app/main.py), rather than hanging.
     db_pool_size: int = Field(default=5, ge=1)
     db_max_overflow: int = Field(default=10, ge=0)
     db_pool_timeout: int = Field(default=5, ge=1)
-    # The answers this process streams at once. Every request runs on a thread from one pool,
-    # and a live answer keeps its thread for the length of each model call, so unbounded
-    # answers would leave every other request, the health check included, waiting behind
-    # them. The question past the cap is refused with 429 and asked again in a moment
-    # (app/api/chats.py); the process sizes its request threads for the cap plus a fixed
-    # headroom for the rest (app/main.py). It is per process: several API replicas multiply it.
+    # The questions one organisation may have waiting for or receiving an answer at once. The
+    # worker answers ANSWER_CONCURRENCY of them at a time, shared between the organisations
+    # (app/jobs.py), so the cap bounds how long a question waits without letting one
+    # organisation keep the others waiting; the question past it is refused with 429 and asked
+    # again in a moment (app/api/chats.py). It is the same for every organisation; a cap that
+    # differs by plan is an entitlement, read per account.
     max_answers: int = Field(default=20, ge=1)
     # Whether this process runs the background worker (app/worker.py) as well. Unset, it does
     # in development, so that one `uvicorn` indexes what it serves, and does not in production,
@@ -190,16 +196,17 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _the_pool_holds_the_workers_threads(self) -> "Settings":
-        # An indexing thread that found every connection in use would fail its job for a reason
-        # the operator set, so a pool too small for the threads this process runs is refused
-        # before it runs any.
-        needed = self.worker_concurrency + WORKER_HELPER_THREADS
+        # An indexing or answering thread that found every connection in use would fail its
+        # job for a reason the operator set, so a pool too small for the threads this process
+        # runs is refused before it runs any.
+        needed = self.worker_concurrency + self.answer_concurrency + WORKER_HELPER_THREADS
         allowed = self.db_pool_size + self.db_max_overflow
         if self.run_worker and allowed < needed:
             raise ValueError(
-                f"WORKER_CONCURRENCY is {self.worker_concurrency}, so the worker's threads need "
-                f"{needed} database connections, but DB_POOL_SIZE + DB_MAX_OVERFLOW allows "
-                f"{allowed}; raise them or lower WORKER_CONCURRENCY."
+                f"WORKER_CONCURRENCY is {self.worker_concurrency} and ANSWER_CONCURRENCY is "
+                f"{self.answer_concurrency}, so the worker's threads need {needed} database "
+                f"connections, but DB_POOL_SIZE + DB_MAX_OVERFLOW allows {allowed}; raise them "
+                "or lower the concurrency."
             )
         return self
 

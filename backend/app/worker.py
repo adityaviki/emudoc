@@ -1,11 +1,16 @@
 """The background worker: threads that claim jobs from the queue (app/jobs.py) and run them,
-one that keeps their leases alive, and one that keeps the stored data tidy at intervals.
+one that keeps their leases alive, one that hears of new jobs, and one that keeps the stored
+data tidy at intervals.
 
 It is its own process, `python -m app.worker`, so that a deployment scales it apart from the
-API: the API replicas serve requests while as many workers as the backlog needs index documents.
-A worker starts like the API does (app/startup.py) and claims the kinds of job it has a handler
-for (`HANDLERS`). In development the API process runs the same threads itself, so that one
-`uvicorn` does everything (RUN_WORKER in app/config.py).
+API: the API replicas serve requests while as many workers as the backlog needs index documents
+and answer questions. A worker starts like the API does (app/startup.py) and claims the kinds
+of job it has a handler for (`HANDLERS`), in two lanes: WORKER_CONCURRENCY indexer threads for
+the documents, and ANSWER_CONCURRENCY answerer threads for the questions (app/answers.py), so
+that a backlog of parses never holds an answer up and the other way round. The listener thread
+wakes them all when a job is queued anywhere, so a question is taken the moment it is asked.
+In development the API process runs the same threads itself, so that one `uvicorn` does
+everything (RUN_WORKER in app/config.py).
 
 A stop is graceful: the threads stop claiming, the jobs they are running get a grace period to
 finish, and the ones that did not finish are handed back to the queue with their lease cleared,
@@ -40,9 +45,11 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from functools import partial
 
 from sqlalchemy import text
 
+from app.answers import abandon_answer, run_answer
 from app.config import Settings, get_settings
 from app.db import SessionLocal
 from app.deadletters import alert_failed_jobs
@@ -54,6 +61,7 @@ from app.indexing.pipeline import (
     process_document,
 )
 from app.jobs import (
+    ANSWER_QUESTION,
     INDEX_DOCUMENT,
     LEASE,
     Lease,
@@ -61,6 +69,7 @@ from app.jobs import (
     claim,
     extend_leases,
     finish,
+    listen,
     queue_index,
     release,
 )
@@ -73,6 +82,9 @@ from app.storage import StorageError
 log = logging.getLogger(__name__)
 
 POLL_SECONDS = 2.0
+# How often the listener checks whether the worker is stopping, between notifications; no
+# query is made for it.
+LISTEN_SECONDS = 0.25
 # How long a thread waits after the database refused a claim before it tries again.
 RETRY_SECONDS = 5.0
 # How often the leases of the jobs this process holds are extended; well inside LEASE, so a
@@ -107,12 +119,12 @@ class Handler:
     repeats safely. It returns None, or the reason it gave the job up for good, which the worker
     records as the job's `last_error` for the operator (app/deadletters.py); what the job was
     about must already say so to the user. `abandon` is called instead when the job is given up
-    because every attempt was lost to a process that died: it leaves what the job was about in
-    a state the user can act on.
+    because every attempt (`max_attempts` of them) was lost to a process that died: it leaves
+    what the job was about in a state the user can act on, saying so in its own words.
     """
 
     run: Callable[[Job, Services], str | None]
-    abandon: Callable[[Job, Services, str], None]
+    abandon: Callable[[Job, Services], None]
 
 
 def _run_index(job: Job, services: Services) -> str | None:
@@ -189,8 +201,12 @@ def _minutes(delta: timedelta) -> str:
     return f"{minutes} minute" if minutes == 1 else f"{minutes} minutes"
 
 
-def _abandon_index(job: Job, services: Services, reason: str) -> None:
-    _fail_document(job.payload["document_id"], reason)
+def _abandon_index(job: Job, services: Services) -> None:
+    _fail_document(
+        job.payload["document_id"],
+        f"Indexing stopped unexpectedly {job.max_attempts} times and was not tried again. Try "
+        "reprocessing later, or ask support about this file.",
+    )
 
 
 def _fail_document(document_id: int, error: str) -> None:
@@ -203,14 +219,26 @@ def _fail_document(document_id: int, error: str) -> None:
 
 
 # The kinds this worker runs. A kind in JOB_KINDS that is missing here is left in the queue for
-# a worker that has it.
-HANDLERS: dict[str, Handler] = {INDEX_DOCUMENT: Handler(_run_index, _abandon_index)}
+# a worker that has it. The answers have a lane of threads to themselves; every other kind
+# shares the indexers.
+HANDLERS: dict[str, Handler] = {
+    INDEX_DOCUMENT: Handler(_run_index, _abandon_index),
+    ANSWER_QUESTION: Handler(run_answer, abandon_answer),
+}
 
 
 class Worker:
-    def __init__(self, services: Services, concurrency: int, mailer: Mailer | None = None):
+    def __init__(
+        self,
+        services: Services,
+        concurrency: int,
+        mailer: Mailer | None = None,
+        *,
+        answer_concurrency: int = 0,
+    ):
         self._services = services
         self._concurrency = concurrency
+        self._answer_concurrency = answer_concurrency
         # What the jobs given up on are reported through; without it, or without ALERT_EMAIL,
         # they are in the log and the failed-jobs command only.
         self._mailer = mailer
@@ -228,8 +256,12 @@ class Worker:
         return self._id
 
     def start(self) -> None:
+        index_kinds = [kind for kind in HANDLERS if kind != ANSWER_QUESTION]
         for index in range(self._concurrency):
-            self._spawn(self._loop, f"indexer-{index}")
+            self._spawn(partial(self._loop, index_kinds), f"indexer-{index}")
+        for index in range(self._answer_concurrency):
+            self._spawn(partial(self._loop, [ANSWER_QUESTION]), f"answerer-{index}")
+        self._spawn(self._listen, "listener")
         self._spawn(self._heartbeat, "heartbeat")
         self._spawn(self._housekeep, "housekeeper")
         settings = get_settings()
@@ -284,8 +316,23 @@ class Worker:
         """Wake the workers after jobs were queued."""
         self._wake.set()
 
-    def _loop(self) -> None:
-        kinds = list(HANDLERS)
+    def _listen(self) -> None:
+        """Wake the threads when a job is queued anywhere, in this process or another: the queue
+        announces it with NOTIFY (app/jobs.py). The threads poll meanwhile, so a listener that
+        is down costs a question up to POLL_SECONDS, not the answer."""
+        while not self._stop.is_set():
+            try:
+                listen(self._stop, self.notify, LISTEN_SECONDS)
+            except Exception:
+                log.exception(
+                    "Listening for queued jobs failed; the threads poll every %s seconds "
+                    "meanwhile, and listening starts again in %s",
+                    POLL_SECONDS,
+                    RETRY_SECONDS,
+                )
+                self._stop.wait(RETRY_SECONDS)
+
+    def _loop(self, kinds: list[str]) -> None:
         while not self._stop.is_set():
             try:
                 job = claim(self._id, kinds)
@@ -311,17 +358,13 @@ class Worker:
                 if job.attempts > job.max_attempts:
                     # Every attempt so far ended with the lease running out: the process died
                     # each time, so running it once more would most likely kill this one.
-                    reason = (
-                        f"Indexing stopped unexpectedly {job.max_attempts} times and was not "
-                        "tried again. Try reprocessing later, or ask support about this file."
-                    )
                     log.error(
                         "Job %s (%s) was lost %s times and is given up",
                         job.id,
                         job.kind,
                         job.max_attempts,
                     )
-                    handler.abandon(job, self._services, reason)
+                    handler.abandon(job, self._services)
                     self._finish(job, "failed", f"Given up after {job.max_attempts} lost attempts")
                     return
                 try:
@@ -410,9 +453,19 @@ def serve(
     services: Services, settings: Settings, stopping: threading.Event, grace: float = GRACE
 ) -> None:
     """Run the worker until `stopping` is set, then stop it within `grace` seconds."""
-    worker = Worker(services, settings.worker_concurrency, mailer_from_settings(settings))
+    worker = Worker(
+        services,
+        settings.worker_concurrency,
+        mailer_from_settings(settings),
+        answer_concurrency=settings.answer_concurrency,
+    )
     worker.start()
-    log.info("Worker %s is running, %s jobs at a time", worker.id, settings.worker_concurrency)
+    log.info(
+        "Worker %s is running, %s documents and %s answers at a time",
+        worker.id,
+        settings.worker_concurrency,
+        settings.answer_concurrency,
+    )
     stopping.wait()
     log.info("Stopping; the running jobs have %s seconds to finish", grace)
     worker.stop(grace)
@@ -422,8 +475,9 @@ def serve(
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="python -m app.worker",
-        description="Run the background worker, which indexes uploaded documents and keeps the "
-        "stored data tidy. Run it in the backend directory with `uv run`; it reads the same .env "
+        description="Run the background worker, which indexes uploaded documents, answers the "
+        "questions asked in the chats and keeps the stored data tidy. Run it in the backend "
+        "directory with `uv run`; it reads the same .env "
         "as the API, and refuses the same misconfigurations. Ctrl+C or SIGTERM stops it: the "
         "running jobs get a moment to finish, and the rest are queued again for the next worker.",
     )

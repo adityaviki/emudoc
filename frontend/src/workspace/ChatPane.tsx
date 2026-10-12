@@ -19,7 +19,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { api, pageLabel, sectionPath } from '../api.ts'
 import type { Chat, Source } from '../api.ts'
-import { ask, chatKey, loadChat, stop, useStreaming } from '../chat.ts'
+import { ask, chatKey, isStreaming, loadChat, resume, stop, useStreaming } from '../chat.ts'
 import type { ChatData, Message, Step } from '../chat.ts'
 import { Markdown, SourceText } from '../components/Markdown.tsx'
 import { Floating } from '../components/Menu.tsx'
@@ -209,7 +209,13 @@ function Conversation({ chatId }: { chatId: number | null }) {
     // Answers stream straight into this data; the saved copy is only read when a chat is opened.
     staleTime: Infinity,
   })
-  const streaming = useStreaming(chatId)
+  // An answer still being written when the chat is opened, after a reload or from another
+  // tab, is followed from where the server has it.
+  useEffect(() => {
+    const last = chat.data?.messages[chat.data.messages.length - 1]
+    if (chatId != null && isStreaming(chat.data) && last?.id != null) resume(queryClient, chatId, last.id)
+  }, [chat.data, chatId, queryClient])
+  const streaming = useStreaming(chatId) || isStreaming(chat.data)
   const [draft, setDraft] = useState('')
   const bottom = useRef<HTMLDivElement>(null)
   // A chat is created with its first question, and the URL then moves to it.

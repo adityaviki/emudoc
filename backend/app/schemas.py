@@ -217,6 +217,11 @@ class SourceOut(BaseModel):
     excerpt: str
 
 
+# How far an answer is. While it is `streaming` the row is empty and its events, streamed by
+# the events route, are the answer so far; a question is always `done`.
+MessageStatus = Literal["streaming", "done", "stopped", "failed"]
+
+
 class ChatMessageOut(_FromORM):
     id: int
     role: Literal["user", "assistant"]
@@ -225,11 +230,19 @@ class ChatMessageOut(_FromORM):
     sources: list[SourceOut]
     notice: str | None
     error: str | None
+    status: MessageStatus
     created_at: dt.datetime
 
 
 class ChatDetail(ChatOut):
     messages: list[ChatMessageOut]
+
+
+class AskOut(BaseModel):
+    """A question as saved, and the empty answer whose events the client follows."""
+
+    question: ChatMessageOut
+    answer: ChatMessageOut
 
 
 # Enough to catch a typo; the verification email settles whether the address is real.

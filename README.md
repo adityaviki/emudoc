@@ -50,8 +50,13 @@ reads the passage index (keywords and meaning, merged), `query_facts` reads the 
 `read` returns exact source text. Answers cite passages, and each citation opens the source.
 
 A project can hold any number of chats. Each one is saved with its answers, including the
-steps the agent took and the passages it was shown, so a chat can be reopened later and an
-answer keeps streaming while you look at another tab.
+steps the agent took and the passages it was shown, so a chat can be reopened later. An answer
+is written by the background worker, not by the request that asked the question: the question
+is saved with an empty answer and a job, the worker runs the agent and writes each event to a
+table, and the page follows them from there. So an answer keeps streaming while you look at
+another tab, survives a reload, a dropped connection and a restart of the API, and is picked
+up where it was by another tab that opens the chat. Stop ends it with what arrived so far,
+whether or not a worker is alive; a chat takes one question at a time.
 
 ## The workspace
 
@@ -89,8 +94,8 @@ process of its own next to the API, as many as the backlog needs: it reads the s
 refuses the same misconfigurations, and claims jobs from the queue in Postgres. Ctrl+C or
 SIGTERM stops it: the jobs it is running get a few seconds to finish (`--grace`, 8 by default,
 under Docker's 10), and the rest are queued again for the next worker to take at once. Without
-any worker, uploads stay queued. `RUN_WORKER=true` runs the worker inside the API process
-instead, for a small deployment.
+any worker, uploads stay queued and questions wait unanswered. `RUN_WORKER=true` runs the
+worker inside the API process instead, for a small deployment.
 
 The database schema is a set of migrations in `backend/migrations/`; `uv run alembic upgrade
 head` applies the ones the database has not seen yet, so run it again after updating. The backend
@@ -126,19 +131,23 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
 - `RUN_WORKER` is whether the process runs the background worker as well. Unset, it does in
   development and does not in production, where the worker is `uv run python -m app.worker`,
   a process of its own ("Run it" above).
+- `WORKER_CONCURRENCY` and `ANSWER_CONCURRENCY` are the worker's threads: 2 documents indexed
+  at once and 8 questions answered at once, in lanes of their own, so a backlog of uploads
+  never holds an answer up. An answer's thread is idle while the model thinks, so the answers
+  cost memory and a database connection each more than anything else.
 - `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` and `DB_POOL_TIMEOUT` size the database connections a
   process holds: 5 kept open, up to 10 more while all of those are in use, and 5 seconds a
-  request waits for one before it is refused with 503 and asked to try again. An answer hands
-  its connection back while the model thinks, so an API replica needs about one per request in
-  flight; a worker needs one per job it runs at once plus three for its helper threads, and
-  refuses to start with a pool that cannot hold them. The sum over every replica must stay
-  under the database's `max_connections` (100 for Postgres), or a connection pooler goes in
-  between.
-- `MAX_ANSWERS` is how many answers one API process streams at once, 20 by default. An answer
-  keeps a request thread while the model is thinking, so the cap is what keeps a busy hour of
-  chats from stalling every other request; the question past it is refused with 429 and asked
-  to wait a moment. The process sizes its request threads for the cap plus twenty for the rest,
-  and several replicas multiply the cap.
+  request waits for one before it is refused with 503 and asked to try again. An API replica
+  needs about one per request in flight; a worker needs one per document and per answer it
+  runs at once (an answer hands its back while the model thinks) plus three for its helper
+  threads, and refuses to start with a pool that cannot hold them; its listener holds one more
+  outside the pool. The sum over every replica must stay under the database's
+  `max_connections` (100 for Postgres), or a connection pooler goes in between.
+- `MAX_ANSWERS` is how many questions one organisation may have waiting for or receiving an
+  answer at once, 20 by default. The worker answers `ANSWER_CONCURRENCY` of them at a time,
+  shared between the organisations, so the cap bounds how long a question waits without
+  letting one organisation keep the others waiting; the question past it is refused with 429
+  and asked to wait a moment.
 - `ALERT_EMAIL` is where the worker reports the jobs it gave up on, through the same mail
   settings as the sign-in links, as one digest every quarter of an hour. Empty sends nothing;
   the `failed-jobs` command lists them either way.
@@ -255,6 +264,7 @@ backend/app/
   maintenance.py
                 the embedding checks at start and the command that rebuilds the vectors
   api/          HTTP endpoints
+  answers.py    an answer as a job: the worker writes its events, the API streams them
   llm.py        every call to the AI model
 backend/migrations/
                 the database schema as Alembic migrations, one file per change
@@ -264,7 +274,7 @@ frontend/src/
   account/      sign-in, sign-up, the email links, and the account page
   api.ts        the typed client for the backend
   auth.ts       who is signed in, for the shell and its pages
-  chat.ts       a chat's messages as the chat pane holds them, and the answers being streamed
+  chat.ts       a chat's messages as the chat pane holds them, and the answers being followed
 ```
 
 ## Not built yet

@@ -1,7 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
 
-import anyio.to_thread
 import httpx
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -23,11 +22,6 @@ from app.worker import Worker
 log = logging.getLogger(__name__)
 
 FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
-# The request threads kept free for everything but the answers. Every synchronous route and
-# dependency runs on a thread from anyio's one limiter (40 by default), and so does each step
-# of a streamed answer, which holds its thread while the model is thinking: MAX_ANSWERS of
-# those must leave enough for the uploads, the searches and the health check beside them.
-THREAD_HEADROOM = 20
 
 system = APIRouter(tags=["system"])
 
@@ -93,10 +87,6 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # The limiter belongs to the event loop, so it is sized here, on the loop, rather than
-        # in `prepare`, which the worker process shares and which has no loop.
-        limiter = anyio.to_thread.current_default_thread_limiter()
-        limiter.total_tokens = settings.max_answers + THREAD_HEADROOM
         app.state.services = prepare(settings, services)
         app.state.mailer = mailer or mailer_from_settings(settings)
         app.state.http = http or httpx.Client(timeout=10)
@@ -105,7 +95,10 @@ def create_app(
         app.state.worker = None
         if settings.run_worker:
             app.state.worker = Worker(
-                app.state.services, settings.worker_concurrency, app.state.mailer
+                app.state.services,
+                settings.worker_concurrency,
+                app.state.mailer,
+                answer_concurrency=settings.answer_concurrency,
             )
             app.state.worker.start()
         yield

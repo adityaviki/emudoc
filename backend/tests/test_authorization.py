@@ -8,7 +8,7 @@ from pydantic_ai.messages import TextPart
 from app.indexing.pipeline import process_document
 from tests.conftest import FakeTurn
 from tests.test_api import create_project, upload
-from tests.test_chats import ask, new_chat
+from tests.test_chats import answered, new_chat
 from tests.test_folders import make_folder
 
 Route = tuple[str, str, dict]
@@ -169,5 +169,5 @@ def test_chats_are_private_until_shared(client, services, world, account, make_a
 
     # Max's own chat is fully his, questions included.
     services.llm.agent_turns.append(FakeTurn(TextPart("Nothing is due.")))
-    assert ask(client, own["id"], "What is due?")[-1]["type"] == "done"
+    assert answered(client, services, own["id"], "What is due?")[-1]["status"] == "done"
     assert client.delete(f"/api/chats/{own['id']}").status_code == 204
