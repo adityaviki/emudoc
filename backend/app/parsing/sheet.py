@@ -6,39 +6,51 @@ import io
 from collections.abc import Iterable
 from pathlib import Path
 
-from app.parsing.types import ParsedBlock, ParsedDocument, clean_text, table_to_markdown
+from app.parsing.types import (
+    FileTooLarge,
+    ParsedBlock,
+    ParsedDocument,
+    clean_text,
+    table_to_markdown,
+)
 
 # Rows per table block. One sheet of thousands of rows becomes many blocks of a readable size;
 # the structure stage splits them further into passages.
 ROWS_PER_BLOCK = 200
 
 
-def parse_xlsx(path: Path) -> ParsedDocument:
+def parse_xlsx(path: Path, max_rows: int = 0) -> ParsedDocument:
+    """Parse the workbook; a sheet with more than `max_rows` filled rows (0: any number) is
+    refused."""
     from openpyxl import load_workbook
 
     workbook = load_workbook(path, read_only=True, data_only=True)
     blocks: list[ParsedBlock] = []
     try:
         for sheet in workbook.worksheets:
+            title = clean_text(sheet.title) or "Sheet"
             rows = _trim(
-                [_cell(value) for value in row] for row in sheet.iter_rows(values_only=True)
+                ([_cell(value) for value in row] for row in sheet.iter_rows(values_only=True)),
+                max_rows,
+                f'The sheet "{title}"',
             )
             if not rows:
                 continue
-            blocks.append(ParsedBlock("heading", clean_text(sheet.title) or "Sheet", level=1))
+            blocks.append(ParsedBlock("heading", title, level=1))
             blocks.extend(_table_blocks(rows))
     finally:
         workbook.close()
     return ParsedDocument(blocks=blocks)
 
 
-def parse_csv(path: Path) -> ParsedDocument:
+def parse_csv(path: Path, max_rows: int = 0) -> ParsedDocument:
+    """Parse the CSV; one with more than `max_rows` filled rows (0: any number) is refused."""
     text = path.read_text(encoding="utf-8-sig", errors="replace")
     try:
         dialect: type[csv.Dialect] | csv.Dialect = csv.Sniffer().sniff(text[:4096], ",;\t|")
     except csv.Error:
         dialect = csv.excel
-    rows = _trim(csv.reader(io.StringIO(text), dialect))
+    rows = _trim(csv.reader(io.StringIO(text), dialect), max_rows, "This file")
     return ParsedDocument(blocks=_table_blocks(rows))
 
 
@@ -56,9 +68,20 @@ def _cell(value: object) -> str:
     return str(value)
 
 
-def _trim(rows: Iterable[Iterable[str]]) -> list[list[str]]:
-    """Drop empty rows and the empty columns at the right edge."""
-    kept = [list(row) for row in rows if any(cell.strip() for cell in row)]
+def _trim(rows: Iterable[Iterable[str]], max_rows: int, what: str) -> list[list[str]]:
+    """Drop empty rows and the empty columns at the right edge, and stop as soon as more than
+    `max_rows` rows are kept (0: never), before a huge sheet is held in memory whole."""
+    kept: list[list[str]] = []
+    for row in rows:
+        row = list(row)
+        if not any(cell.strip() for cell in row):
+            continue
+        kept.append(row)
+        if max_rows and len(kept) > max_rows:
+            raise FileTooLarge(
+                f"{what} has more than {max_rows:,} rows, the most that can be indexed per "
+                "sheet. Split it and upload the parts."
+            )
     width = max((_filled_width(row) for row in kept), default=0)
     return [row[:width] for row in kept]
 

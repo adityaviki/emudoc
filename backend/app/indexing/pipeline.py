@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import SessionLocal
-from app.embeddings import Embedder, EmbeddingError
+from app.embeddings import Embedder
 from app.errors import AppError
 from app.indexing.enrich import (
     ExtractedFact,
@@ -26,10 +26,11 @@ from app.indexing.enrich import (
 from app.indexing.structure import SectionHint, build_outline
 from app.llm import LLM, LLMError
 from app.models import STAGES, Block, Document, Fact, Passage, Section
-from app.parsing import IMAGE_TYPES, ParsedBlock, UnsupportedFile, parse_file
+from app.parsing import IMAGE_TYPES, ParsedBlock, UnsupportedFile
+from app.parsing.limits import ParseLimits, parse_within_limits
 from app.parsing.pdf import render_page
 from app.parsing.types import clean_text
-from app.storage import Storage, StorageError
+from app.storage import Storage
 
 log = logging.getLogger(__name__)
 
@@ -161,7 +162,7 @@ def _run_stage(
         session.rollback()
         _set_stage(session, document, name, "skipped", str(skipped))
         return None
-    except (PipelineError, UnsupportedFile, LLMError, EmbeddingError, StorageError) as error:
+    except (AppError, UnsupportedFile) as error:
         session.rollback()
         _set_stage(session, document, name, "failed", str(error))
         transient = isinstance(error, AppError) and error.transient
@@ -189,7 +190,7 @@ def _parse(session: Session, document: Document, services: Services) -> str:
     # The parsers and the page renderer open files by path, so a remote original is copied to
     # this machine for the stage; the local storage hands out the file itself.
     with services.storage.localize(document.storage_key) as path:
-        parsed = parse_file(path, document.filename)
+        parsed = parse_within_limits(path, document.filename, _parse_limits())
         blocks = parsed.blocks
         note = ""
 
@@ -225,6 +226,16 @@ def _parse(session: Session, document: Document, services: Services) -> str:
     document.page_sizes = [[round(w, 2), round(h, 2)] for w, h in parsed.page_sizes]
     document.title = parsed.title
     return f"{len(blocks)} blocks{note}"
+
+
+def _parse_limits() -> ParseLimits:
+    settings = get_settings()
+    return ParseLimits(
+        timeout=settings.parse_timeout,
+        memory_mb=settings.parse_memory_mb,
+        max_pages=settings.parse_max_pages,
+        max_rows=settings.parse_max_rows,
+    )
 
 
 def _with_ocr(

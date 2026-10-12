@@ -3,6 +3,7 @@ import datetime as dt
 from PIL import Image
 from sqlalchemy import select
 
+from app.config import get_settings
 from app.indexing import enrich
 from app.indexing.pipeline import StageFailure, process_document, reset_stages
 from app.models import Block, Fact, Passage, Section
@@ -216,3 +217,23 @@ def test_long_documents_are_enriched_in_parts(
     assert {"notice_period", "effective_date"} <= {
         fact.name for fact in rows(session, Fact, document)
     }
+
+
+def test_a_file_over_a_parse_limit_fails_and_is_not_retried(
+    session, services, make_document, sample_pdf, monkeypatch
+):
+    monkeypatch.setattr(get_settings(), "parse_max_pages", 1)
+    document = make_document(sample_pdf)
+    # Not transient: the file is what it is, so the job does not queue it again.
+    assert process_document(document.id, services) == [
+        StageFailure(
+            "parse",
+            "This PDF has 2 pages, more than the 1 that can be indexed. Split it and upload "
+            "the parts.",
+            transient=False,
+        )
+    ]
+    session.refresh(document)
+    assert document.status == "failed"
+    assert document.error.startswith("This PDF has 2 pages")
+    assert stage_statuses(document)["parse"] == "failed"

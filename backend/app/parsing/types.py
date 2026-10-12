@@ -8,6 +8,11 @@ class UnsupportedFile(Exception):
     pass
 
 
+class FileTooLarge(Exception):
+    """The file has more pages or rows than the parsers take; the message says the cap and what
+    to do."""
+
+
 @dataclass
 class ParsedBlock:
     kind: str  # heading | paragraph | list_item | table

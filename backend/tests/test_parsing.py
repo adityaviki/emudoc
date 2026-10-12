@@ -1,4 +1,10 @@
-from app.parsing import parse_file, sheet
+import signal
+import subprocess
+
+import pytest
+
+from app.parsing import FileTooLarge, UnsupportedFile, limits, parse_file, sheet
+from app.parsing.limits import ParseError, ParseLimits, parse_within_limits
 from app.parsing.text import parse_text
 from app.parsing.types import table_to_markdown
 
@@ -122,3 +128,82 @@ def test_table_to_markdown_pads_and_escapes():
         "| only one |  |",
         "|  | x y |",
     ]
+
+
+@pytest.mark.parametrize("sample", ["sample_pdf", "sample_docx", "sample_xlsx", "sample_csv"])
+def test_the_child_process_returns_what_the_parser_finds(sample, request):
+    path = request.getfixturevalue(sample)
+    assert parse_within_limits(path, path.name, ParseLimits()) == parse_file(path, path.name)
+
+
+def test_a_parse_that_runs_too_long_is_killed(sample_pdf, monkeypatch):
+    children = []
+    start = subprocess.Popen
+
+    def watched(*args, **kwargs):
+        children.append(child := start(*args, **kwargs))
+        return child
+
+    monkeypatch.setattr(limits.subprocess, "Popen", watched)
+    with pytest.raises(ParseError) as caught:
+        parse_within_limits(sample_pdf, "msa.pdf", ParseLimits(timeout=0.01))
+    assert str(caught.value) == (
+        "Parsing did not finish within 0.01 seconds and was stopped. Split the file into "
+        "smaller parts and upload those."
+    )
+    assert not caught.value.transient
+    # Killed and reaped: nothing is left running or waiting to be waited for.
+    [child] = children
+    assert child.returncode == -signal.SIGKILL
+
+
+def test_a_parse_that_needs_too_much_memory_is_stopped(sample_pdf):
+    with pytest.raises(ParseError) as caught:
+        parse_within_limits(sample_pdf, "msa.pdf", ParseLimits(memory_mb=1))
+    assert str(caught.value) == (
+        "Parsing needs more than the 1 MB of memory allowed and was stopped. Split the file "
+        "into smaller parts and upload those."
+    )
+
+
+def test_a_pdf_with_too_many_pages_is_refused(sample_pdf):
+    with pytest.raises(ParseError) as caught:
+        parse_within_limits(sample_pdf, "msa.pdf", ParseLimits(max_pages=1))
+    assert str(caught.value) == (
+        "This PDF has 2 pages, more than the 1 that can be indexed. Split it and upload the parts."
+    )
+
+
+def test_a_sheet_with_too_many_rows_is_refused(sample_xlsx, sample_csv):
+    # The caps count the rows with content: the Budget sheet has three, Totals one.
+    assert parse_file(sample_xlsx, "budget.xlsx", max_rows=3).blocks
+    with pytest.raises(FileTooLarge) as caught:
+        parse_file(sample_xlsx, "budget.xlsx", max_rows=2)
+    assert str(caught.value) == (
+        'The sheet "Budget" has more than 2 rows, the most that can be indexed per sheet. Split '
+        "it and upload the parts."
+    )
+    with pytest.raises(FileTooLarge) as caught:
+        parse_file(sample_csv, "people.csv", max_rows=2)
+    assert str(caught.value).startswith("This file has more than 2 rows")
+
+
+def test_a_damaged_file_fails_with_the_parsers_error(tmp_path):
+    path = tmp_path / "broken.pdf"
+    path.write_bytes(b"%PDF-1.4 but nothing of a PDF follows")
+    with pytest.raises(ParseError) as caught:
+        parse_within_limits(path, "broken.pdf", ParseLimits())
+    assert str(caught.value) == (
+        "The file could not be parsed (pdfplumber.PdfminerException). Check that it opens in "
+        "another program, then upload it again."
+    )
+
+
+def test_images_and_unknown_files_start_no_process(tmp_path, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise AssertionError("A process was started")
+
+    monkeypatch.setattr(limits.subprocess, "Popen", refuse)
+    assert parse_within_limits(tmp_path / "scan.png", "scan.png", ParseLimits()).ocr_pages == [1]
+    with pytest.raises(UnsupportedFile):
+        parse_within_limits(tmp_path / "data.bin", "data.bin", ParseLimits())

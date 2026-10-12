@@ -18,7 +18,11 @@ that failed because the model, the embedding endpoint or the bucket was out of r
 rate limiting, a dropped connection) is run again by itself after 1, 2, 4 and 8 minutes; the
 stage says so in the document's status until it succeeds, and after the last try it stays
 failed until "Index again". A stage that failed for a reason that will not pass on its own, such
-as a rejected key or a file nothing can be read from, is not retried.
+as a rejected key or a file nothing can be read from, is not retried. The parse stage runs the
+parser in a process of its own with a time limit, a memory limit and caps on the pages of a PDF
+and the rows of a sheet (`PARSE_TIMEOUT`, `PARSE_MEMORY_MB`, `PARSE_MAX_PAGES`,
+`PARSE_MAX_ROWS`), so a file that would take hours or all the memory stops that process alone,
+and the document says which limit it hit.
 
 | Stage     | What it does                                                                      | Needs      |
 | --------- | --------------------------------------------------------------------------------- | ---------- |
@@ -144,6 +148,13 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   once. Neither removes anything while the database holds no documents at all, since the
   storage is then more likely another deployment's than all orphans; the message says what to
   check.
+- `PARSE_TIMEOUT`, `PARSE_MEMORY_MB`, `PARSE_MAX_PAGES` and `PARSE_MAX_ROWS` bound the parsing
+  of an upload: 300 seconds, 2048 MB of address space, 500 pages of a PDF and 100,000 filled rows
+  on one sheet by default; `0` removes a limit. The parser runs in a child process of the worker
+  that is killed at the time limit and caps its own memory, so a file that is too big fails with
+  a message naming the limit, is not retried, and leaves the worker and the other uploads
+  untouched. `WORKER_CONCURRENCY` parses run at once, each with its own memory on top of the
+  worker's.
 - `AGENT_MODEL` and `INDEX_MODEL` name the AI models as `provider:model`. Both default to
   `google:gemini-2.5-flash-lite`. Indexing is the high-volume side and the agent answers
   questions, so the two can differ, even across providers.

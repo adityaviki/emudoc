@@ -12,6 +12,7 @@ import pypdfium2 as pdfium
 
 from app.parsing.types import (
     BBox,
+    FileTooLarge,
     ParsedBlock,
     ParsedDocument,
     clean_text,
@@ -94,13 +95,19 @@ class _Group:
         return " ".join(parts)
 
 
-def parse_pdf(path: Path) -> ParsedDocument:
+def parse_pdf(path: Path, max_pages: int = 0) -> ParsedDocument:
+    """Parse the PDF; one with more than `max_pages` pages (0: any number) is refused."""
     pages: list[tuple[list[_Line], list[_Table]]] = []
     page_sizes: list[tuple[float, float]] = []
     ocr_pages: list[int] = []
 
     with pdfplumber.open(path, laparams={}) as pdf:
         title = _metadata_title(pdf.metadata.get("Title"))
+        if max_pages and len(pdf.pages) > max_pages:
+            raise FileTooLarge(
+                f"This PDF has {len(pdf.pages):,} pages, more than the {max_pages:,} that can be "
+                "indexed. Split it and upload the parts."
+            )
         for number, page in enumerate(pdf.pages, start=1):
             page_sizes.append((float(page.width), float(page.height)))
             tables = _tables(page)
