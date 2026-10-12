@@ -28,6 +28,7 @@ from app.db import SessionLocal
 from app.indexing.pipeline import Services
 from app.llm import LLMError
 from app.models import Project
+from app.usage import ModelUsage
 
 log = logging.getLogger(__name__)
 
@@ -78,6 +79,7 @@ def run_agent(
     services: Services,
     project_id: int,
     messages: list[dict[str, str]],
+    usage: ModelUsage | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Run one user turn to completion, yielding events for the client as it goes.
 
@@ -86,7 +88,12 @@ def run_agent(
     runs, never while the model thinks, which is most of its time; every call reads a snapshot
     of its own; and whatever a call leaves open, or a failure inside it, reaches neither the
     next call nor the caller's session.
+
+    `usage` is filled with each model call as it is answered, so a caller that leaves the
+    loop before its `done` event still knows what the calls so far cost (app/usage.py).
     """
+    if usage is None:
+        usage = ModelUsage()
     with SessionLocal() as session:
         project = session.get_one(Project, project_id)
         system = (
@@ -100,7 +107,6 @@ def run_agent(
     conversation: list[ModelMessage] = [_chat_message(message) for message in messages]
     # Passages shown to the model so far, keyed by id: the only references an answer may cite.
     sources: dict[int, dict[str, Any]] = {}
-    usage = {"input_tokens": 0, "output_tokens": 0}
     retries = 0
     turns = 0
 
@@ -117,8 +123,7 @@ def run_agent(
             yield {"type": "error", "message": str(error)}
             return
 
-        usage["input_tokens"] += response.usage.input_tokens
-        usage["output_tokens"] += response.usage.output_tokens
+        usage.add(response.usage)
 
         if response.finish_reason == "content_filter":
             yield {
@@ -202,7 +207,10 @@ def run_agent(
             "message": f"Stopped after {MAX_TURNS} rounds of tool calls.",
         }
 
-    yield {"type": "done", "usage": usage}
+    yield {
+        "type": "done",
+        "usage": {"input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens},
+    }
 
 
 def _chat_message(message: dict[str, str]) -> ModelMessage:

@@ -21,6 +21,9 @@ lists the second part and removes it with `--delete`.
 
 `failed-jobs` lists the jobs the worker gave up on, the dead letters (app/deadletters.py), and
 with `--requeue` queues their documents again from the stage they stopped at.
+
+`usage` prints what an organisation used per day (app/usage.py): the model calls and tokens
+of its answers today, and whatever is metered next.
 """
 
 import argparse
@@ -34,13 +37,14 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import Connection, select, text
+from sqlalchemy.orm import Session
 
 from app.answers import EVENT_HISTORY, prune_events
 from app.config import get_settings
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine
 from app.deadletters import describe, failed_jobs, requeue
 from app.jobs import BULK, HISTORY, prune_finished, queue_index_by_id
-from app.models import Document
+from app.models import Document, Organization
 from app.parsing import MIME_TYPES
 from app.storage import (
     DELETE_BATCH,
@@ -52,6 +56,7 @@ from app.storage import (
     project_prefix,
     storage_from_settings,
 )
+from app.usage import DailyUsage, daily
 
 log = logging.getLogger(__name__)
 
@@ -421,6 +426,26 @@ def _orphan_summary(orphans: list[Orphan]) -> str:
     )
 
 
+def usage_report(session: Session, slug: str, days: int) -> list[str]:
+    """The lines the `usage` command prints for the organisation `slug`: one per day, kind and
+    unit over the last `days` days up to today, in UTC."""
+    organization = session.scalar(select(Organization).where(Organization.slug == slug))
+    if organization is None:
+        raise RuntimeError(f"No organisation has the slug {slug!r}.")
+    today = datetime.now(UTC).date()
+    since = today - timedelta(days=days - 1)
+    rows = daily(session, organization.id, since, today)
+    span = f"from {since} to {today} (UTC)"
+    if not rows:
+        return [f"{organization.name} ({slug}) used nothing {span}."]
+    return [f"Usage of {organization.name} ({slug}) {span}:", *map(_usage_line, rows)]
+
+
+def _usage_line(row: DailyUsage) -> str:
+    cost = f"  {row.cost_micros / 1_000_000:.4f}" if row.cost_micros is not None else ""
+    return f"  {row.day}  {row.kind:<16}{row.unit:<16}{row.quantity:>12,}{cost}"
+
+
 def _count(number: int, noun: str) -> str:
     return f"{number} {noun}{'' if number == 1 else 's'}"
 
@@ -516,6 +541,17 @@ def main(argv: list[str] | None = None) -> None:
     )
     failed.add_argument(
         "--requeue", action="store_true", help="queue the documents again instead of listing"
+    )
+    usage = commands.add_parser(
+        "usage",
+        help="print what an organisation used per day",
+        description="Print what an organisation used per day, in UTC, by kind and unit: the "
+        "model calls and tokens of its answers, and whatever else is metered. A cost column "
+        "appears once costs are recorded.",
+    )
+    usage.add_argument("organization", help="the organisation's slug")
+    usage.add_argument(
+        "--days", type=int, default=30, help="how many days back from today; 30 by default"
     )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -623,6 +659,13 @@ def main(argv: list[str] | None = None) -> None:
                         "Run again with --requeue to index their documents again from the "
                         "stage they stopped at."
                     )
+        elif args.command == "usage":
+            if args.days < 1:
+                parser.error("--days must be at least 1")
+            check_schema()
+            with SessionLocal() as session:
+                for line in usage_report(session, args.organization, args.days):
+                    print(line)
     except (RuntimeError, StorageError) as error:
         sys.exit(str(error))
 

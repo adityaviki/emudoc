@@ -58,6 +58,14 @@ another tab, survives a reload, a dropped connection and a restart of the API, a
 up where it was by another tab that opens the chat. Stop ends it with what arrived so far,
 whether or not a worker is alive; a chat takes one question at a time.
 
+What an organisation uses is recorded as it happens, one row per measure in `usage_events`:
+today an answer's model calls and tokens, with the organisation, project and member they
+belong to and the message they were for, counted at the end of the run that made them, so an
+answer that was stopped or that a worker lost is counted for the calls it made. The indexing
+stages and the page renders are next. `uv run python -m app.maintenance usage <slug>` (in
+`backend/`) prints an organisation's use per day in UTC, by kind and unit, over the last 30
+days or `--days`.
+
 ## The workspace
 
 A project opens as two panes. On the left is the **library**: the project's documents filed in
@@ -262,7 +270,8 @@ backend/app/
   oidc.py       sign-in with Google and Microsoft
   mail.py       the emails the app sends
   maintenance.py
-                the embedding checks at start and the command that rebuilds the vectors
+                the embedding checks at start, the housekeeping and the operator commands
+  usage.py      what each organisation used, recorded as it happens, and the daily rollup
   api/          HTTP endpoints
   answers.py    an answer as a job: the worker writes its events, the API streams them
   llm.py        every call to the AI model

@@ -46,6 +46,11 @@ JOB_STATUSES = ("queued", "running", "done", "failed")
 # How far an answer is: being written by the worker (app/answers.py), finished, stopped by the
 # user, or failed. A question is always `done`.
 MESSAGE_STATUSES = ("streaming", "done", "stopped", "failed")
+# What an organisation is metered for (app/usage.py): the activity a row counts, and what the
+# count is in. Only `answer` is recorded today; the rest are what the indexing stages and the
+# page renders record next, listed here so that recording one needs no migration.
+USAGE_KINDS = ("answer", "upload", "ocr", "infer_sections", "enrich", "embed", "render")
+USAGE_UNITS = ("calls", "input_tokens", "output_tokens", "pages", "bytes", "inputs")
 
 
 def _one_of(column: str, values: tuple[str, ...], table: str) -> CheckConstraint:
@@ -635,3 +640,43 @@ class Job(Base):
     # When a failed job was reported to the operator (app/deadletters.py): null until then,
     # and for jobs that did not fail.
     reported_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class UsageEvent(Base):
+    """One measure of one thing an organisation used, for its quotas and its bill (app/usage.py).
+
+    The row names the activity (`kind`), what was measured (`unit`) and how much, who did it,
+    the model when one was called, and what it was for (`ref_type` and `ref_id`: a chat
+    message, a document), so that a figure on a bill can be traced to its cause. The project
+    and the user go null when their row goes and the usage stays, since the organisation is
+    what is billed; the organisation's rows go with it. `cost_micros` is in millionths of the
+    billing currency and empty until there is a price table to fill it from.
+    """
+
+    __tablename__ = "usage_events"
+    __table_args__ = (
+        _one_of("kind", USAGE_KINDS, "usage_events"),
+        _one_of("unit", USAGE_UNITS, "usage_events"),
+        # A reference is a type and an id together or neither.
+        CheckConstraint("(ref_type IS NULL) = (ref_id IS NULL)", name="ck_usage_events_ref"),
+        # What a rollup and a quota read: one organisation's rows over a span of time.
+        Index("ix_usage_events_org_occurred", "org_id", "occurred_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"))
+    project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"), index=True
+    )
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    kind: Mapped[str] = mapped_column(String(40))
+    unit: Mapped[str] = mapped_column(String(20))
+    quantity: Mapped[int] = mapped_column(BigInteger)
+    # The `provider:model` name the call was configured with, as the settings name it.
+    model: Mapped[str | None] = mapped_column(String(200))
+    cost_micros: Mapped[int | None] = mapped_column(BigInteger)
+    ref_type: Mapped[str | None] = mapped_column(String(40))
+    ref_id: Mapped[int | None] = mapped_column(BigInteger)
+    occurred_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

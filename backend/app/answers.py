@@ -16,11 +16,16 @@ way a stop works at once whether or not a worker is alive. A run that was lost (
 died, or was stopped and handed the job back) starts the answer over on the next claim: it
 appends a `restart` event first, so a follower drops what it had, and a run lost `max_attempts`
 times ends the answer `failed` with a sentence that says to ask again (`abandon_answer`).
+
+Whatever ends a run, the model calls it made are recorded as the organisation's usage
+(app/usage.py) before it returns: the loop counts them as they are answered, and the run
+records the count at its end, after a stop or a lost lease as much as after the answer.
 """
 
 import json
 import logging
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -31,10 +36,12 @@ from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
 from app.agent.loop import run_agent
+from app.config import get_settings
 from app.db import BUSY, SessionLocal
 from app.indexing.pipeline import Services
 from app.jobs import ANSWER_QUESTION, LIVE, Lease, LeaseLost, enqueue, renew
 from app.models import Chat, ChatMessage, Job, Project
+from app.usage import ANSWER, CHAT_MESSAGE, ModelUsage, record
 
 log = logging.getLogger(__name__)
 
@@ -211,7 +218,7 @@ class _Writer:
     def __init__(self, session: Session, lease: Lease | None, message_id: int):
         self._session = session
         self._lease = lease
-        self._message_id = message_id
+        self.message_id = message_id
         self.seq = session.scalar(_NEXT_SEQ, {"id": message_id})
         self._text = ""
         self._flushed_at = time.monotonic()
@@ -237,7 +244,7 @@ class _Writer:
             self._append({"type": "text", "text": pending})
 
     def _append(self, event: dict[str, Any]) -> None:
-        params = {"id": self._message_id, "seq": self.seq, "event": event}
+        params = {"id": self.message_id, "seq": self.seq, "event": event}
         if self._session.execute(_APPEND, params).rowcount == 0:
             self._session.rollback()
             raise _Settled
@@ -256,14 +263,17 @@ def answer(message_id: int, services: Services, lease: Lease | None = None) -> N
     finds the job no longer this worker's ends the run with `LeaseLost`, with the answer the
     next worker's to start over. Without a lease the run is unguarded, as the tests run it.
     """
-    reply = Reply()
     with SessionLocal() as session:
         message = session.get(ChatMessage, message_id)
         if message is None or message.status != "streaming":
             # Removed with its chat, or stopped before any worker got to it.
             return
         chat = session.get(Chat, message.chat_id)
-        project_id = chat.project_id
+        project = session.get(Project, chat.project_id)
+        project_id = project.id
+        # Whose usage the run's model calls are, read now: the rollback below expires the
+        # rows, and reading one afterwards would take a connection back for the whole run.
+        payer = {"org_id": project.org_id, "project_id": project_id, "user_id": chat.user_id}
         # Answers without text, such as failed ones, are left out of the conversation.
         history = [
             {"role": earlier.role, "content": earlier.content}
@@ -276,35 +286,72 @@ def answer(message_id: int, services: Services, lease: Lease | None = None) -> N
         # goes back now and is taken for each event it writes, never held while the model
         # thinks.
         session.rollback()
+        usage = ModelUsage()
         try:
-            if writer.resumed:
-                writer.emit({"type": "restart"})
-            for event in run_agent(services, project_id, history):
-                reply.apply(event)
-                writer.emit(event)
-            writer.flush()
-            status = "failed" if reply.error else "done"
-        except _Settled:
-            log.info("Answer %s was stopped or removed while it was being written", message_id)
-            return
+            _write(session, writer, run_agent(services, project_id, history, usage), lease)
+        finally:
+            # The calls the run made were made whatever ended it: a stop, a lost lease and a
+            # crash all leave the run through here, and are counted like an answer.
+            _charge(session, usage, message_id, payer)
+
+
+def _write(session: Session, writer: _Writer, events: Iterator[dict], lease: Lease | None) -> None:
+    """Append the events to the answer as they come, and settle its row when they end."""
+    reply = Reply()
+    message_id = writer.message_id
+    try:
+        if writer.resumed:
+            writer.emit({"type": "restart"})
+        for event in events:
+            reply.apply(event)
+            writer.emit(event)
+        writer.flush()
+        status = "failed" if reply.error else "done"
+    except _Settled:
+        log.info("Answer %s was stopped or removed while it was being written", message_id)
+        return
+    except PoolTimeout:
+        # Every database connection was in use when a tool or an append needed one (a
+        # request is refused the same way, `pool_exhausted` in app/main.py): the answer
+        # ends with the sentence that says to try again, and the operator sees the pool,
+        # not a traceback.
+        log.warning("Answer %s stopped: every database connection is in use", message_id)
+        session.rollback()
+        reply.error = BUSY
+        try:
+            writer.emit({"type": "error", "message": BUSY})
         except PoolTimeout:
-            # Every database connection was in use when a tool or an append needed one (a
-            # request is refused the same way, `pool_exhausted` in app/main.py): the answer
-            # ends with the sentence that says to try again, and the operator sees the pool,
-            # not a traceback.
-            log.warning("Answer %s stopped: every database connection is in use", message_id)
-            session.rollback()
-            reply.error = BUSY
-            try:
-                writer.emit({"type": "error", "message": BUSY})
-            except PoolTimeout:
-                pass
-            status = "failed"
-        if lease is not None and not renew(session, lease):
-            session.rollback()
-            raise LeaseLost(lease)
-        settle(session, message_id, reply, status)
+            pass
+        status = "failed"
+    if lease is not None and not renew(session, lease):
+        session.rollback()
+        raise LeaseLost(lease)
+    settle(session, message_id, reply, status)
+    session.commit()
+
+
+def _charge(session: Session, usage: ModelUsage, message_id: int, payer: dict[str, int]) -> None:
+    """Record the run's model calls as the usage of `payer` (its organisation, project and
+    user), in a transaction of its own: the run's last one is committed, rolled back or
+    broken by now, whichever way the run ended."""
+    if not usage.calls:
+        return
+    session.rollback()
+    try:
+        record(
+            session,
+            **payer,
+            kind=ANSWER,
+            measures=usage.measures,
+            model=get_settings().agent_model,
+            ref=(CHAT_MESSAGE, message_id),
+        )
         session.commit()
+    except PoolTimeout:
+        log.warning(
+            "The usage of answer %s was not recorded: every database connection is in use",
+            message_id,
+        )
 
 
 def run_answer(job: Job, services: Services) -> str | None:
