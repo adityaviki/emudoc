@@ -23,6 +23,7 @@ import { ask, chatKey, isStreaming, loadChat, resume, stop, useStreaming } from 
 import type { ChatData, Message, Step } from '../chat.ts'
 import { Markdown, SourceText } from '../components/Markdown.tsx'
 import { Floating } from '../components/Menu.tsx'
+import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, IconButton, Loading, Notice, Spinner } from '../components/ui.tsx'
 import { describeAnswerUsage } from '../usage.ts'
 import { useWorkspace } from './state.ts'
@@ -404,7 +405,8 @@ function Answer({ message, currency, onOpen }: AnswerProps) {
         />
       )}
       {message.notice && <p className="text-sm text-muted">{message.notice}</p>}
-      {message.error && <Notice tone="bad">{message.error}</Notice>}
+      {message.error &&
+        (message.refusedByPlan ? <PlanLimitNotice message={message.error} /> : <Notice tone="bad">{message.error}</Notice>)}
       {cited.length > 0 && (
         <div className="border-t border-line pt-2.5">
           <p className="mb-1 text-[11px] font-medium tracking-wide text-muted uppercase">Sources</p>

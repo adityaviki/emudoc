@@ -27,6 +27,7 @@ INITIAL_SCHEMA = "bedb624406a6"
 PASSAGE_LANGUAGE = "27bd56b4a29e"
 STORAGE_KEYS = "5c1e7a9d2b40"
 USAGE_EVENTS = "4d17fad8beb9"
+USAGE_ON_ROWS = "29c97f1a6f4f"
 
 
 def current_revision() -> str | None:
@@ -187,6 +188,23 @@ def test_usage_recorded_before_the_columns_is_summed_into_them(
     assert client.get(f"/api/documents/{indexed.id}").json()["usage"] == document_usage
     reply = client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]
     assert reply["usage"] == answer_usage
+
+
+def test_organisations_from_before_plans_start_on_the_free_one_but_the_local_has_no_limits(
+    rebuilt_afterwards, session, account, make_account
+):
+    other = make_account("ann@globex.example").organization.id
+    local = account.organization.id
+    session.rollback()
+    command.downgrade(alembic_config(), USAGE_ON_ROWS)
+    with engine.connect() as connection:
+        columns = {column["name"] for column in inspect(connection).get_columns("organizations")}
+    assert "plan" not in columns
+
+    command.upgrade(alembic_config(), "head")
+    with engine.connect() as connection:
+        plans = dict(connection.execute(text("SELECT id, plan FROM organizations")).all())
+    assert plans == {local: "enterprise", other: "free"}
 
 
 def test_database_made_before_migrations_cannot_be_upgraded(rebuilt_afterwards):

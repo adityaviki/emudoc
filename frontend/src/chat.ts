@@ -5,7 +5,7 @@
 
 import type { QueryClient } from '@tanstack/react-query'
 import { useSyncExternalStore } from 'react'
-import { ApiError, api, streamEvents } from './api.ts'
+import { ApiError, api, isPlanLimit, streamEvents } from './api.ts'
 import type { Chat, ChatDetail, ChatEvent, ChatMessage, MessageStatus, Source, Usage } from './api.ts'
 
 export interface Step {
@@ -28,6 +28,8 @@ export interface Message {
   thinking?: boolean
   notice?: string | null
   error?: string | null
+  // The error is the organisation's plan refusing the question, shown as the way to upgrade.
+  refusedByPlan?: boolean
   // What the answer used, once known: from the `done` event while it is followed, from the
   // saved row when the chat is loaded.
   usage?: Usage | null
@@ -237,10 +239,17 @@ export async function ask(queryClient: QueryClient, chatId: number, question: st
     following.messageId = saved.answer.id
     update = byId(saved.answer.id)
   } catch (error) {
-    // A refusal (another answer still running, too many in flight) shows where the answer
-    // would be; the question stays on screen for the user to send again.
+    // A refusal (another answer still running, too many in flight, the plan's questions used
+    // up) shows where the answer would be; the question stays on screen for the user to send
+    // again.
     if (!following.controller.signal.aborted) {
-      last((message) => ({ ...message, thinking: false, error: (error as Error).message, status: 'failed' }))
+      last((message) => ({
+        ...message,
+        thinking: false,
+        error: (error as Error).message,
+        refusedByPlan: isPlanLimit(error),
+        status: 'failed',
+      }))
       queryClient.invalidateQueries({ queryKey: ['chats'] })
       return
     }

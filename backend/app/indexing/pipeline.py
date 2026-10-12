@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import SessionLocal
 from app.embeddings import Embedder
+from app.entitlements import check_pages
 from app.errors import AppError
 from app.indexing.enrich import (
     ExtractedFact,
@@ -260,6 +261,12 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
     # this machine for the stage; the local storage hands out the file itself.
     with services.storage.localize(document.storage_key) as path:
         parsed = parse_within_limits(path, document.filename, _parse_limits())
+        # The pages are a measure of the upload, counted when the first parse learns how many
+        # there are; a parse run again for "Index again" brings nothing new in. The plan's
+        # month is checked before a scan is read, since reading it costs model calls.
+        new_pages = (parsed.page_count or 0) if document.page_count is None else 0
+        if reason := check_pages(session, document.project.organization, new_pages):
+            raise PipelineError(reason)
         blocks = parsed.blocks
         note = ""
 
@@ -291,10 +298,8 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
         )
         for ordinal, block in enumerate(blocks)
     )
-    # The pages are a measure of the upload, counted when the first parse learns how many
-    # there are; a parse run again for "Index again" brings nothing new in.
     if document.page_count is None:
-        meter.add(UPLOAD, "pages", parsed.page_count or 0)
+        meter.add(UPLOAD, "pages", new_pages)
     document.page_count = parsed.page_count
     document.page_sizes = [[round(w, 2), round(h, 2)] for w, h in parsed.page_sizes]
     document.title = parsed.title

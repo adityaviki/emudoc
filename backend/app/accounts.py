@@ -95,7 +95,8 @@ def local_account(session: Session) -> Account:
     if account is None:
         try:
             with session.begin_nested():
-                organization = Organization(name="Local", slug=LOCAL_ORG_SLUG)
+                # One machine, one developer: no plan stands between them and their files.
+                organization = Organization(name="Local", slug=LOCAL_ORG_SLUG, plan="enterprise")
                 user = User(email=LOCAL_OWNER_EMAIL, name="Owner")
                 session.add_all([organization, user])
                 session.flush()

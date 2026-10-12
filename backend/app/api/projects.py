@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from sqlalchemy import func, select
 
 from app.api.deps import (
@@ -11,6 +11,7 @@ from app.api.deps import (
     Stage,
     WorkerDep,
 )
+from app.entitlements import check_project
 from app.indexing.pipeline import reset_stages
 from app.jobs import BULK, queue_index
 from app.models import Document, Project
@@ -47,6 +48,8 @@ def list_projects(session: SessionDep, account: AccountDep):
 
 @router.post("", response_model=ProjectOut, status_code=201)
 def create_project(body: ProjectIn, session: SessionDep, account: EditorDep):
+    if reason := check_project(session, account.organization):
+        raise HTTPException(402, reason)
     project = Project(
         org_id=account.organization.id,
         name=body.name.strip(),

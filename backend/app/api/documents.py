@@ -26,6 +26,7 @@ from app.api.deps import (
 )
 from app.api.folders import folder_paths, resolve_folder
 from app.config import get_settings
+from app.entitlements import check_upload
 from app.indexing.pipeline import reset_stages
 from app.jobs import queue_index
 from app.models import STAGES, Block, Document, Fact, Project, Section
@@ -79,9 +80,18 @@ def upload_documents(
     account: AccountDep,
     folder_id: int | None = None,
 ):
-    """Upload files into a folder of the project (the root when no folder is given)."""
+    """Upload files into a folder of the project (the root when no folder is given).
+
+    The organisation's plan is checked before anything is stored, and refuses the request
+    when it has no room for a document at all (402, which the app shows as the way to
+    upgrade); each file is then checked for its own size, and one that would not fit is
+    rejected with the same sentence while the others go in (app/entitlements.py).
+    """
     settings = get_settings()
     limit = settings.max_upload_mb * 1024 * 1024
+    organization = account.organization
+    if reason := check_upload(session, organization):
+        raise HTTPException(402, reason)
     folder = resolve_folder(session, project, folder_id)
     documents: list[Document] = []
     rejected: list[RejectedFile] = []
@@ -109,6 +119,10 @@ def upload_documents(
             duplicate = _already_present(session, project.id, sha256, filename)
             if duplicate:
                 rejected.append(duplicate)
+                continue
+            # Counted again per file: each one committed above fills the plan a little more.
+            if reason := check_upload(session, organization, size):
+                rejected.append(RejectedFile(filename=filename, reason=reason))
                 continue
 
             document = Document(

@@ -28,6 +28,7 @@ from app.api.deps import (
 )
 from app.config import get_settings
 from app.db import SessionLocal
+from app.entitlements import check_question
 from app.models import Chat, ChatMessage
 from app.schemas import AskOut, ChatDetail, ChatMessageOut, ChatOut, ChatPatch, QuestionIn
 
@@ -114,6 +115,8 @@ def ask(
             in_flight,
         )
         raise HTTPException(429, TOO_MANY_ANSWERS, headers={"Retry-After": str(RETRY_AFTER)})
+    if reason := check_question(session, account.organization):
+        raise HTTPException(402, reason)
     if not chat.title:
         chat.title = _title(question)
     chat.updated_at = func.now()

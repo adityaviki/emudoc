@@ -335,6 +335,9 @@ class OrganizationOut(_FromORM):
     id: int
     name: str
     slug: str
+    # Which plan's limits the organisation is held to (app/entitlements.py), for the prompt
+    # the app shows when one is reached.
+    plan: str
 
 
 class MeOut(BaseModel):

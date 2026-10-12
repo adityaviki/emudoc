@@ -3,8 +3,9 @@ import { FolderOpen, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { api } from '../api.ts'
+import { api, isPlanLimit } from '../api.ts'
 import type { Project } from '../api.ts'
+import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, EmptyState, FIELD, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
 
@@ -103,7 +104,11 @@ function NewProjectForm({ onClose }: { onClose: () => void }) {
       </div>
       {create.isError && (
         <div className="mt-3">
-          <Notice tone="bad">{create.error.message}</Notice>
+          {isPlanLimit(create.error) ? (
+            <PlanLimitNotice message={create.error.message} />
+          ) : (
+            <Notice tone="bad">{create.error.message}</Notice>
+          )}
         </div>
       )}
       <div className="mt-4 flex justify-end gap-2">

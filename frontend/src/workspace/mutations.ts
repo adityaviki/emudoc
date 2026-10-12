@@ -3,7 +3,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { api } from '../api.ts'
+import { api, isPlanLimit } from '../api.ts'
 import type { Document, Folder, UploadResult } from '../api.ts'
 import { useWorkspace } from './state.ts'
 
@@ -18,6 +18,8 @@ export function useLibraryMutations() {
   const workspace = useWorkspace()
   const projectId = workspace.project.id
   const [notice, setNotice] = useState<string | null>(null)
+  // An upload the organisation's plan refused as a whole: shown as the way to upgrade.
+  const [planLimit, setPlanLimit] = useState<string | null>(null)
   const [rejected, setRejected] = useState<UploadResult['rejected']>([])
 
   const documentsKey = ['documents', projectId]
@@ -125,7 +127,7 @@ export function useLibraryMutations() {
     mutationFn: ({ files, folderId }: { files: File[]; folderId: number | null }) =>
       api.upload(projectId, files, folderId),
     onSuccess: (result) => setRejected(result.rejected),
-    onError: fail,
+    onError: (error) => (isPlanLimit(error) ? setPlanLimit(error.message) : fail(error)),
     onSettled: () => invalidate(documentsKey, projectKey),
   })
 
@@ -144,6 +146,8 @@ export function useLibraryMutations() {
   return {
     notice,
     setNotice,
+    planLimit,
+    clearPlanLimit: () => setPlanLimit(null),
     rejected,
     clearRejected: () => setRejected([]),
     createFolder,

@@ -51,6 +51,9 @@ MESSAGE_STATUSES = ("streaming", "done", "stopped", "failed")
 # `ChatMessage.usage`) is keyed by the same kinds.
 USAGE_KINDS = ("answer", "upload", "ocr", "infer_sections", "enrich", "embed", "render")
 USAGE_UNITS = ("calls", "input_tokens", "output_tokens", "pages", "bytes", "inputs")
+# What an organisation is entitled to (app/entitlements.py), from the plan with the least to
+# the one with no limits. A new organisation starts on the first.
+PLANS = ("free", "pro", "team", "enterprise")
 
 
 def _one_of(column: str, values: tuple[str, ...], table: str) -> CheckConstraint:
@@ -157,11 +160,15 @@ class Organization(Base):
     """The tenant. Projects belong to an organisation, and so do its plan, usage and billing."""
 
     __tablename__ = "organizations"
+    __table_args__ = (_one_of("plan", PLANS, "organizations"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
     # Appears in URLs and API responses, so it is unique across all tenants.
     slug: Mapped[str] = mapped_column(String(100), unique=True)
+    # Which plan's entitlements the organisation is held to (app/entitlements.py). Set by the
+    # operator's `plan` command until billing sets it; the local account has no limits.
+    plan: Mapped[str] = mapped_column(String(20), default="free", server_default="free")
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

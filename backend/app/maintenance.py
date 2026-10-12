@@ -32,7 +32,7 @@ import re
 import shutil
 import sys
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -43,7 +43,9 @@ from app.answers import EVENT_HISTORY, prune_events
 from app.config import get_settings
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine
 from app.deadletters import describe, failed_jobs, requeue
+from app.entitlements import PLANS, Entitlements
 from app.jobs import BULK, HISTORY, prune_finished, queue_index_by_id
+from app.models import PLANS as PLAN_NAMES
 from app.models import Document, Organization
 from app.parsing import MIME_TYPES
 from app.storage import (
@@ -429,9 +431,7 @@ def _orphan_summary(orphans: list[Orphan]) -> str:
 def usage_report(session: Session, slug: str, days: int) -> list[str]:
     """The lines the `usage` command prints for the organisation `slug`: one per day, kind and
     unit over the last `days` days up to today, in UTC."""
-    organization = session.scalar(select(Organization).where(Organization.slug == slug))
-    if organization is None:
-        raise RuntimeError(f"No organisation has the slug {slug!r}.")
+    organization = _organization(session, slug)
     today = datetime.now(UTC).date()
     since = today - timedelta(days=days - 1)
     rows = daily(session, organization.id, since, today)
@@ -439,6 +439,43 @@ def usage_report(session: Session, slug: str, days: int) -> list[str]:
     if not rows:
         return [f"{organization.name} ({slug}) used nothing {span}."]
     return [f"Usage of {organization.name} ({slug}) {span}:", *map(_usage_line, rows)]
+
+
+def plan_report(session: Session, slug: str, plan: str | None) -> list[str]:
+    """The lines the `plan` command prints for the organisation `slug`: its plan and what the
+    plan allows (app/entitlements.py), after putting it on `plan` when one is given. The
+    caller commits."""
+    organization = _organization(session, slug)
+    if plan is not None and plan not in PLAN_NAMES:
+        raise RuntimeError(f"There is no {plan!r} plan; the plans are {', '.join(PLAN_NAMES)}.")
+    was = organization.plan
+    if plan is not None:
+        organization.plan = plan
+    changed = plan is not None and plan != was
+    verb = f"moved from the {was.capitalize()} plan to" if changed else "is on"
+    lines = [
+        f"{organization.name} ({slug}) {verb} the {organization.plan.capitalize()} plan, "
+        "which allows:"
+    ]
+    entitlements = PLANS[organization.plan]
+    for field_ in fields(Entitlements):
+        lines.append(f"  {field_.name:<20}{_limit(getattr(entitlements, field_.name))}")
+    return lines
+
+
+def _limit(value: int | str | bool | None) -> str:
+    if value is None:
+        return "no limit"
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    return f"{value:,}" if isinstance(value, int) else value
+
+
+def _organization(session: Session, slug: str) -> Organization:
+    organization = session.scalar(select(Organization).where(Organization.slug == slug))
+    if organization is None:
+        raise RuntimeError(f"No organisation has the slug {slug!r}.")
+    return organization
 
 
 def _usage_line(row: DailyUsage) -> str:
@@ -553,6 +590,17 @@ def main(argv: list[str] | None = None) -> None:
     usage.add_argument(
         "--days", type=int, default=30, help="how many days back from today; 30 by default"
     )
+    plan = commands.add_parser(
+        "plan",
+        help="show, or with a plan name set, which plan an organisation is on",
+        description="Show which plan an organisation is on and what the plan allows "
+        f"({', '.join(PLAN_NAMES)}), or put it on the plan named. A new organisation starts "
+        "on the first; the limits take effect at its next upload, question or project.",
+    )
+    plan.add_argument("organization", help="the organisation's slug")
+    plan.add_argument(
+        "plan", nargs="?", choices=PLAN_NAMES, help="the plan to put the organisation on"
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     # The schema check sets up a migration context, which announces itself; nothing to act on.
@@ -665,6 +713,13 @@ def main(argv: list[str] | None = None) -> None:
             check_schema()
             with SessionLocal() as session:
                 for line in usage_report(session, args.organization, args.days):
+                    print(line)
+        elif args.command == "plan":
+            check_schema()
+            with SessionLocal() as session:
+                lines = plan_report(session, args.organization, args.plan)
+                session.commit()
+                for line in lines:
                     print(line)
     except (RuntimeError, StorageError) as error:
         sys.exit(str(error))

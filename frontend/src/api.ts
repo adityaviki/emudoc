@@ -224,10 +224,16 @@ export type ChatEvent =
   // Sent by the events route itself, last, once the answer is settled.
   | { type: 'end'; status: MessageStatus }
 
+/** The plans an organisation can be on (backend/app/entitlements.py), least to most. */
+export type Plan = 'free' | 'pro' | 'team' | 'enterprise'
+export const PLAN_LABELS: Record<Plan, string> = { free: 'Free', pro: 'Pro', team: 'Team', enterprise: 'Enterprise' }
+
 export interface Organization {
   id: number
   name: string
   slug: string
+  /** Which plan's limits the organisation is held to; a refusal by them is a 402. */
+  plan: Plan
 }
 
 /** The signed-in user, and the organisation and role they act with. */
@@ -276,6 +282,13 @@ export class ApiError extends Error {
     this.status = status
   }
 }
+
+/**
+ * Whether the server refused because the organisation's plan does not allow it (402). The
+ * message names the limit and says to upgrade; the app shows it as the way forward, not as a
+ * failure.
+ */
+export const isPlanLimit = (error: unknown): error is ApiError => error instanceof ApiError && error.status === 402
 
 let onUnauthorized: (() => void) | null = null
 

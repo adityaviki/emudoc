@@ -28,6 +28,7 @@ import {
 import type { Document, Folder, SearchHit } from '../api.ts'
 import { StatusIcon } from '../components/IndexingStatus.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
+import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, Chip, EmptyState, IconButton, Loading, Notice, Spinner } from '../components/ui.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
 import { documentsIn, useFolders, useLocalStorage } from '../hooks.ts'
@@ -156,6 +157,7 @@ export function Library() {
             </div>
           </Notice>
         )}
+        {mutations.planLimit && <PlanLimitNotice message={mutations.planLimit} onDismiss={mutations.clearPlanLimit} />}
         {mutations.rejected.length > 0 && (
           <Notice>
             <div className="flex items-start justify-between gap-3">

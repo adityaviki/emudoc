@@ -73,6 +73,22 @@ rows are recorded, summed over every run. The costs follow `MODEL_PRICES` in `.e
 each model costs per million tokens in and out, in `PRICE_CURRENCY`; without prices, no
 cost is shown.
 
+Every organisation is on a plan (`backend/app/entitlements.py`): Free, Pro, Team or
+Enterprise, each a row of what the organisation may hold (projects, documents, bytes of
+documents, members) and may use in a calendar month in UTC (pages indexed, questions asked),
+plus what the later features will read from it (API access, connectors, how long data is
+kept, the model tier) and how much of the workers its jobs get. A new organisation starts on
+Free; the local development account has no limits. The plan is checked where the thing
+happens: creating a project, uploading (the request is refused when the plan has no room at
+all, a file that would not fit is rejected while the others go in), asking a question, and
+in the parse stage once it knows how many pages a document has, which fails the document
+with the reason rather than read a page past the month's allowance. A refusal is a 402 with
+a sentence that names the plan and the limit, which the app shows as the way to upgrade;
+there is no self-serve upgrade yet, so `uv run python -m app.maintenance plan <slug> [plan]`
+(in `backend/`) shows an organisation's plan and what it allows, or moves it to another. A
+paying plan's jobs also count for less in the claim's share of the workers, so its backlog
+is indexed sooner next to a free organisation's.
+
 ## The workspace
 
 A project opens as two panes. On the left is the **library**: the project's documents filed in
@@ -162,7 +178,8 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   answer at once, 20 by default. The worker answers `ANSWER_CONCURRENCY` of them at a time,
   shared between the organisations, so the cap bounds how long a question waits without
   letting one organisation keep the others waiting; the question past it is refused with 429
-  and asked to wait a moment.
+  and asked to wait a moment. It is the same for every organisation; the caps that differ by
+  plan are in `backend/app/entitlements.py`.
 - `ALERT_EMAIL` is where the worker reports the jobs it gave up on, through the same mail
   settings as the sign-in links, as one digest every quarter of an hour. Empty sends nothing;
   the `failed-jobs` command lists them either way.
@@ -279,6 +296,8 @@ backend/app/
   maintenance.py
                 the embedding checks at start, the housekeeping and the operator commands
   usage.py      what each organisation used, recorded as it happens, and the daily rollup
+  entitlements.py
+                what each plan allows, and the checks the routes and the parse stage make
   api/          HTTP endpoints
   answers.py    an answer as a job: the worker writes its events, the API streams them
   llm.py        every call to the AI model
@@ -297,5 +316,9 @@ frontend/src/
 
 - Invitations: an organisation has the one member who created it until the invitation routes
   and the page that accepts them exist; the roles (viewers read, members change, a chat is
-  private until shared) are already enforced.
+  private until shared) are already enforced. The plan's member cap (`check_member` in
+  `backend/app/entitlements.py`) waits for them.
+- Billing: plans exist and are enforced, but nothing sells them. The `plan` command moves an
+  organisation between them; the API keys, the connectors, retention and the model tier the
+  plans declare are not read by anything yet.
 - More file types (slides, email, legacy .doc and .xls), and reading order for multi-column PDFs.
