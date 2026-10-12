@@ -263,7 +263,7 @@ def answer(message_id: int, services: Services, lease: Lease | None = None) -> N
             # Removed with its chat, or stopped before any worker got to it.
             return
         chat = session.get(Chat, message.chat_id)
-        project = session.get(Project, chat.project_id)
+        project_id = chat.project_id
         # Answers without text, such as failed ones, are left out of the conversation.
         history = [
             {"role": earlier.role, "content": earlier.content}
@@ -271,10 +271,15 @@ def answer(message_id: int, services: Services, lease: Lease | None = None) -> N
             if earlier.id < message.id and earlier.content.strip()
         ]
         writer = _Writer(session, lease, message_id)
+        # The reads are done, and the agent loop opens sessions of its own per tool call
+        # (app/agent/loop.py), so from here this session is the writer's alone: its connection
+        # goes back now and is taken for each event it writes, never held while the model
+        # thinks.
+        session.rollback()
         try:
             if writer.resumed:
                 writer.emit({"type": "restart"})
-            for event in run_agent(session, services, project, history):
+            for event in run_agent(services, project_id, history):
                 reply.apply(event)
                 writer.emit(event)
             writer.flush()

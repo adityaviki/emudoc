@@ -32,7 +32,6 @@ from app.config import Settings, export_env_file
 from app.indexing.enrich import DocumentAnalysis
 from app.indexing.pipeline import Services
 from app.llm import INDEX_SYSTEM, LLM, OCR_PROMPT, LLMError, LLMUnavailable
-from app.models import Project
 
 GEMINI = "google:gemini-2.5-flash-lite"
 CLAUDE = "anthropic:claude-opus-5-5"
@@ -450,13 +449,11 @@ def recorded_llm(monkeypatch, recorder: Recorder, model: str, **settings) -> LLM
     return LLM(Settings(_env_file=None, index_model=model, agent_model=model, **settings))
 
 
-def ask(llm: LLM, session, services, document) -> list[dict]:
+def ask(llm: LLM, services, document) -> list[dict]:
     """Run the agent on one question about the indexed sample contract."""
-    project = session.get(Project, document.project_id)
+    recorded = Services(llm, services.embedder, services.storage)
     question = [{"role": "user", "content": "What is the notice period?"}]
-    return list(
-        run_agent(session, Services(llm, services.embedder, services.storage), project, question)
-    )
+    return list(run_agent(recorded, document.project_id, question))
 
 
 def assert_searched_then_answered(events: list[dict]) -> None:
@@ -529,7 +526,7 @@ def test_gemini_without_effort_sends_no_thinking_settings(monkeypatch):
     assert "thinkingConfig" not in recorder.body()["generationConfig"]
 
 
-def test_agent_loop_over_recorded_gemini_streams(monkeypatch, session, services, indexed):
+def test_agent_loop_over_recorded_gemini_streams(monkeypatch, services, indexed):
     recorder = Recorder(
         gemini_stream(
             gemini({"text": "Find the termination clause.", "thought": True}, finish=None),
@@ -540,7 +537,7 @@ def test_agent_loop_over_recorded_gemini_streams(monkeypatch, session, services,
             gemini({"text": "90 days."}),
         ),
     )
-    events = ask(recorded_llm(monkeypatch, recorder, GEMINI), session, services, indexed)
+    events = ask(recorded_llm(monkeypatch, recorder, GEMINI), services, indexed)
     assert_searched_then_answered(events)
 
     opening = recorder.body(0)
@@ -689,7 +686,7 @@ def test_claude_structured_request(monkeypatch):
     assert "cache_control" not in body
 
 
-def test_agent_loop_over_recorded_claude_streams(monkeypatch, session, services, indexed):
+def test_agent_loop_over_recorded_claude_streams(monkeypatch, services, indexed):
     recorder = Recorder(
         claude_stream(
             (
@@ -716,7 +713,7 @@ def test_agent_loop_over_recorded_claude_streams(monkeypatch, session, services,
             stop_reason="end_turn",
         ),
     )
-    events = ask(recorded_llm(monkeypatch, recorder, CLAUDE), session, services, indexed)
+    events = ask(recorded_llm(monkeypatch, recorder, CLAUDE), services, indexed)
     assert_searched_then_answered(events)
 
     opening = recorder.body(0)

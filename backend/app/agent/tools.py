@@ -27,6 +27,10 @@ FOLDER_HELP = (
 
 @dataclass
 class ToolContext:
+    """What one tool call runs with: a session of its own, opened for the call by the agent
+    loop and closed with it, and the passages the answer has shown the model so far, which
+    the calls of one answer share."""
+
     session: Session
     embedder: Embedder
     project_id: int
@@ -35,7 +39,7 @@ class ToolContext:
     _folder_paths: dict[int, str] | None = field(default=None, repr=False)
 
     def folder_paths(self) -> dict[int, str]:
-        """Folder id → path, read once per answer."""
+        """Folder id → path, read once per tool call."""
         if self._folder_paths is None:
             self._folder_paths = folder_paths(self.session, self.project_id)
         return self._folder_paths

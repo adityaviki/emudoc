@@ -201,12 +201,11 @@ def test_tools_cannot_reach_another_project(session, services, account, indexed)
     assert "No facts" in query_facts(ctx, QueryFactsInput())
 
 
-def run(session, services, document, question="What is the notice period?"):
-    project = session.get(Project, document.project_id)
-    return list(run_agent(session, services, project, [{"role": "user", "content": question}]))
+def run(services, document, question="What is the notice period?"):
+    return list(run_agent(services, document.project_id, [{"role": "user", "content": question}]))
 
 
-def test_agent_searches_then_answers_with_a_citation(session, services, indexed):
+def test_agent_searches_then_answers_with_a_citation(services, indexed):
     services.llm.agent_turns = [
         FakeTurn(
             ThinkingPart("Look for the termination clause."),
@@ -214,7 +213,7 @@ def test_agent_searches_then_answers_with_a_citation(session, services, indexed)
         ),
         FakeTurn(TextPart("The notice period is 90 days.")),
     ]
-    events = run(session, services, indexed)
+    events = run(services, indexed)
 
     assert [event["type"] for event in events] == [
         "thinking",
@@ -237,7 +236,7 @@ def test_agent_searches_then_answers_with_a_citation(session, services, indexed)
     assert result.tool_call_id == "call_1" and "[P" in result.content
 
 
-def test_invalid_tool_input_is_returned_to_the_model_not_run(session, services, indexed):
+def test_invalid_tool_input_is_returned_to_the_model_not_run(services, indexed):
     services.llm.agent_turns = [
         FakeTurn(
             ToolCallPart("search", {"query": "x", "limit": "many"}, "call_a"),
@@ -245,7 +244,7 @@ def test_invalid_tool_input_is_returned_to_the_model_not_run(session, services, 
         ),
         FakeTurn(TextPart("Sorry.")),
     ]
-    events = run(session, services, indexed)
+    events = run(services, indexed)
 
     results = [event for event in events if event["type"] == "tool_result"]
     assert [result["is_error"] for result in results] == [True, True]
@@ -255,14 +254,14 @@ def test_invalid_tool_input_is_returned_to_the_model_not_run(session, services, 
     assert sent[1].outcome == "failed" and sent[1].content == "Unknown tool 'nonexistent'."
 
 
-def test_a_reply_that_cannot_be_used_reissues_the_turn(session, services, indexed):
+def test_a_reply_that_cannot_be_used_reissues_the_turn(services, indexed):
     services.llm.agent_turns = [
         # Tool arguments that are not JSON, then the empty reply of a fumbled function call.
         FakeTurn(TextPart("Let me look."), ToolCallPart("search", '{"query": "term', "call_1")),
         FakeTurn(finish_reason="error"),
         FakeTurn(TextPart("Recovered.")),
     ]
-    events = run(session, services, indexed)
+    events = run(services, indexed)
     assert [event["type"] for event in events] == ["text", "retry", "retry", "text", "done"]
     assert events[-1]["usage"] == {"input_tokens": 30, "output_tokens": 15}
     # Each reissued request is the same conversation, with nothing appended.
@@ -270,9 +269,9 @@ def test_a_reply_that_cannot_be_used_reissues_the_turn(session, services, indexe
     assert first == second == third and len(first) == 1
 
 
-def test_replies_that_stay_unusable_end_the_turn(session, services, indexed):
+def test_replies_that_stay_unusable_end_the_turn(services, indexed):
     services.llm.agent_turns = [FakeTurn(ThinkingPart("...")) for _ in range(MAX_RETRIES + 1)]
-    events = run(session, services, indexed)
+    events = run(services, indexed)
     assert [event["type"] for event in events if event["type"] != "thinking"] == [
         *["retry"] * MAX_RETRIES,
         "error",
@@ -280,17 +279,58 @@ def test_replies_that_stay_unusable_end_the_turn(session, services, indexed):
     assert "could not be used" in events[-1]["message"]
 
 
-def test_truncated_replies_and_refusals_stop_without_running_tools(session, services, indexed):
+def test_truncated_replies_and_refusals_stop_without_running_tools(services, indexed):
     services.llm.agent_turns = [
         FakeTurn(ToolCallPart("search", {"query": "term"}, "call_1"), finish_reason="length")
     ]
-    events = run(session, services, indexed)
+    events = run(services, indexed)
     assert [event["type"] for event in events] == ["error"]
 
     services.llm.agent_turns = [FakeTurn(TextPart("partial"), finish_reason="length")]
-    events = run(session, services, indexed)
+    events = run(services, indexed)
     assert [event["type"] for event in events] == ["text", "notice", "done"]
 
     services.llm.agent_turns = [FakeTurn(TextPart("partial"), finish_reason="content_filter")]
-    events = run(session, services, indexed)
+    events = run(services, indexed)
     assert events[-1] == {"type": "error", "message": "The model declined to answer this request."}
+
+
+def test_each_tool_call_runs_in_a_session_of_its_own(services, indexed, monkeypatch):
+    """A call's session is opened for the call and closed with it, so what a call leaves open,
+    or a failure inside it, reaches neither the next call nor the writer of the events."""
+    sessions = []
+    search = TOOLS["search"]
+    original = search.run
+
+    def search_or_break(ctx, args):
+        sessions.append(ctx.session)
+        if len(sessions) == 1:
+            ctx.folder_paths()  # A read first, so that the call fails with its transaction open.
+            raise RuntimeError("broken halfway")
+        output = original(ctx, args)
+        assert ctx.session.in_transaction()
+        return output
+
+    monkeypatch.setattr(search, "run", search_or_break)
+    services.llm.agent_turns = [
+        FakeTurn(
+            ToolCallPart("search", {"query": "notice period"}, "call_1"),
+            ToolCallPart("search", {"query": "notice period"}, "call_2"),
+        ),
+        FakeTurn(TextPart("90 days.")),
+    ]
+    events = run(services, indexed)
+    assert [event["type"] for event in events] == [
+        "tool_call",
+        "tool_result",
+        "tool_call",
+        "sources",
+        "tool_result",
+        "text",
+        "done",
+    ]
+    first, second = (event for event in events if event["type"] == "tool_result")
+    assert first["is_error"] and "failed unexpectedly" in first["summary"]
+    assert second["is_error"] is False
+    assert len(sessions) == 2 and sessions[0] is not sessions[1]
+    assert not any(session.in_transaction() for session in sessions)

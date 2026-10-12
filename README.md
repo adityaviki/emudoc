@@ -139,7 +139,7 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   process holds: 5 kept open, up to 10 more while all of those are in use, and 5 seconds a
   request waits for one before it is refused with 503 and asked to try again. An API replica
   needs about one per request in flight; a worker needs one per document and per answer it
-  runs at once (an answer hands its back while the model thinks) plus three for its helper
+  runs at once (an answer holds one only while a tool runs) plus three for its helper
   threads, and refuses to start with a pool that cannot hold them; its listener holds one more
   outside the pool. The sum over every replica must stay under the database's
   `max_connections` (100 for Postgres), or a connection pooler goes in between.

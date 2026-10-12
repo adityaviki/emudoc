@@ -22,9 +22,9 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from sqlalchemy.exc import TimeoutError as PoolTimeout
-from sqlalchemy.orm import Session
 
 from app.agent.tools import TOOLS, ToolContext
+from app.db import SessionLocal
 from app.indexing.pipeline import Services
 from app.llm import LLMError
 from app.models import Project
@@ -75,29 +75,34 @@ give the supporting detail. Quote the exact words when the user asks what a docu
 
 
 def run_agent(
-    session: Session,
     services: Services,
-    project: Project,
+    project_id: int,
     messages: list[dict[str, str]],
 ) -> Iterator[dict[str, Any]]:
-    """Run one user turn to completion, yielding events for the client as it goes."""
-    context = ToolContext(session, services.embedder, project.id)
-    system = (
-        f"{SYSTEM_PROMPT}\n\nProject: {project.name}"
-        + (f" ({project.description})" if project.description else "")
-        + f"\nToday's date: {date.today().isoformat()}"
-    )
+    """Run one user turn to completion, yielding events for the client as it goes.
+
+    The loop keeps no database session: it opens one to read the project for the prompt and
+    one per tool call, closed with the call. So an answer holds a connection only while a tool
+    runs, never while the model thinks, which is most of its time; every call reads a snapshot
+    of its own; and whatever a call leaves open, or a failure inside it, reaches neither the
+    next call nor the caller's session.
+    """
+    with SessionLocal() as session:
+        project = session.get_one(Project, project_id)
+        system = (
+            f"{SYSTEM_PROMPT}\n\nProject: {project.name}"
+            + (f" ({project.description})" if project.description else "")
+            + f"\nToday's date: {date.today().isoformat()}"
+        )
     tools = [tool.definition() for tool in TOOLS.values()]
     conversation: list[ModelMessage] = [_chat_message(message) for message in messages]
+    # Passages shown to the model so far, keyed by id: the only references an answer may cite.
+    sources: dict[int, dict[str, Any]] = {}
     usage = {"input_tokens": 0, "output_tokens": 0}
     retries = 0
     turns = 0
 
     while turns < MAX_TURNS:
-        # The tools only read, so the session's connection goes back to the pool while the
-        # model thinks, which is most of an answer's time; the next tool call takes one again,
-        # and what the session had loaded is loaded again if it is touched.
-        session.rollback()
         try:
             with services.llm.stream_agent(system, conversation, tools) as stream:
                 for event in stream:
@@ -164,9 +169,11 @@ def run_agent(
                 "name": call.tool_name,
                 "input": arguments,
             }
-            known = set(context.sources)
-            output, is_error = _run_tool(context, call.tool_name, arguments)
-            new_sources = [source for key, source in context.sources.items() if key not in known]
+            known = set(sources)
+            with SessionLocal() as session:
+                context = ToolContext(session, services.embedder, project_id, sources=sources)
+                output, is_error = _run_tool(context, call.tool_name, arguments)
+            new_sources = [source for key, source in sources.items() if key not in known]
             if new_sources:
                 yield {"type": "sources", "sources": new_sources}
             yield {
@@ -241,5 +248,4 @@ def _run_tool(context: ToolContext, name: str, raw_input: Any) -> tuple[str, boo
         raise
     except Exception:
         log.exception("Tool %s failed", name)
-        context.session.rollback()
         return "The tool failed unexpectedly. Try a different approach.", True
