@@ -11,6 +11,7 @@ import os
 import socket
 import threading
 
+import anthropic
 import httpx2
 import pytest
 from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError
@@ -110,6 +111,17 @@ def text_reply(payload: dict) -> ModelResponse:
     return ModelResponse(parts=[TextPart(json.dumps(payload))])
 
 
+def timed_out_api_error() -> ModelAPIError:
+    """A request that timed out as the Anthropic adapter reports it: the HTTP library's
+    exception, wrapped in the SDK's, wrapped in Pydantic AI's."""
+    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    sdk_error = anthropic.APITimeoutError(request=request)
+    sdk_error.__cause__ = httpx2.ReadTimeout("timed out", request=request)
+    error = ModelAPIError("m", sdk_error.message)
+    error.__cause__ = sdk_error
+    return error
+
+
 def test_structured_asks_for_the_schema_and_parses_the_reply():
     script = Script(text_reply(ANALYSIS))
     thinker = ModelProfile(supports_json_schema_output=True, supports_thinking=True)
@@ -123,7 +135,7 @@ def test_structured_asks_for_the_schema_and_parses_the_reply():
     ((messages, info),) = script.requests
     assert [part.content for part in messages[0].parts] == ["the document"]
     assert info.instructions == INDEX_SYSTEM
-    assert info.model_settings == {"max_tokens": 16000}
+    assert info.model_settings == {"max_tokens": 16000, "timeout": 300}
     parameters = info.model_request_parameters
     # Effort travels as the library's thinking level, which each provider maps to its own knob.
     assert parameters.thinking == "low"
@@ -189,6 +201,10 @@ def test_ocr_sends_the_image_before_the_instruction():
         ([ModelHTTPError(503, "m", "Overloaded.")], r"failed \(503\). .* Overloaded.", True),
         ([ModelHTTPError(400, "m", "No such field.")], r"failed \(400\). .* No such field.", False),
         ([ModelAPIError("m", "Connection error.")], "Could not reach the provider of m", True),
+        # The provider took too long: the SDK's request timed out, which the Anthropic and
+        # OpenAI adapters wrap and the Google one lets through as the HTTP library raised it.
+        ([timed_out_api_error()], "took too long to answer. Try again.", True),
+        ([httpx2.ReadTimeout("timed out")], "took too long to answer. Try again.", True),
         ([RuntimeError("boom")], "failed unexpectedly", False),
     ],
 )
@@ -330,6 +346,73 @@ def test_a_failed_stream_raises_as_it_ends():
         list(stream)
 
 
+# No SDK bounds a whole call, so the app gives up on one itself: a provider that hangs would
+# otherwise hold an indexing thread or a request thread for good.
+
+
+def test_an_indexing_request_that_runs_too_long_is_given_up(monkeypatch):
+    stopped = threading.Event()
+
+    async def slow(messages: list, info: AgentInfo) -> ModelResponse:
+        try:
+            await asyncio.sleep(60)
+            return text_reply(ANALYSIS)
+        finally:
+            stopped.set()
+
+    monkeypatch.setattr("app.llm.INDEX_TIMEOUT", 0.2)
+    llm = scripted_llm(FunctionModel(slow))
+    with pytest.raises(LLMError, match="did not answer within 0.2 seconds. Try again.") as error:
+        llm.structured("the document", DocumentAnalysis)
+    # Transient, so the enrich stage is retried; and the request is stopped, not left running.
+    assert error.value.transient is True
+    assert stopped.wait(timeout=5)
+
+
+def test_a_stream_that_goes_quiet_is_given_up(monkeypatch):
+    stopped = threading.Event()
+
+    async def quiet(messages: list, info: AgentInfo):
+        try:
+            yield "The notice "
+            await asyncio.sleep(60)
+            yield "never sent"
+        finally:
+            stopped.set()
+
+    monkeypatch.setattr("app.llm.STREAM_STALL", 0.2)
+    llm = scripted_llm(FunctionModel(stream_function=quiet))
+    received = []
+    with pytest.raises(LLMError, match="sent nothing for 0.2 seconds. Try again.") as error:
+        with llm.stream_agent("Be brief.", QUESTION, []) as stream:
+            received.extend(stream)
+    # What did arrive was passed on before the silence was given up on.
+    assert error.value.transient is True and received
+    assert stopped.wait(timeout=5)
+
+
+def test_a_turn_that_runs_too_long_is_given_up(monkeypatch):
+    stopped = threading.Event()
+
+    async def endless(messages: list, info: AgentInfo):
+        try:
+            for _ in range(200):
+                yield "more "
+                await asyncio.sleep(0.02)
+        finally:
+            stopped.set()
+
+    monkeypatch.setattr("app.llm.AGENT_TIMEOUT", 0.3)
+    llm = scripted_llm(FunctionModel(stream_function=endless))
+    received = []
+    with pytest.raises(LLMError, match="did not finish within 0.3 seconds. Try again.") as error:
+        with llm.stream_agent("Be brief.", QUESTION, []) as stream:
+            received.extend(stream)
+    # The stream never went quiet; it was cut off for running past the turn's time.
+    assert error.value.transient is True and 1 <= len(received) < 200
+    assert stopped.wait(timeout=5)
+
+
 # Recorded HTTP: the requests as Gemini and Claude receive them, through the real SDKs.
 
 
@@ -424,6 +507,9 @@ def test_gemini_structured_request(monkeypatch):
     request = recorder.requests[0]
     assert request.url.path.endswith("/models/gemini-2.5-flash-lite:generateContent")
     assert request.headers["x-goog-api-key"] == "test-key"
+    # The SDK gives each HTTP request the indexing timeout, and tells the server too.
+    assert request.extensions["timeout"]["read"] == 300
+    assert request.headers["x-server-timeout"] == "300"
     body = recorder.body()
     assert body["systemInstruction"]["parts"] == [{"text": INDEX_SYSTEM}]
     assert body["contents"] == [{"parts": [{"text": "the document"}], "role": "user"}]
@@ -594,6 +680,7 @@ def test_claude_structured_request(monkeypatch):
     assert result.title == "Master Services Agreement" and result.facts[0].number == 90
     request = recorder.requests[0]
     assert request.url.path == "/v1/messages" and request.headers["x-api-key"] == "test-key"
+    assert request.extensions["timeout"]["read"] == 300
     body = recorder.body()
     assert body["model"] == "claude-opus-5-5" and body["max_tokens"] == 16000
     assert body["system"][0]["text"] == INDEX_SYSTEM
@@ -634,6 +721,8 @@ def test_agent_loop_over_recorded_claude_streams(monkeypatch, session, services,
 
     opening = recorder.body(0)
     assert opening["stream"] is True and opening["model"] == "claude-opus-5-5"
+    # A stream's read timeout is the longest pause between its chunks.
+    assert recorder.requests[0].extensions["timeout"]["read"] == 60
     # The growing prefix is cached, so each loop iteration re-reads it at cache rates.
     assert opening["cache_control"]["type"] == "ephemeral"
     assert opening["output_config"] == {"effort": "medium"}

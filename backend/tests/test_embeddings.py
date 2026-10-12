@@ -20,13 +20,18 @@ def refuse(request: httpx.Request) -> httpx.Response:
     raise httpx.ConnectError("Connection refused", request=request)
 
 
+def stall(request: httpx.Request) -> httpx.Response:
+    raise httpx.ReadTimeout("timed out", request=request)
+
+
 @pytest.mark.parametrize(
     ("handler", "expected", "transient"),
     [
         (lambda request: httpx.Response(503, text="overloaded"), "returned 503: overloaded", True),
         (lambda request: httpx.Response(429, text="slow down"), "returned 429", True),
         (lambda request: httpx.Response(401, text="bad key"), "returned 401", False),
-        (refuse, "unreachable at http://embeddings", True),
+        (refuse, "unreachable at http://embeddings.", True),
+        (stall, "at http://embeddings did not answer within 120 seconds.", True),
         (lambda request: httpx.Response(200, json={"nope": []}), "unexpected response", False),
         (
             lambda request: httpx.Response(200, json={"data": [{"index": 0, "embedding": [0.5]}]}),

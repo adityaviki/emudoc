@@ -9,10 +9,13 @@ import logging
 import queue
 import re
 import threading
+import time
 from collections.abc import Coroutine, Iterator, Sequence
 from concurrent.futures import Future
 from typing import Any, Literal, TypeVar
 
+import httpx
+import httpx2
 import pydantic_ai
 from google.genai.types import HttpRetryOptions
 from pydantic import BaseModel
@@ -46,6 +49,16 @@ T = TypeVar("T", bound=BaseModel)
 
 # Output cap for one indexing reply. Agent replies use each model's own limit.
 INDEX_MAX_TOKENS = 16000
+# How long one indexing request may take, in seconds: a window analysis or an OCR page with
+# thinking legitimately runs a minute or three. A request that outlives it is cancelled and
+# fails as transient, so the stage is retried and a provider that hangs cannot hold a worker
+# thread for good.
+INDEX_TIMEOUT = 300
+# How long one agent turn may take, and the longest silence inside it, in seconds. A turn that
+# outlives either is cancelled and the chat shows the error; a provider that hangs would
+# otherwise hold a request thread for good.
+AGENT_TIMEOUT = 120
+STREAM_STALL = 60
 # Attempts at one Gemini request, the first included.
 GOOGLE_ATTEMPTS = 3
 # The statuses a provider answers with when it, not the request, is the problem for the moment.
@@ -108,6 +121,8 @@ def describe_error(error: Exception) -> str:
         return "The model declined to process this content."
     if isinstance(error, UnexpectedModelBehavior):
         return "The model's reply was cut off or malformed."
+    if _timed_out(error):
+        return "The model took too long to answer. Try again."
     if isinstance(error, ModelAPIError):
         return f"Could not reach the provider of {error.model_name}."
     if isinstance(error, UserError):
@@ -128,6 +143,7 @@ def _failure(error: Exception) -> LLMError:
     if isinstance(error, LLMError):
         return error
     expected = isinstance(error, ModelAPIError | UnexpectedModelBehavior | UserError)
+    expected = expected or _timed_out(error)
     log.warning("Model request failed: %.500s", error, exc_info=None if expected else error)
     return LLMError(describe_error(error), transient=_transient(error))
 
@@ -137,7 +153,25 @@ def _transient(error: Exception) -> bool:
     limiting or out of reach, rather than refusing the key, the model or the request."""
     if isinstance(error, ModelHTTPError):
         return error.status_code in TRANSIENT_STATUSES or error.status_code >= 500
-    return isinstance(error, ModelAPIError)
+    return isinstance(error, ModelAPIError) or _timed_out(error)
+
+
+def _timed_out(error: BaseException | None) -> bool:
+    """Whether a request ended because the provider took too long. Each SDK reports that in an
+    exception of its own, raised from the HTTP library's, and Google's lets the library's
+    through as it is; the chain of causes tells for all of them."""
+    while error is not None:
+        if isinstance(error, TimeoutError | httpx.TimeoutException | httpx2.TimeoutException):
+            return True
+        error = error.__cause__
+    return False
+
+
+def _give_up(future: Future[Any], message: str) -> LLMError:
+    """Stop a request the app has waited long enough for, and the error to raise in its place."""
+    future.cancel()
+    log.warning("Model request given up: %s", message)
+    return LLMError(f"{message} Try again.", transient=True)
 
 
 def _setup_problem(name: str, error: Exception, settings: Settings) -> str:
@@ -213,8 +247,11 @@ class ModelStream:
         self._parameters = parameters
         self._events: queue.SimpleQueue[Any] = queue.SimpleQueue()
         self._future: Future[ModelResponse] | None = None
+        self._deadline = 0.0
+        self._ended = False
 
     def __enter__(self) -> "ModelStream":
+        self._deadline = time.monotonic() + AGENT_TIMEOUT
         self._future = _submit(self._pump())
         return self
 
@@ -223,12 +260,36 @@ class ModelStream:
         self._future.cancel()
 
     def __iter__(self) -> Iterator[ModelResponseStreamEvent]:
-        while (event := self._events.get()) is not _END:
-            yield event
-        self.response()  # a failed request raises here, as the stream ends
+        while not self._ended:
+            event = self._next()
+            if event is _END:
+                self._ended = True
+            else:
+                yield event
+        self._reply()  # a failed request raises here, as the stream ends
 
     def response(self) -> ModelResponse:
         """The whole reply, once the stream has ended."""
+        for _ in self:
+            pass
+        return self._reply()
+
+    def _next(self) -> Any:
+        """The next event, or `_END`. Waits at most `STREAM_STALL`, and no longer than the turn
+        has left: a model that has gone quiet, or has run too long, is given up on."""
+        remaining = self._deadline - time.monotonic()
+        wait = min(STREAM_STALL, remaining)
+        try:
+            return self._events.get(timeout=max(wait, 0.0))
+        except queue.Empty:
+            if wait < STREAM_STALL:
+                message = f"The model did not finish within {AGENT_TIMEOUT:g} seconds."
+            else:
+                message = f"The model sent nothing for {STREAM_STALL:g} seconds."
+            raise _give_up(self._future, message) from None
+
+    def _reply(self) -> ModelResponse:
+        # Having sent `_END`, the pump has nothing left to wait for, so this returns at once.
         try:
             return self._future.result()
         except Exception as error:
@@ -289,10 +350,18 @@ class LLM:
             model,
             output_type=NativeOutput(schema) if constrained else schema,
             instructions=INDEX_SYSTEM,
-            model_settings=_settings(self._settings.index_effort, max_tokens=INDEX_MAX_TOKENS),
+            model_settings=_settings(
+                self._settings.index_effort, max_tokens=INDEX_MAX_TOKENS, timeout=INDEX_TIMEOUT
+            ),
         )
+        future = _submit(agent.run(content))
         try:
-            return _submit(agent.run(content)).result().output
+            # The SDK's timeout above bounds each HTTP request; this bounds the whole call,
+            # which may make several of them when the provider retries.
+            return future.result(timeout=INDEX_TIMEOUT).output
+        except TimeoutError:
+            message = f"The model did not answer within {INDEX_TIMEOUT:g} seconds."
+            raise _give_up(future, message) from None
         except Exception as error:
             raise _failure(error) from error
 
@@ -309,8 +378,10 @@ class LLM:
             self._model(self._settings.agent_model),
             messages,
             # Anthropic caches a prompt prefix only when asked, and the loop resends a growing
-            # one every turn. Other providers ignore the setting.
-            _settings(self._settings.agent_effort, anthropic_cache=True),
+            # one every turn. Other providers ignore the setting. The SDK's timeout is the HTTP
+            # library's, which for a stream is per read, so it is the longest pause allowed; the
+            # whole turn is bounded by `ModelStream`.
+            _settings(self._settings.agent_effort, anthropic_cache=True, timeout=STREAM_STALL),
             ModelRequestParameters(
                 function_tools=list(tools),
                 instruction_parts=[InstructionPart(content=instructions)],

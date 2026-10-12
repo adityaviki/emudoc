@@ -10,6 +10,9 @@ BATCH_SIZE = 32
 MAX_INPUT_CHARS = 6000
 # The statuses an endpoint answers with when it, not the request, is the problem for the moment.
 TRANSIENT_STATUSES = {408, 429}
+# How long one request may take, in seconds. A batch of passages embeds in seconds even on a
+# small local machine, so only an endpoint that is stuck gets this far.
+TIMEOUT = 120
 
 
 class EmbeddingError(AppError):
@@ -28,7 +31,7 @@ class Embedder:
         self._client = httpx.Client(
             base_url=settings.embedding_base_url.rstrip("/"),
             headers=headers,
-            timeout=120.0,
+            timeout=TIMEOUT,
         )
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
@@ -65,20 +68,26 @@ class Embedder:
                 f"Embedding endpoint returned {status}: {detail}",
                 transient=status in TRANSIENT_STATUSES or status >= 500,
             ) from error
+        except httpx.TimeoutException as error:
+            raise EmbeddingError(
+                f"Embedding endpoint at {self._client.base_url} did not answer within "
+                f"{TIMEOUT} seconds.",
+                transient=True,
+            ) from error
         except httpx.HTTPError as error:
             # Not reached, or the connection dropped: the endpoint may well be back in a while.
             raise EmbeddingError(
-                f"Embedding endpoint unreachable at {self._client.base_url}", transient=True
+                f"Embedding endpoint unreachable at {self._client.base_url}.", transient=True
             ) from error
         except (KeyError, ValueError) as error:
-            raise EmbeddingError("Embedding endpoint returned an unexpected response") from error
+            raise EmbeddingError("Embedding endpoint returned an unexpected response.") from error
 
         vectors = [item["embedding"] for item in sorted(data, key=lambda item: item["index"])]
         if len(vectors) != len(inputs):
-            raise EmbeddingError("Embedding endpoint returned the wrong number of vectors")
+            raise EmbeddingError("Embedding endpoint returned the wrong number of vectors.")
         if vectors and len(vectors[0]) != self.dim:
             raise EmbeddingError(
                 f"{self.model} returns {len(vectors[0])}-dimensional vectors but EMBEDDING_DIM "
-                f"is {self.dim}"
+                f"is {self.dim}."
             )
         return vectors

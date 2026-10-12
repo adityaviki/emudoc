@@ -18,7 +18,10 @@ that failed because the model, the embedding endpoint or the bucket was out of r
 rate limiting, a dropped connection) is run again by itself after 1, 2, 4 and 8 minutes; the
 stage says so in the document's status until it succeeds, and after the last try it stays
 failed until "Index again". A stage that failed for a reason that will not pass on its own, such
-as a rejected key or a file nothing can be read from, is not retried. The parse stage runs the
+as a rejected key or a file nothing can be read from, is not retried. A request that gets no
+answer is given up on and counts as the provider being out of reach: an indexing request after
+five minutes, an embedding request after two, and a turn of an answer in the chat after two
+minutes or a minute of silence, which the chat shows as an error. The parse stage runs the
 parser in a process of its own with a time limit, a memory limit and caps on the pages of a PDF
 and the rows of a sheet (`PARSE_TIMEOUT`, `PARSE_MEMORY_MB`, `PARSE_MAX_PAGES`,
 `PARSE_MAX_ROWS`), so a file that would take hours or all the memory stops that process alone,
