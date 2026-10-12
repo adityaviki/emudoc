@@ -134,6 +134,11 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   refuses to start with a pool that cannot hold them. The sum over every replica must stay
   under the database's `max_connections` (100 for Postgres), or a connection pooler goes in
   between.
+- `MAX_ANSWERS` is how many answers one API process streams at once, 20 by default. An answer
+  keeps a request thread while the model is thinking, so the cap is what keeps a busy hour of
+  chats from stalling every other request; the question past it is refused with 429 and asked
+  to wait a moment. The process sizes its request threads for the cap plus twenty for the rest,
+  and several replicas multiply the cap.
 - `ALERT_EMAIL` is where the worker reports the jobs it gave up on, through the same mail
   settings as the sign-in links, as one digest every quarter of an hour. Empty sends nothing;
   the `failed-jobs` command lists them either way.

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -12,7 +13,16 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 
 from app.agent.loop import run_agent
-from app.api.deps import AccountDep, ChatDep, OwnChatDep, ProjectDep, ServicesDep, SessionDep
+from app.api.deps import (
+    RETRY_AFTER,
+    AccountDep,
+    ChatDep,
+    OwnChatDep,
+    ProjectDep,
+    ServicesDep,
+    SessionDep,
+)
+from app.config import get_settings
 from app.db import BUSY, SessionLocal
 from app.indexing.pipeline import Services
 from app.models import Chat, ChatMessage, Project
@@ -23,6 +33,35 @@ log = logging.getLogger(__name__)
 router = APIRouter(tags=["chats"])
 
 TITLE_LENGTH = 60
+TOO_MANY_ANSWERS = "Too many questions are being answered right now. Wait a moment and ask again."
+
+
+class Answers:
+    """The answers this process is streaming, counted so that `ask` can stop at MAX_ANSWERS.
+
+    An answer runs on a request thread for the length of every model call, and the threads
+    come from one pool shared with every other request (THREAD_HEADROOM in app/main.py says
+    how it is sized), so the count is what keeps the chats from crowding out the rest.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.live = 0
+
+    def start(self, cap: int) -> bool:
+        """Count one more answer, unless the cap is reached."""
+        with self._lock:
+            if self.live >= cap:
+                return False
+            self.live += 1
+            return True
+
+    def end(self) -> None:
+        with self._lock:
+            self.live -= 1
+
+
+answers = Answers()
 
 
 @router.get("/projects/{project_id}/chats", response_model=list[ChatOut])
@@ -74,16 +113,38 @@ def ask(chat: OwnChatDep, body: QuestionIn, session: SessionDep, services: Servi
     question = body.content.strip()
     if not question:
         raise HTTPException(422, "Send a question to get an answer.")
-    if not chat.title:
-        chat.title = _title(question)
-    chat.updated_at = func.now()
-    session.add(ChatMessage(chat_id=chat.id, role="user", content=question))
-    session.commit()
+    # The place in the count is taken before the question is saved, or a refused question
+    # would sit in the chat with no answer.
+    if not answers.start(get_settings().max_answers):
+        log.warning(
+            "A question in chat %s was refused: this process is answering %s already, "
+            "the most MAX_ANSWERS allows",
+            chat.id,
+            answers.live,
+        )
+        raise HTTPException(429, TOO_MANY_ANSWERS, headers={"Retry-After": str(RETRY_AFTER)})
+    try:
+        if not chat.title:
+            chat.title = _title(question)
+        chat.updated_at = func.now()
+        session.add(ChatMessage(chat_id=chat.id, role="user", content=question))
+        session.commit()
+    except BaseException:
+        answers.end()
+        raise
     return StreamingResponse(
-        stream_answer(chat.id, services),
+        _counted(stream_answer(chat.id, services)),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+def _counted(events: Iterator[str]) -> Iterator[str]:
+    """Give the answer's place in the count back when its events end, however they end."""
+    try:
+        yield from events
+    finally:
+        answers.end()
 
 
 def stream_answer(chat_id: int, services: Services) -> Iterator[str]:

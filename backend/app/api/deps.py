@@ -38,6 +38,10 @@ SessionDep = Annotated[Session, Depends(get_session)]
 Stage = Literal["parse", "structure", "enrich", "embed"]
 
 SIGN_IN = "Sign in to continue."
+# How long a request refused because the process is full (every database connection in use,
+# every answer it may stream in flight) tells the client to wait, in seconds, in the
+# Retry-After header of its 503 or 429.
+RETRY_AFTER = 5
 NO_ORGANISATION = (
     "Your account is not a member of any organisation. Ask for an invitation, or contact support."
 )

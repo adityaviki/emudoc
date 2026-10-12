@@ -1,6 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 
+import anyio.to_thread
 import httpx
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -9,7 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 
 from app.api import auth, chats, documents, folders, projects, query
-from app.api.deps import AccountDep, ServicesDep, SessionDep, refuse_cross_site
+from app.api.deps import RETRY_AFTER, AccountDep, ServicesDep, SessionDep, refuse_cross_site
 from app.config import ROOT_DIR, get_settings
 from app.db import BUSY, engine
 from app.indexing.pipeline import Services
@@ -22,9 +23,11 @@ from app.worker import Worker
 log = logging.getLogger(__name__)
 
 FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
-# How long a request refused for want of a database connection tells the client to wait, in
-# seconds, in the Retry-After header of its 503.
-RETRY_AFTER = 5
+# The request threads kept free for everything but the answers. Every synchronous route and
+# dependency runs on a thread from anyio's one limiter (40 by default), and so does each step
+# of a streamed answer, which holds its thread while the model is thinking: MAX_ANSWERS of
+# those must leave enough for the uploads, the searches and the health check beside them.
+THREAD_HEADROOM = 20
 
 system = APIRouter(tags=["system"])
 
@@ -90,6 +93,10 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # The limiter belongs to the event loop, so it is sized here, on the loop, rather than
+        # in `prepare`, which the worker process shares and which has no loop.
+        limiter = anyio.to_thread.current_default_thread_limiter()
+        limiter.total_tokens = settings.max_answers + THREAD_HEADROOM
         app.state.services = prepare(settings, services)
         app.state.mailer = mailer or mailer_from_settings(settings)
         app.state.http = http or httpx.Client(timeout=10)

@@ -12,9 +12,9 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 
 from app.api.chats import stream_answer
+from app.api.deps import RETRY_AFTER
 from app.config import get_settings
 from app.db import BUSY, SessionLocal, engine, make_engine
-from app.main import RETRY_AFTER
 from app.models import Chat, ChatMessage
 from tests.conftest import FakeTurn
 

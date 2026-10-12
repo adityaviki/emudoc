@@ -261,17 +261,21 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
   return response
 }
 
+/** The sentence a refused response carries as its `detail`, or the fallback when it has none. */
+async function detailOf(response: Response, fallback: string): Promise<string> {
+  try {
+    const body = await response.json()
+    if (typeof body.detail === 'string') return body.detail
+  } catch {
+    // Not JSON: keep the fallback.
+  }
+  return fallback
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await send(path, init)
   if (!response.ok) {
-    let message = response.statusText
-    try {
-      const body = await response.json()
-      if (typeof body.detail === 'string') message = body.detail
-    } catch {
-      // Not JSON: keep the status text.
-    }
-    throw new ApiError(response.status, message)
+    throw new ApiError(response.status, await detailOf(response, response.statusText))
   }
   return response.status === 204 ? (undefined as T) : response.json()
 }
@@ -408,7 +412,9 @@ export async function* streamAnswer(
 ): AsyncGenerator<ChatEvent> {
   const response = await send(`/chats/${chatId}/messages`, { ...json('POST', { content }), signal })
   if (!response.ok || !response.body) {
-    throw new ApiError(response.status, 'The server could not start an answer.')
+    // A refusal says why in its body (too many answers in flight, every connection in use):
+    // that sentence is shown as the answer's error, in place of what the server could not start.
+    throw new ApiError(response.status, await detailOf(response, 'The server could not start an answer.'))
   }
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
   let buffer = ''

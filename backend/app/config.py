@@ -104,6 +104,13 @@ class Settings(BaseSettings):
     db_pool_size: int = Field(default=5, ge=1)
     db_max_overflow: int = Field(default=10, ge=0)
     db_pool_timeout: int = Field(default=5, ge=1)
+    # The answers this process streams at once. Every request runs on a thread from one pool,
+    # and a live answer keeps its thread for the length of each model call, so unbounded
+    # answers would leave every other request, the health check included, waiting behind
+    # them. The question past the cap is refused with 429 and asked again in a moment
+    # (app/api/chats.py); the process sizes its request threads for the cap plus a fixed
+    # headroom for the rest (app/main.py). It is per process: several API replicas multiply it.
+    max_answers: int = Field(default=20, ge=1)
     # Whether this process runs the background worker (app/worker.py) as well. Unset, it does
     # in development, so that one `uvicorn` indexes what it serves, and does not in production,
     # where the deployment runs `python -m app.worker` as its own process and scales it apart
