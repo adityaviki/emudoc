@@ -13,11 +13,13 @@ Upload ──> Parse ──> Structure ──┼──> Hierarchical map ──�
 
 Every upload queues a job that runs it through four stages in the background. Jobs are rows in
 Postgres that the worker claims with a lease, so a job whose worker died is picked up again by
-the next one. The workers are shared between organisations: a claim takes the job of the
-organisation that has had the least of them lately (jobs running or finished in the last five
-minutes), so one organisation's upload of five hundred documents costs another's single upload
-one slot, not five hundred. Uploads go before a project reprocess regardless. Each stage stores
-its output, so any stage can be run again on its own. A stage
+the next one; and a worker that lost its lease stops at its next commit with nothing of that
+stage written, so two workers never write the same document. The workers are shared between
+organisations: a claim takes the job of the organisation that has had the least of them lately
+(jobs running or finished in the last five minutes), so one organisation's upload of five
+hundred documents costs another's single upload one slot, not five hundred. Uploads go before a
+project reprocess regardless. Each stage stores its output, so any stage can be run again on
+its own. A stage
 that failed because the model, the embedding endpoint or the bucket was out of reach (down,
 rate limiting, a dropped connection) is run again by itself after 1, 2, 4 and 8 minutes; the
 stage says so in the document's status until it succeeds, and after the last try it stays

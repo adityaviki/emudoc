@@ -26,9 +26,18 @@ document would do the same work twice, or at once on two workers: queuing one re
 still queued for that document (`queue_index`), keeping the better priority of the two. That is
 how "Index again" overtakes a retry waiting for its backoff, and how a retry never doubles a
 job the user queued meanwhile.
+
+A lease only keeps two workers off one document if the worker that lost it stops. A heartbeat
+that could not reach the database for LEASE, or a stage that ran that long while the heartbeat
+thread was stuck, lets the next claim take the job over while the first worker is still running
+it, and both would then write the same document. So the pipeline renews the lease (`renew`) in
+the transaction of every commit it makes, and a renewal that finds the job no longer this
+worker's ends the run with `LeaseLost` before anything of that stage is written. The same test
+stops a run whose job a stopping worker handed back to the queue.
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from sqlalchemy import Connection, DateTime, bindparam, select, text
@@ -116,6 +125,15 @@ _RELEASE = text(
     RETURNING id
     """
 )
+# The same test as `_EXTEND`, on one job, in the caller's transaction: a job that is running
+# as this worker's is renewed, whatever its lease says, since a lease that ran out before
+# anyone claimed the job is still this worker's.
+_RENEW = text(
+    """
+    UPDATE jobs SET lease_until = now() + :lease
+    WHERE id = :id AND worker_id = :worker AND status = 'running'
+    """
+)
 _PRUNE = text("DELETE FROM jobs WHERE status IN ('done', 'failed') AND finished_at < now() - :age")
 # A queued job for the same document is replaced, and the new one takes the better priority of
 # the two: an upload's job stays ahead of bulk work when a project reprocess overtakes it.
@@ -138,6 +156,27 @@ _QUEUE_INDEX = text(
     RETURNING *
     """
 ).bindparams(bindparam("extra", type_=JSONB), bindparam("run_at", type_=DateTime(timezone=True)))
+
+
+@dataclass(frozen=True)
+class Lease:
+    """A worker's hold on a job, which the work done under it renews before each commit."""
+
+    job_id: int
+    worker_id: str
+
+
+class LeaseLost(Exception):
+    """The job is no longer this worker's: another worker took it over after its lease ran
+    out, or a stopping worker handed it back to the queue. The run that raised this wrote
+    nothing since its last commit, and the job is the next worker's to finish."""
+
+    def __init__(self, lease: Lease):
+        super().__init__(
+            f"Job {lease.job_id} is no longer worker {lease.worker_id}'s: it was taken over by "
+            "another worker or handed back to the queue, and that run of it stopped"
+        )
+        self.lease = lease
 
 
 def enqueue(
@@ -238,6 +277,20 @@ def extend_leases(job_ids: list[int], worker_id: str) -> set[int]:
         kept = set(session.scalars(_EXTEND, {"ids": job_ids, "worker": worker_id, "lease": LEASE}))
         session.commit()
         return kept
+
+
+def renew(session: Session, lease: Lease) -> bool:
+    """Give the job another LEASE from now, in the caller's transaction and without committing.
+
+    False when the job is no longer this worker's, in which case the caller must not commit
+    what it did under the lease. Run just before each commit of work done under a lease, it
+    makes the commit the lease test: the two cannot pass each other, so a worker that was
+    outrun writes nothing more.
+    """
+    renewed = session.execute(
+        _RENEW, {"id": lease.job_id, "worker": lease.worker_id, "lease": LEASE}
+    ).rowcount
+    return renewed == 1
 
 
 def finish(job: Job, worker_id: str, status: str, error: str | None = None) -> bool:

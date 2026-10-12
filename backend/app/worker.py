@@ -11,6 +11,12 @@ A stop is graceful: the threads stop claiming, the jobs they are running get a g
 finish, and the ones that did not finish are handed back to the queue with their lease cleared,
 so that the next worker takes them at once rather than when the lease would have run out.
 
+A job is only ever written by one worker at a time. The heartbeat thread extends the leases of
+the jobs this process runs, and the pipeline renews its job's lease in the transaction of every
+commit it makes (`Lease` in app/jobs.py): a run whose job was taken over after a heartbeat that
+could not reach the database, or handed back by a stop, ends with `LeaseLost` at its next commit
+with nothing of that stage written, and the job is the other worker's to finish.
+
 A stage that failed because a provider or the storage was out of reach is tried again: the index
 handler queues the document again from that stage after a wait that doubles each time, a few
 times, and the stage's detail says so for as long as the user looks. A stage that failed for a
@@ -47,7 +53,17 @@ from app.indexing.pipeline import (
     give_up_retrying,
     process_document,
 )
-from app.jobs import INDEX_DOCUMENT, LEASE, claim, extend_leases, finish, queue_index, release
+from app.jobs import (
+    INDEX_DOCUMENT,
+    LEASE,
+    Lease,
+    LeaseLost,
+    claim,
+    extend_leases,
+    finish,
+    queue_index,
+    release,
+)
 from app.mail import Mailer, mailer_from_settings
 from app.maintenance import housekeeping
 from app.models import Document, Job
@@ -102,7 +118,10 @@ class Handler:
 def _run_index(job: Job, services: Services) -> str | None:
     document_id = job.payload["document_id"]
     try:
-        failures = process_document(document_id, services)
+        failures = process_document(document_id, services, Lease(job.id, job.worker_id))
+    except LeaseLost:
+        # The document is another worker's now, which marks it as its run goes.
+        raise
     except Exception:
         # Each stage catches its own errors; this is the pipeline itself failing around them.
         _fail_document(document_id, CRASHED)
@@ -231,9 +250,9 @@ class Worker:
         """Stop claiming, let the running jobs finish for `grace` seconds, and hand back the rest.
 
         A job handed back is queued again with its lease cleared, so the next worker takes it at
-        once. Nothing stops the thread that is still running it, but the process exits right
-        after this returns, so the thread gets no further than its next statement; and a
-        handler resumes or repeats safely anyway, as it must after a lost lease.
+        once. Nothing stops the thread that is still running it: the process exits right after
+        this returns, and a thread that gets further finds the job handed back at its next
+        commit and stops there (`LeaseLost`), so the next worker's run never meets it.
         """
         self._stop.set()
         self._wake.set()
@@ -307,6 +326,14 @@ class Worker:
                     return
                 try:
                     given_up = handler.run(job, self._services)
+                except LeaseLost:
+                    # The job is the other worker's to finish, or queued for the next one.
+                    log.warning(
+                        "Job %s (%s) was taken over or handed back while this worker was "
+                        "running it; the run stopped at its next commit",
+                        job.id,
+                        job.kind,
+                    )
                 except Exception as error:
                     log.exception("Job %s (%s) failed", job.id, job.kind)
                     self._finish(job, "failed", f"{type(error).__name__}: {error}")
@@ -349,7 +376,7 @@ class Worker:
             if lost := set(held) - kept:
                 log.warning(
                     "Jobs %s ran past their lease and were taken over while this worker was "
-                    "still running them",
+                    "still running them; their runs stop at their next commit",
                     sorted(lost),
                 )
 

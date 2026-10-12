@@ -24,6 +24,7 @@ from app.indexing.enrich import (
     parse_iso_date,
 )
 from app.indexing.structure import SectionHint, build_outline
+from app.jobs import Lease, LeaseLost, renew
 from app.llm import LLM, LLMError
 from app.models import STAGES, Block, Document, Fact, Passage, Section
 from app.parsing import IMAGE_TYPES, ParsedBlock, UnsupportedFile
@@ -71,12 +72,20 @@ class StageFailure:
 Stage = Callable[[Session, Document, Services], str]
 
 
-def process_document(document_id: int, services: Services) -> list[StageFailure]:
+def process_document(
+    document_id: int, services: Services, lease: Lease | None = None
+) -> list[StageFailure]:
     """Run every stage that is not already done, in order, and report the stages that failed.
 
     A failed required stage ends the run with the document failed; a failed optional stage
     leaves it ready without that stage's output. The job that runs the pipeline decides from
     the failures whether to queue the document again (app/worker.py).
+
+    `lease` is that job's hold on the document (app/jobs.py). The run renews it in the
+    transaction of every commit, and a commit that finds the job no longer this worker's is
+    rolled back and ends the run with `LeaseLost`: a worker that was outrun by the next claim,
+    or whose job was handed back at stop, never writes a document that is another worker's
+    now. Without a lease the run is unguarded, as the tests and fixtures run it.
     """
     with SessionLocal() as session:
         document = session.get(Document, document_id)
@@ -87,26 +96,26 @@ def process_document(document_id: int, services: Services) -> list[StageFailure]
             # A job queued for a document that another job has since finished, such as a retry
             # that "Index again" overtook.
             document.status = "ready"
-            session.commit()
+            _commit(session, lease)
             return []
         document.status = "processing"
         document.error = None
-        session.commit()
+        _commit(session, lease)
 
         failures: list[StageFailure] = []
         for name in todo:
-            failure = _run_stage(session, document, name, _STAGES[name], services)
+            failure = _run_stage(session, document, name, _STAGES[name], services, lease)
             if failure is None:
                 continue
             failures.append(failure)
             if name in REQUIRED_STAGES:
                 document.status = "failed"
                 document.error = failure.message
-                session.commit()
+                _commit(session, lease)
                 return failures
 
         document.status = "ready"
-        session.commit()
+        _commit(session, lease)
         return failures
 
 
@@ -152,35 +161,60 @@ def give_up_retrying(document: Document, failure: StageFailure, notice: str) -> 
 
 
 def _run_stage(
-    session: Session, document: Document, name: str, stage: Stage, services: Services
+    session: Session,
+    document: Document,
+    name: str,
+    stage: Stage,
+    services: Services,
+    lease: Lease | None,
 ) -> StageFailure | None:
     """Run one stage and record its outcome. Returns the failure, if it failed."""
-    _set_stage(session, document, name, "running")
+    _set_stage(session, document, name, "running", lease=lease)
     try:
         detail = stage(session, document, services)
     except StageSkipped as skipped:
         session.rollback()
-        _set_stage(session, document, name, "skipped", str(skipped))
+        _set_stage(session, document, name, "skipped", str(skipped), lease)
         return None
     except (AppError, UnsupportedFile) as error:
         session.rollback()
-        _set_stage(session, document, name, "failed", str(error))
+        _set_stage(session, document, name, "failed", str(error), lease)
         transient = isinstance(error, AppError) and error.transient
         return StageFailure(name, str(error), transient)
     except Exception as error:
         session.rollback()
         log.exception("Stage %s failed for document %s", name, document.id)
         message = f"Unexpected error: {type(error).__name__}"
-        _set_stage(session, document, name, "failed", message)
+        _set_stage(session, document, name, "failed", message, lease)
         return StageFailure(name, message, transient=False)
-    _set_stage(session, document, name, "done", detail)
+    _set_stage(session, document, name, "done", detail, lease)
     return None
 
 
 def _set_stage(
-    session: Session, document: Document, name: str, status: str, detail: str = ""
+    session: Session,
+    document: Document,
+    name: str,
+    status: str,
+    detail: str = "",
+    lease: Lease | None = None,
 ) -> None:
     document.stages = {**document.stages, name: {"status": status, "detail": detail}}
+    _commit(session, lease)
+
+
+def _commit(session: Session, lease: Lease | None) -> None:
+    """Commit the document's session, having renewed the lease in the same transaction.
+
+    A lease that cannot be renewed is another worker's now, or was handed back at stop: the
+    transaction is rolled back, so a stage's rows and its "done" mark are discarded together
+    and the worker that took over runs the stage from a clean row set, and the run ends with
+    `LeaseLost`. Renewing here also keeps the lease alive across the stage boundaries of a run
+    whose heartbeat thread is stuck.
+    """
+    if lease is not None and not renew(session, lease):
+        session.rollback()
+        raise LeaseLost(lease)
     session.commit()
 
 

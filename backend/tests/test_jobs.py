@@ -21,28 +21,33 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 
+import app.indexing.pipeline as pipeline_module
 import app.worker as worker_module
 from app import jobs
 from app.config import BACKEND_DIR, get_settings
 from app.db import engine
+from app.indexing.pipeline import process_document
 from app.jobs import (
     BULK,
     LEASE,
     MAX_ATTEMPTS,
     SHARE_WINDOW,
+    Lease,
+    LeaseLost,
     claim,
     claim_params,
     enqueue,
     extend_leases,
     finish,
     release,
+    renew,
 )
 from app.llm import LLMError
 from app.main import create_app
 from app.maintenance import housekeeping
-from app.models import Document, Job, Project
+from app.models import Block, Document, Job, Project, Section
 from app.worker import HANDLERS, MAX_RETRIES, Handler, Worker, serve
-from tests.test_pipeline import stage_statuses
+from tests.test_pipeline import rows, stage_statuses
 
 INDEX = ["index_document"]
 
@@ -250,12 +255,19 @@ def test_a_lost_lease_is_claimed_again_and_only_its_holder_extends_or_finishes_i
     # While the lease holds, the job is that worker's.
     assert claim("alive:1", INDEX) is None
     assert extend_leases([job.id], "alive:1") == set()
+    assert renew(session, Lease(job.id, "alive:1")) is False
     assert finish(job, "alive:1", "done") is False
     session.refresh(job)
     before = job.lease_until
     assert extend_leases([job.id], "dead:1") == {job.id}
     session.refresh(job)
     assert job.lease_until > before
+    # A renewal is the holder's too, and lands with the caller's transaction.
+    set_lease(session, job.id, hours_from_now=-1)
+    assert renew(session, Lease(job.id, "dead:1")) is True
+    session.commit()
+    session.refresh(job)
+    assert job.lease_until > datetime.now(UTC)
 
     # The worker died: once the lease runs out, the next claim takes the job over.
     set_lease(session, job.id, hours_from_now=-1)
@@ -349,7 +361,7 @@ def test_a_crash_outside_the_stages_fails_the_job_and_the_document(
 ):
     document = make_document(sample_pdf)
 
-    def crash(document_id, services_):
+    def crash(document_id, services_, lease):
         raise RuntimeError("the pipeline itself broke")
 
     monkeypatch.setattr(worker_module, "process_document", crash)
@@ -429,6 +441,80 @@ def test_the_heartbeat_keeps_a_running_jobs_lease_alive(
     finally:
         release.set()
         worker.stop()
+
+
+# The lease check: a run renews its job's lease with every commit, and stops at the first one
+# that finds the job another worker's, so two workers never write the same document.
+
+
+def test_a_run_under_a_lease_renews_it_at_every_commit(
+    session, services, make_document, sample_pdf
+):
+    document = make_document(sample_pdf)
+    job = claim("w:1", INDEX)
+    # The heartbeat thread is stuck and the lease ran out, but nobody has claimed the job: it
+    # is still this worker's, and the run's own commits keep it so.
+    set_lease(session, job.id, hours_from_now=-1)
+    assert process_document(document.id, services, Lease(job.id, "w:1")) == []
+    session.refresh(document)
+    (job,) = all_jobs(session)
+    assert document.status == "ready"
+    assert job.lease_until > datetime.now(UTC)
+    assert claim("other:1", INDEX) is None
+
+
+def test_a_run_whose_job_was_taken_over_before_it_started_writes_nothing(
+    session, services, make_document, sample_pdf
+):
+    document = make_document(sample_pdf)
+    job = claim("w:1", INDEX)
+    lose(session, job.id)
+    assert claim("other:1", INDEX).id == job.id
+
+    with pytest.raises(LeaseLost, match=f"Job {job.id} is no longer worker w:1's"):
+        process_document(document.id, services, Lease(job.id, "w:1"))
+    session.refresh(document)
+    assert (document.status, document.stages) == ("queued", {})
+
+
+def test_a_run_whose_job_is_taken_over_mid_way_stops_at_its_next_commit(
+    session, services, make_document, sample_pdf, monkeypatch, caplog
+):
+    document = make_document(sample_pdf)
+    worker = Worker(services, concurrency=1)
+    job = claim(worker.id, INDEX)
+    structure = pipeline_module._STAGES["structure"]
+
+    def structure_while_taken_over(session_, document_, services_):
+        detail = structure(session_, document_, services_)
+        # The heartbeat could not reach the database for LEASE: the next claim takes the job
+        # while this stage is still running.
+        lose(session, job.id)
+        assert claim("other:1", INDEX).id == job.id
+        return detail
+
+    monkeypatch.setitem(pipeline_module._STAGES, "structure", structure_while_taken_over)
+    with caplog.at_level("WARNING", logger="app.worker"):
+        worker._run(job)
+
+    # Parse's output was committed before the takeover and stays. Structure's rows and its
+    # "done" mark were rolled back together, so the other worker runs it from a clean row
+    # set; enrich and embed never ran. The document is not failed: it is the other worker's.
+    session.refresh(document)
+    assert (document.status, document.error) == ("processing", None)
+    assert stage_statuses(document) == {"parse": "done", "structure": "running"}
+    assert rows(session, Block, document)
+    assert rows(session, Section, document) == []
+    # And the job is the other worker's to finish: not failed, not a dead letter.
+    (job,) = all_jobs(session)
+    assert (job.status, job.worker_id, job.attempts, job.last_error) == (
+        "running",
+        "other:1",
+        2,
+        None,
+    )
+    assert f"Job {job.id} (index_document) was taken over or handed back" in caplog.text
+    assert finish(job, "other:1", "done") is True
 
 
 def test_the_worker_keeps_house_after_a_delay(session, services, indexed, monkeypatch):
@@ -515,11 +601,18 @@ def test_a_stopping_worker_lets_a_quick_job_finish(
 def test_a_stopping_worker_hands_back_the_job_it_could_not_finish(
     session, services, make_document, sample_pdf, monkeypatch, caplog
 ):
-    make_document(sample_pdf)
+    document = make_document(sample_pdf)
     let_go = threading.Event()
+    outcome: list[Exception] = []
 
     def hold(job, services_):
         let_go.wait(10)
+        # In a deployment the process has exited by now; a thread that gets further finds the
+        # job handed back at its first commit.
+        try:
+            process_document(job.payload["document_id"], services_, Lease(job.id, job.worker_id))
+        except LeaseLost as lost:
+            outcome.append(lost)
 
     monkeypatch.setitem(HANDLERS, "index_document", Handler(hold, lambda *args: None))
     worker = Worker(services, concurrency=1)
@@ -535,6 +628,9 @@ def test_a_stopping_worker_hands_back_the_job_it_could_not_finish(
     (job,) = all_jobs(session)
     assert (job.status, job.attempts, job.worker_id, job.lease_until) == ("queued", 0, None, None)
     assert "were queued again" in caplog.text
+    wait_until(lambda: bool(outcome))
+    session.refresh(document)
+    assert (document.status, document.stages) == ("queued", {})
     taken = claim("next:1", INDEX)
     assert (taken.id, taken.attempts) == (job.id, 1)
 
