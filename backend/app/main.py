@@ -2,14 +2,16 @@ import logging
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
+from sqlalchemy.exc import TimeoutError as PoolTimeout
 
 from app.api import auth, chats, documents, folders, projects, query
 from app.api.deps import AccountDep, ServicesDep, SessionDep, refuse_cross_site
 from app.config import ROOT_DIR, get_settings
+from app.db import BUSY, engine
 from app.indexing.pipeline import Services
 from app.mail import Mailer, mailer_from_settings
 from app.schemas import EmbeddingStatus, HealthOut, LLMStatus, StatusOut
@@ -17,7 +19,12 @@ from app.startup import prepare
 from app.storage import StorageError
 from app.worker import Worker
 
+log = logging.getLogger(__name__)
+
 FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
+# How long a request refused for want of a database connection tells the client to wait, in
+# seconds, in the Retry-After header of its 503.
+RETRY_AFTER = 5
 
 system = APIRouter(tags=["system"])
 
@@ -49,10 +56,28 @@ def status(services: ServicesDep, account: AccountDep):
     )
 
 
-def storage_unavailable(request, error: Exception) -> JSONResponse:
+def storage_unavailable(request: Request, error: Exception) -> JSONResponse:
     """A storage that failed mid-request is reported like any other error the user can act on:
     the message says what happened, and 503 says it was not the request's fault."""
     return JSONResponse({"detail": str(error)}, status_code=503)
+
+
+def pool_exhausted(request: Request, error: Exception) -> JSONResponse:
+    """Every database connection this process may hold was in use for DB_POOL_TIMEOUT seconds.
+
+    The request is refused with 503 and a sentence that says to try again, and the log says how
+    the pool stood, so that a deployment that needs a larger pool or another replica shows up
+    as a line to act on rather than as a traceback.
+    """
+    log.warning(
+        "%s %s was refused: every database connection is in use (%s)",
+        request.method,
+        request.url.path,
+        engine.pool.status(),
+    )
+    return JSONResponse(
+        {"detail": BUSY}, status_code=503, headers={"Retry-After": str(RETRY_AFTER)}
+    )
 
 
 def create_app(
@@ -89,6 +114,7 @@ def create_app(
         openapi_url="/openapi.json" if settings.environment == "development" else None,
     )
     app.add_exception_handler(StorageError, storage_unavailable)
+    app.add_exception_handler(PoolTimeout, pool_exhausted)
     for router in (
         system,
         auth.router,

@@ -181,6 +181,23 @@ def test_the_api_runs_the_worker_itself_in_development_only(deployment, monkeypa
     assert load_settings(**deployment).run_worker is True
 
 
+def test_a_process_that_runs_the_worker_needs_a_pool_for_its_threads(deployment):
+    # Each indexing thread holds a connection while it works, and the heartbeat, housekeeper
+    # and alerter take one now and then; a pool that cannot hold them all would fail jobs for a
+    # reason the operator set, so the settings are refused with the arithmetic.
+    deployment.update(run_worker=True, worker_concurrency=13)
+    with pytest.raises(ValueError, match="WORKER_CONCURRENCY is 13") as error:
+        load_settings(**deployment)
+    assert "need 16 database connections" in str(error.value)
+    assert "DB_POOL_SIZE + DB_MAX_OVERFLOW allows 15" in str(error.value)
+    assert load_settings(**deployment, db_max_overflow=11).worker_concurrency == 13
+    deployment["worker_concurrency"] = 12
+    assert load_settings(**deployment).db_pool_size == 5
+    # An API replica that runs no worker has no indexing threads to hold connections.
+    deployment.update(run_worker=False, worker_concurrency=50)
+    assert load_settings(**deployment).run_worker is False
+
+
 def test_development_runs_with_everything_production_refuses(deployment):
     deployment.update(
         environment="development",

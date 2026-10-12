@@ -19,6 +19,9 @@ Effort = Literal["", "minimal", "low", "medium", "high", "xhigh"]
 # The password of the database docker-compose.yml runs, which only this machine can reach.
 # A deployment that carries it has copied the development setup, so production refuses it.
 DEVELOPMENT_PASSWORD = "emudoc"
+# The threads a worker runs besides its indexing threads, each of which takes a connection now
+# and then: the heartbeat, the housekeeper and the alerter (app/worker.py).
+WORKER_HELPER_THREADS = 3
 STORAGE_URL_FORMS = (
     "STORAGE_URL names a directory as file:///var/lib/emudoc or an S3-compatible bucket as "
     "s3://bucket/prefix"
@@ -89,6 +92,18 @@ class Settings(BaseSettings):
     # its query with each passage's own, so changing this only affects later uploads.
     fts_language: str = "english"
     worker_concurrency: int = 2
+    # The connections this process keeps to the database: DB_POOL_SIZE kept open, and up to
+    # DB_MAX_OVERFLOW more opened while all of those are in use and closed as they come back.
+    # A session holds one from its first statement to its next commit or rollback, so an API
+    # replica needs about one per request in flight (an answer hands its back while the model
+    # thinks, see app/agent/loop.py), and a worker one per job it runs at once plus one for
+    # each helper thread; the sum over every replica stays under the database's
+    # max_connections (100 for Postgres). When every connection is in use, a request waits
+    # DB_POOL_TIMEOUT seconds for one and is then refused with 503 and a sentence that says to
+    # try again (app/main.py), rather than hanging.
+    db_pool_size: int = Field(default=5, ge=1)
+    db_max_overflow: int = Field(default=10, ge=0)
+    db_pool_timeout: int = Field(default=5, ge=1)
     # Whether this process runs the background worker (app/worker.py) as well. Unset, it does
     # in development, so that one `uvicorn` indexes what it serves, and does not in production,
     # where the deployment runs `python -m app.worker` as its own process and scales it apart
@@ -164,6 +179,21 @@ class Settings(BaseSettings):
     def _run_the_worker_unless_deployed(self) -> "Settings":
         if self.run_worker is None:
             self.run_worker = self.environment == "development"
+        return self
+
+    @model_validator(mode="after")
+    def _the_pool_holds_the_workers_threads(self) -> "Settings":
+        # An indexing thread that found every connection in use would fail its job for a reason
+        # the operator set, so a pool too small for the threads this process runs is refused
+        # before it runs any.
+        needed = self.worker_concurrency + WORKER_HELPER_THREADS
+        allowed = self.db_pool_size + self.db_max_overflow
+        if self.run_worker and allowed < needed:
+            raise ValueError(
+                f"WORKER_CONCURRENCY is {self.worker_concurrency}, so the worker's threads need "
+                f"{needed} database connections, but DB_POOL_SIZE + DB_MAX_OVERFLOW allows "
+                f"{allowed}; raise them or lower WORKER_CONCURRENCY."
+            )
         return self
 
     def production_problems(self) -> list[str]:

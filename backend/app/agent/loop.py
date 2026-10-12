@@ -21,6 +21,7 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
+from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
 from app.agent.tools import TOOLS, ToolContext
@@ -93,6 +94,10 @@ def run_agent(
     turns = 0
 
     while turns < MAX_TURNS:
+        # The tools only read, so the session's connection goes back to the pool while the
+        # model thinks, which is most of an answer's time; the next tool call takes one again,
+        # and what the session had loaded is loaded again if it is touched.
+        session.rollback()
         try:
             with services.llm.stream_agent(system, conversation, tools) as stream:
                 for event in stream:
@@ -230,6 +235,10 @@ def _run_tool(context: ToolContext, name: str, raw_input: Any) -> tuple[str, boo
         return json.dumps({"INVALID_JSON": json.dumps(raw_input), "problems": problems}), True
     try:
         return tool.run(context, arguments), False
+    except PoolTimeout:
+        # Not the tool's doing, and nothing the model can work around: the answer ends with the
+        # sentence that says to try again (`stream_answer` in app/api/chats.py).
+        raise
     except Exception:
         log.exception("Tool %s failed", name)
         context.session.rollback()

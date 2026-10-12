@@ -126,6 +126,14 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
 - `RUN_WORKER` is whether the process runs the background worker as well. Unset, it does in
   development and does not in production, where the worker is `uv run python -m app.worker`,
   a process of its own ("Run it" above).
+- `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` and `DB_POOL_TIMEOUT` size the database connections a
+  process holds: 5 kept open, up to 10 more while all of those are in use, and 5 seconds a
+  request waits for one before it is refused with 503 and asked to try again. An answer hands
+  its connection back while the model thinks, so an API replica needs about one per request in
+  flight; a worker needs one per job it runs at once plus three for its helper threads, and
+  refuses to start with a pool that cannot hold them. The sum over every replica must stay
+  under the database's `max_connections` (100 for Postgres), or a connection pooler goes in
+  between.
 - `ALERT_EMAIL` is where the worker reports the jobs it gave up on, through the same mail
   settings as the sign-in links, as one digest every quarter of an hour. Empty sends nothing;
   the `failed-jobs` command lists them either way.

@@ -9,10 +9,11 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import TimeoutError as PoolTimeout
 
 from app.agent.loop import run_agent
 from app.api.deps import AccountDep, ChatDep, OwnChatDep, ProjectDep, ServicesDep, SessionDep
-from app.db import SessionLocal
+from app.db import BUSY, SessionLocal
 from app.indexing.pipeline import Services
 from app.models import Chat, ChatMessage, Project
 from app.schemas import ChatDetail, ChatOut, ChatPatch, QuestionIn
@@ -106,6 +107,13 @@ def stream_answer(chat_id: int, services: Services) -> Iterator[str]:
         # The client stopped the answer: the generator is closed where it last yielded.
         reply.notice = "Stopped."
         raise
+    except PoolTimeout:
+        # Every database connection was in use when a tool needed one (a request is refused
+        # the same way, `pool_exhausted` in app/main.py): the answer ends with the sentence
+        # that says to try again, and the operator sees the pool, not a traceback.
+        log.warning("Answering in chat %s stopped: every database connection is in use", chat_id)
+        reply.error = BUSY
+        yield _sse({"type": "error", "message": BUSY})
     except Exception:
         log.exception("Answering in chat %s failed", chat_id)
         reply.error = "The answer failed unexpectedly."
@@ -168,18 +176,26 @@ class _Reply:
                 self.error = event["message"]
 
     def save(self, chat_id: int) -> None:
-        with SessionLocal() as session:
-            # The chat may have been deleted while the answer was being written.
-            if session.get(Chat, chat_id) is not None:
-                session.add(
-                    ChatMessage(
-                        chat_id=chat_id,
-                        role="assistant",
-                        content=self.content,
-                        steps=self.steps,
-                        sources=list(self.sources.values()),
-                        notice=self.notice,
-                        error=self.error,
+        try:
+            with SessionLocal() as session:
+                # The chat may have been deleted while the answer was being written.
+                if session.get(Chat, chat_id) is not None:
+                    session.add(
+                        ChatMessage(
+                            chat_id=chat_id,
+                            role="assistant",
+                            content=self.content,
+                            steps=self.steps,
+                            sources=list(self.sources.values()),
+                            notice=self.notice,
+                            error=self.error,
+                        )
                     )
-                )
-                session.commit()
+                    session.commit()
+        except PoolTimeout:
+            # The pool that stopped the answer is still full. The user has the answer as far as
+            # it got, on screen; the chat keeps the question alone.
+            log.warning(
+                "The answer in chat %s was not saved: every database connection is in use",
+                chat_id,
+            )

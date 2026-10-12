@@ -2,8 +2,11 @@ import json
 
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolCallPart
 from sqlalchemy import select
+from sqlalchemy.exc import TimeoutError as PoolTimeout
 
+from app.agent.tools import TOOLS
 from app.api.chats import stream_answer
+from app.db import BUSY
 from app.llm import LLMUnavailable
 from app.models import Chat, ChatMessage
 from tests.conftest import MISSING_KEY, FakeTurn
@@ -150,3 +153,25 @@ def test_asking_without_a_model_saves_the_error(client, services, indexed):
         "Hello",
         "Hello again",
     ]
+
+
+def test_an_answer_that_finds_every_connection_in_use_ends_with_the_busy_sentence(
+    client, services, indexed, monkeypatch, caplog
+):
+    # What the pool raises when a tool's query waited DB_POOL_TIMEOUT for a connection. Not the
+    # tool's fault and nothing the model can route around, so the answer ends as a refused
+    # request does (test_pool.py) instead of telling the model to try a different approach.
+    def every_connection_in_use(ctx, args):
+        raise PoolTimeout("QueuePool limit of size 1 overflow 0 reached, connection timed out")
+
+    monkeypatch.setattr(TOOLS["search"], "run", every_connection_in_use)
+    services.llm.agent_turns = [FakeTurn(ToolCallPart("search", {"query": "notice"}, "call_1"))]
+    chat = new_chat(client, indexed.project_id)
+    with caplog.at_level("WARNING", logger="app.api.chats"):
+        events = ask(client, chat["id"], "Notice period?")
+    assert [event["type"] for event in events] == ["tool_call", "error"]
+    assert events[-1]["message"] == BUSY
+    assert "every database connection is in use" in caplog.text
+    assert "Traceback" not in caplog.text
+    answer = client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]
+    assert answer["role"] == "assistant" and answer["error"] == BUSY

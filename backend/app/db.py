@@ -8,16 +8,38 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import MetaData, create_engine
 from sqlalchemy.dialects.postgresql import REGCONFIG
 from sqlalchemy.dialects.postgresql.base import ischema_names
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-from app.config import BACKEND_DIR, get_settings
+from app.config import BACKEND_DIR, Settings, get_settings
 
 # SQLAlchemy can write a `regconfig` column (`passages.language`) but does not recognise one it
 # reads back from the catalog, so the migration check would see an untyped column and warn.
 # Registering the name is what pgvector does for `vector`.
 ischema_names.setdefault("regconfig", REGCONFIG)
 
-engine = create_engine(get_settings().database_url, pool_pre_ping=True)
+# What a request is refused with when every connection in the pool is in use for longer than
+# DB_POOL_TIMEOUT (`pool_exhausted` in app/main.py sends it with 503; an answer that is being
+# streamed ends with it).
+BUSY = "The app is handling as many requests as it can right now. Wait a moment and try again."
+
+
+def make_engine(settings: Settings) -> Engine:
+    """The engine, with its pool sized by the settings (DB_POOL_SIZE and the two beside it).
+
+    `pool_pre_ping` checks a connection as the pool hands it out, so one the database closed
+    while it sat idle is replaced instead of failing the request that got it.
+    """
+    return create_engine(
+        settings.database_url,
+        pool_pre_ping=True,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_timeout=settings.db_pool_timeout,
+    )
+
+
+engine = make_engine(get_settings())
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
 
 # Constraints are named the way Postgres names them when left unnamed, so a migration can name
