@@ -50,6 +50,7 @@ def status(services: ServicesDep, account: AccountDep):
             error=problem,
         ),
         embeddings=EmbeddingStatus(ok=error is None, model=settings.embedding_model, error=error),
+        currency=settings.price_currency,
     )
 
 

@@ -20,6 +20,7 @@ from app.agent.tools import (
     read,
     search,
 )
+from app.config import get_settings
 from app.models import Folder, Passage, Project, Section
 from tests.conftest import FakeTurn
 
@@ -249,7 +250,14 @@ def test_agent_searches_then_answers_with_a_citation(services, indexed):
     assert any("ninety (90) days" in source["excerpt"] for source in events[2]["sources"])
     assert events[3]["is_error"] is False and "passages, best first" in events[3]["summary"]
     assert events[4]["text"] == "The notice period is 90 days."
-    assert events[5]["usage"] == {"input_tokens": 20, "output_tokens": 10}
+    # Two calls, as the answer's row will show them once the run has recorded them.
+    assert events[5]["usage"] == {
+        "model": get_settings().agent_model,
+        "calls": 2,
+        "input_tokens": 20,
+        "output_tokens": 10,
+        "cost_micros": None,
+    }
 
     # The second request carries the model's turn and its tool result, in one message.
     second = services.llm.agent_requests[1]
@@ -285,7 +293,8 @@ def test_a_reply_that_cannot_be_used_reissues_the_turn(services, indexed):
     ]
     events = run(services, indexed)
     assert [event["type"] for event in events] == ["text", "retry", "retry", "text", "done"]
-    assert events[-1]["usage"] == {"input_tokens": 30, "output_tokens": 15}
+    assert events[-1]["usage"]["calls"] == 3
+    assert events[-1]["usage"]["input_tokens"] == 30 and events[-1]["usage"]["output_tokens"] == 15
     # Each reissued request is the same conversation, with nothing appended.
     first, second, third = services.llm.agent_requests
     assert first == second == third and len(first) == 1

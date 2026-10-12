@@ -6,7 +6,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { useSyncExternalStore } from 'react'
 import { ApiError, api, streamEvents } from './api.ts'
-import type { Chat, ChatDetail, ChatEvent, ChatMessage, MessageStatus, Source } from './api.ts'
+import type { Chat, ChatDetail, ChatEvent, ChatMessage, MessageStatus, Source, Usage } from './api.ts'
 
 export interface Step {
   id: string
@@ -28,6 +28,9 @@ export interface Message {
   thinking?: boolean
   notice?: string | null
   error?: string | null
+  // What the answer used, once known: from the `done` event while it is followed, from the
+  // saved row when the chat is loaded.
+  usage?: Usage | null
   // Length of `content` when the current model turn began, to discard a turn that is retried.
   turnStart: number
 }
@@ -49,6 +52,7 @@ function fromSaved(message: ChatMessage): Message {
     ...message,
     sources: Object.fromEntries(message.sources.map((source) => [source.id, source])),
     thinking: message.role === 'assistant' && message.status === 'streaming',
+    usage: message.usage.answer ?? null,
     turnStart: 0,
   }
 }
@@ -70,7 +74,7 @@ export function settle(message: Message): Message {
 
 /** An answer as it starts: nothing arrived yet. */
 function empty(message: Message): Message {
-  return { ...message, content: '', steps: [], sources: {}, thinking: true, notice: null, error: null, turnStart: 0 }
+  return { ...message, content: '', steps: [], sources: {}, thinking: true, notice: null, error: null, usage: null, turnStart: 0 }
 }
 
 export function applyEvent(message: Message, event: ChatEvent): Message {
@@ -108,7 +112,7 @@ export function applyEvent(message: Message, event: ChatEvent): Message {
     case 'error':
       return { ...message, thinking: false, error: event.message }
     case 'done':
-      return { ...message, thinking: false }
+      return { ...message, thinking: false, usage: event.usage }
     case 'end':
       return { ...message, thinking: false, status: event.status }
   }

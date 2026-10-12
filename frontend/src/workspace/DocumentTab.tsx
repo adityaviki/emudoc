@@ -7,6 +7,7 @@ import { IndexingStatus } from '../components/IndexingStatus.tsx'
 import { PipeTable } from '../components/Markdown.tsx'
 import { Chip, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { formatDate, parsePipeTable } from '../format.ts'
+import { describeDocumentUsage } from '../usage.ts'
 import { useWorkspace } from './state.ts'
 import type { Focus } from './url.ts'
 
@@ -34,6 +35,9 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
     queryFn: () => api.outline(document.id),
     enabled: indexed,
   })
+  // For the currency the document's cost is in.
+  const health = useQuery({ queryKey: ['status'], queryFn: api.status })
+  const usage = describeDocumentUsage(document.usage, health.data?.currency)
   const content = useQuery({
     queryKey: ['content', document.id, status],
     queryFn: () => api.content(document.id),
@@ -96,6 +100,9 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
                 <span>
                   {document.page_count} page{document.page_count === 1 ? '' : 's'}
                 </span>
+              )}
+              {usage && (
+                <span title={usage.detail}>{usage.summary}</span>
               )}
               <IndexingStatus document={document} />
             </div>

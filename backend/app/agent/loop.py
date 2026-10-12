@@ -24,6 +24,7 @@ from pydantic_ai.messages import (
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 
 from app.agent.tools import TOOLS, ToolContext
+from app.config import get_settings
 from app.db import SessionLocal
 from app.indexing.pipeline import Services
 from app.llm import LLMError
@@ -207,10 +208,9 @@ def run_agent(
             "message": f"Stopped after {MAX_TURNS} rounds of tool calls.",
         }
 
-    yield {
-        "type": "done",
-        "usage": {"input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens},
-    }
+    # What the answer used, as its row will show it once the run has recorded it, so a
+    # follower shows the same line at once.
+    yield {"type": "done", "usage": usage.spent(get_settings().agent_model)}
 
 
 def _chat_message(message: dict[str, str]) -> ModelMessage:

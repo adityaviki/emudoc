@@ -5,11 +5,19 @@ message, from uvicorn, alembic and the maintenance command alike."""
 import os
 import subprocess
 import sys
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.config import BACKEND_DIR, MISSING_DATABASE, ROOT_DIR, get_settings, load_settings
+from app.config import (
+    BACKEND_DIR,
+    MISSING_DATABASE,
+    ROOT_DIR,
+    ModelPrice,
+    get_settings,
+    load_settings,
+)
 from app.main import create_app
 
 A_DATABASE = "postgresql+psycopg://app:secret@db.internal:5432/emudoc"
@@ -59,6 +67,26 @@ def test_the_example_env_file_names_the_development_database(monkeypatch):
 def test_other_mistakes_keep_the_validation_error_that_names_the_setting():
     with pytest.raises(ValueError, match="environment"):
         load_settings(_env_file=None, environment="staging")
+
+
+def test_model_prices_are_read_per_model_and_a_malformed_entry_is_refused():
+    settings = load_settings(
+        _env_file=None,
+        model_prices=" google:gemini-2.5-flash-lite = 0.10/0.40 , openrouter:a/b=2/0,, c=0/0",
+    )
+    assert settings.prices == {
+        "google:gemini-2.5-flash-lite": ModelPrice(Decimal("0.10"), Decimal("0.40")),
+        "openrouter:a/b": ModelPrice(Decimal("2"), Decimal("0")),
+        "c": ModelPrice(Decimal("0"), Decimal("0")),
+    }
+    assert load_settings(_env_file=None).prices == {}
+    assert load_settings(_env_file=None, price_currency="EUR").price_currency == "EUR"
+
+    for malformed in ["x", "x=1", "x=1/2/3", "x=a/b", "x=-1/2", "=1/2", "x=1/2 y=3/4"]:
+        with pytest.raises(ValueError, match="MODEL_PRICES lists what each model costs"):
+            load_settings(_env_file=None, model_prices=malformed)
+    with pytest.raises(ValueError, match="price_currency"):
+        load_settings(_env_file=None, price_currency="usd")
 
 
 @pytest.mark.parametrize(

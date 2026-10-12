@@ -1,8 +1,9 @@
 import os
 import re
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 from urllib.parse import urlsplit
 
 from dotenv import dotenv_values
@@ -27,6 +28,38 @@ STORAGE_URL_FORMS = (
     "STORAGE_URL names a directory as file:///var/lib/emudoc or an S3-compatible bucket as "
     "s3://bucket/prefix"
 )
+MODEL_PRICES_FORM = (
+    "MODEL_PRICES lists what each model costs per million tokens in and out, as "
+    "model=in/out separated by commas, such as google:gemini-2.5-flash-lite=0.10/0.40"
+)
+
+
+class ModelPrice(NamedTuple):
+    """What a model costs per million tokens in and out, in PRICE_CURRENCY."""
+
+    input: Decimal
+    output: Decimal
+
+
+@lru_cache
+def parse_model_prices(text: str) -> dict[str, ModelPrice]:
+    """The prices MODEL_PRICES lists, by model name as the settings name it."""
+    prices: dict[str, ModelPrice] = {}
+    for entry in filter(None, (part.strip() for part in text.split(","))):
+        model, equals, pair = entry.rpartition("=")
+        model = model.strip()
+        try:
+            # A model name has no whitespace: one with some is two entries missing a comma.
+            if not equals or not model or any(char.isspace() for char in model):
+                raise ValueError
+            input_price, output_price = (Decimal(price.strip()) for price in pair.split("/"))
+            if not (input_price >= 0 and output_price >= 0):
+                raise ValueError
+        except (ValueError, ArithmeticError):
+            # A Decimal that cannot be read raises an ArithmeticError, not a ValueError.
+            raise ValueError(f"{MODEL_PRICES_FORM}; {entry!r} is not of that form.") from None
+        prices[model] = ModelPrice(input_price, output_price)
+    return prices
 
 
 class Settings(BaseSettings):
@@ -80,6 +113,14 @@ class Settings(BaseSettings):
     # think ignore it.
     agent_effort: Effort = "medium"
     index_effort: Effort = "low"
+    # What the models cost, for the cost on every usage row (app/usage.py): model=in/out per
+    # million tokens, separated by commas, with the models named as AGENT_MODEL and
+    # INDEX_MODEL name them, in PRICE_CURRENCY (an ISO 4217 code). Empty, no cost is
+    # recorded. Embeddings are counted in texts, not tokens, and carry no cost. The prices
+    # are what the platform pays its providers, the same for every organisation; what an
+    # organisation is charged is its plan's business.
+    model_prices: str = ""
+    price_currency: str = Field(default="USD", pattern=r"^[A-Z]{3}$")
 
     # Embeddings: any OpenAI-compatible /embeddings endpoint. The default is a local Ollama.
     embedding_base_url: str = "http://127.0.0.1:11434/v1"
@@ -171,6 +212,17 @@ class Settings(BaseSettings):
         if parts.scheme == "s3" and parts.netloc and not parts.query and not parts.fragment:
             return value
         raise ValueError(f"{STORAGE_URL_FORMS}; {value!r} is neither")
+
+    @field_validator("model_prices")
+    @classmethod
+    def _lists_prices(cls, value: str) -> str:
+        parse_model_prices(value)
+        return value
+
+    @property
+    def prices(self) -> dict[str, ModelPrice]:
+        """What each model costs per million tokens, by name (MODEL_PRICES)."""
+        return parse_model_prices(self.model_prices)
 
     @field_validator("fts_language")
     @classmethod

@@ -12,6 +12,7 @@ from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
 from alembic.util import CommandError
 from fastapi.testclient import TestClient
+from pydantic_ai.messages import TextPart
 from sqlalchemy import inspect, text
 
 from app.config import get_settings
@@ -19,11 +20,13 @@ from app.db import MIGRATION_LOCK, UPGRADE_COMMAND, Base, alembic_config, check_
 from app.indexing.pipeline import process_document
 from app.main import create_app
 from app.models import Project
-from tests.conftest import STORAGE_ROOT, build_schema, drop_schema
+from tests.conftest import STORAGE_ROOT, FakeTurn, build_schema, drop_schema
+from tests.test_chats import answered, new_chat
 
 INITIAL_SCHEMA = "bedb624406a6"
 PASSAGE_LANGUAGE = "27bd56b4a29e"
 STORAGE_KEYS = "5c1e7a9d2b40"
+USAGE_EVENTS = "4d17fad8beb9"
 
 
 def current_revision() -> str | None:
@@ -159,6 +162,31 @@ def test_waiting_documents_get_jobs_when_the_queue_arrives(
         (held.id, "index_document", "queued", 1, project.id),
     ]
     assert statuses == ["queued", "queued", "ready"]
+
+
+def test_usage_recorded_before_the_columns_is_summed_into_them(
+    rebuilt_afterwards, client, session, services, indexed
+):
+    # Before the columns, what a document or an answer used was only in the events. Going
+    # back drops the columns; coming forward fills them from the events again, so the
+    # document and the answer show what they showed.
+    services.llm.agent_turns = [FakeTurn(TextPart("90 days."))]
+    chat = new_chat(client, indexed.project_id)
+    answered(client, services, chat["id"], "Notice period?")
+    document_usage = client.get(f"/api/documents/{indexed.id}").json()["usage"]
+    answer_usage = client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]["usage"]
+    assert set(document_usage) == {"upload", "enrich", "embed"} and set(answer_usage) == {"answer"}
+
+    session.rollback()
+    command.downgrade(alembic_config(), USAGE_EVENTS)
+    with engine.connect() as connection:
+        columns = {column["name"] for column in inspect(connection).get_columns("documents")}
+    assert "usage" not in columns
+
+    command.upgrade(alembic_config(), "head")
+    assert client.get(f"/api/documents/{indexed.id}").json()["usage"] == document_usage
+    reply = client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]
+    assert reply["usage"] == answer_usage
 
 
 def test_database_made_before_migrations_cannot_be_upgraded(rebuilt_afterwards):

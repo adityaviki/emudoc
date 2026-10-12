@@ -473,7 +473,8 @@ def assert_searched_then_answered(events: list[dict]) -> None:
     assert "".join(e["text"] for e in events if e["type"] == "text") == (
         "The notice period is 90 days."
     )
-    assert events[-1]["usage"] == {"input_tokens": 50, "output_tokens": 60}
+    usage = events[-1]["usage"]
+    assert (usage["calls"], usage["input_tokens"], usage["output_tokens"]) == (2, 50, 60)
 
 
 def gemini(*parts: dict, finish: str | None = "STOP") -> dict:

@@ -41,6 +41,21 @@ class FolderOut(_FromORM):
     created_at: dt.datetime
 
 
+class UsageOut(BaseModel):
+    """What one kind of work used for a document or an answer, summed over every run for it:
+    the counts by unit, the model when one was called, and the cost in millionths of the
+    currency the status names, when the model has a price."""
+
+    model: str | None = None
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    pages: int = 0
+    bytes: int = 0
+    inputs: int = 0
+    cost_micros: int | None = None
+
+
 class StageOut(BaseModel):
     status: Literal["pending", "running", "done", "skipped", "failed"] = "pending"
     detail: str = ""
@@ -68,6 +83,8 @@ class DocumentOut(_FromORM):
     doc_type: str | None
     doc_date: dt.date | None
     summary: str | None
+    # By kind: `upload` (bytes, pages), `ocr`, `infer_sections`, `enrich`, `embed`, `render`.
+    usage: dict[str, UsageOut]
     created_at: dt.datetime
 
 
@@ -231,6 +248,9 @@ class ChatMessageOut(_FromORM):
     notice: str | None
     error: str | None
     status: MessageStatus
+    # What the answer used, under `answer`, once its run has recorded it; empty before that
+    # and for a question.
+    usage: dict[str, UsageOut]
     created_at: dt.datetime
 
 
@@ -368,6 +388,8 @@ class EmbeddingStatus(BaseModel):
 class StatusOut(BaseModel):
     llm: LLMStatus
     embeddings: EmbeddingStatus
+    # The currency the costs on usage are in (PRICE_CURRENCY), an ISO 4217 code.
+    currency: str
 
 
 class HealthOut(BaseModel):

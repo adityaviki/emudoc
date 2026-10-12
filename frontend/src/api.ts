@@ -8,6 +8,24 @@ export interface Stage {
   detail: string
 }
 
+export type UsageKind = 'answer' | 'upload' | 'ocr' | 'infer_sections' | 'enrich' | 'embed' | 'render'
+
+/**
+ * What one kind of work used for a document or an answer, summed over every run for it. A
+ * unit the work did not count is 0 from the API and absent from the `done` event; the cost
+ * is in millionths of the currency the status names, and null without a price for the model.
+ */
+export interface Usage {
+  model: string | null
+  calls?: number
+  input_tokens?: number
+  output_tokens?: number
+  pages?: number
+  bytes?: number
+  inputs?: number
+  cost_micros: number | null
+}
+
 export interface Project {
   id: number
   name: string
@@ -39,6 +57,7 @@ export interface Document {
   doc_type: string | null
   doc_date: string | null
   summary: string | null
+  usage: Partial<Record<UsageKind, Usage>>
   created_at: string
 }
 
@@ -125,6 +144,8 @@ export interface SearchResult {
 export interface SystemStatus {
   llm: { available: boolean; agent_model: string; index_model: string; error: string | null }
   embeddings: { ok: boolean; model: string; error: string | null }
+  /** The currency the costs on usage are in, an ISO 4217 code. */
+  currency: string
 }
 
 /** A passage the agent was shown, which its answer may cite as [P<id>]. */
@@ -174,6 +195,8 @@ export interface ChatMessage {
   notice: string | null
   error: string | null
   status: MessageStatus
+  /** What the answer used, under `answer`, once its run has recorded it; empty for a question. */
+  usage: Partial<Record<UsageKind, Usage>>
   created_at: string
 }
 
@@ -197,7 +220,7 @@ export type ChatEvent =
   | { type: 'sources'; sources: Source[] }
   | { type: 'notice'; message: string }
   | { type: 'error'; message: string }
-  | { type: 'done'; usage: { input_tokens: number; output_tokens: number } }
+  | { type: 'done'; usage: Usage }
   // Sent by the events route itself, last, once the answer is settled.
   | { type: 'end'; status: MessageStatus }
 

@@ -261,6 +261,8 @@ def test_status_reports_what_is_missing(client, services):
         "error": None,
     }
     assert health["embeddings"]["ok"] is True
+    # The currency the costs on usage are in (PRICE_CURRENCY).
+    assert health["currency"] == "USD"
 
     services.embedder.fail = True
     services.llm.available = False

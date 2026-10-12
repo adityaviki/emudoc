@@ -19,23 +19,34 @@ which is what the platform paid for. A `Meter` gathers a run's counts by kind fo
 (app/indexing/pipeline.py fills one per document run and records it at the end of every
 stage).
 
-`cost_micros` is empty until there is a price table to fill it from. `daily` is the rollup:
-an organisation's quantities and costs per day in UTC, by kind and unit, which is what a
-quota, a usage page or an invoice reads. It is a query over the events, which is enough until
-their number says otherwise; a stored table would then go behind the same function. The
-`usage` command (app/maintenance.py) prints it.
+A row's cost (`cost_micros`, millionths of PRICE_CURRENCY) comes from the prices the
+settings list per model (MODEL_PRICES, app/config.py), for the tokens a model took in and
+gave out; a row for a model without a price, or for a unit that is not tokens, has none.
+
+The message or document a row was for shows what it used: `ChatMessage.usage` and
+`Document.usage` (app/models.py) hold the rows for the row, by kind, each unit summed over
+every run, the model the latest row named, and the cost summed when any row has one. `record`
+adds to it as it adds the rows, in the same transaction, so the two never drift apart.
+
+`daily` is the rollup: an organisation's quantities and costs per day in UTC, by kind and
+unit, which is what a quota, a usage page or an invoice reads. It is a query over the events,
+which is enough until their number says otherwise; a stored table would then go behind the
+same function. The `usage` command (app/maintenance.py) prints it.
 """
 
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
+from decimal import Decimal
+from typing import Any
 
 from pydantic_ai.usage import RequestUsage, RunUsage
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.models import UsageEvent
+from app.config import get_settings
+from app.models import ChatMessage, Document, UsageEvent
 
 USAGE_COMMAND = "uv run python -m app.maintenance usage"
 # The kinds the app records, and what it records them for.
@@ -48,6 +59,8 @@ EMBED = "embed"
 RENDER = "render"
 CHAT_MESSAGE = "chat_message"
 DOCUMENT = "document"
+# The row a reference names, which carries the usage recorded for it.
+_REFERENCED = {CHAT_MESSAGE: ChatMessage, DOCUMENT: Document}
 
 _DAILY = text(
     """
@@ -88,6 +101,12 @@ class ModelUsage:
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
         }
+
+    def spent(self, model: str) -> dict[str, Any]:
+        """The calls as the row they were for shows them once recorded: the counts, the
+        model, and their cost by the model's price."""
+        costs = [cost_of(model, unit, quantity) for unit, quantity in self.measures.items()]
+        return {"model": model, **self.measures, "cost_micros": _total(costs)}
 
 
 @dataclass
@@ -169,7 +188,8 @@ def record(
     occurred_at: datetime | None = None,
 ) -> list[UsageEvent]:
     """Add one row per measure of what was used to the caller's transaction, which also holds
-    the work it was for when there is any. A measure of zero adds no row."""
+    the work it was for when there is any, and add them to the usage the referenced row shows.
+    A measure of zero adds no row."""
     ref_type, ref_id = ref if ref is not None else (None, None)
     # Left unset, the column's default stamps the row as it is written.
     when = {"occurred_at": occurred_at} if occurred_at is not None else {}
@@ -182,6 +202,7 @@ def record(
             unit=unit,
             quantity=quantity,
             model=model,
+            cost_micros=cost_of(model, unit, quantity),
             ref_type=ref_type,
             ref_id=ref_id,
             **when,
@@ -190,7 +211,55 @@ def record(
         if quantity
     ]
     session.add_all(rows)
+    if ref is not None and rows:
+        _keep(session, ref, rows)
     return rows
+
+
+def cost_of(model: str | None, unit: str, quantity: int) -> int | None:
+    """What `quantity` of `unit` from `model` cost, in millionths of PRICE_CURRENCY, by the
+    model's price; None without a price for the model, or for a unit that is not tokens."""
+    if model is None or (price := get_settings().prices.get(model)) is None:
+        return None
+    per_million = {"input_tokens": price.input, "output_tokens": price.output}.get(unit)
+    if per_million is None:
+        return None
+    # A price per million tokens is the cost of one token in millionths, so no scaling.
+    return int(round(Decimal(quantity) * per_million))
+
+
+def _total(costs: Iterable[int | None]) -> int | None:
+    """The costs that are known added up; None while none is."""
+    known = [cost for cost in costs if cost is not None]
+    return sum(known) if known else None
+
+
+def add(usage: Mapping[str, Mapping[str, Any]], rows: Iterable[UsageEvent]) -> dict[str, dict]:
+    """`usage` with the rows added, as a row's `usage` column holds it: by kind, each unit
+    summed, the model the latest row named, the cost summed when any row has one."""
+    merged = {kind: dict(spent) for kind, spent in usage.items()}
+    for row in rows:
+        spent = merged.setdefault(row.kind, {})
+        spent[row.unit] = spent.get(row.unit, 0) + row.quantity
+        if row.model is not None:
+            spent["model"] = row.model
+        if row.cost_micros is not None:
+            spent["cost_micros"] = spent.get("cost_micros", 0) + row.cost_micros
+    return merged
+
+
+def _keep(session: Session, ref: tuple[str, int], rows: Iterable[UsageEvent]) -> None:
+    """Add the rows to the usage the message or document they were for shows."""
+    ref_type, ref_id = ref
+    # Read again under the row's lock: the object the session holds may be behind the row (a
+    # page rendered while the stage ran, the run that was lost charging beside this one), and
+    # two runs adding at once must each see the other's sum. A row that is gone, deleted while
+    # the run went on, has nothing to show; the events stand on their own.
+    referenced = session.get(
+        _REFERENCED[ref_type], ref_id, with_for_update=True, populate_existing=True
+    )
+    if referenced is not None:
+        referenced.usage = add(referenced.usage, rows)
 
 
 @dataclass(frozen=True)

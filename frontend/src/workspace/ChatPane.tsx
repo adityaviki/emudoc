@@ -24,6 +24,7 @@ import type { ChatData, Message, Step } from '../chat.ts'
 import { Markdown, SourceText } from '../components/Markdown.tsx'
 import { Floating } from '../components/Menu.tsx'
 import { Button, IconButton, Loading, Notice, Spinner } from '../components/ui.tsx'
+import { describeAnswerUsage } from '../usage.ts'
 import { useWorkspace } from './state.ts'
 
 const SUGGESTIONS = [
@@ -313,7 +314,7 @@ function Conversation({ chatId }: { chatId: number | null }) {
                 </p>
               </div>
             ) : (
-              <Answer key={index} message={message} onOpen={openSource} />
+              <Answer key={index} message={message} currency={health.data?.currency} onOpen={openSource} />
             ),
           )}
           <div ref={bottom} />
@@ -362,7 +363,14 @@ function Conversation({ chatId }: { chatId: number | null }) {
   )
 }
 
-function Answer({ message, onOpen }: { message: Message; onOpen: (source: Source) => void }) {
+interface AnswerProps {
+  message: Message
+  // The currency the cost is in; unknown until the status has loaded, and the cost waits.
+  currency: string | undefined
+  onOpen: (source: Source) => void
+}
+
+function Answer({ message, currency, onOpen }: AnswerProps) {
   // Number the cited passages in the order the answer first mentions them.
   const cited = [...new Set([...message.content.matchAll(/\[P(\d+)\]/g)].map((match) => Number(match[1])))]
     .filter((id) => message.sources[id])
@@ -415,6 +423,11 @@ function Answer({ message, onOpen }: { message: Message; onOpen: (source: Source
           </ol>
         </div>
       )}
+      {message.usage?.calls ? (
+        <p className="text-[11px] text-muted/80" title="What this answer used">
+          {describeAnswerUsage(message.usage, currency)}
+        </p>
+      ) : null}
     </div>
   )
 }

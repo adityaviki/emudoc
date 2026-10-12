@@ -1,7 +1,8 @@
 """Usage metering: an answer's model calls and a document's indexing are recorded as its
 organisation's usage whatever ends the run, an upload and a render are the member's, the rows
-outlive the project and the user and go with the organisation, and the daily rollup groups
-them by day in UTC, which the `usage` command prints."""
+outlive the project and the user and go with the organisation, the answer and the document
+show what they used with its cost by the configured prices, and the daily rollup groups the
+rows by day in UTC, which the `usage` command prints."""
 
 import threading
 from datetime import UTC, date, datetime, timedelta
@@ -31,6 +32,8 @@ from app.usage import (
     RENDER,
     UPLOAD,
     DailyUsage,
+    add,
+    cost_of,
     daily,
     record,
 )
@@ -69,6 +72,25 @@ ONE_CALL = [("calls", 1), ("input_tokens", 10), ("output_tokens", 5)]
 
 def model_calls(kind: str, calls: int) -> list[tuple[str, str, int]]:
     return [(kind, unit, quantity * calls) for unit, quantity in ONE_CALL]
+
+
+def shown(**spent) -> dict:
+    """What the API shows of one kind's usage: every unit, zero when it was not counted."""
+    return {
+        "model": None,
+        "calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "pages": 0,
+        "bytes": 0,
+        "inputs": 0,
+        "cost_micros": None,
+        **spent,
+    }
+
+
+def usage_shown(client, path: str) -> dict:
+    return client.get(path).json()["usage"]
 
 
 def passages_of(session, document_id: int, embedded: bool = False) -> int:
@@ -111,6 +133,30 @@ def test_an_answer_records_its_model_calls_and_tokens(client, session, services,
     assert rows_of(session, (CHAT_MESSAGE, asked["answer"]["id"])) == []
 
 
+def test_an_answer_shows_what_it_used(client, services, indexed):
+    services.llm.agent_turns = [
+        FakeTurn(ToolCallPart("search", {"query": "notice"}, "call_1")),
+        FakeTurn(TextPart("90 days.")),
+    ]
+    chat = new_chat(client, indexed.project_id)
+    events = answered(client, services, chat["id"], "Notice period?")
+    question, reply = client.get(f"/api/chats/{chat['id']}").json()["messages"]
+    model = get_settings().agent_model
+    assert reply["usage"] == {
+        ANSWER: shown(model=model, calls=2, input_tokens=20, output_tokens=10)
+    }
+    assert question["usage"] == {}
+    # A follower was told the same by the `done` event, before the row had it.
+    done = next(event for event in events if event["type"] == "done")
+    assert done["usage"] == {
+        "model": model,
+        "calls": 2,
+        "input_tokens": 20,
+        "output_tokens": 10,
+        "cost_micros": None,
+    }
+
+
 def test_a_stopped_answer_is_counted_for_the_calls_it_made(
     client, session, services, indexed, monkeypatch
 ):
@@ -141,6 +187,9 @@ def test_a_stopped_answer_is_counted_for_the_calls_it_made(
         ("input_tokens", 10),
         ("output_tokens", 5),
     ]
+    # The stop settled the row without knowing the calls; the run filled them in after.
+    reply = client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]
+    assert reply["status"] == "stopped" and reply["usage"]["answer"]["calls"] == 1
 
 
 def test_a_lost_run_and_the_run_that_starts_over_are_both_counted(
@@ -173,6 +222,11 @@ def test_a_lost_run_and_the_run_that_starts_over_are_both_counted(
     taken = claim("w:2", [ANSWER_QUESTION])
     assert HANDLERS[ANSWER_QUESTION].run(taken, services) is None
     assert measures_of(rows_of(session, (CHAT_MESSAGE, message_id))) == one_call * 2
+    # The answer shows both runs, which is what it cost.
+    reply = client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]
+    assert reply["usage"] == {
+        ANSWER: shown(model=get_settings().agent_model, calls=2, input_tokens=20, output_tokens=10)
+    }
 
 
 def test_usage_stays_with_the_organisation_when_its_project_and_user_go(
@@ -199,11 +253,12 @@ def test_usage_stays_with_the_organisation_when_its_project_and_user_go(
 
 
 def test_indexing_a_document_records_its_pages_model_calls_and_embeddings(
-    session, services, account, make_document, sample_pdf
+    client, session, services, account, make_document, sample_pdf
 ):
     document = make_document(sample_pdf)
     assert process_document(document.id, services) == []
     passages = passages_of(session, document.id)
+    index_model = get_settings().index_model
 
     # Two pages came in with the upload; the contract has headings, so no sections were
     # inferred, and it fits one enrich request; every passage was embedded.
@@ -219,8 +274,14 @@ def test_indexing_a_document_records_its_pages_model_calls_and_embeddings(
         assert row.user_id is None and row.cost_micros is None
     assert {row.kind: row.model for row in rows} == {
         UPLOAD: None,
-        ENRICH: get_settings().index_model,
+        ENRICH: index_model,
         EMBED: "fake-embedder",
+    }
+    # The document shows the same, by kind.
+    assert usage_shown(client, f"/api/documents/{document.id}") == {
+        UPLOAD: shown(pages=2),
+        ENRICH: shown(model=index_model, calls=1, input_tokens=10, output_tokens=5),
+        EMBED: shown(model="fake-embedder", inputs=passages),
     }
 
     # "Index again" from the start calls the model and the embedder again, and is charged
@@ -236,6 +297,12 @@ def test_indexing_a_document_records_its_pages_model_calls_and_embeddings(
         *model_calls(ENRICH, 1),
         (EMBED, "inputs", passages),
     ]
+    # Both runs add up on the document, and the stages that were reset kept nothing from it.
+    assert usage_shown(client, f"/api/documents/{document.id}") == {
+        UPLOAD: shown(pages=2),
+        ENRICH: shown(model=index_model, calls=2, input_tokens=20, output_tokens=10),
+        EMBED: shown(model="fake-embedder", inputs=passages * 2),
+    }
 
 
 def test_inferring_sections_is_charged_as_its_own_kind(session, services, make_document, tmp_path):
@@ -334,6 +401,9 @@ def test_an_upload_records_its_bytes_for_the_member(client, session, account, sa
     assert row.user_id == account.user.id and row.model is None
     # The rejected file was not stored, so nothing was used for it.
     assert session.scalar(select(func.count()).select_from(UsageEvent)) == 1
+    # The document shows its bytes from the upload's own response on.
+    assert document["usage"] == {UPLOAD: shown(bytes=sample_pdf.stat().st_size)}
+    assert usage_shown(client, f"/api/documents/{document['id']}") == document["usage"]
 
 
 def test_a_page_or_thumbnail_is_charged_when_rendered_not_when_served_again(
@@ -353,10 +423,72 @@ def test_a_page_or_thumbnail_is_charged_when_rendered_not_when_served_again(
         assert row.user_id == account.user.id and row.org_id == account.organization.id
         assert row.project_id == project["id"] and row.model is None
 
+    assert usage_shown(client, f"/api/documents/{document['id']}")[RENDER] == shown(pages=2)
+
     # The rollup has the whole document: its upload, its indexing and its renders.
     today = datetime.now(UTC).date()
     kinds = {row.kind for row in daily(session, account.organization.id, today, today)}
     assert kinds == {UPLOAD, ENRICH, EMBED, RENDER}
+
+
+def test_costs_follow_the_prices_the_settings_list(
+    client, session, services, account, indexed, monkeypatch
+):
+    model = get_settings().agent_model
+    # The answer's model at 0.10 in and 0.40 out per million tokens: a FakeTurn's 10 tokens
+    # in cost one millionth, its 5 out two. The index model shares the name here, so the
+    # tests give it none by pricing a model nothing uses instead.
+    monkeypatch.setattr(get_settings(), "model_prices", f" {model} = 0.10 / 0.40 ,other=1/1")
+    assert cost_of(model, "input_tokens", 1_000_000) == 100_000
+    assert cost_of(model, "output_tokens", 5) == 2
+    assert cost_of(model, "pages", 5) is None
+    assert cost_of("other", "input_tokens", 10) == 10
+    assert cost_of("nobody:prices-this", "input_tokens", 10) is None
+    assert cost_of(None, "input_tokens", 10) is None
+
+    services.llm.agent_turns = [FakeTurn(TextPart("90 days."))]
+    chat = new_chat(client, indexed.project_id)
+    events = answered(client, services, chat["id"], "Notice period?")
+    reply = client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]
+    rows = rows_of(session, (CHAT_MESSAGE, reply["id"]))
+    assert [(row.unit, row.cost_micros) for row in rows] == [
+        ("calls", None),
+        ("input_tokens", 1),
+        ("output_tokens", 2),
+    ]
+    assert reply["usage"][ANSWER]["cost_micros"] == 3
+    done = next(event for event in events if event["type"] == "done")
+    assert done["usage"]["cost_micros"] == 3
+    today = datetime.now(UTC).date()
+    costs = {
+        (row.unit, row.cost_micros)
+        for row in daily(session, account.organization.id, today, today)
+        if row.kind == ANSWER
+    }
+    assert costs == {("calls", None), ("input_tokens", 1), ("output_tokens", 2)}
+
+    # Without a price for its model, a row has no cost and the document shows none.
+    monkeypatch.setattr(get_settings(), "model_prices", "other=1/1")
+    usage = usage_shown(client, f"/api/documents/{indexed.id}")
+    assert usage[ENRICH]["cost_micros"] is None and usage[EMBED]["cost_micros"] is None
+
+
+def test_adding_rows_to_a_usage_sums_each_unit_and_the_known_costs():
+    rows = [
+        UsageEvent(kind=OCR, unit="pages", quantity=2, model="m2"),
+        UsageEvent(kind=OCR, unit="calls", quantity=2, model="m2", cost_micros=None),
+        UsageEvent(kind=OCR, unit="input_tokens", quantity=400, model="m2", cost_micros=40),
+        UsageEvent(kind=RENDER, unit="pages", quantity=1),
+    ]
+    before = {OCR: {"pages": 1, "calls": 1, "model": "m1", "cost_micros": 5}}
+    assert add(before, rows) == {
+        # The latest row names the model; a row without a cost adds nothing to it.
+        OCR: {"pages": 3, "calls": 3, "input_tokens": 400, "model": "m2", "cost_micros": 45},
+        RENDER: {"pages": 1},
+    }
+    # What was given is left as it was.
+    assert before == {OCR: {"pages": 1, "calls": 1, "model": "m1", "cost_micros": 5}}
+    assert add({}, []) == {}
 
 
 def test_the_daily_rollup_sums_per_day_kind_and_unit_in_utc(session, account, make_account):

@@ -47,8 +47,8 @@ JOB_STATUSES = ("queued", "running", "done", "failed")
 # user, or failed. A question is always `done`.
 MESSAGE_STATUSES = ("streaming", "done", "stopped", "failed")
 # What an organisation is metered for (app/usage.py): the activity a row counts, and what the
-# count is in. Only `answer` is recorded today; the rest are what the indexing stages and the
-# page renders record next, listed here so that recording one needs no migration.
+# count is in. The stored `usage` of a document or a message (`Document.usage`,
+# `ChatMessage.usage`) is keyed by the same kinds.
 USAGE_KINDS = ("answer", "upload", "ocr", "infer_sections", "enrich", "embed", "render")
 USAGE_UNITS = ("calls", "input_tokens", "output_tokens", "pages", "bytes", "inputs")
 
@@ -335,6 +335,10 @@ class Document(Base):
     # {stage: {"status": pending|running|done|skipped|failed, "detail": str}}
     stages: Mapped[dict] = mapped_column(JSONB, default=dict)
     error: Mapped[str | None] = mapped_column(Text)
+    # What bringing the document in, indexing it and viewing its pages used, by kind and
+    # summed over every run for it, as app/usage.py keeps it in step with the usage events:
+    # {kind: {unit: quantity, "model": str, "cost_micros": int}}.
+    usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
 
     page_count: Mapped[int | None] = mapped_column(Integer)
     # [[width, height], ...] in PDF points, one per page; empty for formats without pages.
@@ -561,6 +565,10 @@ class ChatMessage(Base):
     # How an answer ended when it did not end normally: a note (cut off, stopped) or an error.
     notice: Mapped[str | None] = mapped_column(Text)
     error: Mapped[str | None] = mapped_column(Text)
+    # What the answer used, by kind (`answer`: its model calls, tokens and their cost), as
+    # app/usage.py keeps it in step with the usage events the run records when it ends, so
+    # empty while the answer is being written and for a question.
+    usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

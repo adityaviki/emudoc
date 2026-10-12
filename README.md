@@ -66,6 +66,12 @@ document they were for. Each is counted at the end of the run that made it, so a
 was stopped, a scan that failed at its tenth page and a stage a worker lost are counted for
 the calls they made. `uv run python -m app.maintenance usage <slug>` (in `backend/`) prints an
 organisation's use per day in UTC, by kind and unit, over the last 30 days or `--days`.
+An answer shows what it used under its text (the model, its calls and tokens, and the
+cost), and a document's header shows what bringing it in and indexing it used, with the
+breakdown by stage on hover; the figures are kept on the message and the document as the
+rows are recorded, summed over every run. The costs follow `MODEL_PRICES` in `.env`, what
+each model costs per million tokens in and out, in `PRICE_CURRENCY`; without prices, no
+cost is shown.
 
 ## The workspace
 

@@ -323,7 +323,16 @@ def test_text_is_written_out_in_batches(client, session, services, indexed, monk
     answer(asked["answer"]["id"], services)
     assert events_in(session, asked["answer"]["id"]) == [
         {"type": "text", "text": "It is 90 days."},
-        {"type": "done", "usage": {"input_tokens": 10, "output_tokens": 5}},
+        {
+            "type": "done",
+            "usage": {
+                "model": get_settings().agent_model,
+                "calls": 1,
+                "input_tokens": 10,
+                "output_tokens": 5,
+                "cost_micros": None,
+            },
+        },
     ]
 
 
