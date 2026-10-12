@@ -1,5 +1,6 @@
 import json
 import re
+from datetime import UTC, datetime
 
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ThinkingPart, ToolCallPart
 from sqlalchemy import select
@@ -203,6 +204,27 @@ def test_tools_cannot_reach_another_project(session, services, account, indexed)
 
 def run(services, document, question="What is the notice period?"):
     return list(run_agent(services, document.project_id, [{"role": "user", "content": question}]))
+
+
+def test_the_prompt_dates_the_turn_in_utc(services, indexed, monkeypatch):
+    """The date the model is given is read in UTC and labelled so, whatever zone the worker host
+    runs in: late on the 12th in UTC is already the 13th east of it, and the prompt says the
+    12th."""
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is UTC
+            return datetime(2026, 10, 12, 23, 30, tzinfo=UTC)
+
+    monkeypatch.setattr("app.agent.loop.datetime", Clock)
+    services.llm.agent_turns = [FakeTurn(TextPart("No documents mention a date."))]
+
+    run(services, indexed, "What day is it?")
+
+    [prompt] = services.llm.agent_prompts
+    assert "Today's date (UTC): 2026-10-12" in prompt
+    assert "Project: Test project" in prompt
 
 
 def test_agent_searches_then_answers_with_a_citation(services, indexed):

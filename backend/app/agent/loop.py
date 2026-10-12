@@ -3,7 +3,7 @@
 import json
 import logging
 from collections.abc import Iterator
-from datetime import date
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import ValidationError
@@ -92,7 +92,9 @@ def run_agent(
         system = (
             f"{SYSTEM_PROMPT}\n\nProject: {project.name}"
             + (f" ({project.description})" if project.description else "")
-            + f"\nToday's date: {date.today().isoformat()}"
+            # Read in UTC, like every timestamp the app stores, so the worker host's zone
+            # cannot move it; the label tells the model which zone the date is in.
+            + f"\nToday's date (UTC): {datetime.now(UTC).date().isoformat()}"
         )
     tools = [tool.definition() for tool in TOOLS.values()]
     conversation: list[ModelMessage] = [_chat_message(message) for message in messages]

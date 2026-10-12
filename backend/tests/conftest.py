@@ -183,6 +183,7 @@ class FakeLLM:
         self.calls: list[tuple[str, object]] = []
         self.agent_turns: list[FakeTurn] = []
         self.agent_requests: list[list] = []
+        self.agent_prompts: list[str] = []
 
     def problem(self) -> str | None:
         return None if self.available else MISSING_KEY
@@ -273,6 +274,7 @@ class FakeLLM:
 
     def stream_agent(self, instructions, messages, tools):
         self.agent_requests.append(list(messages))
+        self.agent_prompts.append(instructions)
         return self.agent_turns.pop(0)
 
 
