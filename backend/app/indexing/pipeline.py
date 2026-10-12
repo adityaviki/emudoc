@@ -8,7 +8,6 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from PIL import Image
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
@@ -27,7 +26,8 @@ from app.indexing.structure import SectionHint, build_outline
 from app.jobs import Lease, LeaseLost, renew
 from app.llm import LLM, LLMError
 from app.models import STAGES, Block, Document, Fact, Passage, Section
-from app.parsing import IMAGE_TYPES, ParsedBlock, UnsupportedFile
+from app.parsing import IMAGE_TYPES, FileTooLarge, ParsedBlock, UnsupportedFile
+from app.parsing.images import open_image
 from app.parsing.limits import ParseLimits, parse_within_limits
 from app.parsing.pdf import render_page
 from app.parsing.types import clean_text
@@ -176,7 +176,7 @@ def _run_stage(
         session.rollback()
         _set_stage(session, document, name, "skipped", str(skipped), lease)
         return None
-    except (AppError, UnsupportedFile) as error:
+    except (AppError, UnsupportedFile, FileTooLarge) as error:
         session.rollback()
         _set_stage(session, document, name, "failed", str(error), lease)
         transient = isinstance(error, AppError) and error.transient
@@ -295,7 +295,7 @@ def _with_ocr(
 
 def _prepare_image(path: Path, media_type: str) -> tuple[bytes, str]:
     """Return the image as uploaded, or scaled down when it is larger than the model reads."""
-    with Image.open(path) as image:
+    with open_image(path) as image:
         if max(image.size) <= MAX_IMAGE_EDGE:
             return path.read_bytes(), media_type
         image.thumbnail((MAX_IMAGE_EDGE, MAX_IMAGE_EDGE))

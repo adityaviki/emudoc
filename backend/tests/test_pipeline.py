@@ -7,6 +7,7 @@ from app.config import get_settings
 from app.indexing import enrich
 from app.indexing.pipeline import StageFailure, process_document, reset_stages
 from app.models import Block, Fact, Passage, Section
+from app.parsing import images
 
 
 def rows(session, model, document):
@@ -174,6 +175,42 @@ def test_scanned_image_without_a_model_fails_with_a_reason(
     assert document.status == "failed"
     assert "GOOGLE_API_KEY" in document.error
     assert stage_statuses(document)["parse"] == "failed"
+
+
+def test_an_image_too_large_to_decode_fails_with_a_reason(
+    session, services, make_document, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(images, "MAX_IMAGE_PIXELS", 2_000_000)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 3_000_000)
+    large, huge = tmp_path / "large.png", tmp_path / "huge.png"
+    Image.new("RGB", (2000, 1500), "white").save(large)
+    Image.new("RGB", (2600, 2600), "white").save(huge)
+
+    # The size is read from the header, so the cap refuses the file before a pixel is decoded
+    # or the model is asked; the file is what it is, so the job does not queue it again.
+    document = make_document(large)
+    assert process_document(document.id, services) == [
+        StageFailure(
+            "parse",
+            "This image is 3 megapixels, and images over 2 megapixels cannot be read. Scale it "
+            "down and upload it again.",
+            transient=False,
+        )
+    ]
+    session.refresh(document)
+    assert document.status == "failed"
+    assert document.error.startswith("This image is 3 megapixels")
+    assert stage_statuses(document)["parse"] == "failed"
+    assert services.llm.calls == []
+
+    # Pillow's own, higher ceiling refuses the largest headers before the cap sees the size.
+    document = make_document(huge)
+    [failure] = process_document(document.id, services)
+    assert failure.message == (
+        "This image is over 2 megapixels, more than can be read. Scale it down and upload it again."
+    )
+    session.refresh(document)
+    assert document.status == "failed" and document.error == failure.message
 
 
 def test_flat_document_gets_sections_from_the_model(session, services, make_document, tmp_path):

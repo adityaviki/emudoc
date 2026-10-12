@@ -4,6 +4,7 @@ from pathlib import Path
 from PIL import Image
 
 from app.indexing.pipeline import process_document
+from app.parsing import images
 from tests.conftest import MISSING_KEY
 
 
@@ -130,6 +131,22 @@ def test_thumbnails_for_images_only_besides_pdfs(client, sample_docx, tmp_path):
     with Image.open(BytesIO(thumbnail.content)) as image:
         assert image.size == (320, 160)
     assert client.get(f"/api/documents/{policy['id']}/thumbnail.png").status_code == 404
+
+
+def test_thumbnail_refuses_an_image_too_large_to_decode(client, tmp_path, monkeypatch):
+    # The cap reads the size from the header before a pixel is decoded, and Pillow's own, higher
+    # ceiling refuses the largest headers before the cap sees them; either way the document has
+    # no thumbnail, like one whose file is damaged.
+    monkeypatch.setattr(images, "MAX_IMAGE_PIXELS", 2_000_000)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 3_000_000)
+    large, huge = tmp_path / "large.png", tmp_path / "huge.png"
+    Image.new("RGB", (2000, 1500), "white").save(large)
+    Image.new("RGB", (2600, 2600), "white").save(huge)
+    project = create_project(client)
+    for document in upload(client, project["id"], large, huge)["documents"]:
+        response = client.get(f"/api/documents/{document['id']}/thumbnail.png")
+        assert response.status_code == 404
+        assert response.json()["detail"] == "The file could not be rendered"
 
 
 def test_search_and_facts_endpoints(client, services, sample_pdf, sample_docx):

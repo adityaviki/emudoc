@@ -9,8 +9,8 @@ class UnsupportedFile(Exception):
 
 
 class FileTooLarge(Exception):
-    """The file has more pages or rows than the parsers take; the message says the cap and what
-    to do."""
+    """The file has more pages, rows or pixels than the parsers take; the message says the cap
+    and what to do."""
 
 
 @dataclass

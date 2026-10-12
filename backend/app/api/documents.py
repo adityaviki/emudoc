@@ -26,7 +26,8 @@ from app.config import get_settings
 from app.indexing.pipeline import reset_stages
 from app.jobs import queue_index
 from app.models import STAGES, Block, Document, Fact, Project, Section
-from app.parsing import IMAGE_TYPES, MIME_TYPES, SUPPORTED_EXTENSIONS
+from app.parsing import IMAGE_TYPES, MIME_TYPES, SUPPORTED_EXTENSIONS, FileTooLarge
+from app.parsing.images import open_image
 from app.parsing.pdf import render_page, render_thumbnail
 from app.schemas import (
     DocumentContent,
@@ -288,7 +289,7 @@ def thumbnail(document: DocumentDep, services: ServicesDep) -> Response:
                 image = _thumbnail_of(original, document.mime_type)
         except FileNotFoundError:
             raise HTTPException(404, MISSING_FILE) from None
-        except (PdfiumError, UnidentifiedImageError, OSError, IndexError) as error:
+        except (PdfiumError, UnidentifiedImageError, OSError, IndexError, FileTooLarge) as error:
             raise HTTPException(404, "The file could not be rendered") from error
         buffer = io.BytesIO()
         image.save(buffer, format="PNG", optimize=True)
@@ -299,7 +300,7 @@ def thumbnail(document: DocumentDep, services: ServicesDep) -> Response:
 def _thumbnail_of(path: Path, mime_type: str) -> Image.Image:
     if mime_type == "application/pdf":
         return render_thumbnail(path, THUMBNAIL_SIZE)
-    with Image.open(path) as original:
+    with open_image(path) as original:
         image = ImageOps.exif_transpose(original)
         image.thumbnail((THUMBNAIL_SIZE, THUMBNAIL_SIZE))
         return image.convert("RGB") if image.mode == "CMYK" else image

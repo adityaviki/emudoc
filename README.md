@@ -171,7 +171,8 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   that is killed at the time limit and caps its own memory, so a file that is too big fails with
   a message naming the limit, is not retried, and leaves the worker and the other uploads
   untouched. `WORKER_CONCURRENCY` parses run at once, each with its own memory on top of the
-  worker's.
+  worker's. An image of more than 50 megapixels is refused the same way, by OCR and by the
+  thumbnail alike, from its header and before a pixel of it is decoded.
 - `AGENT_MODEL` and `INDEX_MODEL` name the AI models as `provider:model`. Both default to
   `google:gemini-2.5-flash-lite`. Indexing is the high-volume side and the agent answers
   questions, so the two can differ, even across providers.
