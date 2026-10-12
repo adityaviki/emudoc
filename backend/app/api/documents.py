@@ -9,6 +9,7 @@ from fastapi.responses import Response
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pypdfium2 import PdfiumError
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import (
     DocumentDep,
@@ -49,6 +50,13 @@ THUMBNAIL_SIZE = 320
 # How long the browser may keep a rendered page or thumbnail; they never change.
 IMAGE_MAX_AGE = 86400
 MISSING_FILE = "The original file is missing from the storage"
+# The unique constraint on (project_id, sha256), named by the convention in db.py: the insert
+# of a second copy of the same bytes fails on it when two uploads race.
+DUPLICATE_CONSTRAINT = "documents_project_id_sha256_key"
+# When the copy that won the race is gone again before it can be named.
+LOST_RACE = (
+    "Another upload of this file finished first. Upload it again if it is not in the project."
+)
 
 
 @router.get("/projects/{project_id}/documents", response_model=list[DocumentOut])
@@ -94,19 +102,9 @@ def upload_documents(
                 rejected.append(RejectedFile(filename=filename, reason=reason))
                 continue
 
-            duplicate = session.scalar(
-                select(Document).where(Document.project_id == project.id, Document.sha256 == sha256)
-            )
+            duplicate = _already_present(session, project.id, sha256, filename)
             if duplicate:
-                where = ""
-                if duplicate.folder_id is not None:
-                    where = f" in {folder_paths(session, project.id)[duplicate.folder_id]}"
-                rejected.append(
-                    RejectedFile(
-                        filename=filename,
-                        reason=f"Already in this project as {duplicate.filename!r}{where}.",
-                    )
-                )
+                rejected.append(duplicate)
                 continue
 
             document = Document(
@@ -122,8 +120,22 @@ def upload_documents(
                 status="queued",
                 stages={name: {"status": "pending", "detail": ""} for name in STAGES},
             )
-            session.add(document)
-            session.flush()
+            # The insert runs in a savepoint: another request may have stored the same bytes
+            # between the check above and here, and the unique constraint is the only thing
+            # that sees both. Its failure rolls the row back and leaves the transaction good
+            # for the next file; the file is rejected as it would have been a moment later.
+            try:
+                with session.begin_nested():
+                    session.add(document)
+                    session.flush()
+            except IntegrityError as error:
+                if _constraint_of(error) != DUPLICATE_CONSTRAINT:
+                    raise
+                rejected.append(
+                    _already_present(session, project.id, sha256, filename)
+                    or RejectedFile(filename=filename, reason=LOST_RACE)
+                )
+                continue
             document.storage_key = original_key(project.org_id, project.id, document.id, suffix)
             # Stored before the row is committed: a storage that fails leaves no row behind,
             # and the error says what happened (`storage_unavailable` in main.py).
@@ -138,6 +150,29 @@ def upload_documents(
     if documents and worker:
         worker.notify()
     return UploadResult(documents=documents, rejected=rejected)
+
+
+def _already_present(
+    session: SessionDep, project_id: int, sha256: str, filename: str
+) -> RejectedFile | None:
+    """The rejection for a file whose bytes the project already holds, naming where."""
+    duplicate = session.scalar(
+        select(Document).where(Document.project_id == project_id, Document.sha256 == sha256)
+    )
+    if duplicate is None:
+        return None
+    where = ""
+    if duplicate.folder_id is not None:
+        where = f" in {folder_paths(session, project_id)[duplicate.folder_id]}"
+    return RejectedFile(
+        filename=filename, reason=f"Already in this project as {duplicate.filename!r}{where}."
+    )
+
+
+def _constraint_of(error: IntegrityError) -> str | None:
+    """The name of the constraint the database refused the statement on, as psycopg reports it."""
+    diagnostics = getattr(error.orig, "diag", None)
+    return getattr(diagnostics, "constraint_name", None)
 
 
 def _spool(upload: BinaryIO, limit: int) -> tuple[Path, int, str]:

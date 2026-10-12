@@ -68,6 +68,32 @@ def test_upload_queues_documents_and_rejects_what_it_cannot_take(client, sample_
     )
 
 
+def test_a_simultaneous_upload_of_the_same_bytes_is_rejected_not_a_crash(
+    client, session, make_document, monkeypatch, sample_pdf, sample_docx
+):
+    from app.api import documents as documents_api
+    from app.models import Project
+
+    project = create_project(client)
+    choose = documents_api.unique_filename
+
+    def after_another_request_commits(session_, project_id, folder_id, name):
+        # Between the duplicate check and the insert, another request stores the same bytes;
+        # the second file of the request must still go in after the first is refused.
+        if name == sample_pdf.name:
+            make_document(sample_pdf, filename="scan.pdf", project=session.get(Project, project_id))
+        return choose(session_, project_id, folder_id, name)
+
+    monkeypatch.setattr(documents_api, "unique_filename", after_another_request_commits)
+    result = upload(client, project["id"], sample_pdf, sample_docx)
+    assert [d["filename"] for d in result["documents"]] == ["policy.docx"]
+    assert result["rejected"] == [
+        {"filename": "msa.pdf", "reason": "Already in this project as 'scan.pdf'."}
+    ]
+    listed = client.get(f"/api/projects/{project['id']}/documents").json()
+    assert [d["filename"] for d in listed] == ["policy.docx", "scan.pdf"]
+
+
 def test_document_views_after_indexing(client, services, sample_pdf):
     project = create_project(client)
     document_id = upload(client, project["id"], sample_pdf)["documents"][0]["id"]
