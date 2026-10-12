@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy import delete, select, update
+from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -32,6 +33,7 @@ from app.parsing.limits import ParseLimits, parse_within_limits
 from app.parsing.pdf import render_page
 from app.parsing.types import clean_text
 from app.storage import Storage
+from app.usage import DOCUMENT, EMBED, ENRICH, INFER_SECTIONS, OCR, UPLOAD, Meter
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +71,7 @@ class StageFailure:
     transient: bool
 
 
-Stage = Callable[[Session, Document, Services], str]
+Stage = Callable[[Session, Document, Services, Meter], str]
 
 
 def process_document(
@@ -86,6 +88,9 @@ def process_document(
     rolled back and ends the run with `LeaseLost`: a worker that was outrun by the next claim,
     or whose job was handed back at stop, never writes a document that is another worker's
     now. Without a lease the run is unguarded, as the tests and fixtures run it.
+
+    What the stages use (the pages a scan took to read, the model calls, the texts embedded)
+    is recorded as the organisation's usage at the end of each stage (app/usage.py).
     """
     with SessionLocal() as session:
         document = session.get(Document, document_id)
@@ -101,10 +106,18 @@ def process_document(
         document.status = "processing"
         document.error = None
         _commit(session, lease)
+        # The stages run for the document, not for a member: the member's part is the upload
+        # that brought it in (app/api/documents.py).
+        meter = Meter(
+            org_id=document.project.org_id,
+            project_id=document.project_id,
+            user_id=None,
+            ref=(DOCUMENT, document.id),
+        )
 
         failures: list[StageFailure] = []
         for name in todo:
-            failure = _run_stage(session, document, name, _STAGES[name], services, lease)
+            failure = _run_stage(session, document, name, _STAGES[name], services, lease, meter)
             if failure is None:
                 continue
             failures.append(failure)
@@ -167,11 +180,14 @@ def _run_stage(
     stage: Stage,
     services: Services,
     lease: Lease | None,
+    meter: Meter,
 ) -> StageFailure | None:
-    """Run one stage and record its outcome. Returns the failure, if it failed."""
+    """Run one stage, record its outcome and then what it used. Returns the failure, if it
+    failed."""
     _set_stage(session, document, name, "running", lease=lease)
+    document_id = document.id
     try:
-        detail = stage(session, document, services)
+        detail = stage(session, document, services, meter)
     except StageSkipped as skipped:
         session.rollback()
         _set_stage(session, document, name, "skipped", str(skipped), lease)
@@ -183,12 +199,31 @@ def _run_stage(
         return StageFailure(name, str(error), transient)
     except Exception as error:
         session.rollback()
-        log.exception("Stage %s failed for document %s", name, document.id)
+        log.exception("Stage %s failed for document %s", name, document_id)
         message = f"Unexpected error: {type(error).__name__}"
         _set_stage(session, document, name, "failed", message, lease)
         return StageFailure(name, message, transient=False)
-    _set_stage(session, document, name, "done", detail, lease)
-    return None
+    else:
+        _set_stage(session, document, name, "done", detail, lease)
+        return None
+    finally:
+        _charge(session, meter, document_id)
+
+
+def _charge(session: Session, meter: Meter, document_id: int) -> None:
+    """Record what the stage used, in a transaction of its own once the stage's has been
+    committed or rolled back: a stage that failed made its calls before it failed, and one
+    whose work a lost lease discarded made them too, like the next worker that runs it again
+    (app/usage.py)."""
+    try:
+        if meter.record(session):
+            session.commit()
+    except PoolTimeout:
+        session.rollback()
+        log.warning(
+            "The usage of document %s was not recorded: every database connection is in use",
+            document_id,
+        )
 
 
 def _set_stage(
@@ -218,7 +253,7 @@ def _commit(session: Session, lease: Lease | None) -> None:
     session.commit()
 
 
-def _parse(session: Session, document: Document, services: Services) -> str:
+def _parse(session: Session, document: Document, services: Services, meter: Meter) -> str:
     if not services.storage.exists(document.storage_key):
         raise PipelineError(MISSING_ORIGINAL)
     # The parsers and the page renderer open files by path, so a remote original is copied to
@@ -231,7 +266,7 @@ def _parse(session: Session, document: Document, services: Services) -> str:
         if parsed.ocr_pages:
             if services.llm.available:
                 blocks = _with_ocr(
-                    path, document.filename, parsed.blocks, parsed.ocr_pages, services.llm
+                    path, document.filename, parsed.blocks, parsed.ocr_pages, services.llm, meter
                 )
             elif blocks:
                 note = f"; {len(parsed.ocr_pages)} scanned pages skipped (OCR needs the AI model)"
@@ -256,6 +291,10 @@ def _parse(session: Session, document: Document, services: Services) -> str:
         )
         for ordinal, block in enumerate(blocks)
     )
+    # The pages are a measure of the upload, counted when the first parse learns how many
+    # there are; a parse run again for "Index again" brings nothing new in.
+    if document.page_count is None:
+        meter.add(UPLOAD, "pages", parsed.page_count or 0)
     document.page_count = parsed.page_count
     document.page_sizes = [[round(w, 2), round(h, 2)] for w, h in parsed.page_sizes]
     document.title = parsed.title
@@ -273,23 +312,32 @@ def _parse_limits() -> ParseLimits:
 
 
 def _with_ocr(
-    path: Path, filename: str, blocks: list[ParsedBlock], ocr_pages: list[int], llm: LLM
+    path: Path,
+    filename: str,
+    blocks: list[ParsedBlock],
+    ocr_pages: list[int],
+    llm: LLM,
+    meter: Meter,
 ) -> list[ParsedBlock]:
-    """Transcribe the pages that have no text layer and merge them in page order."""
+    """Transcribe the pages that have no text layer and merge them in page order. Each page
+    read is counted as it is answered, so a scan that fails at its tenth page is charged for
+    nine."""
     suffix = Path(filename).suffix.lower()
     by_page: dict[int, list[ParsedBlock]] = defaultdict(list)
     for block in blocks:
         by_page[block.page or 1].append(block)
+    usage = meter.calls(OCR, get_settings().index_model)
     for page in ocr_pages:
         if suffix == ".pdf":
             image, media_type = render_page(path, page), "image/png"
         else:
             image, media_type = _prepare_image(path, IMAGE_TYPES[suffix])
-        for found in llm.ocr_page(image, media_type):
+        for found in llm.ocr_page(image, media_type, usage):
             text = clean_text(found.text)
             if text:
                 level = (found.level or 1) if found.kind == "heading" else None
                 by_page[page].append(ParsedBlock(found.kind, text, level=level, page=page))
+        meter.add(OCR, "pages", 1)
     return [block for page in sorted(by_page) for block in by_page[page]]
 
 
@@ -304,12 +352,13 @@ def _prepare_image(path: Path, media_type: str) -> tuple[bytes, str]:
         return buffer.getvalue(), "image/jpeg"
 
 
-def _structure(session: Session, document: Document, services: Services) -> str:
+def _structure(session: Session, document: Document, services: Services, meter: Meter) -> str:
     blocks = _blocks(session, document.id)
     hints: list[SectionHint] = []
     if services.llm.available and _needs_inferred_sections(blocks):
+        usage = meter.calls(INFER_SECTIONS, get_settings().index_model)
         try:
-            hints = infer_sections(services.llm, blocks)
+            hints = infer_sections(services.llm, blocks, usage)
         except LLMError as error:
             # The outline falls back to one section per page.
             log.warning("Section inference failed for document %s: %s", document.id, error)
@@ -364,7 +413,7 @@ def _needs_inferred_sections(blocks: Sequence[Block]) -> bool:
     return len(blocks) >= 15 or sum(len(block.text) for block in blocks) >= 3000
 
 
-def _enrich(session: Session, document: Document, services: Services) -> str:
+def _enrich(session: Session, document: Document, services: Services, meter: Meter) -> str:
     if not services.llm.available:
         raise StageSkipped(f"Summaries and facts need the AI model. {services.llm.problem()}")
 
@@ -372,7 +421,8 @@ def _enrich(session: Session, document: Document, services: Services) -> str:
     sections = session.scalars(
         select(Section).where(Section.document_id == document.id).order_by(Section.ordinal)
     ).all()
-    analysis = analyze_document(services.llm, document, sections, blocks)
+    usage = meter.calls(ENRICH, get_settings().index_model)
+    analysis = analyze_document(services.llm, document, sections, blocks, usage)
 
     profile = analysis.profile
     old_root = document.title or Path(document.filename).stem
@@ -462,7 +512,7 @@ def _fact_rows(
     return rows
 
 
-def _embed(session: Session, document: Document, services: Services) -> str:
+def _embed(session: Session, document: Document, services: Services, meter: Meter) -> str:
     passages = session.scalars(
         select(Passage).where(Passage.document_id == document.id).order_by(Passage.ordinal)
     ).all()
@@ -471,6 +521,9 @@ def _embed(session: Session, document: Document, services: Services) -> str:
     vectors = services.embedder.embed_documents(
         [f"{passage.context}\n\n{passage.text}" for passage in passages]
     )
+    # Counted once the vectors are back: a request that failed embedded nothing the document
+    # keeps, and the stage runs again.
+    meter.add(EMBED, "inputs", len(passages), model=services.embedder.model)
     for passage, vector in zip(passages, vectors, strict=True):
         passage.embedding = vector
         passage.embedding_model = services.embedder.model

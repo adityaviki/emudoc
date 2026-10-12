@@ -59,12 +59,13 @@ up where it was by another tab that opens the chat. Stop ends it with what arriv
 whether or not a worker is alive; a chat takes one question at a time.
 
 What an organisation uses is recorded as it happens, one row per measure in `usage_events`:
-today an answer's model calls and tokens, with the organisation, project and member they
-belong to and the message they were for, counted at the end of the run that made them, so an
-answer that was stopped or that a worker lost is counted for the calls it made. The indexing
-stages and the page renders are next. `uv run python -m app.maintenance usage <slug>` (in
-`backend/`) prints an organisation's use per day in UTC, by kind and unit, over the last 30
-days or `--days`.
+an answer's model calls and tokens, an upload's bytes and pages, the pages a scan took to read
+and the model calls of the indexing stages, the texts embedded, and the pages rendered for the
+viewer, each with the organisation, project and member they belong to and the message or
+document they were for. Each is counted at the end of the run that made it, so an answer that
+was stopped, a scan that failed at its tenth page and a stage a worker lost are counted for
+the calls they made. `uv run python -m app.maintenance usage <slug>` (in `backend/`) prints an
+organisation's use per day in UTC, by kind and unit, over the last 30 days or `--days`.
 
 ## The workspace
 

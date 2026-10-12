@@ -485,8 +485,8 @@ def test_a_run_whose_job_is_taken_over_mid_way_stops_at_its_next_commit(
     job = claim(worker.id, INDEX)
     structure = pipeline_module._STAGES["structure"]
 
-    def structure_while_taken_over(session_, document_, services_):
-        detail = structure(session_, document_, services_)
+    def structure_while_taken_over(session_, document_, services_, meter_):
+        detail = structure(session_, document_, services_, meter_)
         # The heartbeat could not reach the database for LEASE: the next claim takes the job
         # while this stage is still running.
         lose(session, job.id)

@@ -5,15 +5,19 @@ Every row of `usage_events` is one measure of one thing an organisation did. A r
 activity (`kind`), what was measured (`unit`) and how much (`quantity`), who did it (the
 organisation, the project, the user), the model when one was called, and what it was for
 (`ref_type`, `ref_id`: a chat message, a document), so that a figure on a bill can be traced
-to its cause. An answer's model calls and tokens are recorded today (`answer` in
-app/answers.py); the pages and bytes uploaded, the model calls of the indexing stages, the
-embedding inputs and the page renders are next, and their kinds are already allowed
-(USAGE_KINDS in app/models.py).
+to its cause. The kinds (USAGE_KINDS in app/models.py) are an answer's model calls (`answer`,
+recorded by `answer` in app/answers.py), what an upload brought in (`upload`: its bytes, by
+the request in app/api/documents.py, and its pages, by the first parse), the model calls of
+the indexing stages (`ocr` with the pages it read, `infer_sections`, `enrich`), the texts
+embedded (`embed`) and the pages rendered for the viewer (`render`, app/api/documents.py).
 
 The code that spent something records it, from what it counted, when its work ends however it
 ends: a stop, a lost lease or a crash ends an answer's run too, and the calls it made were
-made. So every run is counted once, and an answer that a lost worker's successor started
-over is counted for both runs, which is what the platform paid for.
+made; a stage that failed halfway through its pages made the calls before. So every run is
+counted once, and work that a lost worker's successor started over is counted for both runs,
+which is what the platform paid for. A `Meter` gathers a run's counts by kind for that
+(app/indexing/pipeline.py fills one per document run and records it at the end of every
+stage).
 
 `cost_micros` is empty until there is a price table to fill it from. `daily` is the rollup:
 an organisation's quantities and costs per day in UTC, by kind and unit, which is what a
@@ -22,20 +26,28 @@ their number says otherwise; a stored table would then go behind the same functi
 `usage` command (app/maintenance.py) prints it.
 """
 
+from collections import Counter
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 
-from pydantic_ai.usage import RequestUsage
+from pydantic_ai.usage import RequestUsage, RunUsage
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.models import UsageEvent
 
 USAGE_COMMAND = "uv run python -m app.maintenance usage"
-# The kinds and the reference types the app records today.
+# The kinds the app records, and what it records them for.
 ANSWER = "answer"
+UPLOAD = "upload"
+OCR = "ocr"
+INFER_SECTIONS = "infer_sections"
+ENRICH = "enrich"
+EMBED = "embed"
+RENDER = "render"
 CHAT_MESSAGE = "chat_message"
+DOCUMENT = "document"
 
 _DAILY = text(
     """
@@ -61,8 +73,10 @@ class ModelUsage:
     input_tokens: int = 0
     output_tokens: int = 0
 
-    def add(self, usage: RequestUsage) -> None:
-        self.calls += 1
+    def add(self, usage: RequestUsage | RunUsage) -> None:
+        """Count one answered request, or every request of one finished run: an indexing
+        request is a run that asks again when the first reply failed validation."""
+        self.calls += usage.requests if isinstance(usage, RunUsage) else 1
         self.input_tokens += usage.input_tokens
         self.output_tokens += usage.output_tokens
 
@@ -74,6 +88,72 @@ class ModelUsage:
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
         }
+
+
+@dataclass
+class _Spent:
+    """What one run spent on one kind: its model calls and whatever else it counted."""
+
+    model: str | None = None
+    calls: ModelUsage = field(default_factory=ModelUsage)
+    counts: Counter[str] = field(default_factory=Counter)
+
+    @property
+    def measures(self) -> dict[str, int]:
+        return dict(Counter(self.calls.measures) + self.counts)
+
+
+class Meter:
+    """What one piece of work has used so far, by kind, for the rows to write when it ends.
+
+    The pipeline fills one through a document's run (app/indexing/pipeline.py): a stage counts
+    the model calls of a kind into the `ModelUsage` that `calls` hands out, as each is
+    answered, and anything else with `add`; the run writes the rows with `record` at the end
+    of every stage, however the stage ended, so a stage that failed halfway is charged for the
+    calls it made before, and the next stage starts from nothing.
+    """
+
+    def __init__(
+        self,
+        *,
+        org_id: int,
+        project_id: int | None,
+        user_id: int | None,
+        ref: tuple[str, int] | None,
+    ):
+        self._payer = {"org_id": org_id, "project_id": project_id, "user_id": user_id}
+        self._ref = ref
+        self._spent: dict[str, _Spent] = {}
+
+    def calls(self, kind: str, model: str) -> ModelUsage:
+        """The accumulator for the model calls of `kind`, which `model` answers."""
+        return self._spent_on(kind, model).calls
+
+    def add(self, kind: str, unit: str, quantity: int, model: str | None = None) -> None:
+        """Count `quantity` more of `unit` for `kind`."""
+        self._spent_on(kind, model).counts[unit] += quantity
+
+    def _spent_on(self, kind: str, model: str | None) -> _Spent:
+        spent = self._spent.setdefault(kind, _Spent())
+        if model is not None:
+            spent.model = model
+        return spent
+
+    def record(self, session: Session) -> list[UsageEvent]:
+        """Add one row per kind and unit used since the last call to the caller's transaction,
+        and start counting afresh."""
+        rows: list[UsageEvent] = []
+        for kind, spent in self._spent.items():
+            rows += record(
+                session,
+                **self._payer,
+                kind=kind,
+                measures=spent.measures,
+                model=spent.model,
+                ref=self._ref,
+            )
+        self._spent = {}
+        return rows
 
 
 def record(

@@ -188,10 +188,13 @@ class FakeLLM:
     def problem(self) -> str | None:
         return None if self.available else MISSING_KEY
 
-    def structured(self, content, schema):
+    def structured(self, content, schema, usage=None):
         self.calls.append((schema.__name__, content))
         if self.failure is not None:
             raise self.failure
+        if usage is not None:
+            # Every indexing request costs the same here, like every agent turn (`FakeTurn`).
+            usage.add(RequestUsage(input_tokens=10, output_tokens=5))
         if schema is OcrPage:
             return OcrPage(
                 blocks=[
@@ -269,8 +272,9 @@ class FakeLLM:
             )
         return facts
 
-    def ocr_page(self, image: bytes, media_type: str):
-        return self.structured([BinaryContent(image, media_type=media_type)], OcrPage).blocks
+    def ocr_page(self, image: bytes, media_type: str, usage=None):
+        content = [BinaryContent(image, media_type=media_type)]
+        return self.structured(content, OcrPage, usage).blocks
 
     def stream_agent(self, instructions, messages, tools):
         self.agent_requests.append(list(messages))

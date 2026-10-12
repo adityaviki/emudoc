@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from app.indexing.structure import SectionHint
 from app.llm import LLM
 from app.models import Block, Document, Section
+from app.usage import ModelUsage
 
 # Text per request. Sections are kept whole unless one alone is larger than this.
 WINDOW_CHARS = 40_000
@@ -109,8 +110,11 @@ otherwise null.
 about 20 words."""
 
 
-def infer_sections(llm: LLM, blocks: Sequence[Block]) -> list[SectionHint]:
-    """Ask the model where the sections are in a document that has no headings."""
+def infer_sections(
+    llm: LLM, blocks: Sequence[Block], usage: ModelUsage | None = None
+) -> list[SectionHint]:
+    """Ask the model where the sections are in a document that has no headings. The call is
+    added to `usage` when it is answered."""
     if len(blocks) > MAX_BLOCKS_FOR_INFERENCE:
         return []
     listing = "\n".join(
@@ -127,7 +131,7 @@ def infer_sections(llm: LLM, blocks: Sequence[Block]) -> list[SectionHint]:
         "subsection). The first section must start at the first block. A short document may "
         "be a single section."
     )
-    result = llm.structured(prompt, InferredSections)
+    result = llm.structured(prompt, InferredSections, usage)
     return [
         SectionHint(s.start_block, s.title.strip(), s.level)
         for s in result.sections
@@ -136,8 +140,15 @@ def infer_sections(llm: LLM, blocks: Sequence[Block]) -> list[SectionHint]:
 
 
 def analyze_document(
-    llm: LLM, document: Document, sections: Sequence[Section], blocks: Sequence[Block]
+    llm: LLM,
+    document: Document,
+    sections: Sequence[Section],
+    blocks: Sequence[Block],
+    usage: ModelUsage | None = None,
 ) -> Analysis:
+    """Summaries, profile and facts for the document, in as many requests as its size takes;
+    each is added to `usage` as it is answered, so a run that fails at one window has still
+    counted the ones before."""
     windows = _windows(sections, blocks)
     summaries: dict[int, str] = {}
     facts: list[ExtractedFact] = []
@@ -151,7 +162,7 @@ def analyze_document(
             f"{SECTION_INSTRUCTIONS.format(scope='in the document')}\n"
             f"{FACT_INSTRUCTIONS}"
         )
-        result = llm.structured(prompt, DocumentAnalysis)
+        result = llm.structured(prompt, DocumentAnalysis, usage)
         _collect(result.sections, section_ids, summaries)
         return Analysis(_profile(result), summaries, result.facts)
 
@@ -162,7 +173,7 @@ def analyze_document(
             f"{SECTION_INSTRUCTIONS.format(scope='in this part')}\n"
             f"{FACT_INSTRUCTIONS}"
         )
-        result = llm.structured(prompt, WindowAnalysis)
+        result = llm.structured(prompt, WindowAnalysis, usage)
         _collect(result.sections, section_ids, summaries)
         facts.extend(result.facts)
 
@@ -183,7 +194,7 @@ def analyze_document(
         "- sections: one sentence for each of these sections that has no summary yet, "
         f"written from the summaries of the sections beneath it: {wanted}."
     )
-    result = llm.structured(prompt, ProfileWithSections)
+    result = llm.structured(prompt, ProfileWithSections, usage)
     _collect(result.sections, section_ids, summaries)
     return Analysis(_profile(result), summaries, facts)
 

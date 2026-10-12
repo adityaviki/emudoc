@@ -11,7 +11,9 @@ from pypdfium2 import PdfiumError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
+from app.accounts import Account
 from app.api.deps import (
+    AccountDep,
     DocumentDep,
     EditableDocumentDep,
     EditableProjectDep,
@@ -41,6 +43,7 @@ from app.schemas import (
     UploadResult,
 )
 from app.storage import original_key
+from app.usage import DOCUMENT, RENDER, UPLOAD, record
 
 router = APIRouter(tags=["documents"])
 
@@ -73,6 +76,7 @@ def upload_documents(
     session: SessionDep,
     services: ServicesDep,
     worker: WorkerDep,
+    account: AccountDep,
     folder_id: int | None = None,
 ):
     """Upload files into a folder of the project (the root when no folder is given)."""
@@ -140,8 +144,19 @@ def upload_documents(
             # Stored before the row is committed: a storage that fails leaves no row behind,
             # and the error says what happened (`storage_unavailable` in main.py).
             services.storage.put(document.storage_key, spool, document.mime_type)
-            # The document and the job that indexes it are committed together.
+            # The document, the job that indexes it and the member's usage are committed
+            # together. The bytes are the upload's; its pages are counted when the parse
+            # learns how many there are (app/indexing/pipeline.py).
             queue_index(session, document)
+            record(
+                session,
+                org_id=project.org_id,
+                project_id=project.id,
+                user_id=account.user.id,
+                kind=UPLOAD,
+                measures={"bytes": size},
+                ref=(DOCUMENT, document.id),
+            )
             session.commit()
             documents.append(document)
         finally:
@@ -294,7 +309,13 @@ def download_file(document: DocumentDep, services: ServicesDep) -> Response:
 
 
 @router.get("/documents/{document_id}/pages/{page}.png")
-def page_image(document: DocumentDep, page: int, services: ServicesDep) -> Response:
+def page_image(
+    document: DocumentDep,
+    page: int,
+    services: ServicesDep,
+    session: SessionDep,
+    account: AccountDep,
+) -> Response:
     """A rendered PDF page, for showing where on the page a passage sits. Pages are rendered
     the first time they are asked for and kept beside the original for PAGE_IMAGE_DAYS."""
     if document.mime_type != "application/pdf":
@@ -309,11 +330,14 @@ def page_image(document: DocumentDep, page: int, services: ServicesDep) -> Respo
                 storage.put(key, render_page(original, page), "image/png")
         except FileNotFoundError:
             raise HTTPException(404, MISSING_FILE) from None
+        _charge_render(session, account, document)
     return storage.response(key, media_type="image/png", max_age=IMAGE_MAX_AGE)
 
 
 @router.get("/documents/{document_id}/thumbnail.png")
-def thumbnail(document: DocumentDep, services: ServicesDep) -> Response:
+def thumbnail(
+    document: DocumentDep, services: ServicesDep, session: SessionDep, account: AccountDep
+) -> Response:
     """A small picture of the document for the library: a PDF's first page, or the image itself."""
     if document.mime_type != "application/pdf" and document.mime_type not in IMAGE_TYPES.values():
         raise HTTPException(404, "Only PDF and image documents have thumbnails")
@@ -329,7 +353,23 @@ def thumbnail(document: DocumentDep, services: ServicesDep) -> Response:
         buffer = io.BytesIO()
         image.save(buffer, format="PNG", optimize=True)
         storage.put(document.thumbnail_key, buffer.getvalue(), "image/png")
+        _charge_render(session, account, document)
     return storage.response(document.thumbnail_key, media_type="image/png", max_age=IMAGE_MAX_AGE)
+
+
+def _charge_render(session: SessionDep, account: Account, document: Document) -> None:
+    """A page rendered for the first time is the member's usage; one served again from the
+    storage costs nothing more (app/usage.py)."""
+    record(
+        session,
+        org_id=account.organization.id,
+        project_id=document.project_id,
+        user_id=account.user.id,
+        kind=RENDER,
+        measures={"pages": 1},
+        ref=(DOCUMENT, document.id),
+    )
+    session.commit()
 
 
 def _thumbnail_of(path: Path, mime_type: str) -> Image.Image:

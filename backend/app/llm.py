@@ -42,6 +42,7 @@ from pydantic_ai.tools import ToolDefinition
 
 from app.config import Settings
 from app.errors import AppError
+from app.usage import ModelUsage
 
 log = logging.getLogger(__name__)
 
@@ -340,8 +341,14 @@ class LLM:
                     raise LLMUnavailable(_setup_problem(name, error, self._settings)) from error
             return self._models[name]
 
-    def structured(self, content: str | Sequence[UserContent], schema: type[T]) -> T:
-        """One indexing request whose reply is validated against `schema`."""
+    def structured(
+        self,
+        content: str | Sequence[UserContent],
+        schema: type[T],
+        usage: ModelUsage | None = None,
+    ) -> T:
+        """One indexing request whose reply is validated against `schema`. What it cost is
+        added to `usage` once it is answered (app/usage.py)."""
         model = self._model(self._settings.index_model)
         # A provider that can hold its reply to a JSON schema is asked to. For the rest,
         # Pydantic AI requests the schema as a tool call instead.
@@ -358,17 +365,24 @@ class LLM:
         try:
             # The SDK's timeout above bounds each HTTP request; this bounds the whole call,
             # which may make several of them when the provider retries.
-            return future.result(timeout=INDEX_TIMEOUT).output
+            result = future.result(timeout=INDEX_TIMEOUT)
         except TimeoutError:
             message = f"The model did not answer within {INDEX_TIMEOUT:g} seconds."
             raise _give_up(future, message) from None
         except Exception as error:
             raise _failure(error) from error
+        if usage is not None:
+            # Every request of the run: the provider's reply that failed validation and was
+            # asked again was paid for too.
+            usage.add(result.usage)
+        return result.output
 
-    def ocr_page(self, image: bytes, media_type: str) -> list[OcrBlock]:
+    def ocr_page(
+        self, image: bytes, media_type: str, usage: ModelUsage | None = None
+    ) -> list[OcrBlock]:
         """Transcribe one scanned page or image into blocks."""
         content = [BinaryContent(image, media_type=media_type), OCR_PROMPT]
-        return self.structured(content, OcrPage).blocks
+        return self.structured(content, OcrPage, usage).blocks
 
     def stream_agent(
         self, instructions: str, messages: Sequence[ModelMessage], tools: Sequence[ToolDefinition]

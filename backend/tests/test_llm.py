@@ -32,6 +32,7 @@ from app.config import Settings, export_env_file
 from app.indexing.enrich import DocumentAnalysis
 from app.indexing.pipeline import Services
 from app.llm import INDEX_SYSTEM, LLM, OCR_PROMPT, LLMError, LLMUnavailable
+from app.usage import ModelUsage
 
 GEMINI = "google:gemini-2.5-flash-lite"
 CLAUDE = "anthropic:claude-opus-5-5"
@@ -496,11 +497,14 @@ def gemini_stream(*chunks: dict) -> httpx2.Response:
 
 def test_gemini_structured_request(monkeypatch):
     recorder = Recorder(httpx2.Response(200, json=gemini({"text": json.dumps(ANALYSIS)})))
+    usage = ModelUsage()
     result = recorded_llm(monkeypatch, recorder, GEMINI).structured(
-        "the document", DocumentAnalysis
+        "the document", DocumentAnalysis, usage
     )
 
     assert result.title == "Master Services Agreement" and result.facts[0].number == 90
+    # The run's one request, with the token counts the provider reported, for the bill.
+    assert (usage.calls, usage.input_tokens, usage.output_tokens) == (1, 25, 30)
     request = recorder.requests[0]
     assert request.url.path.endswith("/models/gemini-2.5-flash-lite:generateContent")
     assert request.headers["x-goog-api-key"] == "test-key"
@@ -613,9 +617,11 @@ def test_openrouter_structured_request(monkeypatch):
     }
     recorder = Recorder(httpx2.Response(200, json=reply))
     llm = recorded_llm(monkeypatch, recorder, OPENROUTER)
-    result = llm.structured("the document", DocumentAnalysis)
+    usage = ModelUsage()
+    result = llm.structured("the document", DocumentAnalysis, usage)
 
     assert result.title == "Master Services Agreement" and result.facts[0].number == 90
+    assert (usage.calls, usage.input_tokens, usage.output_tokens) == (1, 25, 30)
     request = recorder.requests[0]
     assert str(request.url) == "https://openrouter.ai/api/v1/chat/completions"
     assert request.headers["authorization"] == "Bearer test-key"
