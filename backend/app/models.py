@@ -556,6 +556,9 @@ class Job(Base):
         _one_of("status", JOB_STATUSES, "jobs"),
         # What a claim scans: the queued jobs in the order they run.
         Index("ix_jobs_queue", "status", "priority", "run_at"),
+        # What a claim counts: the jobs that finished lately, for each organisation's share of
+        # the workers (app/jobs.py), out of a month of finished ones.
+        Index("ix_jobs_finished", "finished_at"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)

@@ -29,7 +29,9 @@ from app.jobs import (
     BULK,
     LEASE,
     MAX_ATTEMPTS,
+    SHARE_WINDOW,
     claim,
+    claim_params,
     enqueue,
     extend_leases,
     finish,
@@ -164,6 +166,59 @@ def test_the_claim_takes_jobs_in_order_and_leases_them(session, account):
         enqueue(session, "mine_bitcoin", org_id=org)
 
 
+def test_the_claim_shares_the_workers_between_organisations(session, account, make_account):
+    other = make_account("x@other.test")
+    busy = Project(org_id=account.organization.id, name="Busy")
+    quiet = Project(org_id=other.organization.id, name="Quiet")
+    session.add_all([busy, quiet])
+    session.flush()
+
+    def queue(project: Project, priority: int = 0) -> int:
+        job = enqueue(
+            session,
+            "index_document",
+            org_id=project.org_id,
+            project_id=project.id,
+            priority=priority,
+        )
+        session.commit()
+        return job.id
+
+    def take(worker: str) -> Job:
+        job = claim(worker, INDEX)
+        assert job is not None
+        return job
+
+    # Several threads: the busy organisation's first job is still running when the next thread
+    # claims, so the quiet organisation's single upload goes second, not after the backlog.
+    backlog = [queue(busy) for _ in range(3)]
+    single = queue(quiet)
+    assert [take(f"a:{n}").id for n in range(4)] == [backlog[0], single, backlog[1], backlog[2]]
+
+    # One thread, finishing each job before it claims the next: nothing is running when it
+    # claims, and what each organisation finished lately counts instead. What ran so far is
+    # finished longer ago than the claim remembers.
+    session.execute(
+        text("UPDATE jobs SET status = 'done', finished_at = now() - :age"), {"age": SHARE_WINDOW}
+    )
+    session.commit()
+    backlog = [queue(busy) for _ in range(3)]
+    single = queue(quiet)
+    order = []
+    for _ in range(4):
+        job = take("b:1")
+        order.append(job.id)
+        assert finish(job, "b:1", "done")
+    assert order == [backlog[0], single, backlog[1], backlog[2]]
+
+    # Priority comes first: the busy organisation's upload goes before the quiet one's bulk
+    # reprocess, however much of the workers the busy one has had.
+    reprocess = queue(quiet, priority=BULK)
+    upload = queue(busy)
+    assert [take("c:1").id, take("c:2").id] == [upload, reprocess]
+    assert claim("c:3", INDEX) is None
+
+
 def test_two_workers_never_take_the_same_job(session, account):
     project = Project(org_id=account.organization.id, name="P")
     session.add(project)
@@ -175,9 +230,7 @@ def test_two_workers_never_take_the_same_job(session, account):
     # One worker's claim is still in its transaction when another claims: the second skips the
     # locked row instead of waiting for it and then taking the same job.
     with engine.connect() as holder:
-        held = holder.execute(
-            jobs._CLAIM, {"worker": "a:1", "lease": LEASE, "kinds": INDEX}
-        ).scalar_one()
+        held = holder.execute(jobs._CLAIM, claim_params("a:1", INDEX)).scalar_one()
         other = claim("b:1", INDEX)
         assert other is not None and other.id != held
         assert claim("c:1", INDEX) is None

@@ -9,6 +9,14 @@ attempt and leases it to the worker for LEASE. The worker extends the lease whil
 runs out, and nothing at start needs to guess which jobs were abandoned. A job that was lost that
 way `max_attempts` times is given up rather than run forever.
 
+Within a priority the workers are shared between organisations rather than given to whoever
+queued first: the claim counts each organisation's jobs that are running or finished within
+SHARE_WINDOW and takes the job of the organisation that has had the least. One organisation's
+upload of five hundred documents then costs another's single upload one slot, not five hundred;
+with only one organisation queuing, every worker is its. Picking by `row_number()` within each
+organisation would not do: the busy organisation's next job is always older than the newcomer's,
+so it would win every tie.
+
 The row is the claim and the retry bookkeeping. What the job is about keeps its own user-visible
 state: a document's `status` and `stages` are what the UI shows, and the index job writes them
 through the pipeline as before.
@@ -36,6 +44,12 @@ INDEX_DOCUMENT = "index_document"
 # Lower runs first. An upload is work a user is waiting for; a reprocess of a whole project, or
 # of everything after a model change, is bulk work that should not hold an upload up.
 BULK = 10
+# How far back the claim remembers which organisation had the workers: a job finished longer
+# ago than this no longer counts towards its organisation's share. A few minutes keeps one
+# worker thread alternating between two organisations' backlogs (the shares it compares are
+# otherwise both zero whenever it is free) without holding what an organisation did an hour
+# ago against it.
+SHARE_WINDOW = timedelta(minutes=5)
 # How long a claim lasts unless the worker extends it. Long enough that a slow database or a
 # busy worker does not lose a job it is still running; short enough that a document stuck in
 # "processing" after a crash is picked up again within minutes.
@@ -47,18 +61,33 @@ MAX_ATTEMPTS = 3
 # pruned by housekeeping (app/maintenance.py).
 HISTORY = timedelta(days=30)
 
+# The due jobs are ordered by priority, then by how much of the workers their organisation has
+# had lately (`share`: its jobs of these kinds running on a live lease or finished within
+# SHARE_WINDOW), then by age. A plan's priority (an entitlement) belongs in `share`: a paid
+# organisation's jobs could count for less, giving it the larger share. The due test is
+# repeated on `j`, where the lock is taken, so that a row another worker claimed and committed
+# since this statement's snapshot is checked again and skipped, not taken twice.
 _CLAIM = text(
     """
+    WITH share AS (
+        SELECT org_id, count(*) AS served
+        FROM jobs
+        WHERE kind = ANY(:kinds)
+          AND ((status = 'running' AND lease_until >= now())
+               OR finished_at > now() - :window)
+        GROUP BY org_id
+    )
     UPDATE jobs
     SET status = 'running', attempts = attempts + 1, worker_id = :worker,
         lease_until = now() + :lease
     WHERE id = (
-        SELECT id FROM jobs
-        WHERE kind = ANY(:kinds)
-          AND ((status = 'queued' AND run_at <= now())
-               OR (status = 'running' AND lease_until < now()))
-        ORDER BY priority, run_at, id
-        FOR UPDATE SKIP LOCKED
+        SELECT j.id
+        FROM jobs AS j LEFT JOIN share ON share.org_id = j.org_id
+        WHERE j.kind = ANY(:kinds)
+          AND ((j.status = 'queued' AND j.run_at <= now())
+               OR (j.status = 'running' AND j.lease_until < now()))
+        ORDER BY j.priority, coalesce(share.served, 0), j.run_at, j.id
+        FOR UPDATE OF j SKIP LOCKED
         LIMIT 1
     )
     RETURNING *
@@ -186,11 +215,15 @@ def claim(worker_id: str, kinds: list[str]) -> Job | None:
     """
     with SessionLocal() as session:
         job = session.scalars(
-            select(Job).from_statement(_CLAIM),
-            {"worker": worker_id, "lease": LEASE, "kinds": kinds},
+            select(Job).from_statement(_CLAIM), claim_params(worker_id, kinds)
         ).first()
         session.commit()
         return job
+
+
+def claim_params(worker_id: str, kinds: list[str]) -> dict:
+    """The bound values of `_CLAIM`, for a test that runs the statement on its own connection."""
+    return {"worker": worker_id, "lease": LEASE, "kinds": kinds, "window": SHARE_WINDOW}
 
 
 def extend_leases(job_ids: list[int], worker_id: str) -> set[int]:
