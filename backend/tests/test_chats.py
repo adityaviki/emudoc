@@ -4,12 +4,13 @@ which the worker writes (app/answers.py) and the events route streams from the t
 import json
 
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolCallPart
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 
 from app.agent.tools import TOOLS
 from app.answers import STOPPED, answer
 from app.api.chats import STILL_ANSWERING
+from app.config import get_settings
 from app.db import BUSY
 from app.jobs import ANSWER_QUESTION, LIVE
 from app.llm import LLMUnavailable
@@ -117,6 +118,30 @@ def test_asking_saves_the_question_and_queues_its_answer(client, session, indexe
     ]
     blank = client.post(f"/api/chats/{chat['id']}/messages", json={"content": " "})
     assert blank.status_code == 422
+
+
+def test_a_question_past_the_length_limit_is_refused_before_it_is_saved(
+    client, session, indexed, monkeypatch
+):
+    monkeypatch.setattr(get_settings(), "max_question_chars", 40)
+    chat = new_chat(client, indexed.project_id)
+    question = "What does the contract say about " + "late deliveries? " * 3
+    refused = client.post(f"/api/chats/{chat['id']}/messages", json={"content": question})
+    assert refused.status_code == 413
+    assert refused.json() == {
+        "detail": (
+            f"This question is {len(question.strip()):,} characters long, and a question can "
+            "be 40 at most. Shorten it, or upload the text as a document and ask about that."
+        )
+    }
+    assert client.get(f"/api/chats/{chat['id']}").json()["messages"] == []
+    assert (
+        session.scalar(select(func.count()).select_from(Job).where(Job.kind == ANSWER_QUESTION))
+        == 0
+    )
+
+    # The limit is on the question as asked, not on the whitespace around it.
+    ask(client, chat["id"], "  " + "late deliveries? " * 2 + "  ")
 
 
 def test_the_worker_writes_the_answer_and_the_route_streams_it(client, services, indexed):

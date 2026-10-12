@@ -16,7 +16,7 @@ import app.answers as answers_module
 from app.agent.tools import TOOLS
 from app.answers import answer
 from app.config import get_settings
-from app.indexing.pipeline import process_document, reset_stages
+from app.indexing.pipeline import StageFailure, process_document, reset_stages
 from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT, LeaseLost, claim
 from app.llm import LLMError
 from app.maintenance import main
@@ -350,6 +350,32 @@ def test_a_scan_is_charged_per_page_read_even_when_the_stage_fails_half_way(
         (UPLOAD, "pages", 2),
     ]
     assert spent(rows, ENRICH) == model_calls(ENRICH, 1)
+
+
+def test_a_scan_with_more_pages_than_the_model_may_read_fails_before_a_page_is_read(
+    session, services, make_document, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(get_settings(), "ocr_max_pages", 2)
+    document = make_document(scanned_pdf(tmp_path / "scan.pdf", 3))
+    refusal = (
+        "This file has 3 scanned pages to read, more than the 2 one document can have. "
+        "Split it and upload the parts."
+    )
+    assert process_document(document.id, services) == [
+        StageFailure("parse", refusal, transient=False)
+    ]
+    session.refresh(document)
+    assert document.status == "failed" and document.error == refusal
+    # Refused before the model read a page: no call was made and nothing was charged.
+    assert services.llm.calls == []
+    assert rows_of(session, (DOCUMENT, document.id)) == []
+
+    # Zero removes the limit, and the scan is then read page by page.
+    monkeypatch.setattr(get_settings(), "ocr_max_pages", 0)
+    reset_stages(document, "parse")
+    session.commit()
+    assert process_document(document.id, services) == []
+    assert [name for name, _ in services.llm.calls].count("OcrPage") == 3
 
 
 def test_a_stage_whose_lease_was_lost_is_charged_and_so_is_the_run_that_redoes_it(

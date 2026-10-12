@@ -265,6 +265,10 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
         # there are; a parse run again for "Index again" brings nothing new in. The plan's
         # month is checked before a scan is read, since reading it costs model calls.
         new_pages = (parsed.page_count or 0) if document.page_count is None else 0
+        # The platform's ceiling on scanned pages comes before the plan's month: a document
+        # over it is refused whatever the plan, so an upgrade is not the answer.
+        if reason := _too_many_scans(len(parsed.ocr_pages)):
+            raise PipelineError(reason)
         if reason := check_pages(session, document.project.organization, new_pages):
             raise PipelineError(reason)
         blocks = parsed.blocks
@@ -304,6 +308,18 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
     document.page_sizes = [[round(w, 2), round(h, 2)] for w, h in parsed.page_sizes]
     document.title = parsed.title
     return f"{len(blocks)} blocks{note}"
+
+
+def _too_many_scans(pages: int) -> str | None:
+    """Why the document's scanned pages are more than OCR_MAX_PAGES lets the model read, or
+    None when they fit (or the limit is off)."""
+    cap = get_settings().ocr_max_pages
+    if not cap or pages <= cap:
+        return None
+    return (
+        f"This file has {pages} scanned pages to read, more than the {cap} one document can "
+        "have. Split it and upload the parts."
+    )
 
 
 def _parse_limits() -> ParseLimits:

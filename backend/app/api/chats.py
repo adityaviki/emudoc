@@ -101,6 +101,8 @@ def ask(
     question = body.content.strip()
     if not question:
         raise HTTPException(422, "Send a question to get an answer.")
+    if len(question) > (cap := get_settings().max_question_chars):
+        raise HTTPException(413, too_long(len(question), cap))
     if chat.messages and chat.messages[-1].status == "streaming":
         raise HTTPException(409, STILL_ANSWERING)
     # The count is taken before the question is saved, or a refused question would sit in the
@@ -212,6 +214,14 @@ async def _follow(message_id: int, after: int) -> AsyncIterator[str]:
             return
         if not rows:
             await anyio.sleep(EVENT_POLL_SECONDS)
+
+
+def too_long(length: int, cap: int) -> str:
+    """The refusal of a question of `length` characters, past the `cap` one may have."""
+    return (
+        f"This question is {length:,} characters long, and a question can be {cap:,} at most. "
+        "Shorten it, or upload the text as a document and ask about that."
+    )
 
 
 def _title(question: str) -> str:

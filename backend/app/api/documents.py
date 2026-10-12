@@ -25,8 +25,8 @@ from app.api.deps import (
     WorkerDep,
 )
 from app.api.folders import folder_paths, resolve_folder
-from app.config import get_settings
-from app.entitlements import check_upload
+from app.config import Settings, get_settings
+from app.entitlements import check_upload, size_label
 from app.indexing.pipeline import reset_stages
 from app.jobs import queue_index
 from app.models import STAGES, Block, Document, Fact, Project, Section
@@ -82,13 +82,16 @@ def upload_documents(
 ):
     """Upload files into a folder of the project (the root when no folder is given).
 
-    The organisation's plan is checked before anything is stored, and refuses the request
-    when it has no room for a document at all (402, which the app shows as the way to
-    upgrade); each file is then checked for its own size, and one that would not fit is
-    rejected with the same sentence while the others go in (app/entitlements.py).
+    The request is refused whole, before anything is stored, when it carries more files or
+    more bytes than one upload may (413, naming the limit), and when the organisation's plan
+    has no room for a document at all (402, which the app shows as the way to upgrade); each
+    file is then checked for its own size and against the plan, and one that would not fit
+    is rejected with the sentence while the others go in (app/entitlements.py).
     """
     settings = get_settings()
     limit = settings.max_upload_mb * 1024 * 1024
+    if reason := too_many(files, settings):
+        raise HTTPException(413, reason)
     organization = account.organization
     if reason := check_upload(session, organization):
         raise HTTPException(402, reason)
@@ -179,6 +182,24 @@ def upload_documents(
     if documents and worker:
         worker.notify()
     return UploadResult(documents=documents, rejected=rejected)
+
+
+def too_many(files: list[UploadFile], settings: Settings) -> str | None:
+    """Why one request may not carry these files, or None when it may: more of them than
+    MAX_UPLOAD_FILES, or more bytes together than MAX_UPLOAD_REQUEST_MB. The sizes are what
+    the multipart parser counted as it spooled the body, so nothing is read again."""
+    if len(files) > settings.max_upload_files:
+        return (
+            f"This upload has {len(files)} files, and one upload can have "
+            f"{settings.max_upload_files} at most. Upload them in smaller batches."
+        )
+    total = sum(upload.size or 0 for upload in files)
+    if total > settings.max_upload_request_mb * 1024 * 1024:
+        return (
+            f"These files add up to {size_label(total)}, and one upload can carry "
+            f"{settings.max_upload_request_mb} MB at most. Upload them in smaller batches."
+        )
+    return None
 
 
 def _already_present(

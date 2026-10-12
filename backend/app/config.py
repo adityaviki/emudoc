@@ -89,7 +89,14 @@ class Settings(BaseSettings):
     # reached with the AWS_* variables in the environment. The default is backend/data inside
     # the checkout, for development.
     storage_url: str = (BACKEND_DIR / "data").as_uri()
-    max_upload_mb: int = 100
+    # What one upload may bring: the size of a file, how many files one request carries and
+    # their bytes together. A file over its size is rejected on its own while the others go
+    # in; a request over the other two is refused whole with 413 (app/api/documents.py). The
+    # bytes have been read by the time the request is refused, so a proxy's body limit is the
+    # guard against the request itself, and this is what the app will store from one.
+    max_upload_mb: int = Field(default=100, ge=1)
+    max_upload_files: int = Field(default=100, ge=1)
+    max_upload_request_mb: int = Field(default=500, ge=1)
     # How long a rendered page or thumbnail is kept after it was rendered, in days. They are a
     # cache of the original (see app/storage.py): one that is asked for again is rendered
     # again. Zero keeps them for good.
@@ -104,6 +111,11 @@ class Settings(BaseSettings):
     parse_memory_mb: int = Field(default=2048, ge=0)
     parse_max_pages: int = Field(default=500, ge=0)
     parse_max_rows: int = Field(default=100_000, ge=0)
+    # The pages of one document the model may read as scans: each costs a model call, and
+    # PARSE_MAX_PAGES alone would let a scanned book cost hundreds. A document over it fails
+    # with a message that says to split it, before a page is read (app/indexing/pipeline.py).
+    # Zero removes the limit.
+    ocr_max_pages: int = Field(default=100, ge=0)
 
     # The model behind structure inference, summaries, facts, OCR and the agent, as
     # provider:model. Each provider reads its own key from the environment (see .env.example).
@@ -113,6 +125,9 @@ class Settings(BaseSettings):
     # think ignore it.
     agent_effort: Effort = "medium"
     index_effort: Effort = "low"
+    # The rounds of tool calls one answer may make before it is stopped with what it has
+    # (app/agent/loop.py): each is a model request, so this bounds what a question can cost.
+    agent_max_turns: int = Field(default=12, ge=1)
     # What the models cost, for the cost on every usage row (app/usage.py): model=in/out per
     # million tokens, separated by commas, with the models named as AGENT_MODEL and
     # INDEX_MODEL name them, in PRICE_CURRENCY (an ISO 4217 code). Empty, no cost is
@@ -158,6 +173,10 @@ class Settings(BaseSettings):
     # again in a moment (app/api/chats.py). It is the same for every organisation; a cap that
     # differs by plan is an entitlement, read per account.
     max_answers: int = Field(default=20, ge=1)
+    # The longest question, in characters. A question goes to the model whole with every turn
+    # of its answer, so one that is pasted rather than asked is refused with 413 and asked to
+    # be shortened (app/api/chats.py); the documents are what to upload.
+    max_question_chars: int = Field(default=20_000, ge=1)
     # Whether this process runs the background worker (app/worker.py) as well. Unset, it does
     # in development, so that one `uvicorn` indexes what it serves, and does not in production,
     # where the deployment runs `python -m app.worker` as its own process and scales it apart

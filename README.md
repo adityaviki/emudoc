@@ -180,6 +180,14 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   letting one organisation keep the others waiting; the question past it is refused with 429
   and asked to wait a moment. It is the same for every organisation; the caps that differ by
   plan are in `backend/app/entitlements.py`.
+- `MAX_QUESTION_CHARS` is the longest question, 20,000 characters by default. A question goes
+  to the model whole with every turn of its answer, so one that is pasted rather than asked is
+  refused with 413 and asked to be shortened; the documents are what to upload.
+- `MAX_UPLOAD_MB`, `MAX_UPLOAD_FILES` and `MAX_UPLOAD_REQUEST_MB` bound one upload: 100 MB a
+  file, 100 files a request and 500 MB a request by default. A file over its size is rejected
+  on its own while the others go in; a request over the other two is refused whole with 413
+  and asked to upload in smaller batches. The body has been read by then, so a proxy's limit
+  on the request body is the guard against the request itself.
 - `ALERT_EMAIL` is where the worker reports the jobs it gave up on, through the same mail
   settings as the sign-in links, as one digest every quarter of an hour. Empty sends nothing;
   the `failed-jobs` command lists them either way.
@@ -226,7 +234,10 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   a message naming the limit, is not retried, and leaves the worker and the other uploads
   untouched. `WORKER_CONCURRENCY` parses run at once, each with its own memory on top of the
   worker's. An image of more than 50 megapixels is refused the same way, by OCR and by the
-  thumbnail alike, from its header and before a pixel of it is decoded.
+  thumbnail alike, from its header and before a pixel of it is decoded. `OCR_MAX_PAGES` (100)
+  is how many pages of one document the model may read as scans, each a model call: a
+  document with more fails before a page is read, with a message that says to split it; `0`
+  removes the limit.
 - `AGENT_MODEL` and `INDEX_MODEL` name the AI models as `provider:model`. Both default to
   `google:gemini-2.5-flash-lite`. Indexing is the high-volume side and the agent answers
   questions, so the two can differ, even across providers.
@@ -235,6 +246,9 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   lines and restart. [Pydantic AI](https://pydantic.dev/docs/ai/models/overview/) makes the
   requests, so any model it supports can be named.
 - `AGENT_EFFORT` and `INDEX_EFFORT` set how hard a model thinks, for models that can.
+- `AGENT_MAX_TURNS` is how many rounds of tool calls one answer may make, 12 by default; an
+  answer that needs more stops with what it has and says so. Each round is a model request,
+  so this bounds what a question can cost.
 - `EMBEDDING_MODEL` and `EMBEDDING_DIM` select the embedding model. Changing the model re-embeds
   every document on the next start. Changing the size changes the type of the column the
   vectors live in, which discards them, so the backend refuses to start until

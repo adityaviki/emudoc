@@ -33,7 +33,6 @@ from app.usage import ModelUsage
 
 log = logging.getLogger(__name__)
 
-MAX_TURNS = 12
 MAX_RETRIES = 2
 
 SYSTEM_PROMPT = """\
@@ -110,8 +109,9 @@ def run_agent(
     sources: dict[int, dict[str, Any]] = {}
     retries = 0
     turns = 0
+    max_turns = get_settings().agent_max_turns
 
-    while turns < MAX_TURNS:
+    while turns < max_turns:
         try:
             with services.llm.stream_agent(system, conversation, tools) as stream:
                 for event in stream:
@@ -205,7 +205,7 @@ def run_agent(
     else:
         yield {
             "type": "notice",
-            "message": f"Stopped after {MAX_TURNS} rounds of tool calls.",
+            "message": f"Stopped after {max_turns} rounds of tool calls.",
         }
 
     # What the answer used, as its row will show it once the run has recorded it, so a

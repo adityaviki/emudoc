@@ -2,8 +2,11 @@ from io import BytesIO
 from pathlib import Path
 
 from PIL import Image
+from sqlalchemy import func, select
 
+from app.config import get_settings
 from app.indexing.pipeline import process_document
+from app.models import Job
 from app.parsing import images
 from tests.conftest import MISSING_KEY
 
@@ -66,6 +69,48 @@ def test_upload_queues_documents_and_rejects_what_it_cannot_take(client, sample_
         client.post("/api/projects/999/documents", files=[("files", ("a.txt", b"x"))]).status_code
         == 404
     )
+
+
+def test_an_upload_of_too_many_files_or_bytes_is_refused_whole(
+    client, session, sample_pdf, tmp_path, monkeypatch
+):
+    project = create_project(client)
+    notes = []
+    for n in range(3):
+        note = tmp_path / f"note{n}.txt"
+        note.write_text(f"Note {n}\n" * 100_000)
+        notes.append(note)
+
+    monkeypatch.setattr(get_settings(), "max_upload_files", 2)
+    files = [("files", (path.name, path.read_bytes())) for path in notes]
+    refused = client.post(f"/api/projects/{project['id']}/documents", files=files)
+    assert refused.status_code == 413
+    assert refused.json() == {
+        "detail": (
+            "This upload has 3 files, and one upload can have 2 at most. "
+            "Upload them in smaller batches."
+        )
+    }
+
+    # Two files of 700 kB each are more than one request may carry, though each is well
+    # within what one file may be.
+    monkeypatch.setattr(get_settings(), "max_upload_request_mb", 1)
+    files = [("files", (path.name, path.read_bytes())) for path in notes[:2]]
+    refused = client.post(f"/api/projects/{project['id']}/documents", files=files)
+    assert refused.status_code == 413
+    assert refused.json() == {
+        "detail": (
+            "These files add up to 1.4 MB, and one upload can carry 1 MB at most. "
+            "Upload them in smaller batches."
+        )
+    }
+    # Nothing of a refused request was stored or queued.
+    assert client.get(f"/api/projects/{project['id']}/documents").json() == []
+    assert session.scalar(select(func.count()).select_from(Job)) == 0
+
+    # One of them goes in as before.
+    result = upload(client, project["id"], notes[0])
+    assert [document["filename"] for document in result["documents"]] == ["note0.txt"]
 
 
 def test_a_simultaneous_upload_of_the_same_bytes_is_rejected_not_a_crash(

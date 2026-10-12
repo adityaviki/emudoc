@@ -266,6 +266,27 @@ def test_agent_searches_then_answers_with_a_citation(services, indexed):
     assert result.tool_call_id == "call_1" and "[P" in result.content
 
 
+def test_an_answer_stops_after_the_rounds_of_tool_calls_the_settings_allow(
+    services, indexed, monkeypatch
+):
+    monkeypatch.setattr(get_settings(), "agent_max_turns", 2)
+    services.llm.agent_turns = [
+        FakeTurn(ToolCallPart("list_documents", {}, f"call_{n}")) for n in range(3)
+    ]
+    events = run(services, indexed)
+    assert [event["type"] for event in events] == [
+        "tool_call",
+        "tool_result",
+        "tool_call",
+        "tool_result",
+        "notice",
+        "done",
+    ]
+    assert events[-2]["message"] == "Stopped after 2 rounds of tool calls."
+    # The third turn was never requested, and the answer is charged for the two it made.
+    assert len(services.llm.agent_requests) == 2 and events[-1]["usage"]["calls"] == 2
+
+
 def test_invalid_tool_input_is_returned_to_the_model_not_run(services, indexed):
     services.llm.agent_turns = [
         FakeTurn(
