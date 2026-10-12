@@ -462,6 +462,8 @@ def test_the_api_runs_the_worker_itself_only_when_the_settings_say_so(
     with TestClient(create_app(services=services)) as client:
         worker = client.app.state.worker
         assert isinstance(worker, Worker)
+        # It reports the jobs it gives up on through the app's mailer.
+        assert worker._mailer is client.app.state.mailer
 
         def ready() -> bool:
             session.expire_all()
@@ -675,7 +677,7 @@ def test_a_failure_that_will_not_pass_is_not_retried(session, services, make_doc
 
 
 def test_a_required_stage_waits_for_its_retry_as_queued_and_gives_up_as_failed(
-    session, services, make_document, tmp_path
+    session, services, make_document, tmp_path, caplog
 ):
     from PIL import Image
 
@@ -699,13 +701,17 @@ def test_a_required_stage_waits_for_its_retry_as_queued_and_gives_up_as_failed(
         f"Retrying in 1 minute (1 of {MAX_RETRIES})."
     )
 
-    # The last retry fails too: the document is failed, and its error says it was tried.
+    # The last retry fails too: the document is failed, and its error says it was tried. The
+    # job that gave up ends failed with the reason, where the operator's dead-letter listing
+    # and digest find it (tests/test_deadletters.py); the ones before it did their work.
     session.execute(
         text("UPDATE jobs SET run_at = now(), payload = payload || :retry WHERE status = 'queued'"),
         {"retry": f'{{"retry": {MAX_RETRIES}}}'},
     )
     session.commit()
-    run_index(claim("w:1", INDEX), services)
+    worker = Worker(services, concurrency=1)
+    with caplog.at_level("ERROR", logger="app.worker"):
+        worker._run(claim(worker.id, INDEX))
     session.refresh(document)
     assert document.status == "failed"
     assert document.error == (
@@ -713,7 +719,13 @@ def test_a_required_stage_waits_for_its_retry_as_queued_and_gives_up_as_failed(
         "once the service is back."
     )
     assert document.stages["parse"]["detail"] == document.error
-    assert [job.status for job in all_jobs(session)] == ["running", "running"]
+    first, last = all_jobs(session)
+    assert (first.status, last.status) == ("running", "failed")
+    assert last.last_error == (
+        f"Stage parse failed {MAX_RETRIES + 1} times over 15 minutes: {RATE_LIMITED}"
+    )
+    assert last.reported_at is None
+    assert f"Document {document.id} is not tried again" in caplog.text
 
 
 def test_the_worker_retries_until_the_outage_passes(

@@ -72,7 +72,9 @@ def create_app(
         # (RUN_WORKER); without it, an upload waits for a worker elsewhere.
         app.state.worker = None
         if settings.run_worker:
-            app.state.worker = Worker(app.state.services, settings.worker_concurrency)
+            app.state.worker = Worker(
+                app.state.services, settings.worker_concurrency, app.state.mailer
+            )
             app.state.worker.start()
         yield
         if app.state.worker:

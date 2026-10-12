@@ -22,7 +22,12 @@ that failed because the model, the embedding endpoint or the bucket was out of r
 rate limiting, a dropped connection) is run again by itself after 1, 2, 4 and 8 minutes; the
 stage says so in the document's status until it succeeds, and after the last try it stays
 failed until "Index again". A stage that failed for a reason that will not pass on its own, such
-as a rejected key or a file nothing can be read from, is not retried. A request that gets no
+as a rejected key or a file nothing can be read from, is not retried. A job the worker gave up
+on, after the last retry, after a crash, or after losing it to a dying process three times, is
+kept as failed for a month: `uv run python -m app.maintenance failed-jobs` (in `backend/`)
+lists them with the reason, and `--requeue` runs their documents again from the stage they
+stopped at; with `ALERT_EMAIL` set, the worker mails the new ones there every quarter of an
+hour as one digest. A request that gets no
 answer is given up on and counts as the provider being out of reach: an indexing request after
 five minutes, an embedding request after two, and a turn of an answer in the chat after two
 minutes or a minute of silence, which the chat shows as an error. The parse stage runs the
@@ -119,6 +124,9 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
 - `RUN_WORKER` is whether the process runs the background worker as well. Unset, it does in
   development and does not in production, where the worker is `uv run python -m app.worker`,
   a process of its own ("Run it" above).
+- `ALERT_EMAIL` is where the worker reports the jobs it gave up on, through the same mail
+  settings as the sign-in links, as one digest every quarter of an hour. Empty sends nothing;
+  the `failed-jobs` command lists them either way.
 - `ENVIRONMENT` is `development` (the default) or `production`. In development the backend
   copies the model keys from `.env` into its environment, where the model libraries read them.
   A production deployment injects every secret through the environment or a secret manager
@@ -218,6 +226,8 @@ backend/app/
   indexing/     structure, enrich and the pipeline
   jobs.py       the job queue: background work as rows the worker claims with leases
   worker.py     the worker that claims and runs the jobs; its own process in production
+  deadletters.py
+                the jobs the worker gave up on: the operator's digest, listing and requeue
   startup.py    the checks and the services every process starts with
   search.py     hybrid search over passages
   folders.py    the folder tree as paths and subtrees

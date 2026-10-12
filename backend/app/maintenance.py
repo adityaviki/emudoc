@@ -18,6 +18,9 @@ projects that no longer exist, which a delete leaves behind when the storage fai
 are gone; and the pruning of jobs that finished longer ago than the queue keeps them.
 `sweep-page-images` runs the first part by hand, after lowering the setting; `sweep-orphans`
 lists the second part and removes it with `--delete`.
+
+`failed-jobs` lists the jobs the worker gave up on, the dead letters (app/deadletters.py), and
+with `--requeue` queues their documents again from the stage they stopped at.
 """
 
 import argparse
@@ -34,6 +37,7 @@ from sqlalchemy import Connection, select, text
 
 from app.config import get_settings
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine
+from app.deadletters import describe, failed_jobs, requeue
 from app.jobs import BULK, HISTORY, prune_finished, queue_index_by_id
 from app.models import Document
 from app.parsing import MIME_TYPES
@@ -492,6 +496,19 @@ def main(argv: list[str] | None = None) -> None:
     orphans.add_argument(
         "--delete", action="store_true", help="remove the files instead of listing them"
     )
+    failed = commands.add_parser(
+        "failed-jobs",
+        help="list, or with --requeue run again, the jobs the worker gave up on",
+        description=f"List the jobs the worker gave up on in the last {HISTORY.days} days: lost "
+        "to a dying process three times, crashed, or a stage that kept failing through every "
+        "retry. Each one's document shows the failure to its user. With --requeue, every "
+        'document is queued again from the stage it stopped at, as "Index again" does, and '
+        "the jobs leave this list; so does a job whose document was deleted or queued again "
+        "meanwhile.",
+    )
+    failed.add_argument(
+        "--requeue", action="store_true", help="queue the documents again instead of listing"
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     # The schema check sets up a migration context, which announces itself; nothing to act on.
@@ -569,6 +586,35 @@ def main(argv: list[str] | None = None) -> None:
                             f"{_mb(orphan.size)} MB"
                         )
                     print("Run again with --delete to remove them.")
+        elif args.command == "failed-jobs":
+            check_schema()
+            with SessionLocal() as session:
+                failures = failed_jobs(session)
+                if not failures:
+                    print(
+                        "No failed jobs: the worker has given up on nothing in the last "
+                        f"{HISTORY.days} days."
+                    )
+                elif args.requeue:
+                    outcome = requeue(session, failures)
+                    session.commit()
+                    for line in outcome.lines:
+                        print(line)
+                    print(
+                        f"{_count(outcome.queued, 'document')} queued again; the worker "
+                        "indexes them while it runs, so start the app if it is stopped."
+                    )
+                else:
+                    print(
+                        f"Found {_count(len(failures), 'failed job')} from the last "
+                        f"{HISTORY.days} days:"
+                    )
+                    for failure in failures:
+                        print(describe(failure))
+                    print(
+                        "Run again with --requeue to index their documents again from the "
+                        "stage they stopped at."
+                    )
     except (RuntimeError, StorageError) as error:
         sys.exit(str(error))
 

@@ -547,7 +547,8 @@ class Job(Base):
     The row is the claim and the retry bookkeeping; what the job is about keeps its own
     user-visible state (a document's `status` and `stages`). A running job holds a lease that
     its worker extends while it works, so a job whose worker died is claimed again once the
-    lease runs out, and a job that was lost that way `max_attempts` times is given up.
+    lease runs out, and a job that was lost that way `max_attempts` times is given up. A job
+    the worker gave up on ends `failed` and is kept for the operator (app/deadletters.py).
     """
 
     __tablename__ = "jobs"
@@ -591,3 +592,6 @@ class Job(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     finished_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    # When a failed job was reported to the operator (app/deadletters.py): null until then,
+    # and for jobs that did not fail.
+    reported_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))

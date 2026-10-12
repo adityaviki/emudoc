@@ -15,6 +15,11 @@ A stage that failed because a provider or the storage was out of reach is tried 
 handler queues the document again from that stage after a wait that doubles each time, a few
 times, and the stage's detail says so for as long as the user looks. A stage that failed for a
 reason that will not pass on its own (the file, the key, the model's reply) is not.
+
+A job the worker could not complete ends `failed`, with `last_error` saying why: lost to a
+dying process `max_attempts` times, a handler that raised, or a stage that kept failing through
+every retry. Those are the dead letters (app/deadletters.py): the alerter thread mails the new
+ones to ALERT_EMAIL every quarter of an hour, and the `failed-jobs` command lists them.
 """
 
 import argparse
@@ -34,6 +39,7 @@ from sqlalchemy import text
 
 from app.config import Settings, get_settings
 from app.db import SessionLocal
+from app.deadletters import alert_failed_jobs
 from app.indexing.pipeline import (
     Services,
     StageFailure,
@@ -42,6 +48,7 @@ from app.indexing.pipeline import (
     process_document,
 )
 from app.jobs import INDEX_DOCUMENT, LEASE, claim, extend_leases, finish, queue_index, release
+from app.mail import Mailer, mailer_from_settings
 from app.maintenance import housekeeping
 from app.models import Document, Job
 from app.startup import prepare
@@ -59,6 +66,10 @@ HEARTBEAT_SECONDS = 60.0
 # restarted in a loop does not walk the storage every time, and then at this interval.
 HOUSEKEEPING_DELAY = 60.0
 HOUSEKEEPING_INTERVAL = 6 * 3600.0
+# How often the jobs this process and the others gave up on are mailed to ALERT_EMAIL, as one
+# digest (app/deadletters.py): within the quarter of an hour the retries take anyway, and
+# seldom enough that a backlog of bad files is one message, not hundreds.
+ALERT_INTERVAL = 15 * 60.0
 # How long a stopping worker lets the jobs it is running finish before it hands them back.
 # Under the 10 seconds Docker allows by default before it kills a container; a deployment that
 # allows more can pass more with --grace.
@@ -77,16 +88,18 @@ class Handler:
     """What the worker does with one kind of job.
 
     `run` does the work; it may be run again after a lost lease or a stop, so it resumes or
-    repeats safely. `abandon` is called instead when the job is given up because every attempt
-    was lost to a process that died: it leaves what the job was about in a state the user can
-    act on.
+    repeats safely. It returns None, or the reason it gave the job up for good, which the worker
+    records as the job's `last_error` for the operator (app/deadletters.py); what the job was
+    about must already say so to the user. `abandon` is called instead when the job is given up
+    because every attempt was lost to a process that died: it leaves what the job was about in
+    a state the user can act on.
     """
 
-    run: Callable[[Job, Services], None]
+    run: Callable[[Job, Services], str | None]
     abandon: Callable[[Job, Services, str], None]
 
 
-def _run_index(job: Job, services: Services) -> None:
+def _run_index(job: Job, services: Services) -> str | None:
     document_id = job.payload["document_id"]
     try:
         failures = process_document(document_id, services)
@@ -96,19 +109,23 @@ def _run_index(job: Job, services: Services) -> None:
         raise
     # From the first stage worth running again; the ones behind it run again with it.
     if failure := next((failure for failure in failures if failure.transient), None):
-        _retry_index(job, failure)
+        return _retry_index(job, failure)
+    return None
 
 
-def _retry_index(job: Job, failure: StageFailure) -> None:
+def _retry_index(job: Job, failure: StageFailure) -> str | None:
     """Queue the document to run again from the failed stage after the next backoff, or give up
-    once it has been retried MAX_RETRIES times, saying either in the stage's detail."""
+    once it has been retried MAX_RETRIES times, saying either in the stage's detail.
+
+    Returns the reason when it gives up, for the job to end failed with.
+    """
     document_id = job.payload["document_id"]
     retry = job.payload.get("retry", 0) + 1
     with SessionLocal() as session:
         document = session.get(Document, document_id)
         if document is None or document.stages.get(failure.stage, {}).get("status") != "failed":
             # Deleted, or queued again by the user since the run ended: that job runs the stage.
-            return
+            return None
         if retry > MAX_RETRIES:
             tries = MAX_RETRIES + 1
             waited = FIRST_BACKOFF * (2**MAX_RETRIES - 1)
@@ -119,15 +136,12 @@ def _retry_index(job: Job, failure: StageFailure) -> None:
                 "service is back.",
             )
             session.commit()
-            log.warning(
-                "Document %s: stage %s failed %s times for a passing reason and is not tried "
-                "again (%s)",
-                document_id,
-                failure.stage,
-                tries,
-                failure.message,
+            reason = (
+                f"Stage {failure.stage} failed {tries} times over {_minutes(waited)}: "
+                f"{failure.message}"
             )
-            return
+            log.error("Document %s is not tried again. %s", document_id, reason)
+            return reason
         wait = FIRST_BACKOFF * 2 ** (retry - 1)
         await_retry(document, failure, f"Retrying in {_minutes(wait)} ({retry} of {MAX_RETRIES}).")
         queue_index(
@@ -148,6 +162,7 @@ def _retry_index(job: Job, failure: StageFailure) -> None:
         MAX_RETRIES,
         failure.message,
     )
+    return None
 
 
 def _minutes(delta: timedelta) -> str:
@@ -174,9 +189,12 @@ HANDLERS: dict[str, Handler] = {INDEX_DOCUMENT: Handler(_run_index, _abandon_ind
 
 
 class Worker:
-    def __init__(self, services: Services, concurrency: int):
+    def __init__(self, services: Services, concurrency: int, mailer: Mailer | None = None):
         self._services = services
         self._concurrency = concurrency
+        # What the jobs given up on are reported through; without it, or without ALERT_EMAIL,
+        # they are in the log and the failed-jobs command only.
+        self._mailer = mailer
         self._id = f"{socket.gethostname()}:{os.getpid()}"
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -195,6 +213,14 @@ class Worker:
             self._spawn(self._loop, f"indexer-{index}")
         self._spawn(self._heartbeat, "heartbeat")
         self._spawn(self._housekeep, "housekeeper")
+        settings = get_settings()
+        if self._mailer is not None and settings.alert_email:
+            self._spawn(self._alert, "alerter")
+        elif settings.environment == "production":
+            log.warning(
+                "ALERT_EMAIL is not set: the jobs the worker gives up on are reported in the "
+                "log only, and listed by `python -m app.maintenance failed-jobs`"
+            )
 
     def _spawn(self, target: Callable[[], None], name: str) -> None:
         thread = threading.Thread(target=target, name=name, daemon=True)
@@ -280,12 +306,12 @@ class Worker:
                     self._finish(job, "failed", f"Given up after {job.max_attempts} lost attempts")
                     return
                 try:
-                    handler.run(job, self._services)
+                    given_up = handler.run(job, self._services)
                 except Exception as error:
                     log.exception("Job %s (%s) failed", job.id, job.kind)
                     self._finish(job, "failed", f"{type(error).__name__}: {error}")
                 else:
-                    self._finish(job, "done")
+                    self._finish(job, "failed" if given_up else "done", given_up)
         except Exception:
             # The database went away while the job was being settled. Its lease runs out and
             # another claim runs it again, which every handler must be able to take.
@@ -340,12 +366,24 @@ class Worker:
                 )
             delay = HOUSEKEEPING_INTERVAL
 
+    def _alert(self) -> None:
+        while not self._stop.wait(ALERT_INTERVAL):
+            try:
+                alert_failed_jobs(self._mailer, get_settings().alert_email)
+            except Exception:
+                # A relay or a database that is unreachable now may be back by the next round,
+                # and the failures stay unreported until then.
+                log.exception(
+                    "Reporting the failed jobs failed; it runs again in %s minutes",
+                    ALERT_INTERVAL / 60,
+                )
+
 
 def serve(
     services: Services, settings: Settings, stopping: threading.Event, grace: float = GRACE
 ) -> None:
     """Run the worker until `stopping` is set, then stop it within `grace` seconds."""
-    worker = Worker(services, settings.worker_concurrency)
+    worker = Worker(services, settings.worker_concurrency, mailer_from_settings(settings))
     worker.start()
     log.info("Worker %s is running, %s jobs at a time", worker.id, settings.worker_concurrency)
     stopping.wait()

@@ -110,6 +110,10 @@ class Settings(BaseSettings):
     # (STARTTLS) or smtps://user:pass@host:465 (TLS).
     smtp_url: str = ""
     mail_from: str = "Emudoc <no-reply@localhost>"
+    # Where the jobs the worker gave up on are reported (app/deadletters.py), through the
+    # mailer above, as one digest every quarter of an hour. Empty sends nothing: the failures
+    # wait, listed by the failed-jobs command, until an address is set.
+    alert_email: str = ""
 
     # Sign-in with Google and Microsoft: an OAuth client per provider, registered with the
     # redirect URI {APP_URL}/api/auth/oauth/{provider}/callback. A provider without an id is
