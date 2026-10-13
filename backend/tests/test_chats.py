@@ -2,13 +2,15 @@
 which the worker writes (app/answers.py) and the events route streams from the table."""
 
 import json
+import threading
+import time
 
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolCallPart
 from sqlalchemy import func, select
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 
 from app.agent.tools import TOOLS
-from app.answers import STOPPED, answer
+from app.answers import KEEPALIVE, STOPPED, answer
 from app.api.chats import STILL_ANSWERING
 from app.config import get_settings
 from app.db import BUSY
@@ -19,7 +21,8 @@ from tests.conftest import MISSING_KEY, FakeTurn
 
 
 def sse_of(body: str) -> list[tuple[int | None, dict]]:
-    """The (id, event) pairs of a server-sent event body, in order."""
+    """The (id, event) pairs of a server-sent event body, in order. A comment line, which is
+    what the keep-alive is, carries no event and is skipped, as the format says."""
     pairs = []
     for block in body.split("\n\n"):
         seq, data = None, None
@@ -212,6 +215,38 @@ def test_a_follower_resumes_from_the_last_event_it_saw(client, services, indexed
     assert client.get(f"/api/chats/{other['id']}/messages/{message_id}/events").status_code == 404
     question_id = asked["question"]["id"]
     assert client.get(f"/api/chats/{chat['id']}/messages/{question_id}/events").status_code == 404
+
+
+def test_the_stream_carries_a_keep_alive_while_the_model_thinks(
+    client, services, indexed, monkeypatch
+):
+    # A proxy or load balancer ends a stream that carried nothing for its idle timeout, which
+    # the model's thinking can outlast, so the route sends a comment whenever it had nothing
+    # else to send for a while; a client ignores it. Here the answer stays pending for half a
+    # second and is written from another thread, as the worker would.
+    monkeypatch.setattr("app.api.chats.SSE_KEEPALIVE_SECONDS", 0.05)
+    services.llm.agent_turns = [FakeTurn(TextPart("90 days."))]
+    chat = new_chat(client, indexed.project_id)
+    message_id = ask(client, chat["id"], "Notice period?")["answer"]["id"]
+
+    def answer_later():
+        time.sleep(0.5)
+        answer(message_id, services)
+
+    worker = threading.Thread(target=answer_later)
+    worker.start()
+    try:
+        response = client.get(f"/api/chats/{chat['id']}/messages/{message_id}/events")
+    finally:
+        worker.join()
+    assert response.status_code == 200
+    body = response.text
+    # Keep-alives while nothing was written, then the events and the end as ever.
+    assert body.count(KEEPALIVE) >= 2
+    assert body.index(KEEPALIVE) < body.index("id: 0\n")
+    pairs = sse_of(body)
+    assert [seq for seq, _ in pairs] == [0, 1, None]
+    assert [event["type"] for _, event in pairs] == ["text", "done", "end"]
 
 
 def test_the_latest_chat_comes_first_and_long_titles_are_cut(client, indexed):

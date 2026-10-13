@@ -491,6 +491,8 @@ export async function* streamEvents(
     if (done) return
     buffer += value
     // Server-sent events are separated by a blank line; each is an id line and a data line.
+    // A block of comment lines (`: keep-alive`, sent while the server has nothing to say so
+    // that no proxy ends the idle connection) has neither and yields nothing.
     let end: number
     while ((end = buffer.indexOf('\n\n')) >= 0) {
       const block = buffer.slice(0, end)

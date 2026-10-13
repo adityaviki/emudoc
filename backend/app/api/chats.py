@@ -8,6 +8,7 @@ ends an answer early with what arrived so far.
 """
 
 import logging
+import time
 from collections.abc import AsyncIterator
 
 import anyio
@@ -17,7 +18,16 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
-from app.answers import STOPPED, answers_in_flight, events_after, fold, settle, sse, start_answer
+from app.answers import (
+    KEEPALIVE,
+    STOPPED,
+    answers_in_flight,
+    events_after,
+    fold,
+    settle,
+    sse,
+    start_answer,
+)
 from app.api.deps import (
     RETRY_AFTER,
     AccountDep,
@@ -47,6 +57,11 @@ STILL_ANSWERING = (
 # How often the events route looks for new events of an answer it is following. Each look is
 # one short query from a thread; the wait between them holds no thread.
 EVENT_POLL_SECONDS = 0.1
+# How long the stream may carry nothing before a keep-alive comment goes out. Shorter than any
+# proxy's or load balancer's idle timeout (a minute is the usual, nginx's default among them),
+# so the connection outlives the model's thinking and the client never has to follow again
+# for a silence alone.
+SSE_KEEPALIVE_SECONDS = 15.0
 SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
 
@@ -203,11 +218,13 @@ def _poll(message_id: int, after: int) -> tuple[str | None, list[tuple[int, dict
 
 
 async def _follow(message_id: int, after: int) -> AsyncIterator[str]:
-    """Send the events as they are written until the answer is settled.
+    """Send the events as they are written until the answer is settled, and a keep-alive
+    comment whenever nothing was sent for SSE_KEEPALIVE_SECONDS.
 
     Async, so that waiting for the next event holds no request thread; each look at the table
     takes one for the length of a query.
     """
+    sent_at = time.monotonic()
     while True:
         try:
             status, rows = await anyio.to_thread.run_sync(_poll, message_id, after)
@@ -227,8 +244,13 @@ async def _follow(message_id: int, after: int) -> AsyncIterator[str]:
         if status != "streaming":
             yield sse(None, {"type": "end", "status": status})
             return
-        if not rows:
-            await anyio.sleep(EVENT_POLL_SECONDS)
+        if rows:
+            sent_at = time.monotonic()
+            continue
+        if time.monotonic() - sent_at >= SSE_KEEPALIVE_SECONDS:
+            yield KEEPALIVE
+            sent_at = time.monotonic()
+        await anyio.sleep(EVENT_POLL_SECONDS)
 
 
 def too_long(length: int, cap: int) -> str:

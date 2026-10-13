@@ -409,3 +409,9 @@ def sse(seq: int | None, event: dict[str, Any]) -> str:
     """One server-sent event; the seq is its id, which a client sends back to resume."""
     head = f"id: {seq}\n" if seq is not None else ""
     return f"{head}data: {json.dumps(event, default=str)}\n\n"
+
+
+# A comment, which the server-sent events format says a client ignores, sent while an answer has
+# nothing to say so that the connection carries bytes: a proxy or load balancer ends an idle
+# stream at its own timeout, a minute for many, and the model can think for longer than that.
+KEEPALIVE = ": keep-alive\n\n"

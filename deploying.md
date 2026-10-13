@@ -70,11 +70,22 @@ are the operator's decision; a deployment that wants them replaces the header at
 site block, or `proxy_hide_header Strict-Transport-Security;` with an `add_header` of its own
 in the nginx location.
 
+An answer arrives as a stream of server-sent events (`GET
+/api/chats/{id}/messages/{id}/events`), a response that stays open until the answer is
+finished and carries nothing while the model thinks. The proxy must pass it on as it comes
+rather than whole: the app sends `X-Accel-Buffering: no` on it, which nginx honours, and Caddy
+streams a `text/event-stream` response as it is. And it must not end the connection as idle:
+the app writes a comment line on the stream whenever nothing else was sent for 15 seconds, so
+a proxy's or load balancer's idle timeout, a minute for most, never runs out, and the default
+timeouts of both examples serve. Should a connection drop all the same, the browser follows
+the answer again from the last event it saw and nothing is lost.
+
 ### Caddy
 
 Caddy obtains and renews the certificate itself, sets the two headers and passes `Host`
-through, and streams an answer's events as they come. This is the whole configuration, as
-`/etc/caddy/Caddyfile`:
+through, keeps its connections to the app open between requests, and streams an answer's
+events as they come with no read timeout unless one is set. This is the whole configuration,
+as `/etc/caddy/Caddyfile`:
 
 ```caddyfile
 emudoc.example.com {
@@ -94,12 +105,18 @@ emudoc.example.com {
 
 ### nginx
 
-nginx needs the headers set by hand, the body limit, and a read timeout longer than its default
-minute: an answer streams as server-sent events, and one request to the model can take longer
-than that. The app sends `X-Accel-Buffering: no` on that stream, which nginx honours, so the
-events are not buffered.
+nginx needs the headers set by hand, the body limit, and HTTP/1.1 with the `Connection` header
+cleared towards the app: without both it opens a connection per request instead of keeping
+the ones in the `upstream` block's pool. Its default `proxy_read_timeout` of a minute is
+enough for an answer's stream, since the app's keep-alive comes every 15 seconds of silence.
 
 ```nginx
+upstream emudoc {
+    server 127.0.0.1:8000;
+    # Connections to the app kept open between requests.
+    keepalive 16;
+}
+
 server {
     listen 443 ssl;
     server_name emudoc.example.com;
@@ -109,20 +126,20 @@ server {
     # Every request is small, except an upload: MAX_UPLOAD_REQUEST_MB, 500 by default, on
     # that route alone. The proxy refuses a larger body before the app has read it.
     client_max_body_size 1m;
+    # HTTP/1.1 and no Connection header towards the app: the pool above needs both.
     proxy_http_version 1.1;
+    proxy_set_header Connection "";
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    # An answer's event stream is silent while the model thinks.
-    proxy_read_timeout 300s;
 
     location / {
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://emudoc;
     }
 
     location ~ ^/api/projects/[0-9]+/documents$ {
         client_max_body_size 500m;
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://emudoc;
     }
 }
 
@@ -157,7 +174,9 @@ before the app would hold it.
    the API's log has no line saying a request "reached the app as plain HTTP": that line
    means the proxy did not send `X-Forwarded-Proto`, or uvicorn was not told to believe it.
 3. Upload a document and ask a question about it: the upload goes through the proxy's body
-   limit, and the answer appears as it is written rather than all at once.
+   limit, and the answer appears as it is written rather than all at once. In the browser's
+   network tab the events request stays open across the whole answer, with a `: keep-alive`
+   line every 15 seconds while the model thinks, and no second events request follows it.
 4. The browser's developer tools show no "Refused to load" line in the console while you work,
    and the response headers of any request carry `Content-Security-Policy` and, over HTTPS,
    `Strict-Transport-Security`. With a bucket, the policy's `img-src` names the bucket's
