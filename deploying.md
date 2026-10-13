@@ -60,6 +60,16 @@ anyone else who can would choose the address their session shows and claim to be
 The proxy must also pass the browser's `Host` header on unchanged, which both examples below
 do, so that the frontend's requests are served under the name the user opened.
 
+The browser's security headers are the app's, on every response: `Content-Security-Policy`,
+`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and `Permissions-Policy`, and
+`Strict-Transport-Security` for a year once a request arrives over HTTPS by the proxy's
+account, and always in production. The proxy adds none of them. The app's HSTS header names
+neither `includeSubDomains` nor `preload`, which bind every subdomain of the name to HTTPS and
+are the operator's decision; a deployment that wants them replaces the header at the proxy, as
+`header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"` in the Caddy
+site block, or `proxy_hide_header Strict-Transport-Security;` with an `add_header` of its own
+in the nginx location.
+
 ### Caddy
 
 Caddy obtains and renews the certificate itself, sets the two headers and passes `Host`
@@ -125,3 +135,7 @@ browser changes nothing.
    means the proxy did not send `X-Forwarded-Proto`, or uvicorn was not told to believe it.
 3. Upload a document and ask a question about it: the upload goes through the proxy's body
    limit, and the answer appears as it is written rather than all at once.
+4. The browser's developer tools show no "Refused to load" line in the console while you work,
+   and the response headers of any request carry `Content-Security-Policy` and, over HTTPS,
+   `Strict-Transport-Security`. With a bucket, the policy's `img-src` names the bucket's
+   origin, which the page images and thumbnails redirect to.

@@ -232,9 +232,9 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   settings are development's: the `docker compose` database's password, `LOCAL_ACCOUNT=true`,
   no `STORAGE_URL`, no `APP_URL`, no `SMTP_URL`, a `DAILY_SPEND_CAP` without `MODEL_PRICES`,
   or no key for the model. It does not serve the interactive API docs at `/docs`, and it marks
-  the session cookie `Secure` whatever the request's scheme, since a deployment is behind
-  TLS; a request that still reaches it as plain HTTP is logged with what the proxy should
-  send.
+  the session cookie `Secure` and sends `Strict-Transport-Security` whatever the request's
+  scheme, since a deployment is behind TLS; a request that still reaches it as plain HTTP is
+  logged with what the proxy should send.
 - `FORWARDED_ALLOW_IPS` is uvicorn's, not the app's: the addresses whose `X-Forwarded-Proto`
   and `X-Forwarded-For` headers it believes, which tell the app the request's scheme and the
   browser's address behind a reverse proxy. `127.0.0.1,::1` by default, right for a proxy on
@@ -317,6 +317,16 @@ requests do and a page on another site cannot add, so the cookie alone changes n
 header when calling the API by hand. The routes are under `/api/auth`, the pages in
 `frontend/src/account/`.
 
+Every response carries the headers that tell the browser what a page of the app may do
+(`backend/app/headers.py`): a `Content-Security-Policy` that allows scripts, styles and requests
+from the app's own origin only, and images from the storage bucket besides, so an answer cannot
+load an image from an address a document planted in it; `frame-ancestors 'none'` and
+`X-Frame-Options`, so no other site can show the app in a frame; `X-Content-Type-Options:
+nosniff`; `Referrer-Policy: strict-origin-when-cross-origin`; and `Strict-Transport-Security`
+over HTTPS and always in production. The policy allows no inline code, which is why the one
+script `index.html` runs before the app, the saved theme, is the file `frontend/public/theme.js`.
+The development server on :5173 sends none of this; the build served on :8000 does.
+
 ## Tests
 
 ```bash
@@ -355,6 +365,7 @@ backend/app/
   entitlements.py
                 what each plan allows, and the checks the routes and the parse stage make
   api/          HTTP endpoints
+  headers.py    the headers every response carries for the browser
   answers.py    an answer as a job: the worker writes its events, the API streams them
   llm.py        every call to the AI model
 backend/migrations/

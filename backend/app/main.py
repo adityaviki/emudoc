@@ -12,6 +12,7 @@ from app.api import auth, chats, documents, folders, projects, query
 from app.api.deps import RETRY_AFTER, AccountDep, ServicesDep, SessionDep, refuse_cross_site
 from app.config import ROOT_DIR, get_settings
 from app.db import BUSY, engine
+from app.headers import SecurityHeaders, content_security_policy
 from app.indexing.pipeline import Services
 from app.mail import Mailer, mailer_from_settings
 from app.schemas import EmbeddingStatus, HealthOut, LLMStatus, StatusOut
@@ -89,6 +90,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.services = prepare(settings, services)
+        app.state.policy = content_security_policy(app.state.services.storage)
         app.state.mailer = mailer or mailer_from_settings(settings)
         app.state.http = http or httpx.Client(timeout=10)
         # The worker is the API's own in development and a process of its own in production
@@ -116,6 +118,7 @@ def create_app(
     )
     app.add_exception_handler(StorageError, storage_unavailable)
     app.add_exception_handler(PoolTimeout, pool_exhausted)
+    app.add_middleware(SecurityHeaders)
     for router in (
         system,
         auth.router,

@@ -36,6 +36,7 @@ from collections.abc import Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import cached_property
 from itertools import batched
 from pathlib import Path
 from typing import Any, Protocol
@@ -143,6 +144,13 @@ class Storage(ABC):
     ) -> str | None:
         """A URL that serves the object to whoever holds it until it expires, or None when the
         storage has no such thing and the app serves the object itself."""
+
+    @property
+    def origin(self) -> str | None:
+        """The origin the signed URLs lead to, which the browser must be allowed to load images
+        from (`content_security_policy` in app/headers.py); None when the app serves the files
+        itself."""
+        return None
 
     @abstractmethod
     def list(self, prefix: str) -> Iterator[StoredObject]:
@@ -486,7 +494,7 @@ class S3Storage(Storage):
         content_type: str,
         filename: str | None = None,
         expires_in: int = URL_LIFETIME,
-    ) -> str | None:
+    ) -> str:
         # The type and the name are fixed when the URL is signed, so whoever holds the URL
         # gets the object as the app would have served it.
         params: dict[str, Any] = {
@@ -497,6 +505,14 @@ class S3Storage(Storage):
         if filename:
             params["ResponseContentDisposition"] = content_disposition(filename)
         return self.client.generate_presigned_url("get_object", Params=params, ExpiresIn=expires_in)
+
+    @cached_property
+    def origin(self) -> str:
+        # Signing happens on this machine, and the host it signs for follows the endpoint, the
+        # region and the addressing style boto3 settled on, so the surest way to learn where
+        # every signed URL leads is to sign one.
+        parts = urlsplit(self.presigned_url("origin", content_type="application/octet-stream"))
+        return f"{parts.scheme}://{parts.netloc}"
 
     def list(self, prefix: str) -> Iterator[StoredObject]:
         folder = self._key(_folder(prefix))

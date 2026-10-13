@@ -5,12 +5,8 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Emudoc</title>
-    <script>
-      // Apply a saved dark choice before first paint; light is the default.
-      try {
-        if (localStorage.getItem('theme') === 'dark') document.documentElement.dataset.theme = 'dark'
-      } catch {}
-    </script>
+    <!-- The theme script is a file, not inline, so the Content-Security-Policy allows no inline script. -->
+    <script src="/theme.js"></script>
   </head>
   <body>
     <div id="root"></div>
