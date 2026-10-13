@@ -323,7 +323,7 @@ def oauth_start(provider: str, request: Request, next: str = "/"):
         max_age=OAUTH_WINDOW_SECONDS,
         httponly=True,
         samesite="lax",
-        secure=request.url.scheme == "https",
+        secure=auth.cookie_secure(request),
         path="/api/auth/oauth",
     )
     return response

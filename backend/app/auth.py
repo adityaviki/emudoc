@@ -9,6 +9,7 @@ import base64
 import datetime as dt
 import hashlib
 import hmac
+import logging
 import secrets
 import struct
 from urllib.parse import quote
@@ -21,6 +22,8 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models import AuthToken, User, UserSession
+
+log = logging.getLogger(__name__)
 
 SESSION_COOKIE = "emudoc_session"
 # A session that still waits for the authenticator code is short-lived.
@@ -35,6 +38,12 @@ TOTP_STEP_SECONDS = 30
 TOTP_DIGITS = 6
 TOTP_ISSUER = "Emudoc"
 RECOVERY_CODE_COUNT = 8
+# Logged when a production request arrives as plain HTTP, which is the proxy's doing.
+PLAIN_HTTP = (
+    "%s %s reached the app as plain HTTP in production, so its cookie was marked Secure "
+    "regardless. If TLS ends at a proxy, have it send X-Forwarded-Proto and X-Forwarded-For "
+    "and name its address in FORWARDED_ALLOW_IPS so that uvicorn believes them (deploying.md)."
+)
 
 _hasher = PasswordHasher()
 # Verified against when an account has no password, so that a sign-in attempt takes as long
@@ -130,6 +139,24 @@ def revoke_sessions(session: Session, user_id: int, except_id: int | None = None
     session.execute(statement.values(revoked_at=now()))
 
 
+def cookie_secure(request: Request) -> bool:
+    """Whether a cookie set on this response is marked Secure, so the browser sends it over
+    HTTPS only.
+
+    In development the request's own scheme decides, so that http://localhost keeps working.
+    A deployment is always behind TLS, so production marks it whatever the request says: a
+    request that reaches the app as plain HTTP there means the proxy that ends TLS did not say
+    so in X-Forwarded-Proto, or uvicorn was not told to believe it (deploying.md). The log
+    names that, since a cookie without the flag would be the quieter mistake.
+    """
+    if request.url.scheme == "https":
+        return True
+    if get_settings().environment != "production":
+        return False
+    log.warning(PLAIN_HTTP, request.method, request.url.path)
+    return True
+
+
 def set_session_cookie(
     response: Response, request: Request, token: str, needs_mfa: bool = False
 ) -> None:
@@ -140,7 +167,7 @@ def set_session_cookie(
         max_age=int(lifetime.total_seconds()),
         httponly=True,
         samesite="lax",
-        secure=request.url.scheme == "https",
+        secure=cookie_secure(request),
         path="/",
     )
 

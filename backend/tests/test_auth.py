@@ -2,6 +2,7 @@
 through Google and Microsoft."""
 
 import base64
+import logging
 import time
 from urllib.parse import parse_qs, urlsplit
 
@@ -119,6 +120,34 @@ def test_login_and_logout(client, signed_in_only):
     client.cookies.set("emudoc_session", cookie)
     assert me(client).status_code == 401
     assert me(client).json()["detail"] == SIGN_IN
+
+
+def test_cookies_are_secure_in_production_whatever_the_scheme(
+    client, signed_in_only, oauth, monkeypatch, caplog
+):
+    # The test client reaches the app as plain HTTP, as uvicorn sees a request from a proxy
+    # that ends TLS but does not say so. In development that is a cookie without Secure, so
+    # that http://localhost keeps working.
+    response = client.post(
+        "/api/auth/signup", json={"email": "ada@example.com", "name": "Ada", "password": PASSWORD}
+    )
+    assert response.status_code == 201, response.text
+    assert "secure" not in response.headers["set-cookie"].lower()
+
+    # A deployment is behind TLS whatever the request says, so production marks every cookie
+    # and the log says what the proxy and uvicorn should have been told.
+    monkeypatch.setattr(get_settings(), "environment", "production")
+    with caplog.at_level(logging.WARNING, logger="app.auth"):
+        response = client.post(
+            "/api/auth/login", json={"email": "ada@example.com", "password": PASSWORD}
+        )
+        assert response.status_code == 200, response.text
+        assert "; secure" in response.headers["set-cookie"].lower()
+        response = client.get("/api/auth/oauth/google/start", follow_redirects=False)
+        assert response.status_code == 302, response.text
+        assert "; secure" in response.headers["set-cookie"].lower()
+    assert caplog.text.count("FORWARDED_ALLOW_IPS") == 2
+    assert "POST /api/auth/login reached the app as plain HTTP" in caplog.text
 
 
 def test_sign_in_is_required_unless_the_local_account_is_switched_on():

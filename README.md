@@ -144,7 +144,8 @@ refuses the same misconfigurations, and claims jobs from the queue in Postgres. 
 SIGTERM stops it: the jobs it is running get a few seconds to finish (`--grace`, 8 by default,
 under Docker's 10), and the rest are queued again for the next worker to take at once. Without
 any worker, uploads stay queued and questions wait unanswered. `RUN_WORKER=true` runs the
-worker inside the API process instead, for a small deployment.
+worker inside the API process instead, for a small deployment. Putting it on a server, with
+TLS at a reverse proxy in front of uvicorn, is [`deploying.md`](deploying.md).
 
 The database schema is a set of migrations in `backend/migrations/`; `uv run alembic upgrade
 head` applies the ones the database has not seen yet, so run it again after updating. The backend
@@ -230,7 +231,15 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   set in the environment. Production also refuses to start, listing what to change, when the
   settings are development's: the `docker compose` database's password, `LOCAL_ACCOUNT=true`,
   no `STORAGE_URL`, no `APP_URL`, no `SMTP_URL`, a `DAILY_SPEND_CAP` without `MODEL_PRICES`,
-  or no key for the model. It does not serve the interactive API docs at `/docs`.
+  or no key for the model. It does not serve the interactive API docs at `/docs`, and it marks
+  the session cookie `Secure` whatever the request's scheme, since a deployment is behind
+  TLS; a request that still reaches it as plain HTTP is logged with what the proxy should
+  send.
+- `FORWARDED_ALLOW_IPS` is uvicorn's, not the app's: the addresses whose `X-Forwarded-Proto`
+  and `X-Forwarded-For` headers it believes, which tell the app the request's scheme and the
+  browser's address behind a reverse proxy. `127.0.0.1,::1` by default, right for a proxy on
+  the same machine; a proxy elsewhere needs its address or network named, in the environment
+  (`deploying.md`).
 - `DATABASE_URL` names the database as a SQLAlchemy URL. There is no default: a process that
   is not told its database stops at once and says so. `.env.example` names the
   `docker compose` container, which only this machine can reach; a deployment sets the
@@ -294,18 +303,19 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
 
 ## Accounts
 
-Signing up with an email and a password makes a user and an organisation of their own, which
-they own; a verification link goes out by email, and a banner asks for it until it is used.
-Sign-in sets a session cookie. The account page (the initials in the header) changes the
-password, turns on a code from an authenticator app at sign-in (shown as a QR code to scan, with
-recovery codes for a lost phone), lists the browsers and devices that are signed in and signs any
-of them out; a forgotten password is reset through a link sent by email, which signs the account
-out everywhere. Google and Microsoft accounts sign in through OpenID Connect and are linked to an
-existing account only when both sides have verified the address. A visitor without a session is
-sent to `/login` and returns to the page they wanted. Every request that changes something must
-carry an `X-Requested-With` header, which the app's own requests do and a page on another site
-cannot add, so the cookie alone changes nothing; send the header when calling the API by hand.
-The routes are under `/api/auth`, the pages in `frontend/src/account/`.
+Signing up with an email and a password makes a user and an organisation of their own, which they
+own; a verification link goes out by email, and a banner asks for it until it is used. Sign-in
+sets a session cookie, marked `Secure` over HTTPS and always in production. The account page (the
+initials in the header) changes the password, turns on a code from an authenticator app at sign-in
+(shown as a QR code to scan, with recovery codes for a lost phone), lists the browsers and devices
+that are signed in and signs any of them out; a forgotten password is reset through a link sent by
+email, which signs the account out everywhere. Google and Microsoft accounts sign in through
+OpenID Connect and are linked to an existing account only when both sides have verified the
+address. A visitor without a session is sent to `/login` and returns to the page they wanted.
+Every request that changes something must carry an `X-Requested-With` header, which the app's own
+requests do and a page on another site cannot add, so the cookie alone changes nothing; send the
+header when calling the API by hand. The routes are under `/api/auth`, the pages in
+`frontend/src/account/`.
 
 ## Tests
 
