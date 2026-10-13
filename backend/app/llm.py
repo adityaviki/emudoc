@@ -2,6 +2,12 @@
 
 Requests go through Pydantic AI, which speaks each provider's API, so `INDEX_MODEL` and
 `AGENT_MODEL` can name any model it supports as `provider:model`.
+
+A provider named in DISABLED_PROVIDERS (app/config.py) is switched off: its models raise
+`LLMUnavailable` before a request is made, as a missing key would, except that the problem is
+a passing one by design. The app then runs as it does without a key, the status route says
+why, and a production process starts regardless (app/startup.py), which is what makes the
+setting a kill switch rather than a misconfiguration.
 """
 
 import asyncio
@@ -175,6 +181,14 @@ def _give_up(future: Future[Any], message: str) -> LLMError:
     return LLMError(f"{message} Try again.", transient=True)
 
 
+def _switched_off(name: str, provider: str) -> str:
+    """What stops the model `name` while DISABLED_PROVIDERS names its provider."""
+    return (
+        f"{name} is switched off: DISABLED_PROVIDERS names its provider, {provider}. Remove it "
+        "there and restart the app to use the model again."
+    )
+
+
 def _setup_problem(name: str, error: Exception, settings: Settings) -> str:
     """What stops the model `name` from being set up, said as the step that fixes it."""
     message = str(error)
@@ -317,11 +331,17 @@ class LLM:
         self._models: dict[str, Model] = {}
         self._lock = threading.Lock()
 
+    def check(self) -> None:
+        """Raise `LLMUnavailable` with what stops the configured models from being used: a
+        key or a package that is missing, or a provider that is switched off, which the error
+        marks transient."""
+        for name in (self._settings.index_model, self._settings.agent_model):
+            self._model(name)
+
     def problem(self) -> str | None:
         """What stops the configured models from being used, or None when nothing does."""
         try:
-            for name in (self._settings.index_model, self._settings.agent_model):
-                self._model(name)
+            self.check()
         except LLMUnavailable as error:
             return str(error)
         return None
@@ -331,7 +351,10 @@ class LLM:
         return self.problem() is None
 
     def _model(self, name: str) -> Model:
-        """The adapter for a `provider:model` name, built on first use."""
+        """The adapter for a `provider:model` name, built on first use, and refused while the
+        provider is switched off (DISABLED_PROVIDERS), whether or not it was built before."""
+        if (provider := name.partition(":")[0]) in self._settings.disabled:
+            raise LLMUnavailable(_switched_off(name, provider), transient=True)
         with self._lock:
             if name not in self._models:
                 try:

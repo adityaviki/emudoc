@@ -25,12 +25,15 @@ with nothing of that stage written, and the job is the other worker's to finish.
 A stage that failed because a provider or the storage was out of reach is tried again: the index
 handler queues the document again from that stage after a wait that doubles each time, a few
 times, and the stage's detail says so for as long as the user looks. A stage that failed for a
-reason that will not pass on its own (the file, the key, the model's reply) is not.
+reason that will not pass on its own (the file, the key, the model's reply) is not. A stage
+that the day's spending limit put off (app/spending.py) is queued again for midnight UTC, when
+the limit resets, and that wait counts as no retry.
 
 A job the worker could not complete ends `failed`, with `last_error` saying why: lost to a
 dying process `max_attempts` times, a handler that raised, or a stage that kept failing through
 every retry. Those are the dead letters (app/deadletters.py): the alerter thread mails the new
-ones to ALERT_EMAIL every quarter of an hour, and the `failed-jobs` command lists them.
+ones to ALERT_EMAIL every quarter of an hour, and the `failed-jobs` command lists them. The same
+thread warns the operator when a day's spending nears a limit (app/spending.py).
 """
 
 import argparse
@@ -76,6 +79,7 @@ from app.jobs import (
 from app.mail import Mailer, mailer_from_settings
 from app.maintenance import housekeeping
 from app.models import Document, Job
+from app.spending import alert_spending, when
 from app.startup import prepare
 from app.storage import StorageError
 
@@ -95,8 +99,9 @@ HEARTBEAT_SECONDS = 60.0
 HOUSEKEEPING_DELAY = 60.0
 HOUSEKEEPING_INTERVAL = 6 * 3600.0
 # How often the jobs this process and the others gave up on are mailed to ALERT_EMAIL, as one
-# digest (app/deadletters.py): within the quarter of an hour the retries take anyway, and
-# seldom enough that a backlog of bad files is one message, not hundreds.
+# digest (app/deadletters.py), and the day's spending is measured against its limits
+# (app/spending.py): within the quarter of an hour the retries take anyway, and seldom enough
+# that a backlog of bad files is one message, not hundreds.
 ALERT_INTERVAL = 15 * 60.0
 # How long a stopping worker lets the jobs it is running finish before it hands them back.
 # Under the 10 seconds Docker allows by default before it kills a container; a deployment that
@@ -145,13 +150,18 @@ def _run_index(job: Job, services: Services) -> str | None:
 
 
 def _retry_index(job: Job, failure: StageFailure) -> str | None:
-    """Queue the document to run again from the failed stage after the next backoff, or give up
-    once it has been retried MAX_RETRIES times, saying either in the stage's detail.
+    """Queue the document to run again from the failed stage after the next backoff, or at the
+    moment the failure asks for, or give up once it has been retried MAX_RETRIES times, saying
+    either in the stage's detail.
 
-    Returns the reason when it gives up, for the job to end failed with.
+    A stage the day's spending limit put off (`retry_at`) waits for the limit to reset, and
+    that wait is no retry: nothing was out of reach, and the next day's run is the first try
+    against a limit with room. Returns the reason when it gives up, for the job to end failed
+    with.
     """
     document_id = job.payload["document_id"]
-    retry = job.payload.get("retry", 0) + 1
+    deferred = failure.retry_at is not None
+    retry = job.payload.get("retry", 0) + (0 if deferred else 1)
     with SessionLocal() as session:
         document = session.get(Document, document_id)
         if document is None or document.stages.get(failure.stage, {}).get("status") != "failed":
@@ -173,26 +183,36 @@ def _retry_index(job: Job, failure: StageFailure) -> str | None:
             )
             log.error("Document %s is not tried again. %s", document_id, reason)
             return reason
-        wait = FIRST_BACKOFF * 2 ** (retry - 1)
-        await_retry(document, failure, f"Retrying in {_minutes(wait)} ({retry} of {MAX_RETRIES}).")
-        queue_index(
-            session,
-            document,
-            job.priority,
-            run_at=datetime.now(UTC) + wait,
-            retry=retry,
-        )
+        if deferred:
+            run_at = failure.retry_at
+            notice = f"Indexing continues at {when(run_at)}."
+        else:
+            wait = FIRST_BACKOFF * 2 ** (retry - 1)
+            run_at = datetime.now(UTC) + wait
+            notice = f"Retrying in {_minutes(wait)} ({retry} of {MAX_RETRIES})."
+        await_retry(document, failure, notice)
+        queue_index(session, document, job.priority, run_at=run_at, retry=retry)
         session.commit()
-    log.info(
-        "Document %s: stage %s failed for a passing reason, running it again in %s "
-        "(retry %s of %s): %s",
-        document_id,
-        failure.stage,
-        _minutes(wait),
-        retry,
-        MAX_RETRIES,
-        failure.message,
-    )
+    if deferred:
+        log.info(
+            "Document %s: stage %s waits for the day's spending limit to reset, running again at "
+            "%s: %s",
+            document_id,
+            failure.stage,
+            when(run_at),
+            failure.message,
+        )
+    else:
+        log.info(
+            "Document %s: stage %s failed for a passing reason, running it again in %s "
+            "(retry %s of %s): %s",
+            document_id,
+            failure.stage,
+            _minutes(wait),
+            retry,
+            MAX_RETRIES,
+            failure.message,
+        )
     return None
 
 
@@ -239,8 +259,9 @@ class Worker:
         self._services = services
         self._concurrency = concurrency
         self._answer_concurrency = answer_concurrency
-        # What the jobs given up on are reported through; without it, or without ALERT_EMAIL,
-        # they are in the log and the failed-jobs command only.
+        # What the jobs given up on and the spending warnings are reported through; without it,
+        # or without ALERT_EMAIL, the failures are in the log and the failed-jobs command only,
+        # and nobody is warned of the spending.
         self._mailer = mailer
         self._id = f"{socket.gethostname()}:{os.getpid()}"
         self._wake = threading.Event()
@@ -270,7 +291,8 @@ class Worker:
         elif settings.environment == "production":
             log.warning(
                 "ALERT_EMAIL is not set: the jobs the worker gives up on are reported in the "
-                "log only, and listed by `python -m app.maintenance failed-jobs`"
+                "log only, and listed by `python -m app.maintenance failed-jobs`, and nobody is "
+                "warned when a day's spending nears a limit"
             )
 
     def _spawn(self, target: Callable[[], None], name: str) -> None:
@@ -438,15 +460,17 @@ class Worker:
 
     def _alert(self) -> None:
         while not self._stop.wait(ALERT_INTERVAL):
-            try:
-                alert_failed_jobs(self._mailer, get_settings().alert_email)
-            except Exception:
-                # A relay or a database that is unreachable now may be back by the next round,
-                # and the failures stay unreported until then.
-                log.exception(
-                    "Reporting the failed jobs failed; it runs again in %s minutes",
-                    ALERT_INTERVAL / 60,
-                )
+            for report in (alert_failed_jobs, alert_spending):
+                try:
+                    report(self._mailer, get_settings().alert_email)
+                except Exception:
+                    # A relay or a database that is unreachable now may be back by the next
+                    # round, and the failures and warnings stay unreported until then.
+                    log.exception(
+                        "Reporting to ALERT_EMAIL failed (%s); it runs again in %s minutes",
+                        report.__name__,
+                        ALERT_INTERVAL / 60,
+                    )
 
 
 def serve(

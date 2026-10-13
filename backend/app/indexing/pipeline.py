@@ -6,6 +6,7 @@ import re
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import delete, select, update
@@ -33,6 +34,7 @@ from app.parsing.images import open_image
 from app.parsing.limits import ParseLimits, parse_within_limits
 from app.parsing.pdf import render_page
 from app.parsing.types import clean_text
+from app.spending import check_platform_spend, check_spend, day_of
 from app.storage import Storage
 from app.usage import DOCUMENT, EMBED, ENRICH, INFER_SECTIONS, OCR, UPLOAD, Meter
 
@@ -58,6 +60,16 @@ class PipelineError(AppError):
     """A stage failed for a reason the user can act on."""
 
 
+class StageDeferred(PipelineError):
+    """The stage must wait until `until`, for a reason that passes at that moment: the day's
+    spending limit, which resets at midnight UTC (app/spending.py). The worker queues the
+    document again for then rather than after its backoff (app/worker.py)."""
+
+    def __init__(self, message: str, until: datetime):
+        super().__init__(message, transient=True)
+        self.until = until
+
+
 class StageSkipped(Exception):
     pass
 
@@ -70,6 +82,9 @@ class StageFailure:
     stage: str
     message: str
     transient: bool
+    # When the stage asks to be run again, when it knows: the next midnight UTC for the day's
+    # spending limit. None leaves the moment to the worker's backoff.
+    retry_at: datetime | None = None
 
 
 Stage = Callable[[Session, Document, Services, Meter], str]
@@ -197,7 +212,8 @@ def _run_stage(
         session.rollback()
         _set_stage(session, document, name, "failed", str(error), lease)
         transient = isinstance(error, AppError) and error.transient
-        return StageFailure(name, str(error), transient)
+        retry_at = error.until if isinstance(error, StageDeferred) else None
+        return StageFailure(name, str(error), transient, retry_at)
     except Exception as error:
         session.rollback()
         log.exception("Stage %s failed for document %s", name, document_id)
@@ -276,6 +292,9 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
 
         if parsed.ocr_pages:
             if services.llm.available:
+                # Each page is a model call, so the day's spending limit is checked here, after
+                # the refusals that no day would lift, and before a page is read.
+                _wait_for_the_day(session, document)
                 blocks = _with_ocr(
                     path, document.filename, parsed.blocks, parsed.ocr_pages, services.llm, meter
                 )
@@ -308,6 +327,18 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
     document.page_sizes = [[round(w, 2), round(h, 2)] for w, h in parsed.page_sizes]
     document.title = parsed.title
     return f"{len(blocks)} blocks{note}"
+
+
+def _spending_limit(session: Session, document: Document) -> str | None:
+    """Why the day's spending limit, the platform's or the plan's, leaves no room for a model
+    call for this document, or None while it does (app/spending.py)."""
+    return check_platform_spend(session) or check_spend(session, document.project.organization)
+
+
+def _wait_for_the_day(session: Session, document: Document) -> None:
+    """Put the stage off until midnight UTC when the day's spending limit is reached."""
+    if reason := _spending_limit(session, document):
+        raise StageDeferred(reason, day_of()[1])
 
 
 def _too_many_scans(pages: int) -> str | None:
@@ -376,13 +407,21 @@ def _prepare_image(path: Path, media_type: str) -> tuple[bytes, str]:
 def _structure(session: Session, document: Document, services: Services, meter: Meter) -> str:
     blocks = _blocks(session, document.id)
     hints: list[SectionHint] = []
+    note = ""
     if services.llm.available and _needs_inferred_sections(blocks):
-        usage = meter.calls(INFER_SECTIONS, get_settings().index_model)
-        try:
-            hints = infer_sections(services.llm, blocks, usage)
-        except LLMError as error:
-            # The outline falls back to one section per page.
-            log.warning("Section inference failed for document %s: %s", document.id, error)
+        if reason := _spending_limit(session, document):
+            # The outline falls back to one section per page, as it does when the model fails:
+            # the document cannot be searched without this stage, and is better searched today
+            # by a rougher outline than held until midnight for a finer one.
+            log.warning("Sections of document %s were not inferred: %s", document.id, reason)
+            note = "; sections not inferred (the day's spending limit is reached)"
+        else:
+            usage = meter.calls(INFER_SECTIONS, get_settings().index_model)
+            try:
+                hints = infer_sections(services.llm, blocks, usage)
+            except LLMError as error:
+                # The outline falls back to one section per page.
+                log.warning("Section inference failed for document %s: %s", document.id, error)
 
     stem = Path(document.filename).stem
     outline = build_outline(blocks, document.title or stem, document.page_count, hints)
@@ -425,7 +464,7 @@ def _structure(session: Session, document: Document, services: Services, meter: 
         )
         for ordinal, draft in enumerate(outline.passages)
     )
-    return f"{len(outline.sections)} sections, {len(outline.passages)} passages"
+    return f"{len(outline.sections)} sections, {len(outline.passages)} passages{note}"
 
 
 def _needs_inferred_sections(blocks: Sequence[Block]) -> bool:
@@ -437,6 +476,7 @@ def _needs_inferred_sections(blocks: Sequence[Block]) -> bool:
 def _enrich(session: Session, document: Document, services: Services, meter: Meter) -> str:
     if not services.llm.available:
         raise StageSkipped(f"Summaries and facts need the AI model. {services.llm.problem()}")
+    _wait_for_the_day(session, document)
 
     blocks = _blocks(session, document.id)
     sections = session.scalars(

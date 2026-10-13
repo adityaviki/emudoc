@@ -21,9 +21,12 @@ events; the questions, by the answers asked), which starts afresh on the first.
 
 `priority` weights the organisation's share of the workers in the job claim (app/jobs.py): an
 organisation's jobs count for a third as much on the team plan as on the free one, so its
-backlog gets the larger share. `model_tier`, `api_access`, `connectors` and `retention_days`
-are declared for the features that will read them (the organisation settings, the API keys,
-the connectors, the trash) and enforced by nothing yet.
+backlog gets the larger share. `daily_spend_micros` is what a day of the organisation's model
+use may cost, by the prices the usage rows are costed with; app/spending.py holds the check,
+beside the platform's own daily limit, since the two are read together. `model_tier`,
+`api_access`, `connectors` and `retention_days` are declared for the features that will read
+them (the organisation settings, the API keys, the connectors, the trash) and enforced by
+nothing yet.
 """
 
 from dataclasses import dataclass
@@ -83,6 +86,10 @@ class Entitlements:
     model_tier: str
     # The weight of the organisation's share of the workers in the job claim (app/jobs.py).
     priority: int
+    # What the organisation's model use may cost in one UTC day, in millionths of
+    # PRICE_CURRENCY (app/spending.py); past it, its questions are refused and its indexing
+    # waits for midnight UTC. Counts nothing without MODEL_PRICES.
+    daily_spend_micros: int | None
 
 
 PLANS: dict[str, Entitlements] = {
@@ -98,6 +105,7 @@ PLANS: dict[str, Entitlements] = {
         retention_days=30,
         model_tier="standard",
         priority=1,
+        daily_spend_micros=1_000_000,
     ),
     "pro": Entitlements(
         projects=10,
@@ -111,6 +119,7 @@ PLANS: dict[str, Entitlements] = {
         retention_days=365,
         model_tier="standard",
         priority=2,
+        daily_spend_micros=10_000_000,
     ),
     "team": Entitlements(
         projects=50,
@@ -124,6 +133,7 @@ PLANS: dict[str, Entitlements] = {
         retention_days=None,
         model_tier="premium",
         priority=3,
+        daily_spend_micros=50_000_000,
     ),
     # Custom terms: nothing here limits it, only the platform's ceilings do.
     "enterprise": Entitlements(
@@ -138,6 +148,7 @@ PLANS: dict[str, Entitlements] = {
         retention_days=None,
         model_tier="premium",
         priority=4,
+        daily_spend_micros=None,
     ),
 }
 assert set(PLANS) == set(PLAN_NAMES), "every plan the database accepts has its entitlements"

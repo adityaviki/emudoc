@@ -228,6 +228,11 @@ def cost_of(model: str | None, unit: str, quantity: int) -> int | None:
     return int(round(Decimal(quantity) * per_million))
 
 
+def money(micros: int) -> str:
+    """An amount in millionths of PRICE_CURRENCY as the user reads it: USD 1.25."""
+    return f"{get_settings().price_currency} {micros / 1_000_000:,.2f}"
+
+
 def _total(costs: Iterable[int | None]) -> int | None:
     """The costs that are known added up; None while none is."""
     known = [cost for cost in costs if cost is not None]

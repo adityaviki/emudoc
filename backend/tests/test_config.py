@@ -197,6 +197,21 @@ def test_each_development_setting_is_refused_on_its_own(deployment, change, vari
     assert len(lines) == 2 and variable in lines[1]
 
 
+def test_a_spend_cap_without_prices_is_refused_in_production(deployment):
+    # A cap measured against costs that are never recorded would hold nothing back.
+    deployment["daily_spend_cap"] = "5"
+    with pytest.raises(SystemExit) as stop:
+        load_settings(**deployment)
+    lines = stop.value.code.splitlines()
+    assert len(lines) == 2 and "DAILY_SPEND_CAP" in lines[1] and "MODEL_PRICES" in lines[1]
+
+    deployment["model_prices"] = "google:gemini-2.5-flash-lite=0.10/0.40"
+    assert load_settings(**deployment).daily_spend_cap_micros == 5_000_000
+    # Development is told nothing: it runs with whatever it has.
+    del deployment["model_prices"]
+    assert load_settings(**{**deployment, "environment": "development"}).production_problems() == []
+
+
 def test_the_api_runs_the_worker_itself_in_development_only(deployment, monkeypatch):
     # Unset, the choice follows the environment: one process in development, and in production
     # a `python -m app.worker` of its own. Either can be said outright; a blank line is unset.
@@ -278,6 +293,19 @@ def test_a_production_start_needs_the_model(production, services, monkeypatch):
     # With a usable model the same start goes through.
     with TestClient(create_app(services=services)) as client:
         assert client.get("/api/health").json() == {"status": "ok"}
+
+
+def test_a_production_start_runs_with_a_switched_off_model(production, monkeypatch, caplog):
+    # The kill switch stops the spending, not the app: the process starts, says what is off,
+    # and the status route shows the users why the model is missing.
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.setattr(get_settings(), "disabled_providers", "google")
+    with caplog.at_level("WARNING", logger="app.startup"):
+        with TestClient(create_app()) as client:
+            status = client.get("/api/status").json()["llm"]
+    assert status["available"] is False
+    assert status["error"].startswith("google:gemini-2.5-flash-lite is switched off:")
+    assert "is switched off" in caplog.text and "runs without the model" in caplog.text
 
 
 def test_the_interactive_api_docs_are_served_in_development_only(client, services, production):

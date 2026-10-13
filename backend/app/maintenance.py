@@ -58,7 +58,7 @@ from app.storage import (
     project_prefix,
     storage_from_settings,
 )
-from app.usage import DailyUsage, daily
+from app.usage import DailyUsage, daily, money
 
 log = logging.getLogger(__name__)
 
@@ -459,7 +459,12 @@ def plan_report(session: Session, slug: str, plan: str | None) -> list[str]:
     ]
     entitlements = PLANS[organization.plan]
     for field_ in fields(Entitlements):
-        lines.append(f"  {field_.name:<20}{_limit(getattr(entitlements, field_.name))}")
+        value = getattr(entitlements, field_.name)
+        # The day's spending limit is an amount of money, shown as one.
+        if field_.name == "daily_spend_micros" and value is not None:
+            lines.append(f"  {field_.name:<20}{money(value)} a day")
+        else:
+            lines.append(f"  {field_.name:<20}{_limit(value)}")
     return lines
 
 

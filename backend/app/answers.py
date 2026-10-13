@@ -19,7 +19,10 @@ times ends the answer `failed` with a sentence that says to ask again (`abandon_
 
 Whatever ends a run, the model calls it made are recorded as the organisation's usage
 (app/usage.py) before it returns: the loop counts them as they are answered, and the run
-records the count at its end, after a stop or a lost lease as much as after the answer.
+records the count at its end, after a stop or a lost lease as much as after the answer. The
+day's spending limit (app/spending.py) is checked as the run starts, after the ask route
+checked it: MAX_ANSWERS questions may be queued under the limit at once, and the ones the
+limit catches here end with its sentence as their error instead of running.
 """
 
 import json
@@ -41,6 +44,7 @@ from app.db import BUSY, SessionLocal
 from app.indexing.pipeline import Services
 from app.jobs import ANSWER_QUESTION, LIVE, Lease, LeaseLost, enqueue, renew
 from app.models import Chat, ChatMessage, Job, Project
+from app.spending import check_platform_spend, check_spend
 from app.usage import ANSWER, CHAT_MESSAGE, ModelUsage, record
 
 log = logging.getLogger(__name__)
@@ -274,6 +278,7 @@ def answer(message_id: int, services: Services, lease: Lease | None = None) -> N
         # Whose usage the run's model calls are, read now: the rollback below expires the
         # rows, and reading one afterwards would take a connection back for the whole run.
         payer = {"org_id": project.org_id, "project_id": project_id, "user_id": chat.user_id}
+        over = check_platform_spend(session) or check_spend(session, project.organization)
         # Answers without text, such as failed ones, are left out of the conversation.
         history = [
             {"role": earlier.role, "content": earlier.content}
@@ -287,8 +292,13 @@ def answer(message_id: int, services: Services, lease: Lease | None = None) -> N
         # thinks.
         session.rollback()
         usage = ModelUsage()
+        if over is None:
+            events = run_agent(services, project_id, history, usage)
+        else:
+            log.info("Answer %s was not run: %s", message_id, over)
+            events = iter([{"type": "error", "message": over}])
         try:
-            _write(session, writer, run_agent(services, project_id, history, usage), lease)
+            _write(session, writer, events, lease)
         finally:
             # The calls the run made were made whatever ended it: a stop, a lost lease and a
             # crash all leave the run through here, and are counted like an answer.

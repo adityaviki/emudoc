@@ -256,6 +256,31 @@ def test_in_production_a_missing_key_is_set_in_the_environment(monkeypatch):
     assert LLM(settings).problem() == f"Set GOOGLE_API_KEY in the environment to use {GEMINI}."
 
 
+def test_a_switched_off_provider_stops_its_models_as_a_passing_problem(monkeypatch):
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    llm = LLM(
+        Settings(
+            _env_file=None, index_model=GEMINI, agent_model=CLAUDE, disabled_providers=" Google ,x"
+        )
+    )
+    off = (
+        f"{GEMINI} is switched off: DISABLED_PROVIDERS names its provider, google. Remove it "
+        "there and restart the app to use the model again."
+    )
+    assert llm.problem() == off and llm.available is False
+    with pytest.raises(LLMUnavailable) as raised:
+        llm.structured("x", DocumentAnalysis)
+    assert str(raised.value) == off
+    # By design a passing problem, unlike a missing key: the stages that meet it retry.
+    assert raised.value.transient is True
+    # The other provider's model is untouched.
+    assert llm._model(CLAUDE).model_name.startswith("claude")
+
+    with pytest.raises(ValueError, match="DISABLED_PROVIDERS"):
+        Settings(_env_file=None, disabled_providers="goo gle")
+
+
 # The settings need a database; these tests replace the environment, which held one.
 DB = "postgresql+psycopg://app:secret@db.internal:5432/emudoc"
 

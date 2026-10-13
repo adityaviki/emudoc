@@ -73,10 +73,28 @@ rows are recorded, summed over every run. The costs follow `MODEL_PRICES` in `.e
 each model costs per million tokens in and out, in `PRICE_CURRENCY`; without prices, no
 cost is shown.
 
+A day of model use has two limits, both measured against those costs since midnight UTC: the
+organisation's, set by its plan (`backend/app/entitlements.py`: USD 1.00 a day on Free, 10 on
+Pro, 50 on Team, none on Enterprise), and the platform's, `DAILY_SPEND_CAP`, the most the
+operator will see on the providers' bills in one day. At the plan's limit a question is
+refused with 402 and the plan's sentence, and an indexing stage that needs the model (reading
+scans, writing summaries and facts) waits for midnight UTC and says so on the document, while
+the outline is built without the model so that the document can be searched today; at the
+platform's, every question is refused with 503 and a `Retry-After` until midnight, and the
+stages wait the same way. A question that was queued before a limit was reached ends with the
+sentence as its error. With `ALERT_EMAIL` set, the worker mails a warning once a day when a
+day's spending reaches 80 % of a limit. The limits count nothing without `MODEL_PRICES`, and
+they hold the next piece of work rather than the ones running, so a day can run past a limit
+by what was in flight. The brake for a bill that cannot wait for midnight is
+`DISABLED_PROVIDERS`: at the next restart it switches a provider's models off, and the app
+runs as it does without a key, saying why. Set a budget at each provider as well (Google Cloud
+billing budgets for the Gemini key, the Anthropic console's spend limits, OpenRouter's credit
+limit): the app counts what it knows the price of, the provider counts the bill.
+
 Every organisation is on a plan (`backend/app/entitlements.py`): Free, Pro, Team or
 Enterprise, each a row of what the organisation may hold (projects, documents, bytes of
-documents, members) and may use in a calendar month in UTC (pages indexed, questions asked),
-plus what the later features will read from it (API access, connectors, how long data is
+documents, members), may use in a calendar month in UTC (pages indexed, questions asked) and
+may spend on models in a UTC day, plus what the later features will read from it (API access, connectors, how long data is
 kept, the model tier) and how much of the workers its jobs get. A new organisation starts on
 Free; the local development account has no limits. The plan is checked where the thing
 happens: creating a project, uploading (the request is refused when the plan has no room at
@@ -152,8 +170,11 @@ servers. Port 8000 still serves the last build, so it does not show your edits.
 
 The header shows which of the two is available. After adding a key, restart the backend and
 press "Run the model on them" in the Documents tab to enrich what was indexed without it.
-Running without the model is for development: with `ENVIRONMENT=production` the backend
-refuses to start until the key is in the environment.
+`DISABLED_PROVIDERS` switches a provider's models off on purpose, with the same effect and the
+reason shown in the header, and the same button enriches what was indexed meanwhile once it is
+lifted. Running without the model is for development: with `ENVIRONMENT=production` the
+backend refuses to start until the key is in the environment, unless the model was switched
+off that way.
 
 ## Configuration
 
@@ -189,16 +210,27 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   and asked to upload in smaller batches. The body has been read by then, so a proxy's limit
   on the request body is the guard against the request itself.
 - `ALERT_EMAIL` is where the worker reports the jobs it gave up on, through the same mail
-  settings as the sign-in links, as one digest every quarter of an hour. Empty sends nothing;
-  the `failed-jobs` command lists them either way.
+  settings as the sign-in links, as one digest every quarter of an hour, and where it warns
+  once a day when a day's spending on models reaches 80 % of a limit, the platform's or an
+  organisation's. Empty sends nothing; the `failed-jobs` command lists the failures either way.
+- `DAILY_SPEND_CAP` is what every organisation together may spend on models in one UTC day,
+  in `PRICE_CURRENCY` by the costs `MODEL_PRICES` gives; `0`, the default, is no limit. Past
+  it every question is refused with 503 until midnight UTC and every indexing stage that needs
+  a model waits for it. The limit per organisation is its plan's. Production refuses the cap
+  without `MODEL_PRICES`, since it would count nothing.
+- `DISABLED_PROVIDERS` is the kill switch: the model providers switched off, by the prefix of a
+  `provider:model` name, separated by commas (`google,anthropic`). A model of a provider named
+  here cannot be used until the name is removed and the backend and the worker restarted;
+  meanwhile the app runs as it does without a key and the header says why. Production starts
+  with it, unlike with a missing key.
 - `ENVIRONMENT` is `development` (the default) or `production`. In development the backend
   copies the model keys from `.env` into its environment, where the model libraries read them.
   A production deployment injects every secret through the environment or a secret manager
   instead; the backend then copies nothing from `.env`, and a missing key is reported as one to
   set in the environment. Production also refuses to start, listing what to change, when the
   settings are development's: the `docker compose` database's password, `LOCAL_ACCOUNT=true`,
-  no `STORAGE_URL`, no `APP_URL`, no `SMTP_URL`, or no key for the model. It does not serve the
-  interactive API docs at `/docs`.
+  no `STORAGE_URL`, no `APP_URL`, no `SMTP_URL`, a `DAILY_SPEND_CAP` without `MODEL_PRICES`,
+  or no key for the model. It does not serve the interactive API docs at `/docs`.
 - `DATABASE_URL` names the database as a SQLAlchemy URL. There is no default: a process that
   is not told its database stops at once and says so. `.env.example` names the
   `docker compose` container, which only this machine can reach; a deployment sets the

@@ -125,7 +125,7 @@ from app.indexing.enrich import (  # noqa: E402
 )
 from app.indexing.pipeline import Services, process_document  # noqa: E402
 from app.jobs import queue_index  # noqa: E402
-from app.llm import OcrBlock, OcrPage  # noqa: E402
+from app.llm import LLMUnavailable, OcrBlock, OcrPage  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models import Document, Membership, Organization, Project, User  # noqa: E402
 from app.parsing import MIME_TYPES  # noqa: E402
@@ -187,6 +187,10 @@ class FakeLLM:
 
     def problem(self) -> str | None:
         return None if self.available else MISSING_KEY
+
+    def check(self) -> None:
+        if not self.available:
+            raise LLMUnavailable(MISSING_KEY)
 
     def structured(self, content, schema, usage=None):
         self.calls.append((schema.__name__, content))
@@ -486,7 +490,10 @@ def services() -> Services:
 @pytest.fixture
 def session():
     with SessionLocal() as session_:
-        session_.execute(text("TRUNCATE projects, organizations, users RESTART IDENTITY CASCADE"))
+        # The platform's spending warnings belong to no organisation, so they are named too.
+        session_.execute(
+            text("TRUNCATE projects, organizations, users, spend_alerts RESTART IDENTITY CASCADE")
+        )
         session_.commit()
         # Ids start over, so the files and rendered pages of an earlier test's documents would
         # be served for a new test's; the storage is emptied with the tables.

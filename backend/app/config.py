@@ -136,6 +136,20 @@ class Settings(BaseSettings):
     # organisation is charged is its plan's business.
     model_prices: str = ""
     price_currency: str = Field(default="USD", pattern=r"^[A-Z]{3}$")
+    # What every organisation together may spend on models in one UTC day, in PRICE_CURRENCY,
+    # by the costs the usage rows carry (app/spending.py): past it, every question is refused
+    # with 503 until midnight UTC and every indexing stage that needs a model waits for it.
+    # Zero is no limit. The limit that differs by plan is an entitlement
+    # (app/entitlements.py); this is the platform's own ceiling, the most the operator will
+    # see on the providers' bills for one day. It counts nothing without MODEL_PRICES, so
+    # production refuses the one without the other.
+    daily_spend_cap: Decimal = Field(default=Decimal(0), ge=0)
+    # The kill switch: the model providers switched off, by the prefix of a provider:model
+    # name, separated by commas (DISABLED_PROVIDERS=google,anthropic). A model of one cannot
+    # be used until the name is removed and the process restarted (app/llm.py); meanwhile the
+    # app runs as it does without a key, and says why. For a bill that is running away or a
+    # key that leaked, when midnight is too far off.
+    disabled_providers: str = ""
 
     # Embeddings: any OpenAI-compatible /embeddings endpoint. The default is a local Ollama.
     embedding_base_url: str = "http://127.0.0.1:11434/v1"
@@ -243,6 +257,28 @@ class Settings(BaseSettings):
         """What each model costs per million tokens, by name (MODEL_PRICES)."""
         return parse_model_prices(self.model_prices)
 
+    @property
+    def daily_spend_cap_micros(self) -> int:
+        """DAILY_SPEND_CAP in millionths of PRICE_CURRENCY, as the usage rows count; zero is
+        no limit."""
+        return int(self.daily_spend_cap * 1_000_000)
+
+    @field_validator("disabled_providers")
+    @classmethod
+    def _names_providers(cls, value: str) -> str:
+        for name in _listed(value):
+            if not re.fullmatch(r"[a-z0-9_-]+", name):
+                raise ValueError(
+                    "DISABLED_PROVIDERS lists provider names as they prefix a model name, "
+                    f"such as google or anthropic, separated by commas; {name!r} is not one."
+                )
+        return value
+
+    @property
+    def disabled(self) -> frozenset[str]:
+        """The providers DISABLED_PROVIDERS switches off, by name."""
+        return frozenset(_listed(self.disabled_providers))
+
     @field_validator("fts_language")
     @classmethod
     def _plain_identifier(cls, value: str) -> str:
@@ -319,6 +355,11 @@ class Settings(BaseSettings):
                 "SMTP_URL is not set, so verification and password-reset links would be "
                 "written to the log; name an SMTP relay."
             )
+        if self.daily_spend_cap and not self.model_prices:
+            problems.append(
+                "DAILY_SPEND_CAP is set, but MODEL_PRICES is empty, so no cost is recorded and "
+                "the cap would count nothing; list what each model costs, or remove the cap."
+            )
         return problems
 
 
@@ -334,6 +375,11 @@ def unfit_for_production(problems: list[str]) -> str:
     not; `problems` are what `Settings.production_problems` found."""
     lines = "\n".join(f"  - {problem}" for problem in problems)
     return f"ENVIRONMENT is production, but these settings are not fit for a deployment:\n{lines}"
+
+
+def _listed(value: str) -> list[str]:
+    """The names a comma-separated setting lists, trimmed and lowercased, blanks left out."""
+    return [name.strip().lower() for name in value.split(",") if name.strip()]
 
 
 def _password_of(url: str) -> str | None:

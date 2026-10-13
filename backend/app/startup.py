@@ -7,14 +7,19 @@ a usable model. One function does all of it, so that the two processes refuse th
 misconfigurations and a check added for one is not forgotten by the other.
 """
 
+import logging
+
 from app.config import Settings, export_env_file
 from app.db import check_schema
 from app.embeddings import Embedder
 from app.indexing.pipeline import Services
-from app.llm import LLM
+from app.llm import LLM, LLMUnavailable
 from app.maintenance import check_embeddings, requeue_stale_embeddings, warn_about_old_layout
 from app.search import check_fts_language
+from app.spending import warn_without_prices
 from app.storage import storage_from_settings
+
+log = logging.getLogger(__name__)
 
 
 def prepare(settings: Settings, services: Services | None = None) -> Services:
@@ -34,18 +39,30 @@ def prepare(settings: Settings, services: Services | None = None) -> Services:
         services = Services(LLM(settings), Embedder(settings), storage_from_settings(settings))
     services.storage.check()
     warn_about_old_layout(services.storage)
+    warn_without_prices(settings)
     check_model(settings, services.llm)
     return services
 
 
 def check_model(settings: Settings, llm: LLM) -> None:
-    """In production, refuse to start without a usable model.
+    """In production, refuse to start without a usable model, unless it was switched off.
 
     Development runs without one, with summaries, facts and the Ask tab off (README, "What
     works without what"). A deployment that silently offered that much less is misconfigured,
-    not degraded, so it stops at once with the key to set.
+    not degraded, so it stops at once with the key to set. A model whose provider the operator
+    switched off (DISABLED_PROVIDERS, app/llm.py) is the one exception: the switch exists to
+    stop the spending while the app keeps serving, so the process starts and says what is off.
     """
-    if settings.environment == "production" and (problem := llm.problem()):
-        raise RuntimeError(
-            f"The model cannot be used, and production does not start without it. {problem}"
+    if settings.environment != "production":
+        return
+    try:
+        llm.check()
+    except LLMUnavailable as error:
+        if not error.transient:
+            raise RuntimeError(
+                f"The model cannot be used, and production does not start without it. {error}"
+            ) from None
+        log.warning(
+            "%s Until then the app runs without the model: no summaries, facts, scans or answers.",
+            error,
         )

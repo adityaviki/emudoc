@@ -676,6 +676,9 @@ class UsageEvent(Base):
         CheckConstraint("(ref_type IS NULL) = (ref_id IS NULL)", name="ck_usage_events_ref"),
         # What a rollup and a quota read: one organisation's rows over a span of time.
         Index("ix_usage_events_org_occurred", "org_id", "occurred_at"),
+        # What the platform's daily spending limit reads (app/spending.py): every
+        # organisation's rows since midnight.
+        Index("ix_usage_events_occurred", "occurred_at"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -695,3 +698,24 @@ class UsageEvent(Base):
     occurred_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class SpendAlert(Base):
+    """A warning the operator was sent about one day's spending (app/spending.py): an
+    organisation's when `org_id` names one, the platform's as a whole when it is null. One is
+    sent a day for each, and the row is what says it was; the organisation's rows go with it.
+    """
+
+    __tablename__ = "spend_alerts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    # The UTC day the warning was about.
+    day: Mapped[dt.date] = mapped_column(Date)
+    # What had been spent when it was sent, and the limit it was measured against, in
+    # millionths of the billing currency.
+    spent_micros: Mapped[int] = mapped_column(BigInteger)
+    cap_micros: Mapped[int] = mapped_column(BigInteger)
+    sent_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

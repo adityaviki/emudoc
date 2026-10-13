@@ -31,6 +31,7 @@ from app.db import SessionLocal
 from app.entitlements import check_question
 from app.models import Chat, ChatMessage
 from app.schemas import AskOut, ChatDetail, ChatMessageOut, ChatOut, ChatPatch, QuestionIn
+from app.spending import check_platform_spend, check_spend, retry_after
 
 log = logging.getLogger(__name__)
 
@@ -118,6 +119,13 @@ def ask(
         )
         raise HTTPException(429, TOO_MANY_ANSWERS, headers={"Retry-After": str(RETRY_AFTER)})
     if reason := check_question(session, account.organization):
+        raise HTTPException(402, reason)
+    # The day's spending (app/spending.py): the platform's limit first, since no plan lifts it,
+    # as a 503 with the seconds until midnight UTC, when it resets; then the plan's, as a 402.
+    if reason := check_platform_spend(session):
+        log.warning("A question in chat %s was refused: %s", chat.id, reason)
+        raise HTTPException(503, reason, headers={"Retry-After": str(retry_after())})
+    if reason := check_spend(session, account.organization):
         raise HTTPException(402, reason)
     if not chat.title:
         chat.title = _title(question)
