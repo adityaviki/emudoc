@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 from typing import BinaryIO
 
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import Response
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pypdfium2 import PdfiumError
@@ -23,6 +23,7 @@ from app.api.deps import (
     SessionDep,
     Stage,
     WorkerDep,
+    limited,
 )
 from app.api.folders import folder_paths, resolve_folder
 from app.config import Settings, get_settings
@@ -33,6 +34,7 @@ from app.models import STAGES, Block, Document, Fact, Project, Section
 from app.parsing import IMAGE_TYPES, MIME_TYPES, SUPPORTED_EXTENSIONS, FileTooLarge
 from app.parsing.images import open_image
 from app.parsing.pdf import render_page, render_thumbnail
+from app.ratelimit import UPLOADS
 from app.schemas import (
     DocumentContent,
     DocumentOut,
@@ -70,7 +72,12 @@ def list_documents(project: ProjectDep, session: SessionDep):
     ).all()
 
 
-@router.post("/projects/{project_id}/documents", response_model=UploadResult, status_code=201)
+@router.post(
+    "/projects/{project_id}/documents",
+    response_model=UploadResult,
+    status_code=201,
+    dependencies=[Depends(limited(UPLOADS))],
+)
 def upload_documents(
     project: EditableProjectDep,
     files: list[UploadFile],

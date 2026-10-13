@@ -78,12 +78,17 @@ through, and streams an answer's events as they come. This is the whole configur
 
 ```caddyfile
 emudoc.example.com {
-    reverse_proxy 127.0.0.1:8000
-    # What one upload request may carry: MAX_UPLOAD_REQUEST_MB, 500 by default. The proxy
-    # refuses a larger body before the app has read it.
-    request_body {
+    # The upload route alone takes a large body, MAX_UPLOAD_REQUEST_MB (500 by default); the
+    # proxy refuses a larger one before the app has read it. Every other request is small.
+    @uploads path_regexp ^/api/projects/[0-9]+/documents$
+    request_body @uploads {
         max_size 500MB
     }
+    @others not path_regexp ^/api/projects/[0-9]+/documents$
+    request_body @others {
+        max_size 1MB
+    }
+    reverse_proxy 127.0.0.1:8000
 }
 ```
 
@@ -101,17 +106,23 @@ server {
     ssl_certificate     /etc/letsencrypt/live/emudoc.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/emudoc.example.com/privkey.pem;
 
-    # MAX_UPLOAD_REQUEST_MB, 500 by default.
-    client_max_body_size 500m;
+    # Every request is small, except an upload: MAX_UPLOAD_REQUEST_MB, 500 by default, on
+    # that route alone. The proxy refuses a larger body before the app has read it.
+    client_max_body_size 1m;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # An answer's event stream is silent while the model thinks.
+    proxy_read_timeout 300s;
 
     location / {
         proxy_pass http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        # An answer's event stream is silent while the model thinks.
-        proxy_read_timeout 300s;
+    }
+
+    location ~ ^/api/projects/[0-9]+/documents$ {
+        client_max_body_size 500m;
+        proxy_pass http://127.0.0.1:8000;
     }
 }
 
@@ -126,6 +137,18 @@ server {
 uvicorn takes the rightmost address it was not told to believe, so a header forged by the
 browser changes nothing.
 
+## Rates
+
+The app holds each caller to a rate of its own (the `RATE_*` settings in `.env.example`): so
+many upload requests, questions and searches a minute per user, and on the sign-in routes so
+many requests per email address and, with more room, per client address, the one uvicorn read
+from `X-Forwarded-For`. The request past a rate is refused with 429, a sentence and a
+`Retry-After` of the seconds until the minute turns, and the counts live in the database, so
+every API replica counts the same. The proxy needs no rate limit of its own. One added anyway
+(nginx's `limit_req`, Caddy's rate-limit plugin) sees addresses, not users, so it must allow
+more than `RATE_SIGN_INS_PER_ADDRESS` a minute, or an office behind one address is held
+before the app would hold it.
+
 ## Checking it
 
 1. `curl -sS https://emudoc.example.com/api/health` answers `{"status":"ok"}` and the browser
@@ -139,3 +162,6 @@ browser changes nothing.
    and the response headers of any request carry `Content-Security-Policy` and, over HTTPS,
    `Strict-Transport-Security`. With a bucket, the policy's `img-src` names the bucket's
    origin, which the page images and thumbnails redirect to.
+5. Sign in with a wrong password until the form says to wait a minute: the eleventh attempt
+   does (`RATE_SIGN_INS`), and the API's log names the address it held, which is yours and
+   not the proxy's.

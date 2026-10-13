@@ -719,3 +719,18 @@ class SpendAlert(Base):
     spent_micros: Mapped[int] = mapped_column(BigInteger)
     cap_micros: Mapped[int] = mapped_column(BigInteger)
     sent_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RateLimit(Base):
+    """How many requests of one kind one caller made in one minute (app/ratelimit.py): the
+    kind is the scope, the caller the key (a user, an address or an email address), and the
+    minute its start. A request raises its row's count by one; the housekeeper removes the
+    rows of minutes long past.
+    """
+
+    __tablename__ = "rate_limits"
+
+    scope: Mapped[str] = mapped_column(String(40), primary_key=True)
+    key: Mapped[str] = mapped_column(String(300), primary_key=True)
+    window_start: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    count: Mapped[int] = mapped_column(Integer)

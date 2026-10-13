@@ -1,21 +1,28 @@
 """Sign-in: accounts with a password, sign-in through Google or Microsoft, the links that
-confirm an address or reset a password, authenticator codes, and the sessions a user holds."""
+confirm an address or reset a password, authenticator codes, and the sessions a user holds.
+
+The routes that take a password, a code or an address to mail are held to a rate
+(app/ratelimit.py): RATE_SIGN_INS a minute per email address, and RATE_SIGN_INS_PER_ADDRESS
+per client address, so that neither a password nor an authenticator code can be guessed at
+speed and nobody's inbox can be flooded with links.
+"""
 
 from dataclasses import replace
 from urllib.parse import quote, urlencode
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import auth
 from app.accounts import Account, account_for_user, create_account
-from app.api.deps import AccountDep, HttpDep, MailerDep, SessionDep
+from app.api.deps import AccountDep, HttpDep, MailerDep, SessionDep, limited, refuse_past
 from app.config import get_settings
 from app.mail import Mailer, MailError, password_reset_email, verification_email
 from app.models import Identity, User, UserSession
 from app.oidc import Claims, Handshake, OidcError, Provider, begin, finish, providers
+from app.ratelimit import ADDRESSES, SIGN_INS, by_address, by_email
 from app.schemas import (
     AuthOptions,
     CodeIn,
@@ -77,6 +84,7 @@ def signup(
     body: SignupIn, request: Request, response: Response, session: SessionDep, mailer: MailerDep
 ):
     """Create an account with its own organisation, sign it in and send the verification link."""
+    refuse_past(session, (ADDRESSES, by_address(request)))
     email = body.email.strip().lower()
     if session.scalar(select(User.id).where(User.email == email)) is not None:
         raise HTTPException(409, "An account with this email already exists. Sign in instead.")
@@ -91,6 +99,7 @@ def signup(
 @router.post("/login", response_model=LoginOut)
 def login(body: LoginIn, request: Request, response: Response, session: SessionDep):
     """Check the password and start a session; with two-factor on, the code must follow."""
+    refuse_past(session, (ADDRESSES, by_address(request)), (SIGN_INS, by_email(body.email)))
     user = session.scalar(select(User).where(User.email == body.email.strip().lower()))
     if user is None or not auth.verify_password(body.password, user.password_hash):
         raise HTTPException(401, SIGN_IN_FAILED)
@@ -110,6 +119,9 @@ def verify_mfa(body: CodeIn, request: Request, response: Response, session: Sess
     if user_session is None or not user_session.needs_mfa:
         raise HTTPException(401, MFA_FIRST)
     user = session.get(User, user_session.user_id)
+    # Counted for the account as well as the address: a code has a million values, and the
+    # session that waits for it could be tried from anywhere.
+    refuse_past(session, (ADDRESSES, by_address(request)), (SIGN_INS, by_email(user.email)))
     if not (auth.check_totp(user, body.code) or auth.use_recovery_code(user, body.code)):
         raise HTTPException(401, CODE_INVALID)
     auth.complete_mfa(user_session)
@@ -149,7 +161,7 @@ def verify_email(body: LinkTokenIn, session: SessionDep):
     session.commit()
 
 
-@router.post("/verify/resend", status_code=202)
+@router.post("/verify/resend", status_code=202, dependencies=[Depends(limited(SIGN_INS))])
 def resend_verification(
     account: AccountDep, request: Request, session: SessionDep, mailer: MailerDep
 ):
@@ -163,6 +175,7 @@ def resend_verification(
 @router.post("/password/forgot", status_code=202)
 def forgot_password(body: EmailIn, request: Request, session: SessionDep, mailer: MailerDep):
     """Send a reset link. Always accepted, so the reply does not say whether the address exists."""
+    refuse_past(session, (ADDRESSES, by_address(request)), (SIGN_INS, by_email(body.email)))
     user = session.scalar(select(User).where(User.email == body.email.strip().lower()))
     if user is None:
         return

@@ -191,6 +191,18 @@ class Settings(BaseSettings):
     # of its answer, so one that is pasted rather than asked is refused with 413 and asked to
     # be shortened (app/api/chats.py); the documents are what to upload.
     max_question_chars: int = Field(default=20_000, ge=1)
+    # How fast one caller may go, in requests a minute (app/ratelimit.py): upload requests,
+    # questions and searches (the search and facts routes) per user; and the sign-in family
+    # (sign-in, sign-up, the reset and verification mails, the authenticator code), which has
+    # no user yet, per email address named and, with more room since an office shares one,
+    # per client address. The request past a rate is refused with 429 and the seconds until
+    # the minute ends. Zero removes a limit. They are the same for every organisation; a
+    # rate that differs by plan is an entitlement.
+    rate_uploads: int = Field(default=20, ge=0)
+    rate_questions: int = Field(default=20, ge=0)
+    rate_searches: int = Field(default=120, ge=0)
+    rate_sign_ins: int = Field(default=10, ge=0)
+    rate_sign_ins_per_address: int = Field(default=60, ge=0)
     # Whether this process runs the background worker (app/worker.py) as well. Unset, it does
     # in development, so that one `uvicorn` indexes what it serves, and does not in production,
     # where the deployment runs `python -m app.worker` as its own process and scales it apart

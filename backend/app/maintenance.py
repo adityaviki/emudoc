@@ -15,7 +15,8 @@ them: it runs in a transaction and the filesystem does not.
 one walk over the storage (`sweep_storage`) that removes the rendered pages and thumbnails older
 than PAGE_IMAGE_DAYS, which are rendered again when asked for, and the objects of documents and
 projects that no longer exist, which a delete leaves behind when the storage fails after the rows
-are gone; and the pruning of jobs that finished longer ago than the queue keeps them.
+are gone; and the pruning of jobs that finished longer ago than the queue keeps them, of the
+events of old answers, and of the request counts behind the rate limits (app/ratelimit.py).
 `sweep-page-images` runs the first part by hand, after lowering the setting; `sweep-orphans`
 lists the second part and removes it with `--delete`.
 
@@ -48,6 +49,7 @@ from app.jobs import BULK, HISTORY, prune_finished, queue_index_by_id
 from app.models import PLANS as PLAN_NAMES
 from app.models import Document, Organization
 from app.parsing import MIME_TYPES
+from app.ratelimit import prune_rate_limits
 from app.storage import (
     DELETE_BATCH,
     ROOT_PREFIX,
@@ -379,6 +381,9 @@ def housekeeping(storage: Storage) -> None:
             remove_orphans(storage, sweep.orphans)
         pruned = prune_finished(connection)
         events = prune_events(connection)
+        minutes = prune_rate_limits(connection)
+    if minutes:
+        log.info("Housekeeping: removed the request counts of %s minutes long past", minutes)
     if pruned:
         log.info("Housekeeping: removed %s finished jobs older than %s days", pruned, HISTORY.days)
     if events:

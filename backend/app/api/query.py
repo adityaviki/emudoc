@@ -1,18 +1,22 @@
-"""Read-side endpoints over a project's indexes: search and facts."""
+"""Read-side endpoints over a project's indexes: search and facts. Each is cheap, and none is
+bounded by the plan, so the router holds every caller to RATE_SEARCHES a minute."""
 
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, or_, select
 
-from app.api.deps import ProjectDep, ServicesDep, SessionDep
+from app.api.deps import ProjectDep, ServicesDep, SessionDep, limited
 from app.api.documents import fact_out
 from app.api.folders import resolve_folder, subtree_ids
 from app.models import Document, Fact
+from app.ratelimit import SEARCHES
 from app.schemas import FactList, FactName, SearchHitOut, SearchOut, SnippetSegment
 from app.search import SearchResult, hybrid_search
 
-router = APIRouter(prefix="/projects/{project_id}", tags=["query"])
+router = APIRouter(
+    prefix="/projects/{project_id}", tags=["query"], dependencies=[Depends(limited(SEARCHES))]
+)
 
 
 @router.get("/search", response_model=SearchOut)

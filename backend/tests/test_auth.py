@@ -325,7 +325,12 @@ def test_totp_codes_match_the_reference_vectors():
     ]
 
 
-def test_two_factor_sign_in_with_an_authenticator_and_recovery_codes(client, signed_in_only):
+def test_two_factor_sign_in_with_an_authenticator_and_recovery_codes(
+    client, signed_in_only, monkeypatch
+):
+    # This signs the one account in eleven times within a second, more than RATE_SIGN_INS
+    # lets an account try in a minute (tests/test_ratelimit.py).
+    monkeypatch.setattr(get_settings(), "rate_sign_ins", 100)
     signup(client)
     laptop = another_browser(client)
     login(laptop)

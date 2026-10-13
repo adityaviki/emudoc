@@ -210,6 +210,14 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   on its own while the others go in; a request over the other two is refused whole with 413
   and asked to upload in smaller batches. The body has been read by then, so a proxy's limit
   on the request body is the guard against the request itself.
+- `RATE_UPLOADS`, `RATE_QUESTIONS` and `RATE_SEARCHES` are how fast one user may go: 20
+  upload requests, 20 questions and 120 searches (the search and facts routes) a minute by
+  default. `RATE_SIGN_INS` holds the sign-in routes (sign-in, sign-up, the reset and
+  verification mails, the authenticator code) to 10 requests a minute per email address, and
+  `RATE_SIGN_INS_PER_ADDRESS` to 60 per client address, so that neither a password nor a code
+  can be guessed at speed. The request past a rate is refused with 429 and the seconds until
+  the minute turns; `0` removes a limit. The counts live in the database, so every API
+  replica counts the same.
 - `ALERT_EMAIL` is where the worker reports the jobs it gave up on, through the same mail
   settings as the sign-in links, as one digest every quarter of an hour, and where it warns
   once a day when a day's spending on models reaches 80 % of a limit, the platform's or an

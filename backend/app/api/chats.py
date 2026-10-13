@@ -11,7 +11,7 @@ import logging
 from collections.abc import AsyncIterator
 
 import anyio
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import TimeoutError as PoolTimeout
@@ -25,11 +25,13 @@ from app.api.deps import (
     OwnChatDep,
     ProjectDep,
     SessionDep,
+    limited,
 )
 from app.config import get_settings
 from app.db import SessionLocal
 from app.entitlements import check_question
 from app.models import Chat, ChatMessage
+from app.ratelimit import QUESTIONS
 from app.schemas import AskOut, ChatDetail, ChatMessageOut, ChatOut, ChatPatch, QuestionIn
 from app.spending import check_platform_spend, check_spend, retry_after
 
@@ -91,7 +93,12 @@ def delete_chat(chat: OwnChatDep, session: SessionDep):
     session.commit()
 
 
-@router.post("/chats/{chat_id}/messages", response_model=AskOut, status_code=201)
+@router.post(
+    "/chats/{chat_id}/messages",
+    response_model=AskOut,
+    status_code=201,
+    dependencies=[Depends(limited(QUESTIONS))],
+)
 def ask(
     chat: OwnChatDep,
     body: QuestionIn,

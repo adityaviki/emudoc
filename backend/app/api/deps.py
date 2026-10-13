@@ -15,8 +15,13 @@ Reading needs any role; changing something needs the member role or better, whic
 A request that changes something must also carry the header the app's own requests send.
 The browser attaches the session cookie to a request from any site, so without that proof a
 page elsewhere could act as the signed-in user; `refuse_cross_site` runs on every route.
+
+The routes that cost something or guard an account are held to a rate per caller
+(app/ratelimit.py): `limited(limit)` is the dependency for a route with an account, counted
+per user, and `refuse_past` is what a sign-in route calls with the keys it has.
 """
 
+from collections.abc import Callable
 from typing import Annotated, Literal
 
 import httpx
@@ -31,6 +36,7 @@ from app.db import get_session
 from app.indexing.pipeline import Services
 from app.mail import Mailer
 from app.models import Chat, Document, Folder, Passage, Project, User
+from app.ratelimit import Key, Limit, by_user, hit
 from app.worker import Worker
 
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -118,6 +124,26 @@ def get_editor(account: AccountDep) -> Account:
 
 
 EditorDep = Annotated[Account, Depends(get_editor)]
+
+
+def refuse_past(session: Session, *hits: tuple[Limit, Key]) -> None:
+    """Count the request under each limit for its key, and refuse it with 429 and a
+    Retry-After when one of them is past its rate."""
+    if refusal := hit(session, *hits):
+        raise HTTPException(
+            429, refusal.sentence, headers={"Retry-After": str(refusal.retry_after)}
+        )
+
+
+def limited(limit: Limit) -> Callable[..., None]:
+    """The dependency that holds a route to `limit` per user. It goes in the route's
+    `dependencies`, which run before the route's own parameters are resolved, so the request
+    is counted before anything else is read or checked."""
+
+    def dependency(session: SessionDep, account: AccountDep) -> None:
+        refuse_past(session, (limit, by_user(account)))
+
+    return dependency
 
 
 def get_project(project_id: int, session: SessionDep, account: AccountDep) -> Project:
