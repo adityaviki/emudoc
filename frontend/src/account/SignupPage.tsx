@@ -76,6 +76,13 @@ export function SignupPage() {
         <Button type="submit" variant="primary" className="w-full" disabled={signup.isPending}>
           Create account
         </Button>
+        <p className="text-center text-xs leading-relaxed text-muted">
+          The companies that process what you upload are listed under{' '}
+          <Link to="/subprocessors" className="text-accent hover:underline">
+            subprocessors
+          </Link>
+          .
+        </p>
       </form>
     </AuthCard>
   )

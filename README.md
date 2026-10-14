@@ -264,11 +264,15 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   instead; the backend then copies nothing from `.env`, and a missing key is reported as one to
   set in the environment. Production also refuses to start, listing what to change, when the
   settings are development's: the `docker compose` database's password, `LOCAL_ACCOUNT=true`,
-  no `STORAGE_URL`, no `APP_URL`, no `SMTP_URL`, no `SCANNER_URL`, a `DAILY_SPEND_CAP`
-  without `MODEL_PRICES`, or no key for the model. It does not serve the interactive API docs at `/docs`, and it marks
+  no `STORAGE_URL`, no `APP_URL`, no `SMTP_URL`, no `SCANNER_URL`, no `HOSTING_PROVIDER`, a
+  `google:` model without `GOOGLE_PAID_TIER`, a `DAILY_SPEND_CAP` without `MODEL_PRICES`, or no
+  key for the model. It does not serve the interactive API docs at `/docs`, and it marks
   the session cookie `Secure` and sends `Strict-Transport-Security` whatever the request's
   scheme, since a deployment is behind TLS; a request that still reaches it as plain HTTP is
   logged with what the proxy should send.
+- `HOSTING_PROVIDER` names who runs the deployment's servers and database, such as
+  `Hetzner Online GmbH, Germany`, for the subprocessor list (Accounts, below): the one entry
+  the other settings cannot supply. Production refuses to start without it.
 - `FORWARDED_ALLOW_IPS` is uvicorn's, not the app's: the addresses whose `X-Forwarded-Proto`
   and `X-Forwarded-For` headers it believes, which tell the app the request's scheme and the
   browser's address behind a reverse proxy. `127.0.0.1,::1` by default, right for a proxy on
@@ -318,11 +322,21 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   removes the limit.
 - `AGENT_MODEL` and `INDEX_MODEL` name the AI models as `provider:model`. Both default to
   `google:gemini-2.5-flash-lite`. Indexing is the high-volume side and the agent answers
-  questions, so the two can differ, even across providers.
+  questions, so the two can differ, even across providers. The index model is sent the text
+  and the scanned pages of every document, the agent each question and the passages it reads,
+  so a deployment uses providers whose terms forbid training on them (`deploying.md` says
+  where each provider stands). Production refuses `google:` models, the Gemini Developer API,
+  until `GOOGLE_PAID_TIER=true` says billing is on for the key's Google Cloud project: on the
+  free tier Google may use what it is sent to improve its products, and a free key looks like
+  a paid one. `google-cloud:` reaches the same models through Vertex AI. A request through
+  OpenRouter is forwarded only to a provider of the model that neither stores it nor trains on
+  it.
 - Each provider reads its own key: `GOOGLE_API_KEY` for `google:` models, `ANTHROPIC_API_KEY`
-  for `anthropic:`, `OPENROUTER_API_KEY` for `openrouter:`. To switch models, change these
-  lines and restart. [Pydantic AI](https://pydantic.dev/docs/ai/models/overview/) makes the
-  requests, so any model it supports can be named.
+  for `anthropic:`, `OPENROUTER_API_KEY` for `openrouter:`; Vertex AI signs in as a service
+  account, with `GOOGLE_APPLICATION_CREDENTIALS` naming its key file and `GOOGLE_CLOUD_PROJECT`
+  its project. To switch models, change these lines and restart. [Pydantic
+  AI](https://pydantic.dev/docs/ai/models/overview/) makes the requests, so any model it
+  supports can be named.
 - `AGENT_EFFORT` and `INDEX_EFFORT` set how hard a model thinks, for models that can.
 - `AGENT_MAX_TURNS` is how many rounds of tool calls one answer may make, 12 by default; an
   answer that needs more stops with what it has and says so. Each round is a model request,
@@ -354,6 +368,14 @@ requests do and a page on another site cannot add, so the cookie alone changes n
 header when calling the API by hand. The app answers no request from another origin (there is
 no CORS): the frontend is served from the API's own origin, and the defence rests on that. The
 routes are under `/api/auth`, the pages in `frontend/src/account/`.
+
+`/subprocessors` lists the companies the deployment sends data to, what for and what each
+receives, for anyone to read before signing up (the sign-up page and the user menu link to it).
+The backend reads it from its settings (`backend/app/subprocessors.py`, `GET
+/api/subprocessors`), so it changes when a provider does: `HOSTING_PROVIDER`, the bucket, the
+companies behind the two models, a hosted embeddings endpoint, the mail relay, and Google and
+Microsoft when sign-in with them is set up. A service on the deployment's own network is not a
+subprocessor and is left out; a host the backend does not recognise is listed by its name.
 
 Every response carries the headers that tell the browser what a page of the app may do
 (`backend/app/headers.py`): a `Content-Security-Policy` that allows scripts, styles and requests

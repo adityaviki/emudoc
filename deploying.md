@@ -30,11 +30,14 @@ processes below run from a checkout with `uv`, as in development.
   warns at every start.
 - **An SMTP relay** in `SMTP_URL` for the sign-in links, and an embeddings endpoint in
   `EMBEDDING_BASE_URL` for search by meaning.
+- **The model providers** named by `INDEX_MODEL` and `AGENT_MODEL`, each on terms that forbid
+  training on what it is sent: "What leaves the deployment", below.
 
 The settings arrive through the process environment or a secret manager, never a `.env` file:
 `ENVIRONMENT=production` makes the app copy nothing from one, and makes it refuse to start with
 development's conveniences (the compose database's password, `LOCAL_ACCOUNT=true`, no
-`STORAGE_URL`, `APP_URL`, `SMTP_URL` or `SCANNER_URL`, no key for the model), naming each.
+`STORAGE_URL`, `APP_URL`, `SMTP_URL`, `SCANNER_URL` or `HOSTING_PROVIDER`, a free-tier
+Gemini key, no key for the model), naming each.
 `.env.example` documents every setting; the README's "Configuration" says what the ones that
 matter do.
 
@@ -176,6 +179,63 @@ server {
 uvicorn takes the rightmost address it was not told to believe, so a header forged by the
 browser changes nothing.
 
+## What leaves the deployment
+
+The documents are invoices, contracts and bank statements, and three settings decide which
+companies read them:
+
+- `INDEX_MODEL` is sent the text of every document, to infer its sections, write summaries and
+  pull out facts, and an image of every scanned page and uploaded image, to transcribe it.
+- `AGENT_MODEL` is sent each question, the project's name and description, and every passage,
+  fact, outline and list of documents the agent reads to answer it.
+- `EMBEDDING_BASE_URL` is sent every passage as it is indexed and each search. The default,
+  Ollama on the same machine, sends nothing out; a hosted endpoint is a company like the others.
+
+Each must be on terms that let it use none of this to train or improve its models, under a data
+processing addendum the operator has accepted. Where the providers stood in October 2026 (read
+their terms again before launch; they change):
+
+- **The Gemini Developer API** (`google:` models, `GOOGLE_API_KEY`). Google's paid terms apply
+  only while the key's Google Cloud project has an active billing account: Google then uses
+  neither the prompts nor the replies to improve its products, processes them under its data
+  processing addendum, and logs them for a limited time to detect abuse. A key made in AI Studio
+  is on the free tier until billing is on, and on the free tier Google uses what it is sent to
+  improve its products and has people read some of it. Nothing in a key or a reply tells the
+  two apart, so production refuses `google:` models until `GOOGLE_PAID_TIER=true` says billing
+  is on. Set it after looking at the project's billing page, not before.
+- **Vertex AI** (`google-cloud:` models). Google Cloud's terms and its data processing addendum,
+  through the project's billing account, and a region of the operator's choosing for the
+  requests (`GOOGLE_CLOUD_LOCATION`, `us-central1` unless set; `eu` keeps them in the EU). It
+  signs in as a service account: `GOOGLE_APPLICATION_CREDENTIALS` names the account's key file
+  and `GOOGLE_CLOUD_PROJECT` its project, or on Google Cloud's own machines the account the
+  machine runs as. Leave `GOOGLE_API_KEY` unset beside it: without a key file, Vertex takes that
+  variable as an express-mode key, whose free trial is not a production account.
+- **Anthropic** (`anthropic:`). Its Commercial Terms, which every API key is under, forbid
+  training on customer content, and its data processing addendum is part of them.
+- **OpenAI** (`openai:`). API data is not used for training unless the organisation opts in;
+  its data processing addendum is signed through OpenAI's own form.
+- **OpenRouter** (`openrouter:`) forwards each request to one of the model's providers, and left
+  to itself may choose one that stores prompts and trains on them. The app asks it on every
+  request to choose among the providers that do neither (`data_collection: deny`, `DATA_POLICY`
+  in `backend/app/llm.py`); a model none of them serves fails with OpenRouter's sentence rather
+  than reach another. OpenRouter is a company in the path itself: keep the account's prompt
+  logging off, and ask its business plans for a data processing addendum.
+
+### The subprocessor list
+
+The app publishes the companies it sends data to at `/subprocessors`, a page anyone can open
+(the sign-up page and the user menu link to it; `GET /api/subprocessors` is the same as JSON).
+It is read from the settings, so it changes with them: who hosts the deployment, the bucket
+(by where its signed URLs lead), the companies behind the two models, a hosted embeddings
+endpoint, the mail relay, and Google and Microsoft when sign-in with them is set up. Who hosts
+it is the one entry the settings cannot know: `HOSTING_PROVIDER`, free text such as
+`Hetzner Online GmbH, Germany` or `Fly.io (servers) and Neon (database)`, which production
+requires. A service on the deployment's own network (a private or loopback address, a compose
+service's name, a name under `.internal` or `.local`) is not a subprocessor and is not listed;
+a host the app does not recognise is listed by its name, so an operator's own server under a
+public name appears there too. A company the app sends nothing to, such as a support desk,
+belongs on the operator's own legal pages, beside a link to this one.
+
 ## Rates
 
 The app holds each caller to a rate of its own (the `RATE_*` settings in `.env.example`): so
@@ -216,3 +276,6 @@ before the app would hold it.
    moment the library shows it quarantined with the verdict `Eicar-Test-Signature`,
    "Download original file" is off, and `ALERT_EMAIL` gets "Emudoc quarantined 1 upload" at the next
    quarter of an hour. Delete it.
+7. Signed out, `https://emudoc.example.com/subprocessors` lists `HOSTING_PROVIDER` first, then
+   the companies behind the models and, with a bucket or a mail relay, theirs: what the
+   deployment's privacy notice promises, and nothing it does not.

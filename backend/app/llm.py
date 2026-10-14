@@ -8,6 +8,10 @@ A provider named in DISABLED_PROVIDERS (app/config.py) is switched off: its mode
 a passing one by design. The app then runs as it does without a key, the status route says
 why, and a production process starts regardless (app/startup.py), which is what makes the
 setting a kill switch rather than a misconfiguration.
+
+Every request asks OpenRouter to forward it only to providers that neither store nor train on
+what they are sent (`DATA_POLICY`), so that a model reached through it keeps the terms the app
+promises its users; the other providers' terms come with the key (deploying.md).
 """
 
 import asyncio
@@ -23,6 +27,7 @@ from typing import Any, Literal, TypeVar
 import httpx
 import httpx2
 import pydantic_ai
+from google.auth.exceptions import DefaultCredentialsError
 from google.genai.types import HttpRetryOptions
 from pydantic import BaseModel
 from pydantic_ai import Agent, BinaryContent, NativeOutput
@@ -44,9 +49,10 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import Model, ModelRequestParameters, infer_model
 from pydantic_ai.providers import Provider, infer_provider
 from pydantic_ai.providers.google import GoogleProvider
+from pydantic_ai.providers.google_cloud import GoogleCloudProvider
 from pydantic_ai.tools import ToolDefinition
 
-from app.config import Settings
+from app.config import Settings, model_provider
 from app.errors import AppError
 from app.usage import ModelUsage
 
@@ -70,6 +76,11 @@ STREAM_STALL = 60
 GOOGLE_ATTEMPTS = 3
 # The statuses a provider answers with when it, not the request, is the problem for the moment.
 TRANSIENT_STATUSES = {408, 429}
+# What OpenRouter is told about where it may send a request: only to providers of the model that
+# keep no data and train on none (OpenRouter's `data_collection`). Its default allows providers
+# that store prompts and may train on them; a model that no such provider serves fails with
+# OpenRouter's own sentence rather than reach one.
+DATA_POLICY = {"data_collection": "deny"}
 
 # The library greets its first run with a banner; this process keeps its output to its log.
 pydantic_ai.BANNER_ENABLED = False
@@ -197,6 +208,14 @@ def _setup_problem(name: str, error: Exception, settings: Settings) -> str:
         # them by its deployment, so the fix is to be found there.
         where = ".env" if settings.environment == "development" else "the environment"
         return f"Set {variable[1]} in {where} to use {name}."
+    if isinstance(error, DefaultCredentialsError):
+        # Vertex AI signs in with a Cloud identity, not a key: a service account's key file, or
+        # the one the machine runs as.
+        where = ".env" if settings.environment == "development" else "the environment"
+        return (
+            "Set GOOGLE_APPLICATION_CREDENTIALS to a service account's key file and "
+            f"GOOGLE_CLOUD_PROJECT to its project in {where} to use {name}."
+        )
     if extra := re.search(r"pydantic-ai-slim\[[\w-]+\]", message):
         return (
             f"{name} needs a package that is not installed. Run `uv add '{extra[0]}'` in backend/."
@@ -206,15 +225,21 @@ def _setup_problem(name: str, error: Exception, settings: Settings) -> str:
 
 def _provider(name: str) -> Provider[Any]:
     """The provider behind a model-name prefix, reading its key from the environment."""
+    # Google's SDK gives up at the first rate-limit or overload response unless told to retry,
+    # on either of its APIs. Anthropic's and OpenAI's retry twice by default.
     if name == "google":
-        # Google's SDK gives up at the first rate-limit or overload response unless told to
-        # retry. Anthropic's and OpenAI's retry twice by default.
         return GoogleProvider(retry_options=HttpRetryOptions(attempts=GOOGLE_ATTEMPTS))
+    if name == "google-cloud":
+        return GoogleCloudProvider(retry_options=HttpRetryOptions(attempts=GOOGLE_ATTEMPTS))
     return infer_provider(name)
 
 
 def _settings(effort: str, **settings: Any) -> dict[str, Any]:
-    """Model settings for one request. An empty `effort` leaves the model's own default."""
+    """Model settings for one request. An empty `effort` leaves the model's own default.
+
+    OpenRouter's data policy goes on every request; the other providers ignore it.
+    """
+    settings["openrouter_provider"] = dict(DATA_POLICY)
     if effort:
         settings["thinking"] = effort
     return settings
@@ -353,7 +378,7 @@ class LLM:
     def _model(self, name: str) -> Model:
         """The adapter for a `provider:model` name, built on first use, and refused while the
         provider is switched off (DISABLED_PROVIDERS), whether or not it was built before."""
-        if (provider := name.partition(":")[0]) in self._settings.disabled:
+        if (provider := model_provider(name)) in self._settings.disabled:
             raise LLMUnavailable(_switched_off(name, provider), transient=True)
         with self._lock:
             if name not in self._models:

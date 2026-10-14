@@ -37,6 +37,7 @@ from app.usage import ModelUsage
 GEMINI = "google:gemini-2.5-flash-lite"
 CLAUDE = "anthropic:claude-opus-5-5"
 OPENROUTER = "openrouter:google/gemini-2.5-flash-lite"
+VERTEX = "google-cloud:gemini-2.5-flash-lite"
 SCRIPTED = "scripted:model"
 TOOL_NAMES = ["list_documents", "get_outline", "search", "query_facts", "read"]
 QUESTION = [ModelRequest(parts=[UserPromptPart("What is the notice period?")])]
@@ -135,7 +136,11 @@ def test_structured_asks_for_the_schema_and_parses_the_reply():
     ((messages, info),) = script.requests
     assert [part.content for part in messages[0].parts] == ["the document"]
     assert info.instructions == INDEX_SYSTEM
-    assert info.model_settings == {"max_tokens": 16000, "timeout": 300}
+    assert info.model_settings == {
+        "max_tokens": 16000,
+        "timeout": 300,
+        "openrouter_provider": {"data_collection": "deny"},
+    }
     parameters = info.model_request_parameters
     # Effort travels as the library's thinking level, which each provider maps to its own knob.
     assert parameters.thinking == "low"
@@ -235,6 +240,26 @@ def test_a_model_that_cannot_be_set_up_says_what_to_do(monkeypatch, model, probl
     with pytest.raises(LLMUnavailable) as raised:
         llm.structured("x", DocumentAnalysis)
     assert str(raised.value) == llm.problem()
+
+
+def test_vertex_without_credentials_says_how_to_sign_in(monkeypatch, tmp_path):
+    # Vertex AI signs in as a Cloud identity rather than with a key; with none to be found, the
+    # message names what a service account needs instead of Google's page on the subject.
+    for name in (
+        "GOOGLE_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "GOOGLE_CLOUD_PROJECT",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    # Neither a `gcloud auth application-default login` on this machine nor a Cloud machine.
+    monkeypatch.setenv("CLOUDSDK_CONFIG", str(tmp_path))
+    monkeypatch.setenv("NO_GCE_CHECK", "true")
+    llm = LLM(Settings(_env_file=None, index_model=VERTEX, agent_model=VERTEX))
+    assert llm.problem() == (
+        "Set GOOGLE_APPLICATION_CREDENTIALS to a service account's key file and "
+        f"GOOGLE_CLOUD_PROJECT to its project in .env to use {VERTEX}."
+    )
 
 
 def test_both_models_need_their_keys(monkeypatch):
@@ -459,6 +484,7 @@ class Recorder:
 # The module in which each provider looks up the function that builds its HTTP client.
 CLIENT_FACTORY = {
     "google": "pydantic_ai.providers.google",
+    "google-cloud": "pydantic_ai.providers.google",
     "anthropic": "pydantic_ai.providers.anthropic",
     "openrouter": "pydantic_ai.providers._openai_compatible",
 }
@@ -467,7 +493,10 @@ CLIENT_FACTORY = {
 def recorded_llm(monkeypatch, recorder: Recorder, model: str, **settings) -> LLM:
     """An LLM built as the app builds it, except that its HTTP client answers from a recording."""
     provider = model.split(":")[0]
-    monkeypatch.setenv(f"{provider.upper()}_API_KEY", "test-key")
+    # Vertex AI takes Gemini's variable for a key of its own (express mode), and a service
+    # account's file would win over it.
+    monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
+    monkeypatch.setenv(f"{provider.partition('-')[0].upper()}_API_KEY", "test-key")
     monkeypatch.setattr(
         f"{CLIENT_FACTORY[provider]}.create_async_httpx2_client",
         lambda: httpx2.AsyncClient(transport=httpx2.MockTransport(recorder)),
@@ -547,6 +576,8 @@ def test_gemini_structured_request(monkeypatch):
     properties = config["responseJsonSchema"]["properties"]
     assert {"title", "doc_type", "doc_date", "summary", "sections", "facts"} <= set(properties)
     assert "thinkingConfig" in config
+    # OpenRouter's data policy is OpenRouter's alone.
+    assert "provider" not in body
 
 
 def test_gemini_without_effort_sends_no_thinking_settings(monkeypatch):
@@ -603,6 +634,24 @@ def test_gemini_is_asked_again_when_it_is_overloaded(monkeypatch):
     assert result.title == "Master Services Agreement" and len(recorder.requests) == 2
 
 
+def test_vertex_is_asked_again_when_it_is_overloaded(monkeypatch):
+    # The production path for Gemini retries as the Developer API does.
+    error = {"code": 503, "message": "The model is overloaded.", "status": "UNAVAILABLE"}
+    recorder = Recorder(
+        httpx2.Response(503, json={"error": error}),
+        httpx2.Response(200, json=gemini({"text": json.dumps(ANALYSIS)})),
+    )
+    result = recorded_llm(monkeypatch, recorder, VERTEX).structured(
+        "the document", DocumentAnalysis
+    )
+    assert result.title == "Master Services Agreement" and len(recorder.requests) == 2
+    request = recorder.requests[1]
+    assert request.url.host == "aiplatform.googleapis.com"
+    assert request.url.path.endswith(
+        "/publishers/google/models/gemini-2.5-flash-lite:generateContent"
+    )
+
+
 def test_gemini_errors_keep_the_api_s_own_words(monkeypatch):
     error = {"code": 400, "message": "API key not valid.", "status": "INVALID_ARGUMENT"}
     recorder = Recorder(httpx2.Response(400, json={"error": error}))
@@ -655,6 +704,39 @@ def test_openrouter_structured_request(monkeypatch):
     assert body["model"] == "google/gemini-2.5-flash-lite" and body["max_tokens"] == 16000
     assert body["messages"][0] == {"role": "system", "content": INDEX_SYSTEM}
     assert body["response_format"]["type"] == "json_schema"
+    # Only to providers of the model that neither store the request nor train on it.
+    assert body["provider"] == {"data_collection": "deny"}
+
+
+def openrouter_stream(*chunks: dict) -> httpx2.Response:
+    body = "".join(f"data: {json.dumps(chunk)}\n\n" for chunk in chunks) + "data: [DONE]\n\n"
+    headers = {"content-type": "text/event-stream"}
+    return httpx2.Response(200, headers=headers, content=body.encode())
+
+
+def test_an_openrouter_turn_keeps_to_providers_that_store_nothing(monkeypatch):
+    chunk = {
+        "id": "gen-02",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "google/gemini-2.5-flash-lite",
+        "provider": "Google",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"role": "assistant", "content": "Ninety days."},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 25, "completion_tokens": 3, "total_tokens": 28},
+    }
+    recorder = Recorder(openrouter_stream(chunk))
+    llm = recorded_llm(monkeypatch, recorder, OPENROUTER)
+    with llm.stream_agent("Be brief.", QUESTION, []) as stream:
+        list(stream)
+        assert stream.response().text == "Ninety days."
+    assert recorder.body()["stream"] is True
+    assert recorder.body()["provider"] == {"data_collection": "deny"}
 
 
 def message(content, stop_reason="end_turn", **extra) -> dict:
@@ -716,6 +798,7 @@ def test_claude_structured_request(monkeypatch):
     assert body["output_config"]["effort"] == "low"
     assert body["output_config"]["format"]["type"] == "json_schema"
     assert "cache_control" not in body
+    assert "provider" not in body
 
 
 def test_agent_loop_over_recorded_claude_streams(monkeypatch, services, indexed):

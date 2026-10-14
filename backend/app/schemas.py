@@ -397,5 +397,13 @@ class StatusOut(BaseModel):
     currency: str
 
 
+class SubprocessorOut(BaseModel):
+    """A company the deployment sends data to (app/subprocessors.py)."""
+
+    name: str
+    purpose: str
+    data: str
+
+
 class HealthOut(BaseModel):
     status: Literal["ok"]

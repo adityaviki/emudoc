@@ -151,6 +151,14 @@ export interface SystemStatus {
   currency: string
 }
 
+/** A company the deployment sends data to, as the server reads it from its settings. */
+export interface Subprocessor {
+  name: string
+  purpose: string
+  /** What it receives. */
+  data: string
+}
+
 /** A passage the agent was shown, which its answer may cite as [P<id>]. */
 export interface Source {
   id: number
@@ -385,6 +393,8 @@ export const oauthStartUrl = (provider: string, next: string) =>
 
 export const api = {
   status: () => request<SystemStatus>('/status'),
+  /** Public: answers without a session. */
+  subprocessors: () => request<Subprocessor[]>('/subprocessors'),
 
   projects: () => request<Project[]>('/projects'),
   project: (id: number) => request<Project>(`/projects/${id}`),

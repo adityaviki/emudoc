@@ -18,6 +18,7 @@ import { ThemeToggle } from './components/ThemeToggle.tsx'
 import { Button, IconButton, Spinner } from './components/ui.tsx'
 import { useLocalStorage } from './hooks.ts'
 import { ProjectsPage } from './pages/ProjectsPage.tsx'
+import { SubprocessorsPage } from './pages/SubprocessorsPage.tsx'
 import { Workspace } from './pages/Workspace.tsx'
 
 /**
@@ -64,6 +65,7 @@ function App() {
           <Route path="forgot-password" element={<ForgotPasswordPage />} />
           <Route path="reset-password" element={<ResetPasswordPage />} />
           <Route path="verify" element={<VerifyPage />} />
+          <Route path="subprocessors" element={<SubprocessorsPage />} />
         </Route>
         <Route element={<Shell />}>
           <Route index element={<ProjectsPage />} />

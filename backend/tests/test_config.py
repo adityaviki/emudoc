@@ -140,6 +140,8 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "SMTP_URL",
         "SCANNER_URL",
         "RUN_WORKER",
+        "GOOGLE_PAID_TIER",
+        "HOSTING_PROVIDER",
     ):
         monkeypatch.delenv(name, raising=False)
     return {
@@ -150,6 +152,8 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "app_url": "https://emudoc.example.com",
         "smtp_url": "smtp://mailer:secret@smtp.example.com:587",
         "scanner_url": "clamd://clamav:3310",
+        "google_paid_tier": True,
+        "hosting_provider": "Hetzner Online GmbH, Germany",
     }
 
 
@@ -161,7 +165,14 @@ def test_a_complete_production_configuration_is_accepted(deployment):
 
 def test_production_refuses_every_development_convenience_in_one_message(deployment):
     # An operator fixes the whole list in one go instead of one setting per restart.
-    for name in ("storage_url", "app_url", "smtp_url", "scanner_url"):
+    for name in (
+        "storage_url",
+        "app_url",
+        "smtp_url",
+        "scanner_url",
+        "google_paid_tier",
+        "hosting_provider",
+    ):
         del deployment[name]
     deployment["database_url"] = WITH_THE_DEVELOPMENT_PASSWORD
     deployment["local_account"] = True
@@ -177,6 +188,8 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         "APP_URL",
         "SMTP_URL",
         "SCANNER_URL",
+        "GOOGLE_PAID_TIER",
+        "HOSTING_PROVIDER",
     ):
         assert variable in message
     # Each line says what to do; none repeats the database's address or password.
@@ -192,6 +205,8 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         ({"app_url": ""}, "APP_URL"),
         ({"smtp_url": ""}, "SMTP_URL"),
         ({"scanner_url": ""}, "SCANNER_URL"),
+        ({"google_paid_tier": False}, "GOOGLE_PAID_TIER"),
+        ({"hosting_provider": " "}, "HOSTING_PROVIDER"),
     ],
 )
 def test_each_development_setting_is_refused_on_its_own(deployment, change, variable):
@@ -234,6 +249,30 @@ def test_production_runs_without_a_scanner_only_when_told_to(deployment):
     assert load_settings(**{**deployment, "environment": "development"}).production_problems() == []
 
 
+def test_production_takes_gemini_s_developer_api_only_on_the_paid_tier(deployment):
+    # The free tier lets Google use what it is sent to improve its products, and a free key
+    # looks like a paid one, so the operator says which it is; Vertex AI needs no such word.
+    deployment["google_paid_tier"] = False
+    with pytest.raises(SystemExit) as stop:
+        load_settings(**deployment)
+    (line,) = stop.value.code.splitlines()[1:]
+    assert "AGENT_MODEL and INDEX_MODEL use the Gemini Developer API" in line
+    assert "set GOOGLE_PAID_TIER=true, or use Vertex AI as google-cloud:<model>" in line
+
+    deployment["agent_model"] = "anthropic:claude-opus-5-5"
+    with pytest.raises(SystemExit) as stop:
+        load_settings(**deployment)
+    assert "INDEX_MODEL uses the Gemini Developer API" in stop.value.code
+    deployment["index_model"] = "google-cloud:gemini-2.5-flash-lite"
+    assert load_settings(**deployment).production_problems() == []
+    deployment["index_model"] = "openrouter:google/gemini-2.5-flash-lite"
+    assert load_settings(**deployment).production_problems() == []
+    # A switched-off provider is still the one the deployment would use once it is back.
+    deployment.update(index_model="google:gemini-2.5-flash-lite", disabled_providers="google")
+    with pytest.raises(SystemExit):
+        load_settings(**deployment)
+
+
 def test_the_api_runs_the_worker_itself_in_development_only(deployment, monkeypatch):
     # Unset, the choice follows the environment: one process in development, and in production
     # a `python -m app.worker` of its own. Either can be said outright; a blank line is unset.
@@ -272,6 +311,8 @@ def test_development_runs_with_everything_production_refuses(deployment):
         local_account=True,
         app_url="",
         smtp_url="",
+        google_paid_tier=False,
+        hosting_provider="",
     )
     del deployment["storage_url"]
     assert load_settings(**deployment).production_problems() == []

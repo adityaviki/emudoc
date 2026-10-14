@@ -179,6 +179,18 @@ class Settings(BaseSettings):
     # app runs as it does without a key, and says why. For a bill that is running away or a
     # key that leaked, when midnight is too far off.
     disabled_providers: str = ""
+    # Whether billing is on for the Google Cloud project behind GOOGLE_API_KEY, which is what
+    # puts the Gemini Developer API (google: models) under Google's paid terms: no use of the
+    # prompts to improve its products, and its data processing addendum. On the free tier
+    # Google may use the documents and questions it is sent and have people read them, and
+    # nothing in a key or a reply tells the two apart, so production refuses google: models
+    # until this says so. Vertex AI (google-cloud: models) runs under a Cloud project's own
+    # terms and needs no such word.
+    google_paid_tier: bool = False
+    # Who runs the deployment's servers and its database, as the subprocessor list names it
+    # (app/subprocessors.py): the one subprocessor the settings cannot name themselves.
+    # Production refuses it empty, since the published list would leave it out.
+    hosting_provider: str = ""
 
     # Embeddings: any OpenAI-compatible /embeddings endpoint. The default is a local Ollama.
     embedding_base_url: str = "http://127.0.0.1:11434/v1"
@@ -369,8 +381,9 @@ class Settings(BaseSettings):
 
         Development's conveniences are production's holes: the well-known database password,
         requests without a session acting as the owner, sign-in links written to the log,
-        uploads nobody scans, and files and links whose place depends on where the process
-        happens to run. Empty in development, and for settings that are fit.
+        uploads nobody scans, a model key that may be on a free tier which trains on what it
+        is sent, and files and links whose place depends on where the process happens to run.
+        Empty in development, and for settings that are fit.
         """
         if self.environment != "production":
             return []
@@ -408,6 +421,23 @@ class Settings(BaseSettings):
                 "unscanned; name the ClamAV daemon, as clamd://clamav:3310, or set it to off "
                 "to run without scanning on purpose."
             )
+        models = (("AGENT_MODEL", self.agent_model), ("INDEX_MODEL", self.index_model))
+        gemini = [variable for variable, name in models if model_provider(name) == "google"]
+        if gemini and not self.google_paid_tier:
+            uses = f"{gemini[0]} uses" if len(gemini) == 1 else "AGENT_MODEL and INDEX_MODEL use"
+            problems.append(
+                f"{uses} the Gemini Developer API (google:), whose free tier lets Google use "
+                "the documents and questions it is sent to improve its products, and the app "
+                "cannot tell a free key from a paid one; once billing is on for the key's "
+                "Google Cloud project, set GOOGLE_PAID_TIER=true, or use Vertex AI as "
+                "google-cloud:<model>."
+            )
+        if not self.hosting_provider.strip():
+            problems.append(
+                "HOSTING_PROVIDER is not set, so the subprocessor list the app publishes at "
+                "/subprocessors would leave out who runs its servers and database; name them, "
+                'such as "Hetzner Online GmbH, Germany".'
+            )
         if self.daily_spend_cap and not self.model_prices:
             problems.append(
                 "DAILY_SPEND_CAP is set, but MODEL_PRICES is empty, so no cost is recorded and "
@@ -428,6 +458,11 @@ def unfit_for_production(problems: list[str]) -> str:
     not; `problems` are what `Settings.production_problems` found."""
     lines = "\n".join(f"  - {problem}" for problem in problems)
     return f"ENVIRONMENT is production, but these settings are not fit for a deployment:\n{lines}"
+
+
+def model_provider(name: str) -> str:
+    """The provider of a `provider:model` name, as DISABLED_PROVIDERS and Pydantic AI name it."""
+    return name.partition(":")[0]
 
 
 def _listed(value: str) -> list[str]:
