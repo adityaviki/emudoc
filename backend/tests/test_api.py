@@ -52,7 +52,7 @@ def test_upload_queues_documents_and_rejects_what_it_cannot_take(client, sample_
     assert document["filename"] == "msa.pdf"
     assert document["mime_type"] == "application/pdf"
     assert document["status"] == "queued"
-    assert set(document["stages"]) == {"parse", "structure", "enrich", "embed"}
+    assert set(document["stages"]) == {"scan", "parse", "structure", "enrich", "embed"}
     assert {r["filename"]: r["reason"] for r in result["rejected"]} == {
         "archive.zip": (
             "Unsupported type. Use .csv, .docx, .jpeg, .jpg, .md, .pdf, .png, .txt, .webp, .xlsx."
@@ -221,11 +221,13 @@ def test_document_views_after_indexing(client, services, sample_pdf):
     assert original.headers["content-disposition"].startswith("inline")
 
 
-def test_thumbnails_for_images_only_besides_pdfs(client, sample_docx, tmp_path):
+def test_thumbnails_for_images_only_besides_pdfs(client, services, sample_docx, tmp_path):
     picture = tmp_path / "photo.png"
     Image.new("RGB", (800, 400), "white").save(picture)
     project = create_project(client)
     photo, policy = upload(client, project["id"], picture, sample_docx)["documents"]
+    for document in (photo, policy):
+        process_document(document["id"], services)
 
     thumbnail = client.get(f"/api/documents/{photo['id']}/thumbnail.png")
     assert thumbnail.status_code == 200
@@ -234,7 +236,7 @@ def test_thumbnails_for_images_only_besides_pdfs(client, sample_docx, tmp_path):
     assert client.get(f"/api/documents/{policy['id']}/thumbnail.png").status_code == 404
 
 
-def test_thumbnail_refuses_an_image_too_large_to_decode(client, tmp_path, monkeypatch):
+def test_thumbnail_refuses_an_image_too_large_to_decode(client, services, tmp_path, monkeypatch):
     # The cap reads the size from the header before a pixel is decoded, and Pillow's own, higher
     # ceiling refuses the largest headers before the cap sees them; either way the document has
     # no thumbnail, like one whose file is damaged.
@@ -245,6 +247,7 @@ def test_thumbnail_refuses_an_image_too_large_to_decode(client, tmp_path, monkey
     Image.new("RGB", (2600, 2600), "white").save(huge)
     project = create_project(client)
     for document in upload(client, project["id"], large, huge)["documents"]:
+        process_document(document["id"], services)
         response = client.get(f"/api/documents/{document['id']}/thumbnail.png")
         assert response.status_code == 404
         assert response.json()["detail"] == "The file could not be rendered"

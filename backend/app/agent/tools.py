@@ -469,7 +469,9 @@ def _document_line(document: Document, folder_paths: dict[int, str]) -> str:
         parts.append(f"dated {document.doc_date.isoformat()}")
     if document.page_count:
         parts.append(f"{document.page_count} pages")
-    if document.status != "ready":
+    if document.status == "quarantined":
+        parts.append("quarantined by the malware scan, nothing of it can be read")
+    elif document.status != "ready":
         parts.append(f"indexing {document.status}")
     return " · ".join(parts)
 

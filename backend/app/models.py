@@ -26,7 +26,9 @@ from app.db import Base
 
 _settings = get_settings()
 
-STAGES = ("parse", "structure", "enrich", "embed")
+# The pipeline's stages in order (app/indexing/pipeline.py): the malware scan comes first,
+# since nothing may open the file before it has passed (app/scanning.py).
+STAGES = ("scan", "parse", "structure", "enrich", "embed")
 # From most to least permitted: each role may do everything the roles after it may.
 ROLES = ("owner", "admin", "member", "viewer")
 # A chat is private to the member who started it until they share it with the project.
@@ -337,11 +339,15 @@ class Document(Base):
     # objects sit under the same prefix.
     storage_key: Mapped[str] = mapped_column(Text)
 
-    # queued | processing | ready | failed
+    # queued | processing | ready | failed | quarantined (the malware scan flagged the file:
+    # it is neither indexed nor served, and `error` carries the verdict, app/scanning.py)
     status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
     # {stage: {"status": pending|running|done|skipped|failed, "detail": str}}
     stages: Mapped[dict] = mapped_column(JSONB, default=dict)
     error: Mapped[str | None] = mapped_column(Text)
+    # When the operator was mailed about the quarantine (app/scanning.py); null until then,
+    # and for a document that was never quarantined or was cleared by a later scan.
+    quarantine_reported_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     # What bringing the document in, indexing it and viewing its pages used, by kind and
     # summed over every run for it, as app/usage.py keeps it in step with the usage events:
     # {kind: {unit: quantity, "model": str, "cost_micros": int}}.

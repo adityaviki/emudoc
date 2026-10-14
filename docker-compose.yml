@@ -38,6 +38,25 @@ services:
     volumes:
       - s3data:/data
 
+  # ClamAV, for trying SCANNER_URL=clamd://127.0.0.1:3310 by hand; nothing starts it unless
+  # asked: `docker compose --profile clamav up -d --wait`. The first start downloads the
+  # signatures (a few hundred megabytes) and the daemon needs a minute and about a gigabyte of
+  # memory to load them; the health check turns green once it answers. The limits below let it
+  # scan a file as large as MAX_UPLOAD_MB; raise them together. The tests never need it: they
+  # run the pipeline against a fake scanner, and the clamd client against a fake daemon.
+  clamav:
+    image: clamav/clamav:stable
+    profiles: ["clamav"]
+    environment:
+      CLAMD_CONF_StreamMaxLength: 100M
+      CLAMD_CONF_MaxFileSize: 100M
+      CLAMD_CONF_MaxScanSize: 400M
+    ports:
+      - "127.0.0.1:${CLAMAV_PORT:-3310}:3310"
+    volumes:
+      - clamdb:/var/lib/clamav
+
 volumes:
   pgdata:
   s3data:
+  clamdb:

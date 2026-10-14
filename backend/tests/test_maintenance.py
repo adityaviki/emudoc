@@ -78,6 +78,7 @@ def test_changing_the_embedding_model_requeues_only_the_embed_stage(
     job = session.scalars(select(Job).order_by(Job.id.desc())).first()
     assert (job.payload, job.priority) == ({"document_id": indexed.id}, BULK)
     assert stage_statuses(indexed) == {
+        "scan": "done",
         "parse": "done",
         "structure": "done",
         "enrich": "done",

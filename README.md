@@ -39,10 +39,19 @@ and the rows of a sheet (`PARSE_TIMEOUT`, `PARSE_MEMORY_MB`, `PARSE_MAX_PAGES`,
 and the document says which limit it hit. Before any of that, the upload checks that a file's
 bytes are what its name says (a PDF's header, an image's signature, the part a Word document or
 a workbook declares, UTF-8 text with no binary in it) and rejects one that is not with the
-reason, while the other files of the same upload go in.
+reason, while the other files of the same upload go in. The first stage then has the file
+scanned for malware by the ClamAV daemon `SCANNER_URL` names, before any parser opens it and
+before the file is served to anyone: a flagged file is quarantined, which the document shows
+with the scanner's verdict, nothing of it is indexed, and no member can open or download it
+until an editor deletes it (or has it scanned again with "Index again", once the signatures
+have changed); the worker reports each quarantine to `ALERT_EMAIL`. A daemon that is down
+holds the upload in the queue, retried like any passing failure. Without a scanner the stage is
+skipped and every document says so, which production accepts only when `SCANNER_URL` is
+set to `off` on purpose.
 
 | Stage     | What it does                                                                      | Needs      |
 | --------- | --------------------------------------------------------------------------------- | ---------- |
+| scan      | Has the file scanned for malware; a flagged file is quarantined, not indexed       | ClamAV     |
 | parse     | Turns the file into ordered blocks (headings, text, tables) with page and position | nothing    |
 | structure | Builds the outline from the headings and cuts sections into passages               | nothing    |
 | enrich    | Writes a summary per section and document, and extracts typed facts                | AI model   |
@@ -171,6 +180,7 @@ servers. Port 8000 still serves the last build, so it does not show your edits.
 | ---------------- | ----------------------------------------------------- | ------------------------------------------------- |
 | Model API key    | Parsing, outlines from headings, search, the viewer   | Summaries, facts, scans and images, the Ask tab   |
 | Embeddings       | Keyword search, everything else                       | Search by meaning                                 |
+| ClamAV           | Everything; each document says it was not scanned     | Malware scanning of uploads (off by choice only in production) |
 
 The header shows which of the two is available. After adding a key, restart the backend and
 press "Run the model on them" in the Documents tab to enrich what was indexed without it.
@@ -221,10 +231,19 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   can be guessed at speed. The request past a rate is refused with 429 and the seconds until
   the minute turns; `0` removes a limit. The counts live in the database, so every API
   replica counts the same.
+- `SCANNER_URL` names the ClamAV daemon that scans every upload before it is indexed or
+  served: `clamd://host:3310`, or `clamd:///run/clamav/clamd.ctl` for one on the same
+  machine. The file is streamed to it, so the daemon needs no access to the storage; its own
+  limits (`StreamMaxLength`, `MaxFileSize`, `MaxScanSize` in `clamd.conf`) must allow a file
+  of `MAX_UPLOAD_MB`, or it refuses the file and the document says so. Empty, nothing is
+  scanned and every document says so; `off` is the same choice stated, the only form
+  production accepts besides a daemon. `docker compose --profile clamav up -d --wait` runs
+  one to try this with.
 - `ALERT_EMAIL` is where the worker reports the jobs it gave up on, through the same mail
-  settings as the sign-in links, as one digest every quarter of an hour, and where it warns
-  once a day when a day's spending on models reaches 80 % of a limit, the platform's or an
-  organisation's. Empty sends nothing; the `failed-jobs` command lists the failures either way.
+  settings as the sign-in links, as one digest every quarter of an hour, where it reports
+  the uploads the malware scan quarantined the same way, and where it warns once a day when
+  a day's spending on models reaches 80 % of a limit, the platform's or an organisation's.
+  Empty sends nothing; the `failed-jobs` command lists the failures either way.
 - `DAILY_SPEND_CAP` is what every organisation together may spend on models in one UTC day,
   in `PRICE_CURRENCY` by the costs `MODEL_PRICES` gives; `0`, the default, is no limit. Past
   it every question is refused with 503 until midnight UTC and every indexing stage that needs
@@ -241,8 +260,8 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   instead; the backend then copies nothing from `.env`, and a missing key is reported as one to
   set in the environment. Production also refuses to start, listing what to change, when the
   settings are development's: the `docker compose` database's password, `LOCAL_ACCOUNT=true`,
-  no `STORAGE_URL`, no `APP_URL`, no `SMTP_URL`, a `DAILY_SPEND_CAP` without `MODEL_PRICES`,
-  or no key for the model. It does not serve the interactive API docs at `/docs`, and it marks
+  no `STORAGE_URL`, no `APP_URL`, no `SMTP_URL`, no `SCANNER_URL`, a `DAILY_SPEND_CAP`
+  without `MODEL_PRICES`, or no key for the model. It does not serve the interactive API docs at `/docs`, and it marks
   the session cookie `Secure` and sends `Strict-Transport-Security` whatever the request's
   scheme, since a deployment is behind TLS; a request that still reaches it as plain HTTP is
   logged with what the proxy should send.
@@ -363,6 +382,7 @@ backend/app/
   worker.py     the worker that claims and runs the jobs; its own process in production
   deadletters.py
                 the jobs the worker gave up on: the operator's digest, listing and requeue
+  scanning.py   the malware scan of uploads: the clamd client, the quarantine, the digest
   startup.py    the checks and the services every process starts with
   search.py     hybrid search over passages
   folders.py    the folder tree as paths and subtrees

@@ -75,7 +75,9 @@ class DocumentOut(_FromORM):
     filename: str
     mime_type: str
     size_bytes: int
-    status: Literal["queued", "processing", "ready", "failed"]
+    # `quarantined` is a file the malware scan flagged: `error` says so, and the file is
+    # neither indexed nor served (app/scanning.py).
+    status: Literal["queued", "processing", "ready", "failed", "quarantined"]
     stages: dict[str, StageOut]
     error: str | None
     page_count: int | None

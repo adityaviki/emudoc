@@ -34,14 +34,16 @@ from app.parsing.images import open_image
 from app.parsing.limits import ParseLimits, parse_within_limits
 from app.parsing.pdf import render_page
 from app.parsing.types import clean_text
+from app.scanning import NOT_SCANNED, Scanner, quarantine_message
 from app.spending import check_platform_spend, check_spend, day_of
 from app.storage import Storage
 from app.usage import DOCUMENT, EMBED, ENRICH, INFER_SECTIONS, OCR, UPLOAD, Meter
 
 log = logging.getLogger(__name__)
 
-# Without parse and structure there is nothing to search; the other stages only add to it.
-REQUIRED_STAGES = ("parse", "structure")
+# Without the scan nothing may open the file, and without parse and structure there is
+# nothing to search; the other stages only add to it.
+REQUIRED_STAGES = ("scan", "parse", "structure")
 # Longest image edge sent for OCR; larger scans are scaled down to this.
 MAX_IMAGE_EDGE = 2576
 MISSING_ORIGINAL = (
@@ -54,10 +56,21 @@ class Services:
     llm: LLM
     embedder: Embedder
     storage: Storage
+    # None when SCANNER_URL names no daemon: the scan stage is skipped and says so.
+    scanner: Scanner | None = None
 
 
 class PipelineError(AppError):
     """A stage failed for a reason the user can act on."""
+
+
+class MalwareFound(PipelineError):
+    """The scanner flagged the file. The document is quarantined rather than failed: the
+    verdict is final for the file as it is, and the message tells the members what to do."""
+
+    def __init__(self, threat: str):
+        super().__init__(quarantine_message(threat))
+        self.threat = threat
 
 
 class StageDeferred(PipelineError):
@@ -85,6 +98,8 @@ class StageFailure:
     # When the stage asks to be run again, when it knows: the next midnight UTC for the day's
     # spending limit. None leaves the moment to the worker's backoff.
     retry_at: datetime | None = None
+    # The scan flagged the file: the document is quarantined, not failed, and never retried.
+    quarantine: bool = False
 
 
 Stage = Callable[[Session, Document, Services, Meter], str]
@@ -137,6 +152,9 @@ def process_document(
             if failure is None:
                 continue
             failures.append(failure)
+            if failure.quarantine:
+                _quarantine(session, document, failure, lease)
+                return failures
             if name in REQUIRED_STAGES:
                 document.status = "failed"
                 document.error = failure.message
@@ -148,8 +166,22 @@ def process_document(
         return failures
 
 
+def _quarantine(
+    session: Session, document: Document, failure: StageFailure, lease: Lease | None
+) -> None:
+    """Set a flagged document apart: its status says so, its error carries the verdict for
+    the members, and whatever an earlier run indexed of it is dropped, so that nothing of the
+    file is searched, read or served (the routes refuse the file by the status and the scan
+    stage, app/scanning.py). The file itself stays in the storage for a delete to remove."""
+    _delete_derived(session, document.id, Fact, Passage, Section, Block)
+    document.status = "quarantined"
+    document.error = failure.message
+    _commit(session, lease)
+
+
 def reset_stages(document: Document, from_stage: str = "parse") -> None:
-    """Queue a document to run again from the given stage."""
+    """Queue a document to run again from the given stage. A stage before it that is not done
+    runs too, so a quarantined document asked to run from parse is scanned again first."""
     rerun = STAGES[STAGES.index(from_stage) :]
     document.stages = {
         name: {"status": "pending", "detail": ""}
@@ -213,7 +245,9 @@ def _run_stage(
         _set_stage(session, document, name, "failed", str(error), lease)
         transient = isinstance(error, AppError) and error.transient
         retry_at = error.until if isinstance(error, StageDeferred) else None
-        return StageFailure(name, str(error), transient, retry_at)
+        return StageFailure(
+            name, str(error), transient, retry_at, quarantine=isinstance(error, MalwareFound)
+        )
     except Exception as error:
         session.rollback()
         log.exception("Stage %s failed for document %s", name, document_id)
@@ -268,6 +302,28 @@ def _commit(session: Session, lease: Lease | None) -> None:
         session.rollback()
         raise LeaseLost(lease)
     session.commit()
+
+
+def _scan(session: Session, document: Document, services: Services, meter: Meter) -> str:
+    """Have the file scanned for malware before any stage opens it or any route serves it.
+
+    The scanner reads the file as it is in the storage, streamed to it from a local copy. A
+    scanner that cannot be reached fails the stage transient, so the worker tries it again
+    and the upload waits in the queue; a verdict that names a threat quarantines the document
+    (`_quarantine`); without a scanner the stage is skipped and the document says so.
+    """
+    if services.scanner is None:
+        raise StageSkipped(NOT_SCANNED)
+    if not services.storage.exists(document.storage_key):
+        raise PipelineError(MISSING_ORIGINAL)
+    with services.storage.localize(document.storage_key) as path:
+        threat = services.scanner.scan(path)
+    if threat is not None:
+        raise MalwareFound(threat)
+    # A document that was quarantined, reported and then cleared by a scan with newer
+    # signatures is reported again should a later scan flag it.
+    document.quarantine_reported_at = None
+    return "clean"
 
 
 def _parse(session: Session, document: Document, services: Services, meter: Meter) -> str:
@@ -603,6 +659,7 @@ def _delete_derived(session: Session, document_id: int, *models: type) -> None:
 
 
 _STAGES: dict[str, Stage] = {
+    "scan": _scan,
     "parse": _parse,
     "structure": _structure,
     "enrich": _enrich,

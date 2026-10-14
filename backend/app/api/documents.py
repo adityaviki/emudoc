@@ -36,6 +36,7 @@ from app.parsing.images import open_image
 from app.parsing.pdf import render_page, render_thumbnail
 from app.parsing.signatures import wrong_type
 from app.ratelimit import UPLOADS
+from app.scanning import scan_passed
 from app.schemas import (
     DocumentContent,
     DocumentOut,
@@ -57,6 +58,13 @@ THUMBNAIL_SIZE = 320
 # How long the browser may keep a rendered page or thumbnail; they never change.
 IMAGE_MAX_AGE = 86400
 MISSING_FILE = "The original file is missing from the storage"
+# Why a file is not served (app/scanning.py): for good, or until its scan has passed.
+QUARANTINED_FILE = (
+    "The malware scan flagged this file, so it cannot be opened or downloaded. Delete it."
+)
+UNSCANNED_FILE = (
+    "This file is served once the malware scan has passed; the document shows how far the scan is."
+)
 # The unique constraint on (project_id, sha256), named by the convention in db.py: the insert
 # of a second copy of the same bytes fails on it when two uploads race.
 DUPLICATE_CONSTRAINT = "documents_project_id_sha256_key"
@@ -338,6 +346,8 @@ def reprocess_document(
 ):
     if document.status == "processing":
         raise HTTPException(409, "This document is being indexed right now")
+    # A quarantined document is scanned again before anything else, whatever stage is asked
+    # for: the run takes every stage that is not done, in order (app/indexing/pipeline.py).
     reset_stages(document, from_stage)
     queue_index(session, document)
     session.commit()
@@ -346,10 +356,20 @@ def reprocess_document(
     return document
 
 
+def _scanned(document: Document) -> None:
+    """Refuse to serve, or render from, a file the malware scan has not passed: a quarantined
+    one for good, and one still waiting for its scan until it is done."""
+    if document.status == "quarantined":
+        raise HTTPException(403, QUARANTINED_FILE)
+    if not scan_passed(document):
+        raise HTTPException(409, UNSCANNED_FILE)
+
+
 @router.get("/documents/{document_id}/file")
 def download_file(document: DocumentDep, services: ServicesDep) -> Response:
     """The uploaded file as it was uploaded; the storage decides whether it is sent from here or
     from a signed URL."""
+    _scanned(document)
     storage = services.storage
     if not storage.exists(document.storage_key):
         raise HTTPException(404, MISSING_FILE)
@@ -372,6 +392,7 @@ def page_image(
         raise HTTPException(404, "Only PDF documents have page images")
     if not 1 <= page <= (document.page_count or 0):
         raise HTTPException(404, "No such page")
+    _scanned(document)
     storage = services.storage
     key = document.page_image_key(page)
     if not storage.exists(key):
@@ -391,6 +412,7 @@ def thumbnail(
     """A small picture of the document for the library: a PDF's first page, or the image itself."""
     if document.mime_type != "application/pdf" and document.mime_type not in IMAGE_TYPES.values():
         raise HTTPException(404, "Only PDF and image documents have thumbnails")
+    _scanned(document)
     storage = services.storage
     if not storage.exists(document.thumbnail_key):
         try:

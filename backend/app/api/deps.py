@@ -40,8 +40,9 @@ from app.ratelimit import Key, Limit, by_user, hit
 from app.worker import Worker
 
 SessionDep = Annotated[Session, Depends(get_session)]
-# The stage a reprocess run starts from; later stages run too.
-Stage = Literal["parse", "structure", "enrich", "embed"]
+# The stage a reprocess run starts from; later stages run too, and so does an earlier one
+# that is not done, which is how a quarantined document is scanned again.
+Stage = Literal["scan", "parse", "structure", "enrich", "embed"]
 
 SIGN_IN = "Sign in to continue."
 # How long a request refused because the process is full (every database connection in use,

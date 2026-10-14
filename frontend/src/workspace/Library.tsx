@@ -33,6 +33,7 @@ import { Button, Chip, EmptyState, IconButton, Loading, Notice, Spinner } from '
 import { useContextMenu } from '../components/useContextMenu.tsx'
 import { documentsIn, useFolders, useLocalStorage } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
+import { scanPassed } from '../indexing.ts'
 import { fileKind } from './files.ts'
 import { useLibraryMutations } from './mutations.ts'
 import type { LibraryMutations } from './mutations.ts'
@@ -520,10 +521,13 @@ function Listing({
       {
         label: 'Open original file',
         icon: ExternalLink,
+        // Served once the malware scan has passed, and never once it was flagged.
+        disabled: !scanPassed(item.document) || item.document.status === 'quarantined',
         onSelect: () => window.open(fileUrl(item.document.id), '_blank', 'noreferrer'),
       },
       rename,
       {
+        // On a quarantined document this scans it again, for signatures that have changed.
         label: 'Index again',
         icon: RefreshCw,
         disabled: item.document.status === 'processing',

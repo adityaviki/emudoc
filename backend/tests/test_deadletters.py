@@ -128,6 +128,7 @@ def test_the_command_lists_and_requeues_the_failed_jobs(
     crashed.status = "failed"
     crashed.error = worker_module.CRASHED
     crashed.stages = {
+        "scan": {"status": "done", "detail": "clean"},
         "parse": {"status": "done", "detail": ""},
         "structure": {"status": "running", "detail": ""},
     }
@@ -176,6 +177,7 @@ def test_the_command_lists_and_requeues_the_failed_jobs(
     session.refresh(crashed)
     assert (crashed.status, crashed.error) == ("queued", None)
     assert stage_statuses(crashed) == {
+        "scan": "done",
         "parse": "done",
         "structure": "pending",
         "enrich": "pending",

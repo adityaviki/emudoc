@@ -15,6 +15,7 @@ from app.embeddings import Embedder
 from app.indexing.pipeline import Services
 from app.llm import LLM, LLMUnavailable
 from app.maintenance import check_embeddings, requeue_stale_embeddings, warn_about_old_layout
+from app.scanning import check_scanner, scanner_from_settings
 from app.search import check_fts_language
 from app.spending import warn_without_prices
 from app.storage import storage_from_settings
@@ -27,8 +28,8 @@ def prepare(settings: Settings, services: Services | None = None) -> Services:
 
     Tests pass their fakes as `services`; a process builds the real ones, after copying the
     model keys from `.env` in development, since the model providers and boto3 read their keys
-    from the environment as they are created. A check that fails raises `RuntimeError` or
-    `StorageError` with what to do, and the process must not run.
+    from the environment as they are created. A check that fails raises `RuntimeError`,
+    `StorageError` or `ScanError` with what to do, and the process must not run.
     """
     check_schema()
     check_embeddings()
@@ -36,10 +37,16 @@ def prepare(settings: Settings, services: Services | None = None) -> Services:
     requeue_stale_embeddings()
     if services is None:
         export_env_file(settings)
-        services = Services(LLM(settings), Embedder(settings), storage_from_settings(settings))
+        services = Services(
+            LLM(settings),
+            Embedder(settings),
+            storage_from_settings(settings),
+            scanner_from_settings(settings),
+        )
     services.storage.check()
     warn_about_old_layout(services.storage)
     warn_without_prices(settings)
+    check_scanner(settings, services.scanner)
     check_model(settings, services.llm)
     return services
 

@@ -32,6 +32,30 @@ MODEL_PRICES_FORM = (
     "MODEL_PRICES lists what each model costs per million tokens in and out, as "
     "model=in/out separated by commas, such as google:gemini-2.5-flash-lite=0.10/0.40"
 )
+SCANNER_URL_FORMS = (
+    "SCANNER_URL names the ClamAV daemon that scans uploads as clamd://host:3310 or, for one on "
+    "this machine, clamd:///run/clamav/clamd.ctl; `off` runs without scanning"
+)
+SCANNER_OFF = "off"
+CLAMD_PORT = 3310
+
+
+def parse_scanner_url(value: str) -> tuple[str, int] | str | None:
+    """What SCANNER_URL names: a (host, port) pair, a socket path, or None for no scanner
+    (empty or `off`). Raises `ValueError` naming the forms for anything else."""
+    value = value.strip()
+    if not value or value.lower() == SCANNER_OFF:
+        return None
+    parts = urlsplit(value)
+    if parts.scheme == "clamd" and not parts.query and not parts.fragment:
+        if parts.netloc and parts.hostname and not parts.path:
+            try:
+                return parts.hostname, parts.port or CLAMD_PORT
+            except ValueError:
+                pass
+        elif not parts.netloc and parts.path.startswith("/"):
+            return parts.path
+    raise ValueError(f"{SCANNER_URL_FORMS}; {value!r} is neither.")
 
 
 class ModelPrice(NamedTuple):
@@ -89,6 +113,11 @@ class Settings(BaseSettings):
     # reached with the AWS_* variables in the environment. The default is backend/data inside
     # the checkout, for development.
     storage_url: str = (BACKEND_DIR / "data").as_uri()
+    # The ClamAV daemon that scans every upload before it is indexed or served
+    # (app/scanning.py): clamd://host:3310, or clamd:///run/clamav/clamd.ctl for one on this
+    # machine. Empty, nothing is scanned and every document says so; `off` is the same choice
+    # made on purpose, the only form production accepts besides a daemon.
+    scanner_url: str = ""
     # What one upload may bring: the size of a file, how many files one request carries and
     # their bytes together. A file over its size is rejected on its own while the others go
     # in; a request over the other two is refused whole with 413 (app/api/documents.py). The
@@ -258,6 +287,12 @@ class Settings(BaseSettings):
             return value
         raise ValueError(f"{STORAGE_URL_FORMS}; {value!r} is neither")
 
+    @field_validator("scanner_url")
+    @classmethod
+    def _names_a_scanner_or_none(cls, value: str) -> str:
+        parse_scanner_url(value)
+        return value.strip()
+
     @field_validator("model_prices")
     @classmethod
     def _lists_prices(cls, value: str) -> str:
@@ -333,9 +368,9 @@ class Settings(BaseSettings):
         """What stops these settings from serving a deployment, each as the step that fixes it.
 
         Development's conveniences are production's holes: the well-known database password,
-        requests without a session acting as the owner, sign-in links written to the log, and
-        files and links whose place depends on where the process happens to run. Empty in
-        development, and for settings that are fit.
+        requests without a session acting as the owner, sign-in links written to the log,
+        uploads nobody scans, and files and links whose place depends on where the process
+        happens to run. Empty in development, and for settings that are fit.
         """
         if self.environment != "production":
             return []
@@ -366,6 +401,12 @@ class Settings(BaseSettings):
             problems.append(
                 "SMTP_URL is not set, so verification and password-reset links would be "
                 "written to the log; name an SMTP relay."
+            )
+        if not self.scanner_url:
+            problems.append(
+                "SCANNER_URL is not set, so uploads would reach the other members of a project "
+                "unscanned; name the ClamAV daemon, as clamd://clamav:3310, or set it to off "
+                "to run without scanning on purpose."
             )
         if self.daily_spend_cap and not self.model_prices:
             problems.append(

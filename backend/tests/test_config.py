@@ -138,6 +138,7 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "LOCAL_ACCOUNT",
         "APP_URL",
         "SMTP_URL",
+        "SCANNER_URL",
         "RUN_WORKER",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -148,6 +149,7 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "storage_url": (tmp_path / "data").as_uri(),
         "app_url": "https://emudoc.example.com",
         "smtp_url": "smtp://mailer:secret@smtp.example.com:587",
+        "scanner_url": "clamd://clamav:3310",
     }
 
 
@@ -159,7 +161,7 @@ def test_a_complete_production_configuration_is_accepted(deployment):
 
 def test_production_refuses_every_development_convenience_in_one_message(deployment):
     # An operator fixes the whole list in one go instead of one setting per restart.
-    for name in ("storage_url", "app_url", "smtp_url"):
+    for name in ("storage_url", "app_url", "smtp_url", "scanner_url"):
         del deployment[name]
     deployment["database_url"] = WITH_THE_DEVELOPMENT_PASSWORD
     deployment["local_account"] = True
@@ -168,7 +170,14 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         load_settings(**deployment)
     message = stop.value.code
     assert message.startswith("ENVIRONMENT is production, but")
-    for variable in ("DATABASE_URL", "LOCAL_ACCOUNT", "STORAGE_URL", "APP_URL", "SMTP_URL"):
+    for variable in (
+        "DATABASE_URL",
+        "LOCAL_ACCOUNT",
+        "STORAGE_URL",
+        "APP_URL",
+        "SMTP_URL",
+        "SCANNER_URL",
+    ):
         assert variable in message
     # Each line says what to do; none repeats the database's address or password.
     assert "emudoc:emudoc" not in message and "db.internal" not in message
@@ -182,6 +191,7 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         ({"storage_url": None}, "STORAGE_URL"),
         ({"app_url": ""}, "APP_URL"),
         ({"smtp_url": ""}, "SMTP_URL"),
+        ({"scanner_url": ""}, "SCANNER_URL"),
     ],
 )
 def test_each_development_setting_is_refused_on_its_own(deployment, change, variable):
@@ -209,6 +219,18 @@ def test_a_spend_cap_without_prices_is_refused_in_production(deployment):
     assert load_settings(**deployment).daily_spend_cap_micros == 5_000_000
     # Development is told nothing: it runs with whatever it has.
     del deployment["model_prices"]
+    assert load_settings(**{**deployment, "environment": "development"}).production_problems() == []
+
+
+def test_production_runs_without_a_scanner_only_when_told_to(deployment):
+    # Unscanned uploads reach every member of a project, so leaving the scanner out is a
+    # choice to state, not a default to fall into; development scans nothing by default.
+    deployment["scanner_url"] = "off"
+    assert load_settings(**deployment).production_problems() == []
+    deployment["scanner_url"] = ""
+    with pytest.raises(SystemExit) as stop:
+        load_settings(**deployment)
+    assert "set it to off to run without scanning on purpose" in stop.value.code
     assert load_settings(**{**deployment, "environment": "development"}).production_problems() == []
 
 

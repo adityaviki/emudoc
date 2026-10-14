@@ -17,14 +17,26 @@ processes below run from a checkout with `uv`, as in development.
 - **The worker**: `uv run python -m app.worker` in `backend/`, as many as the backlog needs. It
   reads the same settings as the API and refuses the same misconfigurations.
 - **A reverse proxy** that holds the certificate and forwards to the API: Caddy or nginx, below.
+- **ClamAV**, named in `SCANNER_URL`, which scans every upload before a worker parses it and
+  before the API serves it to the other members of a project. The `clamav/clamav` image with
+  the signatures on a volume is enough: the workers stream each file to the daemon over its
+  port, so it needs no access to the storage and can run on any machine the workers reach,
+  one for all of them. It wants about a gigabyte of memory for the signatures and a minute to
+  load them at start, during which the workers hold uploads in the queue and try again. Its
+  own limits must allow a file as large as `MAX_UPLOAD_MB`: `StreamMaxLength`, `MaxFileSize`
+  and `MaxScanSize` in `clamd.conf` (the compose file's `clamav` service sets them through
+  the image's `CLAMD_CONF_*` variables; an older image takes a mounted `clamd.conf`). A
+  deployment that runs without a scanner says so with `SCANNER_URL=off`, and the worker
+  warns at every start.
 - **An SMTP relay** in `SMTP_URL` for the sign-in links, and an embeddings endpoint in
   `EMBEDDING_BASE_URL` for search by meaning.
 
 The settings arrive through the process environment or a secret manager, never a `.env` file:
 `ENVIRONMENT=production` makes the app copy nothing from one, and makes it refuse to start with
 development's conveniences (the compose database's password, `LOCAL_ACCOUNT=true`, no
-`STORAGE_URL`, `APP_URL` or `SMTP_URL`, no key for the model), naming each. `.env.example`
-documents every setting; the README's "Configuration" says what the ones that matter do.
+`STORAGE_URL`, `APP_URL`, `SMTP_URL` or `SCANNER_URL`, no key for the model), naming each.
+`.env.example` documents every setting; the README's "Configuration" says what the ones that
+matter do.
 
 ## TLS at a reverse proxy
 
@@ -191,3 +203,10 @@ before the app would hold it.
 5. Sign in with a wrong password until the form says to wait a minute: the eleventh attempt
    does (`RATE_SIGN_INS`), and the API's log names the address it held, which is yours and
    not the proxy's.
+6. The worker's log says at start which scanner it uses ("Uploads are scanned by ClamAV
+   1.5.4/…"), with the signature version and date after the slashes. Upload a `.txt` file
+   whose whole content is the EICAR test string (any antivirus vendor publishes it; it is
+   harmless, and ClamAV flags it only as a file of its own, not inside another): within a
+   moment the library shows it quarantined with the verdict `Eicar-Test-Signature`, "Open
+   original file" is off, and `ALERT_EMAIL` gets "Emudoc quarantined 1 upload" at the next
+   quarter of an hour. Delete it.

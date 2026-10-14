@@ -502,7 +502,7 @@ def test_a_run_whose_job_is_taken_over_mid_way_stops_at_its_next_commit(
     # set; enrich and embed never ran. The document is not failed: it is the other worker's.
     session.refresh(document)
     assert (document.status, document.error) == ("processing", None)
-    assert stage_statuses(document) == {"parse": "done", "structure": "running"}
+    assert stage_statuses(document) == {"scan": "done", "parse": "done", "structure": "running"}
     assert rows(session, Block, document)
     assert rows(session, Section, document) == []
     # And the job is the other worker's to finish: not failed, not a dead letter.
@@ -716,6 +716,7 @@ def test_a_passing_failure_queues_the_stage_again_with_a_growing_backoff(
     session.refresh(document)
     assert document.status == "ready" and document.error is None
     assert stage_statuses(document) == {
+        "scan": "done",
         "parse": "done",
         "structure": "done",
         "enrich": "failed",
@@ -752,7 +753,10 @@ def test_a_passing_failure_queues_the_stage_again_with_a_growing_backoff(
     assert manual.payload == {"document_id": document.id}
     assert manual.run_at <= datetime.now(UTC)
     session.refresh(document)
-    assert document.status == "queued" and set(stage_statuses(document).values()) == {"pending"}
+    assert document.status == "queued"
+    # The scan passed and is not run again; every stage from parse on is.
+    statuses = stage_statuses(document)
+    assert statuses.pop("scan") == "done" and set(statuses.values()) == {"pending"}
 
 
 def test_a_failure_that_will_not_pass_is_not_retried(session, services, make_document, sample_pdf):
@@ -763,6 +767,7 @@ def test_a_failure_that_will_not_pass_is_not_retried(session, services, make_doc
     session.refresh(document)
     assert document.status == "ready"
     assert stage_statuses(document) == {
+        "scan": "done",
         "parse": "done",
         "structure": "done",
         "enrich": "failed",
@@ -788,6 +793,7 @@ def test_a_required_stage_waits_for_its_retry_as_queued_and_gives_up_as_failed(
     session.refresh(document)
     assert (document.status, document.error) == ("queued", None)
     assert stage_statuses(document) == {
+        "scan": "done",
         "parse": "failed",
         "structure": "pending",
         "enrich": "pending",

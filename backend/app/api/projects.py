@@ -88,9 +88,13 @@ def reprocess_project(
     worker: WorkerDep,
     from_stage: Stage = "enrich",
 ):
-    """Queue every document in the project to run again from the given stage."""
+    """Queue every document in the project to run again from the given stage. A quarantined
+    document is left alone: the run would only scan it again."""
     documents = session.scalars(
-        select(Document).where(Document.project_id == project.id, Document.status != "processing")
+        select(Document).where(
+            Document.project_id == project.id,
+            Document.status.not_in(("processing", "quarantined")),
+        )
     ).all()
     for document in documents:
         reset_stages(document, from_stage)

@@ -25,6 +25,7 @@ def test_full_pipeline_builds_all_three_indexes(session, indexed):
     document = indexed
     assert document.status == "ready"
     assert stage_statuses(document) == {
+        "scan": "done",
         "parse": "done",
         "structure": "done",
         "enrich": "done",
@@ -126,6 +127,7 @@ def test_reprocessing_from_enrich_keeps_the_parse(session, services, make_docume
     session.commit()
     assert document.status == "queued"
     assert stage_statuses(document) == {
+        "scan": "done",
         "parse": "done",
         "structure": "done",
         "enrich": "pending",

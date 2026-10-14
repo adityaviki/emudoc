@@ -1,7 +1,8 @@
 // Types mirror the backend's response schemas (backend/app/schemas.py).
 
-export type StageName = 'parse' | 'structure' | 'enrich' | 'embed'
-export const STAGES: StageName[] = ['parse', 'structure', 'enrich', 'embed']
+// The pipeline's stages in order (backend/app/models.py): the malware scan comes first.
+export type StageName = 'scan' | 'parse' | 'structure' | 'enrich' | 'embed'
+export const STAGES: StageName[] = ['scan', 'parse', 'structure', 'enrich', 'embed']
 
 export interface Stage {
   status: 'pending' | 'running' | 'done' | 'skipped' | 'failed'
@@ -49,7 +50,9 @@ export interface Document {
   filename: string
   mime_type: string
   size_bytes: number
-  status: 'queued' | 'processing' | 'ready' | 'failed'
+  // `quarantined`: the malware scan flagged the file; `error` says so, and the file is neither
+  // indexed nor served.
+  status: 'queued' | 'processing' | 'ready' | 'failed' | 'quarantined'
   stages: Partial<Record<StageName, Stage>>
   error: string | null
   page_count: number | null

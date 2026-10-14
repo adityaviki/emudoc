@@ -4,6 +4,7 @@ import { STAGES } from './api.ts'
 import type { Document, Stage, StageName } from './api.ts'
 
 export const STAGE_LABELS: Record<StageName, string> = {
+  scan: 'Malware scan',
   parse: 'Parse',
   structure: 'Outline',
   enrich: 'Summaries and facts',
@@ -15,9 +16,16 @@ export const STATUS_LABELS: Record<Document['status'], string> = {
   processing: 'Indexing',
   ready: 'Ready',
   failed: 'Failed',
+  quarantined: 'Quarantined',
 }
 
 export const stageOf = (document: Document, name: StageName): Stage => document.stages[name] ?? { status: 'pending', detail: '' }
+
+/**
+ * Whether the file may be opened: its malware scan found nothing, or there was no scanner to
+ * run it. The API refuses the file otherwise, so the links to it wait for this.
+ */
+export const scanPassed = (document: Document): boolean => ['done', 'skipped'].includes(stageOf(document, 'scan').status)
 
 /** The optional stages a ready document went without. */
 export function missingStages(document: Document): StageName[] {

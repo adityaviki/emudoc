@@ -5,6 +5,7 @@ import { fileUrl } from '../api.ts'
 import type { Document } from '../api.ts'
 import { StatusDot } from '../components/IndexingStatus.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
+import { scanPassed } from '../indexing.ts'
 import { fileKind } from './files.ts'
 import { useWorkspace } from './state.ts'
 
@@ -32,6 +33,7 @@ export function TabStrip() {
       {
         label: 'Open original file',
         icon: ExternalLink,
+        disabled: !scanPassed(document) || document.status === 'quarantined',
         onSelect: () => window.open(fileUrl(document.id), '_blank', 'noreferrer'),
       },
     ])

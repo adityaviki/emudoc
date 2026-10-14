@@ -201,6 +201,7 @@ def test_an_indexing_stage_that_needs_the_model_waits_for_midnight_when_the_day_
     session.refresh(document)
     assert document.status == "ready" and document.error is None
     assert stage_statuses(document) == {
+        "scan": "done",
         "parse": "done",
         "structure": "done",
         "enrich": "failed",

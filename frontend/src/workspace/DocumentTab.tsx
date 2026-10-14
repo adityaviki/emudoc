@@ -7,6 +7,7 @@ import { IndexingStatus } from '../components/IndexingStatus.tsx'
 import { PipeTable } from '../components/Markdown.tsx'
 import { Chip, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { formatDate, parsePipeTable } from '../format.ts'
+import { scanPassed } from '../indexing.ts'
 import { describeDocumentUsage } from '../usage.ts'
 import { useWorkspace } from './state.ts'
 import type { Focus } from './url.ts'
@@ -29,6 +30,8 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
   const [outlineOpen, setOutlineOpen] = useState(true)
   const status = document.status
   const indexed = document.stages.structure?.status === 'done'
+  // The original is served once its malware scan has passed, and never when it was flagged.
+  const openable = scanPassed(document) && status !== 'quarantined'
   // Derived data is fetched again whenever indexing changes the document's status.
   const outline = useQuery({
     queryKey: ['outline', document.id, status],
@@ -113,15 +116,17 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
                 <ListTree className="size-4" />
               </IconButton>
             )}
-            <a
-              href={fileUrl(document.id)}
-              target="_blank"
-              rel="noreferrer"
-              title="Open the original file in a new tab"
-              className="inline-flex size-7 items-center justify-center rounded-md text-muted transition hover:bg-sunken hover:text-ink"
-            >
-              <ExternalLink className="size-4" />
-            </a>
+            {openable && (
+              <a
+                href={fileUrl(document.id)}
+                target="_blank"
+                rel="noreferrer"
+                title="Open the original file in a new tab"
+                className="inline-flex size-7 items-center justify-center rounded-md text-muted transition hover:bg-sunken hover:text-ink"
+              >
+                <ExternalLink className="size-4" />
+              </a>
+            )}
           </div>
         </div>
         {focusLabel && (
@@ -136,12 +141,14 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
 
       {!indexed ? (
         <div className="p-4">
-          <Notice tone={document.status === 'failed' ? 'bad' : 'info'}>
-            {document.status === 'failed'
-              ? (document.error ?? 'Indexing failed.')
-              : 'This document is being indexed. Its text will appear here in a moment.'}
+          <Notice tone={document.status === 'failed' || document.status === 'quarantined' ? 'bad' : 'info'}>
+            {document.status === 'quarantined'
+              ? (document.error ?? 'The malware scan flagged this file. It is quarantined: not indexed, and nobody can open it.')
+              : document.status === 'failed'
+                ? (document.error ?? 'Indexing failed.')
+                : 'This document is being indexed. Its text will appear here in a moment.'}
           </Notice>
-          {isImage(document) && <ImagePreview document={document} />}
+          {isImage(document) && openable && <ImagePreview document={document} />}
         </div>
       ) : content.isPending ? (
         <Loading />

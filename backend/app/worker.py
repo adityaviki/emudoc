@@ -33,7 +33,8 @@ A job the worker could not complete ends `failed`, with `last_error` saying why:
 dying process `max_attempts` times, a handler that raised, or a stage that kept failing through
 every retry. Those are the dead letters (app/deadletters.py): the alerter thread mails the new
 ones to ALERT_EMAIL every quarter of an hour, and the `failed-jobs` command lists them. The same
-thread warns the operator when a day's spending nears a limit (app/spending.py).
+thread warns the operator when a day's spending nears a limit (app/spending.py) and reports
+the uploads the malware scan quarantined (app/scanning.py).
 """
 
 import argparse
@@ -79,6 +80,7 @@ from app.jobs import (
 from app.mail import Mailer, mailer_from_settings
 from app.maintenance import housekeeping
 from app.models import Document, Job
+from app.scanning import ScanError, alert_quarantines
 from app.spending import alert_spending, when
 from app.startup import prepare
 from app.storage import StorageError
@@ -99,9 +101,10 @@ HEARTBEAT_SECONDS = 60.0
 HOUSEKEEPING_DELAY = 60.0
 HOUSEKEEPING_INTERVAL = 6 * 3600.0
 # How often the jobs this process and the others gave up on are mailed to ALERT_EMAIL, as one
-# digest (app/deadletters.py), and the day's spending is measured against its limits
-# (app/spending.py): within the quarter of an hour the retries take anyway, and seldom enough
-# that a backlog of bad files is one message, not hundreds.
+# digest (app/deadletters.py), the day's spending is measured against its limits
+# (app/spending.py) and the quarantined uploads are reported (app/scanning.py): within the
+# quarter of an hour the retries take anyway, and seldom enough that a backlog of bad files is
+# one message, not hundreds.
 ALERT_INTERVAL = 15 * 60.0
 # How long a stopping worker lets the jobs it is running finish before it hands them back.
 # Under the 10 seconds Docker allows by default before it kills a container; a deployment that
@@ -460,7 +463,7 @@ class Worker:
 
     def _alert(self) -> None:
         while not self._stop.wait(ALERT_INTERVAL):
-            for report in (alert_failed_jobs, alert_spending):
+            for report in (alert_failed_jobs, alert_spending, alert_quarantines):
                 try:
                     report(self._mailer, get_settings().alert_email)
                 except Exception:
@@ -523,7 +526,7 @@ def main(argv: list[str] | None = None) -> None:
     settings = get_settings()
     try:
         services = prepare(settings)
-    except (RuntimeError, StorageError) as error:
+    except (RuntimeError, StorageError, ScanError) as error:
         sys.exit(str(error))
     stopping = threading.Event()
     for signum in (signal.SIGINT, signal.SIGTERM):

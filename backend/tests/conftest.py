@@ -129,7 +129,13 @@ from app.llm import LLMUnavailable, OcrBlock, OcrPage  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models import Document, Membership, Organization, Project, User  # noqa: E402
 from app.parsing import MIME_TYPES  # noqa: E402
+from app.scanning import ScanError  # noqa: E402
 from app.storage import original_key, storage_from_settings  # noqa: E402
+
+# The standard test string every scanner flags, in two halves so that this file itself is not
+# flagged by one; a test writes it whole into a file to have that file quarantined.
+EICAR = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$" + b"EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+EICAR_NAME = "Win.Test.EICAR_HDB-1"
 
 # The engine is what every fixture below destroys data through; had the app been imported before
 # the environment above was set, it would point at the database in `.env`.
@@ -284,6 +290,38 @@ class FakeLLM:
         self.agent_requests.append(list(messages))
         self.agent_prompts.append(instructions)
         return self.agent_turns.pop(0)
+
+
+class FakeScanner:
+    """Stands in for the malware scanner: flags a file that holds the EICAR string (unless
+    `flags_eicar` is off, as if the signatures had changed), or any file while `flagging` is
+    set, and fails every scan while `outage` is set, as a daemon that is down (transient) or
+    one that refuses the file (not) would."""
+
+    def __init__(self):
+        self.flags_eicar = True
+        self.flagging = False
+        self.outage: Exception | None = None
+        self.scanned: list[Path] = []
+
+    def check(self) -> str:
+        if self.outage is not None:
+            raise self.outage
+        return "FakeAV 1.0/1/today"
+
+    def scan(self, path: Path) -> str | None:
+        self.scanned.append(path)
+        if self.outage is not None:
+            raise self.outage
+        if self.flagging or (self.flags_eicar and EICAR in path.read_bytes()):
+            return EICAR_NAME
+        return None
+
+
+SCANNER_DOWN = ScanError(
+    "The malware scanner at clamd://127.0.0.1:3310 could not be reached (Connection refused).",
+    transient=True,
+)
 
 
 class FakeS3Client:
@@ -482,8 +520,13 @@ def _schema():
 
 @pytest.fixture
 def services() -> Services:
+    """The fakes, with a scanner, as a deployment runs; a test of running without one sets
+    `services.scanner = None`."""
     return Services(
-        llm=FakeLLM(), embedder=FakeEmbedder(), storage=storage_from_settings(get_settings())
+        llm=FakeLLM(),
+        embedder=FakeEmbedder(),
+        storage=storage_from_settings(get_settings()),
+        scanner=FakeScanner(),
     )
 
 

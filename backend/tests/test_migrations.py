@@ -28,6 +28,7 @@ PASSAGE_LANGUAGE = "27bd56b4a29e"
 STORAGE_KEYS = "5c1e7a9d2b40"
 USAGE_EVENTS = "4d17fad8beb9"
 USAGE_ON_ROWS = "29c97f1a6f4f"
+RATE_LIMITS = "133a863e3662"
 
 
 def current_revision() -> str | None:
@@ -205,6 +206,31 @@ def test_organisations_from_before_plans_start_on_the_free_one_but_the_local_has
     with engine.connect() as connection:
         plans = dict(connection.execute(text("SELECT id, plan FROM organizations")).all())
     assert plans == {local: "enterprise", other: "free"}
+
+
+def test_documents_from_before_scanning_are_served_as_they_were(
+    rebuilt_afterwards, client, session, indexed
+):
+    # A document indexed before the scan stage existed was never scanned. Coming forward marks
+    # its stage skipped, which is what a document says when there was no scanner, so that it
+    # is served as it was; "Index again" scans it like any other.
+    document_id = indexed.id
+    session.rollback()
+    command.downgrade(alembic_config(), RATE_LIMITS)
+    with engine.connect() as connection:
+        stages = connection.scalar(
+            text("SELECT stages FROM documents WHERE id = :id"), {"id": document_id}
+        )
+    assert "scan" not in stages
+
+    command.upgrade(alembic_config(), "head")
+    shown = client.get(f"/api/documents/{document_id}").json()
+    assert shown["status"] == "ready"
+    assert shown["stages"]["scan"] == {
+        "status": "skipped",
+        "detail": "Uploaded before uploads were scanned.",
+    }
+    assert client.get(f"/api/documents/{document_id}/file").status_code == 200
 
 
 def test_database_made_before_migrations_cannot_be_upgraded(rebuilt_afterwards):
