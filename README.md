@@ -36,7 +36,10 @@ minutes or a minute of silence, which the chat shows as an error. The parse stag
 parser in a process of its own with a time limit, a memory limit and caps on the pages of a PDF
 and the rows of a sheet (`PARSE_TIMEOUT`, `PARSE_MEMORY_MB`, `PARSE_MAX_PAGES`,
 `PARSE_MAX_ROWS`), so a file that would take hours or all the memory stops that process alone,
-and the document says which limit it hit.
+and the document says which limit it hit. Before any of that, the upload checks that a file's
+bytes are what its name says (a PDF's header, an image's signature, the part a Word document or
+a workbook declares, UTF-8 text with no binary in it) and rejects one that is not with the
+reason, while the other files of the same upload go in.
 
 | Stage     | What it does                                                                      | Needs      |
 | --------- | --------------------------------------------------------------------------------- | ---------- |

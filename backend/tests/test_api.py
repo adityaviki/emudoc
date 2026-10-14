@@ -71,6 +71,36 @@ def test_upload_queues_documents_and_rejects_what_it_cannot_take(client, sample_
     )
 
 
+def test_a_file_whose_bytes_are_not_its_type_is_rejected(client, sample_pdf, sample_xlsx, tmp_path):
+    # The sentence is about the file, at the upload, not about a parser a stage later; and a
+    # file refused for its bytes is not kept, counted or looked up as a duplicate. The PDF under
+    # a Word name holds the bytes of the one that went in just before it.
+    project = create_project(client)
+    renamed = tmp_path / "renamed.docx"
+    renamed.write_bytes(sample_pdf.read_bytes())
+    fake = tmp_path / "fake.pdf"
+    fake.write_text("Dear supplier, the delivery was late.\n", encoding="utf-8")
+    photo = tmp_path / "photo.jpg"
+    Image.new("RGB", (8, 8), "white").save(photo, format="PNG")
+    notes = tmp_path / "notes.txt"
+    notes.write_bytes(bytes(range(256)) * 4)
+    swapped = tmp_path / "budget.docx"
+    swapped.write_bytes(sample_xlsx.read_bytes())
+
+    result = upload(client, project["id"], sample_pdf, renamed, fake, photo, notes, swapped)
+    (document,) = result["documents"]
+    assert document["filename"] == "msa.pdf"
+    rename = "Upload the original, or rename it to its real type."
+    assert {r["filename"]: r["reason"] for r in result["rejected"]} == {
+        "renamed.docx": f"Not a Word document. {rename}",
+        "fake.pdf": f"Not a PDF file. {rename}",
+        "photo.jpg": f"Not a JPEG image. {rename}",
+        "notes.txt": f"Not a text file. {rename}",
+        "budget.docx": f"Not a Word document. {rename}",
+    }
+    assert client.get(f"/api/projects/{project['id']}").json()["document_count"] == 1
+
+
 def test_an_upload_of_too_many_files_or_bytes_is_refused_whole(
     client, session, sample_pdf, tmp_path, monkeypatch
 ):

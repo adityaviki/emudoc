@@ -34,6 +34,7 @@ from app.models import STAGES, Block, Document, Fact, Project, Section
 from app.parsing import IMAGE_TYPES, MIME_TYPES, SUPPORTED_EXTENSIONS, FileTooLarge
 from app.parsing.images import open_image
 from app.parsing.pdf import render_page, render_thumbnail
+from app.parsing.signatures import wrong_type
 from app.ratelimit import UPLOADS
 from app.schemas import (
     DocumentContent,
@@ -92,8 +93,9 @@ def upload_documents(
     The request is refused whole, before anything is stored, when it carries more files or
     more bytes than one upload may (413, naming the limit), and when the organisation's plan
     has no room for a document at all (402, which the app shows as the way to upgrade); each
-    file is then checked for its own size and against the plan, and one that would not fit
-    is rejected with the sentence while the others go in (app/entitlements.py).
+    file is then checked for its own size, for whether its bytes are the type its name claims
+    (app/parsing/signatures.py) and against the plan, and one that fails is rejected with the
+    sentence while the others go in (app/entitlements.py).
     """
     settings = get_settings()
     limit = settings.max_upload_mb * 1024 * 1024
@@ -123,6 +125,12 @@ def upload_documents(
         try:
             if size > limit or size == 0:
                 reason = "Empty file." if size == 0 else f"Larger than {settings.max_upload_mb} MB."
+                rejected.append(RejectedFile(filename=filename, reason=reason))
+                continue
+            # The extension picks the parser and the type the file is served as, so the bytes
+            # must be what it says; refused here, before a duplicate is looked for or the plan
+            # is counted, with a sentence about the file rather than a parser's a stage later.
+            if reason := wrong_type(spool, suffix):
                 rejected.append(RejectedFile(filename=filename, reason=reason))
                 continue
 

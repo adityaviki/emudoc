@@ -1,10 +1,13 @@
 import signal
 import subprocess
+import zipfile
 
 import pytest
+from PIL import Image
 
 from app.parsing import FileTooLarge, UnsupportedFile, limits, parse_file, sheet
 from app.parsing.limits import ParseError, ParseLimits, parse_within_limits
+from app.parsing.signatures import HEAD, wrong_type
 from app.parsing.text import parse_text
 from app.parsing.types import table_to_markdown
 
@@ -207,3 +210,82 @@ def test_images_and_unknown_files_start_no_process(tmp_path, monkeypatch):
     assert parse_within_limits(tmp_path / "scan.png", "scan.png", ParseLimits()).ocr_pages == [1]
     with pytest.raises(UnsupportedFile):
         parse_within_limits(tmp_path / "data.bin", "data.bin", ParseLimits())
+
+
+RENAME = "Upload the original, or rename it to its real type."
+
+
+def test_bytes_that_are_what_the_extension_says_pass(
+    sample_pdf, sample_docx, sample_xlsx, sample_csv, tmp_path
+):
+    images = {}
+    for kind in ("PNG", "JPEG", "WEBP"):
+        path = tmp_path / f"photo.{kind.lower()}"
+        Image.new("RGB", (4, 4), "white").save(path, format=kind)
+        images[kind] = path
+    notes = tmp_path / "notes.txt"
+    notes.write_text("Dear supplier,\n\nthe delivery was late.\n", encoding="utf-8")
+    readme = tmp_path / "README.md"
+    readme.write_bytes(b"\xef\xbb\xbf# Caf\xc3\xa9\n")  # a UTF-8 byte-order mark is fine
+    # A two-byte character cut by the end of what the check reads is not a wrong byte.
+    cut = tmp_path / "cut.csv"
+    cut.write_bytes(b"a" * (HEAD - 1) + "é".encode() + b"\n" + b"b" * 10)
+
+    assert wrong_type(sample_pdf, ".pdf") is None
+    assert wrong_type(sample_docx, ".docx") is None
+    assert wrong_type(sample_xlsx, ".xlsx") is None
+    assert wrong_type(sample_csv, ".csv") is None
+    assert wrong_type(images["PNG"], ".png") is None
+    assert wrong_type(images["JPEG"], ".jpg") is None
+    assert wrong_type(images["JPEG"], ".jpeg") is None
+    assert wrong_type(images["WEBP"], ".webp") is None
+    assert wrong_type(notes, ".txt") is None
+    assert wrong_type(readme, ".md") is None
+    assert wrong_type(cut, ".csv") is None
+
+
+def test_bytes_that_are_not_what_the_extension_says_are_named(
+    sample_pdf, sample_docx, sample_xlsx, tmp_path
+):
+    png = tmp_path / "picture.png"
+    Image.new("RGB", (4, 4), "white").save(png, format="PNG")
+    text = tmp_path / "letter.txt"
+    text.write_text("Dear supplier,\n", encoding="utf-8")
+    plain_zip = tmp_path / "archive.zip"
+    with zipfile.ZipFile(plain_zip, "w") as archive:
+        archive.writestr("readme.txt", "Not an Office package.")
+    # A macro-enabled workbook declares another main part than a workbook, so it is not what
+    # the name says even though openpyxl might read it.
+    macros = tmp_path / "macros.zip"
+    with zipfile.ZipFile(macros, "w") as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.ms-excel.sheet'
+            '.macroEnabled.main+xml"/>',
+        )
+    binary = tmp_path / "binary.bin"
+    binary.write_bytes(bytes(range(256)) * 4)
+    latin = tmp_path / "latin.csv"
+    latin.write_bytes("name;city\nMüller;Köln\n".encode("latin-1"))
+    utf16 = tmp_path / "wide.txt"
+    utf16.write_bytes("A note.\n".encode("utf-16"))
+    # The header deep inside a PDF is junk before it, not a PDF.
+    buried = tmp_path / "buried.pdf"
+    buried.write_bytes(b"x" * 2000 + sample_pdf.read_bytes())
+
+    assert wrong_type(text, ".pdf") == f"Not a PDF file. {RENAME}"
+    assert wrong_type(buried, ".pdf") == f"Not a PDF file. {RENAME}"
+    assert wrong_type(sample_pdf, ".docx") == f"Not a Word document. {RENAME}"
+    assert wrong_type(sample_xlsx, ".docx") == f"Not a Word document. {RENAME}"
+    assert wrong_type(plain_zip, ".docx") == f"Not a Word document. {RENAME}"
+    assert wrong_type(sample_docx, ".xlsx") == f"Not an Excel workbook. {RENAME}"
+    assert wrong_type(macros, ".xlsx") == f"Not an Excel workbook. {RENAME}"
+    assert wrong_type(text, ".xlsx") == f"Not an Excel workbook. {RENAME}"
+    assert wrong_type(png, ".jpg") == f"Not a JPEG image. {RENAME}"
+    assert wrong_type(png, ".webp") == f"Not a WebP image. {RENAME}"
+    assert wrong_type(sample_pdf, ".png") == f"Not a PNG image. {RENAME}"
+    assert wrong_type(binary, ".txt") == f"Not a text file. {RENAME}"
+    assert wrong_type(png, ".md") == f"Not a text file. {RENAME}"
+    assert wrong_type(latin, ".csv") == "Not UTF-8 text. Save it as UTF-8 and upload it again."
+    assert wrong_type(utf16, ".txt") == "Not UTF-8 text. Save it as UTF-8 and upload it again."
+    assert wrong_type(text, ".zip") == f"Not a supported type. {RENAME}"
