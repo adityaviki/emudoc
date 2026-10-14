@@ -39,7 +39,11 @@ and the rows of a sheet (`PARSE_TIMEOUT`, `PARSE_MEMORY_MB`, `PARSE_MAX_PAGES`,
 and the document says which limit it hit. Before any of that, the upload checks that a file's
 bytes are what its name says (a PDF's header, an image's signature, the part a Word document or
 a workbook declares, UTF-8 text with no binary in it) and rejects one that is not with the
-reason, while the other files of the same upload go in. The first stage then has the file
+reason, while the other files of the same upload go in. A Word document or a workbook saved with
+a password, or in the format from before 2007 (.doc, .xls), is rejected there with what to do
+in Office; a PDF that needs a password to open, or has no pages, goes in and fails to parse with
+the reason (one whose password only restricts printing or copying is read like any other). An
+empty file is rejected at the upload. The first stage then has the file
 scanned for malware by the ClamAV daemon `SCANNER_URL` names, before any parser opens it and
 before the file is served to anyone: a flagged file is quarantined, which the document shows
 with the scanner's verdict, nothing of it is indexed, and no member can open or download it

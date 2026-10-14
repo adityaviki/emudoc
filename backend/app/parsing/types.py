@@ -13,6 +13,11 @@ class FileTooLarge(Exception):
     and what to do."""
 
 
+class UnreadableFile(Exception):
+    """The file is the type its name says but holds nothing the parsers can open: it is locked
+    with a password, or has no pages; the message says which and what to do."""
+
+
 @dataclass
 class ParsedBlock:
     kind: str  # heading | paragraph | list_item | table

@@ -9,6 +9,7 @@ import math
 import os
 import re
 import shutil
+import struct
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -766,4 +767,83 @@ def sample_docx(tmp_path_factory) -> Path:
     document.add_heading("Expenses", level=1)
     document.add_paragraph("Submit receipts within 30 days.")
     document.save(str(path))
+    return path
+
+
+def protected_pdf(path: Path, password: str) -> Path:
+    """A one-page invoice encrypted with this password to open it and another to change it. An
+    empty password to open it makes the kind any viewer opens, restricted in printing and
+    copying only."""
+    from reportlab.lib.pdfencrypt import StandardEncryption
+    from reportlab.pdfgen.canvas import Canvas
+
+    encryption = StandardEncryption(password, ownerPassword="owner", canPrint=0, canCopy=0)
+    canvas = Canvas(str(path), encrypt=encryption)
+    canvas.drawString(72, 720, "Invoice 42 for the delivery of March.")
+    canvas.showPage()
+    canvas.save()
+    return path
+
+
+def pageless_pdf(path: Path) -> Path:
+    """A PDF whose page tree is empty, which pdfplumber opens and pdfium refuses."""
+    path.write_bytes(
+        b"%PDF-1.4\n"
+        b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
+        b"2 0 obj << /Type /Pages /Kids [] /Count 0 >> endobj\n"
+        b"trailer << /Root 1 0 R >>\n%%EOF\n"
+    )
+    return path
+
+
+def compound_file(path: Path, streams: dict[str, int]) -> Path:
+    """A compound file, Office's older binary container, holding streams of these names and
+    sizes (in zeros), laid out as LibreOffice writes one: the allocation table, the streams,
+    then the directory, so a big stream puts the directory far from the head of the file.
+
+    A real writer keeps a stream under 4,096 bytes in the mini stream, so every size given is 0
+    or at least that. The sectors are 512 bytes; the directory is one chain of right siblings
+    under the root, which readers follow as they would a balanced tree.
+    """
+    sector, free, end, fat_mark, none = 512, 0xFFFFFFFF, 0xFFFFFFFE, 0xFFFFFFFD, 0xFFFFFFFF
+    lengths = [-(-size // sector) for size in streams.values()]
+    directory_length = -(-(len(streams) + 1) // 4)
+    # A table sector maps 128 sectors, the table's own among them.
+    fat_length = -(-(sum(lengths) + directory_length) // 127)
+    fat = [fat_mark] * fat_length
+    starts = []
+    for length in [*lengths, directory_length]:
+        start = len(fat)
+        starts.append(start if length else end)
+        if length:
+            fat += [*range(start + 1, start + length), end]
+    fat += [free] * (fat_length * 128 - len(fat))
+
+    def entry(name: str, kind: int, *, right=none, child=none, start=end, size=0) -> bytes:
+        # The name, its length, the type, black, the siblings and the child; then the class,
+        # state bits and times, all zero; then where the stream starts and its size.
+        named = name.encode("utf-16-le") + b"\0\0"
+        tree = struct.pack("<HBBIII", len(named), kind, 1, none, right, child)
+        return named.ljust(64, b"\0") + tree + bytes(36) + struct.pack("<IQ", start, size)
+
+    directory = entry("Root Entry", 5, child=1 if streams else none)
+    for number, (name, size) in enumerate(streams.items(), start=1):
+        right = number + 1 if number < len(streams) else none
+        directory += entry(name, 2, right=right, start=starts[number - 1], size=size)
+    unused = struct.pack("<64sHBBIII", b"", 0, 0, 0, none, none, none).ljust(128, b"\0")
+    directory += unused * (directory_length * 4 - len(streams) - 1)
+
+    header = (
+        b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+        + bytes(16)  # the class
+        # Version 3 in little-endian order, with 512-byte sectors and 64-byte mini sectors.
+        + struct.pack("<HHHHH", 0x3E, 3, 0xFFFE, 9, 6)
+        + bytes(10)  # reserved, and the directory's sector count, which version 3 leaves at 0
+        # The table's sectors and the directory's first; no transactions, the mini stream's
+        # cutoff and no mini table; no extension of the table's sector list.
+        + struct.pack("<8I", fat_length, starts[-1], 0, 4096, end, 0, end, 0)
+        + struct.pack("<109I", *range(fat_length), *[free] * (109 - fat_length))
+    )
+    body = b"".join(bytes(length * sector) for length in lengths)
+    path.write_bytes(header + struct.pack(f"<{len(fat)}I", *fat) + body + directory)
     return path

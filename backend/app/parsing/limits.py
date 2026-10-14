@@ -38,6 +38,7 @@ from app.parsing import (
     FileTooLarge,
     ParsedBlock,
     ParsedDocument,
+    UnreadableFile,
     UnsupportedFile,
     parse_file,
 )
@@ -50,7 +51,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 # environment too (copied from .env in development), and no parser needs them.
 KEPT_VARIABLES = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR")
 # How the child ended, beyond 0 for a parsed file and a signal for a killed one.
-REFUSED = 2  # the file is unsupported or over a cap; stdout says which
+REFUSED = 2  # the file is unsupported, over a cap or unreadable; stdout says why
 OUT_OF_MEMORY = 3
 CRASHED = 4  # the parser raised; stdout names the exception, stderr has the traceback
 # The grace the CPU limit leaves over the time limit, so the parent's clock is the one that
@@ -256,7 +257,7 @@ def main(argv: list[str] | None = None) -> int:
     except MemoryError:
         # Making a reply would take memory this process no longer gets.
         os._exit(OUT_OF_MEMORY)
-    except (UnsupportedFile, FileTooLarge) as error:
+    except (UnsupportedFile, FileTooLarge, UnreadableFile) as error:
         payload, code = {"error": str(error)}, REFUSED
     except Exception as error:
         traceback.print_exc()

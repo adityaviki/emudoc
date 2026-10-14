@@ -9,12 +9,15 @@ from pathlib import Path
 
 import pdfplumber
 import pypdfium2 as pdfium
+from pdfminer.pdfdocument import PDFEncryptionError, PDFPasswordIncorrect
+from pdfplumber.utils.exceptions import PdfminerException
 
 from app.parsing.types import (
     BBox,
     FileTooLarge,
     ParsedBlock,
     ParsedDocument,
+    UnreadableFile,
     clean_text,
     table_to_markdown,
 )
@@ -32,6 +35,14 @@ _PAGE_NUMBER = re.compile(r"^(?:page\s+)?[-–—\s]*\d+[-–—\s]*(?:(?:of|/)\
 _DIGITS = re.compile(r"\d+")
 # pdfminer writes glyphs it cannot map to Unicode (often bullets) as "(cid:N)".
 _UNMAPPED_GLYPH = re.compile(r"\(cid:\d+\)")
+
+LOCKED = "This PDF is protected by a password. Save a copy without the password and upload that."
+# Encryption pdfminer does not do: a certificate instead of a password, or an algorithm it lacks.
+UNKNOWN_PROTECTION = (
+    "This PDF's protection cannot be opened here. Save a copy without the protection and upload "
+    "that."
+)
+NO_PAGES = "This PDF has no pages. Export it again from the program that made it and upload that."
 
 # pdfium is not thread-safe and the workers render pages concurrently.
 _pdfium_lock = threading.Lock()
@@ -101,8 +112,10 @@ def parse_pdf(path: Path, max_pages: int = 0) -> ParsedDocument:
     page_sizes: list[tuple[float, float]] = []
     ocr_pages: list[int] = []
 
-    with pdfplumber.open(path, laparams={}) as pdf:
+    with _open(path) as pdf:
         title = _metadata_title(pdf.metadata.get("Title"))
+        if not pdf.pages:
+            raise UnreadableFile(NO_PAGES)
         if max_pages and len(pdf.pages) > max_pages:
             raise FileTooLarge(
                 f"This PDF has {len(pdf.pages):,} pages, more than the {max_pages:,} that can be "
@@ -163,6 +176,24 @@ def parse_pdf(path: Path, max_pages: int = 0) -> ParsedDocument:
         title=title,
         ocr_pages=ocr_pages,
     )
+
+
+def _open(path: Path) -> pdfplumber.PDF:
+    """Open the PDF, or refuse with `UnreadableFile` one whose encryption keeps it shut: a
+    password to open it, or a protection pdfminer cannot undo.
+
+    A PDF with only an owner password, the kind that restricts printing or copying, opens with
+    the empty user password that any viewer tries, and is read like any other.
+    """
+    try:
+        return pdfplumber.open(path, laparams={})
+    except PdfminerException as error:
+        cause = error.args[0] if error.args else None
+        if isinstance(cause, PDFPasswordIncorrect):
+            raise UnreadableFile(LOCKED) from error
+        if isinstance(cause, PDFEncryptionError):
+            raise UnreadableFile(UNKNOWN_PROTECTION) from error
+        raise
 
 
 def render_page(path: Path, page_number: int, scale: float = 2.0) -> bytes:

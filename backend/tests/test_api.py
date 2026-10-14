@@ -8,7 +8,7 @@ from app.config import get_settings
 from app.indexing.pipeline import process_document
 from app.models import Job
 from app.parsing import images
-from tests.conftest import MISSING_KEY
+from tests.conftest import MISSING_KEY, compound_file, pageless_pdf, protected_pdf
 
 
 def create_project(client, name="Contracts"):
@@ -99,6 +99,60 @@ def test_a_file_whose_bytes_are_not_its_type_is_rejected(client, sample_pdf, sam
         "budget.docx": f"Not a Word document. {rename}",
     }
     assert client.get(f"/api/projects/{project['id']}").json()["document_count"] == 1
+
+
+def test_a_locked_or_pageless_file_says_why_it_cannot_be_read(client, services, tmp_path):
+    # An Office file saved with a password is no zip and is named at the upload. Telling a PDF
+    # locked with a password from one that only restricts copying takes a PDF library, which
+    # runs in the parse stage's child process, so such a PDF goes in and fails to parse with
+    # the reason, as one without pages does.
+    project = create_project(client)
+    locked = protected_pdf(tmp_path / "locked.pdf", "secret")
+    restricted = protected_pdf(tmp_path / "restricted.pdf", "")
+    empty = pageless_pdf(tmp_path / "empty.pdf")
+    encrypted = {"EncryptionInfo": 0, "EncryptedPackage": 8192}
+    workbook = compound_file(tmp_path / "budget.xlsx", encrypted)
+    letter = compound_file(tmp_path / "letter.docx", {"WordDocument": 4096, "1Table": 4096})
+
+    result = upload(client, project["id"], locked, restricted, empty, workbook, letter)
+    assert {r["filename"]: r["reason"] for r in result["rejected"]} == {
+        "budget.xlsx": "Protected by a password. Save a copy without the password and upload that.",
+        "letter.docx": "An older Word document (.doc). Save it as .docx and upload that.",
+    }
+    # Refused by the parser, not lost to a passing fault: the worker would not try again.
+    failures = {
+        document["filename"]: process_document(document["id"], services)
+        for document in result["documents"]
+    }
+    assert {
+        name: [(failure.stage, failure.transient) for failure in stage_failures]
+        for name, stage_failures in failures.items()
+    } == {
+        "locked.pdf": [("parse", False)],
+        "restricted.pdf": [],
+        "empty.pdf": [("parse", False)],
+    }
+
+    documents = client.get(f"/api/projects/{project['id']}/documents").json()
+    assert {d["filename"]: (d["status"], d["error"]) for d in documents} == {
+        "locked.pdf": (
+            "failed",
+            "This PDF is protected by a password. Save a copy without the password and upload "
+            "that.",
+        ),
+        "empty.pdf": (
+            "failed",
+            "This PDF has no pages. Export it again from the program that made it and upload that.",
+        ),
+        "restricted.pdf": ("ready", None),
+    }
+    # pdfium opens neither, so a thumbnail is a 404 rather than a server error.
+    for document in documents:
+        if document["status"] == "failed":
+            assert document["stages"]["scan"]["status"] == "done"
+            assert document["stages"]["parse"]["status"] == "failed"
+            thumbnail = client.get(f"/api/documents/{document['id']}/thumbnail.png")
+            assert thumbnail.status_code == 404
 
 
 def test_an_upload_of_too_many_files_or_bytes_is_refused_whole(

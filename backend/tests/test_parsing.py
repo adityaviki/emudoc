@@ -5,11 +5,12 @@ import zipfile
 import pytest
 from PIL import Image
 
-from app.parsing import FileTooLarge, UnsupportedFile, limits, parse_file, sheet
+from app.parsing import FileTooLarge, UnreadableFile, UnsupportedFile, limits, parse_file, sheet
 from app.parsing.limits import ParseError, ParseLimits, parse_within_limits
 from app.parsing.signatures import HEAD, wrong_type
 from app.parsing.text import parse_text
 from app.parsing.types import table_to_markdown
+from tests.conftest import compound_file, pageless_pdf, protected_pdf
 
 
 def test_pdf_headings_tables_and_positions(sample_pdf):
@@ -202,6 +203,53 @@ def test_a_damaged_file_fails_with_the_parsers_error(tmp_path):
     )
 
 
+def test_a_pdf_that_needs_a_password_is_refused_and_one_that_restricts_copying_is_read(
+    tmp_path,
+):
+    locked = protected_pdf(tmp_path / "locked.pdf", "secret")
+    with pytest.raises(ParseError) as caught:
+        parse_within_limits(locked, "locked.pdf", ParseLimits())
+    assert str(caught.value) == (
+        "This PDF is protected by a password. Save a copy without the password and upload that."
+    )
+    assert not caught.value.transient
+
+    # Protected by a certificate, which pdfminer does not open, rather than by a password.
+    certificate = tmp_path / "certificate.pdf"
+    certificate.write_bytes(
+        b"%PDF-1.4\n"
+        b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
+        b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"
+        b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >> endobj\n"
+        b"4 0 obj << /Filter /Adobe.PubSec /V 4 /R 4 /SubFilter /adbe.pkcs7.s5 >> endobj\n"
+        b"trailer << /Root 1 0 R /Encrypt 4 0 R /ID [<0011> <0011>] >>\n%%EOF\n"
+    )
+    with pytest.raises(ParseError) as caught:
+        parse_within_limits(certificate, "certificate.pdf", ParseLimits())
+    assert str(caught.value) == (
+        "This PDF's protection cannot be opened here. Save a copy without the protection and "
+        "upload that."
+    )
+
+    # A password that only restricts printing and copying leaves the one to open it empty,
+    # which every viewer tries; such a PDF is read like any other.
+    restricted = protected_pdf(tmp_path / "restricted.pdf", "")
+    parsed = parse_within_limits(restricted, "restricted.pdf", ParseLimits())
+    assert parsed.page_count == 1
+    assert [block.text for block in parsed.blocks] == ["Invoice 42 for the delivery of March."]
+
+
+def test_a_pdf_without_pages_is_refused(tmp_path):
+    empty = pageless_pdf(tmp_path / "empty.pdf")
+    with pytest.raises(UnreadableFile):
+        parse_file(empty, "empty.pdf")
+    with pytest.raises(ParseError) as caught:
+        parse_within_limits(empty, "empty.pdf", ParseLimits(max_pages=1))
+    assert str(caught.value) == (
+        "This PDF has no pages. Export it again from the program that made it and upload that."
+    )
+
+
 def test_images_and_unknown_files_start_no_process(tmp_path, monkeypatch):
     def refuse(*args, **kwargs):
         raise AssertionError("A process was started")
@@ -289,3 +337,40 @@ def test_bytes_that_are_not_what_the_extension_says_are_named(
     assert wrong_type(latin, ".csv") == "Not UTF-8 text. Save it as UTF-8 and upload it again."
     assert wrong_type(utf16, ".txt") == "Not UTF-8 text. Save it as UTF-8 and upload it again."
     assert wrong_type(text, ".zip") == f"Not a supported type. {RENAME}"
+
+
+def test_office_files_in_the_older_container_say_how_to_make_them_pass(tmp_path):
+    # A Word or Excel file saved with a password is encrypted whole into a compound file, and
+    # so is neither a zip nor what python-docx or openpyxl open; so is a .doc or an .xls under
+    # the newer name. Office turns each into a file that passes, so the sentence says how. The
+    # big encrypted package puts the directory past what the check reads from the head, as
+    # LibreOffice writes it.
+    locked = {"EncryptionInfo": 0, "EncryptedPackage": HEAD + 4096}
+    locked_document = compound_file(tmp_path / "locked.docx", locked)
+    locked_workbook = compound_file(tmp_path / "locked.xlsx", locked)
+    document = compound_file(tmp_path / "letter.doc", {"WordDocument": 4096, "1Table": 4096})
+    workbook = compound_file(tmp_path / "budget.xls", {"Workbook": 4096})
+    excel5 = compound_file(tmp_path / "old.xls", {"Book": 4096})
+    message = compound_file(tmp_path / "mail.msg", {"__properties_version1.0": 4096})
+    # A stream's name in a document's text is no directory entry.
+    mention = tmp_path / "mention.doc"
+    mention.write_bytes(
+        compound_file(tmp_path / "plain.doc", {"Contents": 4096}).read_bytes()
+        + "Word keeps the text in WordDocument and the key in EncryptionInfo.".encode("utf-16-le")
+    )
+
+    password = "Protected by a password. Save a copy without the password and upload that."
+    assert wrong_type(locked_document, ".docx") == password
+    assert wrong_type(locked_workbook, ".xlsx") == password
+    older_word = "An older Word document (.doc). Save it as .docx and upload that."
+    older_excel = "An older Excel workbook (.xls). Save it as .xlsx and upload that."
+    assert wrong_type(document, ".docx") == older_word
+    assert wrong_type(workbook, ".xlsx") == older_excel
+    assert wrong_type(excel5, ".xlsx") == older_excel
+    # Another program's older format, or a compound file of another kind, is a plain mismatch.
+    assert wrong_type(document, ".xlsx") == f"Not an Excel workbook. {RENAME}"
+    assert wrong_type(workbook, ".docx") == f"Not a Word document. {RENAME}"
+    assert wrong_type(message, ".docx") == f"Not a Word document. {RENAME}"
+    assert wrong_type(mention, ".docx") == f"Not a Word document. {RENAME}"
+    # The other types never look for a compound file.
+    assert wrong_type(locked_document, ".pdf") == f"Not a PDF file. {RENAME}"

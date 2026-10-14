@@ -2,7 +2,13 @@
 
 from pathlib import Path
 
-from app.parsing.types import FileTooLarge, ParsedBlock, ParsedDocument, UnsupportedFile
+from app.parsing.types import (
+    FileTooLarge,
+    ParsedBlock,
+    ParsedDocument,
+    UnreadableFile,
+    UnsupportedFile,
+)
 
 IMAGE_TYPES = {
     ".png": "image/png",
@@ -39,7 +45,8 @@ def parse_file(
     """Parse a file by its extension. Images come back as a single page that needs OCR.
 
     A PDF with more than `max_pages` pages or a sheet with more than `max_rows` rows is refused
-    with `FileTooLarge`; 0 takes any size.
+    with `FileTooLarge`; 0 takes any size. A PDF locked with a password or without pages is
+    refused with `UnreadableFile`.
     """
     suffix = Path(filename).suffix.lower()
     if suffix == ".pdf":
@@ -77,6 +84,7 @@ __all__ = [
     "FileTooLarge",
     "ParsedBlock",
     "ParsedDocument",
+    "UnreadableFile",
     "UnsupportedFile",
     "parse_file",
 ]
