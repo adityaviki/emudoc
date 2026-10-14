@@ -26,6 +26,11 @@ redirects to a URL signed for a few minutes, so a large original never streams t
 and the bucket itself is never public. Either way the file is not a page of the app: it comes as
 a download unless the route asks for it inline, and what the app sends itself carries a policy
 that lets the browser run nothing in it (`SANDBOX`).
+
+At rest, a bucket encrypts what it keeps by its own default encryption, which the app asks it
+about at start and reports (`report_encryption`); it sends no encryption of its own with each
+object, so the bucket's setting is the one place to choose the keys. A directory is as
+encrypted as the disk under it, which only the operator can say (deploying.md, "Encryption").
 """
 
 import logging
@@ -167,6 +172,14 @@ class Storage(ABC):
         """The region the objects are kept in, as the bucket's service names it, for the
         residency checks (app/residency.py); None for a directory, which is wherever the app
         runs, and for a bucket that would not say."""
+        return None
+
+    @property
+    def encryption(self) -> str | None:
+        """How the bucket encrypts every object it keeps by default, as its service names the
+        algorithm (`AES256`, `aws:kms` and its key), for `report_encryption`; empty when the
+        bucket says it has no default encryption, and None for a directory, whose disk only the
+        operator can speak for, and for a bucket that would not say."""
         return None
 
     @abstractmethod
@@ -383,6 +396,8 @@ class S3Client(Protocol):
 
     def get_bucket_location(self, *, Bucket: str) -> Any: ...
 
+    def get_bucket_encryption(self, *, Bucket: str) -> Any: ...
+
     def put_object(self, *, Bucket: str, Key: str, Body: Any, ContentType: str = ...) -> Any: ...
 
     def get_object(self, *, Bucket: str, Key: str) -> Any: ...
@@ -399,7 +414,11 @@ class S3Client(Protocol):
 
 
 def _missing(error: ClientError) -> bool:
-    return error.response.get("Error", {}).get("Code") in {"404", "NoSuchKey", "NotFound"}
+    return _code(error) in {"404", "NoSuchKey", "NotFound"}
+
+
+def _code(error: ClientError) -> str | None:
+    return error.response.get("Error", {}).get("Code")
 
 
 def _describe(error: Exception) -> str:
@@ -409,6 +428,8 @@ def _describe(error: Exception) -> str:
     return str(error)
 
 
+# What a bucket answers when asked for a default encryption it does not have.
+NO_DEFAULT_ENCRYPTION = "ServerSideEncryptionConfigurationNotFoundError"
 # What a bucket answers while it is throttling or overloaded: S3 says SlowDown with a 503 and
 # RequestTimeout with a 400, and other services use the status alone.
 _TRANSIENT_CODES = {"SlowDown", "RequestTimeout", "InternalError", "ServiceUnavailable"}
@@ -420,7 +441,7 @@ def _transient(error: Exception) -> bool:
     out of reach, rather than refusing the key, the bucket or the request."""
     if isinstance(error, ClientError):
         status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0)
-        code = error.response.get("Error", {}).get("Code")
+        code = _code(error)
         return code in _TRANSIENT_CODES or status in _TRANSIENT_STATUSES or status >= 500
     return isinstance(error, BotoConnectionError | HTTPClientError)
 
@@ -559,6 +580,37 @@ class S3Storage(Storage):
         location = answer.get("LocationConstraint") or "us-east-1"
         return "eu-west-1" if location == "EU" else location
 
+    @cached_property
+    def encryption(self) -> str | None:
+        try:
+            answer = self.client.get_bucket_encryption(Bucket=self.bucket)
+        except (ClientError, BotoCoreError) as error:
+            code = _code(error) if isinstance(error, ClientError) else None
+            if code == NO_DEFAULT_ENCRYPTION:
+                return ""
+            # Refused to the app, the question has an answer; a service that does not
+            # implement it (versitygw, some S3-compatible stores) has to be asked another way.
+            advice = (
+                "allow the app s3:GetEncryptionConfiguration on it to have it say"
+                if code == "AccessDenied"
+                else "confirm with its service that it encrypts everything it stores"
+            )
+            log.warning(
+                "The bucket %r did not say whether it encrypts what it keeps (%s); %s.",
+                self.bucket,
+                _describe(error),
+                advice,
+            )
+            return None
+        # A bucket has one rule; a list of them is the API's shape, not a second encryption.
+        named = []
+        for rule in answer.get("ServerSideEncryptionConfiguration", {}).get("Rules", []):
+            default = rule.get("ApplyServerSideEncryptionByDefault") or {}
+            if algorithm := default.get("SSEAlgorithm"):
+                key = default.get("KMSMasterKeyID")
+                named.append(f"{algorithm} with the key {key}" if key else algorithm)
+        return "; ".join(named)
+
     def list(self, prefix: str) -> Iterator[StoredObject]:
         folder = self._key(_folder(prefix))
         token: str | None = None
@@ -615,3 +667,26 @@ def storage_from_settings(settings: Settings) -> Storage:
     # requests to a bucket in the default region the old way, which some services refuse.
     client = boto3.client("s3", config=Config(signature_version="s3v4"))
     return S3Storage(client, parts.netloc, unquote(parts.path))
+
+
+def report_encryption(storage: Storage) -> None:
+    """Say at start how the bucket keeps the files at rest: encrypted, by its default
+    encryption, or as they are, which is worth a warning in every log the operator reads.
+
+    Not a refusal, even in production: a bucket on the deployment's own network may sit on an
+    encrypted disk and say it has no default encryption, and a service may encrypt everything
+    without answering the question (deploying.md, "Encryption"). A directory says nothing; its
+    disk is the operator's.
+    """
+    if storage.origin is None:
+        return
+    encryption = storage.encryption
+    if encryption:
+        log.info("The bucket encrypts every file it keeps at rest (%s).", encryption)
+    elif encryption is not None:
+        log.warning(
+            "The bucket says it has no default encryption, so uploads and page images are "
+            "kept as they are unless its service encrypts its disks; turn on its default "
+            "encryption (SSE-S3 or SSE-KMS), or confirm with the service that it encrypts "
+            "everything it stores."
+        )

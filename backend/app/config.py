@@ -12,6 +12,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 
+from app.network import database_problem, plain_http_problem, scanner_problem
+
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 ROOT_DIR = BACKEND_DIR.parent
 
@@ -403,8 +405,9 @@ class Settings(BaseSettings):
         Development's conveniences are production's holes: the well-known database password,
         requests without a session acting as the owner, sign-in links written to the log,
         uploads nobody scans, a model key that may be on a free tier which trains on what it
-        is sent, and files and links whose place depends on where the process happens to run.
-        Empty in development, and for settings that are fit.
+        is sent, files and links whose place depends on where the process happens to run, and
+        connections that would carry the documents unencrypted across a network the deployment
+        does not own (app/network.py). Empty in development, and for settings that are fit.
         """
         if self.environment != "production":
             return []
@@ -414,6 +417,8 @@ class Settings(BaseSettings):
                 "DATABASE_URL carries the development database's password; give the "
                 "deployment's database a password of its own."
             )
+        if problem := database_problem(self.database_url):
+            problems.append(problem)
         if self.local_account:
             problems.append(
                 "LOCAL_ACCOUNT is true, which lets any request without a session act as the "
@@ -442,6 +447,14 @@ class Settings(BaseSettings):
                 "unscanned; name the ClamAV daemon, as clamd://clamav:3310, or set it to off "
                 "to run without scanning on purpose."
             )
+        if problem := scanner_problem(parse_scanner_url(self.scanner_url)):
+            problems.append(problem)
+        if problem := plain_http_problem(
+            "EMBEDDING_BASE_URL",
+            self.embedding_base_url,
+            "every passage as it is indexed and every search",
+        ):
+            problems.append(problem)
         models = (("AGENT_MODEL", self.agent_model), ("INDEX_MODEL", self.index_model))
         gemini = [variable for variable, name in models if model_provider(name) == "google"]
         if gemini and not self.google_paid_tier:

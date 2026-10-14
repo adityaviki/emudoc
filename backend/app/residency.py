@@ -22,15 +22,14 @@ organisations promised another region and refuses to serve them, since moving an
 data is a migration and not a setting.
 
 The subprocessor list (app/subprocessors.py) publishes each `Place` beside the company. Both leave
-out what runs on the deployment's own network (`on_own_network`), which is the deployment itself.
+out what runs on the deployment's own network (`on_own_network` in app/network.py), which is the
+deployment itself.
 """
 
-import ipaddress
 import logging
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from urllib.parse import urlsplit
 
 from sqlalchemy import func, select, update
 
@@ -38,20 +37,10 @@ from app.config import REGIONS, Settings, model_provider
 from app.db import SessionLocal
 from app.llm import inference_geo, openrouter_url
 from app.models import Organization
+from app.network import MODEL_BASE_URLS, host_of, on_own_network
 from app.storage import Storage
 
 log = logging.getLogger(__name__)
-
-# Names that only resolve inside the deployment's own network.
-OWN_SUFFIXES = (".internal", ".local", ".localhost", ".lan", ".home.arpa")
-# The providers whose address the environment can move, where a model may run on the
-# deployment's own machines or on a service other than the one the prefix names.
-MODEL_BASE_URLS = {
-    "ollama": "OLLAMA_BASE_URL",
-    "openai": "OPENAI_BASE_URL",
-    "openai-chat": "OPENAI_BASE_URL",
-    "openai-responses": "OPENAI_BASE_URL",
-}
 
 # The region of a place that may be anywhere: a global endpoint, or a provider that names none.
 ANYWHERE = "anywhere"
@@ -133,20 +122,6 @@ class Place:
 
 EXPRESS_MODE = Place("Vertex AI's express mode", ANYWHERE)
 VERTEX_GLOBAL = Place("Vertex AI's global endpoint", ANYWHERE)
-
-
-def host_of(url: str) -> str:
-    return (urlsplit(url).hostname or "").rstrip(".")
-
-
-def on_own_network(host: str) -> bool:
-    """Whether `host` is reached inside the deployment's own network: a loopback, private or
-    link-local address, a name without a dot (a compose service), or one under `OWN_SUFFIXES`."""
-    try:
-        address = ipaddress.ip_address(host)
-    except ValueError:
-        return "." not in host or host.endswith(OWN_SUFFIXES)
-    return address.is_private or address.is_loopback or address.is_link_local
 
 
 def model_place(name: str, region: str, environ: Mapping[str, str]) -> Place | None:

@@ -273,6 +273,35 @@ def test_production_takes_gemini_s_developer_api_only_on_the_paid_tier(deploymen
         load_settings(**deployment)
 
 
+def test_production_sends_nothing_off_its_own_network_unencrypted(deployment):
+    # A managed database, a scanner on another host and a hosted embeddings endpoint are each
+    # reached across networks nobody in the deployment controls.
+    deployment.update(
+        database_url="postgresql+psycopg://app:secret@db.example.com:5432/emudoc",
+        scanner_url="clamd://clamav.example.com:3310",
+        embedding_base_url="http://embeddings.example.com/v1",
+    )
+    with pytest.raises(SystemExit) as stop:
+        load_settings(**deployment)
+    lines = stop.value.code.splitlines()[1:]
+    assert len(lines) == 3
+    assert "DATABASE_URL connects to db.example.com without sslmode=verify-full" in lines[0]
+    assert "SCANNER_URL streams every upload to the ClamAV daemon at clamav.example.com" in lines[1]
+    assert (
+        "EMBEDDING_BASE_URL sends every passage as it is indexed and every search to " in lines[2]
+    )
+    assert "secret" not in stop.value.code
+
+    # Verified, over HTTPS, or inside the network, the same pieces are fit.
+    deployment.update(
+        database_url="postgresql+psycopg://app:secret@db.example.com:5432/emudoc"
+        "?sslmode=verify-full&sslrootcert=system",
+        scanner_url="clamd://clamav:3310",
+        embedding_base_url="https://embeddings.example.com/v1",
+    )
+    assert load_settings(**deployment).production_problems() == []
+
+
 def test_the_api_runs_the_worker_itself_in_development_only(deployment, monkeypatch):
     # Unset, the choice follows the environment: one process in development, and in production
     # a `python -m app.worker` of its own. Either can be said outright; a blank line is unset.
@@ -307,7 +336,9 @@ def test_a_process_that_runs_the_worker_needs_a_pool_for_its_threads(deployment)
 def test_development_runs_with_everything_production_refuses(deployment):
     deployment.update(
         environment="development",
-        database_url=WITH_THE_DEVELOPMENT_PASSWORD,
+        database_url="postgresql+psycopg://emudoc:emudoc@db.example.com/emudoc",
+        scanner_url="clamd://clamav.example.com:3310",
+        embedding_base_url="http://embeddings.example.com/v1",
         local_account=True,
         app_url="",
         smtp_url="",

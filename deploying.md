@@ -8,7 +8,9 @@ processes below run from a checkout with `uv`, as in development.
 
 - **Postgres 17 with pgvector**, named in `DATABASE_URL`. The schema is applied as a release
   step, before the new version starts: `uv run alembic upgrade head` in `backend/`. A process
-  that finds the database behind its migrations refuses to serve and says so.
+  that finds the database behind its migrations refuses to serve and says so. A database off
+  the deployment's own network, such as a managed one, is reached with its certificate
+  checked: "Encryption", below.
 - **Storage** for uploads and page images, named in `STORAGE_URL`: a directory the API and
   every worker can reach, or an S3-compatible bucket with the `AWS_*` variables.
 - **The API**: `uvicorn app.main:app` in `backend/`, serving `/api` and the built frontend
@@ -40,8 +42,9 @@ The settings arrive through the process environment or a secret manager, never a
 `ENVIRONMENT=production` makes the app copy nothing from one, and makes it refuse to start with
 development's conveniences (the compose database's password, `LOCAL_ACCOUNT=true`, no
 `STORAGE_URL`, `APP_URL`, `SMTP_URL`, `SCANNER_URL` or `HOSTING_PROVIDER`, a free-tier
-Gemini key, no key for the model, and with `DATA_REGION` anything outside the region), naming
-each.
+Gemini key, no key for the model, with `DATA_REGION` anything outside the region, and a
+connection that would carry the documents unencrypted off the deployment's own network),
+naming each.
 `.env.example` documents every setting; the README's "Configuration" says what the ones that
 matter do.
 
@@ -182,6 +185,91 @@ server {
 `$proxy_add_x_forwarded_for` appends the client to any `X-Forwarded-For` the browser sent, and
 uvicorn takes the rightmost address it was not told to believe, so a header forged by the
 browser changes nothing.
+
+## Encryption
+
+The proxy ends the browsers' TLS, above. Behind it the app hands the documents to the database,
+the bucket, the scanner, the embeddings endpoint and the models, and sends sign-in links
+through the mail relay; how each connection must be protected depends on where it goes. What
+the deployment keeps on disk is the other half.
+
+### Between the pieces
+
+The app draws one line, the deployment's own network: the loopback, private addresses
+(`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `fc00::/7`), link-local ones, a name without
+a dot such as a compose service, and names under `.internal`, `.local`, `.localhost`, `.lan`
+and `.home.arpa` (`on_own_network` in `backend/app/network.py`). A connection that leaves it
+crosses networks nobody in the deployment controls, so it must be encrypted and must check
+that the other end is the host it named, or anyone in the path could read it or stand in for
+the server. Production refuses to start otherwise, and says which:
+
+- **The database**: a host outside needs `sslmode=verify-full` on `DATABASE_URL`, which
+  encrypts and checks that the server's certificate names the host:
+  `?sslmode=verify-full&sslrootcert=system` for a certificate a public authority signed, or
+  `sslrootcert=` the path of the provider's own authority (AWS publishes a bundle for RDS).
+  `require` encrypts to whoever answers, and `verify-ca` takes any server the authority signed
+  for, another customer's database at the same provider among them, so production takes
+  neither. The API's pool, the worker's listener, alembic and the maintenance commands all
+  connect by the one URL. `sslrootcert=system` needs libpq 16 or later; psycopg's binary
+  package brings libpq 18.
+- **The embeddings endpoint, a model's address and the bucket** (`EMBEDDING_BASE_URL`,
+  `OLLAMA_BASE_URL`, `OPENAI_BASE_URL`, `AWS_ENDPOINT_URL`) need `https://` when they are
+  outside. The HTTP clients check the certificate by default, and nothing in the app turns
+  that off. The model providers' own APIs are HTTPS whatever the settings say.
+- **ClamAV**: clamd's protocol has no encryption to ask for, so production takes a daemon on
+  the own network only: a Unix socket, a private address, a compose service. A scanner on
+  another network is reached through an encrypted tunnel that listens on the own network, such
+  as WireGuard or stunnel.
+- **The mail relay** is always reached over TLS, STARTTLS for `smtp://` and TLS from the start
+  for `smtps://`, and its certificate must name the relay's host and come from an authority the
+  machine trusts (the system's store, `/etc/ssl/certs`). A relay with a certificate of a private
+  authority needs that authority added to the store (`update-ca-certificates`, or
+  `update-ca-trust` on Fedora and RHEL). A relay that fails the check is sent nothing, and the
+  API's log says which relay and why: the sign-in and password-reset links go this way.
+- **Sign-in with Google and Microsoft** goes to their HTTPS addresses, which are fixed in the
+  code.
+
+Inside the own network the app takes plain connections: the proxy to uvicorn on the loopback,
+a compose database, Ollama, ClamAV. That network is the operator's to protect. On one machine
+or one compose network nothing crosses a wire. Where it spans machines over a network the
+operator does not own, such as a cloud's private network between hosts, encrypt it underneath
+(WireGuard, or the provider's encrypted private networking) or encrypt those connections as
+well: `sslmode=verify-full` and `https://` work inside the network as anywhere.
+
+### At rest
+
+The app cannot see a disk, so most of this is the operator's to set up and to confirm before
+launch. Where the deployment keeps what it was sent:
+
+- **The database** holds the documents' text (every passage, section summary and fact), the
+  questions and answers, members' names and addresses, password and session hashes, and the
+  authenticator secrets of two-factor sign-in, which are stored as they are. Postgres has no
+  encryption of its own, so the volume under it is encrypted: LUKS on a server, or a managed
+  database's encryption at rest (on RDS it is chosen when the instance is created). Its
+  backups and archived WAL carry the same data and need the same.
+- **The bucket** holds the originals, the page images and the thumbnails, under its own
+  default encryption. AWS encrypts every new object since January 2023 (SSE-S3, AES-256), and a
+  bucket's default encryption can name a KMS key instead. Cloudflare R2 encrypts every object
+  (AES-256-GCM). Hetzner's documentation (October 2026) names only SSE-C, a key sent with every
+  request, which the app cannot use: a browser fetches page images by a signed URL that carries
+  no key. The app asks the bucket at start (`GetBucketEncryption`, so its credentials need
+  `s3:GetEncryptionConfiguration`) and logs the answer: "The bucket encrypts every file it keeps
+  at rest (AES256)", a warning when the bucket says it has no default encryption, and a warning
+  with the bucket's reason when it will not say. Neither warning stops the app, since a bucket
+  on the own network may sit on an encrypted disk. The app sends no encryption with each object,
+  so a bucket policy that denies uploads without `x-amz-server-side-encryption` refuses the
+  app's; set the bucket's default encryption instead.
+- **A directory** (`STORAGE_URL=file:///…`) is as encrypted as the disk under it.
+- **Temporary files**: the API writes each upload to the temporary directory before storing
+  it, and the API and the worker copy an original there from a bucket to render, scan and parse
+  it, removing each copy when done. The temporary directory (`TMPDIR`, `/tmp` unless set) needs
+  the encryption the storage has, or to be a `tmpfs`, which keeps it in memory and in the swap,
+  so encrypt the swap or turn it off.
+- **ClamAV** writes each file it is streamed to its own temporary directory while it scans it
+  (`TemporaryDirectory` in `clamd.conf`); on a machine of its own, that disk is encrypted too.
+
+Keys chosen per organisation are a later step; until then the bucket's default encryption and
+the disks' keys are the deployment's, the same for every organisation.
 
 ## What leaves the deployment
 
@@ -355,7 +443,14 @@ before the app would hold it.
 7. Signed out, `https://emudoc.example.com/subprocessors` lists `HOSTING_PROVIDER` first, then
    the companies behind the models and, with a bucket or a mail relay, theirs: what the
    deployment's privacy notice promises, and nothing it does not.
-8. With `DATA_REGION` set, the API's and the worker's logs have no line from `app.residency` at
+8. The API's and the worker's logs say at start "The bucket encrypts every file it keeps at
+   rest" (with a bucket), and no line from `app.storage` warns about it. Request a password
+   reset: the mail arrives, and the API's log has no line saying the relay "presented a
+   certificate this machine does not trust". With a database off the own network, `psql` given
+   the same URL without `+psycopg` opens with `SSL connection (protocol: TLSv1.3, …)`, and
+   with `sslrootcert` pointed at an authority that did not sign the server's certificate it
+   refuses to connect.
+9. With `DATA_REGION` set, the API's and the worker's logs have no line from `app.residency` at
    start, `/subprocessors` opens with the region and says it under "Where" for the models and
    the bucket, and the account page says "Data kept in" it. With an `openrouter:` model, the
    first answer comes back from `eu.openrouter.ai` (or `us.`); a refusal there means the

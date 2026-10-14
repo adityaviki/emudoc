@@ -27,6 +27,7 @@ from app.storage import (
     is_rendered,
     original_key,
     project_prefix,
+    report_encryption,
     storage_from_settings,
 )
 from tests.conftest import APP_HEADERS, FakeEmbedder, FakeLLM, FakeS3Client
@@ -251,6 +252,48 @@ def test_check_says_what_to_fix(tmp_path):
     with pytest.raises(StorageError, match="cannot be used") as error:
         S3Storage(FakeS3Client("other"), "bucket").check()
     assert "NoSuchBucket" in str(error.value) and "AWS_ENDPOINT_URL" in str(error.value)
+
+
+def test_the_start_says_how_the_bucket_keeps_the_files_at_rest(caplog):
+    with caplog.at_level("INFO", logger="app.storage"):
+        report_encryption(S3Storage(FakeS3Client(), "bucket"))
+    assert "The bucket encrypts every file it keeps at rest (AES256)." in caplog.text
+
+    kms = FakeS3Client()
+    key = "arn:aws:kms:eu-central-1:111122223333:key/emudoc"
+    rule = {
+        "ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": "aws:kms", "KMSMasterKeyID": key}
+    }
+    kms.get_bucket_encryption = lambda **_: {"ServerSideEncryptionConfiguration": {"Rules": [rule]}}
+    assert S3Storage(kms, "bucket").encryption == f"aws:kms with the key {key}"
+
+    # A bucket that says it has none is worth a warning in production and development alike;
+    # its disks may still be encrypted, so it is not refused.
+    caplog.clear()
+    with caplog.at_level("WARNING", logger="app.storage"):
+        report_encryption(S3Storage(FakeS3Client(encryption=None), "bucket"))
+    assert "The bucket says it has no default encryption" in caplog.text
+
+    # One that will not say is told what it would take.
+    caplog.clear()
+    silent = FakeS3Client()
+    silent.outage = bucket_error("AccessDenied", 403)
+    with caplog.at_level("WARNING", logger="app.storage"):
+        report_encryption(S3Storage(silent, "bucket"))
+    assert "did not say whether it encrypts what it keeps (AccessDenied" in caplog.text
+    assert "s3:GetEncryptionConfiguration" in caplog.text
+    # A service that does not implement the question is not a permission to grant.
+    caplog.clear()
+    silent.outage = bucket_error("NotImplemented", 501)
+    with caplog.at_level("WARNING", logger="app.storage"):
+        report_encryption(S3Storage(silent, "bucket"))
+    assert "(NotImplemented: as the bucket put it); confirm with its service" in caplog.text
+
+    # A directory is as encrypted as its disk, which the bucket API cannot be asked about.
+    caplog.clear()
+    with caplog.at_level("INFO", logger="app.storage"):
+        report_encryption(LocalStorage(Path("unused")))
+    assert caplog.text == ""
 
 
 def test_bucket_failures_are_reported_in_words():

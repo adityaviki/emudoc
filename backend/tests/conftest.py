@@ -335,12 +335,21 @@ class FakeS3Client:
 
     PAGE = 2
 
-    def __init__(self, *buckets: str, origin: str | None = None, location: str | None = None):
+    def __init__(
+        self,
+        *buckets: str,
+        origin: str | None = None,
+        location: str | None = None,
+        encryption: str | None = "AES256",
+    ):
         self.buckets = set(buckets) or {"bucket"}
-        # Where signed URLs lead (the bucket's own host under s3.example unless given), and the
-        # region the bucket says it is in, which AWS answers as None for us-east-1.
+        # Where signed URLs lead (the bucket's own host under s3.example unless given), the
+        # region the bucket says it is in, which AWS answers as None for us-east-1, and its
+        # default encryption, which every AWS bucket has had since 2023; None is a bucket
+        # without one.
         self.origin = origin
         self.location = location
+        self.encryption = encryption
         self.objects: dict[str, tuple[bytes, str | None]] = {}
         # When each object was written; a test sets one back to age it.
         self.modified: dict[str, datetime] = {}
@@ -366,6 +375,26 @@ class FakeS3Client:
         self.calls.append("get_bucket_location")
         self._check_bucket(Bucket, "GetBucketLocation")
         return {"LocationConstraint": self.location}
+
+    def get_bucket_encryption(self, *, Bucket: str) -> dict:
+        self.calls.append("get_bucket_encryption")
+        self._check_bucket(Bucket, "GetBucketEncryption")
+        if self.encryption is None:
+            raise ClientError(
+                {
+                    "Error": {
+                        "Code": "ServerSideEncryptionConfigurationNotFoundError",
+                        "Message": "The server side encryption configuration was not found",
+                    }
+                },
+                "GetBucketEncryption",
+            )
+        default = {"SSEAlgorithm": self.encryption}
+        return {
+            "ServerSideEncryptionConfiguration": {
+                "Rules": [{"ApplyServerSideEncryptionByDefault": default}]
+            }
+        }
 
     def put_object(self, *, Bucket: str, Key: str, Body, ContentType: str | None = None) -> dict:
         self.calls.append("put_object")

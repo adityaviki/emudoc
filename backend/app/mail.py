@@ -7,7 +7,9 @@ templates, bounces and sending through jobs is a roadmap item (2.4).
 
 import logging
 import smtplib
+import ssl
 from email.message import EmailMessage
+from functools import partial
 from typing import Protocol
 from urllib.parse import unquote, urlsplit
 
@@ -32,7 +34,13 @@ class LogMailer:
 
 
 class SmtpMailer:
-    """Sends through an SMTP relay named by a URL: smtp:// uses STARTTLS, smtps:// uses TLS."""
+    """Sends through an SMTP relay named by a URL: smtp:// uses STARTTLS, smtps:// uses TLS.
+
+    Either way the relay's certificate is checked against the authorities this machine trusts
+    and must name the relay's host. smtplib checks nothing unless it is given a context, and a
+    relay that anyone in the path could stand in for would read every sign-in and
+    password-reset link the app sends.
+    """
 
     def __init__(self, url: str, sender: str):
         parts = urlsplit(url)
@@ -51,14 +59,26 @@ class SmtpMailer:
         message["To"] = to
         message["Subject"] = subject
         message.set_content(body)
+        context = ssl.create_default_context()
         try:
-            smtp = smtplib.SMTP_SSL if self.tls else smtplib.SMTP
+            smtp = partial(smtplib.SMTP_SSL, context=context) if self.tls else smtplib.SMTP
             with smtp(self.host, self.port, timeout=20) as connection:
                 if not self.tls:
-                    connection.starttls()
+                    connection.starttls(context=context)
                 if self.username:
                     connection.login(self.username, self.password or "")
                 connection.send_message(message)
+        except ssl.SSLCertVerificationError as error:
+            log.warning(
+                "The mail relay at %s:%s presented a certificate this machine does not trust "
+                "(%s), so nothing was sent to it; give the relay a certificate a public "
+                "authority signed, or add the authority that signed it to this machine's "
+                "trusted certificates.",
+                self.host,
+                self.port,
+                error.verify_message,
+            )
+            raise MailError("The email could not be sent.") from error
         except (OSError, smtplib.SMTPException) as error:
             log.warning("Sending email to %s failed: %s", to, error)
             raise MailError("The email could not be sent.") from error

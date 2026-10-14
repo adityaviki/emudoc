@@ -7,7 +7,7 @@ it stands (`GET /api/subprocessors`, the /subprocessors page). The settings cann
 the servers and the database; HOSTING_PROVIDER does, and production requires it.
 
 A service on the deployment's own network is the deployment itself, not a subprocessor, and is
-left out (`on_own_network` in app/residency.py). A host the list does not know the company of is
+left out (`on_own_network` in app/network.py). A host the list does not know the company of is
 named as it is, so that nothing the app sends data to is missing from the page; an operator's
 own server under a public name appears that way too.
 
@@ -23,16 +23,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from app.config import Settings, model_provider
+from app.network import MODEL_BASE_URLS, host_of, on_own_network
 from app.oidc import providers
-from app.residency import (
-    MODEL_BASE_URLS,
-    Place,
-    bucket_place,
-    endpoint_place,
-    host_of,
-    model_place,
-    on_own_network,
-)
+from app.residency import Place, bucket_place, endpoint_place, model_place
 from app.storage import Storage
 
 # The companies behind the model providers, by the prefix of a provider:model name.

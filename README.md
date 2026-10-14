@@ -241,8 +241,9 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   limits (`StreamMaxLength`, `MaxFileSize`, `MaxScanSize` in `clamd.conf`) must allow a file
   of `MAX_UPLOAD_MB`, or it refuses the file and the document says so. Empty, nothing is
   scanned and every document says so; `off` is the same choice stated, the only form
-  production accepts besides a daemon. `docker compose --profile clamav up -d --wait` runs
-  one to try this with.
+  production accepts besides a daemon. clamd's protocol has no encryption, so production
+  takes a daemon on the deployment's own network only. `docker compose --profile clamav up -d
+  --wait` runs one to try this with.
 - `ALERT_EMAIL` is where the worker reports the jobs it gave up on, through the same mail
   settings as the sign-in links, as one digest every quarter of an hour, where it reports
   the uploads the malware scan quarantined the same way, and where it warns once a day when
@@ -266,8 +267,11 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   settings are development's: the `docker compose` database's password, `LOCAL_ACCOUNT=true`,
   no `STORAGE_URL`, no `APP_URL`, no `SMTP_URL`, no `SCANNER_URL`, no `HOSTING_PROVIDER`, a
   `google:` model without `GOOGLE_PAID_TIER`, a `DAILY_SPEND_CAP` without `MODEL_PRICES`, no
-  key for the model, or with `DATA_REGION` a model, a bucket or an embeddings endpoint outside
-  the region. It does not serve the interactive API docs at `/docs`, and it marks
+  key for the model, with `DATA_REGION` a model, a bucket or an embeddings endpoint outside
+  the region, or a connection that would carry the documents unencrypted off the deployment's
+  own network: a database there without `sslmode=verify-full`, a scanner there, or an
+  embeddings endpoint, a model's address or a bucket there over plain `http://`
+  (`deploying.md`, "Encryption"). It does not serve the interactive API docs at `/docs`, and it marks
   the session cookie `Secure` and sends `Strict-Transport-Security` whatever the request's
   scheme, since a deployment is behind TLS; a request that still reaches it as plain HTTP is
   logged with what the proxy should send.
@@ -293,13 +297,16 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
 - `DATABASE_URL` names the database as a SQLAlchemy URL. There is no default: a process that
   is not told its database stops at once and says so. `.env.example` names the
   `docker compose` container, which only this machine can reach; a deployment sets the
-  variable in the environment.
+  variable in the environment. A database off the deployment's own network is reached with
+  `?sslmode=verify-full&sslrootcert=system` on the URL (or the provider's authority's file in
+  place of `system`), which production requires.
 - `STORAGE_URL` is where uploaded files and rendered page images are kept: a directory as
   `file:///var/lib/emudoc`, or an S3-compatible bucket as `s3://bucket/prefix`. The default is
   `backend/data` inside the checkout; a deployment names a place of its own. A bucket is reached
   with the standard `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION` and, for
   a service other than AWS, `AWS_ENDPOINT_URL`; the backend checks at start that it can use the
-  bucket. Files are always served through the API after its permission checks: from a directory
+  bucket, and logs whether the bucket encrypts what it keeps (its default encryption, which
+  every AWS bucket has; a directory is as encrypted as its disk). Files are always served through the API after its permission checks: from a directory
   the backend sends the file, from a bucket it redirects to a URL signed for 15 minutes, so the
   bucket is never public. An original comes as a download, never shown in the browser's own
   viewer, where a PDF could run scripts and submit forms; only an image opens in a tab, and the
@@ -360,7 +367,8 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   has resized the column and queued every document to be embedded again.
 - Sign-in: `LOCAL_ACCOUNT=true` lets a request without a session act as a local owner account,
   for development on one machine (off by default); `APP_URL` is the address the links in emails
-  point at; `SMTP_URL` sends the verification and reset emails (without it they go to the log);
+  point at; `SMTP_URL` sends the verification and reset emails over TLS to a relay whose
+  certificate the machine trusts (without it they go to the log);
   `GOOGLE_OAUTH_CLIENT_ID` and `MICROSOFT_OAUTH_CLIENT_ID` with their secrets offer sign-in with
   those providers.
 
