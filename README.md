@@ -322,8 +322,9 @@ OpenID Connect and are linked to an existing account only when both sides have v
 address. A visitor without a session is sent to `/login` and returns to the page they wanted.
 Every request that changes something must carry an `X-Requested-With` header, which the app's own
 requests do and a page on another site cannot add, so the cookie alone changes nothing; send the
-header when calling the API by hand. The routes are under `/api/auth`, the pages in
-`frontend/src/account/`.
+header when calling the API by hand. The app answers no request from another origin (there is
+no CORS): the frontend is served from the API's own origin, and the defence rests on that. The
+routes are under `/api/auth`, the pages in `frontend/src/account/`.
 
 Every response carries the headers that tell the browser what a page of the app may do
 (`backend/app/headers.py`): a `Content-Security-Policy` that allows scripts, styles and requests

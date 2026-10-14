@@ -87,3 +87,34 @@ def test_the_page_needs_no_inline_code():
     assert not re.search(r"\bstyle=|\bon\w+=", html), "index.html has inline style or handlers"
     assert '<script src="/theme.js"></script>' in html
     assert (ROOT_DIR / "frontend" / "public" / "theme.js").is_file()
+
+
+def test_no_other_origin_is_answered(client):
+    # The frontend is served from the API's own origin, so the app answers no cross-origin
+    # request: no response carries an Access-Control header, and a browser on another site,
+    # which must ask before it sends the X-Requested-With header, gets no answer to the
+    # preflight. With the session cookie's SameSite=Lax that is the defence against a request
+    # forged from another site (refuse_cross_site in api/deps.py). A frontend that moves to
+    # another origin needs CORSMiddleware naming that one origin, never *, with credentials
+    # and the X-Requested-With, Content-Type and Last-Event-ID headers allowed, and the
+    # cookie becomes SameSite=None; Secure, which leaves the header check as the whole defence.
+    other = {"Origin": "https://other.example"}
+    preflight = client.options(
+        "/api/projects",
+        headers={
+            **other,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type, x-requested-with",
+        },
+    )
+    assert preflight.status_code == 405
+    signup = client.post(
+        "/api/auth/signup",
+        json={"email": "ada@example.com", "name": "Ada", "password": "correct horse battery"},
+        headers=other,
+    )
+    assert signup.status_code == 201, signup.text
+    assert "; samesite=lax" in signup.headers["set-cookie"].lower()
+    for response in (preflight, signup, client.get("/api/health", headers=other)):
+        assert not [name for name in response.headers if name.lower().startswith("access-control-")]
+        carries_the_headers(response)

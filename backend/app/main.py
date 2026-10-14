@@ -118,6 +118,10 @@ def create_app(
     )
     app.add_exception_handler(StorageError, storage_unavailable)
     app.add_exception_handler(PoolTimeout, pool_exhausted)
+    # No CORSMiddleware, on purpose: the frontend is served from this origin, and the defence
+    # against a request forged from another site (refuse_cross_site in api/deps.py) rests on
+    # the app answering no cross-origin request. test_no_other_origin_is_answered in
+    # tests/test_headers.py says what a frontend on another origin would need instead.
     app.add_middleware(SecurityHeaders)
     for router in (
         system,

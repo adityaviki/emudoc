@@ -60,6 +60,13 @@ anyone else who can would choose the address their session shows and claim to be
 The proxy must also pass the browser's `Host` header on unchanged, which both examples below
 do, so that the frontend's requests are served under the name the user opened.
 
+The frontend and the API share that one name on purpose. The app answers no request from
+another origin, neither with CORS headers nor with a preflight, and its defence against a
+request forged from another site, the session cookie's `SameSite=Lax` and the
+`X-Requested-With` header on every request that changes something, rests on that. So the
+proxy serves both from the one site block, as the examples do, and the built frontend is not
+served from a CDN or under a second name.
+
 The browser's security headers are the app's, on every response: `Content-Security-Policy`,
 `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and `Permissions-Policy`, and
 `Strict-Transport-Security` for a year once a request arrives over HTTPS by the proxy's
