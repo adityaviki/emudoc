@@ -82,7 +82,10 @@ served from a CDN or under a second name.
 The browser's security headers are the app's, on every response: `Content-Security-Policy`,
 `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and `Permissions-Policy`, and
 `Strict-Transport-Security` for a year once a request arrives over HTTPS by the proxy's
-account, and always in production. The proxy adds none of them. The app's HSTS header names
+account, and always in production. The proxy adds none of them, and must not set
+`Content-Security-Policy` across the board: a file the app sends itself (an original, a page
+image, a thumbnail) carries `sandbox` in place of the page's policy, so a browser runs nothing
+in an uploaded file, and an original comes as a download. The app's HSTS header names
 neither `includeSubDomains` nor `preload`, which bind every subdomain of the name to HTTPS and
 are the operator's decision; a deployment that wants them replaces the header at the proxy, as
 `header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"` in the Caddy
@@ -199,7 +202,10 @@ before the app would hold it.
 4. The browser's developer tools show no "Refused to load" line in the console while you work,
    and the response headers of any request carry `Content-Security-Policy` and, over HTTPS,
    `Strict-Transport-Security`. With a bucket, the policy's `img-src` names the bucket's
-   origin, which the page images and thumbnails redirect to.
+   origin, which the page images and thumbnails redirect to. "Download original file" on the
+   PDF saves it rather than opening the browser's viewer, and its response carries
+   `Content-Security-Policy: sandbox` (with a bucket, the signed URL's
+   `response-content-disposition` says `attachment` instead).
 5. Sign in with a wrong password until the form says to wait a minute: the eleventh attempt
    does (`RATE_SIGN_INS`), and the API's log names the address it held, which is yours and
    not the proxy's.
@@ -207,6 +213,6 @@ before the app would hold it.
    1.5.4/…"), with the signature version and date after the slashes. Upload a `.txt` file
    whose whole content is the EICAR test string (any antivirus vendor publishes it; it is
    harmless, and ClamAV flags it only as a file of its own, not inside another): within a
-   moment the library shows it quarantined with the verdict `Eicar-Test-Signature`, "Open
-   original file" is off, and `ALERT_EMAIL` gets "Emudoc quarantined 1 upload" at the next
+   moment the library shows it quarantined with the verdict `Eicar-Test-Signature`,
+   "Download original file" is off, and `ALERT_EMAIL` gets "Emudoc quarantined 1 upload" at the next
    quarter of an hour. Delete it.

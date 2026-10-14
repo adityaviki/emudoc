@@ -6,6 +6,7 @@ the few boto3 calls it makes, since the suite makes no network calls.
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError, ReadTimeoutError
@@ -16,6 +17,7 @@ from app.config import Settings, get_settings
 from app.indexing.pipeline import Services, process_document, reset_stages
 from app.main import create_app
 from app.storage import (
+    SANDBOX,
     URL_LIFETIME,
     LocalStorage,
     S3Storage,
@@ -174,8 +176,17 @@ def test_the_local_storage_sends_the_file_itself(tmp_path):
     )
     assert isinstance(response, FileResponse)
     assert Path(response.path) == tmp_path / "data" / DOCUMENT / "original.pdf"
-    assert response.headers["content-disposition"] == 'inline; filename="contract.pdf"'
+    assert response.headers["content-disposition"] == 'attachment; filename="contract.pdf"'
     assert "cache-control" not in response.headers
+    # Sent from the app's own origin, the file gets a policy that lets a browser run nothing in
+    # it, whether it downloads or is shown.
+    assert response.headers["content-security-policy"] == SANDBOX
+
+    shown = storage.response(
+        f"{DOCUMENT}original.pdf", media_type="image/png", filename="scan.png", inline=True
+    )
+    assert shown.headers["content-disposition"] == 'inline; filename="scan.png"'
+    assert shown.headers["content-security-policy"] == SANDBOX
 
     cached = storage.response(f"{DOCUMENT}original.pdf", media_type="image/png", max_age=86400)
     assert cached.headers["cache-control"] == "private, max-age=86400"
@@ -198,20 +209,32 @@ def test_the_bucket_redirects_to_a_signed_url():
     assert location.startswith(f"https://bucket.s3.example/emudoc/{DOCUMENT}original.pdf?")
     assert "response-content-type=application%2Fpdf" in location
     assert f"X-Amz-Expires={URL_LIFETIME}" in location
-    # The name is fixed when the URL is signed, in the form browsers read for any alphabet.
-    assert "filename%2A%3Dutf-8%27%27Vertrag%2520%25C3%25BC.pdf" in location
+    # The name is fixed when the URL is signed, in the form browsers read for any alphabet, and
+    # so is the download: the bucket's answer is the file, and the app adds no header to it.
+    assert signed_disposition(location) == "attachment; filename*=utf-8''Vertrag%20%C3%BC.pdf"
     assert "cache-control" not in response.headers
+    shown = storage.response(
+        f"{DOCUMENT}original.png", media_type="image/png", filename="scan.png", inline=True
+    )
+    assert signed_disposition(shown.headers["location"]) == 'inline; filename="scan.png"'
 
     # A cached redirect must expire before the URL it leads to does.
     cached = storage.response(f"{DOCUMENT}pages/1.png", media_type="image/png", max_age=86400)
     assert cached.headers["cache-control"] == f"private, max-age={URL_LIFETIME - 60}"
 
 
+def signed_disposition(url: str) -> str:
+    """The Content-Disposition a signed URL makes the bucket answer with."""
+    (disposition,) = parse_qs(urlsplit(url).query)["response-content-disposition"]
+    return disposition
+
+
 def test_content_disposition_names_the_file_as_browsers_read_it():
-    assert content_disposition("invoice.pdf") == 'inline; filename="invoice.pdf"'
+    assert content_disposition("invoice.pdf") == 'attachment; filename="invoice.pdf"'
     assert content_disposition("Rechnung März.pdf") == (
-        "inline; filename*=utf-8''Rechnung%20M%C3%A4rz.pdf"
+        "attachment; filename*=utf-8''Rechnung%20M%C3%A4rz.pdf"
     )
+    assert content_disposition("scan.png", inline=True) == 'inline; filename="scan.png"'
 
 
 def test_check_says_what_to_fix(tmp_path):

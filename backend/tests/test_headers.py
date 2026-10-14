@@ -6,10 +6,11 @@ from fastapi.testclient import TestClient
 
 from app.config import ROOT_DIR, get_settings
 from app.headers import HSTS, content_security_policy
-from app.indexing.pipeline import Services
+from app.indexing.pipeline import Services, process_document
 from app.main import create_app
-from app.storage import S3Storage
+from app.storage import SANDBOX, S3Storage
 from tests.conftest import APP_HEADERS, FakeEmbedder, FakeLLM, FakeS3Client
+from tests.test_api import create_project, upload
 
 POLICY = (
     "default-src 'self'; img-src 'self'; object-src 'none'; base-uri 'self'; "
@@ -37,6 +38,21 @@ def test_every_api_response_carries_the_headers(client, signed_in_only):
         carries_the_headers(response)
     # Over plain HTTP in development a browser would ignore HSTS; it is kept out of the noise.
     assert "strict-transport-security" not in client.get("/api/health").headers
+
+
+def test_a_file_is_sandboxed_in_place_of_the_page_policy(client, services, sample_pdf):
+    # An original, a page image and a thumbnail are files, never pages of the app: a browser
+    # that shows one runs nothing in it, and the other headers stand as on every response.
+    project = create_project(client)
+    (document,) = upload(client, project["id"], sample_pdf)["documents"]
+    process_document(document["id"], services)
+    for path in ("file", "pages/1.png", "thumbnail.png"):
+        response = client.get(f"/api/documents/{document['id']}/{path}")
+        assert response.status_code == 200, path
+        assert response.headers["content-security-policy"] == SANDBOX, path
+        for name, value in EXPECTED.items():
+            if name != "content-security-policy":
+                assert response.headers[name] == value, (path, name)
 
 
 def test_hsts_over_https_and_always_in_production(services, monkeypatch):

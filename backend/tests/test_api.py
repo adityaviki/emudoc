@@ -218,7 +218,32 @@ def test_document_views_after_indexing(client, services, sample_pdf):
 
     original = client.get(f"/api/documents/{document_id}/file")
     assert original.content == sample_pdf.read_bytes()
-    assert original.headers["content-disposition"].startswith("inline")
+    assert original.headers["content-disposition"] == 'attachment; filename="msa.pdf"'
+
+
+def test_originals_download_and_only_images_open_in_the_browser(
+    client, services, sample_docx, sample_csv, tmp_path
+):
+    # A PDF or a Word file that a browser opened in a tab could run scripts or submit forms; an
+    # image runs nothing, and the document pane's preview needs it inline.
+    picture = tmp_path / "photo.png"
+    Image.new("RGB", (40, 20), "white").save(picture)
+    notes = tmp_path / "Notizen März.md"
+    notes.write_text("# Notizen\n\nLieferung verspätet.\n")
+    project = create_project(client)
+    documents = upload(client, project["id"], picture, sample_docx, sample_csv, notes)["documents"]
+    for document in documents:
+        process_document(document["id"], services)
+
+    def disposition(document):
+        return client.get(f"/api/documents/{document['id']}/file").headers["content-disposition"]
+
+    assert {document["filename"]: disposition(document) for document in documents} == {
+        "photo.png": 'inline; filename="photo.png"',
+        sample_docx.name: f'attachment; filename="{sample_docx.name}"',
+        sample_csv.name: f'attachment; filename="{sample_csv.name}"',
+        "Notizen März.md": "attachment; filename*=utf-8''Notizen%20M%C3%A4rz.md",
+    }
 
 
 def test_thumbnails_for_images_only_besides_pdfs(client, services, sample_docx, tmp_path):

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { ExternalLink, ListTree, X } from 'lucide-react'
+import { ListTree, X } from 'lucide-react'
 import { Fragment, useEffect, useState } from 'react'
 import { api, fileUrl, isImage, isPdf, isSheet, pageImageUrl, pageLabel, sectionPath } from '../api.ts'
 import type { Block, Document, DocumentContent, Section } from '../api.ts'
@@ -9,6 +9,7 @@ import { Chip, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { formatDate, parsePipeTable } from '../format.ts'
 import { scanPassed } from '../indexing.ts'
 import { describeDocumentUsage } from '../usage.ts'
+import { originalFile } from './files.ts'
 import { useWorkspace } from './state.ts'
 import type { Focus } from './url.ts'
 
@@ -32,6 +33,7 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
   const indexed = document.stages.structure?.status === 'done'
   // The original is served once its malware scan has passed, and never when it was flagged.
   const openable = scanPassed(document) && status !== 'quarantined'
+  const original = originalFile(document)
   // Derived data is fetched again whenever indexing changes the document's status.
   const outline = useQuery({
     queryKey: ['outline', document.id, status],
@@ -118,13 +120,11 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
             )}
             {openable && (
               <a
-                href={fileUrl(document.id)}
-                target="_blank"
-                rel="noreferrer"
-                title="Open the original file in a new tab"
+                {...original.link}
+                title={original.label}
                 className="inline-flex size-7 items-center justify-center rounded-md text-muted transition hover:bg-sunken hover:text-ink"
               >
-                <ExternalLink className="size-4" />
+                <original.icon className="size-4" />
               </a>
             )}
           </div>

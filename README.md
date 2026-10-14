@@ -281,7 +281,10 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   a service other than AWS, `AWS_ENDPOINT_URL`; the backend checks at start that it can use the
   bucket. Files are always served through the API after its permission checks: from a directory
   the backend sends the file, from a bucket it redirects to a URL signed for 15 minutes, so the
-  bucket is never public. `docker compose --profile s3 up -d --wait` runs a local bucket to try
+  bucket is never public. An original comes as a download, never shown in the browser's own
+  viewer, where a PDF could run scripts and submit forms; only an image opens in a tab, and the
+  files the backend sends itself carry `Content-Security-Policy: sandbox`, so a browser runs
+  nothing in them. `docker compose --profile s3 up -d --wait` runs a local bucket to try
   this with; `docker-compose.yml` lists the settings for it. A checkout with uploads from before
   storage keys (October 2026) keeps them in the old layout: run
   `uv run python -m app.maintenance relocate-files` once in `backend/` with the app stopped (the

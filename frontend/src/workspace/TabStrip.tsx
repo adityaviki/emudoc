@@ -1,12 +1,10 @@
-import { ExternalLink, FileText, X } from 'lucide-react'
+import { FileText, X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import type { MouseEvent } from 'react'
-import { fileUrl } from '../api.ts'
 import type { Document } from '../api.ts'
 import { StatusDot } from '../components/IndexingStatus.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
-import { scanPassed } from '../indexing.ts'
-import { fileKind } from './files.ts'
+import { fileKind, originalFileItem } from './files.ts'
 import { useWorkspace } from './state.ts'
 
 /** One tab per open document, above the document pane. */
@@ -30,12 +28,7 @@ export function TabStrip() {
       { label: 'Close others', disabled: others.length === 0, onSelect: () => workspace.closeTabs(others) },
       { label: 'Close all', onSelect: () => workspace.closeTabs(openTabs.map((tab) => tab.id)) },
       'separator',
-      {
-        label: 'Open original file',
-        icon: ExternalLink,
-        disabled: !scanPassed(document) || document.status === 'quarantined',
-        onSelect: () => window.open(fileUrl(document.id), '_blank', 'noreferrer'),
-      },
+      originalFileItem(document),
     ])
   }
 

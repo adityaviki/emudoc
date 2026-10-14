@@ -23,7 +23,9 @@ The parsers open files by path, so `localize` gives the parse stage a local copy
 for as long as it needs one; the local storage hands out the file itself. Serving goes through
 `response`, after the route has checked who asks: the local storage sends the file, a bucket
 redirects to a URL signed for a few minutes, so a large original never streams through the app
-and the bucket itself is never public.
+and the bucket itself is never public. Either way the file is not a page of the app: it comes as
+a download unless the route asks for it inline, and what the app sends itself carries a policy
+that lets the browser run nothing in it (`SANDBOX`).
 """
 
 import logging
@@ -59,6 +61,11 @@ DELETE_BATCH = 1000
 # The prefix every key sits under, for a sweep that walks the whole storage.
 ROOT_PREFIX = "orgs/"
 _RENDERED = re.compile(r"orgs/\d+/projects/\d+/documents/\d+/(pages/\d+|thumbnail)\.png")
+# The policy of a file the app sends from its own origin, in place of the page's. A browser that
+# shows the file in a tab after all, a PDF in its viewer, gives it an origin of its own and lets
+# it run no script, submit no form and open no window, so an uploaded file cannot act as the app.
+# A signed URL leads to the bucket's origin, which holds nothing of the app's and needs none.
+SANDBOX = "sandbox"
 
 
 class StorageError(AppError):
@@ -93,13 +100,15 @@ class StoredObject:
     modified_at: datetime
 
 
-def content_disposition(filename: str) -> str:
-    """An inline Content-Disposition that names the file, as a browser saves it; names outside
-    ASCII go in the encoded form browsers read."""
+def content_disposition(filename: str, *, inline: bool = False) -> str:
+    """A Content-Disposition that names the file, as a browser saves it; names outside ASCII go
+    in the encoded form browsers read. A browser saves an attachment and shows an inline file in
+    the tab, so only a file it can show without running anything, an image, is inline."""
+    kind = "inline" if inline else "attachment"
     quoted = quote(filename)
     if quoted != filename:
-        return f"inline; filename*=utf-8''{quoted}"
-    return f'inline; filename="{filename}"'
+        return f"{kind}; filename*=utf-8''{quoted}"
+    return f'{kind}; filename="{filename}"'
 
 
 def _folder(prefix: str) -> str:
@@ -140,10 +149,11 @@ class Storage(ABC):
         *,
         content_type: str,
         filename: str | None = None,
+        inline: bool = False,
         expires_in: int = URL_LIFETIME,
     ) -> str | None:
-        """A URL that serves the object to whoever holds it until it expires, or None when the
-        storage has no such thing and the app serves the object itself."""
+        """A URL that serves the object to whoever holds it until it expires, as `response`
+        would, or None when the storage has no such thing and the app serves the object itself."""
 
     @property
     def origin(self) -> str | None:
@@ -170,18 +180,19 @@ class Storage(ABC):
         *,
         media_type: str,
         filename: str | None = None,
+        inline: bool = False,
         max_age: int | None = None,
     ) -> Response:
-        """Hand the object to the browser, once the route has checked who asks.
+        """Hand the object to the browser, once the route has checked who asks: named by
+        `filename` as a download, or `inline` for a file the page shows itself.
 
         A storage that signs URLs gets a redirect to one, so the bytes never pass through the
         app. The redirect may be cached, but for less time than the URL it leads to stays
         valid, so a cached redirect never leads to an expired URL.
         """
-        url = self.presigned_url(key, content_type=media_type, filename=filename)
+        url = self.presigned_url(key, content_type=media_type, filename=filename, inline=inline)
         if url is None:
-            headers = {"Content-Disposition": content_disposition(filename)} if filename else {}
-            headers.update(_cache_headers(max_age))
+            headers = _file_headers(filename, inline, max_age)
             return Response(self.get(key), media_type=media_type, headers=headers)
         max_age = min(max_age, URL_LIFETIME - 60) if max_age else None
         return RedirectResponse(url, status_code=307, headers=_cache_headers(max_age))
@@ -203,6 +214,14 @@ class Storage(ABC):
 def _cache_headers(max_age: int | None) -> dict[str, str]:
     # What is served belongs to one organisation, so only the browser that asked may keep it.
     return {"Cache-Control": f"private, max-age={max_age}"} if max_age else {}
+
+
+def _file_headers(filename: str | None, inline: bool, max_age: int | None) -> dict[str, str]:
+    """The headers of a file the app sends from its own origin."""
+    headers = {"Content-Security-Policy": SANDBOX, **_cache_headers(max_age)}
+    if filename:
+        headers["Content-Disposition"] = content_disposition(filename, inline=inline)
+    return headers
 
 
 class LocalStorage(Storage):
@@ -277,6 +296,7 @@ class LocalStorage(Storage):
         *,
         content_type: str,
         filename: str | None = None,
+        inline: bool = False,
         expires_in: int = URL_LIFETIME,
     ) -> str | None:
         # A directory has no URLs of its own; `response` serves the file.
@@ -288,17 +308,14 @@ class LocalStorage(Storage):
         *,
         media_type: str,
         filename: str | None = None,
+        inline: bool = False,
         max_age: int | None = None,
     ) -> Response:
         path = self._path(key)
         if not path.is_file():
             raise FileNotFoundError(key)
         return FileResponse(
-            path,
-            media_type=media_type,
-            filename=filename,
-            content_disposition_type="inline",
-            headers=_cache_headers(max_age),
+            path, media_type=media_type, headers=_file_headers(filename, inline, max_age)
         )
 
     def list(self, prefix: str) -> Iterator[StoredObject]:
@@ -493,17 +510,18 @@ class S3Storage(Storage):
         *,
         content_type: str,
         filename: str | None = None,
+        inline: bool = False,
         expires_in: int = URL_LIFETIME,
     ) -> str:
-        # The type and the name are fixed when the URL is signed, so whoever holds the URL
-        # gets the object as the app would have served it.
+        # The type, the name and whether it downloads are fixed when the URL is signed, so
+        # whoever holds the URL gets the object as the app would have served it.
         params: dict[str, Any] = {
             "Bucket": self.bucket,
             "Key": self._key(key),
             "ResponseContentType": content_type,
         }
         if filename:
-            params["ResponseContentDisposition"] = content_disposition(filename)
+            params["ResponseContentDisposition"] = content_disposition(filename, inline=inline)
         return self.client.generate_presigned_url("get_object", Params=params, ExpiresIn=expires_in)
 
     @cached_property

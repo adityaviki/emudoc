@@ -368,13 +368,21 @@ def _scanned(document: Document) -> None:
 @router.get("/documents/{document_id}/file")
 def download_file(document: DocumentDep, services: ServicesDep) -> Response:
     """The uploaded file as it was uploaded; the storage decides whether it is sent from here or
-    from a signed URL."""
+    from a signed URL.
+
+    It comes as a download: a PDF that a browser opened in its own viewer could run scripts and
+    submit forms, and the app shows a document's pages from its own renderings anyway. An image
+    is the exception: the document pane's preview is an `<img>`, and a browser runs nothing in one.
+    """
     _scanned(document)
     storage = services.storage
     if not storage.exists(document.storage_key):
         raise HTTPException(404, MISSING_FILE)
     return storage.response(
-        document.storage_key, media_type=document.mime_type, filename=document.filename
+        document.storage_key,
+        media_type=document.mime_type,
+        filename=document.filename,
+        inline=document.mime_type in IMAGE_TYPES.values(),
     )
 
 

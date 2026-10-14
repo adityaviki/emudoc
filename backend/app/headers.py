@@ -32,10 +32,11 @@ ALWAYS = {
 def content_security_policy(storage: Storage) -> str:
     """What the page may load: its own origin, and images from the bucket when there is one.
 
-    Originals open in a new tab, which is a navigation and not the page's to allow; the
-    requests to `/api` and the event stream are `connect-src`, covered by `default-src`. React
-    sets its few `style` props through the CSSOM, which `'self'` does not block, so no
-    `'unsafe-inline'` is needed for styles either.
+    An original downloads, or opens in a new tab when it is an image, and neither is the page's
+    to allow; the files the app sends carry a policy of their own (`SANDBOX` in app/storage.py)
+    in place of this one. The requests to `/api` and the event stream are `connect-src`, covered
+    by `default-src`. React sets its few `style` props through the CSSOM, which `'self'` does
+    not block, so no `'unsafe-inline'` is needed for styles either.
     """
     images = ["'self'"]
     if storage.origin:

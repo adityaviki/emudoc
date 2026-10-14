@@ -3,7 +3,6 @@ import {
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
-  ExternalLink,
   Folder as FolderIcon,
   FolderPlus,
   MoreHorizontal,
@@ -21,7 +20,6 @@ import {
   ACCEPTED_EXTENSIONS,
   ACCEPTED_TYPES_LABEL,
   api,
-  fileUrl,
   pageLabel,
   sectionPath,
 } from '../api.ts'
@@ -33,8 +31,7 @@ import { Button, Chip, EmptyState, IconButton, Loading, Notice, Spinner } from '
 import { useContextMenu } from '../components/useContextMenu.tsx'
 import { documentsIn, useFolders, useLocalStorage } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
-import { scanPassed } from '../indexing.ts'
-import { fileKind } from './files.ts'
+import { fileKind, originalFileItem } from './files.ts'
 import { useLibraryMutations } from './mutations.ts'
 import type { LibraryMutations } from './mutations.ts'
 import { useWorkspace } from './state.ts'
@@ -518,13 +515,7 @@ function Listing({
     }
     return [
       { label: 'Open', onSelect: () => open(item) },
-      {
-        label: 'Open original file',
-        icon: ExternalLink,
-        // Served once the malware scan has passed, and never once it was flagged.
-        disabled: !scanPassed(item.document) || item.document.status === 'quarantined',
-        onSelect: () => window.open(fileUrl(item.document.id), '_blank', 'noreferrer'),
-      },
+      originalFileItem(item.document),
       rename,
       {
         // On a quarantined document this scans it again, for signatures that have changed.
