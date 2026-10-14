@@ -21,7 +21,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, REGCONFIG, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.config import get_settings
+from app.config import REGIONS, get_settings
 from app.db import Base
 
 _settings = get_settings()
@@ -162,7 +162,10 @@ class Organization(Base):
     """The tenant. Projects belong to an organisation, and so do its plan, usage and billing."""
 
     __tablename__ = "organizations"
-    __table_args__ = (_one_of("plan", PLANS, "organizations"),)
+    __table_args__ = (
+        _one_of("plan", PLANS, "organizations"),
+        _one_of("region", tuple(REGIONS), "organizations"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
@@ -171,6 +174,10 @@ class Organization(Base):
     # Which plan's entitlements the organisation is held to (app/entitlements.py). Set by the
     # operator's `plan` command until billing sets it; the local account has no limits.
     plan: Mapped[str] = mapped_column(String(20), default="free", server_default="free")
+    # The region its data is kept in (DATA_REGION, app/residency.py), recorded as it is created
+    # so that a deployment in another region refuses to serve it; null while the deployment
+    # names none. One deployment is one region; several are 4.3's.
+    region: Mapped[str | None] = mapped_column(String(20))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

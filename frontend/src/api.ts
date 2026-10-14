@@ -157,6 +157,14 @@ export interface Subprocessor {
   purpose: string
   /** What it receives. */
   data: string
+  /** Where it handles what it receives, when the settings show it, as "The European Union (eu-central-1)". */
+  location: string | null
+}
+
+/** The /subprocessors page: the region the documents are kept in, and who receives what. */
+export interface Subprocessors {
+  region: Region | null
+  subprocessors: Subprocessor[]
 }
 
 /** A passage the agent was shown, which its answer may cite as [P<id>]. */
@@ -239,12 +247,18 @@ export type ChatEvent =
 export type Plan = 'free' | 'pro' | 'team' | 'enterprise'
 export const PLAN_LABELS: Record<Plan, string> = { free: 'Free', pro: 'Pro', team: 'Team', enterprise: 'Enterprise' }
 
+/** The regions a deployment can keep its documents in (DATA_REGION, backend/app/residency.py). */
+export type Region = 'eu' | 'us'
+export const REGION_NAMES: Record<Region, string> = { eu: 'the European Union', us: 'the United States' }
+
 export interface Organization {
   id: number
   name: string
   slug: string
   /** Which plan's limits the organisation is held to; a refusal by them is a 402. */
   plan: Plan
+  /** The region its data is kept in, null when the deployment promised none as it was created. */
+  region: Region | null
 }
 
 /** The signed-in user, and the organisation and role they act with. */
@@ -394,7 +408,7 @@ export const oauthStartUrl = (provider: string, next: string) =>
 export const api = {
   status: () => request<SystemStatus>('/status'),
   /** Public: answers without a session. */
-  subprocessors: () => request<Subprocessor[]>('/subprocessors'),
+  subprocessors: () => request<Subprocessors>('/subprocessors'),
 
   projects: () => request<Project[]>('/projects'),
   project: (id: number) => request<Project>(`/projects/${id}`),

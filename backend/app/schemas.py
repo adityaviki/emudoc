@@ -340,6 +340,9 @@ class OrganizationOut(_FromORM):
     # Which plan's limits the organisation is held to (app/entitlements.py), for the prompt
     # the app shows when one is reached.
     plan: str
+    # The region its data is kept in, as DATA_REGION names it (eu, us), None when the
+    # deployment promised none as it was created (app/residency.py).
+    region: str | None
 
 
 class MeOut(BaseModel):
@@ -397,12 +400,22 @@ class StatusOut(BaseModel):
     currency: str
 
 
-class SubprocessorOut(BaseModel):
+class SubprocessorOut(_FromORM):
     """A company the deployment sends data to (app/subprocessors.py)."""
 
     name: str
     purpose: str
     data: str
+    # Where it handles what it receives, when the settings show it (app/residency.py).
+    location: str | None
+
+
+class SubprocessorsOut(BaseModel):
+    """The /subprocessors page: the region the deployment keeps its documents in (DATA_REGION:
+    eu, us), None when it promises none, and the companies it sends data to."""
+
+    region: str | None
+    subprocessors: list[SubprocessorOut]
 
 
 class HealthOut(BaseModel):

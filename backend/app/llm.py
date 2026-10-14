@@ -12,6 +12,12 @@ setting a kill switch rather than a misconfiguration.
 Every request asks OpenRouter to forward it only to providers that neither store nor train on
 what they are sent (`DATA_POLICY`), so that a model reached through it keeps the terms the app
 promises its users; the other providers' terms come with the key (deploying.md).
+
+A deployment that keeps its data in one region (DATA_REGION, app/residency.py) holds to it the
+two providers that let a request choose: OpenRouter is reached at the region's own address
+(`openrouter_url`), which sends a request only to providers in the region, and Claude is told to
+run in the US when that is the region (`inference_geo`). The other providers are placed by their
+own settings, which the start-up checks read.
 """
 
 import asyncio
@@ -22,6 +28,7 @@ import threading
 import time
 from collections.abc import Coroutine, Iterator, Sequence
 from concurrent.futures import Future
+from functools import partial
 from typing import Any, Literal, TypeVar
 
 import httpx
@@ -50,6 +57,7 @@ from pydantic_ai.models import Model, ModelRequestParameters, infer_model
 from pydantic_ai.providers import Provider, infer_provider
 from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.google_cloud import GoogleCloudProvider
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.tools import ToolDefinition
 
 from app.config import Settings, model_provider
@@ -81,6 +89,8 @@ TRANSIENT_STATUSES = {408, 429}
 # that store prompts and may train on them; a model that no such provider serves fails with
 # OpenRouter's own sentence rather than reach one.
 DATA_POLICY = {"data_collection": "deny"}
+# OpenRouter's address when no region is asked for.
+OPENROUTER_URL = "https://openrouter.ai/api/v1"
 
 # The library greets its first run with a banner; this process keeps its output to its log.
 pydantic_ai.BANNER_ENABLED = False
@@ -223,23 +233,58 @@ def _setup_problem(name: str, error: Exception, settings: Settings) -> str:
     return f"{name!r} cannot be used. {message}"
 
 
-def _provider(name: str) -> Provider[Any]:
-    """The provider behind a model-name prefix, reading its key from the environment."""
+def inference_geo(name: str, region: str) -> str | None:
+    """Where Claude is told to run a request for the model `name` when the deployment keeps its
+    data in `region` (DATA_REGION): in the US for the US, the one region Anthropic's API offers
+    besides anywhere. None leaves it to the workspace's default, and is all there is for any
+    other provider or region; app/residency.py refuses a Claude model under the EU."""
+    return "us" if region == "us" and model_provider(name) == "anthropic" else None
+
+
+def openrouter_url(region: str) -> str:
+    """Where OpenRouter is reached for a deployment that keeps its data in `region`: the
+    region's own address, which forwards a request only to providers in the region and fails it
+    when none serves the model, or the usual one without a region."""
+    return f"https://{region}.openrouter.ai/api/v1" if region else OPENROUTER_URL
+
+
+class _RegionalOpenRouter(OpenRouterProvider):
+    """OpenRouter at a region's address (`openrouter_url`), which the library has no setting
+    for: it builds its client from `base_url`, so the address is set before that happens."""
+
+    def __init__(self, region: str):
+        self._region = region
+        super().__init__()
+
+    @property
+    def base_url(self) -> str:
+        return openrouter_url(self._region)
+
+
+def _provider(name: str, *, region: str = "") -> Provider[Any]:
+    """The provider behind a model-name prefix, reading its key from the environment, held to
+    `region` (DATA_REGION) where the provider lets the app choose."""
     # Google's SDK gives up at the first rate-limit or overload response unless told to retry,
     # on either of its APIs. Anthropic's and OpenAI's retry twice by default.
     if name == "google":
         return GoogleProvider(retry_options=HttpRetryOptions(attempts=GOOGLE_ATTEMPTS))
     if name == "google-cloud":
         return GoogleCloudProvider(retry_options=HttpRetryOptions(attempts=GOOGLE_ATTEMPTS))
+    if name == "openrouter" and region:
+        return _RegionalOpenRouter(region)
     return infer_provider(name)
 
 
-def _settings(effort: str, **settings: Any) -> dict[str, Any]:
+def _settings(effort: str, geo: str | None = None, **settings: Any) -> dict[str, Any]:
     """Model settings for one request. An empty `effort` leaves the model's own default.
 
-    OpenRouter's data policy goes on every request; the other providers ignore it.
+    OpenRouter's data policy goes on every request; the other providers ignore it. `geo` is
+    where Claude is to run the request (`inference_geo`); it goes only to a Claude model, since
+    the field rides in the request's body, which another provider would refuse.
     """
     settings["openrouter_provider"] = dict(DATA_POLICY)
+    if geo:
+        settings["extra_body"] = {"inference_geo": geo}
     if effort:
         settings["thinking"] = effort
     return settings
@@ -383,11 +428,15 @@ class LLM:
         with self._lock:
             if name not in self._models:
                 try:
-                    self._models[name] = infer_model(name, _provider)
+                    provider = partial(_provider, region=self._settings.data_region)
+                    self._models[name] = infer_model(name, provider)
                 except Exception as error:
                     # An unknown name, a missing key, or a provider whose package is absent.
                     raise LLMUnavailable(_setup_problem(name, error, self._settings)) from error
             return self._models[name]
+
+    def _geo(self, name: str) -> str | None:
+        return inference_geo(name, self._settings.data_region)
 
     def structured(
         self,
@@ -406,7 +455,10 @@ class LLM:
             output_type=NativeOutput(schema) if constrained else schema,
             instructions=INDEX_SYSTEM,
             model_settings=_settings(
-                self._settings.index_effort, max_tokens=INDEX_MAX_TOKENS, timeout=INDEX_TIMEOUT
+                self._settings.index_effort,
+                self._geo(self._settings.index_model),
+                max_tokens=INDEX_MAX_TOKENS,
+                timeout=INDEX_TIMEOUT,
             ),
         )
         future = _submit(agent.run(content))
@@ -443,7 +495,12 @@ class LLM:
             # one every turn. Other providers ignore the setting. The SDK's timeout is the HTTP
             # library's, which for a stream is per read, so it is the longest pause allowed; the
             # whole turn is bounded by `ModelStream`.
-            _settings(self._settings.agent_effort, anthropic_cache=True, timeout=STREAM_STALL),
+            _settings(
+                self._settings.agent_effort,
+                self._geo(self._settings.agent_model),
+                anthropic_cache=True,
+                timeout=STREAM_STALL,
+            ),
             ModelRequestParameters(
                 function_tools=list(tools),
                 instruction_parts=[InstructionPart(content=instructions)],

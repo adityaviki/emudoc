@@ -32,12 +32,16 @@ processes below run from a checkout with `uv`, as in development.
   `EMBEDDING_BASE_URL` for search by meaning.
 - **The model providers** named by `INDEX_MODEL` and `AGENT_MODEL`, each on terms that forbid
   training on what it is sent: "What leaves the deployment", below.
+- **A region**, if the deployment promises one: `DATA_REGION=eu` or `us` holds the models, the
+  bucket and the embeddings to it, and every server and database must be in it too: "Keeping
+  the data in one region", below.
 
 The settings arrive through the process environment or a secret manager, never a `.env` file:
 `ENVIRONMENT=production` makes the app copy nothing from one, and makes it refuse to start with
 development's conveniences (the compose database's password, `LOCAL_ACCOUNT=true`, no
 `STORAGE_URL`, `APP_URL`, `SMTP_URL`, `SCANNER_URL` or `HOSTING_PROVIDER`, a free-tier
-Gemini key, no key for the model), naming each.
+Gemini key, no key for the model, and with `DATA_REGION` anything outside the region), naming
+each.
 `.env.example` documents every setting; the README's "Configuration" says what the ones that
 matter do.
 
@@ -221,13 +225,85 @@ their terms again before launch; they change):
   than reach another. OpenRouter is a company in the path itself: keep the account's prompt
   logging off, and ask its business plans for a data processing addendum.
 
+### Keeping the data in one region
+
+`DATA_REGION=eu` (or `us`) promises the organisations that their documents, and everything read
+from them, are kept and processed in the European Union (or the United States). The European
+Union means its member states: London and Zurich are in Europe but not in the Union, and the
+app counts them out. It holds the deployment to the promise in three ways.
+
+**What the app chooses itself**, on every request:
+
+- OpenRouter (`openrouter:`) is reached at the region's own address, `eu.openrouter.ai` or
+  `us.openrouter.ai`, which forwards a request only to providers in the region and fails it
+  when none of them serves the model rather than send it out. Those addresses answer only
+  accounts on OpenRouter's Business or Enterprise plans, so an account without in-region
+  routing has every request refused there; the first answer after setting `DATA_REGION` is the
+  test.
+- Claude through Anthropic's own API (`anthropic:`) is told to run in the US
+  (`inference_geo: "us"`) when the region is the US. Anthropic offers the US or anywhere,
+  nothing else, so under the EU the app refuses a Claude model reached that way. US-only
+  inference needs Claude 4.6 or later (an older model answers 400) and is priced at 1.1 times
+  the standard rate, which `MODEL_PRICES` should say; Anthropic keeps what it stores at rest in
+  the US whatever the setting.
+
+**What the app reads and checks at start**: in production a piece outside the region, or one
+whose place the settings cannot show, stops the API and the worker with a list of what to
+change; in development each is a warning.
+
+- Vertex AI (`google-cloud:`) runs where `GOOGLE_CLOUD_LOCATION` says, `us-central1` unless
+  set: the region's multi-region (`eu`, `us`) or one of its locations, such as
+  `europe-west4`. `global` runs anywhere and is refused, and so is express mode, a
+  `GOOGLE_API_KEY` without `GOOGLE_APPLICATION_CREDENTIALS`, which ignores the location.
+- The Gemini Developer API (`google:`) is refused under either region: Google's terms say what
+  it is sent "may be stored transiently or cached in any country in which Google or its agents
+  maintain facilities".
+- Bedrock (`bedrock:`) keeps a model id that starts with the region's cross-region inference
+  profile (`eu.anthropic.claude-…`, `us.…`) in the region's AWS regions, and runs one without a
+  profile in `AWS_DEFAULT_REGION`. A `global.` profile runs anywhere and is refused.
+- OpenAI (`openai:`) keeps the requests in the EU only for a project created with European
+  data residency, reached at `OPENAI_BASE_URL=https://eu.api.openai.com/v1`; OpenAI decides
+  which organisations may create one. The app knows no address that holds OpenAI to the US.
+- A model of any other provider is refused, since nothing in the settings says where it runs,
+  unless its address (`OLLAMA_BASE_URL`, `OPENAI_BASE_URL`) is on the deployment's own network.
+- The bucket: an AWS bucket is asked which region it is in, so the app's credentials must
+  allow `s3:GetBucketLocation`; a Hetzner bucket is placed by its address (`fsn1`, `nbg1`,
+  `hel1`), and a Cloudflare R2 bucket in the EU jurisdiction by its `….eu.r2.cloudflarestorage.com`
+  address. A bucket on another service cannot be placed and is refused; a directory, or a bucket
+  on the deployment's own network, is where the deployment is.
+- The embeddings endpoint: the default, Ollama on the deployment's own network, is where the
+  deployment is; a hosted endpoint is placed only at Vertex AI's addresses or OpenAI's
+  European one, and any other is refused.
+
+The places the app knows are in `backend/app/residency.py`, as the providers stood in October
+2026; a location it does not know is in no region, and adding one is adding it there.
+
+**What is the operator's word.** No setting shows where the servers and the database run.
+Setting `DATA_REGION` says they are in the region, and the subprocessor list shows
+`HOSTING_PROVIDER` there; a managed database or a server elsewhere breaks the promise without
+the app knowing. The mail relay and the sign-in providers receive members' names and addresses,
+and the alerts name organisations, projects and files, but they receive no documents and are
+not held to the region: a deployment that promises one picks a relay in it (Mailgun's EU host,
+an SES region in the EU) and says so in its privacy notice.
+
+Each organisation records the region it was promised as it is created (`organizations.region`),
+and one made before the deployment named a region is given it at the first start that is not
+refused. A deployment that finds organisations promised another region, because `DATA_REGION`
+was changed or removed under them or because it was pointed at another region's database,
+refuses to start in production and says how many and which: moving an organisation to another
+region is a migration of its data, never a setting. The account page shows each member the
+region their organisation's data is kept in.
+
 ### The subprocessor list
 
 The app publishes the companies it sends data to at `/subprocessors`, a page anyone can open
 (the sign-up page and the user menu link to it; `GET /api/subprocessors` is the same as JSON).
 It is read from the settings, so it changes with them: who hosts the deployment, the bucket
 (by where its signed URLs lead), the companies behind the two models, a hosted embeddings
-endpoint, the mail relay, and Google and Microsoft when sign-in with them is set up. Who hosts
+endpoint, the mail relay, and Google and Microsoft when sign-in with them is set up. Each entry
+says where the company handles what it receives when the settings show it (the bucket's region,
+the Vertex AI location, "Anywhere" for the Gemini Developer API), and with `DATA_REGION` the page
+opens with the region the documents are kept in. Who hosts
 it is the one entry the settings cannot know: `HOSTING_PROVIDER`, free text such as
 `Hetzner Online GmbH, Germany` or `Fly.io (servers) and Neon (database)`, which production
 requires. A service on the deployment's own network (a private or loopback address, a compose
@@ -279,3 +355,8 @@ before the app would hold it.
 7. Signed out, `https://emudoc.example.com/subprocessors` lists `HOSTING_PROVIDER` first, then
    the companies behind the models and, with a bucket or a mail relay, theirs: what the
    deployment's privacy notice promises, and nothing it does not.
+8. With `DATA_REGION` set, the API's and the worker's logs have no line from `app.residency` at
+   start, `/subprocessors` opens with the region and says it under "Where" for the models and
+   the bucket, and the account page says "Data kept in" it. With an `openrouter:` model, the
+   first answer comes back from `eu.openrouter.ai` (or `us.`); a refusal there means the
+   OpenRouter account has no in-region routing.

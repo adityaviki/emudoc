@@ -1,11 +1,13 @@
 """The subprocessor list: read from the settings, and published to anyone who asks."""
 
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from app.config import Settings, get_settings
 from app.indexing.pipeline import Services
 from app.main import create_app
-from app.storage import S3Storage
+from app.storage import LocalStorage, S3Storage, Storage
 from app.subprocessors import subprocessors
 from tests.conftest import APP_HEADERS, FakeEmbedder, FakeLLM, FakeS3Client
 
@@ -19,23 +21,31 @@ DEVELOPMENT = {
     "embedding_base_url": "http://127.0.0.1:11434/v1",
     "smtp_url": "",
     "hosting_provider": "",
+    "data_region": "",
     "google_oauth_client_id": "",
     "microsoft_oauth_client_id": "",
 }
+# Files in a directory, which is the deployment's own disk; the list only asks where it is.
+DIRECTORY = LocalStorage(Path("unused"))
 
 
 def configured(**changes: object) -> Settings:
     return Settings(**{**DEVELOPMENT, **changes})
 
 
-def listed(settings: Settings, origin: str | None = None, **environ: str) -> list[str]:
-    return [entry.name for entry in subprocessors(settings, origin, environ)]
+def bucket(origin: str, location: str | None = None) -> S3Storage:
+    """A bucket whose signed URLs lead to `origin`, in the region `location` by its answer."""
+    return S3Storage(FakeS3Client("emudoc", origin=origin, location=location), "emudoc")
+
+
+def listed(settings: Settings, storage: Storage = DIRECTORY, **environ: str) -> list[str]:
+    return [entry.name for entry in subprocessors(settings, storage, environ)]
 
 
 def test_development_sends_data_to_the_model_s_company_alone():
     # Ollama on this machine, files in a directory, mail to the log, no OAuth: only the model
     # leaves the machine, and one company serving both roles is one entry naming both.
-    (model,) = subprocessors(configured(), None, {})
+    (model,) = subprocessors(configured(), DIRECTORY, {})
     assert model.name == "Google (Gemini API)"
     assert model.purpose.startswith("Reads documents to index them")
     assert "Answers the questions asked in the Ask tab." in model.purpose
@@ -53,7 +63,8 @@ def test_a_deployment_lists_every_company_it_sends_data_to_in_order():
         google_oauth_client_id="client",
         microsoft_oauth_client_id="client",
     )
-    entries = subprocessors(settings, "https://emudoc.s3.eu-central-1.amazonaws.com", {})
+    s3 = bucket("https://emudoc.s3.eu-central-1.amazonaws.com", "eu-central-1")
+    entries = subprocessors(settings, s3, {})
     assert [entry.name for entry in entries] == [
         "Hetzner Online GmbH, Germany",
         "Amazon Web Services",
@@ -88,7 +99,7 @@ def test_services_on_the_deployment_s_own_network_are_not_subprocessors():
         "http://embed.emudoc.svc.cluster.local/v1",
     ):
         settings = configured(embedding_base_url=address, smtp_url="smtp://mail:25")
-        assert listed(settings, "http://127.0.0.1:7070") == ["Google (Gemini API)"], address
+        assert listed(settings, bucket("http://127.0.0.1:7070")) == ["Google (Gemini API)"], address
 
 
 def test_a_host_the_list_does_not_know_is_named_as_it_is():
@@ -100,7 +111,7 @@ def test_a_host_the_list_does_not_know_is_named_as_it_is():
         embedding_base_url="https://embeddings.example.net/v1",
         smtp_url="smtps://relay.notsendgrid.net:465",
     )
-    assert listed(settings, "https://files.example.org") == [
+    assert listed(settings, bucket("https://files.example.org")) == [
         "files.example.org",
         "huggingface",
         "embeddings.example.net",
@@ -122,7 +133,7 @@ def test_openrouter_is_said_to_forward_only_when_it_is_told_to_keep_nothing():
     # The openrouter: adapter sends the data policy (app/llm.py); an openai: model pointed at
     # OpenRouter's address reaches it without one, and the page must not claim otherwise.
     through = configured(index_model="openrouter:google/gemini-2.5-flash")
-    entries = subprocessors(through, None, {})
+    entries = subprocessors(through, DIRECTORY, {})
     assert [entry.name for entry in entries] == ["OpenRouter", "Google (Gemini API)"]
     assert entries[0].purpose.endswith("providers that neither stores it nor trains on it.")
 
@@ -130,7 +141,8 @@ def test_openrouter_is_said_to_forward_only_when_it_is_told_to_keep_nothing():
         index_model="openrouter:google/gemini-2.5-flash",
         agent_model="openai:google/gemini-2.5-flash",
     )
-    (entry,) = subprocessors(around, None, {"OPENAI_BASE_URL": "https://openrouter.ai/api/v1"})
+    environ = {"OPENAI_BASE_URL": "https://openrouter.ai/api/v1"}
+    (entry,) = subprocessors(around, DIRECTORY, environ)
     assert entry.name == "OpenRouter" and "forwards" not in entry.purpose
 
 
@@ -143,6 +155,7 @@ def test_the_list_is_public_and_follows_the_deployment(
     monkeypatch.setattr(settings, "agent_model", "anthropic:claude-opus-5-5")
     monkeypatch.setattr(settings, "smtp_url", "smtp://user:secret@smtp.sendgrid.net:587")
     monkeypatch.setattr(settings, "embedding_base_url", "http://127.0.0.1:11434/v1")
+    monkeypatch.setattr(settings, "data_region", "")
     for name in ("google_oauth_client_id", "microsoft_oauth_client_id"):
         monkeypatch.setattr(settings, name, "")
     s3 = FakeS3Client("bucket")
@@ -152,7 +165,8 @@ def test_the_list_is_public_and_follows_the_deployment(
         response = client.get("/api/subprocessors")
 
     assert response.status_code == 200
-    entries = response.json()
+    assert response.json()["region"] is None
+    entries = response.json()["subprocessors"]
     assert [entry["name"] for entry in entries] == [
         "Hetzner Online GmbH, Germany",
         "bucket.s3.example",
@@ -160,6 +174,68 @@ def test_the_list_is_public_and_follows_the_deployment(
         "Anthropic",
         "Twilio SendGrid",
     ]
-    assert set(entries[0]) == {"name", "purpose", "data"}
+    assert set(entries[0]) == {"name", "purpose", "data", "location"}
+    # A bucket on a service the app cannot place, and a relay, say nothing of where they are.
+    assert [entry["location"] for entry in entries] == [
+        None,
+        None,
+        "Anywhere (the Gemini Developer API)",
+        "Anywhere (unless the Claude workspace keeps inference in the US)",
+        None,
+    ]
     # Companies, not configuration: no model, key or password reaches the page.
     assert "claude" not in response.text and "secret" not in response.text
+
+
+def test_each_company_says_where_it_handles_the_data():
+    # Read from the same settings the providers read: the bucket's own answer, the Vertex
+    # location, and for who hosts it the region the operator declares.
+    settings = configured(
+        data_region="eu",
+        hosting_provider="Hetzner Online GmbH, Germany",
+        index_model="google-cloud:gemini-2.5-flash-lite",
+        agent_model="openrouter:anthropic/claude-sonnet-5",
+        embedding_base_url="https://europe-west4-aiplatform.googleapis.com/v1/projects/p/openapi",
+        smtp_url="smtp://user:secret@smtp.postmarkapp.com:587",
+    )
+    environ = {"GOOGLE_APPLICATION_CREDENTIALS": "/run/key.json", "GOOGLE_CLOUD_LOCATION": "eu"}
+    s3 = bucket("https://emudoc.s3.eu-central-1.amazonaws.com", "eu-central-1")
+    entries = subprocessors(settings, s3, environ)
+    assert [(entry.name, entry.location) for entry in entries] == [
+        ("Hetzner Online GmbH, Germany", "The European Union"),
+        ("Amazon Web Services", "The European Union (eu-central-1)"),
+        ("Google Cloud (Vertex AI)", "The European Union (the eu multi-region)"),
+        ("OpenRouter", "The European Union (eu.openrouter.ai)"),
+        ("Google Cloud", "The European Union (europe-west4)"),
+        # The relay receives addresses, not documents, and nothing says where it runs.
+        ("Postmark", None),
+    ]
+
+
+def test_a_company_running_two_models_in_two_places_names_both():
+    settings = configured(
+        index_model="bedrock:eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+        agent_model="bedrock:global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    )
+    (entry,) = subprocessors(settings, DIRECTORY, {"AWS_DEFAULT_REGION": "eu-central-1"})
+    assert entry.name == "Amazon Web Services (Bedrock)"
+    assert entry.location == (
+        "The European Union (the eu inference profile); Anywhere (the global inference profile)"
+    )
+
+
+def test_the_page_says_which_region_the_deployment_keeps_its_documents_in(
+    services, mailer, monkeypatch
+):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "data_region", "eu")
+    monkeypatch.setattr(settings, "hosting_provider", "Hetzner Online GmbH, Germany")
+    with TestClient(create_app(services=services, mailer=mailer), headers=APP_HEADERS) as client:
+        page = client.get("/api/subprocessors").json()
+    assert page["region"] == "eu"
+    assert page["subprocessors"][0] == {
+        "name": "Hetzner Online GmbH, Germany",
+        "purpose": "Runs the app's servers and its database.",
+        "data": "Everything the app keeps: documents, questions and answers, and accounts.",
+        "location": "The European Union",
+    }

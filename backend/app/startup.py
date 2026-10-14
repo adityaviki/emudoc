@@ -3,11 +3,13 @@
 The API (app/main.py) and the worker (app/worker.py) start the same way: they refuse a database
 or a storage this code was not written for, queue what a changed embedding model left stale,
 build the services the pipeline and the agent run with, and in production refuse to run without
-a usable model. One function does all of it, so that the two processes refuse the same
-misconfigurations and a check added for one is not forgotten by the other.
+a usable model or outside the region the deployment promises (app/residency.py). One function
+does all of it, so that the two processes refuse the same misconfigurations and a check added
+for one is not forgotten by the other.
 """
 
 import logging
+import os
 
 from app.config import Settings, export_env_file
 from app.db import check_schema
@@ -15,6 +17,7 @@ from app.embeddings import Embedder
 from app.indexing.pipeline import Services
 from app.llm import LLM, LLMUnavailable
 from app.maintenance import check_embeddings, requeue_stale_embeddings, warn_about_old_layout
+from app.residency import check_residency
 from app.scanning import check_scanner, scanner_from_settings
 from app.search import check_fts_language
 from app.spending import warn_without_prices
@@ -48,6 +51,9 @@ def prepare(settings: Settings, services: Services | None = None) -> Services:
     warn_without_prices(settings)
     check_scanner(settings, services.scanner)
     check_model(settings, services.llm)
+    # After `export_env_file`: the Vertex location and the base URLs that place a model are
+    # read where the providers read them.
+    check_residency(settings, services.storage, os.environ)
     return services
 
 

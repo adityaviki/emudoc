@@ -335,8 +335,12 @@ class FakeS3Client:
 
     PAGE = 2
 
-    def __init__(self, *buckets: str):
+    def __init__(self, *buckets: str, origin: str | None = None, location: str | None = None):
         self.buckets = set(buckets) or {"bucket"}
+        # Where signed URLs lead (the bucket's own host under s3.example unless given), and the
+        # region the bucket says it is in, which AWS answers as None for us-east-1.
+        self.origin = origin
+        self.location = location
         self.objects: dict[str, tuple[bytes, str | None]] = {}
         # When each object was written; a test sets one back to age it.
         self.modified: dict[str, datetime] = {}
@@ -357,6 +361,11 @@ class FakeS3Client:
         self.calls.append("head_bucket")
         self._check_bucket(Bucket, "HeadBucket")
         return {}
+
+    def get_bucket_location(self, *, Bucket: str) -> dict:
+        self.calls.append("get_bucket_location")
+        self._check_bucket(Bucket, "GetBucketLocation")
+        return {"LocationConstraint": self.location}
 
     def put_object(self, *, Bucket: str, Key: str, Body, ContentType: str | None = None) -> dict:
         self.calls.append("put_object")
@@ -419,7 +428,8 @@ class FakeS3Client:
             "response-content-disposition": Params.get("ResponseContentDisposition", ""),
             "X-Amz-Expires": str(ExpiresIn),
         }
-        return f"https://{Params['Bucket']}.s3.example/{Params['Key']}?{urlencode(query)}"
+        origin = self.origin or f"https://{Params['Bucket']}.s3.example"
+        return f"{origin}/{Params['Key']}?{urlencode(query)}"
 
 
 class FakeMailer:

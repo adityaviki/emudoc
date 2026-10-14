@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models import ROLES, Membership, Organization, User
 
 LOCAL_ORG_SLUG = "local"
@@ -67,7 +68,11 @@ def create_account(
         email_verified_at=dt.datetime.now(dt.UTC) if email_verified else None,
     )
     stem = name or email.split("@")[0]
-    organization = Organization(name=f"{stem}'s workspace", slug=_unique_slug(session, stem))
+    organization = Organization(
+        name=f"{stem}'s workspace",
+        slug=_unique_slug(session, stem),
+        region=get_settings().data_region or None,
+    )
     session.add_all([user, organization])
     session.flush()
     session.add(Membership(org_id=organization.id, user_id=user.id, role="owner"))
@@ -96,7 +101,12 @@ def local_account(session: Session) -> Account:
         try:
             with session.begin_nested():
                 # One machine, one developer: no plan stands between them and their files.
-                organization = Organization(name="Local", slug=LOCAL_ORG_SLUG, plan="enterprise")
+                organization = Organization(
+                    name="Local",
+                    slug=LOCAL_ORG_SLUG,
+                    plan="enterprise",
+                    region=get_settings().data_region or None,
+                )
                 user = User(email=LOCAL_OWNER_EMAIL, name="Owner")
                 session.add_all([organization, user])
                 session.flush()

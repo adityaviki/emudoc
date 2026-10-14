@@ -265,14 +265,26 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   set in the environment. Production also refuses to start, listing what to change, when the
   settings are development's: the `docker compose` database's password, `LOCAL_ACCOUNT=true`,
   no `STORAGE_URL`, no `APP_URL`, no `SMTP_URL`, no `SCANNER_URL`, no `HOSTING_PROVIDER`, a
-  `google:` model without `GOOGLE_PAID_TIER`, a `DAILY_SPEND_CAP` without `MODEL_PRICES`, or no
-  key for the model. It does not serve the interactive API docs at `/docs`, and it marks
+  `google:` model without `GOOGLE_PAID_TIER`, a `DAILY_SPEND_CAP` without `MODEL_PRICES`, no
+  key for the model, or with `DATA_REGION` a model, a bucket or an embeddings endpoint outside
+  the region. It does not serve the interactive API docs at `/docs`, and it marks
   the session cookie `Secure` and sends `Strict-Transport-Security` whatever the request's
   scheme, since a deployment is behind TLS; a request that still reaches it as plain HTTP is
   logged with what the proxy should send.
 - `HOSTING_PROVIDER` names who runs the deployment's servers and database, such as
   `Hetzner Online GmbH, Germany`, for the subprocessor list (Accounts, below): the one entry
   the other settings cannot supply. Production refuses to start without it.
+- `DATA_REGION` is the region the deployment keeps its documents in: `eu` (the European Union)
+  or `us` (the United States), empty for none. The backend holds to it what it can choose (an
+  `openrouter:` model is reached at the region's own address, an `anthropic:` model is told to
+  run in the US) and checks at start what it can read: Vertex AI's `GOOGLE_CLOUD_LOCATION`, a
+  Bedrock profile or `AWS_DEFAULT_REGION`, OpenAI's European address, the bucket's region and
+  the embeddings endpoint. In production it refuses to start while one is outside the region or
+  cannot be placed, the Gemini Developer API (`google:`) always among them; in development it
+  warns. Where the servers and the database run is the operator's word. Each organisation
+  records the region as it is created, the account page shows it, and a deployment that finds
+  organisations promised another region refuses to serve them. `deploying.md`, "Keeping the
+  data in one region", says where each provider stands.
 - `FORWARDED_ALLOW_IPS` is uvicorn's, not the app's: the addresses whose `X-Forwarded-Proto`
   and `X-Forwarded-For` headers it believes, which tell the app the request's scheme and the
   browser's address behind a reverse proxy. `127.0.0.1,::1` by default, right for a proxy on
@@ -376,6 +388,9 @@ The backend reads it from its settings (`backend/app/subprocessors.py`, `GET
 companies behind the two models, a hosted embeddings endpoint, the mail relay, and Google and
 Microsoft when sign-in with them is set up. A service on the deployment's own network is not a
 subprocessor and is left out; a host the backend does not recognise is listed by its name.
+Each entry says where the company handles what it receives when the settings show it
+(`backend/app/residency.py`), and with `DATA_REGION` the page opens with the region the
+documents are kept in.
 
 Every response carries the headers that tell the browser what a page of the app may do
 (`backend/app/headers.py`): a `Content-Security-Policy` that allows scripts, styles and requests

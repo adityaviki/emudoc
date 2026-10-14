@@ -38,6 +38,9 @@ SCANNER_URL_FORMS = (
 )
 SCANNER_OFF = "off"
 CLAMD_PORT = 3310
+# The regions a deployment can keep its documents in (DATA_REGION), by the code the setting and
+# `organizations.region` hold, with the name the app says them by (app/residency.py).
+REGIONS = {"eu": "the European Union", "us": "the United States"}
 
 
 def parse_scanner_url(value: str) -> tuple[str, int] | str | None:
@@ -191,6 +194,14 @@ class Settings(BaseSettings):
     # (app/subprocessors.py): the one subprocessor the settings cannot name themselves.
     # Production refuses it empty, since the published list would leave it out.
     hosting_provider: str = ""
+    # The region the deployment keeps its documents in, and everything read from them, as a
+    # code of REGIONS: eu or us (app/residency.py). Set, the app holds to the region what it
+    # can choose itself (Claude's US-only inference, OpenRouter's regional address), checks
+    # at start that the models, the bucket and the embeddings endpoint are in it, and in
+    # production refuses to start when one is not or the settings cannot tell; each
+    # organisation records it as it is created. Where the servers and the database run is
+    # the operator's word: setting it says they are in the region too. Empty promises nothing.
+    data_region: str = ""
 
     # Embeddings: any OpenAI-compatible /embeddings endpoint. The default is a local Ollama.
     embedding_base_url: str = "http://127.0.0.1:11434/v1"
@@ -337,6 +348,16 @@ class Settings(BaseSettings):
     def disabled(self) -> frozenset[str]:
         """The providers DISABLED_PROVIDERS switches off, by name."""
         return frozenset(_listed(self.disabled_providers))
+
+    @field_validator("data_region", mode="before")
+    @classmethod
+    def _names_a_region(cls, value: object) -> object:
+        if isinstance(value, str):
+            value = value.strip().lower()
+            if value and value not in REGIONS:
+                codes = " or ".join(REGIONS)
+                raise ValueError(f"DATA_REGION is {codes}, or empty for no region; not {value!r}")
+        return value
 
     @field_validator("fts_language")
     @classmethod

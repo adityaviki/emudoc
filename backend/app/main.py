@@ -15,7 +15,7 @@ from app.db import BUSY, engine
 from app.headers import SecurityHeaders, content_security_policy
 from app.indexing.pipeline import Services
 from app.mail import Mailer, mailer_from_settings
-from app.schemas import EmbeddingStatus, HealthOut, LLMStatus, StatusOut, SubprocessorOut
+from app.schemas import EmbeddingStatus, HealthOut, LLMStatus, StatusOut, SubprocessorsOut
 from app.startup import prepare
 from app.storage import StorageError
 from app.subprocessors import subprocessors
@@ -56,15 +56,20 @@ def status(services: ServicesDep, account: AccountDep):
     )
 
 
-@system.get("/subprocessors", response_model=list[SubprocessorOut])
+@system.get("/subprocessors", response_model=SubprocessorsOut)
 def list_subprocessors(services: ServicesDep):
-    """The companies this deployment hands its users' data to, for the /subprocessors page.
+    """The companies this deployment hands its users' data to, for the /subprocessors page,
+    and the region it keeps their documents in.
 
     Public on purpose, unlike the status above: a subprocessor list is published to the people
     deciding whether to upload. It names companies, and the host of a service it does not
     know, never a model, a key or an address on the deployment's own network.
     """
-    return subprocessors(get_settings(), services.storage.origin)
+    settings = get_settings()
+    return SubprocessorsOut(
+        region=settings.data_region or None,
+        subprocessors=subprocessors(settings, services.storage),
+    )
 
 
 def storage_unavailable(request: Request, error: Exception) -> JSONResponse:

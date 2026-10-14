@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Copy, LogOut, X } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
-import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, auth } from '../api.ts'
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, REGION_NAMES, auth } from '../api.ts'
 import type { Me, MfaSetup, UserSession } from '../api.ts'
 import { ME_KEY, setSignedIn, useMe, useSignOut } from '../auth.ts'
 import { Button, Chip, IconButton, InputField, Loading, Notice } from '../components/ui.tsx'
@@ -51,6 +51,8 @@ function Section({ title, description, children }: { title: string; description?
   )
 }
 
+const capitalised = (text: string) => text[0].toUpperCase() + text.slice(1)
+
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 py-2 text-[13px]">
@@ -94,6 +96,11 @@ function ProfileSection({ me }: { me: Me }) {
           <span className="truncate">{me.organization.name}</span>
           <Chip>{role}</Chip>
         </Row>
+        {me.organization.region && (
+          <Row label="Data kept in">
+            <span>{capitalised(REGION_NAMES[me.organization.region])}</span>
+          </Row>
+        )}
         {me.identities.length > 0 && (
           <Row label="Signs in with">
             {me.identities.map((provider) => (

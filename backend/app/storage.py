@@ -162,6 +162,13 @@ class Storage(ABC):
         itself."""
         return None
 
+    @property
+    def region(self) -> str | None:
+        """The region the objects are kept in, as the bucket's service names it, for the
+        residency checks (app/residency.py); None for a directory, which is wherever the app
+        runs, and for a bucket that would not say."""
+        return None
+
     @abstractmethod
     def list(self, prefix: str) -> Iterator[StoredObject]:
         """Every object under the prefix, which names a folder and ends with '/', in key order."""
@@ -374,6 +381,8 @@ class S3Client(Protocol):
 
     def head_bucket(self, *, Bucket: str) -> Any: ...
 
+    def get_bucket_location(self, *, Bucket: str) -> Any: ...
+
     def put_object(self, *, Bucket: str, Key: str, Body: Any, ContentType: str = ...) -> Any: ...
 
     def get_object(self, *, Bucket: str, Key: str) -> Any: ...
@@ -531,6 +540,24 @@ class S3Storage(Storage):
         # every signed URL leads is to sign one.
         parts = urlsplit(self.presigned_url("origin", content_type="application/octet-stream"))
         return f"{parts.scheme}://{parts.netloc}"
+
+    @cached_property
+    def region(self) -> str | None:
+        # Asked of the bucket itself: the client's region is only where it signs first, and
+        # boto3 follows a bucket elsewhere without saying so.
+        try:
+            answer = self.client.get_bucket_location(Bucket=self.bucket)
+        except (ClientError, BotoCoreError) as error:
+            log.warning(
+                "The bucket %r did not say which region it is in (%s).",
+                self.bucket,
+                _describe(error),
+            )
+            return None
+        # AWS answers nothing for its first region, and EU for a bucket made in Ireland before
+        # regions had the names they have now.
+        location = answer.get("LocationConstraint") or "us-east-1"
+        return "eu-west-1" if location == "EU" else location
 
     def list(self, prefix: str) -> Iterator[StoredObject]:
         folder = self._key(_folder(prefix))
