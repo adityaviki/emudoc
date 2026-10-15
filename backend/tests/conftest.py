@@ -11,6 +11,7 @@ import re
 import shutil
 import struct
 import tempfile
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit
@@ -342,6 +343,8 @@ class FakeS3Client:
         origin: str | None = None,
         location: str | None = None,
         encryption: str | None = "AES256",
+        versioning: str = "",
+        lifecycle: list[dict] | None = None,
     ):
         self.buckets = set(buckets) or {"bucket"}
         # Where signed URLs lead (the bucket's own host under s3.example unless given), the
@@ -351,12 +354,20 @@ class FakeS3Client:
         self.origin = origin
         self.location = location
         self.encryption = encryption
+        # Its versioning ("Enabled", "Suspended", "" for never) and lifecycle rules, None for
+        # none. With versioning enabled a delete puts a marker over the key's versions, which
+        # stay in `versions`, the newest first, until a delete names one of them.
+        self.versioning = versioning
+        self.lifecycle = lifecycle
+        self.versions: dict[str, list[dict]] = {}
         self.objects: dict[str, tuple[bytes, str | None]] = {}
         # When each object was written; a test sets one back to age it.
         self.modified: dict[str, datetime] = {}
         self.calls: list[str] = []
         # Raised by every call while set: the bucket throttling or out of reach.
         self.outage: Exception | None = None
+        # Keys a delete refuses, as a bucket answers for some keys of a batch and not others.
+        self.refused: set[str] = set()
 
     def _check_bucket(self, bucket: str, operation: str) -> None:
         if self.outage is not None:
@@ -397,12 +408,50 @@ class FakeS3Client:
             }
         }
 
+    def get_bucket_versioning(self, *, Bucket: str) -> dict:
+        self.calls.append("get_bucket_versioning")
+        self._check_bucket(Bucket, "GetBucketVersioning")
+        return {"Status": self.versioning} if self.versioning else {}
+
+    def get_bucket_lifecycle_configuration(self, *, Bucket: str) -> dict:
+        self.calls.append("get_bucket_lifecycle_configuration")
+        self._check_bucket(Bucket, "GetBucketLifecycleConfiguration")
+        if self.lifecycle is None:
+            raise ClientError(
+                {
+                    "Error": {
+                        "Code": "NoSuchLifecycleConfiguration",
+                        "Message": "The lifecycle configuration does not exist",
+                    }
+                },
+                "GetBucketLifecycleConfiguration",
+            )
+        return {"Rules": self.lifecycle}
+
+    def _version(self, key: str, data: tuple[bytes, str | None] | None) -> None:
+        """Put a version, or with no data a delete marker, on top of the key's."""
+        entry = {"VersionId": uuid.uuid4().hex, "LastModified": datetime.now(UTC)}
+        if data is not None:
+            entry["data"] = data
+        self.versions.setdefault(key, []).insert(0, entry)
+
+    def _settle(self, key: str) -> None:
+        """Make the key's newest entry its current object, or none when that is a marker."""
+        top = (self.versions.get(key) or [{}])[0]
+        if "data" in top:
+            self.objects[key], self.modified[key] = top["data"], top["LastModified"]
+        else:
+            self.objects.pop(key, None)
+            self.modified.pop(key, None)
+
     def put_object(self, *, Bucket: str, Key: str, Body, ContentType: str | None = None) -> dict:
         self.calls.append("put_object")
         self._check_bucket(Bucket, "PutObject")
         data = Body if isinstance(Body, bytes) else Body.read()
         self.objects[Key] = (data, ContentType)
         self.modified[Key] = datetime.now(UTC)
+        if self.versioning == "Enabled":
+            self._version(Key, (data, ContentType))
         return {}
 
     def get_object(self, *, Bucket: str, Key: str) -> dict:
@@ -442,13 +491,63 @@ class FakeS3Client:
             listing["NextContinuationToken"] = page[-1]
         return listing
 
+    def list_object_versions(
+        self, *, Bucket: str, Prefix: str, KeyMarker: str = "", VersionIdMarker: str = ""
+    ) -> dict:
+        self.calls.append("list_object_versions")
+        self._check_bucket(Bucket, "ListObjectVersions")
+        entries = [
+            (key, index, entry)
+            for key in sorted(self.versions)
+            if key.startswith(Prefix)
+            for index, entry in enumerate(self.versions[key])
+        ]
+        start = 0
+        if KeyMarker:
+            start = 1 + next(
+                position
+                for position, (key, _, entry) in enumerate(entries)
+                if (key, entry["VersionId"]) == (KeyMarker, VersionIdMarker)
+            )
+        page = entries[start : start + self.PAGE]
+        listing: dict = {"Versions": [], "DeleteMarkers": [], "IsTruncated": False}
+        for key, index, entry in page:
+            shown = {
+                "Key": key,
+                "VersionId": entry["VersionId"],
+                "IsLatest": index == 0,
+                "LastModified": entry["LastModified"],
+            }
+            if "data" in entry:
+                listing["Versions"].append({**shown, "Size": len(entry["data"][0])})
+            else:
+                listing["DeleteMarkers"].append(shown)
+        if start + self.PAGE < len(entries):
+            key, _, entry = page[-1]
+            listing.update(
+                IsTruncated=True, NextKeyMarker=key, NextVersionIdMarker=entry["VersionId"]
+            )
+        return listing
+
     def delete_objects(self, *, Bucket: str, Delete: dict) -> dict:
         self.calls.append("delete_objects")
         self._check_bucket(Bucket, "DeleteObjects")
+        errors = []
         for entry in Delete["Objects"]:
-            self.objects.pop(entry["Key"], None)
-            self.modified.pop(entry["Key"], None)
-        return {}
+            key = entry["Key"]
+            if key in self.refused:
+                errors.append({"Key": key, "Code": "AccessDenied", "Message": "Access Denied"})
+            elif "VersionId" in entry:
+                stack = self.versions.get(key, [])
+                stack[:] = [e for e in stack if e["VersionId"] != entry["VersionId"]]
+                self._settle(key)
+            elif self.versioning == "Enabled":
+                self._version(key, None)
+                self._settle(key)
+            else:
+                self.objects.pop(key, None)
+                self.modified.pop(key, None)
+        return {"Errors": errors} if errors else {}
 
     def generate_presigned_url(self, ClientMethod: str, Params: dict, ExpiresIn: int) -> str:
         self.calls.append("generate_presigned_url")

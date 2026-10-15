@@ -23,6 +23,10 @@ after setting those that a restore brought back to be purged again (app/retentio
 `sweep-page-images` runs the first part by hand, after lowering the setting; `sweep-orphans`
 lists the second part and removes it with `--delete`.
 
+`after-restore` is the step between restoring the database to an earlier point and starting
+the app again (app/restore.py): it brings back the files deleted since from a versioned bucket,
+moves the ids past the storage's, ends every session and records the restore in the audit logs.
+
 `failed-jobs` lists the jobs the worker gave up on, the dead letters (app/deadletters.py), and
 with `--requeue` queues their documents again from the stage they stopped at.
 
@@ -46,7 +50,7 @@ from sqlalchemy.orm import Session
 from app.answers import EVENT_HISTORY, prune_events
 from app.audit import audit_event, prune_audit
 from app.auth import CREDENTIAL_HISTORY, prune_credentials
-from app.config import get_settings
+from app.config import export_env_file, get_settings
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine
 from app.deadletters import describe, failed_jobs, requeue
 from app.entitlements import PLANS, Entitlements
@@ -56,6 +60,7 @@ from app.models import PLANS as PLAN_NAMES
 from app.models import Document, Organization
 from app.parsing import MIME_TYPES
 from app.ratelimit import prune_rate_limits
+from app.restore import after_restore, describe_restore
 from app.retention import prune_chats, purge_due_accounts, reapply_erasures
 from app.storage import (
     DELETE_BATCH,
@@ -558,6 +563,22 @@ def _queue_embed_stage(connection: Connection, documents: str) -> int:
     return len(queued)
 
 
+def _moment(value: str) -> datetime:
+    """A point in time as the operator gives it, which must say its zone. pgBackRest's
+    `--target` form, `2026-10-15 09:30:00+00`, is one, so the same string serves both."""
+    try:
+        moment = datetime.fromisoformat(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{value!r} is not a time such as '2026-10-15 09:30:00+00'"
+        ) from None
+    if moment.tzinfo is None:
+        raise argparse.ArgumentTypeError(
+            f"{value!r} has no zone; add +00 for UTC, as in '2026-10-15 09:30:00+00'"
+        )
+    return moment.astimezone(UTC)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="python -m app.maintenance",
@@ -606,6 +627,22 @@ def main(argv: list[str] | None = None) -> None:
     orphans.add_argument(
         "--delete", action="store_true", help="remove the files instead of listing them"
     )
+    restore = commands.add_parser(
+        "after-restore",
+        help="set the files, the ids and the sign-ins right after a restore of the database",
+        description="Run once after the database was restored to an earlier point, with the "
+        "app stopped, before it starts again: bring back from a versioned bucket the files "
+        "deleted since that point, move the ids of organisations, projects and documents past "
+        "every id the storage holds, end every session and unused link, record the restore in "
+        "each organisation's audit log, and purge again the accounts deleted since. It then "
+        "names the documents whose original the storage lacks. Running it again is safe.",
+    )
+    restore.add_argument(
+        "restored_to",
+        metavar="TIME",
+        type=_moment,
+        help="the point the database was restored to, with its zone: '2026-10-15 09:30:00+00'",
+    )
     failed = commands.add_parser(
         "failed-jobs",
         help="list, or with --requeue run again, the jobs the worker gave up on",
@@ -647,6 +684,8 @@ def main(argv: list[str] | None = None) -> None:
     logging.getLogger("alembic.runtime.migration").setLevel(logging.WARNING)
 
     settings = get_settings()
+    # The bucket's keys, like the models', are copied from `.env` in development.
+    export_env_file(settings)
     try:
         if args.command == "rebuild-embeddings":
             queued = rebuild_embeddings()
@@ -718,6 +757,15 @@ def main(argv: list[str] | None = None) -> None:
                             f"{_mb(orphan.size)} MB"
                         )
                     print("Run again with --delete to remove them.")
+        elif args.command == "after-restore":
+            if args.restored_to > datetime.now(UTC):
+                parser.error("TIME is in the future; give the point the database was restored to")
+            storage = storage_from_settings(settings)
+            check_schema()
+            storage.check()
+            restored = after_restore(storage, args.restored_to)
+            for line in describe_restore(restored, args.restored_to):
+                print(line)
         elif args.command == "failed-jobs":
             check_schema()
             with SessionLocal() as session:

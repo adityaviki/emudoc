@@ -4,7 +4,8 @@ The API (app/main.py) and the worker (app/worker.py) start the same way: they re
 or a storage this code was not written for, queue what a changed embedding model left stale,
 build the services the pipeline and the agent run with, and in production refuse to run without
 a usable model, with a model or a bucket reached in the clear across a network the deployment
-does not own (app/network.py), or outside the region the deployment promises
+does not own (app/network.py), with a bucket that keeps deleted files longer than the privacy
+policy says (`check_versions` in app/storage.py), or outside the region the deployment promises
 (app/residency.py). One function
 does all of it, so that the two processes refuse the same misconfigurations and a check added
 for one is not forgotten by the other.
@@ -25,7 +26,7 @@ from app.residency import check_residency
 from app.scanning import check_scanner, scanner_from_settings
 from app.search import check_fts_language
 from app.spending import warn_without_prices
-from app.storage import Storage, report_encryption, storage_from_settings
+from app.storage import Storage, check_versions, report_encryption, storage_from_settings
 
 log = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ def prepare(settings: Settings, services: Services | None = None) -> Services:
     check_transport(settings, services.storage, os.environ)
     services.storage.check()
     report_encryption(services.storage)
+    check_versions(settings, services.storage)
     warn_about_old_layout(services.storage)
     warn_without_prices(settings)
     check_scanner(settings, services.scanner)

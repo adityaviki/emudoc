@@ -282,7 +282,9 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
 - `OPERATOR_NAME` and `OPERATOR_EMAIL` say who runs the deployment (the company with its postal
   address) and where people write about their data, and `BACKUP_DAYS` how long its backups of
   the database and bucket are kept (0 for none): the terms of service and the privacy policy at
-  `/terms` and `/privacy` name them (Accounts, below). Production refuses to start without them.
+  `/terms` and `/privacy` name them (Accounts, below). Production refuses to start without them,
+  and with a versioned bucket that keeps a deleted file's earlier versions longer than
+  `BACKUP_DAYS` (`deploying.md`, "Backups").
 - `DATA_REGION` is the region the deployment keeps its documents in: `eu` (the European Union)
   or `us` (the United States), empty for none. The backend holds to it what it can choose (an
   `openrouter:` model is reached at the region's own address, an `anthropic:` model is told to
@@ -423,6 +425,11 @@ rows and files; in an organisation with other members only the user's membership
 and the last owner of one is refused until another member is an owner (`backend/app/retention.py`).
 Each purge leaves a record under `erasures/` in the storage (the account's id and creation time,
 nothing else), so an account that a restored backup brings back is purged again at the next round.
+After the database is restored to an earlier point, `python -m app.maintenance after-restore
+<time>` brings back from a versioned bucket the files deleted since, moves the ids past every id
+the storage holds, signs everyone out and records the restore in each organisation's audit log
+(`backend/app/restore.py`); until it has run, an upload refuses a place in the storage that a
+lost document's files still hold.
 A chat is kept for the plan's retention after its last question (30 days on Free, a year on
 Pro, for good on Team and Enterprise), which the chat list and the account page say; sessions
 and one-time links are removed a month after they ended.
@@ -509,6 +516,7 @@ backend/app/
   mail.py       the emails the app sends
   maintenance.py
                 the embedding checks at start, the housekeeping and the operator commands
+  restore.py    what the app sets right after its database is restored to an earlier point
   usage.py      what each organisation used, recorded as it happens, and the daily rollup
   entitlements.py
                 what each plan allows, and the checks the routes and the parse stage make

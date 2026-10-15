@@ -37,6 +37,7 @@ from app.parsing.images import open_image
 from app.parsing.pdf import render_page, render_thumbnail
 from app.parsing.signatures import wrong_type
 from app.ratelimit import UPLOADS
+from app.restore import place_taken
 from app.scanning import scan_passed
 from app.schemas import (
     DocumentContent,
@@ -48,7 +49,7 @@ from app.schemas import (
     SectionOut,
     UploadResult,
 )
-from app.storage import original_key
+from app.storage import StorageError, original_key
 from app.usage import DOCUMENT, RENDER, UPLOAD, record
 
 router = APIRouter(tags=["documents"])
@@ -181,6 +182,11 @@ def upload_documents(
                 )
                 continue
             document.storage_key = original_key(project.org_id, project.id, document.id, suffix)
+            # A document's place in the storage is named by its ids, so a place that holds files
+            # already is a lost document's, as a restore to an earlier point loses the ones
+            # uploaded since, and this one would be served its rendered pages (app/restore.py).
+            if services.storage.holds(document.storage_prefix):
+                raise StorageError(place_taken(document.id, document.storage_prefix))
             # Stored before the row is committed: a storage that fails leaves no row behind,
             # and the error says what happened (`storage_unavailable` in main.py).
             services.storage.put(document.storage_key, spool, document.mime_type)

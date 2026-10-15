@@ -39,6 +39,8 @@ processes below run from a checkout with `uv`, as in development.
   the data in one region", below.
 - **The operator's word** for the terms of service and the privacy policy: `OPERATOR_NAME`,
   `OPERATOR_EMAIL` and `BACKUP_DAYS`: "Terms of service and privacy policy", below.
+- **Backups** of the database and of the files, encrypted and kept for `BACKUP_DAYS`, which
+  restore to the same point: "Backups", below.
 
 The settings arrive through the process environment or a secret manager, never a `.env` file:
 `ENVIRONMENT=production` makes the app copy nothing from one, and makes it refuse to start with
@@ -479,18 +481,152 @@ every six hours), and so what the privacy notice can promise:
 Backups (and a bucket's object versions) keep a purged account until they expire, so the
 privacy policy names that window, `BACKUP_DAYS`, as the outer bound of a deletion. A restore must not bring the
 account back, so each purge leaves a record in the storage, `erasures/users/<id>-<created>.json`,
-naming the account by its id and creation time and nothing else, and the first housekeeping
-round after a restore purges again every account that is back (the worker's log says "Accounts
-[…] were purged before and are back in the database"). Restore the database on its own, and
-that is all; restore the bucket too, and leave `erasures/` as it is: restored to an older
-point, it forgets the purges since. The records are kept for good. They say nothing about the
-person, and backups may be kept for any length of time.
+naming the account by its id and creation time and nothing else, and `after-restore` (or, if it
+is forgotten, the first housekeeping round) purges again every account that is back (the
+worker's log says "Accounts […] were purged before and are back in the database"). A restore
+must leave `erasures/` as it is: restored to an older point, it forgets the purges since
+("Backups", below). The records are kept for good. They say nothing about the person, and
+backups may be kept for any length of time.
 
 Logs carry no email address of the app's making: a refused sign-in names the address by its
 SHA-256, as the rate limits count it, and a mail that fails is logged with its subject and the
 relay's answer, every address in it replaced by `<address>`. The log mailer of development
 writes every message, links included; production cannot use it, since it requires
 `SMTP_URL`. The worker must run for any of this to happen: an API without one purges nothing.
+
+## Backups
+
+The app makes no backups itself. A deployment keeps two: the database, restorable to any moment
+within the window (point-in-time recovery), and the files, through the bucket's versioning or
+the disk's snapshots. Both hold every document, so both are encrypted, and both expire within
+`BACKUP_DAYS`, which the privacy policy names as the latest a deleted account is gone from them.
+The two must restore to the same moment: a database row whose file is gone is a document that
+cannot be opened or indexed again, and a file whose row is gone is an upload nobody can reach.
+
+### The database
+
+A managed database keeps its own: on RDS, automated backups with a retention period of at most
+`BACKUP_DAYS`, encrypted when the instance is (chosen when it is created), and a restore makes a
+new instance at the moment asked for, whose address goes into `DATABASE_URL`. A database of the deployment's own is
+backed up with pgBackRest, which archives every WAL segment as Postgres writes it and takes the
+base backups the segments replay onto. In `postgresql.conf`:
+
+```ini
+wal_level = replica
+archive_mode = on
+archive_command = 'pgbackrest --stanza=emudoc archive-push %p'
+# A quiet database still sends its last minute of changes to the repository.
+archive_timeout = 60
+```
+
+and in `/etc/pgbackrest/pgbackrest.conf`:
+
+```ini
+[global]
+repo1-path=/var/lib/pgbackrest
+# Encrypted before it leaves the server; the passphrase comes from the secret manager, and the
+# backups are worthless without it, so keep it apart from them.
+repo1-cipher-type=aes-256-cbc
+repo1-cipher-pass=<a long random passphrase>
+repo1-retention-full-type=time
+repo1-retention-full=28
+start-fast=y
+archive-async=y
+spool-path=/var/spool/pgbackrest
+compress-type=zst
+
+[emudoc]
+pg1-path=/var/lib/postgresql/17/main
+# Only if the superuser is not called postgres.
+pg1-user=emudoc
+```
+
+`pgbackrest --stanza=emudoc stanza-create` once, then a full backup every week and a
+differential one every day from cron or a systemd timer (`--type=full backup`, `--type=diff
+backup`), as the user Postgres runs as. Time-based retention keeps the newest full backup older
+than its days, since the moments after it can only be restored from it, so the oldest data in
+the repository is up to `repo1-retention-full` plus the days between two full backups old:
+28 and a week is 35, `BACKUP_DAYS=35`. The repository can be a bucket rather than a directory
+(`repo1-type=s3` and the `repo1-s3-*` options in pgBackRest's guide); either way it is not the
+bucket of the documents, and not on the database's disk. `pgbackrest --stanza=emudoc info` says
+`cipher: aes-256-cbc` and the range of WAL archived.
+
+### The files
+
+A bucket keeps its own when versioning is on: a delete leaves a marker over the file's last
+version rather than removing it, and a lifecycle rule removes earlier versions for good after so
+many days:
+
+```json
+{"Rules": [{
+  "ID": "earlier-versions", "Status": "Enabled", "Filter": {"Prefix": ""},
+  "NoncurrentVersionExpiration": {"NoncurrentDays": 33},
+  "Expiration": {"ExpiredObjectDeleteMarker": true}
+}]}
+```
+
+(`aws s3api put-bucket-versioning --versioning-configuration Status=Enabled` and
+`put-bucket-lifecycle-configuration --lifecycle-configuration file://rule.json`). AWS adds the
+days to the moment a file was deleted, rounds up to the next midnight UTC, and may remove the
+version some time after that, so leave a margin: 33 days for `BACKUP_DAYS=35`. The rule must cover every file of
+the app's, by no filter or a prefix (the prefix of `STORAGE_URL`, or `orgs/`), with no tag, no
+size and no `NewerNoncurrentVersions`, which would keep the last version of a deleted file for
+good. Object Lock keeps versions too, for its own retention, which must also be within
+`BACKUP_DAYS`. The objects' versions are encrypted like the objects ("Encryption", above).
+
+The app asks at start (its credentials need `s3:GetBucketVersioning` and
+`s3:GetLifecycleConfiguration`) and logs the answer: "The bucket keeps a deleted or replaced file
+for 33 days (versioning, within BACKUP_DAYS (35))". Production refuses to start with a bucket
+that keeps earlier versions longer than `BACKUP_DAYS`, or for good, since the privacy policy
+would then be false; a bucket without versioning while `BACKUP_DAYS` says there are backups is
+a warning, since its files may be copied another way (replication to a second bucket, with the
+same rule). A directory (`STORAGE_URL=file:///…`) is snapshotted with its disk (ZFS, LVM, btrfs)
+or backed up with restic, at least as often as a restore would need, and kept no longer than
+`BACKUP_DAYS`.
+
+### Restoring
+
+1. Stop the API and every worker, so that nothing writes while the pieces are put back.
+2. Restore the database to the moment, in UTC: with pgBackRest, the server stopped,
+   `pgbackrest --stanza=emudoc --delta --type=time "--target=2026-10-15 09:30:00+00"
+   --target-action=promote restore`, then start Postgres. Its log says "recovery stopping
+   before commit of transaction …" and "archive recovery complete". (pgBackRest takes the time
+   in this form only; `Z` is refused.) A managed database is restored to a new instance and
+   `DATABASE_URL` pointed at it.
+3. `uv run alembic upgrade head`, if the code is newer than the database at that moment.
+4. A directory is restored from its snapshot, of the same moment or later, never earlier.
+   A bucket with versions is left as it is: the next step brings back from it what was deleted
+   since. Either way `erasures/` stays as it is.
+5. `uv run python -m app.maintenance after-restore "2026-10-15 09:30:00+00"`, the same moment
+   (`backend/app/restore.py`). It brings back from the bucket's versions every file deleted
+   since then, whose rows are back; moves the ids of organisations, projects and documents past
+   every id the storage holds, since a document's files sit under its ids and a new document
+   given a lost one's would be served its pages; ends every session and unused link, since a
+   session signed out since would work again; records the restore in every organisation's audit
+   log; purges again the accounts deleted since; and names the documents whose original is
+   still missing, which means the storage is older than the database. Running it again is safe.
+6. Start the app, and tell the members that what they did after that moment is undone: their
+   uploads, deletions, shares, a changed password. Everyone signs in again.
+
+The files uploaded after the moment stay in the storage as the files of documents the database
+does not know, and the worker's housekeeping removes them an hour after they were written
+(`sweep-orphans` lists them first, if they are wanted). Postgres hands out sequence values in
+batches of 32 that it logs ahead, so a restore skips up to 32 ids of each table by itself; past
+that only `after-restore` keeps the ids apart, and an upload whose place in the storage holds a
+lost document's files is refused ("the storage is not available" to the member, the reason and
+the command in the API's log) rather than stored there.
+
+The database half was tried on 2026-10-15 with pgBackRest 2.59 and Postgres 17: a full backup
+into an encrypted repository (its files begin `Salted__`, OpenSSL's mark), two uploads, the
+moment, an upload and a deletion after it, and a restore to the moment that brought back the
+deleted document's row and not the new one's; `after-restore` then named the deleted document
+as without its original and the new one's files as unknown. It brought nothing back, because
+the bucket was versitygw (the compose file's), which keeps versions but stamps a delete marker
+with the time of the file it deletes, so no listing of it can say what was deleted after a
+moment. MinIO took the lifecycle rule above, and the app's start said "for 33 days (versioning,
+within BACKUP_DAYS (35))". Bringing files back is tested against AWS's documented answers
+(`tests/test_backups.py`); try it on the deployment's own service in the drill before relying
+on it.
 
 ## Logs
 
@@ -604,3 +740,10 @@ before the app would hold it.
     deployment has them. Sign up a throwaway account: the box must be ticked, and the account
     page says when the terms were accepted. Any `/api` response carries `Cache-Control:
     no-store`, and signing out answers with `Clear-Site-Data: "cache"`.
+13. The API's and the worker's logs say at start how long the bucket keeps a deleted file,
+    within `BACKUP_DAYS`, and `pgbackrest --stanza=emudoc info` says `status: ok` and `cipher:
+    aes-256-cbc` with a full backup from the last week and WAL archived up to the last minutes.
+    Before launch, restore both to a moment of a staging copy as "Restoring" says and run
+    `after-restore`: a document deleted after the moment opens again, one uploaded after it is
+    gone from the library, and a browser signed in before the restore is sent to the sign-in
+    page.

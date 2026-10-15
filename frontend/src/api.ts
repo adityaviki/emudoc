@@ -347,6 +347,7 @@ export type AuditAction =
   | 'chat_shared'
   | 'chat_unshared'
   | 'chat_deleted'
+  | 'database_restored'
 
 /** One row of the organisation's audit log, which its owners and admins read. */
 export interface AuditEvent {

@@ -31,6 +31,14 @@ At rest, a bucket encrypts what it keeps by its own default encryption, which th
 about at start and reports (`report_encryption`); it sends no encryption of its own with each
 object, so the bucket's setting is the one place to choose the keys. A directory is as
 encrypted as the disk under it, which only the operator can say (deploying.md, "Encryption").
+
+A bucket with versioning is its own backup: a delete leaves a marker over the file's last
+version, which a lifecycle rule removes for good after so many days. The privacy policy names
+BACKUP_DAYS as the outer bound of a deletion, so at start the app asks the bucket how long it
+keeps those versions (`versions`) and refuses, in production, one that keeps them longer
+(`check_versions`). After the database is restored to an earlier point, `deletions` and
+`undelete` bring back what was deleted since, so that the two agree again (app/restore.py).
+A directory keeps no versions; its backups are the disk's.
 """
 
 import logging
@@ -41,7 +49,7 @@ import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import cached_property
 from itertools import batched
@@ -111,6 +119,30 @@ class StoredObject:
     key: str
     size: int
     modified_at: datetime
+
+
+@dataclass(frozen=True)
+class Versions:
+    """What a bucket keeps of a file once it is deleted or replaced, as it says itself."""
+
+    # Its versioning: "Enabled", "Suspended" (versions made before stay, new deletes are
+    # final), or "" for a bucket that never had it.
+    status: str
+    # The days after which a lifecycle rule removes an earlier version of every file of the
+    # app's for good; None when no rule does, and earlier versions are kept until someone
+    # deletes them.
+    days: int | None
+
+
+@dataclass(frozen=True)
+class Deletion:
+    """A file deleted from a versioned bucket that its earlier version can bring back: the
+    delete markers above that version, and how large it is."""
+
+    key: str
+    deleted_at: datetime
+    size: int
+    markers: tuple[str, ...]
 
 
 def content_disposition(filename: str, *, inline: bool = False) -> str:
@@ -190,9 +222,20 @@ class Storage(ABC):
         operator can speak for, and for a bucket that would not say."""
         return None
 
+    @property
+    def versions(self) -> Versions | None:
+        """What the bucket keeps of deleted and replaced files, for `check_versions`; None for
+        a directory, which keeps nothing of them, its backups being the disk's, and for a
+        bucket that would not say."""
+        return None
+
     @abstractmethod
     def list(self, prefix: str) -> Iterator[StoredObject]:
         """Every object under the prefix, which names a folder and ends with '/', in key order."""
+
+    def holds(self, prefix: str) -> bool:
+        """Whether anything is stored under the prefix, which names a folder."""
+        return next(iter(self.list(prefix)), None) is not None
 
     @abstractmethod
     def delete(self, keys: Iterable[str]) -> None:
@@ -403,7 +446,15 @@ class S3Client(Protocol):
 
     def head_object(self, *, Bucket: str, Key: str) -> Any: ...
 
+    def get_bucket_versioning(self, *, Bucket: str) -> Any: ...
+
+    def get_bucket_lifecycle_configuration(self, *, Bucket: str) -> Any: ...
+
     def list_objects_v2(self, *, Bucket: str, Prefix: str, ContinuationToken: str = ...) -> Any: ...
+
+    def list_object_versions(
+        self, *, Bucket: str, Prefix: str, KeyMarker: str = ..., VersionIdMarker: str = ...
+    ) -> Any: ...
 
     def delete_objects(self, *, Bucket: str, Delete: dict[str, Any]) -> Any: ...
 
@@ -427,8 +478,10 @@ def _describe(error: Exception) -> str:
     return str(error)
 
 
-# What a bucket answers when asked for a default encryption it does not have.
+# What a bucket answers when asked for a default encryption, or lifecycle rules, it does not
+# have.
 NO_DEFAULT_ENCRYPTION = "ServerSideEncryptionConfigurationNotFoundError"
+NO_LIFECYCLE = "NoSuchLifecycleConfiguration"
 # What a bucket answers while it is throttling or overloaded: S3 says SlowDown with a 503 and
 # RequestTimeout with a 400, and other services use the status alone.
 _TRANSIENT_CODES = {"SlowDown", "RequestTimeout", "InternalError", "ServiceUnavailable"}
@@ -450,6 +503,59 @@ def _unreadable(error: Exception) -> StorageError:
         f"The file could not be read from the bucket ({_describe(error)}).",
         transient=_transient(error),
     )
+
+
+def _undeleted(answer: Any) -> StorageError | None:
+    """The error of a `DeleteObjects` that answered, but not for every key: the bucket says so
+    in the answer's `Errors` rather than by failing the request, as for a key it refused."""
+    errors = answer.get("Errors") if isinstance(answer, dict) else None
+    if not errors:
+        return None
+    first = errors[0]
+    code = first.get("Code", "error")
+    return StorageError(
+        f"{len(errors)} of the objects could not be deleted from the bucket ({code}: "
+        f"{first.get('Message', '')}, for {first.get('Key', '')}).",
+        transient=code in _TRANSIENT_CODES,
+    )
+
+
+@dataclass
+class _Found:
+    """What a listing of versions has shown so far of a file whose latest entry is a delete
+    marker newer than the moment asked about."""
+
+    deleted_at: datetime
+    # The markers newer than the moment, which bringing the file back removes.
+    markers: list[str] = field(default_factory=list)
+    # The newest marker from before the moment, and the newest version with its size: the file
+    # comes back only if that version is newer than any such marker.
+    before: datetime | None = None
+    version: datetime | None = None
+    size: int = 0
+
+
+def _expiry(rule: dict[str, Any], key: str) -> int | None:
+    """The days after which the lifecycle rule removes an earlier version of `key` for good;
+    None when it does not, or not of every file under it.
+
+    A rule that keeps the newest few earlier versions keeps the last one of a deleted file for
+    good, and one that selects by tag or size leaves the app's files out, since the app sets
+    neither; so only a rule chosen by prefix, or by nothing, counts.
+    """
+    if rule.get("Status") != "Enabled":
+        return None
+    expiry = rule.get("NoncurrentVersionExpiration") or {}
+    days = expiry.get("NoncurrentDays")
+    if days is None or expiry.get("NewerNoncurrentVersions"):
+        return None
+    selection = rule.get("Filter") or {}
+    selection = selection.get("And", selection)
+    if set(selection) - {"Prefix"}:
+        return None
+    # A rule from before filters names its prefix beside them.
+    prefix = selection.get("Prefix", rule.get("Prefix", ""))
+    return days if key.startswith(prefix) else None
 
 
 class S3Storage(Storage):
@@ -580,26 +686,39 @@ class S3Storage(Storage):
         location = answer.get("LocationConstraint") or "us-east-1"
         return "eu-west-1" if location == "EU" else location
 
+    def _unsaid(self, question: str, permission: str, otherwise: str, error: Exception) -> None:
+        """Warn that the bucket would not answer `question`, with what would make it.
+
+        Refused to the app, the question has an answer and `permission` gets it; a service
+        that does not implement it (versitygw, some S3-compatible stores) has to be asked
+        another way, `otherwise`.
+        """
+        code = _code(error) if isinstance(error, ClientError) else None
+        advice = (
+            f"allow the app {permission} on it to have it say"
+            if code == "AccessDenied"
+            else otherwise
+        )
+        log.warning(
+            "The bucket %r did not say %s (%s); %s.",
+            self.bucket,
+            question,
+            _describe(error),
+            advice,
+        )
+
     @cached_property
     def encryption(self) -> str | None:
         try:
             answer = self.client.get_bucket_encryption(Bucket=self.bucket)
         except (ClientError, BotoCoreError) as error:
-            code = _code(error) if isinstance(error, ClientError) else None
-            if code == NO_DEFAULT_ENCRYPTION:
+            if isinstance(error, ClientError) and _code(error) == NO_DEFAULT_ENCRYPTION:
                 return ""
-            # Refused to the app, the question has an answer; a service that does not
-            # implement it (versitygw, some S3-compatible stores) has to be asked another way.
-            advice = (
-                "allow the app s3:GetEncryptionConfiguration on it to have it say"
-                if code == "AccessDenied"
-                else "confirm with its service that it encrypts everything it stores"
-            )
-            log.warning(
-                "The bucket %r did not say whether it encrypts what it keeps (%s); %s.",
-                self.bucket,
-                _describe(error),
-                advice,
+            self._unsaid(
+                "whether it encrypts what it keeps",
+                "s3:GetEncryptionConfiguration",
+                "confirm with its service that it encrypts everything it stores",
+                error,
             )
             return None
         # A bucket has one rule; a list of them is the API's shape, not a second encryption.
@@ -610,6 +729,102 @@ class S3Storage(Storage):
                 key = default.get("KMSMasterKeyID")
                 named.append(f"{algorithm} with the key {key}" if key else algorithm)
         return "; ".join(named)
+
+    @cached_property
+    def versions(self) -> Versions | None:
+        otherwise = "confirm with its service how long it keeps a deleted file"
+        try:
+            status = self.client.get_bucket_versioning(Bucket=self.bucket).get("Status", "")
+        except (ClientError, BotoCoreError) as error:
+            self._unsaid(
+                "whether it keeps deleted files", "s3:GetBucketVersioning", otherwise, error
+            )
+            return None
+        if not status:
+            return Versions("", None)
+        try:
+            rules = self.client.get_bucket_lifecycle_configuration(Bucket=self.bucket)["Rules"]
+        except (ClientError, BotoCoreError) as error:
+            if not (isinstance(error, ClientError) and _code(error) == NO_LIFECYCLE):
+                self._unsaid(
+                    "how long it keeps deleted files",
+                    "s3:GetLifecycleConfiguration",
+                    otherwise,
+                    error,
+                )
+                return None
+            rules = []
+        # The documents' files are what a deletion promises about; the records under
+        # erasures/ are never deleted.
+        days = [_expiry(rule, self._key(ROOT_PREFIX)) for rule in rules]
+        return Versions(status, min(filter(None, days), default=None))
+
+    def deletions(self, prefix: str, since: datetime) -> list[Deletion]:
+        """The files under `prefix` deleted after `since` that the bucket keeps an earlier
+        version of, in key order.
+
+        Bringing one back removes its delete markers newer than `since`, which undoes every
+        deletion since then and none before: a file that was already deleted at `since` stays
+        so, since a marker from before it sits above the file's newest version.
+        """
+        found: dict[str, _Found] = {}
+        more: dict[str, str] = {}
+        folder = self._key(_folder(prefix))
+        while True:
+            try:
+                page = self.client.list_object_versions(Bucket=self.bucket, Prefix=folder, **more)
+            except (ClientError, BotoCoreError) as error:
+                raise StorageError(
+                    f"The bucket's versions could not be listed ({_describe(error)}).",
+                    transient=_transient(error),
+                ) from error
+            # A file's versions and markers come newest first, its latest one before any other,
+            # so a file whose latest is a recent marker is known before its older entries come,
+            # on this page or a later one.
+            for marker in page.get("DeleteMarkers", []):
+                key, at = marker["Key"], marker["LastModified"]
+                if marker["IsLatest"] and at > since:
+                    found[key] = _Found(at)
+                if entry := found.get(key):
+                    if at > since:
+                        entry.markers.append(marker["VersionId"])
+                    else:
+                        entry.before = max(entry.before or at, at)
+            for version in page.get("Versions", []):
+                entry = found.get(version["Key"])
+                if entry and (entry.version is None or version["LastModified"] > entry.version):
+                    entry.version, entry.size = version["LastModified"], version["Size"]
+            if not page.get("IsTruncated"):
+                break
+            more = {
+                "KeyMarker": page["NextKeyMarker"],
+                "VersionIdMarker": page["NextVersionIdMarker"],
+            }
+        return [
+            Deletion(key[len(self.prefix) :], entry.deleted_at, entry.size, tuple(entry.markers))
+            for key, entry in sorted(found.items())
+            if entry.version is not None and (entry.before is None or entry.version > entry.before)
+        ]
+
+    def undelete(self, deletions: Iterable[Deletion]) -> None:
+        """Bring the files back by removing the markers above their earlier versions."""
+        markers = (
+            {"Key": self._key(deletion.key), "VersionId": marker}
+            for deletion in deletions
+            for marker in deletion.markers
+        )
+        for batch in batched(markers, DELETE_BATCH, strict=False):
+            try:
+                answer = self.client.delete_objects(
+                    Bucket=self.bucket, Delete={"Objects": list(batch), "Quiet": True}
+                )
+            except (ClientError, BotoCoreError) as error:
+                raise StorageError(
+                    f"The deleted files could not be brought back ({_describe(error)}).",
+                    transient=_transient(error),
+                ) from error
+            if error := _undeleted(answer):
+                raise error
 
     def list(self, prefix: str) -> Iterator[StoredObject]:
         folder = self._key(_folder(prefix))
@@ -634,7 +849,7 @@ class S3Storage(Storage):
     def delete(self, keys: Iterable[str]) -> None:
         for batch in batched(keys, DELETE_BATCH, strict=False):
             try:
-                self.client.delete_objects(
+                answer = self.client.delete_objects(
                     Bucket=self.bucket,
                     Delete={"Objects": [{"Key": self._key(key)} for key in batch], "Quiet": True},
                 )
@@ -643,6 +858,10 @@ class S3Storage(Storage):
                     f"The objects could not be deleted from the bucket ({_describe(error)}).",
                     transient=_transient(error),
                 ) from error
+            # A bucket that refuses some keys of a batch says so in the answer, not by failing
+            # the request; a purge or a delete must not count those as gone.
+            if error := _undeleted(answer):
+                raise error
 
     def delete_prefix(self, prefix: str) -> None:
         # Deleted as they are listed; a listing continues after the last key it returned, so
@@ -690,3 +909,69 @@ def report_encryption(storage: Storage) -> None:
             "encryption (SSE-S3 or SSE-KMS), or confirm with the service that it encrypts "
             "everything it stores."
         )
+
+
+def check_versions(settings: Settings, storage: Storage) -> None:
+    """Say at start how long the bucket keeps a deleted file, and in production refuse one that
+    keeps it longer than the privacy policy says a deleted account stays in the backups.
+
+    A versioned bucket keeps a deleted file's last version until a lifecycle rule removes it,
+    so it is a backup of the files, and the policy's promise (BACKUP_DAYS, app/legal/) holds
+    for it only with such a rule. A bucket without versions loses a deleted file at once,
+    which keeps the promise but leaves the files with no backup of their own while
+    BACKUP_DAYS says there are backups: a warning, since they may be kept another way
+    (deploying.md, "Backups"). A directory, and a bucket that would not say, are not judged.
+    """
+    versions = storage.versions
+    if versions is None:
+        return
+    days = settings.backup_days
+    if versions.status and days is not None and (versions.days is None or versions.days > days):
+        problem = _kept_too_long(versions, days)
+        if settings.environment == "production":
+            raise RuntimeError(f"{problem} Production does not start until they agree.")
+        log.warning(problem)
+    elif versions.status == "Enabled":
+        kept = "for good" if versions.days is None else f"for {versions.days} days"
+        within = f", within BACKUP_DAYS ({days})" if days is not None else ""
+        log.info("The bucket keeps a deleted or replaced file %s (versioning%s).", kept, within)
+    if versions.status != "Enabled" and days:
+        state = "suspended" if versions.status else "off"
+        log.warning(
+            "The bucket keeps no earlier version of a file deleted or replaced from now on "
+            "(versioning is %s), while BACKUP_DAYS (%s) says the deployment keeps backups: turn "
+            "versioning on, with a lifecycle rule that removes earlier versions within %s days, "
+            "or keep a copy of the bucket another way and restore it with the database "
+            '(deploying.md, "Backups").',
+            state,
+            days,
+            days,
+        )
+
+
+def _kept_too_long(versions: Versions, days: int) -> str:
+    if days == 0:
+        kept = "for good" if versions.days is None else f"for {versions.days} days"
+        return (
+            f"The bucket keeps a deleted or replaced file {kept} (versioning), but BACKUP_DAYS "
+            "is 0, which the privacy policy words as keeping no backups: set BACKUP_DAYS to "
+            "the days the backups are kept, or suspend the bucket's versioning and remove the "
+            "earlier versions."
+        )
+    promise = (
+        "the privacy policy says a deleted account is gone from the backups "
+        f"{days} days after its deletion (BACKUP_DAYS)"
+    )
+    if versions.days is None:
+        return (
+            "The bucket keeps every deleted or replaced file for good (versioning is on, and no "
+            "lifecycle rule removes the earlier versions of every file the app keeps), but "
+            f"{promise}: add a lifecycle rule whose NoncurrentVersionExpiration is at most "
+            f"{days} days."
+        )
+    return (
+        f"The bucket keeps a deleted or replaced file for {versions.days} days (its lifecycle "
+        f"rule's NoncurrentVersionExpiration), but {promise}: shorten the rule to at most "
+        f"{days} days, or raise BACKUP_DAYS to {versions.days} if the database's backups are "
+        "kept as long."
+    )

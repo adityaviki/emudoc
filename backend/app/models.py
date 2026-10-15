@@ -88,6 +88,7 @@ AUDIT_ACTIONS = (
     "chat_shared",
     "chat_unshared",
     "chat_deleted",
+    "database_restored",
 )
 
 

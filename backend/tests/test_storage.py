@@ -439,10 +439,14 @@ def test_the_app_works_over_a_bucket(bucket_client, sample_pdf, sample_docx, sam
     assert client.s3.objects == {}
 
 
-def test_a_bucket_that_fails_mid_upload_leaves_no_row(bucket_client, sample_pdf, caplog):
+def test_a_bucket_that_fails_mid_upload_leaves_no_row(
+    bucket_client, sample_pdf, caplog, monkeypatch
+):
     client = bucket_client
     project = create_project(client)
-    client.s3.buckets.clear()
+    # The bucket answers the look at the document's place, then fails the write.
+    refuse = FakeS3Client("other").put_object
+    monkeypatch.setattr(client.s3, "put_object", lambda **kwargs: refuse(**kwargs))
     with caplog.at_level("WARNING", logger="app.main"):
         response = client.post(
             f"/api/projects/{project['id']}/documents",
@@ -451,7 +455,6 @@ def test_a_bucket_that_fails_mid_upload_leaves_no_row(bucket_client, sample_pdf,
     # The member is told to try again; what failed, and the bucket's name, are the operator's.
     assert response.status_code == 503 and response.json()["detail"] == STORAGE_DOWN
     assert "could not be stored in the bucket (NoSuchBucket" in caplog.text
-    client.s3.buckets.add("bucket")
     assert client.get(f"/api/projects/{project['id']}/documents").json() == []
 
 
