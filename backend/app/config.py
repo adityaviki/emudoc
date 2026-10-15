@@ -184,11 +184,12 @@ class Settings(BaseSettings):
     # (app/agent/loop.py): each is a model request, so this bounds what a question can cost.
     agent_max_turns: int = Field(default=12, ge=1)
     # What the models cost, for the cost on every usage row (app/usage.py): model=in/out per
-    # million tokens, separated by commas, with the models named as AGENT_MODEL and
-    # INDEX_MODEL name them, in PRICE_CURRENCY (an ISO 4217 code). Empty, no cost is
-    # recorded. Embeddings are counted in texts, not tokens, and carry no cost. The prices
-    # are what the platform pays its providers, the same for every organisation; what an
-    # organisation is charged is its plan's business.
+    # million tokens, separated by commas, with the models named as AGENT_MODEL,
+    # INDEX_MODEL and EMBEDDING_MODEL name them, in PRICE_CURRENCY (an ISO 4217 code). Empty,
+    # no cost is recorded. An embedding model is priced for the tokens it is sent as the
+    # endpoint reports them, so its price out is 0; an endpoint that reports none costs
+    # nothing. The prices are what the platform pays its providers, the same for every
+    # organisation; what an organisation is charged is its plan's business.
     model_prices: str = ""
     price_currency: str = Field(default="USD", pattern=r"^[A-Z]{3}$")
     # What every organisation together may spend on models in one UTC day, in PRICE_CURRENCY,
@@ -237,7 +238,10 @@ class Settings(BaseSettings):
     # the operator's word: setting it says they are in the region too. Empty promises nothing.
     data_region: str = ""
 
-    # Embeddings: any OpenAI-compatible /embeddings endpoint. The default is a local Ollama.
+    # Embeddings: any OpenAI-compatible /embeddings endpoint (app/embeddings.py), sent every
+    # passage as it is indexed and every search. The default is an Ollama on this machine,
+    # for development; production refuses to start without one named, and asks it once at
+    # start (app/startup.py).
     embedding_base_url: str = "http://127.0.0.1:11434/v1"
     embedding_api_key: str | None = None
     embedding_model: str = "nomic-embed-text"
@@ -515,6 +519,14 @@ class Settings(BaseSettings):
             )
         if problem := scanner_problem(parse_scanner_url(self.scanner_url)):
             problems.append(problem)
+        # A blank `EMBEDDING_BASE_URL=` line names no endpoint either.
+        if "embedding_base_url" not in self.model_fields_set or not self.embedding_base_url.strip():
+            problems.append(
+                "EMBEDDING_BASE_URL is not set, and its default, Ollama at 127.0.0.1, is this "
+                "process's own machine (in the image, its own container), where nothing "
+                "answers, so search would match keywords only; name the embeddings endpoint, "
+                "such as http://ollama:11434/v1 for the compose file's service."
+            )
         if problem := plain_http_problem(
             "EMBEDDING_BASE_URL",
             self.embedding_base_url,

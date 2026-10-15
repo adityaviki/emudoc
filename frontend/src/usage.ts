@@ -50,8 +50,11 @@ export function describeUsage(usage: Usage, currency: string | undefined, kind?:
     parts.push(count(usage.pages, noun[0], noun[1]))
   }
   if (usage.calls) parts.push(count(usage.calls, 'call'))
-  if (usage.input_tokens || usage.output_tokens) {
-    parts.push(`${(usage.input_tokens ?? 0).toLocaleString()} tokens in, ${(usage.output_tokens ?? 0).toLocaleString()} out`)
+  if (usage.output_tokens) {
+    parts.push(`${(usage.input_tokens ?? 0).toLocaleString()} tokens in, ${usage.output_tokens.toLocaleString()} out`)
+  } else if (usage.input_tokens) {
+    // An embedding model reads and writes no text back.
+    parts.push(count(usage.input_tokens, 'token'))
   }
   if (usage.inputs) parts.push(`${count(usage.inputs, 'text')} embedded`)
   if (usage.cost_micros != null && currency) parts.push(formatCost(usage.cost_micros, currency))

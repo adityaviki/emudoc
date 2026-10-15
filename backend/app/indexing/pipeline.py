@@ -681,11 +681,14 @@ def _embed(session: Session, document: Document, services: Services, meter: Mete
     if not passages:
         return "no passages"
     _done_reading(session)
+    # The tokens are counted batch by batch, as the endpoint bills them, and priced by
+    # MODEL_PRICES under EMBEDDING_MODEL like a model's (app/usage.py).
     vectors = services.embedder.embed_documents(
-        [f"{passage.context}\n\n{passage.text}" for passage in passages]
+        [f"{passage.context}\n\n{passage.text}" for passage in passages],
+        meter.calls(EMBED, services.embedder.model),
     )
-    # Counted once the vectors are back: a request that failed embedded nothing the document
-    # keeps, and the stage runs again.
+    # The texts are counted once the vectors are back: a request that failed embedded nothing
+    # the document keeps, and the stage runs again.
     meter.add(EMBED, "inputs", len(passages), model=services.embedder.model)
     for passage, vector in zip(passages, vectors, strict=True):
         passage.embedding = vector

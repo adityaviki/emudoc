@@ -1,5 +1,6 @@
 """Hybrid search: keyword and vector rankings over passages, merged by reciprocal rank."""
 
+import logging
 import re
 from dataclasses import dataclass
 from functools import lru_cache
@@ -11,6 +12,8 @@ from app.config import get_settings
 from app.db import engine
 from app.embeddings import Embedder, EmbeddingError
 from app.postgres import server
+
+log = logging.getLogger(__name__)
 
 # Reciprocal rank fusion constant: the usual value, which damps the gap between top ranks.
 RRF_K = 60
@@ -105,7 +108,10 @@ def hybrid_search(
 
     try:
         vector = embedder.embed_query(query)
-    except EmbeddingError:
+    except EmbeddingError as error:
+        # The members see it on the status line and the agent in its tool's result; this line
+        # is the operator's, since search goes on working, only worse.
+        log.warning("A search in project %s matched keywords only: %s", project_id, error)
         vector = None
 
     doc_filter = "AND p.document_id = ANY(:document_ids)" if document_ids else ""

@@ -21,6 +21,7 @@ from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT, LeaseLost, claim
 from app.llm import LLMError
 from app.maintenance import main
 from app.models import Organization, Passage, UsageEvent, User
+from app.spending import day_of, spent_since
 from app.usage import (
     ANSWER,
     CHAT_MESSAGE,
@@ -38,7 +39,7 @@ from app.usage import (
     record,
 )
 from app.worker import HANDLERS
-from tests.conftest import FakeTurn
+from tests.conftest import FakeEmbedder, FakeTurn
 from tests.test_answers import Held
 from tests.test_api import create_project, upload
 from tests.test_chats import answered, ask, new_chat
@@ -72,6 +73,14 @@ ONE_CALL = [("calls", 1), ("input_tokens", 10), ("output_tokens", 5)]
 
 def model_calls(kind: str, calls: int) -> list[tuple[str, str, int]]:
     return [(kind, unit, quantity * calls) for unit, quantity in ONE_CALL]
+
+
+def embedded(passages: int) -> list[tuple[str, str, int]]:
+    """What embedding the passages counts: the tokens the endpoint reported, then the texts."""
+    return [
+        (EMBED, "input_tokens", passages * FakeEmbedder.TOKENS_PER_TEXT),
+        (EMBED, "inputs", passages),
+    ]
 
 
 def shown(**spent) -> dict:
@@ -266,7 +275,7 @@ def test_indexing_a_document_records_its_pages_model_calls_and_embeddings(
     assert spent(rows) == [
         (UPLOAD, "pages", 2),
         *model_calls(ENRICH, 1),
-        (EMBED, "inputs", passages),
+        *embedded(passages),
     ]
     # The stages ran for the document, not for a member.
     for row in rows:
@@ -281,7 +290,11 @@ def test_indexing_a_document_records_its_pages_model_calls_and_embeddings(
     assert usage_shown(client, f"/api/documents/{document.id}") == {
         UPLOAD: shown(pages=2),
         ENRICH: shown(model=index_model, calls=1, input_tokens=10, output_tokens=5),
-        EMBED: shown(model="fake-embedder", inputs=passages),
+        EMBED: shown(
+            model="fake-embedder",
+            input_tokens=passages * FakeEmbedder.TOKENS_PER_TEXT,
+            inputs=passages,
+        ),
     }
 
     # "Index again" from the start calls the model and the embedder again, and is charged
@@ -293,16 +306,40 @@ def test_indexing_a_document_records_its_pages_model_calls_and_embeddings(
     assert spent(rows_of(session, (DOCUMENT, document.id))) == [
         (UPLOAD, "pages", 2),
         *model_calls(ENRICH, 1),
-        (EMBED, "inputs", passages),
+        *embedded(passages),
         *model_calls(ENRICH, 1),
-        (EMBED, "inputs", passages),
+        *embedded(passages),
     ]
     # Both runs add up on the document, and the stages that were reset kept nothing from it.
     assert usage_shown(client, f"/api/documents/{document.id}") == {
         UPLOAD: shown(pages=2),
         ENRICH: shown(model=index_model, calls=2, input_tokens=20, output_tokens=10),
-        EMBED: shown(model="fake-embedder", inputs=passages * 2),
+        EMBED: shown(
+            model="fake-embedder",
+            input_tokens=passages * 2 * FakeEmbedder.TOKENS_PER_TEXT,
+            inputs=passages * 2,
+        ),
     }
+
+
+def test_a_hosted_embedding_model_is_priced_for_the_tokens_it_was_sent(
+    client, session, services, make_document, sample_pdf, monkeypatch
+):
+    # A hosted endpoint bills by the token like a model, so MODEL_PRICES names it as
+    # EMBEDDING_MODEL does, and its cost reaches the document and the day's spending.
+    monkeypatch.setattr(get_settings(), "model_prices", "fake-embedder=1000/0")
+    document = make_document(sample_pdf)
+    assert process_document(document.id, services) == []
+    tokens = passages_of(session, document.id) * FakeEmbedder.TOKENS_PER_TEXT
+
+    rows = rows_of(session, (DOCUMENT, document.id))
+    assert [(row.unit, row.cost_micros) for row in rows if row.kind == EMBED] == [
+        ("input_tokens", tokens * 1000),
+        ("inputs", None),
+    ]
+    shown_usage = usage_shown(client, f"/api/documents/{document.id}")
+    assert shown_usage[EMBED]["cost_micros"] == tokens * 1000
+    assert spent_since(session, day_of()[0]) == tokens * 1000
 
 
 def test_inferring_sections_is_charged_as_its_own_kind(session, services, make_document, tmp_path):
@@ -385,8 +422,8 @@ def test_a_stage_whose_lease_was_lost_is_charged_and_so_is_the_run_that_redoes_i
     job = claim("w:1", [INDEX_DOCUMENT])
     embed = services.embedder.embed_documents
 
-    def embed_while_taken_over(texts):
-        vectors = embed(texts)
+    def embed_while_taken_over(texts, usage=None):
+        vectors = embed(texts, usage)
         lose(session, job.id)
         return vectors
 
@@ -400,7 +437,7 @@ def test_a_stage_whose_lease_was_lost_is_charged_and_so_is_the_run_that_redoes_i
     assert passages_of(session, document.id, embedded=True) == 0
     passages = passages_of(session, document.id)
     rows = rows_of(session, (DOCUMENT, document.id))
-    assert spent(rows, EMBED) == [(EMBED, "inputs", passages)]
+    assert spent(rows, EMBED) == embedded(passages)
 
     # The next worker runs the stage again and is charged for its own embedding.
     monkeypatch.setattr(services.embedder, "embed_documents", embed)
@@ -408,7 +445,7 @@ def test_a_stage_whose_lease_was_lost_is_charged_and_so_is_the_run_that_redoes_i
     assert HANDLERS[INDEX_DOCUMENT].run(taken, services) is None
     assert passages_of(session, document.id, embedded=True) == passages
     rows = rows_of(session, (DOCUMENT, document.id))
-    assert spent(rows, EMBED) == [(EMBED, "inputs", passages)] * 2
+    assert spent(rows, EMBED) == embedded(passages) * 2
     # Parse and enrich ran once: their rows were committed before the takeover.
     assert spent(rows, UPLOAD, ENRICH) == [(UPLOAD, "pages", 2), *model_calls(ENRICH, 1)]
 

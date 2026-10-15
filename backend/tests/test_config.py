@@ -139,6 +139,7 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "APP_URL",
         "SMTP_URL",
         "SCANNER_URL",
+        "EMBEDDING_BASE_URL",
         "RUN_WORKER",
         "GOOGLE_PAID_TIER",
         "HOSTING_PROVIDER",
@@ -160,6 +161,7 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "app_url": "https://emudoc.example.com",
         "smtp_url": "smtp://mailer:secret@smtp.example.com:587",
         "scanner_url": "clamd://clamav:3310",
+        "embedding_base_url": "http://ollama:11434/v1",
         "google_paid_tier": True,
         "hosting_provider": "Hetzner Online GmbH, Germany",
         "operator_name": "Emudoc GmbH, Example Street 1, 10115 Berlin, Germany",
@@ -181,6 +183,7 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         "app_url",
         "smtp_url",
         "scanner_url",
+        "embedding_base_url",
         "google_paid_tier",
         "hosting_provider",
         "operator_name",
@@ -202,6 +205,7 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         "APP_URL",
         "SMTP_URL",
         "SCANNER_URL",
+        "EMBEDDING_BASE_URL",
         "GOOGLE_PAID_TIER",
         "HOSTING_PROVIDER",
         "OPERATOR_NAME",
@@ -222,6 +226,7 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         ({"app_url": ""}, "APP_URL"),
         ({"smtp_url": ""}, "SMTP_URL"),
         ({"scanner_url": ""}, "SCANNER_URL"),
+        ({"embedding_base_url": None}, "EMBEDDING_BASE_URL"),
         ({"google_paid_tier": False}, "GOOGLE_PAID_TIER"),
         ({"hosting_provider": " "}, "HOSTING_PROVIDER"),
         ({"operator_name": ""}, "OPERATOR_NAME"),
@@ -266,6 +271,26 @@ def test_production_runs_without_a_scanner_only_when_told_to(deployment):
     with pytest.raises(SystemExit) as stop:
         load_settings(**deployment)
     assert "set it to off to run without scanning on purpose" in stop.value.code
+    assert load_settings(**{**deployment, "environment": "development"}).production_problems() == []
+
+
+def test_production_names_its_embeddings_endpoint(deployment):
+    # The default is Ollama on 127.0.0.1, which in the image is the container itself: a
+    # deployment that left it would index and search without vectors and never say why.
+    del deployment["embedding_base_url"]
+    with pytest.raises(SystemExit) as stop:
+        load_settings(**deployment)
+    (line,) = stop.value.code.splitlines()[1:]
+    assert line.startswith("  - EMBEDDING_BASE_URL is not set")
+    assert "such as http://ollama:11434/v1 for the compose file's service" in line
+    deployment["embedding_base_url"] = " "
+    with pytest.raises(SystemExit, match="EMBEDDING_BASE_URL is not set"):
+        load_settings(**deployment)
+    # Named, even as the default's own address, it is the operator's choice: an Ollama on the
+    # machine that runs the app from a checkout.
+    deployment["embedding_base_url"] = "http://127.0.0.1:11434/v1"
+    assert load_settings(**deployment).production_problems() == []
+    del deployment["embedding_base_url"]
     assert load_settings(**{**deployment, "environment": "development"}).production_problems() == []
 
 

@@ -9,7 +9,8 @@ to its cause. The kinds (USAGE_KINDS in app/models.py) are an answer's model cal
 recorded by `answer` in app/answers.py), what an upload brought in (`upload`: its bytes, by
 the request in app/api/documents.py, and its pages, by the first parse), the model calls of
 the indexing stages (`ocr` with the pages it read, `infer_sections`, `enrich`), the texts
-embedded (`embed`) and the pages rendered for the viewer (`render`, app/api/documents.py).
+embedded (`embed`, with the tokens the endpoint says they took) and the pages rendered for the
+viewer (`render`, app/api/documents.py).
 
 The code that spent something records it, from what it counted, when its work ends however it
 ends: a stop, a lost lease or a crash ends an answer's run too, and the calls it made were
@@ -21,7 +22,8 @@ stage).
 
 A row's cost (`cost_micros`, millionths of PRICE_CURRENCY) comes from the prices the
 settings list per model (MODEL_PRICES, app/config.py), for the tokens a model took in and
-gave out; a row for a model without a price, or for a unit that is not tokens, has none.
+gave out, an embedding model's included; a row for a model without a price, or for a unit that
+is not tokens, has none.
 
 The message or document a row was for shows what it used: `ChatMessage.usage` and
 `Document.usage` (app/models.py) hold the rows for the row, by kind, each unit summed over

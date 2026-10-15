@@ -33,8 +33,10 @@ on one machine; this is what changes for a deployment. The processes below run f
   the image's `CLAMD_CONF_*` variables; an older image takes a mounted `clamd.conf`). A
   deployment that runs without a scanner says so with `SCANNER_URL=off`, and the worker
   warns at every start.
-- **An SMTP relay** in `SMTP_URL` for the sign-in links, and an embeddings endpoint in
-  `EMBEDDING_BASE_URL` for search by meaning.
+- **An embeddings endpoint** in `EMBEDDING_BASE_URL`, which turns every passage and every
+  search into a vector for search by meaning: Ollama beside the app, as the compose file runs
+  it, or a hosted one: "The embeddings endpoint", below.
+- **An SMTP relay** in `SMTP_URL` for the sign-in links.
 - **The model providers** named by `INDEX_MODEL` and `AGENT_MODEL`, each on terms that forbid
   training on what it is sent: "What leaves the deployment", below.
 - **A region**, if the deployment promises one: `DATA_REGION=eu` or `us` holds the models, the
@@ -48,11 +50,11 @@ on one machine; this is what changes for a deployment. The processes below run f
 The settings arrive through the process environment or a secret manager, never a `.env` file:
 `ENVIRONMENT=production` makes the app copy nothing from one, and makes it refuse to start with
 development's conveniences (the compose database's password, `LOCAL_ACCOUNT=true`, no
-`STORAGE_URL`, `APP_URL`, `SMTP_URL`, `SCANNER_URL`, `HOSTING_PROVIDER`, `OPERATOR_NAME`,
-`OPERATOR_EMAIL` or `BACKUP_DAYS`, a free-tier
-Gemini key, no key for the model, with `DATA_REGION` anything outside the region, and a
-connection that would carry the documents unencrypted off the deployment's own network),
-naming each.
+`STORAGE_URL`, `APP_URL`, `SMTP_URL`, `SCANNER_URL`, `EMBEDDING_BASE_URL`, `HOSTING_PROVIDER`,
+`OPERATOR_NAME`, `OPERATOR_EMAIL` or `BACKUP_DAYS`, a free-tier
+Gemini key, no key for the model, an embeddings endpoint that turns its requests down, with
+`DATA_REGION` anything outside the region, and a connection that would carry the documents
+unencrypted off the deployment's own network), naming each.
 `.env.example` documents every setting; the README's "Configuration" says what the ones that
 matter do.
 
@@ -127,8 +129,9 @@ The image has no curl, so a health check runs Python, as the compose file below 
 API's asks `/api/health`, the worker's reads the age of the file it keeps with `--alive-file`
 ("Health checks", below).
 
-`deploy/compose.yml` puts it together on one machine: the release step, the API, a worker and
-ClamAV, with the settings in `/etc/emudoc/emudoc.env` (`EMUDOC_ENV` names another file):
+`deploy/compose.yml` puts it together on one machine: the release step, the API, a worker,
+ClamAV and Ollama, with the settings in `/etc/emudoc/emudoc.env` (`EMUDOC_ENV` names another
+file):
 
 ```bash
 export EMUDOC_IMAGE=emudoc:$(git rev-parse --short HEAD)
@@ -144,7 +147,8 @@ network a subnet of its own, `10.73.0.0/24`, so that `FORWARDED_ALLOW_IPS` can n
 (change both if the subnet collides with one the machine reaches), and its project another name
 than the development file's, so one machine can run both. The database, the mail relay, a
 bucket and the proxy are the deployment's: the env file names them, with
-`SCANNER_URL=clamd://clamav:3310` for the daemon beside the app. Compose expands `$` in the env
+`SCANNER_URL=clamd://clamav:3310` for the daemon beside the app and
+`EMBEDDING_BASE_URL=http://ollama:11434/v1` for the embeddings. Compose expands `$` in the env
 file's values unless they are in single quotes, which a password may need. Wherever this guide
 says `uv run …`, the image runs the same command through `docker compose … run --rm --no-deps
 worker`: without `--no-deps`, `run` runs the release step first, with whatever image
@@ -384,6 +388,76 @@ then the vacuum. The build is fastest when the index fits in `maintenance_work_m
 says "hnsw graph no longer fits into maintenance_work_mem" when it does not), which a session
 raises for itself: `SET maintenance_work_mem = '2GB';` before it, on a server with the memory
 to spare. `rebuild-embeddings` builds the index the same way.
+
+## The embeddings endpoint
+
+Search by meaning, the library's and the agent's, needs every passage turned into a vector as
+it is indexed and every search as it is asked, by an OpenAI-compatible `/embeddings` endpoint:
+`EMBEDDING_BASE_URL`, with `EMBEDDING_MODEL`, `EMBEDDING_DIM` (the vectors' size) and the
+model's prefixes (`EMBEDDING_QUERY_PREFIX`, `EMBEDDING_DOCUMENT_PREFIX`, nomic-embed-text's by
+default). Without one, search matches keywords only, so neither a member nor the agent finds a
+passage worded otherwise than the question, and every document's embed stage is tried again
+after 1, 2, 4 and 8 minutes and then given up, each a failed job for `ALERT_EMAIL`. The default
+address, an Ollama on 127.0.0.1, is in the image the container itself, so production refuses to
+start with `EMBEDDING_BASE_URL` unset or blank.
+
+Every process asks the endpoint for one vector at start and says what it found: "Passages are
+embedded by nomic-embed-text at http://ollama:11434/v1". An endpoint that turns the request
+down stops a production start, with the settings to look at: a model it does not serve (404;
+Ollama's until `ollama pull`), a model that makes no embeddings (501 from Ollama), a key it
+refuses (401), vectors of another size than `EMBEDDING_DIM`. One that is out of reach or busy
+may be starting beside the app, so the process starts and warns: "Until it answers, search
+matches keywords only…". A start refused this way changes nothing, even with a new
+`EMBEDDING_MODEL`: the documents are queued to be embedded with it only by a start that goes
+through. Afterwards each search that falls back to keywords logs "A search in project 12
+matched keywords only: …", and the members' status line says the same.
+
+**Beside the app.** The compose file runs Ollama 0.34.3 as `ollama`, on its network only, with
+the model in the `models` volume, and a one-shot `embedding-model` service the API and the
+worker wait for, which pulls `nomic-embed-text` when the volume does not have it yet and never
+again: the same name pulled later may bring other weights, whose vectors would not match the
+stored ones. A first `up` needs the model's 274 MB from Ollama's registry; later ones need
+nothing from it. Another Ollama model is named to compose as well as in the env file (with its
+size and prefixes), `export EMBEDDING_MODEL=mxbai-embed-large` beside `EMUDOC_IMAGE`; a name the
+registry does not know stops `up` with "pull model manifest: file does not exist". Ollama
+keeps the model in memory for good (`OLLAMA_KEEP_ALIVE=-1`; the container holds about 600 MB
+with nomic-embed-text), and its image is large, 3.7 GB to download and 9.2 GB on disk, nearly
+all of it libraries for a GPU. On the deployment's own network it is no subprocessor and takes plain HTTP
+("Encryption"); on another machine there, such as a GPU server for a large backlog, it listens
+on a private address (`OLLAMA_HOST=10.0.0.7:11434` in its environment), and across a network
+the deployment does not own it sits behind TLS, as production requires.
+
+On a CPU, embedding is the slow part of indexing. On an 8-core laptop CPU (Ryzen 7 7435HS,
+October 2026), Ollama embedded a batch of 32 passages of 1,500 characters in 6 seconds and of
+6,000 characters (the most the app sends) in 33; the app waits 120 seconds for a batch.
+Hugging Face's text-embeddings-inference also serves `/v1/embeddings`, from a 240 MB image,
+but its CPU build (1.9) could not load nomic-embed-text v1.5 on its fast backend and ran it
+five times slower than Ollama, so that a batch of long passages outlasted the 120 seconds; it
+suits a GPU, or a model its ONNX backend loads.
+
+**A hosted endpoint** is any OpenAI-compatible service with a key in `EMBEDDING_API_KEY`, such
+as OpenAI's: `EMBEDDING_BASE_URL=https://api.openai.com/v1`,
+`EMBEDDING_MODEL=text-embedding-3-small`, `EMBEDDING_DIM=1536`, and both prefixes set empty.
+It is sent every passage and every search, so it is a company like the model providers: the
+subprocessor list names it by its host, `DATA_REGION` keeps only Vertex AI's addresses and
+OpenAI's European one in a region, and its terms must forbid training on what it is sent. The
+privacy policy promises that for OpenAI's API, Azure OpenAI and Vertex AI (and for an endpoint
+on the own network), and for any other says to ask the operator. A model of more than 2,000
+dimensions does not fit the vector index (pgvector's HNSW), and the app sends no `dimensions`
+to shorten one: text-embedding-3-large's 3,072 do not fit. The tokens the endpoint reports
+are counted for each document's embed stage and priced like a model's, by `MODEL_PRICES` under
+the name `EMBEDDING_MODEL` gives (`text-embedding-3-small=0.02/0`), so their cost shows on the
+document and counts toward the day's spending; the spending limits hold back the stages that
+call a model, not this one, whose cost is small beside theirs. The searches' vectors are not
+counted.
+
+**Changing the model**: a new `EMBEDDING_MODEL` queues every document to be embedded again at
+the next start, and until a document's turn a search by meaning compares a vector of the new
+model with its old ones, which ranks it poorly; a new `EMBEDDING_DIM` needs `python -m
+app.maintenance rebuild-embeddings` with the app stopped, which drops the stored vectors. Either
+replaces every row of `passages`, so rebuild the vector index and vacuum after it ("Vacuum",
+above), and embedding every passage again takes hours on a CPU and costs every token again
+on a hosted endpoint.
 
 ## TLS at a reverse proxy
 
@@ -643,8 +717,9 @@ companies read them:
   pull out facts, and an image of every scanned page and uploaded image, to transcribe it.
 - `AGENT_MODEL` is sent each question, the project's name and description, and every passage,
   fact, outline and list of documents the agent reads to answer it.
-- `EMBEDDING_BASE_URL` is sent every passage as it is indexed and each search. The default,
-  Ollama on the same machine, sends nothing out; a hosted endpoint is a company like the others.
+- `EMBEDDING_BASE_URL` is sent every passage as it is indexed and each search. Ollama beside
+  the app, as the compose file runs it, sends nothing out; a hosted endpoint is a company like
+  the others ("The embeddings endpoint").
 
 Each must be on terms that let it use none of this to train or improve its models, under a data
 processing addendum the operator has accepted. Where the providers stood in October 2026 (read
@@ -771,8 +846,10 @@ Markdown templates in `backend/app/legal/`, filled in from the settings as they 
 who runs the deployment (`OPERATOR_NAME`, the company with its postal address, and
 `OPERATOR_EMAIL`, where people write about their data), where the documents are kept
 (`DATA_REGION`), how long each thing is kept on each plan, the two cookies, whether uploads are
-scanned (`SCANNER_URL`), whether a model provider may learn from what it is sent (a `google:`
-model without `GOOGLE_PAID_TIER` is said to be on Google's free tier), and how long a deleted
+scanned (`SCANNER_URL`), whether a model provider, the embeddings endpoint's included, may
+learn from what it is sent (a `google:` model without `GOOGLE_PAID_TIER` is said to be on
+Google's free tier, and a hosted embeddings endpoint is promised nothing unless it is OpenAI's,
+Azure OpenAI's or Vertex AI's), and how long a deleted
 account stays in the backups (`BACKUP_DAYS`, the days the deployment keeps its database and
 bucket backups, 0 for none; the app makes none itself, 1.4). Production refuses to start
 without the three. The texts are a starting point: have counsel read them for the operator's
@@ -1319,3 +1396,8 @@ before the app would hold it.
     in transaction mode, the worker's log has no line saying the threads "find queued jobs by
     polling", and an answer starts within a second of the question. From a machine outside the
     deployment's network, `pg_isready -h` the database's host gets no answer.
+16. The API's and the worker's logs say at start "Passages are embedded by" the model at the
+    endpoint, with no warning from `app.startup` about it. Upload a document and search the
+    library for something it says in other words than its own, such as "late fees" for a
+    contract that speaks of a penalty for delay: the passage is found, the document's embed
+    stage is done, and the API's log has no line saying a search "matched keywords only".

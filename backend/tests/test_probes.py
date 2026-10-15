@@ -137,6 +137,8 @@ def test_the_status_line_asks_the_embedding_endpoint_once_a_minute(session, serv
     )
     app = create_app(services=replace(services, embedder=embedder))
     with TestClient(app, headers=APP_HEADERS) as client:
+        # The start asked once (app/startup.py), and its answer serves the minute after it.
+        assert len(asked) == 1
         # Every tab polls it every minute, and every pane that opens asks too.
         for _ in range(3):
             assert client.get("/api/status").json()["embeddings"]["ok"] is True

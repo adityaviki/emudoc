@@ -1,15 +1,16 @@
 """What every process does before it serves or works.
 
 The API (app/main.py) and the worker (app/worker.py) start the same way: they refuse a database
-or a storage this code was not written for, queue what a changed embedding model left stale,
-build the services the pipeline and the agent run with, and in production refuse to run without
-a usable model, with a pgvector that loses a project's passages to the search's filter
+or a storage this code was not written for, build the services the pipeline and the agent run
+with, and in production refuse to run without a usable model or with an embeddings endpoint that
+turns its requests down, with a pgvector that loses a project's passages to the search's filter
 (app/postgres.py), with a model or a bucket reached in the clear across a network the deployment
 does not own (app/network.py), with a bucket that keeps deleted files longer than the privacy
 policy says (`check_versions` in app/storage.py), or outside the region the deployment promises
-(app/residency.py), and anywhere without a temporary directory to write in. One function
-does all of it, so that the two processes refuse the same misconfigurations and a check added
-for one is not forgotten by the other.
+(app/residency.py), and anywhere without a temporary directory to write in; then, refused by
+none of it, they queue what a changed embedding model left stale. One function does all of it,
+so that the two processes refuse the same misconfigurations and a check added for one is not
+forgotten by the other.
 """
 
 import logging
@@ -19,7 +20,7 @@ from collections.abc import Mapping
 
 from app.config import BUNDLED_LIBPQ, Settings, export_env_file, model_provider
 from app.db import check_schema
-from app.embeddings import Embedder
+from app.embeddings import Embedder, EmbeddingError
 from app.indexing.pipeline import Services
 from app.llm import LLM, LLMUnavailable
 from app.maintenance import check_embeddings, requeue_stale_embeddings, warn_about_old_layout
@@ -36,6 +37,12 @@ log = logging.getLogger(__name__)
 # What a model's address and the bucket's carry, for the sentences that refuse plain HTTP.
 MODEL_READS = "the documents and the questions the model reads"
 BUCKET_HOLDS = "every upload, and every page image a browser opens,"
+# What to look at when the embeddings endpoint turns the start's request down.
+EMBEDDING_SETTINGS = (
+    "Check that EMBEDDING_BASE_URL is the address /embeddings is under, such as "
+    "http://ollama:11434/v1, that the endpoint serves EMBEDDING_MODEL (Ollama's after `ollama "
+    "pull`) as vectors of EMBEDDING_DIM, and EMBEDDING_API_KEY if it asks for one."
+)
 
 
 def prepare(settings: Settings, services: Services | None = None) -> Services:
@@ -52,7 +59,6 @@ def prepare(settings: Settings, services: Services | None = None) -> Services:
     check_database(settings)
     check_embeddings()
     check_fts_language()
-    requeue_stale_embeddings()
     if services is None:
         export_env_file(settings)
         services = Services(
@@ -70,9 +76,13 @@ def prepare(settings: Settings, services: Services | None = None) -> Services:
     warn_without_prices(settings)
     check_scanner(settings, services.scanner)
     check_model(settings, services.llm)
+    check_embedder(settings, services.embedder)
     # After `export_env_file`: the Vertex location and the base URLs that place a model are
     # read where the providers read them.
     check_residency(settings, services.storage, os.environ)
+    # Last: a start refused for its settings, a mistyped EMBEDDING_MODEL among them, must not
+    # first queue every document to be embedded again.
+    requeue_stale_embeddings()
     return services
 
 
@@ -144,6 +154,37 @@ def check_model(settings: Settings, llm: LLM) -> None:
             "%s Until then the app runs without the model: no summaries, facts, scans or answers.",
             error,
         )
+
+
+def check_embedder(settings: Settings, embedder: Embedder) -> None:
+    """Ask the embeddings endpoint for one vector at start, and in production refuse one that
+    turns the request down.
+
+    Without vectors, search matches keywords only and the agent finds less, while the embed
+    stage of every document fails, is tried again and is given up. In production an endpoint
+    that refuses the request, with a wrong address, model, size or key, is misconfigured, not
+    degraded, and the process stops with the settings to look at. One that is out of reach or
+    busy may be starting beside the app, as the compose file's Ollama does, so the process
+    starts and says so; development starts either way.
+    """
+    try:
+        embedder.probe()
+    except EmbeddingError as error:
+        if error.transient:
+            log.warning(
+                "%s Until it answers, search matches keywords only, and the embed stage of "
+                "each document indexed meanwhile is tried again.",
+                error,
+            )
+        elif settings.environment == "production":
+            raise RuntimeError(
+                "The embeddings endpoint turns requests down, and production does not start "
+                f"without it. {error} {EMBEDDING_SETTINGS}"
+            ) from None
+        else:
+            log.warning("%s Search matches keywords only. %s", error, EMBEDDING_SETTINGS)
+        return
+    log.info("Passages are embedded by %s at %s", embedder.model, embedder.address)
 
 
 def check_transport(settings: Settings, storage: Storage, environ: Mapping[str, str]) -> None:

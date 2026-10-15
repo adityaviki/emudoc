@@ -76,8 +76,8 @@ whether or not a worker is alive; a chat takes one question at a time.
 
 What an organisation uses is recorded as it happens, one row per measure in `usage_events`:
 an answer's model calls and tokens, an upload's bytes and pages, the pages a scan took to read
-and the model calls of the indexing stages, the texts embedded, and the pages rendered for the
-viewer, each with the organisation, project and member they belong to and the message or
+and the model calls of the indexing stages, the texts embedded and the tokens the embeddings
+endpoint says they took, and the pages rendered for the viewer, each with the organisation, project and member they belong to and the message or
 document they were for. Each is counted at the end of the run that made it, so an answer that
 was stopped, a scan that failed at its tenth page and a stage a worker lost are counted for
 the calls they made. `uv run python -m app.maintenance usage <slug>` (in `backend/`) prints an
@@ -86,8 +86,8 @@ An answer shows what it used under its text (the model, its calls and tokens, an
 cost), and a document's header shows what bringing it in and indexing it used, with the
 breakdown by stage on hover; the figures are kept on the message and the document as the
 rows are recorded, summed over every run. The costs follow `MODEL_PRICES` in `.env`, what
-each model costs per million tokens in and out, in `PRICE_CURRENCY`; without prices, no
-cost is shown.
+each model costs per million tokens in and out, in `PRICE_CURRENCY`, an embedding model's
+under the name `EMBEDDING_MODEL` gives; without prices, no cost is shown.
 
 A day of model use has two limits, both measured against those costs since midnight UTC: the
 organisation's, set by its plan (`backend/app/entitlements.py`: USD 1.00 a day on Free, 10 on
@@ -181,7 +181,8 @@ serve otherwise, naming that command. A database made by a version from before t
 migrations cannot be upgraded; the command says so, and `docker compose down -v` resets it.
 
 For semantic search, run [Ollama](https://ollama.com) with `ollama pull nomic-embed-text`, or
-point `EMBEDDING_BASE_URL` at any OpenAI-compatible embeddings endpoint.
+point `EMBEDDING_BASE_URL` at any OpenAI-compatible embeddings endpoint. The backend asks it for
+one vector at start and logs what it found.
 
 When working on the app, run `./dev.sh` instead and open <http://localhost:5173>. It starts the
 database, applies the migrations, and runs the backend (restarting when Python changes) and the
@@ -204,7 +205,9 @@ press "Run the model on them" in the Documents tab to enrich what was indexed wi
 reason shown in the header, and the same button enriches what was indexed meanwhile once it is
 lifted. Running without the model is for development: with `ENVIRONMENT=production` the
 backend refuses to start until the key is in the environment, unless the model was switched
-off that way.
+off that way. The same goes for the embeddings: production refuses to start without
+`EMBEDDING_BASE_URL`, or with an endpoint that turns the start's request down, and starts with a
+warning when the endpoint is only out of reach (`deploying.md`, "The embeddings endpoint").
 
 ## Configuration
 
@@ -280,10 +283,11 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   instead; the backend then copies nothing from `.env`, and a missing key is reported as one to
   set in the environment. Production also refuses to start, listing what to change, when the
   settings are development's: the `docker compose` database's password, `LOCAL_ACCOUNT=true`,
-  no `STORAGE_URL`, no `APP_URL`, no `SMTP_URL`, no `SCANNER_URL`, no `HOSTING_PROVIDER`, no
-  `OPERATOR_NAME`, `OPERATOR_EMAIL` or `BACKUP_DAYS`, a
+  no `STORAGE_URL`, no `APP_URL`, no `SMTP_URL`, no `SCANNER_URL`, no `EMBEDDING_BASE_URL`, no
+  `HOSTING_PROVIDER`, no `OPERATOR_NAME`, `OPERATOR_EMAIL` or `BACKUP_DAYS`, a
   `google:` model without `GOOGLE_PAID_TIER`, a `DAILY_SPEND_CAP` without `MODEL_PRICES`, no
-  key for the model, with `DATA_REGION` a model, a bucket or an embeddings endpoint outside
+  key for the model, an embeddings endpoint that turns its requests down, with `DATA_REGION` a
+  model, a bucket or an embeddings endpoint outside
   the region, or a connection that would carry the documents unencrypted off the deployment's
   own network: a database there without `sslmode=verify-full`, a scanner there, or an
   embeddings endpoint, a model's address or a bucket there over plain `http://`

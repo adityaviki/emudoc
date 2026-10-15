@@ -20,6 +20,7 @@ any change to them until that has been decided.
 """
 
 import os
+import re
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -55,6 +56,16 @@ NO_TRAINING = frozenset(
         "openai-responses",
         "openrouter",
     }
+)
+# The hosted embeddings endpoints whose terms forbid using what they are sent to train
+# models, by host: OpenAI's API (and its European address), Azure OpenAI and Vertex AI. An
+# endpoint on the deployment's own network sends nothing out; any other is promised nothing,
+# since it is sent every passage.
+NO_TRAINING_EMBEDDINGS = re.compile(
+    r"(?:eu\.)?api\.openai\.com"
+    r"|[a-z0-9-]+\.openai\.azure\.com"
+    r"|(?:[a-z0-9-]+-)?aiplatform\.googleapis\.com"
+    r"|aiplatform\.(?:eu|us)\.rep\.googleapis\.com"
 )
 
 
@@ -132,7 +143,8 @@ def _fill(name: str, settings: Settings, **values: str) -> str:
 
 
 def _models(settings: Settings, environ: Mapping[str, str]) -> str:
-    """What the model providers may do with what they are sent, as far as the settings show."""
+    """What the model providers, the embeddings endpoint's among them, may do with what they
+    are sent, as far as the settings show."""
     names = {settings.agent_model, settings.index_model}
     if not settings.google_paid_tier and any(model_provider(n) == "google" for n in names):
         return (
@@ -140,7 +152,9 @@ def _models(settings: Settings, environ: Mapping[str, str]) -> str:
             "use the documents and questions it receives to improve its products, and people "
             "at Google may read them."
         )
-    if all(_trains_on_nothing(name, environ) for name in names):
+    if all(_trains_on_nothing(name, environ) for name in names) and _embeds_on_such_terms(
+        settings.embedding_base_url
+    ):
         return (
             "None of the AI model providers may use what it receives to train its models: each "
             "works for us under terms that forbid it."
@@ -156,6 +170,11 @@ def _trains_on_nothing(name: str, environ: Mapping[str, str]) -> bool:
     if (variable := MODEL_BASE_URLS.get(prefix)) and (url := environ.get(variable)):
         return on_own_network(host_of(url))
     return prefix in NO_TRAINING
+
+
+def _embeds_on_such_terms(url: str) -> bool:
+    host = host_of(url)
+    return on_own_network(host) or NO_TRAINING_EMBEDDINGS.fullmatch(host) is not None
 
 
 def _region(settings: Settings) -> str:

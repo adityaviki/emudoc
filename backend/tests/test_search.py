@@ -105,12 +105,18 @@ def test_app_refuses_a_text_search_configuration_the_database_lacks(services, mo
             pass
 
 
-def test_keyword_search_survives_an_embedding_outage(session, services, indexed):
+def test_keyword_search_survives_an_embedding_outage(session, services, indexed, caplog):
     services.embedder.fail = True
-    result = search(session, services, indexed, "termination notice")
+    with caplog.at_level("WARNING", logger="app.search"):
+        result = search(session, services, indexed, "termination notice")
     assert result.semantic is False
     assert "ninety (90) days" in result.hits[0].text
     assert result.hits[0].vector_rank is None
+    # The operator hears of it, without the query.
+    assert caplog.messages == [
+        f"A search in project {indexed.project_id} matched keywords only: "
+        "Embedding endpoint unreachable"
+    ]
 
 
 def test_vector_ranking_alone_can_return_hits(session, services, indexed):

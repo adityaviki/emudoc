@@ -1,6 +1,7 @@
 # Emudoc on one machine from its image (deploying.md, "The image"): the release step, the API,
-# a worker, and ClamAV for them. The database, the mail relay, the bucket if there is one, and
-# the reverse proxy that ends TLS in front of the API are the deployment's ("The pieces").
+# a worker, and ClamAV and Ollama for them. The database, the mail relay, the bucket if there
+# is one, and the reverse proxy that ends TLS in front of the API are the deployment's ("The
+# pieces").
 #
 #   export EMUDOC_IMAGE=emudoc:$(git rev-parse --short HEAD)
 #   docker compose -f deploy/compose.yml up -d --wait
@@ -16,6 +17,7 @@
 # app; it expands $ in a value unless the value is in single quotes.
 #   STORAGE_URL=file:///var/lib/emudoc   for the files volume below, or s3://… for a bucket
 #   SCANNER_URL=clamd://clamav:3310      the daemon below
+#   EMBEDDING_BASE_URL=http://ollama:11434/v1   the embeddings endpoint below
 
 # Apart from the development file's project (emudoc), so that one machine can run both.
 name: emudoc-deploy
@@ -48,6 +50,8 @@ services:
     <<: *app
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      embedding-model:
         condition: service_completed_successfully
     # For a proxy on this machine (deploying.md, "TLS at a reverse proxy"). Its requests reach
     # the API from the network's gateway, the only address whose X-Forwarded-For and
@@ -83,6 +87,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      embedding-model:
+        condition: service_completed_successfully
     # It serves nothing to ask: it touches the file every 10 seconds while all its threads run,
     # and exits, to be restarted, when one has ended. Stuck is a file a minute old, or none.
     healthcheck:
@@ -109,6 +115,50 @@ services:
       - clamdb:/var/lib/clamav
     restart: unless-stopped
 
+  # The embeddings endpoint (deploying.md, "The embeddings endpoint"), on this network only:
+  # it is sent every passage and every search, and sends nothing out.
+  ollama:
+    image: ollama/ollama:0.34.3
+    environment:
+      # Keep the model loaded (the container holds about 600 MB with nomic-embed-text): Ollama
+      # unloads one idle for five minutes, and the next search would wait for it to load again.
+      OLLAMA_KEEP_ALIVE: "-1"
+    volumes:
+      - models:/root/.ollama
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # The image has no curl either; its own command asks the server.
+    healthcheck:
+      test: [CMD, ollama, list]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Pulls the embedding model into the volume when it is not there yet, and never again: the
+  # same name pulled later may bring other weights, whose vectors would not match the stored
+  # ones. A model other than nomic-embed-text is named here as well as in the env file, with
+  # `export EMBEDDING_MODEL=…` beside EMUDOC_IMAGE.
+  embedding-model:
+    image: ollama/ollama:0.34.3
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: ollama:11434
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text}
+    entrypoint: [/bin/sh, -c]
+    command:
+      - ollama show "$$EMBEDDING_MODEL" > /dev/null 2>&1 || ollama pull "$$EMBEDDING_MODEL"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: "no"
+
 # A subnet of its own, so that the gateway the proxy's requests come from is known; change both
 # addresses if it collides with a network this machine already reaches.
 networks:
@@ -121,3 +171,4 @@ networks:
 volumes:
   files:
   clamdb:
+  models:

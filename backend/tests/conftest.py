@@ -90,6 +90,9 @@ os.environ["STORAGE_URL"] = STORAGE_ROOT.as_uri()
 os.environ["AGENT_MODEL"] = os.environ["INDEX_MODEL"] = "google:gemini-2.5-flash-lite"
 os.environ["EMBEDDING_MODEL"] = "nomic-embed-text"
 os.environ["EMBEDDING_DIM"] = "768"
+# Nothing listens there: an app built with its real services finds the endpoint down at once,
+# rather than asking whatever the developer runs on Ollama's port.
+os.environ["EMBEDDING_BASE_URL"] = "http://127.0.0.1:9/v1"
 # Most tests drive the API as the local account; `signed_in_only` restores the production rule.
 os.environ["LOCAL_ACCOUNT"] = "true"
 # The messages the tests pin tell a developer to edit `.env`; a production shell says otherwise.
@@ -150,6 +153,9 @@ class FakeEmbedder:
 
     model = "fake-embedder"
     dim = 768
+    address = "http://embeddings.test/v1"
+    # What the endpoint says each text took, as Ollama and OpenAI's API report it.
+    TOKENS_PER_TEXT = 4
 
     def __init__(self):
         # An endpoint that cannot be reached, which is a passing condition to the pipeline.
@@ -164,14 +170,20 @@ class FakeEmbedder:
         norm = math.sqrt(sum(value * value for value in vector)) or 1.0
         return [value / norm for value in vector]
 
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        return [self._vector(text_) for text_ in texts]
+    def embed_documents(self, texts: list[str], usage=None) -> list[list[float]]:
+        vectors = [self._vector(text_) for text_ in texts]
+        if usage is not None:
+            usage.input_tokens += self.TOKENS_PER_TEXT * len(texts)
+        return vectors
 
     def embed_query(self, text_: str) -> list[float]:
         return self._vector(text_)
 
     def check(self) -> str | None:
         return "Embedding endpoint unreachable" if self.fail else None
+
+    def probe(self) -> None:
+        self._vector("ping")
 
 
 _BLOCK_LINE = re.compile(r"^\[B(\d+)\](?: \(p\.\d+\))? (.*)$", re.MULTILINE)

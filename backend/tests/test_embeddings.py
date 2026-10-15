@@ -1,6 +1,7 @@
 """The embedder's errors: what the endpoint answered, in words, and whether asking again in a
 while may help, which the pipeline reads to run the embed stage again."""
 
+import json
 import threading
 
 import httpx
@@ -8,7 +9,8 @@ import pytest
 
 import app.embeddings as embeddings
 from app.config import get_settings
-from app.embeddings import Embedder, EmbeddingError
+from app.embeddings import BATCH_SIZE, Embedder, EmbeddingError
+from app.usage import ModelUsage
 
 
 def embedder(handler) -> Embedder:
@@ -52,6 +54,14 @@ def vector(request: httpx.Request) -> httpx.Response:
         ),
         (lambda request: httpx.Response(429, text="slow down"), "returned 429", True),
         (lambda request: httpx.Response(401, text="bad key"), "returned 401", False),
+        # Ollama's answer for a model that makes no embeddings: asking again will not help.
+        (
+            lambda request: httpx.Response(
+                501, json={"error": {"message": "does not support embeddings", "type": "api_error"}}
+            ),
+            r"returned 501 \(error code api_error\).$",
+            False,
+        ),
         (refuse, "unreachable at http://embeddings.", True),
         (stall, "at http://embeddings did not answer within 120 seconds.", True),
         (lambda request: httpx.Response(200, json={"nope": []}), "unexpected response", False),
@@ -84,6 +94,35 @@ def test_the_endpoints_address_is_named_without_its_credentials():
     )
 
 
+def test_the_tokens_the_endpoint_reports_are_counted_batch_by_batch():
+    # A paid endpoint bills each request it answered, so a run that fails at its third batch
+    # has paid for two.
+    answered: list[int] = []
+
+    def billing(request: httpx.Request) -> httpx.Response:
+        if len(answered) == 2:
+            return httpx.Response(503, text="overloaded")
+        inputs = json.loads(request.content)["input"]
+        answered.append(len(inputs))
+        data = [
+            {"index": i, "embedding": [0.5] * get_settings().embedding_dim}
+            for i in range(len(inputs))
+        ]
+        return httpx.Response(200, json={"data": data, "usage": {"prompt_tokens": 7 * len(inputs)}})
+
+    usage = ModelUsage()
+    with pytest.raises(EmbeddingError, match="returned 503"):
+        embedder(billing).embed_documents(["passage"] * (BATCH_SIZE * 2 + 1), usage)
+    assert answered == [BATCH_SIZE, BATCH_SIZE]
+    assert usage == ModelUsage(input_tokens=7 * BATCH_SIZE * 2)
+
+    # An endpoint that says nothing about tokens adds none; the texts are still counted by
+    # the stage that sent them.
+    usage = ModelUsage()
+    embedder(vector).embed_documents(["passage"], usage)
+    assert usage == ModelUsage()
+
+
 # The check behind the status line, which every open tab polls.
 
 
@@ -105,6 +144,22 @@ def test_what_the_check_learnt_is_kept_for_a_minute(monkeypatch):
     monkeypatch.setattr(embeddings, "CHECK_SECONDS", 0)
     assert checked.check() is None
     assert len(asked) == 2
+
+
+def test_the_start_s_question_answers_the_check_for_a_minute():
+    # A process asks at start (app/startup.py); the status line opened right after says what
+    # it learnt rather than asking again.
+    asked: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append(request)
+        return refuse(request)
+
+    checked = embedder(handler)
+    with pytest.raises(EmbeddingError, match="unreachable"):
+        checked.probe()
+    assert checked.check() == "Embedding endpoint unreachable at http://embeddings."
+    assert len(asked) == 1
 
 
 def test_threads_that_check_at_once_wait_for_one_request():

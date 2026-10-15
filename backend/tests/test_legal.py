@@ -30,6 +30,7 @@ DEVELOPMENT = {
     "agent_model": "google:gemini-2.5-flash-lite",
     "google_paid_tier": False,
     "scanner_url": "",
+    "embedding_base_url": "http://127.0.0.1:11434/v1",
     "data_region": "",
     "operator_name": "",
     "operator_email": "",
@@ -126,6 +127,19 @@ def test_the_privacy_policy_says_what_the_settings_do():
     )
     assert "None of the AI model providers" in local
     assert "ask us about them" in policy(index_model="groq:llama", agent_model="groq:llama")
+    # The embeddings endpoint is sent every passage, so the promise holds it too: one on the
+    # deployment's network or under OpenAI's or Google Cloud's terms keeps it, any other not.
+    for endpoint in (
+        "http://ollama:11434/v1",
+        "https://api.openai.com/v1",
+        "https://europe-west4-aiplatform.googleapis.com/v1/projects/p/locations/l/endpoints/openapi",
+    ):
+        assert "None of the AI model providers" in policy(
+            google_paid_tier=True, embedding_base_url=endpoint
+        )
+    hosted = policy(google_paid_tier=True, embedding_base_url="https://api.voyageai.com/v1")
+    assert "set by its own terms; ask us about them" in hosted
+    assert "None of the AI model providers" not in hosted
 
     # Where the documents are kept.
     assert "does not keep the data in one region" in policy()
