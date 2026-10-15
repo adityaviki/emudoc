@@ -183,9 +183,10 @@ def erasure_key(user_id: int, created_at: datetime) -> str:
     return f"{ERASURES}{user_id}-{format(created_at.astimezone(UTC), _STAMP)}.json"
 
 
-def reapply_erasures(storage: Storage) -> list[int]:
+def reapply_erasures(storage: Storage, *, dry_run: bool = False) -> list[int]:
     """Set every account that was purged and is back in the database, as a restore from an
-    older backup brings it, to be purged at once; returns their ids."""
+    older backup brings it, to be purged at once; returns their ids. A dry run only finds them:
+    it rolls the change back."""
     erased = [
         (int(found[1]), datetime.strptime(found[2], _STAMP).replace(tzinfo=UTC))
         for entry in storage.list(ERASURES)
@@ -193,13 +194,17 @@ def reapply_erasures(storage: Storage) -> list[int]:
     ]
     if not erased:
         return []
-    with engine.begin() as connection:
+    with engine.connect() as connection:
         back = sorted(
             connection.scalars(
                 _BACK,
                 {"ids": [user_id for user_id, _ in erased], "created": [at for _, at in erased]},
             )
         )
+        if dry_run:
+            connection.rollback()
+            return back
+        connection.commit()
     if back:
         log.warning(
             "Accounts %s were purged before and are back in the database, as a restore from a "

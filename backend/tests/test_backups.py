@@ -9,6 +9,8 @@ they were or removed, and the documents' sequence is set back to where it stood.
 """
 
 import logging
+import re
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -237,10 +239,26 @@ def documents_continue_after(session, document_id: int) -> None:
     session.commit()
 
 
-def test_after_a_restore_the_files_ids_and_sign_ins_agree_with_the_database(
-    versioned, session, account, sample_pdf, sample_docx, sample_xlsx
-):
-    client, storage = versioned, versioned.storage
+@dataclass
+class Played:
+    """A restore played by hand, and what the database lost to it."""
+
+    point: datetime
+    project: dict
+    kept: dict
+    deleted: dict
+    deleted_key: str
+    lost: dict
+    signed_in: int
+    purged: int
+
+
+def play_a_restore(client, session, account, sample_pdf, sample_docx, sample_xlsx) -> Played:
+    """Before the restore point: two documents, a session, a link and an account later purged.
+    After it: a third document uploaded, the second deleted, the account purged. Then the
+    database is restored to the point, which has the deleted document's row and the purged
+    account, not the new document's row."""
+    storage = client.storage
     project = create_project(client)
     (kept,) = upload(client, project["id"], sample_pdf)["documents"]
     (deleted,) = upload(client, project["id"], sample_docx)["documents"]
@@ -271,28 +289,55 @@ def test_after_a_restore_the_files_ids_and_sign_ins_agree_with_the_database(
     storage.put(erasure_key(purged.id, purged.created_at), b"{}")
     session.execute(Document.__table__.delete().where(Document.id == lost["id"]))
     session.execute(Document.__table__.insert(), [as_it_was])
+    for table in ("audit_events", "usage_events"):
+        session.execute(text(f"DELETE FROM {table} WHERE occurred_at > :point"), {"point": point})
     session.commit()
     documents_continue_after(session, deleted["id"])
-    deleted_key = as_it_was["storage_key"]
-    assert not storage.exists(deleted_key)
+    assert not storage.exists(as_it_was["storage_key"])
+    return Played(
+        point,
+        project,
+        kept,
+        deleted,
+        as_it_was["storage_key"],
+        lost,
+        signed_in.id,
+        purged_id,
+    )
+
+
+def test_after_a_restore_the_files_ids_and_sign_ins_agree_with_the_database(
+    versioned, session, account, sample_pdf, sample_docx, sample_xlsx
+):
+    client, storage = versioned, versioned.storage
+    played = play_a_restore(client, session, account, sample_pdf, sample_docx, sample_xlsx)
+    point, project, lost, purged_id = played.point, played.project, played.lost, played.purged
 
     restored = after_restore(storage, point)
-    assert [deletion.key for deletion in restored.brought_back] == [deleted_key]
-    assert storage.get(deleted_key) == sample_docx.read_bytes()
+    assert [deletion.key for deletion in restored.brought_back] == [played.deleted_key]
+    assert storage.get(played.deleted_key) == sample_docx.read_bytes()
     assert restored.advanced == {"documents": lost["id"]}
     assert (restored.sessions, restored.links) == (1, 1)
     assert restored.purged == [purged_id]
     assert restored.missing == [] and restored.unknown == 1
     session.expire_all()
     assert session.get(User, purged_id) is None
-    assert session.get(UserSession, signed_in.id).revoked_at is not None
+    assert session.get(UserSession, played.signed_in).revoked_at is not None
     assert session.scalar(select(func.count()).where(AuthToken.expires_at > func.now())) == 0
     (row,) = session.scalars(select(AuditEvent).where(AuditEvent.action == "database_restored"))
     assert (row.org_id, row.user_id) == (account.organization.id, None)
     assert row.detail == {"restored_to": point.isoformat()}
 
     moment = f"{point:%Y-%m-%d %H:%M:%S} UTC"
-    assert describe_restore(restored, point) == [
+    restored.took = 72.4
+    lines = describe_restore(restored, point)
+    assert re.fullmatch(
+        r"The database reaches 20\d\d-\d\d-\d\d \d\d:\d\d:\d\d UTC \(the newest act of a member it "
+        r"records\), \d s before the restore point\.",
+        lines[0],
+    )
+    assert lines[1:] == [
+        "It holds 1 organisation, 2 accounts, 1 project, 2 documents and 0 chats.",
         f"Brought back 1 file (0.0 MB) deleted from the bucket since {moment}.",
         f"New ids continue past the storage's: documents after {lost['id']}.",
         "Ended 1 session and 1 unused link: everyone signs in again, and links mailed before now "
@@ -302,24 +347,166 @@ def test_after_a_restore_the_files_ids_and_sign_ins_agree_with_the_database(
         "The storage holds the files of 1 document (0.0 MB) that the database does not know, "
         "uploaded after the restore point; the worker's housekeeping removes them an hour after "
         "they were written, and `sweep-orphans` lists them.",
+        "Took 1 min 12 s.",
         "Start the app.",
     ]
 
     # The next upload gets an id of its own, and every document has its original again.
     (new,) = upload(client, project["id"], sample_xlsx)["documents"]
     assert new["id"] == lost["id"] + 1
-    for document in (kept, deleted, new):
+    for document in (played.kept, played.deleted, new):
         assert storage.exists(session.get(Document, document["id"]).storage_key)
 
     # Run again, it finds everything set right already.
     again = after_restore(storage, point)
     assert again.brought_back == [] and again.advanced == {} and again.organizations == 0
-    assert describe_restore(again, point)[1:4] == [
+    assert describe_restore(again, point)[3:6] == [
         "New ids already continued past every id the storage holds.",
         "Ended 0 sessions and 0 unused links: everyone signs in again, and links mailed before "
         "now no longer work.",
         "Every organisation's audit log records this restore already.",
     ]
+
+
+def test_a_dry_run_finds_what_a_run_does_and_changes_nothing(
+    versioned, session, account, sample_pdf, sample_docx, sample_xlsx
+):
+    client, storage = versioned, versioned.storage
+    played = play_a_restore(client, session, account, sample_pdf, sample_docx, sample_xlsx)
+    point, lost, purged_id = played.point, played.lost, played.purged
+    last_document = session.scalar(text("SELECT pg_sequence_last_value('documents_id_seq')"))
+    # An account whose deletion is due: a purge would discard its files and write its record,
+    # and the storage a drill reads is the live one.
+    due = User(
+        email="due@example.com", name="Due", deletion_due_at=datetime.now(UTC) - timedelta(hours=1)
+    )
+    session.add(due)
+    session.commit()
+    due_id, due_record = due.id, erasure_key(due.id, due.created_at)
+
+    dry = after_restore(storage, point, dry_run=True)
+    assert [deletion.key for deletion in dry.brought_back] == [played.deleted_key]
+    # The file it would bring back counts as the storage's, so no document lacks its original.
+    assert dry.missing == [] and dry.unknown == 1
+    assert dry.advanced == {"documents": lost["id"]}
+    assert (dry.sessions, dry.links, dry.organizations, dry.purged) == (1, 1, 1, [purged_id])
+
+    # Neither the storage nor the database changed.
+    assert not storage.exists(played.deleted_key)
+    session.expire_all()
+    assert session.scalar(text("SELECT pg_sequence_last_value('documents_id_seq')")) == (
+        last_document
+    )
+    assert session.get(UserSession, played.signed_in).revoked_at is None
+    assert session.scalar(select(func.count()).where(AuthToken.expires_at > func.now())) == 1
+    assert session.get(User, purged_id).deletion_due_at is None
+    assert session.get(User, due_id) is not None and not storage.exists(due_record)
+    assert not session.scalar(select(func.count()).where(AuditEvent.action == "database_restored"))
+
+    moment = f"{point:%Y-%m-%d %H:%M:%S} UTC"
+    dry.took = 3
+    lines = describe_restore(dry, point)
+    assert lines[0] == (
+        f"A dry run against the database restored to {moment}: nothing in the database or the "
+        "storage was changed, and each line says what after-restore would do."
+    )
+    assert lines[1].startswith("The database reaches ")
+    assert lines[2:] == [
+        "It holds 1 organisation, 3 accounts, 1 project, 2 documents and 0 chats.",
+        f"Would bring back 1 file (0.0 MB) deleted from the bucket since {moment}.",
+        f"New ids would continue past the storage's: documents after {lost['id']}.",
+        "Would end 1 session and 1 unused link.",
+        "Would record the restore in the audit log of 1 organisation.",
+        f"Would purge again 1 account deleted since the restore point: {purged_id}.",
+        "The storage holds the files of 1 document (0.0 MB) that the database does not know, "
+        "uploaded after the restore point, which a restore to it would leave to the worker's "
+        "housekeeping.",
+        "Took 3 s.",
+        f"The restore is whole: the storage holds every document's original as it was at {moment}.",
+    ]
+
+    # The run then does what the dry run said.
+    done = after_restore(storage, point)
+    for name in ("advanced", "sessions", "links", "organizations", "purged", "missing", "unknown"):
+        assert getattr(done, name) == getattr(dry, name), name
+    assert done.brought_back == dry.brought_back
+    assert storage.exists(played.deleted_key)
+    session.expire_all()
+    assert session.get(User, due_id) is None and storage.exists(due_record)
+
+
+def test_a_dry_run_fails_when_the_storage_cannot_come_back_to_the_point(
+    client, session, sample_pdf, capsys
+):
+    project = create_project(client)
+    (document,) = upload(client, project["id"], sample_pdf)["documents"]
+    point = datetime.now(UTC).isoformat()
+    main(["after-restore", "--dry-run", point])
+    out = capsys.readouterr().out
+    assert "The storage keeps no earlier versions of deleted files, so nothing deleted since" in out
+    assert "can be brought back from it" in out
+    assert "The restore is whole: the storage holds every document's original as it was" in out
+
+    # The directory lost the original since, and keeps no earlier version of it.
+    LocalStorage(STORAGE_ROOT).delete_prefix(session.get(Document, document["id"]).storage_prefix)
+    with pytest.raises(SystemExit) as failed:
+        main(["after-restore", "--dry-run", point])
+    assert failed.value.code == 1
+    out = capsys.readouterr().out
+    assert (
+        f"1 document without an original in the storage, now or among the earlier versions it "
+        f"keeps ({document['id']}): a restore to " in out
+    )
+    assert "would leave it unable to be opened or indexed again." in out
+    assert (
+        "The restore is not whole: the database and the storage do not come back to the same "
+        "point." in out
+    )
+
+
+def test_the_report_says_how_far_the_restored_database_reaches(session, account, monkeypatch):
+    storage = LocalStorage(STORAGE_ROOT)
+    point = datetime(2026, 10, 15, 9, 30, tzinfo=UTC)
+    session.execute(text("DELETE FROM sessions"))
+    session.commit()
+    assert describe_restore(after_restore(storage, point, dry_run=True), point)[1] == (
+        "The database records no act of a member, so how far it reaches cannot be told."
+    )
+
+    # A member's newest act stands in; the app's own rows, after-restore's among them, do not.
+    org, user = account.organization.id, account.user.id
+    for user_id, before in ((user, 19), (user, 400), (None, 1)):
+        session.add(
+            AuditEvent(
+                org_id=org,
+                user_id=user_id,
+                action="document_uploaded",
+                occurred_at=point - timedelta(seconds=before),
+            )
+        )
+    session.commit()
+    restored = after_restore(storage, point, dry_run=True)
+    assert restored.reached == point - timedelta(seconds=19)
+    assert describe_restore(restored, point)[1] == (
+        "The database reaches 2026-10-15 09:29:41 UTC (the newest act of a member it records), "
+        "19 s before the restore point."
+    )
+
+    # The server's own word, while it has it since its recovery, comes first.
+    for replayed, said in (
+        ("2026-10-15 09:26:00+00", "4 min before the restore point."),
+        ("2026-10-15 07:25:00+00", "2 h 5 min before the restore point."),
+        ("2026-10-12 09:30:00+00", "3 days before the restore point."),
+        (
+            "2026-10-15 09:30:41+00",
+            "41 s after the restore point given: it was restored to a later moment.",
+        ),
+    ):
+        monkeypatch.setattr(
+            "app.restore._REPLAYED", text(f"SELECT CAST('{replayed}' AS timestamptz)")
+        )
+        line = describe_restore(after_restore(storage, point, dry_run=True), point)[1]
+        assert line.endswith(f"(the last transaction its recovery replayed), {said}"), line
 
 
 def test_an_upload_is_refused_the_place_of_a_document_the_restore_lost(

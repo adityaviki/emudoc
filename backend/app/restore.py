@@ -28,20 +28,32 @@ again, and the accounts purged since are back. `after_restore` sets each right, 
 
 It then reports what it cannot set right by itself: documents whose original the storage
 lacks, as a storage restored to an earlier point than the database leaves them, and the files
-of documents the database does not know.
+of documents the database does not know. It also says how far the restored database reaches,
+which is the recovery point a restore achieved: the last transaction its recovery replayed,
+which the server knows until it restarts, or else the newest act of a member its rows record.
+
+A dry run (`after-restore --dry-run`) is the check of the restore drill (deploying.md, "The
+drill"): it takes every step but changes nothing. It lists the files it would bring back and
+counts them as the storage's, makes its changes to the database in a transaction it rolls back,
+and moves no sequence, so it can check a restored copy of the database against the live
+storage, which it only reads. A drill then needs no copy of the bucket and cannot harm it.
 """
 
 import json
 import re
+import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from itertools import chain
 
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.audit import audit_event
 from app.db import SessionLocal
 from app.retention import purge_due_accounts, reapply_erasures
-from app.storage import ROOT_PREFIX, Deletion, S3Storage, Storage, is_rendered
+from app.storage import ROOT_PREFIX, Deletion, S3Storage, Storage, StoredObject, is_rendered
 
 AFTER_RESTORE_COMMAND = "uv run python -m app.maintenance after-restore <time>"
 # The tables whose ids name places in the storage, and how a key names them.
@@ -75,14 +87,46 @@ _UNRECORDED = text(
     ORDER BY id
     """
 )
+# How far a restored database reaches. The server knows the last transaction its recovery
+# replayed until it restarts; after that, or for a database restored some other way, the
+# newest act of a member that its rows record stands in: each sign-in, upload, question and
+# download writes one, and after-restore's own rows have no member.
+_REPLAYED = text("SELECT pg_last_xact_replay_timestamp()")
+_NEWEST_ACT = text(
+    """
+    SELECT GREATEST(
+        (SELECT max(occurred_at) FROM audit_events WHERE user_id IS NOT NULL),
+        (SELECT max(occurred_at) FROM usage_events WHERE user_id IS NOT NULL),
+        (SELECT max(last_seen_at) FROM sessions)
+    )
+    """
+)
+# What the database holds, for the operator to hold against the deployment as it was.
+_HOLDS = text(
+    """
+    SELECT (SELECT count(*) FROM organizations) AS organisation,
+           (SELECT count(*) FROM users) AS account,
+           (SELECT count(*) FROM projects) AS project,
+           (SELECT count(*) FROM documents) AS document,
+           (SELECT count(*) FROM chats) AS chat
+    """
+)
 # How many documents without their original the report names.
 MISSING_SHOWN = 20
 
 
 @dataclass
 class Restored:
-    """What `after_restore` did and found, for the command to say."""
+    """What `after_restore` did and found, for the command to say; after a dry run, what it
+    would do."""
 
+    dry_run: bool = False
+    # How far the database reaches, and what says so; None for a database that records no act
+    # of a member.
+    reached: datetime | None = None
+    reached_by: str = ""
+    # How many organisations, accounts, projects, documents and chats it holds.
+    holds: dict[str, int] = field(default_factory=dict)
     # The files brought back; None when the storage keeps no versions to bring them from.
     brought_back: list[Deletion] | None = None
     # The tables whose ids now continue after the given one, the highest the storage holds.
@@ -97,6 +141,8 @@ class Restored:
     # The storage's folders of documents the database does not know, and their size.
     unknown: int = 0
     unknown_bytes: int = 0
+    # How long the run took, in seconds: part of the time a restore takes.
+    took: float = 0.0
 
 
 @dataclass
@@ -109,22 +155,32 @@ class _Survey:
     folders: dict[str, int] = field(default_factory=dict)
 
 
-def after_restore(storage: Storage, restored_to: datetime) -> Restored:
+def after_restore(storage: Storage, restored_to: datetime, *, dry_run: bool = False) -> Restored:
     """Set the storage, the ids, the sign-ins and the purges right after the database was
-    restored to `restored_to`, and say what is left; run with the app stopped."""
-    restored = Restored()
+    restored to `restored_to`, and say what is left; run with the app stopped. A dry run finds
+    the same and changes neither the database nor the storage."""
+    started = time.monotonic()
+    restored = Restored(dry_run=dry_run)
     # A bucket that would not say whether it keeps versions is asked for them all the same:
     # one without lists none.
     if isinstance(storage, S3Storage) and (storage.versions is None or storage.versions.status):
         restored.brought_back = storage.deletions(ROOT_PREFIX, restored_to)
-        storage.undelete(restored.brought_back)
-    survey = _survey(storage)
+        if not dry_run:
+            storage.undelete(restored.brought_back)
+    # A dry run finds the files it would bring back where a run finds them, in the storage.
+    pending = (restored.brought_back or []) if dry_run else []
+    survey = _survey(storage, pending)
     with SessionLocal() as session:
-        session.execute(_HOLD_INSERTS)
+        if not dry_run:
+            session.execute(_HOLD_INSERTS)
+        restored.reached, restored.reached_by = _reach(session)
+        restored.holds = dict(session.execute(_HOLDS).mappings().one())
         for table in TABLES:
             seen = survey.highest[table]
             if seen > (session.scalar(_LAST_ID, {"table": table}) or 0):
-                session.execute(_CONTINUE_AFTER, {"table": table, "id": seen})
+                # A sequence moves outside the transaction, so a dry run leaves it alone.
+                if not dry_run:
+                    session.execute(_CONTINUE_AFTER, {"table": table, "id": seen})
                 restored.advanced[table] = seen
         restored.sessions = session.execute(_END_SESSIONS).rowcount
         restored.links = session.execute(_END_LINKS).rowcount
@@ -137,18 +193,32 @@ def after_restore(storage: Storage, restored_to: datetime) -> Restored:
             known.add(key.rpartition("/")[0] + "/")
             if key not in survey.originals:
                 restored.missing.append(document_id)
-        session.commit()
+        if dry_run:
+            session.rollback()
+        else:
+            session.commit()
     unknown = survey.folders.keys() - known
     restored.unknown = len(unknown)
     restored.unknown_bytes = sum(survey.folders[folder] for folder in unknown)
-    restored.purged = reapply_erasures(storage)
-    purge_due_accounts(storage)
+    restored.purged = reapply_erasures(storage, dry_run=dry_run)
+    if not dry_run:
+        purge_due_accounts(storage)
+    restored.took = time.monotonic() - started
     return restored
 
 
-def _survey(storage: Storage) -> _Survey:
+def _reach(session: Session) -> tuple[datetime | None, str]:
+    if replayed := session.scalar(_REPLAYED):
+        return replayed, "the last transaction its recovery replayed"
+    return session.scalar(_NEWEST_ACT), "the newest act of a member it records"
+
+
+def _survey(storage: Storage, pending: Iterable[Deletion]) -> _Survey:
     survey = _Survey()
-    for entry in storage.list(ROOT_PREFIX):
+    stored = (
+        StoredObject(deletion.key, deletion.size, deletion.deleted_at) for deletion in pending
+    )
+    for entry in chain(storage.list(ROOT_PREFIX), stored):
         found = _IDS.match(entry.key)
         if found is None:
             continue
@@ -174,59 +244,137 @@ def place_taken(document_id: int, prefix: str) -> str:
 
 
 def describe_restore(restored: Restored, restored_to: datetime) -> list[str]:
-    """What `after_restore` did and found, a line each, for the command to print."""
-    moment = f"{restored_to.astimezone(UTC):%Y-%m-%d %H:%M:%S} UTC"
+    """What `after_restore` did and found, a line each, for the command to print; after a dry
+    run, what it would do, and whether the restore is whole."""
+    moment = _when(restored_to)
+    would = restored.dry_run
     lines = []
+    if would:
+        lines.append(
+            f"A dry run against the database restored to {moment}: nothing in the database or "
+            "the storage was changed, and each line says what after-restore would do."
+        )
+    lines.append(_reach_line(restored, restored_to))
+    holds = [_count(number, noun) for noun, number in restored.holds.items()]
+    lines.append(f"It holds {', '.join(holds[:-1])} and {holds[-1]}.")
     if restored.brought_back is None:
         lines.append(
             "The storage keeps no earlier versions of deleted files, so nothing deleted since "
-            f"{moment} was brought back from it: a directory or a bucket without versioning "
-            "comes back only from its own backup, to the same point as the database or later."
+            f"{moment} {'can be' if would else 'was'} brought back from it: a directory or a "
+            "bucket without versioning comes back only from its own backup, to the same point "
+            "as the database or later."
         )
     else:
         size = sum(deletion.size for deletion in restored.brought_back)
         lines.append(
-            f"Brought back {_count(len(restored.brought_back), 'file')} ({_mb(size)} MB) "
-            f"deleted from the bucket since {moment}."
+            f"{'Would bring' if would else 'Brought'} back "
+            f"{_count(len(restored.brought_back), 'file')} ({_mb(size)} MB) deleted from the "
+            f"bucket since {moment}."
         )
     if restored.advanced:
         after = ", ".join(f"{table} after {seen}" for table, seen in restored.advanced.items())
-        lines.append(f"New ids continue past the storage's: {after}.")
+        lines.append(
+            f"New ids {'would continue' if would else 'continue'} past the storage's: {after}."
+        )
     else:
         lines.append("New ids already continued past every id the storage holds.")
-    lines.append(
-        f"Ended {_count(restored.sessions, 'session')} and {_count(restored.links, 'unused link')}"
-        ": everyone signs in again, and links mailed before now no longer work."
-    )
+    ended = f"{_count(restored.sessions, 'session')} and {_count(restored.links, 'unused link')}"
+    if would:
+        lines.append(f"Would end {ended}.")
+    else:
+        lines.append(
+            f"Ended {ended}: everyone signs in again, and links mailed before now no longer work."
+        )
     if restored.organizations:
         recorded = _count(restored.organizations, "organisation")
-        lines.append(f"Recorded the restore in the audit log of {recorded}.")
+        lines.append(
+            f"{'Would record' if would else 'Recorded'} the restore in the audit log of {recorded}."
+        )
     else:
         lines.append("Every organisation's audit log records this restore already.")
     if restored.purged:
         lines.append(
-            f"Purged again {_count(len(restored.purged), 'account')} deleted since the restore "
-            f"point: {', '.join(map(str, restored.purged))}."
+            f"{'Would purge' if would else 'Purged'} again "
+            f"{_count(len(restored.purged), 'account')} deleted since the restore point: "
+            f"{', '.join(map(str, restored.purged))}."
         )
     if missing := restored.missing:
         shown = ", ".join(map(str, missing[:MISSING_SHOWN]))
         if len(missing) > MISSING_SHOWN:
             shown += f" and {len(missing) - MISSING_SHOWN} more"
-        lines.append(
-            f"{_count(len(missing), 'document')} without an original in the storage ({shown}): "
-            "the storage is older than the database's restore point. Restore it to the same "
-            "point or later and run this again; until then those documents can be searched and "
-            "asked about, but not opened or indexed again."
-        )
+        them, those = ("it", "that document") if len(missing) == 1 else ("them", "those documents")
+        if would:
+            lines.append(
+                f"{_count(len(missing), 'document')} without an original in the storage, now "
+                f"or among the earlier versions it keeps ({shown}): a restore to {moment} would "
+                f"leave {them} unable to be opened or indexed again. A bucket keeps earlier "
+                "versions only as long as its lifecycle rule says, and a directory comes back "
+                "only from its own backup."
+            )
+        else:
+            lines.append(
+                f"{_count(len(missing), 'document')} without an original in the storage "
+                f"({shown}): the storage is older than the database's restore point. Restore "
+                "it to the same point or later and run this again; until then "
+                f"{those} can be searched and asked about, but not opened or indexed again."
+            )
     if restored.unknown:
-        lines.append(
+        held = (
             f"The storage holds the files of {_count(restored.unknown, 'document')} "
             f"({_mb(restored.unknown_bytes)} MB) that the database does not know, uploaded "
-            "after the restore point; the worker's housekeeping removes them an hour after "
-            "they were written, and `sweep-orphans` lists them."
+            "after the restore point"
         )
-    lines.append("Start the app.")
+        if would:
+            lines.append(f"{held}, which a restore to it would leave to the worker's housekeeping.")
+        else:
+            lines.append(
+                f"{held}; the worker's housekeeping removes them an hour after they were "
+                "written, and `sweep-orphans` lists them."
+            )
+    lines.append(f"Took {_span(restored.took)}.")
+    if not would:
+        lines.append("Start the app.")
+    elif missing:
+        lines.append(
+            "The restore is not whole: the database and the storage do not come back to the same "
+            "point."
+        )
+    else:
+        lines.append(
+            "The restore is whole: the storage holds every document's original as it was at "
+            f"{moment}."
+        )
     return lines
+
+
+def _reach_line(restored: Restored, restored_to: datetime) -> str:
+    if restored.reached is None:
+        return "The database records no act of a member, so how far it reaches cannot be told."
+    gap = (restored_to - restored.reached).total_seconds()
+    where = (
+        f"{_span(gap)} before the restore point"
+        if gap >= 0
+        else f"{_span(-gap)} after the restore point given: it was restored to a later moment"
+    )
+    return f"The database reaches {_when(restored.reached)} ({restored.reached_by}), {where}."
+
+
+def _when(moment: datetime) -> str:
+    return f"{moment.astimezone(UTC):%Y-%m-%d %H:%M:%S} UTC"
+
+
+def _span(seconds: float) -> str:
+    """A length of time as an operator reads it, to the second under an hour."""
+    seconds = round(seconds)
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours >= 48:
+        return f"{hours // 24} days"
+    if hours:
+        return f"{hours} h {minutes} min" if minutes else f"{hours} h"
+    if minutes:
+        return f"{minutes} min {seconds} s" if seconds else f"{minutes} min"
+    return f"{seconds} s"
 
 
 def _count(number: int, noun: str) -> str:

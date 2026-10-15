@@ -429,7 +429,10 @@ After the database is restored to an earlier point, `python -m app.maintenance a
 <time>` brings back from a versioned bucket the files deleted since, moves the ids past every id
 the storage holds, signs everyone out and records the restore in each organisation's audit log
 (`backend/app/restore.py`); until it has run, an upload refuses a place in the storage that a
-lost document's files still hold.
+lost document's files still hold. With `--dry-run` it changes nothing and fails when the storage
+lacks a document's original at that point: `deploy/restore-drill.sh` restores the newest backup
+into a throwaway copy and runs it against the live storage, the monthly restore drill
+(`deploying.md`, "The drill").
 A chat is kept for the plan's retention after its last question (30 days on Free, a year on
 Pro, for good on Team and Enterprise), which the chat list and the account page say; sessions
 and one-time links are removed a month after they ended.
@@ -533,6 +536,10 @@ frontend/src/
   api.ts        the typed client for the backend
   auth.ts       who is signed in, for the shell and its pages
   chat.ts       a chat's messages as the chat pane holds them, and the answers being followed
+deploy/
+  restore-drill.sh
+                the restore drill: the newest backup into a throwaway copy, checked against the
+                live storage
 ```
 
 ## Not built yet

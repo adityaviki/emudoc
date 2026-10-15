@@ -604,7 +604,9 @@ or backed up with restic, at least as often as a restore would need, and kept no
    given a lost one's would be served its pages; ends every session and unused link, since a
    session signed out since would work again; records the restore in every organisation's audit
    log; purges again the accounts deleted since; and names the documents whose original is
-   still missing, which means the storage is older than the database. Running it again is safe.
+   still missing, which means the storage is older than the database. Running it again is safe,
+   and `after-restore --dry-run` with the same moment says first what it would do, changing
+   nothing.
 6. Start the app, and tell the members that what they did after that moment is undone: their
    uploads, deletions, shares, a changed password. Everyone signs in again.
 
@@ -616,17 +618,154 @@ that only `after-restore` keeps the ids apart, and an upload whose place in the 
 lost document's files is refused ("the storage is not available" to the member, the reason and
 the command in the API's log) rather than stored there.
 
-The database half was tried on 2026-10-15 with pgBackRest 2.59 and Postgres 17: a full backup
-into an encrypted repository (its files begin `Salted__`, OpenSSL's mark), two uploads, the
-moment, an upload and a deletion after it, and a restore to the moment that brought back the
-deleted document's row and not the new one's; `after-restore` then named the deleted document
-as without its original and the new one's files as unknown. It brought nothing back, because
-the bucket was versitygw (the compose file's), which keeps versions but stamps a delete marker
-with the time of the file it deletes, so no listing of it can say what was deleted after a
-moment. MinIO took the lifecycle rule above, and the app's start said "for 33 days (versioning,
-within BACKUP_DAYS (35))". Bringing files back is tested against AWS's documented answers
-(`tests/test_backups.py`); try it on the deployment's own service in the drill before relying
-on it.
+### Recovery targets
+
+What a restore may cost, written down so that the drill can measure it:
+
+- **Recovery point: five minutes of the database, none of the files.** pgBackRest sends each
+  WAL segment to the repository as Postgres fills it, and `archive_timeout = 60` closes a quiet
+  one after a minute, so a server lost with its disk loses the last minute of changes and what
+  the asynchronous push had not sent yet, seconds unless the repository was out of reach; five
+  minutes is that with a margin. A versioned bucket keeps every file deleted or replaced within
+  `BACKUP_DAYS`, so a restore to any moment of that window gets its files back. A directory
+  loses what was written since its last snapshot: snapshot it every five minutes too, or write
+  its own point here. A restore to an earlier moment on purpose, after a mistake or a bug,
+  gives up everything after that moment by choice.
+- **Recovery time: four hours** from the decision to restore to members working again. Its
+  parts, most of which the drill times: a machine for the database, if its own is lost; the
+  restore of the newest full backup and the differential after it, at the speed of the disk and
+  the network; the replay of the WAL since that backup, at most a day of it with a daily
+  differential; the migrations, if the code is newer than the backup; `after-restore`, one
+  listing of every file and of the versions under `orgs/`; and the app's start. When the
+  drill's parts come to more than half the target, take differentials more often (a shorter
+  replay), restore with more processes (`--process-max`), or give the restore a faster disk.
+
+What a restore gives up, the app cannot redo; the members are told (step 6 above): the uploads,
+deletions, moves and shares since the moment, role changes, a changed password or name, recovery
+codes used (they work again) and two-factor sign-in turned on or off, and the audit rows and the
+usage of that time, which then goes unbilled. Everyone signs in again.
+
+### The drill
+
+A backup that was never restored is not known to restore. The deployment drills a restore before
+it opens to anyone, then every month on its own, and keeps what each drill measured.
+
+**Before launch, by hand, on staging**, with a bucket of its own: upload a few documents, write
+down the moment (`date -u '+%Y-%m-%d %H:%M:%S+00'`), upload one more and delete one, and restore
+to the moment as "Restoring" says, timing each step; then check as step 13 of "Checking it"
+says. Next, a minute after a last upload, stop the database's server hard (`kill -9` on the
+postmaster, or remove its data directory), restore to the end of the archive, and look for that
+upload: whether it is there measures the recovery point. The steps' times, with the time it
+takes to get a machine, are the recovery time. Do the same every year, and after any change to
+how the backups are made.
+
+**Every month, on its own, from production's backups**: `deploy/restore-drill.sh` restores the
+newest backup into a scratch directory, starts a throwaway Postgres on it that archives nothing
+and listens on no port, migrates it, and checks it against the live storage with `after-restore
+--dry-run`, which changes neither: every document of the copy must have its original in the
+storage, now or among the earlier versions the bucket keeps. It prints what a real
+`after-restore` would do and how long each part took, and exits with 0 only when the restore is
+whole:
+
+```text
+The database reaches 2026-10-15 10:32:30 UTC (the last transaction its recovery replayed), 4 min 48 s before the restore point.
+It holds 1 organisation, 1 account, 1 project, 2 documents and 0 chats.
+…
+The restore is whole: the storage holds every document's original as it was at 2026-10-15 10:37:19 UTC.
+
+The drill took 11 s: the restore 2 s, the replay 3 s, the schema 2 s, the check 4 s.
+The drill passed.
+```
+
+It runs on a machine apart from the database's, which a drill there would compete with for
+memory and disk, and which a restore must not depend on. That machine needs:
+
+- pgBackRest with production's `pgbackrest.conf`: the repository and its passphrase. The drill
+  only reads the repository, and keeps its copy from ever writing to it (`--archive-mode=off`):
+  a copy that archived would start a timeline there that the next restore to the end of the
+  archive follows.
+- The server binaries of the database's major version with pgvector (`postgresql-17` and
+  `postgresql-17-pgvector` on Debian; `DRILL_PG_BIN` names their directory) and a free disk as
+  large as the database. The copy is not encrypted while the drill runs, so that disk is kept
+  like the database's (`DRILL_DIR`, `/var/tmp/emudoc-drill` by default, removed after).
+- The app's checkout with uv (`DRILL_BACKEND`, or `DRILL_APP` for another way to run its
+  commands) and production's settings without the model keys, which the check does not use,
+  and with the bucket's keys replaced by read-only ones: `s3:ListBucket`, `s3:ListBucketVersions`,
+  `s3:GetBucketVersioning` and `s3:GetLifecycleConfiguration` on the bucket are all it asks for.
+  The script sets `DATABASE_URL` itself, to the copy's socket.
+
+It runs as the user Postgres runs as, from a timer:
+
+```ini
+# /etc/systemd/system/emudoc-restore-drill.service
+[Unit]
+Description=Emudoc restore drill
+# A unit of the deployment's that mails the operator, as for the backups' own timers.
+OnFailure=mail-operator@%n.service
+
+[Service]
+Type=oneshot
+User=postgres
+EnvironmentFile=/etc/emudoc/drill.env
+ExecStart=/opt/emudoc/deploy/restore-drill.sh
+# A large database takes hours to restore and replay; the script gives the replay 6 h
+# (DRILL_RECOVERY_LIMIT).
+TimeoutStartSec=12h
+```
+
+```ini
+# /etc/systemd/system/emudoc-restore-drill.timer
+[Unit]
+Description=Emudoc restore drill, monthly
+
+[Timer]
+OnCalendar=*-*-01 05:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+`systemctl enable --now emudoc-restore-drill.timer`; `systemctl start emudoc-restore-drill`
+runs one at once, and `journalctl -u emudoc-restore-drill` keeps each report. Given a moment
+(`restore-drill.sh "2026-10-14 09:30:00+00"`), it restores to that moment instead, which checks
+that the bucket's versions reach back as far as the database's backups do.
+
+Reading a report:
+
+- The restore point of a drill to the end of the archive is the moment its recovery ended, so
+  "reaches … before the restore point" is how far behind production the archive was: the
+  recovery point it measured. Longer than the target while members were working means the WAL
+  is not reaching the repository, and `pgbackrest --stanza=emudoc check` on the database's
+  machine says why; after a quiet hour it is that hour, and nothing was lost.
+- "It holds …" is to be close to production's own counts at the time.
+- The parts' times go into the drill's record with the date, against the recovery time.
+- A failed drill is a backup that would not have saved the deployment: the restore failed
+  (pgBackRest's error, or the last lines of the copy's server log: "recovery ended before
+  configured recovery target was reached" for a moment newer than the archive), a migration
+  did not run on production's data (the next release would have failed the same way), or the
+  storage lacks a document's original (the bucket's versions do not reach back that far, or the
+  file is gone).
+
+The monthly drill leaves out a bucket lost as a whole (its deletion, or its service's failure),
+which only replication to a second bucket elsewhere survives (point `STORAGE_URL` at the replica
+to drill it); a directory's snapshots, since it reads the live directory; and the app's start
+and what the members see, which the yearly drill on staging covers.
+
+The first drill ran on 2026-10-15, with pgBackRest 2.59 on Postgres 17 and pgvector, the
+encrypted repository above, and MinIO with versioning and the rule above: two uploads, the
+moment, then one upload and one deletion. The script, in a container that could only read the
+repository and with bucket keys allowed only the four permissions above (a write was refused),
+restored to the moment: the copy reached one second before it, held the two documents from
+before it, and would have brought back the deleted one's file. A real restore to the moment
+followed, then `after-restore`, which brought the file back from MinIO's versions: the document
+downloaded with the bytes it was uploaded with, and the one uploaded after the moment was gone.
+With every version of that file removed from the bucket, the drill failed and named the
+document; a moment older than the oldest backup ends it with pgBackRest's "unable to find backup
+set". Its times are a few seconds each for a database of 30 MB and are no measure of
+production's; the drill on staging gives the first. versitygw, the compose file's bucket, stamps
+a delete marker with the time of the file it deletes rather than the time of the delete, so no
+listing of it can say what was deleted after a moment; MinIO and AWS stamp the delete.
 
 ## Logs
 
@@ -743,7 +882,9 @@ before the app would hold it.
 13. The API's and the worker's logs say at start how long the bucket keeps a deleted file,
     within `BACKUP_DAYS`, and `pgbackrest --stanza=emudoc info` says `status: ok` and `cipher:
     aes-256-cbc` with a full backup from the last week and WAL archived up to the last minutes.
-    Before launch, restore both to a moment of a staging copy as "Restoring" says and run
-    `after-restore`: a document deleted after the moment opens again, one uploaded after it is
-    gone from the library, and a browser signed in before the restore is sent to the sign-in
-    page.
+    Before launch, drill a restore on staging as "The drill" says: a document deleted after the
+    moment opens again, one uploaded after it is gone from the library, and a browser signed in
+    before the restore is sent to the sign-in page. `systemctl list-timers
+    emudoc-restore-drill.timer` shows the monthly drill's next run, and its first one, started
+    by hand, ends with "The drill passed.", reaching within five minutes of its end while
+    members work.

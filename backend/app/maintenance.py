@@ -26,6 +26,8 @@ lists the second part and removes it with `--delete`.
 `after-restore` is the step between restoring the database to an earlier point and starting
 the app again (app/restore.py): it brings back the files deleted since from a versioned bucket,
 moves the ids past the storage's, ends every session and records the restore in the audit logs.
+With `--dry-run` it changes nothing and exits 1 when the storage lacks a document's original at
+that point, which makes it the check of the restore drill (deploying.md, "The drill").
 
 `failed-jobs` lists the jobs the worker gave up on, the dead letters (app/deadletters.py), and
 with `--requeue` queues their documents again from the stage they stopped at.
@@ -635,13 +637,21 @@ def main(argv: list[str] | None = None) -> None:
         "deleted since that point, move the ids of organisations, projects and documents past "
         "every id the storage holds, end every session and unused link, record the restore in "
         "each organisation's audit log, and purge again the accounts deleted since. It then "
-        "names the documents whose original the storage lacks. Running it again is safe.",
+        "names the documents whose original the storage lacks. Running it again is safe. With "
+        "--dry-run it changes neither the database nor the storage, says what it would do, and "
+        "exits with 1 when the storage lacks a document's original at that point: the check "
+        "of a restore drill, against a restored copy of the database and the live storage.",
     )
     restore.add_argument(
         "restored_to",
         metavar="TIME",
         type=_moment,
         help="the point the database was restored to, with its zone: '2026-10-15 09:30:00+00'",
+    )
+    restore.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="change nothing; say what would be done and whether the restore is whole",
     )
     failed = commands.add_parser(
         "failed-jobs",
@@ -763,9 +773,11 @@ def main(argv: list[str] | None = None) -> None:
             storage = storage_from_settings(settings)
             check_schema()
             storage.check()
-            restored = after_restore(storage, args.restored_to)
+            restored = after_restore(storage, args.restored_to, dry_run=args.dry_run)
             for line in describe_restore(restored, args.restored_to):
                 print(line)
+            if restored.dry_run and restored.missing:
+                sys.exit(1)
         elif args.command == "failed-jobs":
             check_schema()
             with SessionLocal() as session:
