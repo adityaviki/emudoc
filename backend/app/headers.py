@@ -23,8 +23,10 @@ ALWAYS = {
     "X-Content-Type-Options": "nosniff",
     # `frame-ancestors` below, for the browsers that predate it.
     "X-Frame-Options": "DENY",
-    # The signed bucket URLs are cross-origin: they learn the app's origin, not its paths.
-    "Referrer-Policy": "strict-origin-when-cross-origin",
+    # No request says which page it came from: the library's address holds its search words
+    # (`?q=`), which a Referer would carry into the proxy's log with every call to the API,
+    # and the signed bucket URLs are another origin. Nothing in the app reads a Referer.
+    "Referrer-Policy": "no-referrer",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 }
 

@@ -192,19 +192,65 @@ def test_ocr_sends_the_image_before_the_instruction():
         ),
         (
             [ModelHTTPError(401, "m", {"error": {"message": "bad key"}})],
-            "The API key for m was rejected. The provider said: bad key",
+            r"^The API key for m was rejected.$",
+            False,
+        ),
+        # OpenAI says so with a 401 whose words show part of the key; its code says enough.
+        (
+            [
+                ModelHTTPError(
+                    401,
+                    "m",
+                    {
+                        "error": {
+                            "message": "Incorrect API key provided: sk-proj-****wxyz.",
+                            "type": "invalid_request_error",
+                            "code": "invalid_api_key",
+                        }
+                    },
+                )
+            ],
+            r"^The API key for m was rejected. The provider's error code: "
+            r"invalid_request_error, invalid_api_key.$",
+            False,
+        ),
+        (
+            [ModelHTTPError(402, "m", {"error": {"message": "Insufficient credits", "code": 402}})],
+            r"^The account that pays for m has no credit left.$",
             False,
         ),
         ([ModelHTTPError(403, "m")], "This API key is not allowed to use m.", False),
         ([ModelHTTPError(404, "m")], "The model m was not found", False),
         # The provider, not the request, is the problem: worth asking again in a while.
         (
-            [ModelHTTPError(429, "m", {"message": "Quota exceeded."})],
-            "rate limit .* Quota exceeded.",
+            [ModelHTTPError(429, "m", {"message": "Quota exceeded for org-1234."})],
+            r"^The rate limit for m was reached. Try again shortly.$",
             True,
         ),
-        ([ModelHTTPError(503, "m", "Overloaded.")], r"failed \(503\). .* Overloaded.", True),
-        ([ModelHTTPError(400, "m", "No such field.")], r"failed \(400\). .* No such field.", False),
+        ([ModelHTTPError(503, "m", "Overloaded.")], r"^The request to m failed \(503\).$", True),
+        (
+            [ModelHTTPError(400, "m", "No such field.")],
+            r"^The request to m failed \(400\).$",
+            False,
+        ),
+        # OpenRouter's moderation quotes the text it flagged; the message keeps to the codes.
+        (
+            [
+                ModelHTTPError(
+                    403,
+                    "m",
+                    {
+                        "error": {
+                            "code": 403,
+                            "message": "Your input was flagged",
+                            "metadata": {"flagged_input": "the termination clause says"},
+                        }
+                    },
+                )
+            ],
+            r"^This API key is not allowed to use m.$",
+            False,
+        ),
         ([ModelAPIError("m", "Connection error.")], "Could not reach the provider of m", True),
         # The provider took too long: the SDK's request timed out, which the Anthropic and
         # OpenAI adapters wrap and the Google one lets through as the HTTP library raised it.
@@ -652,13 +698,27 @@ def test_vertex_is_asked_again_when_it_is_overloaded(monkeypatch):
     )
 
 
-def test_gemini_errors_keep_the_api_s_own_words(monkeypatch):
-    error = {"code": 400, "message": "API key not valid.", "status": "INVALID_ARGUMENT"}
+def test_gemini_errors_are_told_by_their_codes(monkeypatch, caplog):
+    # Gemini refuses a wrong key with a 400 whose details name the reason.
+    error = {
+        "code": 400,
+        "message": "API key not valid. Please pass a valid API key.",
+        "status": "INVALID_ARGUMENT",
+        "details": [
+            {"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "API_KEY_INVALID"}
+        ],
+    }
     recorder = Recorder(httpx2.Response(400, json={"error": error}))
     llm = recorded_llm(monkeypatch, recorder, GEMINI)
-    with pytest.raises(LLMError, match=r"failed \(400\). The provider said: API key not valid."):
+    with pytest.raises(LLMError) as raised:
         llm.structured("the document", DocumentAnalysis)
+    assert str(raised.value) == (
+        "The API key for gemini-2.5-flash-lite was rejected. The provider's error code: "
+        "INVALID_ARGUMENT, API_KEY_INVALID."
+    )
     assert len(recorder.requests) == 1
+    # The log says the same, and nothing of the body's words.
+    assert str(raised.value) in caplog.text and "Please pass" not in caplog.text
 
 
 def test_indexing_and_chat_share_one_model(monkeypatch):

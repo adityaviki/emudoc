@@ -20,7 +20,7 @@ EXPECTED = {
     "content-security-policy": POLICY,
     "x-content-type-options": "nosniff",
     "x-frame-options": "DENY",
-    "referrer-policy": "strict-origin-when-cross-origin",
+    "referrer-policy": "no-referrer",
     "permissions-policy": "camera=(), microphone=(), geolocation=()",
 }
 

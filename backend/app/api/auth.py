@@ -599,7 +599,11 @@ def _app_url(request: Request) -> str:
 
 
 def _link(request: Request, page: str, token: str) -> str:
-    return f"{_app_url(request)}{page}?token={quote(token)}"
+    """A one-time link to a page of the frontend, with the token in the fragment: the browser
+    never sends a fragment, so the token reaches neither the access log nor a proxy's, which a
+    query would, and a reset token there signs in within its hour (`useLinkToken` in
+    frontend/src/account/shared.tsx)."""
+    return f"{_app_url(request)}{page}#token={quote(token)}"
 
 
 def _send_verification(session: Session, user: User, request: Request, mailer: Mailer) -> None:

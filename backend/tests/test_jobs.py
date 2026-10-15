@@ -371,7 +371,10 @@ def test_a_crash_outside_the_stages_fails_the_job_and_the_document(
         wait_until(lambda: all_jobs(session)[0].status == "failed")
     finally:
         worker.stop()
-    assert all_jobs(session)[0].last_error == "RuntimeError: the pipeline itself broke"
+    # The operator reads where it broke; the message, which may quote a document, stays out.
+    last_error = all_jobs(session)[0].last_error
+    assert last_error.startswith("RuntimeError at tests/test_jobs.py:")
+    assert last_error.endswith(" in crash") and "broke" not in last_error
     session.refresh(document)
     assert (document.status, document.error) == ("failed", worker_module.CRASHED)
 

@@ -61,7 +61,7 @@ from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.tools import ToolDefinition
 
 from app.config import Settings, model_provider
-from app.errors import AppError
+from app.errors import AppError, provider_codes
 from app.usage import ModelUsage
 
 log = logging.getLogger(__name__)
@@ -91,6 +91,10 @@ TRANSIENT_STATUSES = {408, 429}
 DATA_POLICY = {"data_collection": "deny"}
 # OpenRouter's address when no region is asked for.
 OPENROUTER_URL = "https://openrouter.ai/api/v1"
+# The codes by which providers say the key is wrong (Anthropic, OpenAI, Google's 400) or the
+# account has nothing left to pay with (OpenAI), whatever the status.
+KEY_REJECTED = frozenset({"authentication_error", "invalid_api_key", "API_KEY_INVALID"})
+NO_CREDIT = frozenset({"insufficient_quota"})
 
 # The library greets its first run with a banner; this process keeps its output to its log.
 pydantic_ai.BANNER_ENABLED = False
@@ -130,21 +134,30 @@ OCR_PROMPT = (
 
 
 def describe_error(error: Exception) -> str:
-    """A short message, safe to show a user, for a failed model request."""
+    """A short message for a failed model request, safe to show a user and to log.
+
+    A provider's error is told by its status and the codes in its body (`provider_codes`), not
+    by its words: those may echo what was sent (OpenRouter's moderation quotes the flagged
+    text), show part of the key (OpenAI's 401), or name the platform's account with the
+    provider, and the message reaches the log and the operator's digest as well as the members.
+    """
     if isinstance(error, ModelHTTPError):
         model = error.model_name
-        if error.status_code == 401:
+        status = error.status_code
+        codes = provider_codes(error.body)
+        if status == 401 or KEY_REJECTED & set(codes):
             message = f"The API key for {model} was rejected."
-        elif error.status_code == 403:
+        elif status == 403:
             message = f"This API key is not allowed to use {model}."
-        elif error.status_code == 404:
+        elif status == 404:
             message = f"The model {model} was not found. Check AGENT_MODEL and INDEX_MODEL."
-        elif error.status_code == 429:
+        elif status == 402 or NO_CREDIT & set(codes):
+            message = f"The account that pays for {model} has no credit left."
+        elif status == 429:
             message = f"The rate limit for {model} was reached. Try again shortly."
         else:
-            message = f"The request to {model} failed ({error.status_code})."
-        detail = _provider_message(error.body)
-        return f"{message} The provider said: {detail}" if detail else message
+            message = f"The request to {model} failed ({status})."
+        return f"{message} The provider's error code: {', '.join(codes)}." if codes else message
     if isinstance(error, ContentFilterError):
         return "The model declined to process this content."
     if isinstance(error, UnexpectedModelBehavior):
@@ -158,22 +171,23 @@ def describe_error(error: Exception) -> str:
     return "The model request failed unexpectedly."
 
 
-def _provider_message(body: object) -> str:
-    """The provider's own words from an error body, whose shape differs by provider."""
-    if isinstance(body, dict):
-        error = body.get("error", body)
-        body = error.get("message") if isinstance(error, dict) else error
-    return str(body)[:300] if body else ""
-
-
 def _failure(error: Exception) -> LLMError:
-    """The app's error for a failed request. The cause, which may be long, goes to the log."""
+    """The app's error for a failed request. The log gets the same sentence and the kind of
+    error, and the traceback of an unexpected one without its message (app/logs.py): the
+    message of a malformed reply carries the reply, and a provider's body may echo the request.
+    """
     if isinstance(error, LLMError):
         return error
     expected = isinstance(error, ModelAPIError | UnexpectedModelBehavior | UserError)
     expected = expected or _timed_out(error)
-    log.warning("Model request failed: %.500s", error, exc_info=None if expected else error)
-    return LLMError(describe_error(error), transient=_transient(error))
+    message = describe_error(error)
+    log.warning(
+        "Model request failed (%s): %s",
+        type(error).__name__,
+        message,
+        exc_info=None if expected else error,
+    )
+    return LLMError(message, transient=_transient(error))
 
 
 def _transient(error: Exception) -> bool:

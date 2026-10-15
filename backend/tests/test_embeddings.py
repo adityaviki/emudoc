@@ -27,7 +27,21 @@ def stall(request: httpx.Request) -> httpx.Response:
 @pytest.mark.parametrize(
     ("handler", "expected", "transient"),
     [
-        (lambda request: httpx.Response(503, text="overloaded"), "returned 503: overloaded", True),
+        (lambda request: httpx.Response(503, text="overloaded"), r"^[^:]* returned 503.$", True),
+        # An endpoint's error may quote the passages it was sent: only its codes are kept.
+        (
+            lambda request: httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "message": "Input 'the termination clause says ninety days' is too long",
+                        "type": "invalid_request_error",
+                    }
+                },
+            ),
+            r"^Embedding endpoint returned 400 \(error code invalid_request_error\).$",
+            False,
+        ),
         (lambda request: httpx.Response(429, text="slow down"), "returned 429", True),
         (lambda request: httpx.Response(401, text="bad key"), "returned 401", False),
         (refuse, "unreachable at http://embeddings.", True),

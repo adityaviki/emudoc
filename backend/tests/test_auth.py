@@ -63,7 +63,8 @@ def test_signup_signs_in_and_sends_a_verification_link(client, mailer, signed_in
     ((to, subject, body),) = mailer.sent
     assert to == "ada@example.com" and subject == "Confirm your email address"
     assert "Hi Ada," in body
-    assert mailer.link().startswith("http://testserver/verify?token=")
+    # The token rides in the fragment, which no request carries to a server or its log.
+    assert mailer.link().startswith("http://testserver/verify#token=")
     # The link is opened in a browser that is not signed in.
     token = mailer.token()
     other = another_browser(client)
@@ -193,7 +194,7 @@ def test_a_reset_link_sets_a_new_password_and_signs_out_everywhere(client, maile
     )
     to, subject, _ = mailer.sent[-1]
     assert to == "ada@example.com" and subject == "Reset your password"
-    assert mailer.link().startswith("http://testserver/reset-password?token=")
+    assert mailer.link().startswith("http://testserver/reset-password#token=")
     token = mailer.token()
 
     weak = client.post("/api/auth/password/reset", json={"token": token, "password": "short"})

@@ -121,6 +121,16 @@ as `/etc/caddy/Caddyfile`:
 
 ```caddyfile
 emudoc.example.com {
+    # Caddy keeps no access log without this block; with it, the query is cut from each
+    # address, since it carries a search's words ("Logs" below).
+    log {
+        format filter {
+            wrap json
+            fields {
+                request>uri regexp \?.*$ ?…
+            }
+        }
+    }
     # The upload route alone takes a large body, MAX_UPLOAD_REQUEST_MB (500 by default); the
     # proxy refuses a larger one before the app has read it. Every other request is small.
     @uploads path_regexp ^/api/projects/[0-9]+/documents$
@@ -143,6 +153,10 @@ the ones in the `upstream` block's pool. Its default `proxy_read_timeout` of a m
 enough for an answer's stream, since the app's keep-alive comes every 15 seconds of silence.
 
 ```nginx
+# The path without its query, which carries a search's words ("Logs" below), and no Referer.
+log_format emudoc '$remote_addr - [$time_local] "$request_method $uri $server_protocol" '
+                  '$status $body_bytes_sent $request_time';
+
 upstream emudoc {
     server 127.0.0.1:8000;
     # Connections to the app kept open between requests.
@@ -154,6 +168,7 @@ server {
     server_name emudoc.example.com;
     ssl_certificate     /etc/letsencrypt/live/emudoc.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/emudoc.example.com/privkey.pem;
+    access_log /var/log/nginx/emudoc.log emudoc;
 
     # Every request is small, except an upload: MAX_UPLOAD_REQUEST_MB, 500 by default, on
     # that route alone. The proxy refuses a larger body before the app has read it.
@@ -442,6 +457,39 @@ relay's answer, every address in it replaced by `<address>`. The log mailer of d
 writes every message, links included; production cannot use it, since it requires
 `SMTP_URL`. The worker must run for any of this to happen: an API without one purges nothing.
 
+## Logs
+
+What the app writes to its log never holds what a document says, a question, an answer or a
+key (`backend/app/logs.py`), whatever collects it and however long it is kept:
+
+- The app's own lines name documents, chats, jobs and accounts by id, and say what happened
+  in its own words. Email addresses are hidden too (above).
+- A traceback keeps its frames and the kinds of its exceptions, and drops their messages unless
+  the app wrote them or they are about a connection, since that is where data slips in: a
+  validation error quotes the value it refused, Postgres repeats the row it refused, a
+  malformed model reply is carried in its error. A database error keeps its SQLSTATE and the
+  names of the constraint, table and column; the engine never puts a statement's values in an
+  error (`hide_parameters`). A failed job's `last_error`, which the operator's digest and
+  `failed-jobs` show, is the kind and the line that raised it. To read a message, reproduce the
+  failure where its data may be seen.
+- A provider's error, a model's or the embeddings endpoint's, is told by its status and the
+  codes in its body ("The API key for … was rejected. The provider's error code:
+  INVALID_ARGUMENT, API_KEY_INVALID."), never by its words, which may echo what was sent
+  (OpenRouter's moderation quotes the flagged text), part of the key, or the platform's account
+  with the provider. Members see the same sentence.
+- uvicorn's access log names each request's path and its query's parameters without their
+  values: `GET /api/projects/3/search?q=…&limit=… 200`. A search's words travel in `q`, the
+  provider's one-time sign-in code in `code`.
+- The links in emails carry their token after `#`, which no browser sends, so a reset link in
+  a log signs nobody in; and pages send no `Referer` (`Referrer-Policy: no-referrer`), since the
+  library's address holds its search words and would otherwise ride along with every request.
+
+The proxy keeps a log of its own, and both nginx's default format and Caddy's write whole
+addresses, queries included. The examples above give each one without the query: nginx logs
+`GET /api/projects/3/search`, Caddy `/api/projects/3/search?…`. A load balancer or CDN in
+front needs the same; most log the query unless told not to. The parse child prints the same
+traceback as the app when a parser crashes, which the worker logs.
+
 ## Rates
 
 The app holds each caller to a rate of its own (the `RATE_*` settings in `.env.example`): so
@@ -465,39 +513,41 @@ before the app would hold it.
    limit, and the answer appears as it is written rather than all at once. In the browser's
    network tab the events request stays open across the whole answer, with a `: keep-alive`
    line every 15 seconds while the model thinks, and no second events request follows it.
-4. The browser's developer tools show no "Refused to load" line in the console while you work,
+4. Search the library for a word, then look for it in the API's log and the proxy's: it is in
+   neither, and the search request is logged as `search?q=…` or without its query.
+5. The browser's developer tools show no "Refused to load" line in the console while you work,
    and the response headers of any request carry `Content-Security-Policy` and, over HTTPS,
    `Strict-Transport-Security`. With a bucket, the policy's `img-src` names the bucket's
    origin, which the page images and thumbnails redirect to. "Download original file" on the
    PDF saves it rather than opening the browser's viewer, and its response carries
    `Content-Security-Policy: sandbox` (with a bucket, the signed URL's
    `response-content-disposition` says `attachment` instead).
-5. Sign in with a wrong password until the form says to wait a minute: the eleventh attempt
+6. Sign in with a wrong password until the form says to wait a minute: the eleventh attempt
    does (`RATE_SIGN_INS`), and the API's log line names the email address only by its hash
    (`email:` and 64 hex digits), never as it was typed.
-6. The worker's log says at start which scanner it uses ("Uploads are scanned by ClamAV
+7. The worker's log says at start which scanner it uses ("Uploads are scanned by ClamAV
    1.5.4/…"), with the signature version and date after the slashes. Upload a `.txt` file
    whose whole content is the EICAR test string (any antivirus vendor publishes it; it is
    harmless, and ClamAV flags it only as a file of its own, not inside another): within a
    moment the library shows it quarantined with the verdict `Eicar-Test-Signature`,
    "Download original file" is off, and `ALERT_EMAIL` gets "Emudoc quarantined 1 upload" at the next
    quarter of an hour. Delete it.
-7. Signed out, `https://emudoc.example.com/subprocessors` lists `HOSTING_PROVIDER` first, then
+8. Signed out, `https://emudoc.example.com/subprocessors` lists `HOSTING_PROVIDER` first, then
    the companies behind the models and, with a bucket or a mail relay, theirs: what the
    deployment's privacy notice promises, and nothing it does not.
-8. The API's and the worker's logs say at start "The bucket encrypts every file it keeps at
+9. The API's and the worker's logs say at start "The bucket encrypts every file it keeps at
    rest" (with a bucket), and no line from `app.storage` warns about it. Request a password
    reset: the mail arrives, and the API's log has no line saying the relay "presented a
    certificate this machine does not trust". With a database off the own network, `psql` given
    the same URL without `+psycopg` opens with `SSL connection (protocol: TLSv1.3, …)`, and
    with `sslrootcert` pointed at an authority that did not sign the server's certificate it
    refuses to connect.
-9. With `DATA_REGION` set, the API's and the worker's logs have no line from `app.residency` at
-   start, `/subprocessors` opens with the region and says it under "Where" for the models and
-   the bucket, and the account page says "Data kept in" it. With an `openrouter:` model, the
-   first answer comes back from `eu.openrouter.ai` (or `us.`); a refusal there means the
-   OpenRouter account has no in-region routing.
-10. On the account page, "Download your data" saves `emudoc-account-<date>.json` with your
+10. With `DATA_REGION` set, the API's and the worker's logs have no line from `app.residency` at
+    start, `/subprocessors` opens with the region and says it under "Where" for the models and
+    the bucket, and the account page says "Data kept in" it. With an `openrouter:` model, the
+    first answer comes back from `eu.openrouter.ai` (or `us.`); a refusal there means the
+    OpenRouter account has no in-region routing.
+11. On the account page, "Download your data" saves `emudoc-account-<date>.json` with your
     account, sessions and chats and no password hash. Sign up a throwaway account, delete it
     with its password: the notice arrives by mail, the page offers only to keep it, and signing
     in elsewhere shows the same. Keep it, delete it again, and check after the 14 days (or move

@@ -57,6 +57,7 @@ from app.answers import abandon_answer, run_answer
 from app.config import Settings, get_settings
 from app.db import SessionLocal
 from app.deadletters import alert_failed_jobs
+from app.errors import summary
 from app.indexing.pipeline import (
     Services,
     StageFailure,
@@ -77,6 +78,7 @@ from app.jobs import (
     queue_index,
     release,
 )
+from app.logs import configure_logging
 from app.mail import Mailer, mailer_from_settings
 from app.maintenance import housekeeping
 from app.models import Document, Job
@@ -404,7 +406,8 @@ class Worker:
                     )
                 except Exception as error:
                     log.exception("Job %s (%s) failed", job.id, job.kind)
-                    self._finish(job, "failed", f"{type(error).__name__}: {error}")
+                    # The operator reads it in the digest: the kind and where, as in the log.
+                    self._finish(job, "failed", summary(error))
                 else:
                     self._finish(job, "failed" if given_up else "done", given_up)
         except Exception:
@@ -517,9 +520,7 @@ def main(argv: list[str] | None = None) -> None:
         "under what the deployment allows before it kills the process",
     )
     args = parser.parse_args(argv)
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
+    configure_logging()
     # The schema check sets up a migration context, which announces itself; nothing to act on.
     logging.getLogger("alembic.runtime.migration").setLevel(logging.WARNING)
 

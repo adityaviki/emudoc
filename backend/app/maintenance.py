@@ -51,6 +51,7 @@ from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine
 from app.deadletters import describe, failed_jobs, requeue
 from app.entitlements import PLANS, Entitlements
 from app.jobs import BULK, HISTORY, prune_finished, queue_index_by_id
+from app.logs import configure_logging
 from app.models import PLANS as PLAN_NAMES
 from app.models import Document, Organization
 from app.parsing import MIME_TYPES
@@ -641,7 +642,7 @@ def main(argv: list[str] | None = None) -> None:
         "plan", nargs="?", choices=PLAN_NAMES, help="the plan to put the organisation on"
     )
     args = parser.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    configure_logging("%(levelname)s %(name)s: %(message)s")
     # The schema check sets up a migration context, which announces itself; nothing to act on.
     logging.getLogger("alembic.runtime.migration").setLevel(logging.WARNING)
 

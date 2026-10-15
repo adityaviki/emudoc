@@ -3,10 +3,11 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, auth } from '../api.ts'
 import { setSignedIn } from '../auth.ts'
 import { Button, InputField, Notice } from '../components/ui.tsx'
+import { useLinkToken } from './linkToken.ts'
 import { AuthCard, PasswordField } from './shared.tsx'
 
 const BACK_TO_LOGIN = (
@@ -65,8 +66,7 @@ export function ForgotPasswordPage() {
 export function ResetPasswordPage() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-  const [params] = useSearchParams()
-  const token = params.get('token') ?? ''
+  const token = useLinkToken()
   const [password, setPassword] = useState('')
   const reset = useMutation({
     mutationFn: () => auth.resetPassword({ token, password }),

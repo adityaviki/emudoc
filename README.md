@@ -407,6 +407,14 @@ A chat is kept for the plan's retention after its last question (30 days on Free
 Pro, for good on Team and Enterprise), which the chat list and the account page say; sessions
 and one-time links are removed a month after they ended.
 
+The log holds no document text, question, answer or key (`backend/app/logs.py`): a traceback
+keeps its frames and the kinds of its exceptions but not their messages unless the app wrote
+them, a database error its SQLSTATE and names rather than the row it refused, a provider's error
+its status and codes rather than its words (members see the same), and the access log a query's
+parameter names without their values. The links in emails carry their token after `#`, which
+no browser sends to a server, and pages send no `Referer`. `deploying.md` ("Logs") gives the
+proxy a log format to match.
+
 Each organisation keeps an audit log (`backend/app/audit.py`): its members' sign-ins (and
 failed ones for their accounts), password, two-factor and session changes, exports and
 deletion requests, every upload, download and deletion of a document, folder or project, chats
@@ -435,7 +443,7 @@ Every response carries the headers that tell the browser what a page of the app 
 from the app's own origin only, and images from the storage bucket besides, so an answer cannot
 load an image from an address a document planted in it; `frame-ancestors 'none'` and
 `X-Frame-Options`, so no other site can show the app in a frame; `X-Content-Type-Options:
-nosniff`; `Referrer-Policy: strict-origin-when-cross-origin`; and `Strict-Transport-Security`
+nosniff`; `Referrer-Policy: no-referrer`; and `Strict-Transport-Security`
 over HTTPS and always in production. The policy allows no inline code, which is why the one
 script `index.html` runs before the app, the saved theme, is the file `frontend/public/theme.js`.
 The development server on :5173 sends none of this; the build served on :8000 does.

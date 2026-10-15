@@ -28,11 +28,14 @@ def make_engine(settings: Settings) -> Engine:
     """The engine, with its pool sized by the settings (DB_POOL_SIZE and the two beside it).
 
     `pool_pre_ping` checks a connection as the pool hands it out, so one the database closed
-    while it sat idle is replaced instead of failing the request that got it.
+    while it sat idle is replaced instead of failing the request that got it. `hide_parameters`
+    keeps a statement's values out of the errors it raises, and so out of the log: they are a
+    passage's text, a question, a fact (app/logs.py).
     """
     return create_engine(
         settings.database_url,
         pool_pre_ping=True,
+        hide_parameters=True,
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
         pool_timeout=settings.db_pool_timeout,

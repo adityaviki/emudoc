@@ -28,11 +28,10 @@ import resource
 import signal
 import subprocess
 import sys
-import traceback
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from app.errors import AppError
+from app.errors import AppError, described
 from app.parsing import (
     PARSER_MODULES,
     FileTooLarge,
@@ -53,7 +52,7 @@ KEPT_VARIABLES = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR")
 # How the child ended, beyond 0 for a parsed file and a signal for a killed one.
 REFUSED = 2  # the file is unsupported, over a cap or unreadable; stdout says why
 OUT_OF_MEMORY = 3
-CRASHED = 4  # the parser raised; stdout names the exception, stderr has the traceback
+CRASHED = 4  # the parser raised; stdout names the exception, stderr its traceback sans messages
 # The grace the CPU limit leaves over the time limit, so the parent's clock is the one that
 # normally stops a child and the CPU limit is only for a child whose parent is gone.
 CPU_GRACE = 5
@@ -260,7 +259,9 @@ def main(argv: list[str] | None = None) -> int:
     except (UnsupportedFile, FileTooLarge, UnreadableFile) as error:
         payload, code = {"error": str(error)}, REFUSED
     except Exception as error:
-        traceback.print_exc()
+        # The frames and kinds without the messages, which may quote the file (a cell, a
+        # stream of a PDF): the parent logs what this prints (app/errors.py).
+        print(described(error), file=sys.stderr)
         payload, code = {"error": _name(error)}, CRASHED
     try:
         sys.stdout.buffer.write(json.dumps(payload).encode())

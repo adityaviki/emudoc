@@ -14,6 +14,7 @@ from app.config import ROOT_DIR, get_settings
 from app.db import BUSY, engine
 from app.headers import SecurityHeaders, content_security_policy
 from app.indexing.pipeline import Services
+from app.logs import configure_logging
 from app.mail import Mailer, mailer_from_settings
 from app.schemas import EmbeddingStatus, HealthOut, LLMStatus, StatusOut, SubprocessorsOut
 from app.startup import prepare
@@ -168,5 +169,5 @@ def create_app(
     return app
 
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+configure_logging()
 app = create_app()

@@ -475,7 +475,7 @@ class FakeMailer:
         return re.search(r"https?://\S+", self.sent[index][2]).group()
 
     def token(self, index: int = -1) -> str:
-        return parse_qs(urlsplit(self.link(index)).query)["token"][0]
+        return parse_qs(urlsplit(self.link(index)).fragment)["token"][0]
 
 
 class FakeIdentityProvider:

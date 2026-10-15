@@ -3,7 +3,7 @@
 import httpx
 
 from app.config import Settings
-from app.errors import AppError
+from app.errors import AppError, provider_codes
 
 BATCH_SIZE = 32
 # Passages are far shorter; this only guards the model's context window.
@@ -62,10 +62,13 @@ class Embedder:
             response.raise_for_status()
             data = response.json()["data"]
         except httpx.HTTPStatusError as error:
+            # Told by its status and codes: the body of an endpoint's error may quote the
+            # passages it was sent, and the message reaches the log (app/errors.py).
             status = error.response.status_code
-            detail = error.response.text[:200]
+            codes = provider_codes(_json_or_none(error.response))
+            detail = f" (error code {', '.join(codes)})" if codes else ""
             raise EmbeddingError(
-                f"Embedding endpoint returned {status}: {detail}",
+                f"Embedding endpoint returned {status}{detail}.",
                 transient=status in TRANSIENT_STATUSES or status >= 500,
             ) from error
         except httpx.TimeoutException as error:
@@ -91,3 +94,10 @@ class Embedder:
                 f"is {self.dim}."
             )
         return vectors
+
+
+def _json_or_none(response: httpx.Response) -> object:
+    try:
+        return response.json()
+    except ValueError:
+        return None

@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { UseMutationResult } from '@tanstack/react-query'
 import { useContext, useEffect } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { auth } from '../api.ts'
 import { ME_KEY, MeContext } from '../auth.ts'
 import { Button, Notice, Spinner } from '../components/ui.tsx'
+import { useLinkToken } from './linkToken.ts'
 import { AuthCard } from './shared.tsx'
 
 /**
@@ -16,8 +17,7 @@ export function VerifyPage() {
   const me = useContext(MeContext)
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-  const [params] = useSearchParams()
-  const token = params.get('token') ?? ''
+  const token = useLinkToken()
   const verify = useQuery({
     queryKey: ['verify', token],
     queryFn: () => auth.verifyEmail(token),
