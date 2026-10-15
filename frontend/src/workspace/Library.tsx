@@ -29,7 +29,7 @@ import type { MenuItem } from '../components/Menu.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, Chip, EmptyState, IconButton, Loading, Notice, Spinner } from '../components/ui.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
-import { documentsIn, useFolders, useLocalStorage } from '../hooks.ts'
+import { documentsIn, useFolders, useLocalStorage, useStatus } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
 import { fileKind, originalFileItem } from './files.ts'
 import { useLibraryMutations } from './mutations.ts'
@@ -72,7 +72,7 @@ export function Library() {
   const { folderId, q: query } = workspace.url.library
   const folders = useFolders(project.id)
   const mutations = useLibraryMutations()
-  const health = useQuery({ queryKey: ['status'], queryFn: api.status })
+  const health = useStatus()
   const fileInput = useRef<HTMLInputElement>(null)
   const dragging = useRef<DragPayload | null>(null)
   const [creating, setCreating] = useState(false)

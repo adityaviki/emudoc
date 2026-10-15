@@ -7,6 +7,7 @@ import { IndexingStatus } from '../components/IndexingStatus.tsx'
 import { PipeTable } from '../components/Markdown.tsx'
 import { Chip, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { formatDate, parsePipeTable } from '../format.ts'
+import { useStatus } from '../hooks.ts'
 import { scanPassed } from '../indexing.ts'
 import { describeDocumentUsage } from '../usage.ts'
 import { originalFile } from './files.ts'
@@ -41,7 +42,7 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
     enabled: indexed,
   })
   // For the currency the document's cost is in.
-  const health = useQuery({ queryKey: ['status'], queryFn: api.status })
+  const health = useStatus()
   const usage = describeDocumentUsage(document.usage, health.data?.currency)
   const content = useQuery({
     queryKey: ['content', document.id, status],

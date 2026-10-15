@@ -12,6 +12,15 @@ export function useDocuments(projectId: number) {
   })
 }
 
+/**
+ * Which optional services are usable, for the status line and the panes that depend on them.
+ * The server asks the embedding endpoint at most once a minute, so asking it more often, or
+ * again for every pane that opens, learns nothing.
+ */
+export function useStatus() {
+  return useQuery({ queryKey: ['status'], queryFn: api.status, staleTime: 60_000, refetchInterval: 60_000 })
+}
+
 export function useFolders(projectId: number) {
   return useQuery({ queryKey: ['folders', projectId], queryFn: () => api.folders(projectId) })
 }

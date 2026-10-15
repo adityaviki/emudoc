@@ -96,8 +96,12 @@ MailerDep = Annotated[Mailer, Depends(get_mailer)]
 HttpDep = Annotated[httpx.Client, Depends(get_http)]
 
 
-def refuse_cross_site(request: Request) -> None:
-    """Refuse a change that a page on another site could have made with the user's cookie."""
+async def refuse_cross_site(request: Request) -> None:
+    """Refuse a change that a page on another site could have made with the user's cookie.
+
+    Async, so that it runs on the event loop: a synchronous dependency waits for a thread, and
+    the liveness route (`alive` in app/main.py) must answer while every thread is busy.
+    """
     if request.method not in SAFE_METHODS and SAME_APP_HEADER not in request.headers:
         raise HTTPException(403, CROSS_SITE)
 

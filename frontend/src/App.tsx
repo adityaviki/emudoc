@@ -18,7 +18,7 @@ import { Floating, Menu } from './components/Menu.tsx'
 import type { MenuItem } from './components/Menu.tsx'
 import { ThemeToggle } from './components/ThemeToggle.tsx'
 import { Button, IconButton, Spinner } from './components/ui.tsx'
-import { useLocalStorage } from './hooks.ts'
+import { useLocalStorage, useStatus } from './hooks.ts'
 import { ProjectsPage } from './pages/ProjectsPage.tsx'
 import { LegalPage } from './pages/LegalPage.tsx'
 import { SubprocessorsPage } from './pages/SubprocessorsPage.tsx'
@@ -220,7 +220,7 @@ function VerifyBanner({ me }: { me: Me }) {
 
 /** Shows whether the two optional services, the AI model and embeddings, are usable. */
 function ServiceStatus() {
-  const { data } = useQuery({ queryKey: ['status'], queryFn: api.status, refetchInterval: 60_000 })
+  const { data } = useStatus()
   if (!data) return null
   const items = [
     {

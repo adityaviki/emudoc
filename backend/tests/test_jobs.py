@@ -658,6 +658,65 @@ def test_serve_runs_the_worker_until_told_to_stop(session, services, make_docume
     assert not thread.is_alive()
 
 
+def test_serve_touches_the_alive_file_while_the_worker_runs(
+    session, services, tmp_path, monkeypatch
+):
+    # The worker serves nothing a health check could ask, so the check reads the file's age.
+    monkeypatch.setattr(worker_module, "ALIVE_SECONDS", 0.05)
+    alive = tmp_path / "worker.alive"
+    stopping = threading.Event()
+    thread = threading.Thread(
+        target=serve,
+        args=(services, get_settings(), stopping),
+        kwargs={"grace": 1, "alive": alive},
+        daemon=True,
+    )
+    thread.start()
+    try:
+        wait_until(alive.exists)
+        touched = alive.stat().st_mtime_ns
+        wait_until(lambda: alive.stat().st_mtime_ns > touched)
+    finally:
+        stopping.set()
+    thread.join(timeout=10)
+    assert not thread.is_alive()
+    # Gone with the worker, so that the next one's check waits for it to run.
+    assert not alive.exists()
+
+
+def test_a_worker_whose_thread_ended_stops_to_be_started_again(
+    session, services, tmp_path, monkeypatch, caplog
+):
+    # No thread ends before a stop unless something went wrong that the worker cannot see; a
+    # worker a thread short would claim less or keep no leases, so it stops, and the command
+    # exits with an error for whatever runs it to start a whole one.
+    monkeypatch.setattr(worker_module, "ALIVE_SECONDS", 0.05)
+    monkeypatch.setattr(Worker, "_housekeep", lambda self: None)
+    alive = tmp_path / "worker.alive"
+    stopping = threading.Event()
+    # Should the worker not notice, the test ends instead of waiting for ever.
+    timer = threading.Timer(10, stopping.set)
+    timer.start()
+    try:
+        with caplog.at_level("ERROR", logger="app.worker"):
+            assert serve(services, get_settings(), stopping, grace=1, alive=alive) is False
+    finally:
+        timer.cancel()
+    assert "The worker's housekeeper thread stopped unexpectedly" in caplog.text
+    assert not alive.exists()
+
+
+def test_the_worker_command_refuses_an_alive_file_it_cannot_write(tmp_path):
+    # At once, before it starts anything: a health check that fails while the worker runs
+    # would send the operator looking in the wrong place.
+    alive = tmp_path / "missing" / "worker.alive"
+    with pytest.raises(SystemExit) as refusal:
+        worker_module.main(["--alive-file", str(alive)])
+    assert str(refusal.value) == (
+        f"The --alive-file {alive} cannot be written: No such file or directory."
+    )
+
+
 def read_until(stream, marker: str, timeout: float) -> str:
     """What a process wrote to `stream` up to and including the line that holds `marker`."""
     deadline = time.monotonic() + timeout
@@ -675,18 +734,21 @@ def read_until(stream, marker: str, timeout: float) -> str:
     return output.decode()
 
 
-def test_the_worker_command_starts_and_stops_on_sigterm(session):
+def test_the_worker_command_starts_and_stops_on_sigterm(session, tmp_path):
     # The process a deployment runs: it starts with the same checks as the API (the refusals
-    # are in test_config.py), says when it is running, and SIGTERM stops it cleanly. The queue
-    # is empty here, so the real services it builds are never called.
+    # are in test_config.py), says when it is running, keeps its alive file while it runs, and
+    # SIGTERM stops it cleanly. The queue is empty here, so the real services it builds are
+    # never called.
+    alive = tmp_path / "worker.alive"
     process = subprocess.Popen(
-        [sys.executable, "-m", "app.worker", "--grace", "1"],
+        [sys.executable, "-m", "app.worker", "--grace", "1", "--alive-file", str(alive)],
         cwd=BACKEND_DIR,
         env=dict(os.environ),
         stderr=subprocess.PIPE,
     )
     try:
         output = read_until(process.stderr, "is running", timeout=60)
+        wait_until(alive.exists)
         process.send_signal(signal.SIGTERM)
         _, rest = process.communicate(timeout=30)
         output += rest.decode()
@@ -695,6 +757,7 @@ def test_the_worker_command_starts_and_stops_on_sigterm(session):
     assert process.returncode == 0
     assert "Worker" in output and "stopped" in output
     assert "Traceback" not in output
+    assert not alive.exists()
 
 
 # Retries: a stage that failed because a provider was out of reach runs again after a backoff.

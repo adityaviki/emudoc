@@ -7,12 +7,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 
 from app.api import audit, auth, chats, documents, folders, projects, query
 from app.api.deps import RETRY_AFTER, AccountDep, ServicesDep, SessionDep, refuse_cross_site
 from app.config import ROOT_DIR, get_settings
 from app.db import BUSY, engine
+from app.errors import summary
 from app.headers import SecurityHeaders, content_security_policy
 from app.indexing.pipeline import Services
 from app.legal import TERMS_VERSION, privacy_policy, published, terms_of_service
@@ -35,17 +37,45 @@ log = logging.getLogger(__name__)
 
 FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
 STORAGE_DOWN = "Emudoc could not reach its file storage just now. Try again in a few minutes."
+NOT_READY = "Emudoc cannot serve requests just now. Try again in a few minutes."
 
 system = APIRouter(tags=["system"])
 
 
+# HEAD as well as GET for both probes, which uptime services often send; a route of its own,
+# since one route for both methods gives the schema one operation twice.
+@system.get("/livez", response_model=HealthOut)
+@system.head("/livez", include_in_schema=False)
+async def alive():
+    """Whether the process is alive, for an orchestrator that restarts the ones that are not.
+
+    It touches nothing, not even the database: a database outage would otherwise have every
+    replica restarted at once, which cures nothing and costs each its start. It is async, as
+    is every dependency on the way (`refuse_cross_site`), so it is answered on the event loop
+    and not in the thread pool, which a burst of slow requests can fill for a while without
+    the process being stuck.
+    """
+    return HealthOut(status="ok")
+
+
 @system.get("/health", response_model=HealthOut)
+@system.head("/health", include_in_schema=False)
 def health(session: SessionDep):
-    """Whether the app can serve requests, for load balancers and uptime checks.
+    """Whether the app can serve requests, for load balancers, uptime checks and an
+    orchestrator's readiness probe: a free database connection, and a database that answers.
 
     It says nothing else: this route is public, so it must not reveal how the app is set up.
+    A database that cannot be reached is 503 with one line in the log, not a traceback per
+    probe; a pool with no connection free is 503 too (`pool_exhausted`).
     """
-    session.execute(text("SELECT 1"))
+    try:
+        session.execute(text("SELECT 1"))
+    except DBAPIError as error:
+        # The driver's own error, whose first line says what failed; SQLAlchemy's around it adds
+        # the driver's hint and a link on lines of their own.
+        reason = summary(error.orig or error).splitlines()[0]
+        log.warning("Not ready: the database cannot be reached (%s)", reason)
+        return JSONResponse({"detail": NOT_READY}, status_code=503)
     return HealthOut(status="ok")
 
 
@@ -200,7 +230,8 @@ def create_app(
         # Serve the built frontend; unknown paths fall back to index.html for client routing.
         app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
 
-        @app.get("/{path:path}", include_in_schema=False)
+        # HEAD too, which uptime services often probe the page with.
+        @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
         def spa(path: str):
             if path.startswith("api/"):
                 raise HTTPException(404, "Not found")

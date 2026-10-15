@@ -111,9 +111,9 @@ themselves. A container needs:
   `SSL_CERT_FILE` to the system's bundle, without which the database's driver finds no
   authority at all ("Encryption", below).
 
-`GET /api/health` answers 200 once the API reaches its database, and calls nothing else; the
-image has no curl, so a health check runs Python, as the compose file below does. The worker
-serves nothing to check.
+The image has no curl, so a health check runs Python, as the compose file below does: the
+API's asks `/api/health`, the worker's reads the age of the file it keeps with `--alive-file`
+("Health checks", below).
 
 `deploy/compose.yml` puts it together on one machine: the release step, the API, a worker and
 ClamAV, with the settings in `/etc/emudoc/emudoc.env` (`EMUDOC_ENV` names another file):
@@ -126,7 +126,8 @@ docker compose -f deploy/compose.yml run --rm --no-deps worker python -m app.mai
 ```
 
 `up` runs `alembic upgrade head` first and starts the API and the worker once it has
-succeeded, and `--wait` returns when the API answers its health check. The file gives its
+succeeded, and `--wait` returns once the API answers its health check and the worker keeps
+its alive file. The file gives its
 network a subnet of its own, `10.73.0.0/24`, so that `FORWARDED_ALLOW_IPS` can name the gateway
 (change both if the subnet collides with one the machine reaches), and its project another name
 than the development file's, so one machine can run both. The database, the mail relay, a
@@ -136,6 +137,58 @@ file's values unless they are in single quotes, which a password may need. Where
 says `uv run …`, the image runs the same command through `docker compose … run --rm --no-deps
 worker`: without `--no-deps`, `run` runs the release step first, with whatever image
 `EMUDOC_IMAGE` names.
+
+## Health checks
+
+Two questions, for the API and the worker alike: is the process alive, or stuck and better
+restarted; and is it ready, worth sending requests to. A database outage makes every API
+replica unready but none of them stuck, since a restart cures nothing and costs each its start.
+
+- **`GET /api/livez`**, the API is alive: 200 as long as its event loop runs. It touches
+  nothing, neither the database nor a thread of the pool that the routes run in, which a burst
+  of slow requests can fill for a while.
+- **`GET /api/health`**, the API is ready: 200 once it holds a database connection and the
+  database answers. 503 otherwise: a database it cannot reach logs one line, "Not ready: the
+  database cannot be reached (…)", and a pool with every connection in use says `BUSY`, as
+  any route would. It says nothing else, since it is public. The load balancer, an uptime
+  service and `up --wait` ask this one.
+- Both answer `HEAD` as well as `GET`, and so does the page (`HEAD /`), which uptime services
+  often probe instead.
+- **The worker** serves nothing to ask. Started with `--alive-file PATH`, it touches the file
+  every 10 seconds while every one of its threads runs, and removes it at stop; a check calls
+  it stuck when the file is a minute old, or missing. A thread that ended, which none does by
+  design, stops the worker with exit status 1 ("The worker's housekeeper thread stopped
+  unexpectedly…"), so that whatever runs it starts a whole one. A path the process cannot
+  write in is a refusal to start.
+
+`GET /api/status` is no probe: it is the status line the members see, signed in only, and it
+asks the embeddings endpoint (at most once a minute per process, waiting 10 seconds at most).
+
+Docker restarts nothing for a failing health check. The compose file's checks are what `up
+--wait` waits for and what `ps` shows; what restarts a container is its process exiting, with
+`restart: unless-stopped`. An orchestrator that restarts on a failed liveness check, such as
+Kubernetes, gets one per process:
+
+```yaml
+# The API
+startupProbe:              # the checks at start reach the storage, the scanner and the model
+  httpGet: { path: /api/livez, port: 8000 }
+  periodSeconds: 2
+  failureThreshold: 30
+livenessProbe:
+  httpGet: { path: /api/livez, port: 8000 }
+readinessProbe:
+  httpGet: { path: /api/health, port: 8000 }
+# The worker, started with --alive-file /tmp/worker.alive
+livenessProbe:
+  exec:
+    command:
+      - python
+      - -c
+      - import os, sys, time; sys.exit(time.time() - os.stat('/tmp/worker.alive').st_mtime > 60)
+  initialDelaySeconds: 30
+  periodSeconds: 30
+```
 
 ## TLS at a reverse proxy
 
@@ -937,7 +990,8 @@ before the app would hold it.
 
 1. `curl -sS https://emudoc.example.com/api/health` answers `{"status":"ok"}` and the browser
    shows the certificate. Plain `http://` redirects to it. From the image, `docker compose -f
-   deploy/compose.yml ps -a` shows the release step exited with 0 and the API healthy, and
+   deploy/compose.yml ps -a` shows the release step exited with 0 and the API and the worker
+   healthy, and
    `docker compose … exec api touch /app/x` fails with "Read-only file system".
 2. Sign in. The account page lists the session with your own address, not the proxy's, and
    the API's log has no line saying a request "reached the app as plain HTTP": that line

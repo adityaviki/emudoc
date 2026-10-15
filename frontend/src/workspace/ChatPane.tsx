@@ -26,6 +26,7 @@ import { Markdown, SourceText } from '../components/Markdown.tsx'
 import { Floating } from '../components/Menu.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, IconButton, Loading, Notice, Spinner } from '../components/ui.tsx'
+import { useStatus } from '../hooks.ts'
 import { describeAnswerUsage } from '../usage.ts'
 import { useWorkspace } from './state.ts'
 
@@ -211,7 +212,7 @@ function Conversation({ chatId }: { chatId: number | null }) {
   const workspace = useWorkspace()
   const project = workspace.project
   const queryClient = useQueryClient()
-  const health = useQuery({ queryKey: ['status'], queryFn: api.status })
+  const health = useStatus()
   const chat = useQuery({
     queryKey: chatKey(chatId),
     queryFn: () => api.chat(chatId!).then(loadChat),

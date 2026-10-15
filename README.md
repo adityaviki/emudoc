@@ -158,8 +158,10 @@ In production the API runs no worker. Start `uv run python -m app.worker` (in `b
 process of its own next to the API, as many as the backlog needs: it reads the same settings,
 refuses the same misconfigurations, and claims jobs from the queue in Postgres. Ctrl+C or
 SIGTERM stops it: the jobs it is running get a few seconds to finish (`--grace`, 8 by default,
-under Docker's 10), and the rest are queued again for the next worker to take at once. Without
-any worker, uploads stay queued and questions wait unanswered. `RUN_WORKER=true` runs the
+under Docker's 10), and the rest are queued again for the next worker to take at once. With
+`--alive-file PATH` it keeps a file fresh for a health check while all its threads run, and it
+exits with an error should one of them end, to be started again. Without any worker, uploads
+stay queued and questions wait unanswered. `RUN_WORKER=true` runs the
 worker inside the API process instead, for a small deployment. Putting it on a server, with
 TLS at a reverse proxy in front of uvicorn, is [`deploying.md`](deploying.md).
 
@@ -192,7 +194,8 @@ servers. Port 8000 still serves the last build, so it does not show your edits.
 | Embeddings       | Keyword search, everything else                       | Search by meaning                                 |
 | ClamAV           | Everything; each document says it was not scanned     | Malware scanning of uploads (off by choice only in production) |
 
-The header shows which of the two is available. After adding a key, restart the backend and
+The header shows which of the two is available; the backend asks the embeddings endpoint at
+most once a minute for it, so an endpoint that comes back shows within the minute. After adding a key, restart the backend and
 press "Run the model on them" in the Documents tab to enrich what was indexed without it.
 `DISABLED_PROVIDERS` switches a provider's models off on purpose, with the same effect and the
 reason shown in the header, and the same button enriches what was indexed meanwhile once it is

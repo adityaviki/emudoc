@@ -12,6 +12,11 @@ wakes them all when a job is queued anywhere, so a question is taken the moment 
 In development the API process runs the same threads itself, so that one `uvicorn` does
 everything (RUN_WORKER in app/config.py).
 
+The process watches its own threads: one that ended, which none does by design, stops the
+worker with exit status 1, so that whatever runs it starts a whole one again rather than leave
+it running a thread short. While they all run it touches a file (--alive-file), whose age a
+health check reads, since the worker serves nothing to ask.
+
 A stop is graceful: the threads stop claiming, the jobs they are running get a grace period to
 finish, and the ones that did not finish are handed back to the queue with their lease cleared,
 so that the next worker takes them at once rather than when the lease would have run out.
@@ -50,6 +55,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import partial
+from pathlib import Path
 
 from sqlalchemy import text
 
@@ -112,6 +118,9 @@ ALERT_INTERVAL = 15 * 60.0
 # Under the 10 seconds Docker allows by default before it kills a container; a deployment that
 # allows more can pass more with --grace.
 GRACE = 8.0
+# How often the process checks that its threads are all running and touches the --alive-file;
+# a health check gives it a few rounds before it calls the worker stuck.
+ALIVE_SECONDS = 10.0
 
 CRASHED = "Indexing stopped unexpectedly. Try reprocessing."
 # How many times a stage that failed for a passing reason is run again, and how long the first
@@ -300,6 +309,12 @@ class Worker:
                 "warned when a day's spending nears a limit"
             )
 
+    def stopped_threads(self) -> list[str]:
+        """The names of the threads that ended. Each loops until the worker stops and catches
+        what its work raises, so before a stop this is empty unless something went wrong that
+        the worker cannot see; and a worker a thread short claims less, or keeps no lease."""
+        return [thread.name for thread in self._threads if not thread.is_alive()]
+
     def _spawn(self, target: Callable[[], None], name: str) -> None:
         thread = threading.Thread(target=target, name=name, daemon=True)
         thread.start()
@@ -480,9 +495,19 @@ class Worker:
 
 
 def serve(
-    services: Services, settings: Settings, stopping: threading.Event, grace: float = GRACE
-) -> None:
-    """Run the worker until `stopping` is set, then stop it within `grace` seconds."""
+    services: Services,
+    settings: Settings,
+    stopping: threading.Event,
+    grace: float = GRACE,
+    alive: Path | None = None,
+) -> bool:
+    """Run the worker until `stopping` is set, or until one of its threads ends, then stop it
+    within `grace` seconds. Returns False when a thread ended, for the process to exit with
+    an error.
+
+    Every ALIVE_SECONDS meanwhile, while every thread runs, it touches `alive`, which it
+    removes at the end: a health check calls the worker stuck when the file grows old.
+    """
     worker = Worker(
         services,
         settings.worker_concurrency,
@@ -496,10 +521,36 @@ def serve(
         settings.worker_concurrency,
         settings.answer_concurrency,
     )
-    stopping.wait()
+    whole = True
+    while True:
+        if stopped := worker.stopped_threads():
+            log.error(
+                "The worker's %s %s stopped unexpectedly; the worker stops, to be started again",
+                ", ".join(stopped),
+                "thread" if len(stopped) == 1 else "threads",
+            )
+            whole = False
+            break
+        if alive is not None:
+            _touch(alive)
+        if stopping.wait(ALIVE_SECONDS):
+            break
     log.info("Stopping; the running jobs have %s seconds to finish", grace)
     worker.stop(grace)
+    if alive is not None:
+        alive.unlink(missing_ok=True)
     log.info("Worker %s stopped", worker.id)
+    return whole
+
+
+def _touch(alive: Path) -> None:
+    try:
+        alive.touch()
+    except OSError as error:
+        # The command checked the file at start, so this is a filesystem that filled up or
+        # went away since; the health check reports the worker stuck, which sends the
+        # operator to this line.
+        log.warning("Could not touch the --alive-file %s: %s", alive, error.strerror)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -519,7 +570,24 @@ def main(argv: list[str] | None = None) -> None:
         help="how long the running jobs get to finish at stop (default: %(default)s); keep it "
         "under what the deployment allows before it kills the process",
     )
+    parser.add_argument(
+        "--alive-file",
+        type=Path,
+        metavar="PATH",
+        help=f"a file to touch every {ALIVE_SECONDS:g} seconds while every thread of the worker "
+        "runs, and to remove at stop, for a health check that reads its age",
+    )
     args = parser.parse_args(argv)
+    if args.alive_file is not None:
+        # Before anything starts, so that a path the process cannot write in is a refusal to
+        # start, not a health check that fails while the worker runs. The file is there only
+        # while the worker runs, from the first round of `serve`, so a stale one from a process
+        # that was killed goes too.
+        try:
+            args.alive_file.touch()
+            args.alive_file.unlink()
+        except OSError as error:
+            sys.exit(f"The --alive-file {args.alive_file} cannot be written: {error.strerror}.")
     configure_logging()
     # The schema check sets up a migration context, which announces itself; nothing to act on.
     logging.getLogger("alembic.runtime.migration").setLevel(logging.WARNING)
@@ -532,7 +600,8 @@ def main(argv: list[str] | None = None) -> None:
     stopping = threading.Event()
     for signum in (signal.SIGINT, signal.SIGTERM):
         signal.signal(signum, lambda *_: stopping.set())
-    serve(services, settings, stopping, args.grace)
+    if not serve(services, settings, stopping, args.grace, args.alive_file):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

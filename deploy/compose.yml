@@ -56,6 +56,8 @@ services:
       - 127.0.0.1:8000:8000
     environment:
       FORWARDED_ALLOW_IPS: 10.73.0.1
+    # Ready: it reaches the database (deploying.md, "Health checks"). Docker restarts nothing
+    # for a failing check; it is what `up --wait` waits for and `ps` shows.
     healthcheck:
       test:
         - CMD
@@ -71,10 +73,22 @@ services:
     <<: *app
     # A stop gives the running jobs 8 seconds (--grace) and hands the rest back to the queue,
     # within the 10 Docker waits; raise stop_grace_period with --grace.
-    command: [python, -m, app.worker]
+    command: [python, -m, app.worker, --alive-file, /tmp/worker.alive]
     depends_on:
       migrate:
         condition: service_completed_successfully
+    # It serves nothing to ask: it touches the file every 10 seconds while all its threads run,
+    # and exits, to be restarted, when one has ended. Stuck is a file a minute old, or none.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import os, sys, time; sys.exit(time.time() - os.stat('/tmp/worker.alive').st_mtime > 60)
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
 
   clamav:
     image: clamav/clamav:stable

@@ -1,9 +1,12 @@
 """The embedder's errors: what the endpoint answered, in words, and whether asking again in a
 while may help, which the pipeline reads to run the embed stage again."""
 
+import threading
+
 import httpx
 import pytest
 
+import app.embeddings as embeddings
 from app.config import get_settings
 from app.embeddings import Embedder, EmbeddingError
 
@@ -22,6 +25,11 @@ def refuse(request: httpx.Request) -> httpx.Response:
 
 def stall(request: httpx.Request) -> httpx.Response:
     raise httpx.ReadTimeout("timed out", request=request)
+
+
+def vector(request: httpx.Request) -> httpx.Response:
+    embedding = [0.5] * get_settings().embedding_dim
+    return httpx.Response(200, json={"data": [{"index": 0, "embedding": embedding}]})
 
 
 @pytest.mark.parametrize(
@@ -74,3 +82,66 @@ def test_the_endpoints_address_is_named_without_its_credentials():
         str(error.value)
         == "Embedding endpoint unreachable at https://embeddings.example.com/v1?key=…."
     )
+
+
+# The check behind the status line, which every open tab polls.
+
+
+def test_what_the_check_learnt_is_kept_for_a_minute(monkeypatch):
+    asked: list[httpx.Request] = []
+    endpoint = [refuse]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append(request)
+        return endpoint[0](request)
+
+    checked = embedder(handler)
+    unreachable = "Embedding endpoint unreachable at http://embeddings."
+    assert checked.check() == unreachable
+    endpoint[0] = vector
+    assert checked.check() == unreachable
+    assert len(asked) == 1
+
+    monkeypatch.setattr(embeddings, "CHECK_SECONDS", 0)
+    assert checked.check() is None
+    assert len(asked) == 2
+
+
+def test_threads_that_check_at_once_wait_for_one_request():
+    asked: list[httpx.Request] = []
+    answering = threading.Event()
+    answer = threading.Event()
+
+    def slow(request: httpx.Request) -> httpx.Response:
+        asked.append(request)
+        answering.set()
+        answer.wait(5)
+        return vector(request)
+
+    checked = embedder(slow)
+    problems: list[str | None] = []
+    threads = [threading.Thread(target=lambda: problems.append(checked.check())) for _ in range(5)]
+    for thread in threads:
+        thread.start()
+    assert answering.wait(5)
+    answer.set()
+    for thread in threads:
+        thread.join(5)
+    assert problems == [None] * 5
+    assert len(asked) == 1
+
+
+def test_the_check_waits_ten_seconds_not_two_minutes():
+    # An endpoint stuck for TIMEOUT would hold the status line, and every request waiting for
+    # the check, that long; a single word is answered in well under a second when it works.
+    timeouts: list[float] = []
+
+    def stalled(request: httpx.Request) -> httpx.Response:
+        timeouts.append(request.extensions["timeout"]["read"])
+        return stall(request)
+
+    assert (
+        embedder(stalled).check()
+        == "Embedding endpoint at http://embeddings did not answer within 10 seconds."
+    )
+    assert timeouts == [10]
