@@ -4,6 +4,7 @@ import httpx
 
 from app.config import Settings
 from app.errors import AppError, provider_codes
+from app.logs import bare_url
 
 BATCH_SIZE = 32
 # Passages are far shorter; this only guards the model's context window.
@@ -73,14 +74,15 @@ class Embedder:
             ) from error
         except httpx.TimeoutException as error:
             raise EmbeddingError(
-                f"Embedding endpoint at {self._client.base_url} did not answer within "
-                f"{TIMEOUT} seconds.",
+                f"Embedding endpoint at {bare_url(str(self._client.base_url))} did not answer "
+                f"within {TIMEOUT} seconds.",
                 transient=True,
             ) from error
         except httpx.HTTPError as error:
             # Not reached, or the connection dropped: the endpoint may well be back in a while.
             raise EmbeddingError(
-                f"Embedding endpoint unreachable at {self._client.base_url}.", transient=True
+                f"Embedding endpoint unreachable at {bare_url(str(self._client.base_url))}.",
+                transient=True,
             ) from error
         except (KeyError, ValueError) as error:
             raise EmbeddingError("Embedding endpoint returned an unexpected response.") from error

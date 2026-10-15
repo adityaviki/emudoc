@@ -196,6 +196,17 @@ class Settings(BaseSettings):
     # (app/subprocessors.py): the one subprocessor the settings cannot name themselves.
     # Production refuses it empty, since the published list would leave it out.
     hosting_provider: str = ""
+    # Who runs the deployment, as its terms of service and privacy policy name them
+    # (app/legal/): the company or person with their postal address, and the address people
+    # write to about their account, their data and the terms. Production refuses either empty,
+    # since the privacy policy must say who answers for the data and how to reach them.
+    operator_name: str = ""
+    operator_email: str = ""
+    # How many days the deployment keeps the backups of its database and bucket, zero for
+    # none. The app makes none itself; the privacy policy names this as the outer bound of a
+    # deletion, since a purged account stays in a backup until it expires (app/retention.py
+    # purges it again after a restore). Production refuses it unset, as the policy could not.
+    backup_days: int | None = Field(default=None, ge=0)
     # The region the deployment keeps its documents in, and everything read from them, as a
     # code of REGIONS: eu or us (app/residency.py). Set, the app holds to the region what it
     # can choose itself (Claude's US-only inference, OpenRouter's regional address), checks
@@ -369,7 +380,18 @@ class Settings(BaseSettings):
             raise ValueError("fts_language must be a Postgres text search configuration name")
         return value
 
-    @field_validator("run_worker", mode="before")
+    @field_validator("operator_email")
+    @classmethod
+    def _an_address(cls, value: str) -> str:
+        value = value.strip()
+        if value and ("@" not in value or any(char.isspace() for char in value)):
+            raise ValueError(
+                "OPERATOR_EMAIL is the address people write to about their data, such as "
+                "privacy@example.com"
+            )
+        return value
+
+    @field_validator("run_worker", "backup_days", mode="before")
     @classmethod
     def _blank_means_unset(cls, value: object) -> object:
         # A blank `RUN_WORKER=` line leaves the choice to the environment, like no line at all.
@@ -471,6 +493,22 @@ class Settings(BaseSettings):
                 "HOSTING_PROVIDER is not set, so the subprocessor list the app publishes at "
                 "/subprocessors would leave out who runs its servers and database; name them, "
                 'such as "Hetzner Online GmbH, Germany".'
+            )
+        for variable, value, example in (
+            ("OPERATOR_NAME", self.operator_name, '"Emudoc GmbH, Example Street 1, Berlin"'),
+            ("OPERATOR_EMAIL", self.operator_email, "privacy@example.com"),
+        ):
+            if not value.strip():
+                problems.append(
+                    f"{variable} is not set, so the terms of service and the privacy policy at "
+                    "/terms and /privacy would not say who runs the deployment and how to "
+                    f"reach them; set it, such as {example}."
+                )
+        if self.backup_days is None:
+            problems.append(
+                "BACKUP_DAYS is not set, so the privacy policy at /privacy cannot say how long "
+                "a deleted account stays in the backups; set it to the days the deployment "
+                "keeps backups of its database and bucket, or 0 for none."
             )
         if self.daily_spend_cap and not self.model_prices:
             problems.append(

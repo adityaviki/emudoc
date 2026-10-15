@@ -15,7 +15,7 @@ from starlette.responses import FileResponse, RedirectResponse
 
 from app.config import Settings, get_settings
 from app.indexing.pipeline import Services, process_document, reset_stages
-from app.main import create_app
+from app.main import STORAGE_DOWN, create_app
 from app.storage import (
     SANDBOX,
     URL_LIFETIME,
@@ -178,7 +178,8 @@ def test_the_local_storage_sends_the_file_itself(tmp_path):
     assert isinstance(response, FileResponse)
     assert Path(response.path) == tmp_path / "data" / DOCUMENT / "original.pdf"
     assert response.headers["content-disposition"] == 'attachment; filename="contract.pdf"'
-    assert "cache-control" not in response.headers
+    # What is served is one organisation's, and a browser may be shared: it keeps nothing.
+    assert response.headers["cache-control"] == "no-store"
     # Sent from the app's own origin, the file gets a policy that lets a browser run nothing in
     # it, whether it downloads or is shown.
     assert response.headers["content-security-policy"] == SANDBOX
@@ -189,8 +190,6 @@ def test_the_local_storage_sends_the_file_itself(tmp_path):
     assert shown.headers["content-disposition"] == 'inline; filename="scan.png"'
     assert shown.headers["content-security-policy"] == SANDBOX
 
-    cached = storage.response(f"{DOCUMENT}original.pdf", media_type="image/png", max_age=86400)
-    assert cached.headers["cache-control"] == "private, max-age=86400"
     with pytest.raises(FileNotFoundError):
         storage.response(f"{DOCUMENT}missing.png", media_type="image/png")
 
@@ -213,15 +212,13 @@ def test_the_bucket_redirects_to_a_signed_url():
     # The name is fixed when the URL is signed, in the form browsers read for any alphabet, and
     # so is the download: the bucket's answer is the file, and the app adds no header to it.
     assert signed_disposition(location) == "attachment; filename*=utf-8''Vertrag%20%C3%BC.pdf"
-    assert "cache-control" not in response.headers
+    # Neither the redirect nor the bucket's answer to it is kept by the browser.
+    assert response.headers["cache-control"] == "no-store"
+    assert parse_qs(urlsplit(location).query)["response-cache-control"] == ["no-store"]
     shown = storage.response(
         f"{DOCUMENT}original.png", media_type="image/png", filename="scan.png", inline=True
     )
     assert signed_disposition(shown.headers["location"]) == 'inline; filename="scan.png"'
-
-    # A cached redirect must expire before the URL it leads to does.
-    cached = storage.response(f"{DOCUMENT}pages/1.png", media_type="image/png", max_age=86400)
-    assert cached.headers["cache-control"] == f"private, max-age={URL_LIFETIME - 60}"
 
 
 def signed_disposition(url: str) -> str:
@@ -442,16 +439,18 @@ def test_the_app_works_over_a_bucket(bucket_client, sample_pdf, sample_docx, sam
     assert client.s3.objects == {}
 
 
-def test_a_bucket_that_fails_mid_upload_leaves_no_row(bucket_client, sample_pdf):
+def test_a_bucket_that_fails_mid_upload_leaves_no_row(bucket_client, sample_pdf, caplog):
     client = bucket_client
     project = create_project(client)
     client.s3.buckets.clear()
-    response = client.post(
-        f"/api/projects/{project['id']}/documents",
-        files=[("files", ("msa.pdf", sample_pdf.read_bytes()))],
-    )
-    assert response.status_code == 503
-    assert response.json()["detail"].startswith("The file could not be stored in the bucket")
+    with caplog.at_level("WARNING", logger="app.main"):
+        response = client.post(
+            f"/api/projects/{project['id']}/documents",
+            files=[("files", ("msa.pdf", sample_pdf.read_bytes()))],
+        )
+    # The member is told to try again; what failed, and the bucket's name, are the operator's.
+    assert response.status_code == 503 and response.json()["detail"] == STORAGE_DOWN
+    assert "could not be stored in the bucket (NoSuchBucket" in caplog.text
     client.s3.buckets.add("bucket")
     assert client.get(f"/api/projects/{project['id']}/documents").json() == []
 

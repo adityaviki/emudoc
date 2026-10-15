@@ -72,11 +72,15 @@ class ParseLimits:
     max_rows: int = 100_000  # of one sheet
 
 
-def parse_within_limits(path: Path, filename: str, limits: ParseLimits) -> ParsedDocument:
+def parse_within_limits(
+    path: Path, filename: str, limits: ParseLimits, document_id: int | None = None
+) -> ParsedDocument:
     """Parse the file in a child process that stays within `limits`.
 
     Raises `UnsupportedFile` for an extension nothing parses and `ParseError` when the child was
-    stopped, refused the file or failed; the parse itself is `parse_file`.
+    stopped, refused the file or failed; the parse itself is `parse_file`. The log names the
+    file by `document_id` and its extension, never by its name, which can say what it holds;
+    so does the child's command line, which every user of the machine can read.
     """
     suffix = Path(filename).suffix.lower()
     if suffix not in PARSER_MODULES:
@@ -88,7 +92,7 @@ def parse_within_limits(path: Path, filename: str, limits: ParseLimits) -> Parse
         "-m",
         "app.parsing.limits",
         str(path.absolute()),
-        filename,
+        f"upload{suffix}",
         f"--memory-mb={limits.memory_mb}",
         f"--cpu-seconds={int(limits.timeout) + CPU_GRACE if limits.timeout else 0}",
         f"--max-pages={limits.max_pages}",
@@ -114,7 +118,7 @@ def parse_within_limits(path: Path, filename: str, limits: ParseLimits) -> Parse
         except subprocess.TimeoutExpired:
             child.kill()
             out, err = child.communicate()
-            _log_failure(filename, child.returncode, err)
+            _log_failure(_named(suffix, document_id), child.returncode, err)
             raise ParseError(
                 f"Parsing did not finish within {_duration(limits.timeout)} and was stopped. "
                 "Split the file into smaller parts and upload those."
@@ -123,23 +127,26 @@ def parse_within_limits(path: Path, filename: str, limits: ParseLimits) -> Parse
         if child.poll() is None:
             child.kill()
             child.wait()
-    return _outcome(filename, child.returncode, out, err, limits)
+    return _outcome(_named(suffix, document_id), child.returncode, out, err, limits)
 
 
-def _outcome(
-    filename: str, code: int, out: bytes, err: bytes, limits: ParseLimits
-) -> ParsedDocument:
+def _named(suffix: str, document_id: int | None) -> str:
+    """The file as the log names it: "document 12 (.pdf)"."""
+    return f"document {document_id} ({suffix})" if document_id is not None else f"a {suffix} file"
+
+
+def _outcome(file: str, code: int, out: bytes, err: bytes, limits: ParseLimits) -> ParsedDocument:
     if code == 0:
         try:
             return _decode(json.loads(out))
         except (ValueError, KeyError, TypeError) as error:
-            _log_failure(filename, code, err)
+            _log_failure(file, code, err)
             raise ParseError(
                 "The parser's reply could not be read. Ask support about this file."
             ) from error
     if code == REFUSED:
         raise ParseError(_reported(out, "the file was refused"))
-    _log_failure(filename, code, err)
+    _log_failure(file, code, err)
     if code == CRASHED:
         # A damaged file, mostly; a C library that hits the memory cap can end here too, with
         # its own error rather than a MemoryError, which the log shows.
@@ -198,10 +205,10 @@ def _decode(data: dict) -> ParsedDocument:
     )
 
 
-def _log_failure(filename: str, code: int | None, err: bytes) -> None:
+def _log_failure(file: str, code: int | None, err: bytes) -> None:
     log.warning(
         "Parsing %s in a child process ended with code %s; its stderr: %s",
-        filename,
+        file,
         code,
         err.decode(errors="replace")[-2000:].strip() or "(empty)",
     )
@@ -232,7 +239,9 @@ def main(argv: list[str] | None = None) -> int:
         "process. It prints the parsed document as JSON.",
     )
     parser.add_argument("path", type=Path)
-    parser.add_argument("filename", help="the uploaded name, whose extension picks the parser")
+    parser.add_argument(
+        "filename", help="a name whose extension picks the parser; the parent passes upload.<ext>"
+    )
     parser.add_argument("--memory-mb", type=int, default=0, help="address space; 0 is unlimited")
     parser.add_argument("--cpu-seconds", type=int, default=0, help="0 is unlimited")
     parser.add_argument("--max-pages", type=int, default=0, help="of a PDF; 0 is any number")

@@ -265,7 +265,8 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   instead; the backend then copies nothing from `.env`, and a missing key is reported as one to
   set in the environment. Production also refuses to start, listing what to change, when the
   settings are development's: the `docker compose` database's password, `LOCAL_ACCOUNT=true`,
-  no `STORAGE_URL`, no `APP_URL`, no `SMTP_URL`, no `SCANNER_URL`, no `HOSTING_PROVIDER`, a
+  no `STORAGE_URL`, no `APP_URL`, no `SMTP_URL`, no `SCANNER_URL`, no `HOSTING_PROVIDER`, no
+  `OPERATOR_NAME`, `OPERATOR_EMAIL` or `BACKUP_DAYS`, a
   `google:` model without `GOOGLE_PAID_TIER`, a `DAILY_SPEND_CAP` without `MODEL_PRICES`, no
   key for the model, with `DATA_REGION` a model, a bucket or an embeddings endpoint outside
   the region, or a connection that would carry the documents unencrypted off the deployment's
@@ -278,6 +279,10 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
 - `HOSTING_PROVIDER` names who runs the deployment's servers and database, such as
   `Hetzner Online GmbH, Germany`, for the subprocessor list (Accounts, below): the one entry
   the other settings cannot supply. Production refuses to start without it.
+- `OPERATOR_NAME` and `OPERATOR_EMAIL` say who runs the deployment (the company with its postal
+  address) and where people write about their data, and `BACKUP_DAYS` how long its backups of
+  the database and bucket are kept (0 for none): the terms of service and the privacy policy at
+  `/terms` and `/privacy` name them (Accounts, below). Production refuses to start without them.
 - `DATA_REGION` is the region the deployment keeps its documents in: `eu` (the European Union)
   or `us` (the United States), empty for none. The backend holds to it what it can choose (an
   `openrouter:` model is reached at the region's own address, an `anthropic:` model is told to
@@ -383,11 +388,26 @@ that are signed in and signs any of them out; a forgotten password is reset thro
 email, which signs the account out everywhere. Google and Microsoft accounts sign in through
 OpenID Connect and are linked to an existing account only when both sides have verified the
 address. A visitor without a session is sent to `/login` and returns to the page they wanted.
-Every request that changes something must carry an `X-Requested-With` header, which the app's own
+A session the server stops accepting drops everything the tab had fetched, so whoever signs in
+next in it starts from nothing. Every request that changes something must carry an `X-Requested-With` header, which the app's own
 requests do and a page on another site cannot add, so the cookie alone changes nothing; send the
 header when calling the API by hand. The app answers no request from another origin (there is
 no CORS): the frontend is served from the API's own origin, and the defence rests on that. The
 routes are under `/api/auth`, the pages in `frontend/src/account/`.
+
+Signing up takes a ticked box that accepts the terms of service and the privacy policy, which
+anyone can read at `/terms` and `/privacy` (the sign-in pages and the user menu link to them).
+The backend fills both in from its settings and constants (`backend/app/legal/`, `GET
+/api/legal`): who runs the deployment, where the documents are kept, how long each thing is
+kept on each plan, the two cookies, whether a model provider may learn from what it is sent,
+whether uploads are scanned. The account records the edition it accepted (`TERMS_VERSION`) and
+when, and the audit log records the acceptance. An account made through Google or Microsoft,
+or one that accepted an older edition, sees only a page that asks for the current one, with a
+copy of its data and its deletion as the other ways out; the API refuses it everything else
+with 403. The app sets no analytics or advertising cookies and loads nothing from other sites,
+so it shows no cookie banner. The chat pane says that answers are written by an AI model and
+can be wrong, and a link in an answer shows its address without leading anywhere, since a
+document can steer what the model writes.
 
 The account page also downloads "your data": one JSON file with everything kept about the user
 as a person (the account, how it signs in, its organisations, the sessions of the last month,
@@ -411,8 +431,12 @@ The log holds no document text, question, answer or key (`backend/app/logs.py`):
 keeps its frames and the kinds of its exceptions but not their messages unless the app wrote
 them, a database error its SQLSTATE and names rather than the row it refused, a provider's error
 its status and codes rather than its words (members see the same), and the access log a query's
-parameter names without their values. The links in emails carry their token after `#`, which
-no browser sends to a server, and pages send no `Referer`. `deploying.md` ("Logs") gives the
+parameter names without their values, as does the line httpx writes for each request the app
+sends, without the user and password an address may carry. A failed parse names the document
+by its id. The links in emails carry their token after `#`, which
+no browser sends to a server, and pages send no `Referer`. A refused request (422) says where
+and why, never with the value it refused, so a short password or a link's token does not come
+back in the response. `deploying.md` ("Logs") gives the
 proxy a log format to match.
 
 Each organisation keeps an audit log (`backend/app/audit.py`): its members' sign-ins (and
@@ -444,7 +468,9 @@ from the app's own origin only, and images from the storage bucket besides, so a
 load an image from an address a document planted in it; `frame-ancestors 'none'` and
 `X-Frame-Options`, so no other site can show the app in a frame; `X-Content-Type-Options:
 nosniff`; `Referrer-Policy: no-referrer`; and `Strict-Transport-Security`
-over HTTPS and always in production. The policy allows no inline code, which is why the one
+over HTTPS and always in production. Every answer of the API, the files and page images
+included, carries `Cache-Control: no-store`, and signing out sends `Clear-Site-Data: "cache"`,
+so a shared computer keeps nothing of the account's chats or documents. The policy allows no inline code, which is why the one
 script `index.html` runs before the app, the saved theme, is the file `frontend/public/theme.js`.
 The development server on :5173 sends none of this; the build served on :8000 does.
 

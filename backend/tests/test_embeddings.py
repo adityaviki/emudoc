@@ -58,3 +58,19 @@ def test_endpoint_failures_say_whether_to_ask_again(handler, expected, transient
     with pytest.raises(EmbeddingError, match=expected) as error:
         embedder(handler).embed_query("ping")
     assert error.value.transient is transient
+
+
+def test_the_endpoints_address_is_named_without_its_credentials():
+    # The message is logged and shown on the status line; a user and password in
+    # EMBEDDING_BASE_URL stay out of both.
+    embedder = Embedder(get_settings())
+    embedder._client = httpx.Client(
+        base_url="https://bob:s3cret@embeddings.example.com/v1?key=k3y",
+        transport=httpx.MockTransport(refuse),
+    )
+    with pytest.raises(EmbeddingError) as error:
+        embedder.embed_query("ping")
+    assert (
+        str(error.value)
+        == "Embedding endpoint unreachable at https://embeddings.example.com/v1?key=…."
+    )

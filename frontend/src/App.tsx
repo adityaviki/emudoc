@@ -4,6 +4,7 @@ import { useContext, useEffect, useRef, useState } from 'react'
 import { Link, Navigate, Outlet, Route, Routes, useLocation, useMatch, useNavigate } from 'react-router'
 import { AccountPage } from './account/AccountPage.tsx'
 import { DeletionPending } from './account/DeletionPending.tsx'
+import { TermsPending } from './account/TermsPending.tsx'
 import { LoginPage } from './account/LoginPage.tsx'
 import { ForgotPasswordPage, ResetPasswordPage } from './account/PasswordPages.tsx'
 import { SignupPage } from './account/SignupPage.tsx'
@@ -12,13 +13,14 @@ import { VerifyPage } from './account/VerifyPage.tsx'
 import { AuthLayout } from './account/shared.tsx'
 import { api, auth, handleUnauthorized } from './api.ts'
 import type { Me } from './api.ts'
-import { MeContext, loginPath, setSignedIn, useMeQuery } from './auth.ts'
+import { MeContext, forgetUser, loginPath, useMeQuery } from './auth.ts'
 import { Floating, Menu } from './components/Menu.tsx'
 import type { MenuItem } from './components/Menu.tsx'
 import { ThemeToggle } from './components/ThemeToggle.tsx'
 import { Button, IconButton, Spinner } from './components/ui.tsx'
 import { useLocalStorage } from './hooks.ts'
 import { ProjectsPage } from './pages/ProjectsPage.tsx'
+import { LegalPage } from './pages/LegalPage.tsx'
 import { SubprocessorsPage } from './pages/SubprocessorsPage.tsx'
 import { Workspace } from './pages/Workspace.tsx'
 
@@ -30,9 +32,10 @@ function App() {
   const me = useMeQuery()
   const queryClient = useQueryClient()
 
-  // A session the server stopped accepting: forget the user, and the shell leaves for sign-in.
+  // A session the server stopped accepting: forget the user and what was fetched for them, and
+  // the shell leaves for sign-in.
   useEffect(() => {
-    handleUnauthorized(() => setSignedIn(queryClient, null))
+    handleUnauthorized(() => forgetUser(queryClient))
     return () => handleUnauthorized(null)
   }, [queryClient])
 
@@ -67,6 +70,8 @@ function App() {
           <Route path="reset-password" element={<ResetPasswordPage />} />
           <Route path="verify" element={<VerifyPage />} />
           <Route path="subprocessors" element={<SubprocessorsPage />} />
+          <Route path="terms" element={<LegalPage document="terms" />} />
+          <Route path="privacy" element={<LegalPage document="privacy" />} />
         </Route>
         <Route element={<Shell />}>
           <Route index element={<ProjectsPage />} />
@@ -81,13 +86,15 @@ function App() {
 
 /**
  * The header and the page below it, for a signed-in user only; an account set to be deleted
- * sees only the way to keep it, since the server refuses it everything else.
+ * sees only the way to keep it, and one that has not accepted the current terms only the way
+ * to accept them, since the server refuses either everything else.
  */
 function Shell() {
   const me = useContext(MeContext)
   const location = useLocation()
   if (!me) return <Navigate to={loginPath(location.pathname + location.search)} replace />
   if (me.deletion_due_at) return <DeletionPending me={me} />
+  if (me.terms_due) return <TermsPending me={me} />
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden">

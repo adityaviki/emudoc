@@ -73,6 +73,10 @@ _RENDERED = re.compile(r"orgs/\d+/projects/\d+/documents/\d+/(pages/\d+|thumbnai
 SANDBOX = "sandbox"
 
 
+# What a browser may keep of a file the app hands out, or of the redirect to one: nothing.
+NOT_KEPT = {"Cache-Control": "no-store"}
+
+
 class StorageError(AppError):
     """The storage could not do what was asked, said in words the user or operator can act on."""
 
@@ -205,21 +209,20 @@ class Storage(ABC):
         media_type: str,
         filename: str | None = None,
         inline: bool = False,
-        max_age: int | None = None,
     ) -> Response:
         """Hand the object to the browser, once the route has checked who asks: named by
         `filename` as a download, or `inline` for a file the page shows itself.
 
         A storage that signs URLs gets a redirect to one, so the bytes never pass through the
-        app. The redirect may be cached, but for less time than the URL it leads to stays
-        valid, so a cached redirect never leads to an expired URL.
+        app. Neither the file nor the redirect is kept by the browser (`NOT_KEPT`): what is
+        served belongs to one organisation, and a browser shared by several people would
+        otherwise show the next one, without asking the app, what the last one opened.
         """
         url = self.presigned_url(key, content_type=media_type, filename=filename, inline=inline)
         if url is None:
-            headers = _file_headers(filename, inline, max_age)
+            headers = _file_headers(filename, inline)
             return Response(self.get(key), media_type=media_type, headers=headers)
-        max_age = min(max_age, URL_LIFETIME - 60) if max_age else None
-        return RedirectResponse(url, status_code=307, headers=_cache_headers(max_age))
+        return RedirectResponse(url, status_code=307, headers=NOT_KEPT)
 
     def discard(self, *prefixes: str) -> None:
         """Delete what rows that are already gone owned.
@@ -235,14 +238,9 @@ class Storage(ABC):
                 log.warning("Could not delete the objects under %s: %s", prefix, error)
 
 
-def _cache_headers(max_age: int | None) -> dict[str, str]:
-    # What is served belongs to one organisation, so only the browser that asked may keep it.
-    return {"Cache-Control": f"private, max-age={max_age}"} if max_age else {}
-
-
-def _file_headers(filename: str | None, inline: bool, max_age: int | None) -> dict[str, str]:
+def _file_headers(filename: str | None, inline: bool) -> dict[str, str]:
     """The headers of a file the app sends from its own origin."""
-    headers = {"Content-Security-Policy": SANDBOX, **_cache_headers(max_age)}
+    headers = {"Content-Security-Policy": SANDBOX, **NOT_KEPT}
     if filename:
         headers["Content-Disposition"] = content_disposition(filename, inline=inline)
     return headers
@@ -333,14 +331,11 @@ class LocalStorage(Storage):
         media_type: str,
         filename: str | None = None,
         inline: bool = False,
-        max_age: int | None = None,
     ) -> Response:
         path = self._path(key)
         if not path.is_file():
             raise FileNotFoundError(key)
-        return FileResponse(
-            path, media_type=media_type, headers=_file_headers(filename, inline, max_age)
-        )
+        return FileResponse(path, media_type=media_type, headers=_file_headers(filename, inline))
 
     def list(self, prefix: str) -> Iterator[StoredObject]:
         folder = self._path(_folder(prefix))
@@ -553,6 +548,7 @@ class S3Storage(Storage):
             "Bucket": self.bucket,
             "Key": self._key(key),
             "ResponseContentType": content_type,
+            "ResponseCacheControl": NOT_KEPT["Cache-Control"],
         }
         if filename:
             params["ResponseContentDisposition"] = content_disposition(filename, inline=inline)

@@ -63,7 +63,7 @@ EVENT_POLL_SECONDS = 0.1
 # so the connection outlives the model's thinking and the client never has to follow again
 # for a silence alone.
 SSE_KEEPALIVE_SECONDS = 15.0
-SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+SSE_HEADERS = {"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
 
 
 @router.get("/projects/{project_id}/chats", response_model=list[ChatOut])

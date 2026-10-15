@@ -278,6 +278,22 @@ export interface Me {
   has_password: boolean
   /** When the account will be deleted, if its user asked; until then the app offers only to keep it. */
   deletion_due_at: string | null
+  /** The edition of the terms of service and privacy policy the user accepted, and when. */
+  terms_version: string | null
+  terms_accepted_at: string | null
+  /** Whether the current edition waits to be accepted; until then the app offers only that, a copy of the data, and leaving. */
+  terms_due: boolean
+}
+
+/** The /terms and /privacy pages (backend/app/legal/), filled in from the deployment's settings. */
+export interface Legal {
+  /** The current edition, which the sign-up form and the acceptance page send back. */
+  version: string
+  /** Its date in words, "15 October 2026". */
+  published: string
+  /** The two documents, as Markdown. */
+  terms: string
+  privacy: string
 }
 
 export interface OAuthProvider {
@@ -315,6 +331,7 @@ export type AuditAction =
   | 'mfa_enabled'
   | 'mfa_disabled'
   | 'account_exported'
+  | 'terms_accepted'
   | 'account_deletion_requested'
   | 'account_deletion_cancelled'
   | 'account_purged'
@@ -435,8 +452,11 @@ export const auth = {
     return response.json()
   },
   options: () => request<{ providers: OAuthProvider[] }>('/auth/options'),
-  signup: (body: { email: string; name: string; password: string }) =>
+  /** `terms_version` is the edition the form showed and its user accepted. */
+  signup: (body: { email: string; name: string; password: string; terms_version: string }) =>
     request<Me>('/auth/signup', json('POST', body)),
+  /** Accept the edition the page showed; a 409 says it changed meanwhile. */
+  acceptTerms: (version: string) => request<Me>('/auth/terms', json('POST', { version })),
   /** With two-factor on, the session grants nothing until `verifyMfa` succeeds. */
   login: (body: { email: string; password: string }) =>
     request<{ mfa_required: boolean }>('/auth/login', json('POST', body)),
@@ -484,6 +504,8 @@ export const api = {
   status: () => request<SystemStatus>('/status'),
   /** Public: answers without a session. */
   subprocessors: () => request<Subprocessors>('/subprocessors'),
+  /** Public: the terms of service and privacy policy. */
+  legal: () => request<Legal>('/legal'),
   /** Owners and admins only; anyone else gets a 403. */
   audit: (before: number | null = null, limit = 50) => {
     const params = new URLSearchParams({ limit: String(limit) })

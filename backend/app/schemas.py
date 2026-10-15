@@ -281,6 +281,15 @@ class SignupIn(BaseModel):
     email: Email
     name: str = Field("", max_length=200)
     password: Password
+    # The edition of the terms of service and privacy policy the form showed and the person
+    # ticked (TERMS_VERSION, app/legal/); an account is made only when it is the current one.
+    terms_version: str | None = Field(None, max_length=40)
+
+
+class TermsIn(BaseModel):
+    """The edition of the terms the user read and accepts, which must be the current one."""
+
+    version: str = Field(max_length=40)
 
 
 class LoginIn(BaseModel):
@@ -372,6 +381,12 @@ class MeOut(BaseModel):
     # When the account will be purged, if its user asked for it to be deleted
     # (app/retention.py); until then the app offers nothing but keeping it.
     deletion_due_at: dt.datetime | None
+    # The edition of the terms of service and privacy policy the user accepted and when
+    # (app/legal/), and whether the current edition still waits for them: until it is
+    # accepted, the app offers nothing but accepting it, a copy of the data, and leaving.
+    terms_version: str | None
+    terms_accepted_at: dt.datetime | None
+    terms_due: bool
 
 
 class SessionOut(BaseModel):
@@ -462,6 +477,16 @@ class SubprocessorsOut(BaseModel):
     subprocessors: list[SubprocessorOut]
 
 
+class LegalOut(BaseModel):
+    """The /terms and /privacy pages (app/legal/): the current edition, its date in words, and
+    the two documents as Markdown, filled in from the deployment's settings."""
+
+    version: str
+    published: str
+    terms: str
+    privacy: str
+
+
 class HealthOut(BaseModel):
     status: Literal["ok"]
 
@@ -482,6 +507,8 @@ class ExportedAccount(BaseModel):
     created_at: dt.datetime
     email_verified_at: dt.datetime | None
     two_factor_enabled_at: dt.datetime | None
+    terms_version: str | None
+    terms_accepted_at: dt.datetime | None
     deletion_due_at: dt.datetime | None
     sign_in_providers: list[ExportedIdentity]
 

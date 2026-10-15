@@ -37,11 +37,14 @@ processes below run from a checkout with `uv`, as in development.
 - **A region**, if the deployment promises one: `DATA_REGION=eu` or `us` holds the models, the
   bucket and the embeddings to it, and every server and database must be in it too: "Keeping
   the data in one region", below.
+- **The operator's word** for the terms of service and the privacy policy: `OPERATOR_NAME`,
+  `OPERATOR_EMAIL` and `BACKUP_DAYS`: "Terms of service and privacy policy", below.
 
 The settings arrive through the process environment or a secret manager, never a `.env` file:
 `ENVIRONMENT=production` makes the app copy nothing from one, and makes it refuse to start with
 development's conveniences (the compose database's password, `LOCAL_ACCOUNT=true`, no
-`STORAGE_URL`, `APP_URL`, `SMTP_URL`, `SCANNER_URL` or `HOSTING_PROVIDER`, a free-tier
+`STORAGE_URL`, `APP_URL`, `SMTP_URL`, `SCANNER_URL`, `HOSTING_PROVIDER`, `OPERATOR_NAME`,
+`OPERATOR_EMAIL` or `BACKUP_DAYS`, a free-tier
 Gemini key, no key for the model, with `DATA_REGION` anything outside the region, and a
 connection that would carry the documents unencrypted off the deployment's own network),
 naming each.
@@ -415,6 +418,38 @@ a host the app does not recognise is listed by its name, so an operator's own se
 public name appears there too. A company the app sends nothing to, such as a support desk,
 belongs on the operator's own legal pages, beside a link to this one.
 
+## Terms of service and privacy policy
+
+The app publishes both at `/terms` and `/privacy`, pages anyone can open (`GET /api/legal` is
+the same as JSON), and a new account accepts them with a ticked box at sign-up. They are
+Markdown templates in `backend/app/legal/`, filled in from the settings as they are served:
+who runs the deployment (`OPERATOR_NAME`, the company with its postal address, and
+`OPERATOR_EMAIL`, where people write about their data), where the documents are kept
+(`DATA_REGION`), how long each thing is kept on each plan, the two cookies, whether uploads are
+scanned (`SCANNER_URL`), whether a model provider may learn from what it is sent (a `google:`
+model without `GOOGLE_PAID_TIER` is said to be on Google's free tier), and how long a deleted
+account stays in the backups (`BACKUP_DAYS`, the days the deployment keeps its database and
+bucket backups, 0 for none; the app makes none itself, 1.4). Production refuses to start
+without the three. The texts are a starting point: have counsel read them for the operator's
+country and customers before launch, and edit the templates rather than writing pages beside
+them, so the facts keep coming from the settings.
+
+Each account records the edition it accepted (`TERMS_VERSION` in `backend/app/legal/__init__.py`)
+and when; the audit log records the acceptance with the client's address. A change that every
+user should accept moves `TERMS_VERSION` to the day it takes effect: from the next deployment,
+every account sees only a page that asks for the new edition (or offers its data and its
+deletion), and the API refuses it everything else. `tests/test_legal.py` fails on any change to
+the templates until that decision has been made, either way. An account made through Google or
+Microsoft has accepted nothing at first and sees the same page.
+
+The terms promise the organisations two things the app cannot do by itself: their owners are
+told by email before a subprocessor is added or replaced, so mail them before changing a
+setting that changes the list at `/subprocessors` (a model provider, the bucket, the mail relay,
+the embeddings endpoint, `HOSTING_PROVIDER`); and a breach that affects their data is reported
+to them without undue delay. The app sets only the two cookies the policy names, both needed
+for it to work, and loads nothing from other sites, so it shows no cookie banner; anything that
+adds an analytics or tracking cookie needs one, and a line in the policy.
+
 ## Retention and deletion
 
 What the app removes on its own, in the worker's housekeeping round (a minute after start, then
@@ -442,7 +477,7 @@ every six hours), and so what the privacy notice can promise:
   log names accounts by id only.
 
 Backups (and a bucket's object versions) keep a purged account until they expire, so the
-privacy notice names that window as the outer bound of a deletion. A restore must not bring the
+privacy policy names that window, `BACKUP_DAYS`, as the outer bound of a deletion. A restore must not bring the
 account back, so each purge leaves a record in the storage, `erasures/users/<id>-<created>.json`,
 naming the account by its id and creation time and nothing else, and the first housekeeping
 round after a restore purges again every account that is back (the worker's log says "Accounts
@@ -483,6 +518,16 @@ key (`backend/app/logs.py`), whatever collects it and however long it is kept:
 - The links in emails carry their token after `#`, which no browser sends, so a reset link in
   a log signs nobody in; and pages send no `Referer` (`Referrer-Policy: no-referrer`), since the
   library's address holds its search words and would otherwise ride along with every request.
+- The line httpx writes for each request the app sends (to a model, the embeddings endpoint, an
+  OAuth provider) names the address without the user and password it may carry and without
+  its query's values, and the embeddings endpoint's errors name it the same way.
+- A parse that fails names the document by its id and extension ("document 12 (.pdf)"), and the
+  parse child's command line carries no file name, since `ps` shows it to every user of the
+  machine.
+- A request the API refuses as malformed (422) is answered with where and why, never the value,
+  so a password that is too short or a reset link's token does not come back in the response
+  for a proxy or an APM tool to record. A storage failure answers members with a sentence to try
+  again and logs what failed, with the directory or bucket.
 
 The proxy keeps a log of its own, and both nginx's default format and Caddy's write whole
 addresses, queries included. The examples above give each one without the query: nginx logs
@@ -554,3 +599,8 @@ before the app would hold it.
     `users.deletion_due_at` into the past and wait for a housekeeping round) that signing in
     with it fails, the worker's log says "Deleted account", and the bucket or directory holds
     its record under `erasures/users/`.
+12. Signed out, `/terms` and `/privacy` name `OPERATOR_NAME` and `OPERATOR_EMAIL`, and the
+    privacy policy says `BACKUP_DAYS`, the region and whether uploads are scanned as the
+    deployment has them. Sign up a throwaway account: the box must be ticked, and the account
+    page says when the terms were accepted. Any `/api` response carries `Cache-Control:
+    no-store`, and signing out answers with `Clear-Site-Data: "cache"`.

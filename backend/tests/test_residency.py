@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from app.accounts import create_account
 from app.config import Settings, get_settings
+from app.legal import TERMS_VERSION
 from app.main import create_app
 from app.models import Organization
 from app.residency import check_residency, model_place, residency_problems
@@ -268,7 +269,12 @@ def test_an_organisation_records_the_region_it_was_created_in(session, client, m
     monkeypatch.setattr(get_settings(), "data_region", "eu")
     response = client.post(
         "/api/auth/signup",
-        json={"email": "ada@example.com", "password": "correct horse battery", "name": "Ada"},
+        json={
+            "email": "ada@example.com",
+            "password": "correct horse battery",
+            "name": "Ada",
+            "terms_version": TERMS_VERSION,
+        },
     )
     assert response.status_code == 201, response.text
     # The member is shown the region their organisation's data is kept in.

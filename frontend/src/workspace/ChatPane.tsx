@@ -297,8 +297,9 @@ function Conversation({ chatId }: { chatId: number | null }) {
               </div>
               <p className="text-base font-semibold tracking-tight">Ask about the documents in {project.name}</p>
               <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
-                Answers are read from the documents and cite the passages they rely on. Citations open
-                the document in the library.
+                Answers are written by an AI model from the documents, and cite the passages they rely on;
+                citations open the document in the library. A model can misread a document or miss a passage,
+                so check the cited passages before you rely on an answer.
               </p>
               <div className="mt-6 flex flex-col gap-2 text-left">
                 {SUGGESTIONS.map((suggestion) => (
@@ -364,7 +365,8 @@ function Conversation({ chatId }: { chatId: number | null }) {
             )}
           </div>
           <p className="mt-2 text-center text-[11px] text-muted/80">
-            Enter to send · Shift+Enter for a new line
+            Answers are written by AI and can be wrong: check the cited passages · Enter to send · Shift+Enter for a
+            new line
           </p>
         </div>
       </div>

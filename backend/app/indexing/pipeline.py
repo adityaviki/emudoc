@@ -344,7 +344,7 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
     # The parsers and the page renderer open files by path, so a remote original is copied to
     # this machine for the stage; the local storage hands out the file itself.
     with services.storage.localize(document.storage_key) as path:
-        parsed = parse_within_limits(path, document.filename, _parse_limits())
+        parsed = parse_within_limits(path, document.filename, _parse_limits(), document.id)
         # The pages are a measure of the upload, counted when the first parse learns how many
         # there are; a parse run again for "Index again" brings nothing new in. The plan's
         # month is checked before a scan is read, since reading it costs model calls.

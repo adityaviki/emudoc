@@ -72,6 +72,7 @@ AUDIT_ACTIONS = (
     "mfa_enabled",
     "mfa_disabled",
     "account_exported",
+    "terms_accepted",
     "account_deletion_requested",
     "account_deletion_cancelled",
     "account_purged",
@@ -125,6 +126,12 @@ class User(Base):
     # its user asks for it to be deleted, cleared if they keep it before then. While it is
     # set, the account can do nothing but keep itself, export its data and sign out.
     deletion_due_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    # The version of the terms of service and privacy policy the user accepted, and when
+    # (app/legal/). Null until they accept; a version other than TERMS_VERSION, after the
+    # terms changed, is asked again, and until then the account can do nothing but accept,
+    # export its data, delete itself and sign out.
+    terms_version: Mapped[str | None] = mapped_column(String(40))
+    terms_accepted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

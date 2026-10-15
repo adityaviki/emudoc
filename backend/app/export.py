@@ -39,13 +39,13 @@ from app.schemas import (
 )
 
 ABOUT = (
-    "What Emudoc keeps about you: your account, how you sign in, the organisations you belong "
-    "to, the browsers and devices you signed in from in the last month, the chats you started "
-    "with every question and answer, the usage counted to you, and what the audit logs of "
-    "your organisations recorded you doing. Answers cite passages of documents as "
-    "[P<number>]. The documents themselves are not in this file: they belong to the "
-    "organisation that holds them. Your password and recovery codes are kept only as hashes, "
-    "and they and your authenticator secret are left out."
+    "What Emudoc keeps about you: your account and the edition of the terms you accepted, how "
+    "you sign in, the organisations you belong to, the browsers and devices you signed in from "
+    "in the last month, the chats you started with every question and answer, the usage "
+    "counted to you, and what the audit logs of your organisations recorded you doing. Answers "
+    "cite passages of documents as [P<number>]. The documents themselves are not in this file: "
+    "they belong to the organisation that holds them. Your password and recovery codes are "
+    "kept only as hashes, and they and your authenticator secret are left out."
 )
 
 
@@ -91,6 +91,8 @@ def account_export(session: Session, user: User) -> AccountExport:
             created_at=user.created_at,
             email_verified_at=user.email_verified_at,
             two_factor_enabled_at=user.totp_enabled_at,
+            terms_version=user.terms_version,
+            terms_accepted_at=user.terms_accepted_at,
             deletion_due_at=user.deletion_due_at,
             sign_in_providers=[
                 ExportedIdentity(provider=row.provider, email=row.email, linked_at=row.created_at)

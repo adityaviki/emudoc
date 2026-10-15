@@ -142,6 +142,9 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "RUN_WORKER",
         "GOOGLE_PAID_TIER",
         "HOSTING_PROVIDER",
+        "OPERATOR_NAME",
+        "OPERATOR_EMAIL",
+        "BACKUP_DAYS",
     ):
         monkeypatch.delenv(name, raising=False)
     return {
@@ -154,6 +157,9 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "scanner_url": "clamd://clamav:3310",
         "google_paid_tier": True,
         "hosting_provider": "Hetzner Online GmbH, Germany",
+        "operator_name": "Emudoc GmbH, Example Street 1, 10115 Berlin, Germany",
+        "operator_email": "privacy@emudoc.example.com",
+        "backup_days": 35,
     }
 
 
@@ -172,6 +178,9 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         "scanner_url",
         "google_paid_tier",
         "hosting_provider",
+        "operator_name",
+        "operator_email",
+        "backup_days",
     ):
         del deployment[name]
     deployment["database_url"] = WITH_THE_DEVELOPMENT_PASSWORD
@@ -190,6 +199,9 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         "SCANNER_URL",
         "GOOGLE_PAID_TIER",
         "HOSTING_PROVIDER",
+        "OPERATOR_NAME",
+        "OPERATOR_EMAIL",
+        "BACKUP_DAYS",
     ):
         assert variable in message
     # Each line says what to do; none repeats the database's address or password.
@@ -207,6 +219,9 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         ({"scanner_url": ""}, "SCANNER_URL"),
         ({"google_paid_tier": False}, "GOOGLE_PAID_TIER"),
         ({"hosting_provider": " "}, "HOSTING_PROVIDER"),
+        ({"operator_name": ""}, "OPERATOR_NAME"),
+        ({"operator_email": ""}, "OPERATOR_EMAIL"),
+        ({"backup_days": None}, "BACKUP_DAYS"),
     ],
 )
 def test_each_development_setting_is_refused_on_its_own(deployment, change, variable):
@@ -344,8 +359,11 @@ def test_development_runs_with_everything_production_refuses(deployment):
         smtp_url="",
         google_paid_tier=False,
         hosting_provider="",
+        operator_name="",
+        operator_email="",
     )
     del deployment["storage_url"]
+    del deployment["backup_days"]
     assert load_settings(**deployment).production_problems() == []
 
 

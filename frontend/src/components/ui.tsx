@@ -92,6 +92,25 @@ export function InputField({ label, hint, corner, id, className = '', ...props }
   )
 }
 
+export interface CheckboxProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> {
+  /** What ticking it says; may hold links. */
+  label: ReactNode
+}
+
+/** A box to tick beside a sentence, such as the acceptance of the terms. */
+export function Checkbox({ label, id, className = '', ...props }: CheckboxProps) {
+  const generated = useId()
+  const inputId = id ?? generated
+  return (
+    <div className={`flex items-start gap-2.5 ${className}`}>
+      <input id={inputId} type="checkbox" className="mt-0.5 size-4 shrink-0 accent-accent" {...props} />
+      <label htmlFor={inputId} className="text-[13px] leading-snug">
+        {label}
+      </label>
+    </div>
+  )
+}
+
 export function Chip({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'accent' }) {
   const tones = {
     neutral: 'bg-sunken text-muted',

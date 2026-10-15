@@ -14,6 +14,8 @@ from app.api.auth import CODE_INVALID, LINK_INVALID, MFA_FIRST, SIGN_IN_FAILED
 from app.api.deps import CROSS_SITE, SAME_APP_HEADER, SIGN_IN
 from app.auth import totp_code, totp_step
 from app.config import Settings, get_settings
+from app.legal import TERMS_VERSION
+from app.mail import MailError
 from app.oidc import Handshake
 from tests.conftest import APP_HEADERS
 
@@ -22,8 +24,10 @@ NEW_PASSWORD = "staple of a new life"
 
 
 def signup(client, email="ada@example.com", password=PASSWORD, name="Ada") -> dict:
+    """Sign up through the form, its box ticked for the current terms."""
     response = client.post(
-        "/api/auth/signup", json={"email": email, "name": name, "password": password}
+        "/api/auth/signup",
+        json={"email": email, "name": name, "password": password, "terms_version": TERMS_VERSION},
     )
     assert response.status_code == 201, response.text
     return response.json()
@@ -74,13 +78,31 @@ def test_signup_signs_in_and_sends_a_verification_link(client, mailer, signed_in
     assert again.status_code == 400 and again.json()["detail"] == LINK_INVALID
 
     # Addresses are one account each, however they are typed.
-    taken = client.post("/api/auth/signup", json={"email": "Ada@Example.com", "password": PASSWORD})
+    taken = client.post(
+        "/api/auth/signup",
+        json={"email": "Ada@Example.com", "password": PASSWORD, "terms_version": TERMS_VERSION},
+    )
     assert taken.status_code == 409
     for body_ in (
-        {"email": "not-an-email", "password": PASSWORD},
-        {"email": "b@x.io", "password": "short"},
+        {"email": "not-an-email", "password": PASSWORD, "terms_version": TERMS_VERSION},
+        {"email": "b@x.io", "password": "short", "terms_version": TERMS_VERSION},
     ):
         assert client.post("/api/auth/signup", json=body_).status_code == 422
+    # A refusal says where and why, never what was sent: a password that is too short, or a
+    # reset link's token, would otherwise come back in the body.
+    short = client.post(
+        "/api/auth/signup",
+        json={"email": "b@x.io", "password": "s3cret!", "terms_version": TERMS_VERSION},
+    )
+    assert short.json()["detail"] == [
+        {
+            "type": "string_too_short",
+            "loc": ["body", "password"],
+            "msg": "String should have at least 8 characters",
+        }
+    ]
+    unfinished = client.post("/api/auth/password/reset", json={"token": "a-reset-token"})
+    assert unfinished.status_code == 422 and "a-reset-token" not in unfinished.text
     # Names make the organisation; a second Ada gets the next slug.
     second = signup(another_browser(client), "ada@elsewhere.org", name="Ada")
     assert second["organization"]["slug"] == "ada-2"
@@ -130,7 +152,13 @@ def test_cookies_are_secure_in_production_whatever_the_scheme(
     # that ends TLS but does not say so. In development that is a cookie without Secure, so
     # that http://localhost keeps working.
     response = client.post(
-        "/api/auth/signup", json={"email": "ada@example.com", "name": "Ada", "password": PASSWORD}
+        "/api/auth/signup",
+        json={
+            "email": "ada@example.com",
+            "name": "Ada",
+            "password": PASSWORD,
+            "terms_version": TERMS_VERSION,
+        },
     )
     assert response.status_code == 201, response.text
     assert "secure" not in response.headers["set-cookie"].lower()
@@ -188,12 +216,25 @@ def test_a_reset_link_sets_a_new_password_and_signs_out_everywhere(client, maile
         == 202
     )
     assert len(mailer.sent) == 1
+
+    # A relay that is down answers the same as an address without an account: the mail goes
+    # out after the reply, and its failure is the log's.
+    def relay_down(to: str, subject: str, body: str) -> None:
+        raise MailError("The email could not be sent.")
+
+    sent = len(mailer.sent)
+    mailer.send = relay_down
+    down = client.post("/api/auth/password/forgot", json={"email": "ada@example.com"})
+    assert down.status_code == 202
+    del mailer.send
+    assert len(mailer.sent) == sent
     assert (
         client.post("/api/auth/password/forgot", json={"email": "Ada@example.com"}).status_code
         == 202
     )
     to, subject, _ = mailer.sent[-1]
     assert to == "ada@example.com" and subject == "Reset your password"
+
     assert mailer.link().startswith("http://testserver/reset-password#token=")
     token = mailer.token()
 

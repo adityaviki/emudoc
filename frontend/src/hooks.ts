@@ -16,6 +16,11 @@ export function useFolders(projectId: number) {
   return useQuery({ queryKey: ['folders', projectId], queryFn: () => api.folders(projectId) })
 }
 
+/** The current edition of the terms of service and privacy policy; it changes only with a deployment. */
+export function useLegal() {
+  return useQuery({ queryKey: ['legal'], queryFn: api.legal, staleTime: Infinity })
+}
+
 export interface FolderTree {
   byId: Map<number, Folder>
   /** Subfolders of each folder (null for the root), sorted by name. */

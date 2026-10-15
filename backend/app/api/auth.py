@@ -1,6 +1,7 @@
 """Sign-in: accounts with a password, sign-in through Google or Microsoft, the links that
 confirm an address or reset a password, authenticator codes, the sessions a user holds, and the
-account itself: a copy of what is kept about its user, and its deletion (app/retention.py).
+account itself: the terms its user accepted (app/legal/), a copy of what is kept about its
+user, and its deletion (app/retention.py).
 
 The routes that take a password, a code or an address to mail are held to a rate
 (app/ratelimit.py): RATE_SIGN_INS a minute per email address, and RATE_SIGN_INS_PER_ADDRESS
@@ -12,7 +13,7 @@ from contextlib import suppress
 from dataclasses import replace
 from urllib.parse import quote, urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -23,6 +24,7 @@ from app.api.deps import (
     AccountDep,
     AnyAccountDep,
     HttpDep,
+    LiveAccountDep,
     MailerDep,
     SessionDep,
     limited,
@@ -32,6 +34,7 @@ from app.audit import audit, audit_sign_in
 from app.config import get_settings
 from app.entitlements import entitlements_of
 from app.export import account_export
+from app.legal import TERMS_VERSION, terms_due
 from app.mail import (
     Mailer,
     MailError,
@@ -40,7 +43,17 @@ from app.mail import (
     verification_email,
 )
 from app.models import Identity, User, UserSession
-from app.oidc import Claims, Handshake, OidcError, Provider, begin, finish, providers
+from app.oidc import (
+    OAUTH_COOKIE,
+    OAUTH_WINDOW_SECONDS,
+    Claims,
+    Handshake,
+    OidcError,
+    Provider,
+    begin,
+    finish,
+    providers,
+)
 from app.ratelimit import ADDRESSES, SIGN_INS, by_address, by_email
 from app.retention import DELETION_GRACE, LOCAL_ACCOUNT, day, deletion_refusal
 from app.schemas import (
@@ -62,6 +75,7 @@ from app.schemas import (
     RecoveryCodesOut,
     SessionOut,
     SignupIn,
+    TermsIn,
 )
 from app.storage import content_disposition
 
@@ -73,9 +87,6 @@ LOGIN_PAGE = "/login"
 VERIFY_PAGE = "/verify"
 RESET_PAGE = "/reset-password"
 
-OAUTH_COOKIE = "emudoc_oauth"
-OAUTH_WINDOW_SECONDS = 600
-
 SIGN_IN_FAILED = "The email or password is not right."
 LINK_INVALID = "This link has expired or was already used. Request a new one."
 CODE_INVALID = (
@@ -85,6 +96,11 @@ CODE_INVALID = (
 MFA_FIRST = "Sign in with your password first."
 WRONG_PASSWORD = "The password is not right."
 TYPE_EMAIL = "Type the email address of your account to confirm."
+ACCEPT_TERMS = "Accept the terms of service and the privacy policy to create an account."
+TERMS_CHANGED = (
+    "The terms of service and the privacy policy changed while you were reading them. Read "
+    "the new version and accept it."
+)
 
 
 class SignInRefused(Exception):
@@ -108,14 +124,21 @@ def options():
 def signup(
     body: SignupIn, request: Request, response: Response, session: SessionDep, mailer: MailerDep
 ):
-    """Create an account with its own organisation, sign it in and send the verification link."""
+    """Create an account with its own organisation, sign it in and send the verification link.
+    The form carries the edition of the terms its user accepted, which must be the current one.
+    """
     refuse_past(session, (ADDRESSES, by_address(request)))
+    if body.terms_version is None:
+        raise HTTPException(400, ACCEPT_TERMS)
+    if body.terms_version != TERMS_VERSION:
+        raise HTTPException(409, TERMS_CHANGED)
     email = body.email.strip().lower()
     if session.scalar(select(User.id).where(User.email == email)) is not None:
         raise HTTPException(409, "An account with this email already exists. Sign in instead.")
     account = create_account(session, email, body.name.strip(), auth.hash_password(body.password))
     user_session, token = auth.start_session(session, account.user, request)
     audit(session, account, request, "sign_up", detail={"method": "password"})
+    _accept_terms(session, account, request)
     session.commit()
     _send_verification(session, account.user, request, mailer)
     auth.set_session_cookie(response, request, token)
@@ -173,6 +196,8 @@ def verify_mfa(body: CodeIn, request: Request, response: Response, session: Sess
 
 @router.post("/logout", status_code=204)
 def logout(request: Request, response: Response, session: SessionDep):
+    """End the session, and have the browser drop what it may still hold of the account's
+    pages and files, for whoever uses it next."""
     token = request.cookies.get(auth.SESSION_COOKIE)
     user_session = auth.find_session(session, token) if token else None
     if user_session is not None:
@@ -181,10 +206,23 @@ def logout(request: Request, response: Response, session: SessionDep):
             audit_sign_in(session, session.get(User, user_session.user_id), request, "sign_out")
         session.commit()
     auth.clear_session_cookie(response)
+    response.headers["Clear-Site-Data"] = '"cache"'
 
 
 @router.get("/me", response_model=MeOut)
 def me(account: AnyAccountDep):
+    return _me(account)
+
+
+@router.post("/terms", response_model=MeOut)
+def accept_terms(body: TermsIn, account: LiveAccountDep, request: Request, session: SessionDep):
+    """Accept the current terms of service and privacy policy: what the app asks first of an
+    account that signed up through a provider, or that accepted an older edition."""
+    if body.version != TERMS_VERSION:
+        raise HTTPException(409, TERMS_CHANGED)
+    if account.user.terms_version != TERMS_VERSION:
+        _accept_terms(session, account, request)
+        session.commit()
     return _me(account)
 
 
@@ -215,8 +253,16 @@ def resend_verification(
 
 
 @router.post("/password/forgot", status_code=202)
-def forgot_password(body: EmailIn, request: Request, session: SessionDep, mailer: MailerDep):
-    """Send a reset link. Always accepted, so the reply does not say whether the address exists."""
+def forgot_password(
+    body: EmailIn,
+    request: Request,
+    session: SessionDep,
+    mailer: MailerDep,
+    background: BackgroundTasks,
+):
+    """Send a reset link. Always accepted, so the reply does not say whether the address exists:
+    the mail goes out after the reply, so neither the relay's time nor its failure (which the
+    mailer logs) tells an address with an account from one without."""
     refuse_past(session, (ADDRESSES, by_address(request)), (SIGN_INS, by_email(body.email)))
     user = session.scalar(select(User).where(User.email == body.email.strip().lower()))
     if user is None:
@@ -225,7 +271,7 @@ def forgot_password(body: EmailIn, request: Request, session: SessionDep, mailer
     audit_sign_in(session, user, request, "password_reset_requested")
     session.commit()
     subject, text = password_reset_email(user.name, _link(request, RESET_PAGE, token))
-    _send(mailer, user.email, subject, text)
+    background.add_task(_send_quietly, mailer, user.email, subject, text)
 
 
 @router.post("/password/reset", status_code=204)
@@ -323,14 +369,15 @@ def revoke_other_sessions(account: AccountDep, request: Request, session: Sessio
 @router.post("/account/deletion", response_model=MeOut, dependencies=[Depends(limited(SIGN_INS))])
 def delete_account(
     body: AccountDeletionIn,
-    account: AccountDep,
+    account: LiveAccountDep,
     request: Request,
     session: SessionDep,
     mailer: MailerDep,
 ):
     """Set the account to be deleted once the grace period is over, sign it out everywhere
     else, and tell its address. The password confirms it, or the address typed out for an
-    account without one, so that a browser left signed in is not enough by itself."""
+    account without one, so that a browser left signed in is not enough by itself. An account
+    that has not accepted the current terms may ask too: leaving needs no new terms."""
     user = account.user
     if account.session_id is None:
         raise HTTPException(409, LOCAL_ACCOUNT)
@@ -591,7 +638,18 @@ def _me(account: Account) -> MeOut:
         role=account.role,
         has_password=user.password_hash is not None,
         deletion_due_at=user.deletion_due_at,
+        terms_version=user.terms_version,
+        terms_accepted_at=user.terms_accepted_at,
+        terms_due=terms_due(account),
     )
+
+
+def _accept_terms(session: Session, account: Account, request: Request) -> None:
+    """Record that the user accepted the current edition, now, in the audit log as well; the
+    caller commits."""
+    account.user.terms_version = TERMS_VERSION
+    account.user.terms_accepted_at = auth.now()
+    audit(session, account, request, "terms_accepted", detail={"version": TERMS_VERSION})
 
 
 def _app_url(request: Request) -> str:
@@ -602,7 +660,7 @@ def _link(request: Request, page: str, token: str) -> str:
     """A one-time link to a page of the frontend, with the token in the fragment: the browser
     never sends a fragment, so the token reaches neither the access log nor a proxy's, which a
     query would, and a reset token there signs in within its hour (`useLinkToken` in
-    frontend/src/account/shared.tsx)."""
+    frontend/src/account/linkToken.ts)."""
     return f"{_app_url(request)}{page}#token={quote(token)}"
 
 
@@ -611,6 +669,11 @@ def _send_verification(session: Session, user: User, request: Request, mailer: M
     session.commit()
     subject, text = verification_email(user.name, _link(request, VERIFY_PAGE, token))
     _send(mailer, user.email, subject, text)
+
+
+def _send_quietly(mailer: Mailer, to: str, subject: str, text: str) -> None:
+    with suppress(MailError):
+        mailer.send(to, subject, text)
 
 
 def _send(mailer: Mailer, to: str, subject: str, text: str) -> None:

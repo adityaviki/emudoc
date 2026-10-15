@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
+import { Link } from 'react-router'
 import remarkGfm from 'remark-gfm'
 import { parsePipeTable } from '../format.ts'
 
@@ -9,9 +10,16 @@ interface MarkdownProps {
   text: string
   /** Renders a [P<id>] reference found in the text. */
   citation?: (passageId: number) => ReactNode
+  /**
+   * Whether the text's own links lead anywhere. Off for model output, which a document can
+   * steer: a link there could carry what the model read to another site in its address, one
+   * click away. It then shows its text and address, to copy, without leading anywhere. The
+   * app's own pages turn it on, and a path on this site opens in the app.
+   */
+  followLinks?: boolean
 }
 
-export function Markdown({ text, citation }: MarkdownProps) {
+export function Markdown({ text, citation, followLinks = false }: MarkdownProps) {
   // Citations become links so they survive Markdown parsing, then render as chips below.
   const source = citation ? text.replace(CITATION, '[P$1](#p$1)') : text
   return (
@@ -19,9 +27,19 @@ export function Markdown({ text, citation }: MarkdownProps) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          a({ href, children }) {
-            const match = /^#p(\d+)$/.exec(href ?? '')
+          a({ href = '', children }) {
+            const match = /^#p(\d+)$/.exec(href)
             if (match && citation) return citation(Number(match[1]))
+            if (!followLinks) {
+              const shown = typeof children === 'string' && children === href
+              return (
+                <span>
+                  {children}
+                  {!shown && href && <span className="break-all text-muted"> ({href})</span>}
+                </span>
+              )
+            }
+            if (href.startsWith('/') && !href.startsWith('//')) return <Link to={href}>{children}</Link>
             return (
               <a href={href} target="_blank" rel="noreferrer">
                 {children}

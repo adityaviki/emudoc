@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
@@ -14,9 +15,17 @@ from app.config import ROOT_DIR, get_settings
 from app.db import BUSY, engine
 from app.headers import SecurityHeaders, content_security_policy
 from app.indexing.pipeline import Services
+from app.legal import TERMS_VERSION, privacy_policy, published, terms_of_service
 from app.logs import configure_logging
 from app.mail import Mailer, mailer_from_settings
-from app.schemas import EmbeddingStatus, HealthOut, LLMStatus, StatusOut, SubprocessorsOut
+from app.schemas import (
+    EmbeddingStatus,
+    HealthOut,
+    LegalOut,
+    LLMStatus,
+    StatusOut,
+    SubprocessorsOut,
+)
 from app.startup import prepare
 from app.storage import StorageError
 from app.subprocessors import subprocessors
@@ -25,6 +34,7 @@ from app.worker import Worker
 log = logging.getLogger(__name__)
 
 FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
+STORAGE_DOWN = "Emudoc could not reach its file storage just now. Try again in a few minutes."
 
 system = APIRouter(tags=["system"])
 
@@ -73,10 +83,42 @@ def list_subprocessors(services: ServicesDep):
     )
 
 
+@system.get("/legal", response_model=LegalOut)
+def legal(services: ServicesDep):
+    """The terms of service and the privacy policy, for the /terms and /privacy pages and the
+    edition the sign-up form has its user accept. Public, like the subprocessor list: they are
+    read before an account exists."""
+    settings = get_settings()
+    return LegalOut(
+        version=TERMS_VERSION,
+        published=published(),
+        terms=terms_of_service(settings),
+        privacy=privacy_policy(settings, services.storage),
+    )
+
+
+def invalid_request(request: Request, error: RequestValidationError) -> JSONResponse:
+    """A request whose body or parameters do not fit, refused with 422 and where and why each
+    part does not, as FastAPI would, but without the values: its own answer repeats them, so a
+    password that is too short or a reset link's token would come back in the response, and
+    with it into whatever records responses on the way."""
+    return JSONResponse(
+        {
+            "detail": [
+                {"type": problem["type"], "loc": problem["loc"], "msg": problem["msg"]}
+                for problem in error.errors()
+            ]
+        },
+        status_code=422,
+    )
+
+
 def storage_unavailable(request: Request, error: Exception) -> JSONResponse:
-    """A storage that failed mid-request is reported like any other error the user can act on:
-    the message says what happened, and 503 says it was not the request's fault."""
-    return JSONResponse({"detail": str(error)}, status_code=503)
+    """A storage that failed mid-request: 503 says it was not the request's fault, and the
+    sentence says to try again. What failed is the operator's to read in the log, since it
+    names the directory or the bucket and what to change in the settings."""
+    log.warning("%s %s failed: %s", request.method, request.url.path, error)
+    return JSONResponse({"detail": STORAGE_DOWN}, status_code=503)
 
 
 def pool_exhausted(request: Request, error: Exception) -> JSONResponse:
@@ -134,6 +176,7 @@ def create_app(
         # convenience; a deployment does not serve it.
         openapi_url="/openapi.json" if settings.environment == "development" else None,
     )
+    app.add_exception_handler(RequestValidationError, invalid_request)
     app.add_exception_handler(StorageError, storage_unavailable)
     app.add_exception_handler(PoolTimeout, pool_exhausted)
     # No CORSMiddleware, on purpose: the frontend is served from this origin, and the defence

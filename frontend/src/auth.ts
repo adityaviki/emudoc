@@ -41,10 +41,19 @@ export function useSignOut() {
 
 /** End the session and drop everything cached for the user; the sign-in page runs this. */
 export async function signOut(queryClient: QueryClient) {
-  queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== ME_KEY[0] })
-  setSignedIn(queryClient, null)
+  forgetUser(queryClient)
   // Should this fail, the cookie is already useless to the app and the session expires by itself.
   await auth.logout()
+}
+
+/**
+ * Drop the user and everything fetched for them, as when the server stopped accepting the
+ * session: whoever signs in next in this tab, a colleague included, starts from nothing rather
+ * than from the last user's chats and documents.
+ */
+export function forgetUser(queryClient: QueryClient) {
+  queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== ME_KEY[0] })
+  setSignedIn(queryClient, null)
 }
 
 /** The sign-in page, returning to `next` afterwards; the front page needs no parameter. */

@@ -1,10 +1,11 @@
-// The account page: who you are, how you sign in, where you are signed in, a copy of your data,
-// and deleting the account.
+// The account page: who you are, the terms you accepted, how you sign in, where you are signed
+// in, a copy of your data, and deleting the account.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Copy, Download, LogOut, X } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
+import { Link } from 'react-router'
 import {
   ACCOUNT_EXPORT_URL,
   DELETION_GRACE_DAYS,
@@ -17,7 +18,8 @@ import {
 import type { Me, MfaSetup, UserSession } from '../api.ts'
 import { ME_KEY, setSignedIn, useMe, useSignOut } from '../auth.ts'
 import { Button, ButtonLink, Chip, IconButton, InputField, Loading, Notice } from '../components/ui.tsx'
-import { formatDateTime } from '../format.ts'
+import { formatDate, formatDateTime } from '../format.ts'
+import { DeleteAccountForm } from './DeleteAccount.tsx'
 import { QrCode } from './QrCode.tsx'
 import { PasswordField } from './shared.tsx'
 
@@ -110,6 +112,20 @@ function ProfileSection({ me }: { me: Me }) {
         {me.organization.region && (
           <Row label="Data kept in">
             <span>{capitalised(REGION_NAMES[me.organization.region])}</span>
+          </Row>
+        )}
+        {me.terms_accepted_at && (
+          <Row label="Terms">
+            <span>
+              Accepted on {formatDate(me.terms_accepted_at)}:{' '}
+              <Link to="/terms" className="font-medium text-accent hover:underline">
+                terms of service
+              </Link>
+              ,{' '}
+              <Link to="/privacy" className="font-medium text-accent hover:underline">
+                privacy policy
+              </Link>
+            </span>
           </Row>
         )}
         {me.identities.length > 0 && (
@@ -447,65 +463,14 @@ function DataSection({ me }: { me: Me }) {
 }
 
 function DeleteSection({ me }: { me: Me }) {
-  const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
-  // The password confirms it; an account that signs in only through a provider types its address.
-  const [confirmation, setConfirmation] = useState('')
-  const remove = useMutation({
-    mutationFn: () => auth.deleteAccount(me.has_password ? { password: confirmation } : { email: confirmation }),
-    // The shell shows the page that offers to keep the account from now on.
-    onSuccess: (deleted) => setSignedIn(queryClient, deleted),
-  })
-
-  function submit(event: FormEvent) {
-    event.preventDefault()
-    if (confirmation.trim()) remove.mutate()
-  }
-
   return (
     <Section
       title="Delete account"
       description={`The account goes ${DELETION_GRACE_DAYS} days after you ask; until then, signing in lets you keep it. If you are the only member of ${me.organization.name}, the organisation goes with it: its projects, documents and chats.`}
     >
       {open ? (
-        <form onSubmit={submit} className="max-w-sm space-y-3">
-          <Notice tone="warn">
-            Every other browser and device is signed out now. Download your data first if you want a copy.
-          </Notice>
-          {me.has_password ? (
-            <PasswordField
-              label="Your password"
-              autoComplete="current-password"
-              required
-              value={confirmation}
-              onChange={(event) => setConfirmation(event.target.value)}
-            />
-          ) : (
-            <InputField
-              label={`Type ${me.email} to confirm`}
-              autoComplete="off"
-              required
-              value={confirmation}
-              onChange={(event) => setConfirmation(event.target.value)}
-            />
-          )}
-          {remove.isError && <Notice tone="bad">{remove.error.message}</Notice>}
-          <div className="flex gap-2">
-            <Button type="submit" variant="danger" disabled={!confirmation.trim() || remove.isPending}>
-              Delete my account
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setOpen(false)
-                setConfirmation('')
-                remove.reset()
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-        </form>
+        <DeleteAccountForm me={me} onCancel={() => setOpen(false)} />
       ) : (
         <Button variant="danger" onClick={() => setOpen(true)}>
           Delete account…

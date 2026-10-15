@@ -16,6 +16,7 @@ from app.audit import audit_event
 from app.auth import totp_code, totp_step
 from app.config import get_settings
 from app.indexing.pipeline import process_document
+from app.legal import TERMS_VERSION
 from app.maintenance import housekeeping, main
 from app.models import AuditEvent, Document, Organization, Project, User
 from app.retention import purge_due_accounts
@@ -202,6 +203,7 @@ def test_sign_ins_and_changes_to_an_account_are_recorded(
     )
     assert recorded == [
         ("sign_up", {"method": "password"}),
+        ("terms_accepted", {"version": TERMS_VERSION}),
         ("sign_out", {}),
         ("sign_in_failed", {"reason": "password"}),
         ("sign_in", {"method": "password"}),
@@ -225,18 +227,25 @@ def test_sign_ins_and_changes_to_an_account_are_recorded(
     ]
     # Every row is the account's, from the browser's address, and nothing names a stranger.
     assert {(row.user_id, row.ip) for row in rows(session)} == {(ada["id"], CLIENT)}
-    assert rows(session)[6].target_type == "session"
-    assert rows(session)[6].target_id == phone_session
+    assert rows(session)[7].target_type == "session"
+    assert rows(session)[7].target_id == phone_session
 
 
 def test_the_export_holds_what_the_audit_log_recorded_of_its_user(client, signed_in_only):
     signup(client)
     create_project(client)
     first = client.get("/api/auth/account/export").json()
-    assert [(row["action"], row["ip"]) for row in first["activity"]] == [("sign_up", CLIENT)]
+    assert [(row["action"], row["ip"]) for row in first["activity"]] == [
+        ("sign_up", CLIENT),
+        ("terms_accepted", CLIENT),
+    ]
     # The export itself is recorded, so the next one holds it.
     second = client.get("/api/auth/account/export").json()
-    assert [row["action"] for row in second["activity"]] == ["sign_up", "account_exported"]
+    assert [row["action"] for row in second["activity"]] == [
+        "sign_up",
+        "terms_accepted",
+        "account_exported",
+    ]
     assert second["activity"][0]["organization"] == "ada"
 
 

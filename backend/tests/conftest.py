@@ -126,6 +126,7 @@ from app.indexing.enrich import (  # noqa: E402
 )
 from app.indexing.pipeline import Services, process_document  # noqa: E402
 from app.jobs import queue_index  # noqa: E402
+from app.legal import TERMS_VERSION  # noqa: E402
 from app.llm import LLMUnavailable, OcrBlock, OcrPage  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models import Document, Membership, Organization, Project, User  # noqa: E402
@@ -455,6 +456,7 @@ class FakeS3Client:
         query = {
             "response-content-type": Params["ResponseContentType"],
             "response-content-disposition": Params.get("ResponseContentDisposition", ""),
+            "response-cache-control": Params.get("ResponseCacheControl", ""),
             "X-Amz-Expires": str(ExpiresIn),
         }
         origin = self.origin or f"https://{Params['Bucket']}.s3.example"
@@ -597,10 +599,16 @@ def account(session) -> Account:
 
 @pytest.fixture
 def make_account(session):
-    """A user with a role in an organisation: a new one, or the one given."""
+    """A user with a role in an organisation: a new one, or the one given. The user has
+    accepted the current terms, as one who signed up has."""
 
     def make(email: str, organization: Organization | None = None, role: str = "owner") -> Account:
-        user = User(email=email, name=email.split("@")[0].title())
+        user = User(
+            email=email,
+            name=email.split("@")[0].title(),
+            terms_version=TERMS_VERSION,
+            terms_accepted_at=datetime.now(UTC),
+        )
         if organization is None:
             slug = email.split("@")[1].split(".")[0]
             organization = Organization(name=slug.title(), slug=slug)

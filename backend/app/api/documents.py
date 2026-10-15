@@ -56,8 +56,6 @@ router = APIRouter(tags=["documents"])
 CHUNK = 1024 * 1024
 # The longer side of a thumbnail, in pixels: enough for a tile on a high-density screen.
 THUMBNAIL_SIZE = 320
-# How long the browser may keep a rendered page or thumbnail; they never change.
-IMAGE_MAX_AGE = 86400
 MISSING_FILE = "The original file is missing from the storage"
 # Why a file is not served (app/scanning.py): for good, or until its scan has passed.
 QUARANTINED_FILE = (
@@ -455,7 +453,7 @@ def page_image(
         except FileNotFoundError:
             raise HTTPException(404, MISSING_FILE) from None
         _charge_render(session, account, document)
-    return storage.response(key, media_type="image/png", max_age=IMAGE_MAX_AGE)
+    return storage.response(key, media_type="image/png")
 
 
 @router.get("/documents/{document_id}/thumbnail.png")
@@ -479,7 +477,7 @@ def thumbnail(
         image.save(buffer, format="PNG", optimize=True)
         storage.put(document.thumbnail_key, buffer.getvalue(), "image/png")
         _charge_render(session, account, document)
-    return storage.response(document.thumbnail_key, media_type="image/png", max_age=IMAGE_MAX_AGE)
+    return storage.response(document.thumbnail_key, media_type="image/png")
 
 
 def _charge_render(session: SessionDep, account: Account, document: Document) -> None:

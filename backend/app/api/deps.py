@@ -4,7 +4,9 @@ The account is the user the session cookie names, in their organisation. Without
 session the request is refused, unless the local account is on for development, in which case
 it acts as the local owner. An account set to be deleted (app/retention.py) is refused too,
 except by the three routes that take `AnyAccountDep`: the ones that show it, keep it and
-export its data. Signing out needs no account.
+export its data. So is an account whose user has not accepted the current terms of service
+(app/legal/), except by those three and the two that take `LiveAccountDep`: accepting them,
+and asking for the account to be deleted instead. Signing out needs no account.
 
 Every object is reached through the account's organisation: a project must belong to it, and a
 document, folder, passage or chat must lie in one of its projects. Anything else is reported as
@@ -36,6 +38,7 @@ from app.auth import SESSION_COOKIE, find_session, touch_session
 from app.config import get_settings
 from app.db import get_session
 from app.indexing.pipeline import Services
+from app.legal import terms_due, terms_pending
 from app.mail import Mailer
 from app.models import Chat, Document, Folder, Passage, Project, User
 from app.ratelimit import Key, Limit, by_user, hit
@@ -120,11 +123,22 @@ def get_account(request: Request, session: SessionDep) -> Account:
 AnyAccountDep = Annotated[Account, Depends(get_account)]
 
 
-def get_usable_account(account: AnyAccountDep) -> Account:
+def get_live_account(account: AnyAccountDep) -> Account:
     """The account, provided it is not set to be deleted: until its user keeps it, it can do
     nothing that would add to what the purge removes, or act on what others hold."""
     if account.user.deletion_due_at is not None:
         raise HTTPException(403, deletion_pending(account.user.deletion_due_at))
+    return account
+
+
+LiveAccountDep = Annotated[Account, Depends(get_live_account)]
+
+
+def get_usable_account(account: LiveAccountDep) -> Account:
+    """The account, provided its user has also accepted the current terms of service: nobody
+    uses the service on terms they have not seen. Leaving it needs no acceptance."""
+    if terms_due(account):
+        raise HTTPException(403, terms_pending())
     return account
 
 
@@ -153,9 +167,10 @@ def refuse_past(session: Session, *hits: tuple[Limit, Key]) -> None:
 def limited(limit: Limit) -> Callable[..., None]:
     """The dependency that holds a route to `limit` per user. It goes in the route's
     `dependencies`, which run before the route's own parameters are resolved, so the request
-    is counted before anything else is read or checked."""
+    is counted before anything else is read or checked, the terms included: the route's own
+    account parameter refuses an account that has not accepted them."""
 
-    def dependency(session: SessionDep, account: AccountDep) -> None:
+    def dependency(session: SessionDep, account: LiveAccountDep) -> None:
         refuse_past(session, (limit, by_user(account)))
 
     return dependency

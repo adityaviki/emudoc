@@ -15,7 +15,15 @@ import app.indexing.pipeline as pipeline
 import app.parsing.limits as limits
 from app.errors import WITHHELD, AppError, described, provider_codes, summary
 from app.indexing.pipeline import process_document
-from app.logs import QueryValuesHidden, WithheldMessages, configure_logging, without_query_values
+from app.logs import (
+    HTTP_CLIENT_LOGGERS,
+    AddressesBare,
+    QueryValuesHidden,
+    WithheldMessages,
+    bare_url,
+    configure_logging,
+    without_query_values,
+)
 from app.models import Folder, Project
 
 SECRET = "the termination clause says ninety days"
@@ -115,6 +123,28 @@ def test_the_parse_child_prints_its_traceback_without_the_messages(tmp_path, mon
     assert SECRET not in err
 
 
+def test_a_failed_parse_names_the_document_by_its_id_not_its_name(tmp_path, monkeypatch, written):
+    # A file's name can say what it holds ("Dismissal of J. Smith.pdf"), and the child's
+    # command line is readable by every user of the machine.
+    started = []
+    popen = limits.subprocess.Popen
+
+    def recording(command, **options):
+        started.append(command)
+        return popen(command, **options)
+
+    monkeypatch.setattr(limits.subprocess, "Popen", recording)
+    path = tmp_path / "original.pdf"
+    path.write_bytes(b"%PDF-1.4 but nothing of a PDF follows")
+    with pytest.raises(limits.ParseError):
+        limits.parse_within_limits(path, f"{SECRET}.pdf", limits.ParseLimits(), document_id=7)
+    (command,) = started
+    assert "upload.pdf" in command and not any(SECRET in part for part in command)
+    log = written.getvalue()
+    assert "Parsing document 7 (.pdf) in a child process ended with code" in log
+    assert SECRET not in log
+
+
 def test_the_access_log_names_a_querys_parameters_without_their_values():
     assert without_query_values("/api/projects/1/search?q=termination+clause&limit=20") == (
         "/api/projects/1/search?q=…&limit=…"
@@ -139,15 +169,45 @@ def test_the_access_log_names_a_querys_parameters_without_their_values():
     assert record.getMessage() == '127.0.0.1:50000 - "GET /api/projects/1/search?q=… HTTP/1.1" 200'
 
 
+def test_an_outgoing_requests_line_names_its_address_without_credentials_or_values():
+    # httpx writes one line per request the app sends; an EMBEDDING_BASE_URL may hold a user
+    # and password, or a key in its query.
+    record = logging.LogRecord(
+        "httpx",
+        logging.INFO,
+        __file__,
+        1,
+        'HTTP Request: %s %s "%s %d %s"',
+        (
+            "POST",
+            "https://bob:s3cret@embed.example.com:8443/v1/embeddings?key=k3y",
+            "HTTP/1.1",
+            200,
+            "OK",
+        ),
+        None,
+    )
+    assert AddressesBare().filter(record) is True
+    assert record.getMessage() == (
+        'HTTP Request: POST https://embed.example.com:8443/v1/embeddings?key=… "HTTP/1.1 200 OK"'
+    )
+    assert bare_url("http://[::1]:11434/v1") == "http://[::1]:11434/v1"
+
+
 def test_every_handler_there_is_gets_the_filters(monkeypatch):
     uvicorn_error = logging.getLogger("uvicorn.error")
     stream = io.StringIO()
     handler = logging.StreamHandler(stream)
     monkeypatch.setattr(uvicorn_error, "handlers", [handler])
     monkeypatch.setattr(logging.getLogger("uvicorn.access"), "filters", [])
+    for name in HTTP_CLIENT_LOGGERS:
+        monkeypatch.setattr(logging.getLogger(name), "filters", [])
 
     configure_logging()
     configure_logging()
+
+    for name in HTTP_CLIENT_LOGGERS:
+        assert [type(found) for found in logging.getLogger(name).filters] == [AddressesBare]
 
     assert [type(found) for found in handler.filters] == [WithheldMessages]
     assert [type(found) for found in logging.getLogger("uvicorn.access").filters] == [

@@ -12,6 +12,9 @@ and its own sentences; what could still slip in comes from outside them, and is 
   their values (`QueryValuesHidden`): a search carries its words there (`?q=`), the provider's
   sign-in its one-time code. The page links that carry a token keep it in the fragment, which
   never reaches a server (`_link` in app/api/auth.py).
+- The line httpx writes for every request the app sends names its address the same way and
+  without the user and password an address may carry (`AddressesBare`), since a setting such
+  as EMBEDDING_BASE_URL can hold credentials or a key in its query.
 - A provider's error is told by its status and codes (`describe_error` in app/llm.py, the
   embedder), the database is never asked to repeat a statement's values in an error
   (`hide_parameters` in app/db.py), and the parse child prints its traceback the same way.
@@ -22,13 +25,16 @@ call it as they start. The structured logs of 1.7 replace the format, not these 
 """
 
 import logging
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from app.errors import described
 
 FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 # The loggers that uvicorn gives handlers of their own, which the root's filter never sees.
 UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
+# The loggers of the HTTP clients the app and its model libraries send requests with, which
+# write one line per request with its whole address at INFO.
+HTTP_CLIENT_LOGGERS = ("httpx", "httpx2")
 
 
 class WithheldMessages(logging.Filter):
@@ -55,6 +61,35 @@ class QueryValuesHidden(logging.Filter):
         return True
 
 
+class AddressesBare(logging.Filter):
+    """Keep credentials and query values out of httpx's line for each request it sends:
+    "HTTP Request: POST https://embeddings.example.com/v1/embeddings?key=… "HTTP/1.1 200 OK"".
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # httpx logs the method, the URL, the HTTP version, the status and its reason.
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 2:
+            record.args = (args[0], bare_url(str(args[1])), *args[2:])
+        return True
+
+
+def bare_url(url: str) -> str:
+    """An address as the log and the app's sentences name it: no user or password, and the
+    names of its query's parameters without their values."""
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if ":" in host:
+        host = f"[{host}]"
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    netloc = f"{host}:{port}" if port else host
+    bare = urlunsplit((parts.scheme, netloc, parts.path, "", ""))
+    return without_query_values(f"{bare}?{parts.query}") if parts.query else bare
+
+
 def without_query_values(target: str) -> str:
     """The path with only the names of its query's parameters."""
     path, mark, query = target.partition("?")
@@ -76,3 +111,7 @@ def configure_logging(format: str = FORMAT) -> None:
     access = logging.getLogger("uvicorn.access")
     if not any(isinstance(found, QueryValuesHidden) for found in access.filters):
         access.addFilter(QueryValuesHidden())
+    for name in HTTP_CLIENT_LOGGERS:
+        client = logging.getLogger(name)
+        if not any(isinstance(found, AddressesBare) for found in client.filters):
+            client.addFilter(AddressesBare())

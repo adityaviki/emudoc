@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from app.config import ROOT_DIR, get_settings
 from app.headers import HSTS, content_security_policy
 from app.indexing.pipeline import Services, process_document
+from app.legal import TERMS_VERSION
 from app.main import create_app
 from app.storage import SANDBOX, S3Storage
 from tests.conftest import APP_HEADERS, FakeEmbedder, FakeLLM, FakeS3Client
@@ -38,6 +39,26 @@ def test_every_api_response_carries_the_headers(client, signed_in_only):
         carries_the_headers(response)
     # Over plain HTTP in development a browser would ignore HSTS; it is kept out of the noise.
     assert "strict-transport-security" not in client.get("/api/health").headers
+
+
+def test_the_browser_keeps_nothing_the_api_answers(client, act_as, make_account):
+    # Whoever uses the computer next would otherwise read a chat or a document's text from the
+    # browser's cache without asking the app.
+    act_as(make_account("ada@example.com"))
+    for response in (
+        client.get("/api/projects"),
+        client.get("/api/auth/me"),
+        client.get("/api/no-such-route"),
+        client.post("/api/projects", json={"name": "Contracts"}),
+    ):
+        assert response.headers["cache-control"] == "no-store", str(response.url)
+    # A route's own word stands.
+    export = client.get("/api/auth/account/export")
+    assert export.headers["cache-control"] == "no-store"
+
+    # Signing out has the browser drop what it holds of the app's origin.
+    left = client.post("/api/auth/logout")
+    assert left.status_code == 204 and left.headers["clear-site-data"] == '"cache"'
 
 
 def test_a_file_is_sandboxed_in_place_of_the_page_policy(client, services, sample_pdf):
@@ -126,7 +147,12 @@ def test_no_other_origin_is_answered(client):
     assert preflight.status_code == 405
     signup = client.post(
         "/api/auth/signup",
-        json={"email": "ada@example.com", "name": "Ada", "password": "correct horse battery"},
+        json={
+            "email": "ada@example.com",
+            "name": "Ada",
+            "password": "correct horse battery",
+            "terms_version": TERMS_VERSION,
+        },
         headers=other,
     )
     assert signup.status_code == 201, signup.text

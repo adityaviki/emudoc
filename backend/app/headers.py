@@ -6,6 +6,10 @@ every script and stylesheet is a file the app serves, nothing comes from another
 the one thing that may is an image, when the storage is a bucket and a page image or thumbnail
 is a redirect to a URL signed for it. Model output renders through Markdown, so the policy is
 also what keeps an answer from loading an image from an address a document asked it to.
+
+Nothing the API answers is kept by the browser (`Cache-Control: no-store`, the files and page
+images included, app/storage.py), and signing out has it drop what it holds of the app's
+origin (`Clear-Site-Data`, app/api/auth.py), since a computer may be shared.
 """
 
 from starlette.datastructures import MutableHeaders
@@ -17,6 +21,12 @@ from app.storage import Storage
 # A year, the least the preload lists accept; neither `includeSubDomains` nor `preload`, which
 # bind every subdomain of the deployment's name and are the operator's to add at the proxy.
 HSTS = "max-age=31536000"
+
+# What a browser may keep of an answer of the API: nothing. Every one is a member's: their
+# chats, a document's text and pages, the organisation's audit log; a browser that kept one
+# would show it to the next person at that computer without asking the app, signed in or not.
+# A route that may be kept says so itself (`setdefault` leaves its header alone).
+API_NOT_KEPT = "no-store"
 
 ALWAYS = {
     # A response is what its Content-Type says, never what its bytes look like.
@@ -73,6 +83,7 @@ class SecurityHeaders:
             return
         strict = scope["scheme"] == "https" or get_settings().environment == "production"
         policy: str = scope["app"].state.policy
+        api = scope["path"].startswith("/api/")
 
         async def send_with_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
@@ -80,6 +91,8 @@ class SecurityHeaders:
                 for name, value in ALWAYS.items():
                     headers.setdefault(name, value)
                 headers.setdefault("Content-Security-Policy", policy)
+                if api:
+                    headers.setdefault("Cache-Control", API_NOT_KEPT)
                 if strict:
                     headers.setdefault("Strict-Transport-Security", HSTS)
             await send(message)
