@@ -17,7 +17,7 @@ from urllib.parse import quote
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from fastapi import Request, Response
-from sqlalchemy import select, update
+from sqlalchemy import Connection, select, text, update
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -38,6 +38,10 @@ TOTP_STEP_SECONDS = 30
 TOTP_DIGITS = 6
 TOTP_ISSUER = "Emudoc"
 RECOVERY_CODE_COUNT = 8
+# How long a session or a one-time link is kept once it has ended: the address and browser a
+# session recorded, and the address a link went to, are personal data with no use after that.
+# The month leaves time to answer a question about a recent sign-in from the rows.
+CREDENTIAL_HISTORY = dt.timedelta(days=30)
 # Logged when a production request arrives as plain HTTP, which is the proxy's doing.
 PLAIN_HTTP = (
     "%s %s reached the app as plain HTTP in production, so its cookie was marked Secure "
@@ -137,6 +141,20 @@ def revoke_sessions(session: Session, user_id: int, except_id: int | None = None
     if except_id is not None:
         statement = statement.where(UserSession.id != except_id)
     session.execute(statement.values(revoked_at=now()))
+
+
+_PRUNE_SESSIONS = text("DELETE FROM sessions WHERE expires_at < :before OR revoked_at < :before")
+_PRUNE_LINKS = text("DELETE FROM auth_tokens WHERE expires_at < :before")
+
+
+def prune_credentials(connection: Connection, age: dt.timedelta = CREDENTIAL_HISTORY) -> int:
+    """Remove the sessions and one-time links that ended longer ago than `age`; returns how
+    many."""
+    before = now() - age
+    return sum(
+        connection.execute(statement, {"before": before}).rowcount
+        for statement in (_PRUNE_SESSIONS, _PRUNE_LINKS)
+    )
 
 
 def cookie_secure(request: Request) -> bool:

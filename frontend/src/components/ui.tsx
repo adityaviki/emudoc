@@ -1,7 +1,7 @@
 import { LoaderCircle } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useId } from 'react'
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react'
+import type { AnchorHTMLAttributes, ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react'
 
 const BUTTON_VARIANTS = {
   primary: 'bg-accent text-accent-ink shadow-xs hover:bg-accent-hover',
@@ -15,16 +15,30 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   icon?: ReactNode
 }
 
+const BUTTON_BASE =
+  'inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium whitespace-nowrap transition disabled:cursor-not-allowed disabled:opacity-50'
+
 export function Button({ variant = 'secondary', icon, children, className = '', ...props }: ButtonProps) {
   return (
-    <button
-      type="button"
-      className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium whitespace-nowrap transition disabled:cursor-not-allowed disabled:opacity-50 ${BUTTON_VARIANTS[variant]} ${className}`}
-      {...props}
-    >
+    <button type="button" className={`${BUTTON_BASE} ${BUTTON_VARIANTS[variant]} ${className}`} {...props}>
       {icon}
       {children}
     </button>
+  )
+}
+
+interface ButtonLinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
+  variant?: keyof typeof BUTTON_VARIANTS
+  icon?: ReactNode
+}
+
+/** A link that looks like a button, for what the browser opens or saves itself, such as a download. */
+export function ButtonLink({ variant = 'secondary', icon, children, className = '', ...props }: ButtonLinkProps) {
+  return (
+    <a className={`${BUTTON_BASE} ${BUTTON_VARIANTS[variant]} ${className}`} {...props}>
+      {icon}
+      {children}
+    </a>
   )
 }
 

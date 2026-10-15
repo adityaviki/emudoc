@@ -259,6 +259,8 @@ export interface Organization {
   plan: Plan
   /** The region its data is kept in, null when the deployment promised none as it was created. */
   region: Region | null
+  /** How many days a chat is kept after its last question, null for good. */
+  chat_retention_days: number | null
 }
 
 /** The signed-in user, and the organisation and role they act with. */
@@ -272,6 +274,10 @@ export interface Me {
   identities: string[]
   organization: Organization
   role: string
+  /** Whether the account has a password, which then confirms its deletion. */
+  has_password: boolean
+  /** When the account will be deleted, if its user asked; until then the app offers only to keep it. */
+  deletion_due_at: string | null
 }
 
 export interface OAuthProvider {
@@ -298,6 +304,9 @@ export interface MfaSetup {
 // The password rules the server applies (backend/app/schemas.py), so forms can say so first.
 export const PASSWORD_MIN_LENGTH = 8
 export const PASSWORD_MAX_LENGTH = 200
+// How long a deleted account can still be kept (DELETION_GRACE in backend/app/retention.py),
+// so the page can say so before the server sets the day.
+export const DELETION_GRACE_DAYS = 14
 
 export class ApiError extends Error {
   status: number
@@ -396,7 +405,18 @@ export const auth = {
   enableMfa: (code: string) => request<{ recovery_codes: string[] }>('/auth/mfa/enable', json('POST', { code })),
   disableMfa: (body: { password?: string; code?: string }) =>
     request<void>('/auth/mfa/disable', json('POST', body)),
+
+  /** Confirmed by the password, or by the email address for an account without one. */
+  deleteAccount: (body: { password?: string; email?: string }) =>
+    request<Me>('/auth/account/deletion', json('POST', body)),
+  keepAccount: () => request<Me>('/auth/account/deletion', { method: 'DELETE' }),
 }
+
+/**
+ * Everything kept about the signed-in user, as a JSON file to save (`AccountExport` in
+ * backend/app/schemas.py). A link, not a fetch: the browser downloads it.
+ */
+export const ACCOUNT_EXPORT_URL = '/api/auth/account/export'
 
 /**
  * Where a sign-in with a provider starts. It is a navigation, not a fetch: the provider sends

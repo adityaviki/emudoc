@@ -77,8 +77,12 @@ class StorageError(AppError):
     """The storage could not do what was asked, said in words the user or operator can act on."""
 
 
+def organization_prefix(org_id: int) -> str:
+    return f"{ROOT_PREFIX}{org_id}/"
+
+
 def project_prefix(org_id: int, project_id: int) -> str:
-    return f"orgs/{org_id}/projects/{project_id}/"
+    return f"{organization_prefix(org_id)}projects/{project_id}/"
 
 
 def document_prefix(org_id: int, project_id: int, document_id: int) -> str:

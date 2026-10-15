@@ -3,6 +3,7 @@ import { Check, ChevronDown, X } from 'lucide-react'
 import { useContext, useEffect, useRef, useState } from 'react'
 import { Link, Navigate, Outlet, Route, Routes, useLocation, useMatch, useNavigate } from 'react-router'
 import { AccountPage } from './account/AccountPage.tsx'
+import { DeletionPending } from './account/DeletionPending.tsx'
 import { LoginPage } from './account/LoginPage.tsx'
 import { ForgotPasswordPage, ResetPasswordPage } from './account/PasswordPages.tsx'
 import { SignupPage } from './account/SignupPage.tsx'
@@ -78,11 +79,15 @@ function App() {
   )
 }
 
-/** The header and the page below it, for a signed-in user only. */
+/**
+ * The header and the page below it, for a signed-in user only; an account set to be deleted
+ * sees only the way to keep it, since the server refuses it everything else.
+ */
 function Shell() {
   const me = useContext(MeContext)
   const location = useLocation()
   if (!me) return <Navigate to={loginPath(location.pathname + location.search)} replace />
+  if (me.deletion_due_at) return <DeletionPending me={me} />
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden">

@@ -333,6 +333,14 @@ class RecoveryCodesOut(BaseModel):
     recovery_codes: list[str]
 
 
+class AccountDeletionIn(BaseModel):
+    """What confirms a request to delete the account: the password, or, for an account that
+    has none and signs in through a provider, its email address typed out."""
+
+    password: str | None = Field(None, max_length=PASSWORD_MAX_LENGTH)
+    email: str | None = Field(None, max_length=320)
+
+
 class OrganizationOut(_FromORM):
     id: int
     name: str
@@ -343,6 +351,8 @@ class OrganizationOut(_FromORM):
     # The region its data is kept in, as DATA_REGION names it (eu, us), None when the
     # deployment promised none as it was created (app/residency.py).
     region: str | None
+    # How many days a chat is kept after its last question (app/retention.py), None for good.
+    chat_retention_days: int | None = None
 
 
 class MeOut(BaseModel):
@@ -357,6 +367,11 @@ class MeOut(BaseModel):
     identities: list[str]
     organization: OrganizationOut
     role: str
+    # Whether the account has a password, which then confirms its deletion.
+    has_password: bool
+    # When the account will be purged, if its user asked for it to be deleted
+    # (app/retention.py); until then the app offers nothing but keeping it.
+    deletion_due_at: dt.datetime | None
 
 
 class SessionOut(BaseModel):
@@ -420,3 +435,78 @@ class SubprocessorsOut(BaseModel):
 
 class HealthOut(BaseModel):
     status: Literal["ok"]
+
+
+# The account export (app/export.py): what the app keeps about a person, as the file the
+# account page downloads. The app itself never reads it back.
+
+
+class ExportedIdentity(BaseModel):
+    provider: str
+    email: str
+    linked_at: dt.datetime
+
+
+class ExportedAccount(BaseModel):
+    email: str
+    name: str
+    created_at: dt.datetime
+    email_verified_at: dt.datetime | None
+    two_factor_enabled_at: dt.datetime | None
+    deletion_due_at: dt.datetime | None
+    sign_in_providers: list[ExportedIdentity]
+
+
+class ExportedMembership(BaseModel):
+    organization: str
+    slug: str
+    role: str
+    joined_at: dt.datetime
+
+
+class ExportedSession(BaseModel):
+    user_agent: str
+    ip: str | None
+    created_at: dt.datetime
+    last_seen_at: dt.datetime
+    expires_at: dt.datetime
+    revoked_at: dt.datetime | None
+
+
+class ExportedMessage(BaseModel):
+    role: str
+    content: str
+    status: str
+    notice: str | None
+    error: str | None
+    created_at: dt.datetime
+
+
+class ExportedChat(BaseModel):
+    organization: str
+    project: str
+    title: str
+    visibility: str
+    created_at: dt.datetime
+    last_question_at: dt.datetime
+    messages: list[ExportedMessage]
+
+
+class ExportedUsage(BaseModel):
+    organization: str
+    kind: str
+    unit: str
+    quantity: int
+    model: str | None
+    occurred_at: dt.datetime
+
+
+class AccountExport(BaseModel):
+    exported_at: dt.datetime
+    # What the file holds and what it leaves out, in words, for whoever reads it.
+    about: str
+    account: ExportedAccount
+    organizations: list[ExportedMembership]
+    sessions: list[ExportedSession]
+    chats: list[ExportedChat]
+    usage: list[ExportedUsage]

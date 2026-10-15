@@ -1,4 +1,5 @@
-"""Email the app sends: the links that confirm an address or reset a password.
+"""Email the app sends: the links that confirm an address or reset a password, and the notice
+that an account is set to be deleted.
 
 There is no email provider yet. The log mailer writes each message to the log, which is enough
 to follow a link in development; the SMTP mailer sends through any relay. A provider with
@@ -114,3 +115,17 @@ def password_reset_email(name: str, link: str) -> tuple[str, str]:
         "stays as it is.\n"
     )
     return "Reset your password", body
+
+
+def account_deletion_email(name: str, due: str, link: str) -> tuple[str, str]:
+    body = (
+        f"{_greeting(name)}\n\n"
+        f"Your Emudoc account is set to be deleted on {due}. Then it goes for good, with every "
+        "organisation you are the only member of and everything in it: projects, documents and "
+        "chats. Every other browser and device was signed out.\n\n"
+        "To keep the account, sign in before then and choose to keep it:\n\n"
+        f"{link}\n\n"
+        "If you did not ask for this, someone else could use your account: sign in, keep it, "
+        "and change your password.\n"
+    )
+    return "Your account is set to be deleted", body

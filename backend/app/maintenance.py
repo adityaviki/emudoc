@@ -15,8 +15,11 @@ them: it runs in a transaction and the filesystem does not.
 one walk over the storage (`sweep_storage`) that removes the rendered pages and thumbnails older
 than PAGE_IMAGE_DAYS, which are rendered again when asked for, and the objects of documents and
 projects that no longer exist, which a delete leaves behind when the storage fails after the rows
-are gone; and the pruning of jobs that finished longer ago than the queue keeps them, of the
-events of old answers, and of the request counts behind the rate limits (app/ratelimit.py).
+are gone; the pruning of jobs that finished longer ago than the queue keeps them, of the
+events of old answers, of the request counts behind the rate limits (app/ratelimit.py), of the
+chats past their plan's retention (app/retention.py), and of the sessions and one-time links
+that ended a month ago (app/auth.py); and the purge of the accounts whose deletion is due
+(app/retention.py).
 `sweep-page-images` runs the first part by hand, after lowering the setting; `sweep-orphans`
 lists the second part and removes it with `--delete`.
 
@@ -41,6 +44,7 @@ from sqlalchemy import Connection, select, text
 from sqlalchemy.orm import Session
 
 from app.answers import EVENT_HISTORY, prune_events
+from app.auth import CREDENTIAL_HISTORY, prune_credentials
 from app.config import get_settings
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine
 from app.deadletters import describe, failed_jobs, requeue
@@ -50,6 +54,7 @@ from app.models import PLANS as PLAN_NAMES
 from app.models import Document, Organization
 from app.parsing import MIME_TYPES
 from app.ratelimit import prune_rate_limits
+from app.retention import prune_chats, purge_due_accounts
 from app.storage import (
     DELETE_BATCH,
     ROOT_PREFIX,
@@ -363,7 +368,9 @@ def housekeeping(storage: Storage) -> None:
 
     Every replica reaches its interval, so a round first takes an advisory lock and skips when
     another replica holds it: the work is idempotent, and walking the storage once is enough.
-    The lock is transaction-level, so it ends with the block.
+    The lock is transaction-level, so it ends with the block. The accounts due for purging go
+    after it, each in a transaction of its own, since their files are discarded only once their
+    rows are gone for good.
     """
     settings = get_settings()
     keep = timedelta(days=settings.page_image_days) if settings.page_image_days else None
@@ -382,6 +389,19 @@ def housekeeping(storage: Storage) -> None:
         pruned = prune_finished(connection)
         events = prune_events(connection)
         minutes = prune_rate_limits(connection)
+        chats = prune_chats(connection)
+        credentials = prune_credentials(connection)
+    accounts = purge_due_accounts(storage)
+    if accounts:
+        log.info("Housekeeping: deleted %s accounts whose deletion was due", accounts)
+    if chats:
+        log.info("Housekeeping: deleted %s chats kept past their plan's retention", chats)
+    if credentials:
+        log.info(
+            "Housekeeping: removed %s sessions and links that ended more than %s days ago",
+            credentials,
+            CREDENTIAL_HISTORY.days,
+        )
     if minutes:
         log.info("Housekeeping: removed the request counts of %s minutes long past", minutes)
     if pruned:

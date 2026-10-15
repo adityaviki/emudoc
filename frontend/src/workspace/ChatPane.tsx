@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { api, pageLabel, sectionPath } from '../api.ts'
 import type { Chat, Source } from '../api.ts'
+import { useMe } from '../auth.ts'
 import { ask, chatKey, isStreaming, loadChat, resume, stop, useStreaming } from '../chat.ts'
 import type { ChatData, Message, Step } from '../chat.ts'
 import { Markdown, SourceText } from '../components/Markdown.tsx'
@@ -64,6 +65,8 @@ export function ChatPane() {
 
 function ChatHeader({ chats, activeId }: { chats: Chat[]; activeId: number | null }) {
   const workspace = useWorkspace()
+  // How long the organisation's plan keeps a chat after its last question (backend/app/retention.py).
+  const keptFor = useMe().organization.chat_retention_days
   // Where the list opens: set from the button's position when it is clicked.
   const [anchor, setAnchor] = useState<DOMRect | null>(null)
   const button = useRef<HTMLButtonElement>(null)
@@ -104,6 +107,11 @@ function ChatHeader({ chats, activeId }: { chats: Chat[]; activeId: number | nul
                 <ChatRow key={chat.id} chat={chat} active={chat.id === activeId} onOpen={close} />
               ))}
             </ul>
+          )}
+          {keptFor !== null && (
+            <p className="border-t border-line px-3 py-2 text-xs text-muted">
+              A chat is deleted {keptFor} days after its last question.
+            </p>
           )}
         </Floating>
       )}

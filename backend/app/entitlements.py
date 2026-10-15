@@ -23,9 +23,10 @@ events; the questions, by the answers asked), which starts afresh on the first.
 organisation's jobs count for a third as much on the team plan as on the free one, so its
 backlog gets the larger share. `daily_spend_micros` is what a day of the organisation's model
 use may cost, by the prices the usage rows are costed with; app/spending.py holds the check,
-beside the platform's own daily limit, since the two are read together. `model_tier`,
-`api_access`, `connectors` and `retention_days` are declared for the features that will read
-them (the organisation settings, the API keys, the connectors, the trash) and enforced by
+beside the platform's own daily limit, since the two are read together. `retention_days` is
+how long a chat is kept after its last question, which the housekeeper holds it to
+(app/retention.py). `model_tier`, `api_access` and `connectors` are declared for the features
+that will read them (the organisation settings, the API keys, the connectors) and enforced by
 nothing yet.
 """
 
@@ -80,6 +81,7 @@ class Entitlements:
     members: int | None
     api_access: bool
     connectors: bool
+    # How many days a chat is kept after its last question (app/retention.py).
     retention_days: int | None
     # standard | premium: which models answer and index for the organisation, once the
     # organisation settings choose a model by it.

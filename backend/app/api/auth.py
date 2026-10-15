@@ -1,5 +1,6 @@
 """Sign-in: accounts with a password, sign-in through Google or Microsoft, the links that
-confirm an address or reset a password, authenticator codes, and the sessions a user holds.
+confirm an address or reset a password, authenticator codes, the sessions a user holds, and the
+account itself: a copy of what is kept about its user, and its deletion (app/retention.py).
 
 The routes that take a password, a code or an address to mail are held to a rate
 (app/ratelimit.py): RATE_SIGN_INS a minute per email address, and RATE_SIGN_INS_PER_ADDRESS
@@ -7,6 +8,7 @@ per client address, so that neither a password nor an authenticator code can be 
 speed and nobody's inbox can be flooded with links.
 """
 
+from contextlib import suppress
 from dataclasses import replace
 from urllib.parse import quote, urlencode
 
@@ -17,13 +19,32 @@ from sqlalchemy.orm import Session
 
 from app import auth
 from app.accounts import Account, account_for_user, create_account
-from app.api.deps import AccountDep, HttpDep, MailerDep, SessionDep, limited, refuse_past
+from app.api.deps import (
+    AccountDep,
+    AnyAccountDep,
+    HttpDep,
+    MailerDep,
+    SessionDep,
+    limited,
+    refuse_past,
+)
 from app.config import get_settings
-from app.mail import Mailer, MailError, password_reset_email, verification_email
+from app.entitlements import entitlements_of
+from app.export import account_export
+from app.mail import (
+    Mailer,
+    MailError,
+    account_deletion_email,
+    password_reset_email,
+    verification_email,
+)
 from app.models import Identity, User, UserSession
 from app.oidc import Claims, Handshake, OidcError, Provider, begin, finish, providers
 from app.ratelimit import ADDRESSES, SIGN_INS, by_address, by_email
+from app.retention import DELETION_GRACE, LOCAL_ACCOUNT, day, deletion_refusal
 from app.schemas import (
+    AccountDeletionIn,
+    AccountExport,
     AuthOptions,
     CodeIn,
     EmailIn,
@@ -41,6 +62,7 @@ from app.schemas import (
     SessionOut,
     SignupIn,
 )
+from app.storage import content_disposition
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -60,6 +82,8 @@ CODE_INVALID = (
     "or one of your recovery codes."
 )
 MFA_FIRST = "Sign in with your password first."
+WRONG_PASSWORD = "The password is not right."
+TYPE_EMAIL = "Type the email address of your account to confirm."
 
 
 class SignInRefused(Exception):
@@ -142,7 +166,7 @@ def logout(request: Request, response: Response, session: SessionDep):
 
 
 @router.get("/me", response_model=MeOut)
-def me(account: AccountDep):
+def me(account: AnyAccountDep):
     return _me(account)
 
 
@@ -260,6 +284,61 @@ def revoke_other_sessions(account: AccountDep, session: SessionDep):
     """Sign out everywhere else."""
     auth.revoke_sessions(session, account.user.id, except_id=account.session_id)
     session.commit()
+
+
+# The account: deleting it, keeping it, and a copy of what is kept about its user
+
+
+@router.post("/account/deletion", response_model=MeOut, dependencies=[Depends(limited(SIGN_INS))])
+def delete_account(
+    body: AccountDeletionIn,
+    account: AccountDep,
+    request: Request,
+    session: SessionDep,
+    mailer: MailerDep,
+):
+    """Set the account to be deleted once the grace period is over, sign it out everywhere
+    else, and tell its address. The password confirms it, or the address typed out for an
+    account without one, so that a browser left signed in is not enough by itself."""
+    user = account.user
+    if account.session_id is None:
+        raise HTTPException(409, LOCAL_ACCOUNT)
+    if user.password_hash is not None:
+        if not auth.verify_password(body.password or "", user.password_hash):
+            raise HTTPException(403, WRONG_PASSWORD)
+    elif (body.email or "").strip().lower() != user.email:
+        raise HTTPException(403, TYPE_EMAIL)
+    if refusal := deletion_refusal(session, user):
+        raise HTTPException(409, refusal)
+    user.deletion_due_at = auth.now() + DELETION_GRACE
+    auth.revoke_sessions(session, user.id, except_id=account.session_id)
+    session.commit()
+    subject, text = account_deletion_email(
+        user.name, day(user.deletion_due_at), f"{_app_url(request)}{LOGIN_PAGE}"
+    )
+    # The deletion is set either way, and the next sign-in shows it; a relay that is down
+    # is logged by the mailer.
+    with suppress(MailError):
+        mailer.send(user.email, subject, text)
+    return _me(account)
+
+
+@router.delete("/account/deletion", response_model=MeOut)
+def keep_account(account: AnyAccountDep, session: SessionDep):
+    """Keep an account that was set to be deleted: nothing of it is removed before the day."""
+    account.user.deletion_due_at = None
+    session.commit()
+    return _me(account)
+
+
+@router.get("/account/export", response_model=AccountExport)
+def export_account(account: AnyAccountDep, session: SessionDep, response: Response):
+    """Everything kept about the user as a person, as a file to save (app/export.py)."""
+    export = account_export(session, account.user)
+    filename = f"emudoc-account-{export.exported_at:%Y-%m-%d}.json"
+    response.headers["Content-Disposition"] = content_disposition(filename)
+    response.headers["Cache-Control"] = "no-store"
+    return export
 
 
 # Two-factor sign-in
@@ -457,8 +536,12 @@ def _me(account: Account) -> MeOut:
         email_verified=user.email_verified_at is not None,
         mfa_enabled=user.mfa_enabled,
         identities=sorted(identity.provider for identity in user.identities),
-        organization=OrganizationOut.model_validate(account.organization),
+        organization=OrganizationOut.model_validate(account.organization).model_copy(
+            update={"chat_retention_days": entitlements_of(account.organization).retention_days}
+        ),
         role=account.role,
+        has_password=user.password_hash is not None,
+        deletion_due_at=user.deletion_due_at,
     )
 
 

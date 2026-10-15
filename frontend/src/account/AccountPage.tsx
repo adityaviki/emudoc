@@ -1,13 +1,22 @@
-// The account page: who you are, how you sign in, and where you are signed in.
+// The account page: who you are, how you sign in, where you are signed in, a copy of your data,
+// and deleting the account.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Copy, LogOut, X } from 'lucide-react'
+import { Check, Copy, Download, LogOut, X } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
-import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, REGION_NAMES, auth } from '../api.ts'
+import {
+  ACCOUNT_EXPORT_URL,
+  DELETION_GRACE_DAYS,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  PLAN_LABELS,
+  REGION_NAMES,
+  auth,
+} from '../api.ts'
 import type { Me, MfaSetup, UserSession } from '../api.ts'
 import { ME_KEY, setSignedIn, useMe, useSignOut } from '../auth.ts'
-import { Button, Chip, IconButton, InputField, Loading, Notice } from '../components/ui.tsx'
+import { Button, ButtonLink, Chip, IconButton, InputField, Loading, Notice } from '../components/ui.tsx'
 import { formatDateTime } from '../format.ts'
 import { QrCode } from './QrCode.tsx'
 import { PasswordField } from './shared.tsx'
@@ -35,6 +44,8 @@ export function AccountPage() {
           <PasswordSection />
           <TwoFactorSection me={me} />
           <SessionsSection />
+          <DataSection me={me} />
+          <DeleteSection me={me} />
         </div>
       </div>
     </div>
@@ -411,6 +422,94 @@ function SessionsSection() {
             Sign out everywhere else
           </Button>
         </div>
+      )}
+    </Section>
+  )
+}
+
+function DataSection({ me }: { me: Me }) {
+  const days = me.organization.chat_retention_days
+  return (
+    <Section
+      title="Your data"
+      description="A copy of everything Emudoc keeps about you: your account, how you sign in, your organisations, where you signed in from, the chats you started and the usage counted to you. The documents belong to your organisation and are not in it."
+    >
+      <ButtonLink href={ACCOUNT_EXPORT_URL} download icon={<Download className="size-4" />}>
+        Download your data
+      </ButtonLink>
+      {days !== null && (
+        <p className="mt-3 text-[13px] text-muted">
+          On the {PLAN_LABELS[me.organization.plan]} plan, a chat is deleted {days} days after its last question.
+        </p>
+      )}
+    </Section>
+  )
+}
+
+function DeleteSection({ me }: { me: Me }) {
+  const queryClient = useQueryClient()
+  const [open, setOpen] = useState(false)
+  // The password confirms it; an account that signs in only through a provider types its address.
+  const [confirmation, setConfirmation] = useState('')
+  const remove = useMutation({
+    mutationFn: () => auth.deleteAccount(me.has_password ? { password: confirmation } : { email: confirmation }),
+    // The shell shows the page that offers to keep the account from now on.
+    onSuccess: (deleted) => setSignedIn(queryClient, deleted),
+  })
+
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    if (confirmation.trim()) remove.mutate()
+  }
+
+  return (
+    <Section
+      title="Delete account"
+      description={`The account goes ${DELETION_GRACE_DAYS} days after you ask; until then, signing in lets you keep it. If you are the only member of ${me.organization.name}, the organisation goes with it: its projects, documents and chats.`}
+    >
+      {open ? (
+        <form onSubmit={submit} className="max-w-sm space-y-3">
+          <Notice tone="warn">
+            Every other browser and device is signed out now. Download your data first if you want a copy.
+          </Notice>
+          {me.has_password ? (
+            <PasswordField
+              label="Your password"
+              autoComplete="current-password"
+              required
+              value={confirmation}
+              onChange={(event) => setConfirmation(event.target.value)}
+            />
+          ) : (
+            <InputField
+              label={`Type ${me.email} to confirm`}
+              autoComplete="off"
+              required
+              value={confirmation}
+              onChange={(event) => setConfirmation(event.target.value)}
+            />
+          )}
+          {remove.isError && <Notice tone="bad">{remove.error.message}</Notice>}
+          <div className="flex gap-2">
+            <Button type="submit" variant="danger" disabled={!confirmation.trim() || remove.isPending}>
+              Delete my account
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setOpen(false)
+                setConfirmation('')
+                remove.reset()
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <Button variant="danger" onClick={() => setOpen(true)}>
+          Delete account…
+        </Button>
       )}
     </Section>
   )

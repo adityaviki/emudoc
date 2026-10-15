@@ -400,6 +400,37 @@ a host the app does not recognise is listed by its name, so an operator's own se
 public name appears there too. A company the app sends nothing to, such as a support desk,
 belongs on the operator's own legal pages, beside a link to this one.
 
+## Retention and deletion
+
+What the app removes on its own, in the worker's housekeeping round (a minute after start, then
+every six hours), and so what the privacy notice can promise:
+
+- **Chats** go once their last question is older than the organisation's plan keeps them
+  (`retention_days` in `backend/app/entitlements.py`: 30 days on Free, 365 on Pro, never on
+  Team and Enterprise); a chat whose answer is still being written stays until it is settled.
+  Deleting a project, folder, document or chat is immediate: there is no trash yet.
+- **Sessions and one-time links** go 30 days after they expired or were revoked
+  (`CREDENTIAL_HISTORY` in `backend/app/auth.py`), with the address and browser a session
+  recorded and the address a link went to.
+- **A deleted account** goes 14 days after its user asked (`DELETION_GRACE` in
+  `backend/app/retention.py`), within six hours of the day, with every organisation it was the
+  only member of: projects, documents and their files, chats, jobs and usage. In an
+  organisation with other members, the user's membership, sessions and chats go and its usage
+  rows stay with the organisation without their name; the last owner of such an organisation
+  cannot ask until another member is an owner, and one who became the last owner meanwhile is
+  succeeded at the purge by the next member in role and seniority (logged as a warning). The
+  log names accounts by id only.
+
+Nothing in the app reaches the copies outside the database and the storage. Backups (and a
+bucket's object versions) keep a purged account until they expire, so the privacy notice names
+that window as the outer bound of a deletion. A restore from a backup made during an account's
+grace period purges it again at the next round; one from before the request brings it back with
+nothing due, so the worker's "Deleted account" lines since the backup name the accounts to
+delete again by hand. Logs keep the email addresses that the mailer
+names when sending fails (and the log mailer of development, every message), for as long as the
+log store keeps them. The worker must run for any of this to happen: an API without one purges
+nothing.
+
 ## Rates
 
 The app holds each caller to a rate of its own (the `RATE_*` settings in `.env.example`): so
@@ -455,3 +486,9 @@ before the app would hold it.
    the bucket, and the account page says "Data kept in" it. With an `openrouter:` model, the
    first answer comes back from `eu.openrouter.ai` (or `us.`); a refusal there means the
    OpenRouter account has no in-region routing.
+10. On the account page, "Download your data" saves `emudoc-account-<date>.json` with your
+    account, sessions and chats and no password hash. Sign up a throwaway account, delete it
+    with its password: the notice arrives by mail, the page offers only to keep it, and signing
+    in elsewhere shows the same. Keep it, delete it again, and check after the 14 days (or move
+    `users.deletion_due_at` into the past and wait for a housekeeping round) that signing in
+    with it fails and the worker's log says "Deleted account".

@@ -89,6 +89,10 @@ class User(Base):
     totp_last_step: Mapped[int | None] = mapped_column(BigInteger)
     # SHA-256 hashes of the one-time codes that replace the authenticator when it is lost.
     recovery_code_hashes: Mapped[list] = mapped_column(JSONB, default=list)
+    # When the account is purged with everything it alone holds (app/retention.py): set when
+    # its user asks for it to be deleted, cleared if they keep it before then. While it is
+    # set, the account can do nothing but keep itself, export its data and sign out.
+    deletion_due_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

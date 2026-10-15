@@ -2,7 +2,9 @@
 
 The account is the user the session cookie names, in their organisation. Without a valid
 session the request is refused, unless the local account is on for development, in which case
-it acts as the local owner.
+it acts as the local owner. An account set to be deleted (app/retention.py) is refused too,
+except by the three routes that take `AnyAccountDep`: the ones that show it, keep it and
+export its data. Signing out needs no account.
 
 Every object is reached through the account's organisation: a project must belong to it, and a
 document, folder, passage or chat must lie in one of its projects. Anything else is reported as
@@ -37,6 +39,7 @@ from app.indexing.pipeline import Services
 from app.mail import Mailer
 from app.models import Chat, Document, Folder, Passage, Project, User
 from app.ratelimit import Key, Limit, by_user, hit
+from app.retention import deletion_pending
 from app.worker import Worker
 
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -114,7 +117,18 @@ def get_account(request: Request, session: SessionDep) -> Account:
     raise HTTPException(401, SIGN_IN)
 
 
-AccountDep = Annotated[Account, Depends(get_account)]
+AnyAccountDep = Annotated[Account, Depends(get_account)]
+
+
+def get_usable_account(account: AnyAccountDep) -> Account:
+    """The account, provided it is not set to be deleted: until its user keeps it, it can do
+    nothing that would add to what the purge removes, or act on what others hold."""
+    if account.user.deletion_due_at is not None:
+        raise HTTPException(403, deletion_pending(account.user.deletion_due_at))
+    return account
+
+
+AccountDep = Annotated[Account, Depends(get_usable_account)]
 
 
 def get_editor(account: AccountDep) -> Account:

@@ -389,6 +389,21 @@ header when calling the API by hand. The app answers no request from another ori
 no CORS): the frontend is served from the API's own origin, and the defence rests on that. The
 routes are under `/api/auth`, the pages in `frontend/src/account/`.
 
+The account page also downloads "your data": one JSON file with everything kept about the user
+as a person (the account, how it signs in, its organisations, the sessions of the last month,
+the chats it started with every message, and the usage counted to it), without the password
+hash, the authenticator secret or the organisation's documents (`backend/app/export.py`, `GET
+/api/auth/account/export`). Deleting the account takes the password, or the address typed out
+for an account that signs in only through Google or Microsoft. It signs out every other browser,
+mails a notice, and leaves 14 days in which the account can do nothing but be kept, exported or
+signed out of: signing in shows the day and a "Keep my account" button. Then the worker's
+housekeeping purges it, with every organisation it was the only member of and everything in it,
+rows and files; in an organisation with other members only the user's membership and chats go,
+and the last owner of one is refused until another member is an owner (`backend/app/retention.py`).
+A chat is kept for the plan's retention after its last question (30 days on Free, a year on
+Pro, for good on Team and Enterprise), which the chat list and the account page say; sessions
+and one-time links are removed a month after they ended.
+
 `/subprocessors` lists the companies the deployment sends data to, what for and what each
 receives, for anyone to read before signing up (the sign-up page and the user menu link to it).
 The backend reads it from its settings (`backend/app/subprocessors.py`, `GET
@@ -470,6 +485,7 @@ frontend/src/
   private until shared) are already enforced. The plan's member cap (`check_member` in
   `backend/app/entitlements.py`) waits for them.
 - Billing: plans exist and are enforced, but nothing sells them. The `plan` command moves an
-  organisation between them; the API keys, the connectors, retention and the model tier the
-  plans declare are not read by anything yet.
+  organisation between them; the API keys, the connectors and the model tier the plans
+  declare are not read by anything yet.
+- A trash: deleting a project, folder, document or chat is immediate and permanent.
 - More file types (slides, email, legacy .doc and .xls), and reading order for multi-column PDFs.
