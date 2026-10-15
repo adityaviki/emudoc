@@ -1,4 +1,5 @@
-"""The SMTP mailer checks the relay's certificate: the links it sends sign people in."""
+"""The SMTP mailer checks the relay's certificate, since the links it sends sign people in, and
+logs a failure without the address the message was for."""
 
 import smtplib
 import ssl
@@ -10,10 +11,12 @@ from app.mail import MailError, SmtpMailer
 
 class FakeSMTP:
     """smtplib's client reduced to what the mailer calls, keeping the TLS context it is given;
-    `refuse` stands for a relay whose certificate does not verify."""
+    `refuse` stands for a relay whose certificate does not verify, `reject` for one that will
+    not take the message."""
 
     made: list["FakeSMTP"] = []
     refuse: ssl.SSLCertVerificationError | None = None
+    reject: smtplib.SMTPException | None = None
 
     def __init__(self, host: str, port: int, timeout: float, context=None):
         self.host, self.port, self.context = host, port, context
@@ -37,6 +40,8 @@ class FakeSMTP:
         pass
 
     def send_message(self, message) -> None:
+        if FakeSMTP.reject:
+            raise FakeSMTP.reject
         self.sent.append(message)
 
 
@@ -44,6 +49,7 @@ class FakeSMTP:
 def relay(monkeypatch):
     FakeSMTP.made = []
     FakeSMTP.refuse = None
+    FakeSMTP.reject = None
     monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)
     monkeypatch.setattr(smtplib, "SMTP_SSL", FakeSMTP)
     return FakeSMTP
@@ -77,3 +83,18 @@ def test_a_relay_the_machine_does_not_trust_gets_nothing(relay, caplog):
     assert "The mail relay at smtp.example.com:587 presented a certificate" in caplog.text
     assert "(self-signed certificate)" in caplog.text
     assert "secret" not in caplog.text and "/r/x" not in caplog.text
+
+
+def test_a_failure_is_logged_without_the_address_it_was_for(relay, caplog):
+    # smtplib's refusal names the recipient, and so does the relay's answer inside it.
+    relay.reject = smtplib.SMTPRecipientsRefused(
+        {"ada.lovelace@example.co.uk": (550, b"5.1.1 <ada.lovelace@example.co.uk>: no such user")}
+    )
+    mailer = SmtpMailer("smtp://mailer:secret@smtp.example.com", "no-reply@example.com")
+    with caplog.at_level("WARNING", logger="app.mail"), pytest.raises(MailError):
+        mailer.send("ada.lovelace@example.co.uk", "Reset your password", "https://x.example/r/x")
+    assert (
+        "Sending the email 'Reset your password' through smtp.example.com:587 failed: "
+        "{'<address>': (550, b'5.1.1 <<address>>: no such user')}"
+    ) in caplog.text
+    assert "lovelace" not in caplog.text and "/r/x" not in caplog.text

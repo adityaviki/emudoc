@@ -14,7 +14,9 @@ the sign-in routes, which have none yet, the email address the request names und
 and the client's address (what uvicorn read from the proxy's X-Forwarded-For, see
 deploying.md) under another, larger one, since an office shares an address and an account
 does not; so a password guessed from many addresses is held as well as many guessed from
-one. The count is one row per scope, key and minute, raised with one `INSERT … ON CONFLICT
+one. An email address is counted by its SHA-256, never as it is: the address a sign-in names may
+be anyone's, an account's or not, and neither the table nor the line the refusal logs keeps it.
+The count is one row per scope, key and minute, raised with one `INSERT … ON CONFLICT
 DO UPDATE` and committed at once, before the route runs: a sign-in that fails for the wrong
 password counts all the same, which is the point. The minute is a fixed window, so a caller
 can make up to twice the limit across its boundary, which is near enough for what the limits
@@ -26,6 +28,7 @@ removes the rows older than an hour (`prune_rate_limits`, from `housekeeping` in
 app/maintenance.py).
 """
 
+import hashlib
 import logging
 import math
 from dataclasses import dataclass
@@ -105,8 +108,9 @@ def by_address(request: Request) -> Key:
 
 
 def by_email(email: str) -> Key:
-    """The address a sign-in names, whether or not an account has it."""
-    return Key(f"email:{email.strip().lower()}", "for this email address")
+    """The address a sign-in names, whether or not an account has it, however it is typed."""
+    digest = hashlib.sha256(email.strip().lower().encode()).hexdigest()
+    return Key(f"email:{digest}", "for this email address")
 
 
 @dataclass(frozen=True)

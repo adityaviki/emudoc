@@ -18,8 +18,8 @@ projects that no longer exist, which a delete leaves behind when the storage fai
 are gone; the pruning of jobs that finished longer ago than the queue keeps them, of the
 events of old answers, of the request counts behind the rate limits (app/ratelimit.py), of the
 chats past their plan's retention (app/retention.py), and of the sessions and one-time links
-that ended a month ago (app/auth.py); and the purge of the accounts whose deletion is due
-(app/retention.py).
+that ended a month ago (app/auth.py); and the purge of the accounts whose deletion is due,
+after setting those that a restore brought back to be purged again (app/retention.py).
 `sweep-page-images` runs the first part by hand, after lowering the setting; `sweep-orphans`
 lists the second part and removes it with `--delete`.
 
@@ -54,7 +54,7 @@ from app.models import PLANS as PLAN_NAMES
 from app.models import Document, Organization
 from app.parsing import MIME_TYPES
 from app.ratelimit import prune_rate_limits
-from app.retention import prune_chats, purge_due_accounts
+from app.retention import prune_chats, purge_due_accounts, reapply_erasures
 from app.storage import (
     DELETE_BATCH,
     ROOT_PREFIX,
@@ -391,6 +391,7 @@ def housekeeping(storage: Storage) -> None:
         minutes = prune_rate_limits(connection)
         chats = prune_chats(connection)
         credentials = prune_credentials(connection)
+    reapply_erasures(storage)
     accounts = purge_due_accounts(storage)
     if accounts:
         log.info("Housekeeping: deleted %s accounts whose deletion was due", accounts)

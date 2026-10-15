@@ -2,12 +2,14 @@
 question, an ended session or link for a month; an account is deleted after a grace period,
 confirmed by its password or its address, during which it can only be kept, exported or signed
 out of; the purge takes every organisation the account was the only member of, with its rows
-and files, and leaves the rest of a shared one with an owner; and the export holds what is kept
-about its user and nothing of anyone else's."""
+and files, leaves the rest of a shared one with an owner, and leaves a record by which an
+account that a restore brings back is purged again; and the export holds what is kept about its
+user and nothing of anyone else's."""
 
 import logging
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from pydantic_ai.messages import TextPart
 from sqlalchemy import func, select, text, update
 
@@ -32,12 +34,15 @@ from app.models import (
 )
 from app.retention import (
     DELETION_GRACE,
+    ERASURES,
     LOCAL_ACCOUNT,
     day,
     deletion_pending,
+    erasure_key,
     purge_due_accounts,
+    reapply_erasures,
 )
-from app.storage import organization_prefix
+from app.storage import StorageError, organization_prefix
 from app.usage import ANSWER, record
 from tests.conftest import FakeTurn
 from tests.test_api import create_project, upload
@@ -298,6 +303,113 @@ def test_the_purge_takes_the_account_its_organisation_and_their_files(
     )
     assert refused.status_code == 401
     assert org_of(signup(client))["id"] != organization_id
+
+
+def backup(session, organization_id: int) -> dict:
+    """The rows of the organisation and its one member, as a backup made now holds them."""
+    picks = {
+        Organization: Organization.id == organization_id,
+        User: User.id.in_(select(Membership.user_id).where(Membership.org_id == organization_id)),
+        Membership: Membership.org_id == organization_id,
+        Project: Project.org_id == organization_id,
+        Document: Document.project_id.in_(
+            select(Project.id).where(Project.org_id == organization_id)
+        ),
+    }
+    return {
+        model.__table__: [
+            dict(row) for row in session.execute(select(model.__table__).where(pick)).mappings()
+        ]
+        for model, pick in picks.items()
+    }
+
+
+def restore(session, rows: dict) -> None:
+    """Put the backed-up rows back, parents first, as restoring the backup would."""
+    for table, values in rows.items():
+        session.execute(table.insert(), values)
+    session.commit()
+
+
+def test_an_account_a_restore_brings_back_is_purged_again(
+    client, session, services, signed_in_only, sample_pdf, caplog
+):
+    organization_id = org_of(signup(client))["id"]
+    upload(client, create_project(client)["id"], sample_pdf)
+    user = ada(session)
+    key = erasure_key(user.id, user.created_at)
+    taken = backup(session, organization_id)
+    storage = services.storage
+    assert reapply_erasures(storage) == []
+
+    assert delete_account(client, password=PASSWORD).status_code == 200
+    make_due(session, user)
+    housekeeping(storage)
+    session.expire_all()
+    assert ada(session) is None
+    # The record names the account by its id and creation time, and holds nothing else.
+    (entry,) = storage.list(ERASURES)
+    assert entry.key == key and key.startswith("erasures/users/1-")
+    record = storage.get(entry.key).decode()
+    assert "ada" not in record.lower() and "example" not in record
+
+    # The database is restored from the backup made before the request; the bucket is not.
+    restore(session, taken)
+    assert ada(session).deletion_due_at is None
+    with caplog.at_level(logging.WARNING, logger="app.retention"):
+        housekeeping(storage)
+    assert "Accounts [1] were purged before and are back in the database" in caplog.text
+    session.expire_all()
+    assert ada(session) is None
+    assert session.get(Organization, organization_id) is None
+    assert not session.scalar(select(func.count()).select_from(Document))
+    assert [entry.key for entry in storage.list(ERASURES)] == [key]
+    assert me(client).status_code == 401
+
+
+def test_a_new_account_with_a_purged_ones_id_is_left_alone(session, services, make_account):
+    # A restored database hands out ids from where its sequences were, so a new account can
+    # get the id of one purged since; its creation time tells them apart.
+    purged = make_account("una@acme.example").user
+    purged_id = purged.id
+    make_due(session, purged)
+    assert purge_due_accounts(services.storage) == 1
+    session.expunge_all()
+    session.add(User(id=purged_id, email="new@initech.example"))
+    session.commit()
+
+    assert reapply_erasures(services.storage) == []
+    housekeeping(services.storage)
+    session.expire_all()
+    assert session.get(User, purged_id).email == "new@initech.example"
+
+
+def test_a_purge_whose_record_cannot_be_kept_waits_for_the_next_round(
+    session, services, make_account, monkeypatch
+):
+    storage = services.storage
+    account = make_account("una@acme.example")
+    user_id, organization_id = account.user.id, account.organization.id
+    make_due(session, account.user)
+    put = storage.put
+
+    def unavailable(key, source, content_type=None):
+        if key.startswith(ERASURES):
+            raise StorageError("The storage is out of reach.", transient=True)
+        put(key, source, content_type)
+
+    monkeypatch.setattr(storage, "put", unavailable)
+    with pytest.raises(StorageError):
+        purge_due_accounts(storage)
+    session.expire_all()
+    assert session.get(User, user_id) is not None
+    assert session.get(Organization, organization_id) is not None
+
+    monkeypatch.setattr(storage, "put", put)
+    assert purge_due_accounts(storage) == 1
+    session.expire_all()
+    assert session.get(User, user_id) is None
+    assert len(list(storage.list(ERASURES))) == 1
 
 
 def test_a_purge_leaves_a_shared_organisation_with_its_most_senior_member_as_owner(

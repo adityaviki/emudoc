@@ -421,15 +421,21 @@ every six hours), and so what the privacy notice can promise:
   succeeded at the purge by the next member in role and seniority (logged as a warning). The
   log names accounts by id only.
 
-Nothing in the app reaches the copies outside the database and the storage. Backups (and a
-bucket's object versions) keep a purged account until they expire, so the privacy notice names
-that window as the outer bound of a deletion. A restore from a backup made during an account's
-grace period purges it again at the next round; one from before the request brings it back with
-nothing due, so the worker's "Deleted account" lines since the backup name the accounts to
-delete again by hand. Logs keep the email addresses that the mailer
-names when sending fails (and the log mailer of development, every message), for as long as the
-log store keeps them. The worker must run for any of this to happen: an API without one purges
-nothing.
+Backups (and a bucket's object versions) keep a purged account until they expire, so the
+privacy notice names that window as the outer bound of a deletion. A restore must not bring the
+account back, so each purge leaves a record in the storage, `erasures/users/<id>-<created>.json`,
+naming the account by its id and creation time and nothing else, and the first housekeeping
+round after a restore purges again every account that is back (the worker's log says "Accounts
+[…] were purged before and are back in the database"). Restore the database on its own, and
+that is all; restore the bucket too, and leave `erasures/` as it is: restored to an older
+point, it forgets the purges since. The records are kept for good. They say nothing about the
+person, and backups may be kept for any length of time.
+
+Logs carry no email address of the app's making: a refused sign-in names the address by its
+SHA-256, as the rate limits count it, and a mail that fails is logged with its subject and the
+relay's answer, every address in it replaced by `<address>`. The log mailer of development
+writes every message, links included; production cannot use it, since it requires
+`SMTP_URL`. The worker must run for any of this to happen: an API without one purges nothing.
 
 ## Rates
 
@@ -462,8 +468,8 @@ before the app would hold it.
    `Content-Security-Policy: sandbox` (with a bucket, the signed URL's
    `response-content-disposition` says `attachment` instead).
 5. Sign in with a wrong password until the form says to wait a minute: the eleventh attempt
-   does (`RATE_SIGN_INS`), and the API's log names the address it held, which is yours and
-   not the proxy's.
+   does (`RATE_SIGN_INS`), and the API's log line names the email address only by its hash
+   (`email:` and 64 hex digits), never as it was typed.
 6. The worker's log says at start which scanner it uses ("Uploads are scanned by ClamAV
    1.5.4/…"), with the signature version and date after the slashes. Upload a `.txt` file
    whose whole content is the EICAR test string (any antivirus vendor publishes it; it is
@@ -491,4 +497,5 @@ before the app would hold it.
     with its password: the notice arrives by mail, the page offers only to keep it, and signing
     in elsewhere shows the same. Keep it, delete it again, and check after the 14 days (or move
     `users.deletion_due_at` into the past and wait for a housekeeping round) that signing in
-    with it fails and the worker's log says "Deleted account".
+    with it fails, the worker's log says "Deleted account", and the bucket or directory holds
+    its record under `erasures/users/`.

@@ -28,15 +28,29 @@ can run it side by side, and a user who keeps their account at that moment eithe
 purge to pass or is skipped by it. Only ids are logged on the way, so that the log does not
 outlive the erasure; backups do until they expire (deploying.md), which is why the privacy
 notice names their window as the outer bound of a deletion.
+
+A backup made before a purge holds the account, and restoring it would bring the account back
+with nothing due. So each purge leaves a record in the storage, under ERASURES and outside the
+documents' `orgs/`, that names the account by its id and the moment it was created and holds
+nothing else about the person; it is written before the purge commits, so no purge goes
+unrecorded. Each housekeeping round reads the records first (`reapply_erasures`) and sets any
+account that is back to be purged at once. The id alone would not do: a restored database
+hands out ids again from where its sequences were, so a new account can have a purged one's
+id, never its creation time as well. A database restored on its own heals within a round of
+the worker's start; a bucket restored with it must keep ERASURES as it is (deploying.md). The
+records are kept for good, since backups may be kept for any time and the records say nothing
+of anyone.
 """
 
+import json
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import Connection, and_, delete, func, select, text
 from sqlalchemy.orm import Session, aliased
 
-from app.db import SessionLocal
+from app.db import SessionLocal, engine
 from app.entitlements import MONTHS, PLANS
 from app.models import ROLES, Membership, Organization, User
 from app.storage import Storage, organization_prefix
@@ -51,6 +65,21 @@ DELETION_GRACE = timedelta(days=14)
 LOCAL_ACCOUNT = (
     "The local account cannot be deleted: it is what this machine works as without signing "
     "in. Reset the database to start over."
+)
+
+# Where the purge leaves its record of each account it deleted: `erasure_key` names one.
+ERASURES = "erasures/users/"
+_STAMP = "%Y%m%dT%H%M%S.%fZ"
+_ERASURE = re.compile(rf"{ERASURES}(\d+)-(\d{{8}}T\d{{6}}\.\d{{6}}Z)\.json")
+# The accounts of the records that are back in the database, and not due already, made due now.
+_BACK = text(
+    """
+    UPDATE users SET deletion_due_at = now()
+    FROM unnest(CAST(:ids AS integer[]), CAST(:created AS timestamptz[])) AS erased (id, created_at)
+    WHERE users.id = erased.id AND users.created_at = erased.created_at
+      AND (users.deletion_due_at IS NULL OR users.deletion_due_at > now())
+    RETURNING users.id
+    """
 )
 
 # Each plan with a limit joins as a row of `kept`, so one statement prunes every organisation.
@@ -126,8 +155,17 @@ def purge_due_accounts(storage: Storage) -> int:
             )
             if user is None:
                 return purged
-            user_id = user.id
+            user_id, created_at = user.id, user.created_at
             prefixes = purge_account(session, user)
+            record = {
+                "user_id": user_id,
+                "created_at": created_at.isoformat(),
+                "purged_at": datetime.now(UTC).isoformat(),
+            }
+            # Before the commit: a purge whose record cannot be kept waits for the next round.
+            storage.put(
+                erasure_key(user_id, created_at), json.dumps(record).encode(), "application/json"
+            )
             session.commit()
         storage.discard(*prefixes)
         purged += 1
@@ -136,6 +174,37 @@ def purge_due_accounts(storage: Storage) -> int:
             user_id,
             len(prefixes),
         )
+
+
+def erasure_key(user_id: int, created_at: datetime) -> str:
+    """The key of the record the purge leaves of the account with this id and creation time."""
+    return f"{ERASURES}{user_id}-{format(created_at.astimezone(UTC), _STAMP)}.json"
+
+
+def reapply_erasures(storage: Storage) -> list[int]:
+    """Set every account that was purged and is back in the database, as a restore from an
+    older backup brings it, to be purged at once; returns their ids."""
+    erased = [
+        (int(found[1]), datetime.strptime(found[2], _STAMP).replace(tzinfo=UTC))
+        for entry in storage.list(ERASURES)
+        if (found := _ERASURE.fullmatch(entry.key))
+    ]
+    if not erased:
+        return []
+    with engine.begin() as connection:
+        back = sorted(
+            connection.scalars(
+                _BACK,
+                {"ids": [user_id for user_id, _ in erased], "created": [at for _, at in erased]},
+            )
+        )
+    if back:
+        log.warning(
+            "Accounts %s were purged before and are back in the database, as a restore from a "
+            "backup made before their purge brings them; they are purged again now",
+            back,
+        )
+    return back
 
 
 def purge_account(session: Session, user: User) -> list[str]:

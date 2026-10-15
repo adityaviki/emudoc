@@ -2,11 +2,15 @@
 that an account is set to be deleted.
 
 There is no email provider yet. The log mailer writes each message to the log, which is enough
-to follow a link in development; the SMTP mailer sends through any relay. A provider with
-templates, bounces and sending through jobs is a roadmap item (2.4).
+to follow a link in development and never runs in production, where SMTP_URL is required
+(app/config.py); the SMTP mailer sends through any relay, and when it fails it logs the
+message's subject and the relay's answer with every address in it hidden, since the person a
+message was for is no business of the log's. A provider with templates, bounces and sending
+through jobs is a roadmap item (2.4).
 """
 
 import logging
+import re
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -17,6 +21,10 @@ from urllib.parse import unquote, urlsplit
 from app.config import Settings
 
 log = logging.getLogger(__name__)
+
+# Anything shaped like an email address, which a relay's refusal often repeats ("550 5.1.1
+# <ada@example.com>: Recipient address rejected"), and smtplib's own errors do too.
+_ADDRESS = re.compile(r"[\w.%+-]+@[\w-]+(?:\.[\w-]+)+")
 
 
 class MailError(Exception):
@@ -81,8 +89,19 @@ class SmtpMailer:
             )
             raise MailError("The email could not be sent.") from error
         except (OSError, smtplib.SMTPException) as error:
-            log.warning("Sending email to %s failed: %s", to, error)
+            log.warning(
+                "Sending the email %r through %s:%s failed: %s",
+                subject,
+                self.host,
+                self.port,
+                hide_addresses(str(error)),
+            )
             raise MailError("The email could not be sent.") from error
+
+
+def hide_addresses(text: str) -> str:
+    """The text with every email address in it replaced, for the log."""
+    return _ADDRESS.sub("<address>", text)
 
 
 def mailer_from_settings(settings: Settings) -> Mailer:

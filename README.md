@@ -400,6 +400,8 @@ signed out of: signing in shows the day and a "Keep my account" button. Then the
 housekeeping purges it, with every organisation it was the only member of and everything in it,
 rows and files; in an organisation with other members only the user's membership and chats go,
 and the last owner of one is refused until another member is an owner (`backend/app/retention.py`).
+Each purge leaves a record under `erasures/` in the storage (the account's id and creation time,
+nothing else), so an account that a restored backup brings back is purged again at the next round.
 A chat is kept for the plan's retention after its last question (30 days on Free, a year on
 Pro, for good on Team and Enterprise), which the chat list and the account page say; sessions
 and one-time links are removed a month after they ended.

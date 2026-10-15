@@ -16,6 +16,7 @@ from app.ratelimit import (
     SEARCHES,
     SIGN_INS,
     UPLOADS,
+    by_email,
     seconds_left,
     window_start,
 )
@@ -125,7 +126,7 @@ def test_sign_in_requests_are_counted_per_address_and_per_email(
     refused(client.post("/api/auth/login", json=wrong), ADDRESSES.refusal(3, FROM_ADDRESS))
     assert counts(session) == [
         ("address", "ip:testclient", 4),
-        ("sign_in", "email:ada@example.com", 3),
+        ("sign_in", by_email("ada@example.com").value, 3),
     ]
 
     # With the address free again, the account is still held, however its address is typed,
@@ -143,8 +144,9 @@ def test_sign_in_requests_are_counted_per_address_and_per_email(
     assert counts(session) == [
         ("address", "ip:testclient", 4),
         ("address", "ip:testclient", 3),
-        ("sign_in", "email:ada@example.com", 5),
-        ("sign_in", "email:bob@example.com", 1),
+        # The keys are hashes, which sort Bob's first.
+        ("sign_in", by_email("bob@example.com").value, 1),
+        ("sign_in", by_email("ada@example.com").value, 5),
     ]
 
     # When the minute turns, the account may try again.
@@ -217,3 +219,17 @@ def test_the_minute_is_fixed_and_the_wait_is_the_rest_of_it():
     # A moment in another zone falls in the same minute as its UTC reading.
     east = datetime(2026, 10, 13, 14, 0, 15, tzinfo=timezone(timedelta(hours=2)))
     assert window_start(east) == start
+
+
+def test_a_refused_sign_in_logs_no_email_address(client, session, monkeypatch, caplog):
+    monkeypatch.setattr(get_settings(), "rate_sign_ins", 1)
+    wrong = {"email": "Ada@Example.com", "password": "guess"}
+    assert client.post("/api/auth/login", json=wrong).status_code == 401
+    with caplog.at_level("WARNING", logger="app.ratelimit"):
+        refused(client.post("/api/auth/login", json=wrong), SIGN_INS.refusal(1, FOR_EMAIL))
+    # The address is counted and logged by its hash, however it was typed, never as it is.
+    key = by_email("ada@example.com").value
+    assert key == by_email(" ADA@example.com ").value and len(key) == len("email:") + 64
+    assert f"A request was refused: {key} has made 2 sign-in requests" in caplog.text
+    assert "@" not in caplog.text
+    assert "example.com" not in str(counts(session))
