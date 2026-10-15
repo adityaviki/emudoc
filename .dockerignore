@@ -1,0 +1,19 @@
+# What the image is built from, and nothing else: everything is left out unless named here, so
+# .env, the uploads in backend/data, the tests, a frontend .env.local and whatever lands in the
+# checkout later never reach the build or the image. A file the app reads at run time, or the
+# frontend's build needs, is added here.
+*
+!backend/pyproject.toml
+!backend/uv.lock
+!backend/.python-version
+!backend/alembic.ini
+!backend/app/
+!backend/migrations/
+!frontend/package.json
+!frontend/pnpm-lock.yaml
+!frontend/index.html
+!frontend/public/
+!frontend/src/
+!frontend/tsconfig*.json
+!frontend/vite.config.ts
+**/__pycache__/

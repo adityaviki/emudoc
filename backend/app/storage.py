@@ -168,8 +168,13 @@ class Storage(ABC):
     """What the app asks of wherever its files are kept; one implementation per place."""
 
     @abstractmethod
-    def check(self) -> None:
-        """Make sure the storage can be used, or raise `StorageError` saying what to fix."""
+    def check(self, *, writing: bool = True) -> None:
+        """Make sure the storage can be used, or raise `StorageError` saying what to fix.
+
+        `writing=False` asks only that it can be listed and read, for a command that changes
+        nothing: the restore drill's dry run, which runs with read-only access to the live
+        storage (deploying.md, "The drill").
+        """
 
     @abstractmethod
     def put(self, key: str, source: Path | bytes, content_type: str | None = None) -> None:
@@ -295,7 +300,15 @@ class LocalStorage(Storage):
     def __init__(self, root: Path):
         self.root = root
 
-    def check(self) -> None:
+    def check(self, *, writing: bool = True) -> None:
+        if not writing:
+            if not self.root.is_dir() or not os.access(self.root, os.R_OK | os.X_OK):
+                raise StorageError(
+                    f"The storage directory {self.root} does not exist or cannot be read by "
+                    "this process. Point STORAGE_URL at the directory the app keeps its files "
+                    "in, and let this process read it."
+                )
+            return
         try:
             self.root.mkdir(parents=True, exist_ok=True)
         except OSError as error:
@@ -570,7 +583,9 @@ class S3Storage(Storage):
     def _key(self, key: str) -> str:
         return self.prefix + key
 
-    def check(self) -> None:
+    def check(self, *, writing: bool = True) -> None:
+        # HeadBucket asks for s3:ListBucket only, which a read-only key holds, so reading and
+        # writing are checked alike; a key that cannot write fails at the first upload.
         try:
             self.client.head_bucket(Bucket=self.bucket)
         except (ClientError, BotoCoreError) as error:

@@ -4,6 +4,7 @@ The two implementations are held to the same contract; the bucket one runs again
 the few boto3 calls it makes, since the suite makes no network calls.
 """
 
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -249,6 +250,24 @@ def test_check_says_what_to_fix(tmp_path):
     with pytest.raises(StorageError, match="cannot be used") as error:
         S3Storage(FakeS3Client("other"), "bucket").check()
     assert "NoSuchBucket" in str(error.value) and "AWS_ENDPOINT_URL" in str(error.value)
+
+
+def test_a_storage_only_read_is_checked_for_reading(tmp_path):
+    # The restore drill's dry run reads the live storage with access that cannot write: a
+    # directory mounted read-only, or one its user may only list.
+    readable = tmp_path / "data"
+    readable.mkdir(mode=0o500)
+    if os.access(readable, os.W_OK):
+        pytest.skip("this user writes in any directory")
+    with pytest.raises(StorageError, match="is not writable by this process"):
+        LocalStorage(readable).check()
+    LocalStorage(readable).check(writing=False)
+
+    missing = tmp_path / "missing"
+    with pytest.raises(StorageError, match="does not exist or cannot be read") as error:
+        LocalStorage(missing).check(writing=False)
+    assert "STORAGE_URL" in str(error.value)
+    assert not missing.exists()
 
 
 def test_the_start_says_how_the_bucket_keeps_the_files_at_rest(caplog):

@@ -6,13 +6,14 @@ build the services the pipeline and the agent run with, and in production refuse
 a usable model, with a model or a bucket reached in the clear across a network the deployment
 does not own (app/network.py), with a bucket that keeps deleted files longer than the privacy
 policy says (`check_versions` in app/storage.py), or outside the region the deployment promises
-(app/residency.py). One function
+(app/residency.py), and anywhere without a temporary directory to write in. One function
 does all of it, so that the two processes refuse the same misconfigurations and a check added
 for one is not forgotten by the other.
 """
 
 import logging
 import os
+import tempfile
 from collections.abc import Mapping
 
 from app.config import Settings, export_env_file, model_provider
@@ -43,6 +44,7 @@ def prepare(settings: Settings, services: Services | None = None) -> Services:
     from the environment as they are created. A check that fails raises `RuntimeError`,
     `StorageError` or `ScanError` with what to do, and the process must not run.
     """
+    check_temporary_directory()
     check_schema()
     check_embeddings()
     check_fts_language()
@@ -68,6 +70,38 @@ def prepare(settings: Settings, services: Services | None = None) -> Services:
     # read where the providers read them.
     check_residency(settings, services.storage, os.environ)
     return services
+
+
+def check_temporary_directory() -> None:
+    """Refuse to start without a temporary directory to write in, and warn when TMPDIR names
+    one that Python passed over.
+
+    The API writes every upload there before it stores it, and the API and the worker copy an
+    original there from a bucket to scan, parse and render it, so a process without one would
+    start and then fail every upload. The image runs with a read-only filesystem and needs a
+    tmpfs at /tmp or TMPDIR naming a volume (deploying.md, "The image"). Python takes the
+    first of TMPDIR, /tmp, /var/tmp and the working directory that it can write in, so a
+    TMPDIR it cannot is passed over in silence, and the documents land in the clear on a disk
+    the operator did not choose for them.
+    """
+    try:
+        directory = tempfile.gettempdir()
+        with tempfile.TemporaryFile(dir=directory):
+            pass
+    except OSError as error:
+        raise RuntimeError(
+            f"No temporary directory can be written in ({error}), and every upload passes "
+            "through one. Mount a tmpfs at /tmp, or set TMPDIR to a directory this process can "
+            "write in."
+        ) from None
+    named = os.environ.get("TMPDIR")
+    if named and os.path.realpath(named) != os.path.realpath(directory):
+        log.warning(
+            "TMPDIR names %s, which this process cannot write in, so the temporary files, "
+            "uploads among them, go to %s instead.",
+            named,
+            directory,
+        )
 
 
 def check_model(settings: Settings, llm: LLM) -> None:

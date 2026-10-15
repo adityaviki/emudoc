@@ -772,7 +772,7 @@ def main(argv: list[str] | None = None) -> None:
                 parser.error("TIME is in the future; give the point the database was restored to")
             storage = storage_from_settings(settings)
             check_schema()
-            storage.check()
+            storage.check(writing=not args.dry_run)
             restored = after_restore(storage, args.restored_to, dry_run=args.dry_run)
             for line in describe_restore(restored, args.restored_to):
                 print(line)

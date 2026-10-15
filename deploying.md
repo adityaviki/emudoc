@@ -1,23 +1,24 @@
 # Deploying Emudoc
 
 How to run the app on a server. The README's "Run it" is the development path, one `uvicorn`
-on one machine; this is what changes for a deployment. There is no Dockerfile yet, so the
-processes below run from a checkout with `uv`, as in development.
+on one machine; this is what changes for a deployment. The processes below run from the image
+("The image") or from a checkout with `uv`, as in development: the commands are the same, with
+`uv run` in `backend/` before each in a checkout.
 
 ## The pieces
 
 - **Postgres 17 with pgvector**, named in `DATABASE_URL`. The schema is applied as a release
-  step, before the new version starts: `uv run alembic upgrade head` in `backend/`. A process
+  step, before the new version starts: `alembic upgrade head`. A process
   that finds the database behind its migrations refuses to serve and says so. A database off
   the deployment's own network, such as a managed one, is reached with its certificate
   checked: "Encryption", below.
 - **Storage** for uploads and page images, named in `STORAGE_URL`: a directory the API and
   every worker can reach, or an S3-compatible bucket with the `AWS_*` variables.
-- **The API**: `uvicorn app.main:app` in `backend/`, serving `/api` and the built frontend
-  (`pnpm build` in `frontend/` before it starts). It listens on the loopback address and a
-  reverse proxy in front of it ends TLS, below.
-- **The worker**: `uv run python -m app.worker` in `backend/`, as many as the backlog needs. It
-  reads the same settings as the API and refuses the same misconfigurations.
+- **The API**: `uvicorn app.main:app`, serving `/api` and the built frontend, which the image
+  holds (in a checkout, `pnpm build` in `frontend/` before it starts). A reverse proxy in front
+  of it ends TLS, below.
+- **The worker**: `python -m app.worker`, as many as the backlog needs. It reads the same
+  settings as the API and refuses the same misconfigurations.
 - **A reverse proxy** that holds the certificate and forwards to the API: Caddy or nginx, below.
 - **ClamAV**, named in `SCANNER_URL`, which scans every upload before a worker parses it and
   before the API serves it to the other members of a project. The `clamav/clamav` image with
@@ -53,6 +54,89 @@ naming each.
 `.env.example` documents every setting; the README's "Configuration" says what the ones that
 matter do.
 
+## The image
+
+`Dockerfile` builds one image for every process: the API is its default command, and the
+worker, the release step and the maintenance commands are the others. Build it from a clean
+checkout of the commit to deploy, tagged with it:
+
+```bash
+docker build -t emudoc:$(git rev-parse --short HEAD) .
+```
+
+It holds Python 3.13 on Debian's slim image with the backend's locked dependencies (`uv sync
+--frozen --no-dev`, compiled ahead), the app and its migrations, and the frontend's build, under
+`/app` as in a checkout, so the API serves the frontend from its own origin as "TLS at a reverse
+proxy" asks. It holds no `.env`, no uploads, no tests, and neither uv nor Node: `.dockerignore`
+names what goes into the build and leaves out everything else. It runs as `emudoc`, uid and gid
+10001, with `ENVIRONMENT=production` set, so a container started without its settings refuses
+to run rather than running as development. The commands:
+
+```bash
+alembic upgrade head                              # the release step, once per release
+uvicorn app.main:app --host 0.0.0.0 --port 8000   # the API, the image's default
+python -m app.worker                              # a worker, as many as the backlog needs
+python -m app.maintenance failed-jobs             # the operator's commands, as in a checkout
+```
+
+The release step runs to its end before a container of the new image serves or works, since
+the API and the worker refuse a database behind their migrations and never upgrade one
+themselves. A container needs:
+
+- **Its settings in the environment**, from the orchestrator's secrets or an env file
+  (`docker run --env-file`, Compose's `env_file`), never baked into an image.
+- **A read-only filesystem with a tmpfs at `/tmp`.** Nothing in the image is written to, but
+  every upload passes through the temporary directory, and a worker copies an original there
+  to scan, parse and render it: size it for what the API takes in at once
+  (`MAX_UPLOAD_REQUEST_MB`, and `MAX_UPLOAD_MB` again, per upload at a time) and for what a
+  worker works on (`MAX_UPLOAD_MB` per `WORKER_CONCURRENCY`). A tmpfs counts as the
+  container's memory and keeps the documents in the clear ("Encryption", below). A process that
+  cannot write a temporary file refuses to start: "No temporary directory can be written in
+  …".
+- **A volume for a directory storage**: `STORAGE_URL=file:///var/lib/emudoc`, one volume shared
+  by the API and every worker. A named volume takes the directory's owner and mode (10001,
+  `0750`) from the image; a directory of the host's needs `chown 10001:10001`. A bucket needs
+  none.
+- **The proxy's address.** The API listens on every address of its container, published on
+  the host's loopback (`127.0.0.1:8000:8000`) for a proxy there. Docker passes those
+  connections on from the gateway of the container's network, not from 127.0.0.1, so
+  `FORWARDED_ALLOW_IPS` names the gateway; without it every session shows the gateway's address
+  and production logs that requests reach the app as plain HTTP.
+- **Time to stop.** Docker sends SIGTERM and kills the process 10 seconds later. The worker
+  gives its running jobs 8 (`--grace`) and hands the rest back to the queue; a larger
+  `--grace` needs a `stop_grace_period` (`docker stop -t`) above it.
+- **A private authority, if the database's or the mail relay's certificate comes from one**:
+  an image of the deployment's own `FROM` this one that copies it into
+  `/usr/local/share/ca-certificates/` and runs `update-ca-certificates` as root. The image sets
+  `SSL_CERT_FILE` to the system's bundle, without which the database's driver finds no
+  authority at all ("Encryption", below).
+
+`GET /api/health` answers 200 once the API reaches its database, and calls nothing else; the
+image has no curl, so a health check runs Python, as the compose file below does. The worker
+serves nothing to check.
+
+`deploy/compose.yml` puts it together on one machine: the release step, the API, a worker and
+ClamAV, with the settings in `/etc/emudoc/emudoc.env` (`EMUDOC_ENV` names another file):
+
+```bash
+export EMUDOC_IMAGE=emudoc:$(git rev-parse --short HEAD)
+docker compose -f deploy/compose.yml up -d --wait                 # also updates to a new tag
+docker compose -f deploy/compose.yml up -d --scale worker=3       # more workers
+docker compose -f deploy/compose.yml run --rm --no-deps worker python -m app.maintenance failed-jobs
+```
+
+`up` runs `alembic upgrade head` first and starts the API and the worker once it has
+succeeded, and `--wait` returns when the API answers its health check. The file gives its
+network a subnet of its own, `10.73.0.0/24`, so that `FORWARDED_ALLOW_IPS` can name the gateway
+(change both if the subnet collides with one the machine reaches), and its project another name
+than the development file's, so one machine can run both. The database, the mail relay, a
+bucket and the proxy are the deployment's: the env file names them, with
+`SCANNER_URL=clamd://clamav:3310` for the daemon beside the app. Compose expands `$` in the env
+file's values unless they are in single quotes, which a password may need. Wherever this guide
+says `uv run …`, the image runs the same command through `docker compose … run --rm --no-deps
+worker`: without `--no-deps`, `run` runs the release step first, with whatever image
+`EMUDOC_IMAGE` names.
+
 ## TLS at a reverse proxy
 
 Nothing in the app speaks TLS. A reverse proxy holds the certificate, answers the browsers on
@@ -79,8 +163,9 @@ machine therefore needs nothing more than the default command:
 cd backend && uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-A proxy that connects from another address, such as another container, needs that address
-named: `FORWARDED_ALLOW_IPS=10.0.0.5`, or a network as `10.0.0.0/24`, beside the app's own
+A proxy that connects from another address, such as another container or the gateway of the
+image's network ("The image"), needs that address named: `FORWARDED_ALLOW_IPS=10.0.0.5`, or a
+network as `10.0.0.0/24`, beside the app's own
 variables (it is uvicorn's, not a setting of the app, so it does not go in `.env`). `*` believes
 every connection, which is right only when nothing but the proxy can reach the port at all:
 anyone else who can would choose the address their session shows and claim to be on HTTPS.
@@ -231,7 +316,12 @@ the server. Production refuses to start otherwise, and says which:
   for, another customer's database at the same provider among them, so production takes
   neither. The API's pool, the worker's listener, alembic and the maintenance commands all
   connect by the one URL. `sslrootcert=system` needs libpq 16 or later; psycopg's binary
-  package brings libpq 18.
+  package brings libpq 18, with an OpenSSL that looks for the system's authorities in a
+  directory of the machine it was built on, so the process needs `SSL_CERT_FILE` naming the
+  system's bundle: `/etc/ssl/certs/ca-certificates.crt` on Debian, Ubuntu and Arch,
+  `/etc/pki/tls/certs/ca-bundle.crt` on Fedora and RHEL. The image sets it. Without it every
+  certificate fails, "SSL error: certificate verify failed", while `psql`, which has the
+  system's libpq, connects.
 - **The embeddings endpoint, a model's address and the bucket** (`EMBEDDING_BASE_URL`,
   `OLLAMA_BASE_URL`, `OPENAI_BASE_URL`, `AWS_ENDPOINT_URL`) need `https://` when they are
   outside. The HTTP clients check the certificate by default, and nothing in the app turns
@@ -284,7 +374,9 @@ launch. Where the deployment keeps what it was sent:
   it, and the API and the worker copy an original there from a bucket to render, scan and parse
   it, removing each copy when done. The temporary directory (`TMPDIR`, `/tmp` unless set) needs
   the encryption the storage has, or to be a `tmpfs`, which keeps it in memory and in the swap,
-  so encrypt the swap or turn it off.
+  so encrypt the swap or turn it off; the image runs with one. Python passes over a `TMPDIR` it
+  cannot write in for `/tmp`, so the API and the worker say at start where the files go
+  instead, and refuse to start when they can write in no temporary directory at all.
 - **ClamAV** writes each file it is streamed to its own temporary directory while it scans it
   (`TemporaryDirectory` in `clamd.conf`); on a machine of its own, that disk is encrypted too.
 
@@ -688,11 +780,30 @@ memory and disk, and which a restore must not depend on. That machine needs:
   `postgresql-17-pgvector` on Debian; `DRILL_PG_BIN` names their directory) and a free disk as
   large as the database. The copy is not encrypted while the drill runs, so that disk is kept
   like the database's (`DRILL_DIR`, `/var/tmp/emudoc-drill` by default, removed after).
-- The app's checkout with uv (`DRILL_BACKEND`, or `DRILL_APP` for another way to run its
-  commands) and production's settings without the model keys, which the check does not use,
-  and with the bucket's keys replaced by read-only ones: `s3:ListBucket`, `s3:ListBucketVersions`,
+- The app's checkout with uv (`DRILL_BACKEND`), or its image through `DRILL_APP` (below), and
+  production's settings without the model keys, which the check does not use, and with the
+  bucket's keys replaced by read-only ones: `s3:ListBucket`, `s3:ListBucketVersions`,
   `s3:GetBucketVersioning` and `s3:GetLifecycleConfiguration` on the bucket are all it asks for.
-  The script sets `DATABASE_URL` itself, to the copy's socket.
+  A directory storage is mounted read-only: the dry run only lists it. The script sets
+  `DATABASE_URL` itself, to the copy's socket.
+
+With the image, `DRILL_APP` in the unit's environment is the `docker run` that each of the
+app's commands is put after, on one line (the script reads one):
+
+```ini
+# /etc/emudoc/drill.env
+DRILL_APP=docker run --rm --read-only --tmpfs /tmp --user 106:10001 -v /var/tmp/emudoc-drill/socket:/var/tmp/emudoc-drill/socket --env-file /etc/emudoc/drill-app.env -e DATABASE_URL emudoc:3f2c1ab
+```
+
+The copy's socket is mounted at the path it has on the machine, which the script names in
+`DATABASE_URL`, and `-e DATABASE_URL` passes the script's own, which wins over one in the env
+file. The app's settings go in a file of their own, since `docker run --env-file` takes each
+value as it stands, quotes included, where the unit's `EnvironmentFile` strips them. The
+container runs as Postgres's user (`id -u postgres`; 106 above), the only one let into the
+socket's directory, and with the image's group, 10001, which may list a directory storage
+mounted beside it (`-v emudoc-deploy_files:/var/lib/emudoc:ro`). Postgres's user then starts
+containers, which with Docker is root's power over the machine: one more reason for the drill's
+machine to be apart from production's.
 
 It runs as the user Postgres runs as, from a timer:
 
@@ -825,7 +936,9 @@ before the app would hold it.
 ## Checking it
 
 1. `curl -sS https://emudoc.example.com/api/health` answers `{"status":"ok"}` and the browser
-   shows the certificate. Plain `http://` redirects to it.
+   shows the certificate. Plain `http://` redirects to it. From the image, `docker compose -f
+   deploy/compose.yml ps -a` shows the release step exited with 0 and the API healthy, and
+   `docker compose … exec api touch /app/x` fails with "Read-only file system".
 2. Sign in. The account page lists the session with your own address, not the proxy's, and
    the API's log has no line saying a request "reached the app as plain HTTP": that line
    means the proxy did not send `X-Forwarded-Proto`, or uvicorn was not told to believe it.
@@ -861,7 +974,8 @@ before the app would hold it.
    certificate this machine does not trust". With a database off the own network, `psql` given
    the same URL without `+psycopg` opens with `SSL connection (protocol: TLSv1.3, …)`, and
    with `sslrootcert` pointed at an authority that did not sign the server's certificate it
-   refuses to connect.
+   refuses to connect. `psql` has the system's libpq; that the app started at all is the check
+   of its own connection, which outside the image needs `SSL_CERT_FILE` ("Encryption").
 10. With `DATA_REGION` set, the API's and the worker's logs have no line from `app.residency` at
     start, `/subprocessors` opens with the region and says it under "Where" for the models and
     the bucket, and the account page says "Data kept in" it. With an `openrouter:` model, the

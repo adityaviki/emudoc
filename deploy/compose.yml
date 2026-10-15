@@ -1,0 +1,103 @@
+# Emudoc on one machine from its image (deploying.md, "The image"): the release step, the API,
+# a worker, and ClamAV for them. The database, the mail relay, the bucket if there is one, and
+# the reverse proxy that ends TLS in front of the API are the deployment's ("The pieces").
+#
+#   export EMUDOC_IMAGE=emudoc:$(git rev-parse --short HEAD)
+#   docker compose -f deploy/compose.yml up -d --wait
+#
+# `up` runs the release step, `alembic upgrade head`, and starts the API and the worker only
+# once it has succeeded: the app refuses a database behind its migrations and never upgrades
+# one itself. Updating is the same command with the new image's tag. The operator's commands
+# run beside them with `run --rm --no-deps worker python -m app.maintenance …`; without
+# --no-deps, `run` runs the release step first.
+#
+# The settings are the file EMUDOC_ENV names, /etc/emudoc/emudoc.env unless set: the variables
+# of .env.example, readable by root only, and outside the checkout. Compose reads it, not the
+# app; it expands $ in a value unless the value is in single quotes.
+#   STORAGE_URL=file:///var/lib/emudoc   for the files volume below, or s3://… for a bucket
+#   SCANNER_URL=clamd://clamav:3310      the daemon below
+
+# Apart from the development file's project (emudoc), so that one machine can run both.
+name: emudoc-deploy
+
+x-app: &app
+  image: ${EMUDOC_IMAGE:?set EMUDOC_IMAGE to the image to run, such as emudoc:<commit>}
+  env_file: ${EMUDOC_ENV:-/etc/emudoc/emudoc.env}
+  # Nothing in the image is written to. Uploads pass through /tmp, and a worker copies an
+  # original there to scan, parse and render it, so the tmpfs holds as much as the API takes in
+  # at once (MAX_UPLOAD_REQUEST_MB and MAX_UPLOAD_MB again, per concurrent upload) and a worker
+  # works on (MAX_UPLOAD_MB per WORKER_CONCURRENCY). It counts as the container's memory.
+  read_only: true
+  tmpfs:
+    - /tmp:size=2g,mode=1777
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  # Where a file:// storage keeps the files, shared by the API and every worker. A bucket
+  # needs none.
+  volumes:
+    - files:/var/lib/emudoc
+  restart: unless-stopped
+
+services:
+  migrate:
+    <<: *app
+    command: [alembic, upgrade, head]
+    restart: "no"
+
+  api:
+    <<: *app
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    # For a proxy on this machine (deploying.md, "TLS at a reverse proxy"). Its requests reach
+    # the API from the network's gateway, the only address whose X-Forwarded-For and
+    # X-Forwarded-Proto the API believes.
+    ports:
+      - 127.0.0.1:8000:8000
+    environment:
+      FORWARDED_ALLOW_IPS: 10.73.0.1
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  worker:
+    <<: *app
+    # A stop gives the running jobs 8 seconds (--grace) and hands the rest back to the queue,
+    # within the 10 Docker waits; raise stop_grace_period with --grace.
+    command: [python, -m, app.worker]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  clamav:
+    image: clamav/clamav:stable
+    # Its limits let it scan a file as large as MAX_UPLOAD_MB; raise them together. It needs
+    # about a gigabyte of memory, and a minute at start to load the signatures, during which
+    # the worker holds uploads in the queue.
+    environment:
+      CLAMD_CONF_StreamMaxLength: 100M
+      CLAMD_CONF_MaxFileSize: 100M
+      CLAMD_CONF_MaxScanSize: 400M
+    volumes:
+      - clamdb:/var/lib/clamav
+    restart: unless-stopped
+
+# A subnet of its own, so that the gateway the proxy's requests come from is known; change both
+# addresses if it collides with a network this machine already reaches.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.73.0.0/24
+          gateway: 10.73.0.1
+
+volumes:
+  files:
+  clamdb:

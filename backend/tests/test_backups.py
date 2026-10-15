@@ -9,6 +9,7 @@ they were or removed, and the documents' sequence is set back to where it stood.
 """
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -462,6 +463,24 @@ def test_a_dry_run_fails_when_the_storage_cannot_come_back_to_the_point(
         "The restore is not whole: the database and the storage do not come back to the same "
         "point." in out
     )
+
+
+def test_a_dry_run_reads_a_directory_it_cannot_write_in(client, sample_pdf, capsys):
+    # The drill runs the dry run as Postgres's user, with the live directory mounted read-only.
+    project = create_project(client)
+    upload(client, project["id"], sample_pdf)
+    point = datetime.now(UTC).isoformat()
+    mode = STORAGE_ROOT.stat().st_mode
+    STORAGE_ROOT.chmod(0o500)
+    try:
+        if os.access(STORAGE_ROOT, os.W_OK):
+            pytest.skip("this user writes in any directory")
+        main(["after-restore", "--dry-run", point])
+        assert "The restore is whole" in capsys.readouterr().out
+        with pytest.raises(SystemExit, match="is not writable by this process"):
+            main(["after-restore", point])
+    finally:
+        STORAGE_ROOT.chmod(mode)
 
 
 def test_the_report_says_how_far_the_restored_database_reaches(session, account, monkeypatch):

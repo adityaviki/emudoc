@@ -163,6 +163,12 @@ any worker, uploads stay queued and questions wait unanswered. `RUN_WORKER=true`
 worker inside the API process instead, for a small deployment. Putting it on a server, with
 TLS at a reverse proxy in front of uvicorn, is [`deploying.md`](deploying.md).
 
+`docker build -t emudoc:$(git rev-parse --short HEAD) .` builds one image for the API, the
+worker, the migrations and the maintenance commands, with the frontend built in; it runs as a
+user of its own on a read-only filesystem and refuses development's settings.
+`deploy/compose.yml` runs it on one machine, the migrations first; `deploying.md` ("The
+image") says what a container needs.
+
 The database schema is a set of migrations in `backend/migrations/`; `uv run alembic upgrade
 head` applies the ones the database has not seen yet, so run it again after updating. The backend
 never alters the database itself: at start it checks that the schema is current and refuses to
@@ -306,7 +312,9 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   `docker compose` container, which only this machine can reach; a deployment sets the
   variable in the environment. A database off the deployment's own network is reached with
   `?sslmode=verify-full&sslrootcert=system` on the URL (or the provider's authority's file in
-  place of `system`), which production requires.
+  place of `system`), which production requires. With `system`, `SSL_CERT_FILE` must name the
+  machine's bundle of authorities, since psycopg's own OpenSSL looks for them elsewhere; the
+  image sets it.
 - `STORAGE_URL` is where uploaded files and rendered page images are kept: a directory as
   `file:///var/lib/emudoc`, or an S3-compatible bucket as `s3://bucket/prefix`. The default is
   `backend/data` inside the checkout; a deployment names a place of its own. A bucket is reached
@@ -537,9 +545,11 @@ frontend/src/
   auth.ts       who is signed in, for the shell and its pages
   chat.ts       a chat's messages as the chat pane holds them, and the answers being followed
 deploy/
+  compose.yml   the image on one machine: the migrations, the API, a worker and ClamAV
   restore-drill.sh
                 the restore drill: the newest backup into a throwaway copy, checked against the
                 live storage
+Dockerfile      the one image for every process; .dockerignore names what goes into it
 ```
 
 ## Not built yet
