@@ -659,6 +659,14 @@ def _schema():
     engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def _no_built_frontend(monkeypatch):
+    # The apps the tests build serve no page unless a test gives them one (`FRONTEND_DIST`
+    # pointed at a directory of its own), whether frontend/dist was built or not, and while a
+    # build that runs beside the suite is rewriting it.
+    monkeypatch.setattr("app.main.FRONTEND_DIST", Path(__file__).parent / "no-frontend-build")
+
+
 @pytest.fixture
 def services() -> Services:
     """The fakes, with a scanner, as a deployment runs; a test of running without one sets

@@ -2,13 +2,14 @@ import logging
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.exc import TimeoutError as PoolTimeout
+from starlette.convertors import PathConvertor, register_url_convertor
 
 from app.api import audit, auth, chats, documents, folders, projects, query
 from app.api.deps import RETRY_AFTER, AccountDep, ServicesDep, SessionDep, refuse_cross_site
@@ -38,6 +39,18 @@ log = logging.getLogger(__name__)
 FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
 STORAGE_DOWN = "Emudoc could not reach its file storage just now. Try again in a few minutes."
 NOT_READY = "Emudoc cannot serve requests just now. Try again in a few minutes."
+
+
+class PagePath(PathConvertor):
+    """A path the page routes itself: any outside /api. A path under /api that no route takes
+    is the API's to refuse, 404, or 405 for a method its route does not take, not the page's
+    catch-all's, which would answer 404 to a HEAD of a route that serves GET, and 405 to a
+    POST to a path that does not exist."""
+
+    regex = "(?!api(?:/|$)).*"
+
+
+register_url_convertor("page", PagePath())
 
 system = APIRouter(tags=["system"])
 
@@ -228,13 +241,18 @@ def create_app(
 
     if FRONTEND_DIST.is_dir():
         # Serve the built frontend; unknown paths fall back to index.html for client routing.
-        app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
+        # The assets' directory is looked for when they are asked for, not now: a build empties
+        # dist/ before it writes it, and a process started meanwhile should serve what the
+        # build writes rather than refuse to start.
+        app.mount(
+            "/assets",
+            StaticFiles(directory=FRONTEND_DIST / "assets", check_dir=False),
+            name="assets",
+        )
 
         # HEAD too, which uptime services often probe the page with.
-        @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
+        @app.api_route("/{path:page}", methods=["GET", "HEAD"], include_in_schema=False)
         def spa(path: str):
-            if path.startswith("api/"):
-                raise HTTPException(404, "Not found")
             file = FRONTEND_DIST / path
             if path and file.is_file() and FRONTEND_DIST in file.resolve().parents:
                 return FileResponse(file)

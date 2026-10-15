@@ -1,7 +1,7 @@
 """What an orchestrator, a load balancer and an uptime service ask the API: whether the process
 is alive (`/api/livez`, touching nothing), whether it can serve (`/api/health`, the database),
-both with HEAD as well as GET, and what the status line asks of the embedding endpoint, which
-every open tab polls."""
+both with HEAD as well as GET, as the page is; and what the status line asks of the embedding
+endpoint, which every open tab polls."""
 
 import threading
 from dataclasses import replace
@@ -93,11 +93,34 @@ def test_uptime_services_may_ask_with_head(client, services, tmp_path, monkeypat
     (tmp_path / "assets").mkdir()
     monkeypatch.setattr("app.main.FRONTEND_DIST", tmp_path)
     with TestClient(create_app(services=services), headers=APP_HEADERS) as page:
-        for path in ("/", "/projects/1"):
+        for path in ("/", "/projects/1", "/apiary"):
             response = page.head(path)
             assert response.status_code == 200, path
             assert response.headers["content-type"].startswith("text/html")
             assert response.content == b""
+        # A path under /api is the API's to answer, not the page's: a route that serves GET
+        # alone refuses HEAD as it refuses any other method, and a path no route takes is
+        # unknown to every method.
+        assert page.head("/api/projects").status_code == 405
+        assert page.post("/api/health").status_code == 405
+        for path in ("/api", "/api/no-such-route"):
+            assert page.get(path).status_code == 404, path
+            assert page.head(path).status_code == 404, path
+            assert page.post(path).status_code == 404, path
+
+
+def test_an_api_started_during_a_build_serves_what_the_build_writes(
+    services, tmp_path, monkeypatch
+):
+    # A build empties frontend/dist before it writes it. An API started meanwhile does not
+    # refuse to start for the missing assets, and serves them once they are written.
+    monkeypatch.setattr("app.main.FRONTEND_DIST", tmp_path)
+    with TestClient(create_app(services=services), headers=APP_HEADERS) as page:
+        (tmp_path / "assets").mkdir()
+        (tmp_path / "assets" / "index.js").write_text("")
+        (tmp_path / "index.html").write_text("<!doctype html><title>Emudoc</title>")
+        assert page.get("/assets/index.js").status_code == 200
+        assert page.get("/projects/1").text == "<!doctype html><title>Emudoc</title>"
 
 
 def test_the_status_line_asks_the_embedding_endpoint_once_a_minute(session, services, monkeypatch):
