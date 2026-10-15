@@ -44,6 +44,7 @@ from app.entitlements import check_question
 from app.models import Chat, ChatMessage
 from app.ratelimit import QUESTIONS
 from app.schemas import AskOut, ChatDetail, ChatMessageOut, ChatOut, ChatPatch, QuestionIn
+from app.shutdown import Stop
 from app.spending import check_platform_spend, check_spend, retry_after
 
 log = logging.getLogger(__name__)
@@ -186,7 +187,7 @@ def events(chat: ChatDep, message_id: int, request: Request, session: SessionDep
     follow again."""
     message = _message_in(chat, message_id, session)
     return StreamingResponse(
-        _follow(message.id, _last_seen(request)),
+        _follow(message.id, _last_seen(request), request.app.state.stop),
         media_type="text/event-stream",
         headers=SSE_HEADERS,
     )
@@ -238,9 +239,11 @@ def _poll(message_id: int, after: int) -> tuple[str | None, list[tuple[int, dict
         return status, events_after(session, message_id, after)
 
 
-async def _follow(message_id: int, after: int) -> AsyncIterator[str]:
+async def _follow(message_id: int, after: int, stop: Stop) -> AsyncIterator[str]:
     """Send the events as they are written until the answer is settled, and a keep-alive
-    comment whenever nothing was sent for SSE_KEEPALIVE_SECONDS.
+    comment whenever nothing was sent for SSE_KEEPALIVE_SECONDS. A server told to stop ends
+    the stream without an end event, rather than hold its stop until the answer is written
+    (app/shutdown.py): the client follows again from where it was, on the next server.
 
     Async, so that waiting for the next event holds no request thread; each look at the table
     takes one for the length of a query.
@@ -264,6 +267,8 @@ async def _follow(message_id: int, after: int) -> AsyncIterator[str]:
             return
         if status != "streaming":
             yield sse(None, {"type": "end", "status": status})
+            return
+        if stop.requested:
             return
         if rows:
             sent_at = time.monotonic()

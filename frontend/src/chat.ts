@@ -43,11 +43,17 @@ export interface ChatData extends Chat {
 
 export const chatKey = (chatId: number | null) => ['chat', chatId] as const
 
-// How many times a dropped stream is reconnected before the answer is shown as lost, and how
-// long the first wait is; each wait is a second longer than the one before.
+// How many times in a row a dropped stream is reconnected before the answer is shown as lost,
+// and how long the first wait is; each wait is a second longer than the one before. A
+// connection that brought an event starts the count over, so that a long answer outlasts the
+// stop of every server it is followed from, as in a deployment of a new version.
 const RECONNECTS = 5
 const RECONNECT_WAIT = 1000
 const LOST = 'The connection to the answer was lost. Reload the page to see it.'
+// What a proxy answers while the server behind it is away, as between one server's stop and
+// the next one's start, and what a server answers that cannot serve just now: a dropped
+// connection too, unlike the other refusals.
+const AWAY = new Set([502, 503, 504])
 
 function fromSaved(message: ChatMessage): Message {
   return {
@@ -171,19 +177,22 @@ type Edit = (change: (message: Message) => Message) => void
 /** Read the answer's events into the message until the server says it is settled. */
 async function follow(chatId: number, messageId: number, update: Edit, signal: AbortSignal) {
   let after: number | null = null
-  for (let attempt = 0; ; attempt++) {
+  let drops = 0
+  for (;;) {
     try {
       for await (const { seq, event } of streamEvents(chatId, messageId, after, signal)) {
         if (seq != null) after = seq
+        drops = 0
         update((message) => applyEvent(message, event))
         if (event.type === 'end') return
       }
     } catch (error) {
       // A refusal (the chat is gone, the session ended) is final; a dropped connection is not.
-      if (signal.aborted || error instanceof ApiError) throw error
+      if (signal.aborted || (error instanceof ApiError && !AWAY.has(error.status))) throw error
     }
-    if (attempt >= RECONNECTS) throw new Error(LOST)
-    await wait(RECONNECT_WAIT * (attempt + 1))
+    if (drops >= RECONNECTS) throw new Error(LOST)
+    drops++
+    await wait(RECONNECT_WAIT * drops)
   }
 }
 

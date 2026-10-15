@@ -724,12 +724,12 @@ def read_until(stream, marker: str, timeout: float) -> str:
     while marker.encode() not in output:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise TimeoutError(f"The worker did not report {marker!r} in time:\n{output.decode()}")
+            raise TimeoutError(f"The process did not report {marker!r} in time:\n{output.decode()}")
         ready, _, _ = wait_readable([stream], [], [], remaining)
         if ready:
             chunk = os.read(stream.fileno(), 4096)
             if not chunk:
-                raise AssertionError(f"The worker exited before it was running:\n{output.decode()}")
+                raise AssertionError(f"The process exited before it ran:\n{output.decode()}")
             output += chunk
     return output.decode()
 

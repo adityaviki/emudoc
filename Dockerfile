@@ -53,4 +53,7 @@ ENV PATH=/app/backend/.venv/bin:$PATH \
     ENVIRONMENT=production
 USER 10001:10001
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# A stop ends the answer streams at once and gives the other requests in progress 8 seconds,
+# within the 10 Docker waits before it kills the process (deploying.md, "The image").
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", \
+     "--timeout-graceful-shutdown", "8"]

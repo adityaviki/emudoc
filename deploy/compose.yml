@@ -56,6 +56,11 @@ services:
       - 127.0.0.1:8000:8000
     environment:
       FORWARDED_ALLOW_IPS: 10.73.0.1
+    # A stop ends the answer streams at once, whose pages follow the answers again from the
+    # next API, and gives the other requests 8 seconds (--timeout-graceful-shutdown in the
+    # image's command) within these 10; raise both together, and add the worker's 8 seconds
+    # for an API that runs the worker too (RUN_WORKER=true).
+    stop_grace_period: 10s
     # Ready: it reaches the database (deploying.md, "Health checks"). Docker restarts nothing
     # for a failing check; it is what `up --wait` waits for and `ps` shows.
     healthcheck:
@@ -71,9 +76,10 @@ services:
 
   worker:
     <<: *app
-    # A stop gives the running jobs 8 seconds (--grace) and hands the rest back to the queue,
-    # within the 10 Docker waits; raise stop_grace_period with --grace.
     command: [python, -m, app.worker, --alive-file, /tmp/worker.alive]
+    # A stop gives the running jobs 8 seconds (--grace) within these 10 and hands the rest
+    # back to the queue, for the next worker to start over; raise both together.
+    stop_grace_period: 10s
     depends_on:
       migrate:
         condition: service_completed_successfully

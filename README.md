@@ -162,7 +162,10 @@ under Docker's 10), and the rest are queued again for the next worker to take at
 `--alive-file PATH` it keeps a file fresh for a health check while all its threads run, and it
 exits with an error should one of them end, to be started again. Without any worker, uploads
 stay queued and questions wait unanswered. `RUN_WORKER=true` runs the
-worker inside the API process instead, for a small deployment. Putting it on a server, with
+worker inside the API process instead, for a small deployment. A stopping API ends the answer
+streams it serves at once, rather than wait for their answers, and the page follows each answer
+again from the next one; the other requests get what `--timeout-graceful-shutdown` allows
+(8 seconds in the image). Putting it on a server, with
 TLS at a reverse proxy in front of uvicorn, is [`deploying.md`](deploying.md).
 
 `docker build -t emudoc:$(git rev-parse --short HEAD) .` builds one image for the API, the

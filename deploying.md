@@ -73,10 +73,11 @@ names what goes into the build and leaves out everything else. It runs as `emudo
 to run rather than running as development. The commands:
 
 ```bash
-alembic upgrade head                              # the release step, once per release
-uvicorn app.main:app --host 0.0.0.0 --port 8000   # the API, the image's default
-python -m app.worker                              # a worker, as many as the backlog needs
-python -m app.maintenance failed-jobs             # the operator's commands, as in a checkout
+alembic upgrade head                    # the release step, once per release
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 8
+                                        # the API, the image's default
+python -m app.worker                    # a worker, as many as the backlog needs
+python -m app.maintenance failed-jobs   # the operator's commands, as in a checkout
 ```
 
 The release step runs to its end before a container of the new image serves or works, since
@@ -102,9 +103,18 @@ themselves. A container needs:
   connections on from the gateway of the container's network, not from 127.0.0.1, so
   `FORWARDED_ALLOW_IPS` names the gateway; without it every session shows the gateway's address
   and production logs that requests reach the app as plain HTTP.
-- **Time to stop.** Docker sends SIGTERM and kills the process 10 seconds later. The worker
-  gives its running jobs 8 (`--grace`) and hands the rest back to the queue; a larger
-  `--grace` needs a `stop_grace_period` (`docker stop -t`) above it.
+- **Time to stop.** Docker sends SIGTERM and kills the process 10 seconds later
+  (`stop_grace_period`, `docker stop -t`). The API stops taking connections at once and ends
+  the answer streams it serves, which would otherwise last until their answers are written:
+  the page follows each answer again, from where it was, from the next API it reaches, and the
+  worker goes on writing it meanwhile. The other requests in progress get 8 seconds
+  (`--timeout-graceful-shutdown` in the image's command) before they are cut. The worker gives
+  its running jobs 8 (`--grace`) and hands the rest back to the queue, where the next worker
+  starts them over. Either number goes up with the grace period above it, and an API that
+  runs the worker too (`RUN_WORKER=true`) needs both its 8 and the worker's 8 within it. On one
+  machine the API is away from its stop to the new one's start, a few seconds in which the
+  proxy answers 502: the page tries the answer again five times over 15 seconds before it
+  says to reload.
 - **A private authority, if the database's or the mail relay's certificate comes from one**:
   an image of the deployment's own `FROM` this one that copies it into
   `/usr/local/share/ca-certificates/` and runs `update-ca-certificates` as root. The image sets
@@ -179,6 +189,9 @@ livenessProbe:
   httpGet: { path: /api/livez, port: 8000 }
 readinessProbe:
   httpGet: { path: /api/health, port: 8000 }
+lifecycle:                 # out of the Service's endpoints before uvicorn closes its socket
+  preStop:
+    sleep: { seconds: 5 }
 # The worker, started with --alive-file /tmp/worker.alive
 livenessProbe:
   exec:
@@ -189,6 +202,15 @@ livenessProbe:
   initialDelaySeconds: 30
   periodSeconds: 30
 ```
+
+Kubernetes takes a stopping pod out of the Service's endpoints at the moment it sends SIGTERM,
+and the two race: uvicorn closes its socket at once, so a request routed to it meanwhile is
+refused. The `preStop` sleep holds the signal back until the endpoint is gone; it needs
+Kubernetes 1.30, and an older cluster runs `exec: { command: [sleep, "5"] }` instead. The pod's
+`terminationGracePeriodSeconds`, 30 by default, covers the sleep and the stop's own 8 seconds
+("Time to stop" under "The image"). No readiness change is needed while the API stops: it
+takes no new connection, and its answer streams end at once, for their pages to follow again
+from another replica.
 
 ## TLS at a reverse proxy
 
@@ -1056,3 +1078,8 @@ before the app would hold it.
     emudoc-restore-drill.timer` shows the monthly drill's next run, and its first one, started
     by hand, ends with "The drill passed.", reaching within five minutes of its end while
     members work.
+14. Ask a question whose answer takes a while and, while it is being written, `docker compose
+    -f deploy/compose.yml restart api` (or roll the API's pods): the answer pauses and goes on
+    from where it was once the API is back, the API's log says "Shutting down" and "Finished
+    server process" within a second of the stop, and has no `Cancel … running task(s)` line,
+    which would mean a request outlasted the 8 seconds.

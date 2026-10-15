@@ -29,6 +29,7 @@ from app.schemas import (
     StatusOut,
     SubprocessorsOut,
 )
+from app.shutdown import Stop, heard_stop
 from app.startup import prepare
 from app.storage import StorageError
 from app.subprocessors import subprocessors
@@ -207,7 +208,11 @@ def create_app(
                 answer_concurrency=settings.answer_concurrency,
             )
             app.state.worker.start()
-        yield
+        # A stop signal is noted before uvicorn waits for the open responses to end, so that
+        # the answer streams end on it rather than hold the stop up (app/shutdown.py).
+        app.state.stop = Stop()
+        with heard_stop(app.state.stop):
+            yield
         if app.state.worker:
             app.state.worker.stop()
         app.state.http.close()
