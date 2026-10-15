@@ -13,7 +13,12 @@ from app.config import Settings, get_settings
 from app.db import make_engine
 from app.jobs import listen
 from app.main import create_app
-from app.network import database_problem, plain_http_problem, scanner_problem
+from app.network import (
+    database_problem,
+    plain_http_problem,
+    scanner_problem,
+    trust_store_problem,
+)
 from app.startup import check_transport
 from app.storage import LocalStorage, S3Storage
 from tests.conftest import FakeS3Client
@@ -170,9 +175,33 @@ def test_the_pool_and_the_listener_keep_the_url_s_tls_parameters(monkeypatch):
         raise psycopg.OperationalError("not here")
 
     monkeypatch.setattr(get_settings(), "database_url", url)
+    monkeypatch.setattr(get_settings(), "database_pooler", "")
+    monkeypatch.setattr(get_settings(), "database_listen_url", "")
     monkeypatch.setattr(psycopg, "connect", connect)
     with pytest.raises(psycopg.OperationalError):
         listen(threading.Event(), lambda: None, 0.1)
     (conninfo,) = seen
     assert conninfo.startswith("postgresql://app:secret@db.example.com:5432/emudoc?")
     assert "sslmode=verify-full" in conninfo and "sslrootcert=system" in conninfo
+
+
+def test_the_trust_store_sentence_names_this_machine_s_bundle(monkeypatch, tmp_path):
+    # The operator copies the path: the bundle this machine has, or, on a machine with neither
+    # (the drill's container, say), both with the systems that keep them there.
+    debian, fedora = tmp_path / "ca-certificates.crt", tmp_path / "ca-bundle.crt"
+    monkeypatch.setattr(
+        "app.network.SYSTEM_BUNDLES", ((str(debian), "Debian"), (str(fedora), "Fedora"))
+    )
+    url = f"postgresql+psycopg://app:secret@db.example.com/emudoc{VERIFIED}"
+    unknown = trust_store_problem("DATABASE_URL", url, {}, bundled_libpq=True)
+    assert unknown.endswith(
+        f"set SSL_CERT_FILE to the system's bundle: {debian} on Debian, {fedora} on Fedora "
+        "(the image sets it)."
+    )
+    fedora.write_text("")
+    found = trust_store_problem("DATABASE_URL", url, {}, bundled_libpq=True)
+    assert found.endswith(
+        f"set SSL_CERT_FILE to this machine's bundle, {fedora} (the image sets it)."
+    )
+    # A URL that is not one is the engine's to refuse.
+    assert trust_store_problem("DATABASE_URL", "not a url", {}, bundled_libpq=True) is None

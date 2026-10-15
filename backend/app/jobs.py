@@ -362,11 +362,16 @@ def listen(stop: threading.Event, woken: Callable[[], None], timeout: float) -> 
     """Call `woken` each time a job is queued, until `stop` is set.
 
     The connection is the process's own, outside the pool: a pooled one would be held for the
-    life of the process and counted against the pool. It is checked for a notification every
+    life of the process and counted against the pool. It goes to DATABASE_LISTEN_URL when that
+    is set (`Settings.listen_url`), since a pooler in transaction mode cannot carry a LISTEN;
+    the caller does not listen when there is nowhere to. It is checked for a notification every
     `timeout` seconds without a query, which is how often a stop is noticed. A connection that
     fails ends the call with the error; the caller decides whether to listen again.
     """
-    url = make_url(get_settings().database_url).set(drivername="postgresql")
+    address = get_settings().listen_url
+    if address is None:
+        raise RuntimeError("There is no database address to listen at; set DATABASE_LISTEN_URL.")
+    url = make_url(address).set(drivername="postgresql")
     with psycopg.connect(url.render_as_string(hide_password=False), autocommit=True) as conn:
         conn.execute(f"LISTEN {CHANNEL}")
         while not stop.is_set():

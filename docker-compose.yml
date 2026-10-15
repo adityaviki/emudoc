@@ -56,6 +56,38 @@ services:
     volumes:
       - clamdb:/var/lib/clamav
 
+  # pgbouncer in transaction mode in front of the database, for trying DATABASE_POOLER by hand;
+  # nothing starts it unless asked: `docker compose --profile pgbouncer up -d --wait`. It hands
+  # out a server connection per transaction and, like pgbouncer before 1.21, carries no
+  # prepared statement over (max_prepared_statements 0). Then in .env:
+  #   DATABASE_URL=postgresql+psycopg://emudoc:emudoc@127.0.0.1:6438/emudoc
+  #   DATABASE_POOLER=transaction
+  #   DATABASE_LISTEN_URL=postgresql+psycopg://emudoc:emudoc@127.0.0.1:5437/emudoc
+  # The suite runs through it too, with TEST_DATABASE_SERVER=emudoc:emudoc@127.0.0.1:6438 and
+  # the same two settings, the listener's naming emudoc_test.
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.26.0-p0
+    profiles: ["pgbouncer"]
+    environment:
+      DB_HOST: db
+      DB_USER: emudoc
+      DB_PASSWORD: emudoc
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_PREPARED_STATEMENTS: "0"
+      DEFAULT_POOL_SIZE: "20"
+      MAX_CLIENT_CONN: "500"
+    ports:
+      - "127.0.0.1:${PGBOUNCER_PORT:-6438}:5432"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U emudoc -d emudoc"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   pgdata:
   s3data:

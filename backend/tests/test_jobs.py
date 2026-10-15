@@ -517,6 +517,8 @@ def test_a_run_whose_job_is_taken_over_mid_way_stops_at_its_next_commit(
         None,
     )
     assert f"Job {job.id} (index_document) was taken over or handed back" in caplog.text
+    # A lost lease is not a stage that crashed, and is not logged as one.
+    assert "Stage structure failed" not in caplog.text
     assert finish(job, "other:1", "done") is True
 
 

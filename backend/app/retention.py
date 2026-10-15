@@ -52,7 +52,7 @@ from sqlalchemy import Connection, and_, delete, func, select, text
 from sqlalchemy.orm import Session, aliased
 
 from app.audit import audit_event, forget_addresses
-from app.db import SessionLocal, engine
+from app.db import SessionLocal, engine, unbounded
 from app.entitlements import MONTHS, PLANS
 from app.models import ROLES, Membership, Organization, User
 from app.storage import Storage, organization_prefix
@@ -148,6 +148,8 @@ def purge_due_accounts(storage: Storage) -> int:
     purged = 0
     while True:
         with SessionLocal() as session:
+            # Deleting an organisation deletes every passage of its documents with it.
+            unbounded(session)
             user = session.scalar(
                 select(User)
                 .where(User.deletion_due_at <= func.now())

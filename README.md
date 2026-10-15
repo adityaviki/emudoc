@@ -224,7 +224,10 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   runs at once (an answer holds one only while a tool runs) plus three for its helper
   threads, and refuses to start with a pool that cannot hold them; its listener holds one more
   outside the pool. The sum over every replica must stay under the database's
-  `max_connections` (100 for Postgres), or a connection pooler goes in between.
+  `max_connections` (100 for Postgres), or a connection pooler goes in between: one in
+  transaction mode, such as pgbouncer's usual setup, needs `DATABASE_POOLER=transaction`
+  (nothing is prepared then) and `DATABASE_LISTEN_URL` naming the database itself for the
+  worker's listener, which otherwise polls every two seconds (`deploying.md`, "A pooler").
 - `MAX_ANSWERS` is how many questions one organisation may have waiting for or receiving an
   answer at once, 20 by default. The worker answers `ANSWER_CONCURRENCY` of them at a time,
   shared between the organisations, so the cap bounds how long a question waits without
@@ -320,7 +323,12 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   `?sslmode=verify-full&sslrootcert=system` on the URL (or the provider's authority's file in
   place of `system`), which production requires. With `system`, `SSL_CERT_FILE` must name the
   machine's bundle of authorities, since psycopg's own OpenSSL looks for them elsewhere; the
-  image sets it.
+  image sets it, and production refuses the URL without it. The database needs pgvector 0.8 or
+  later (production refuses an older one, since a search would lose a project's passages to
+  the other projects'), and in production its role a `statement_timeout` and an
+  `idle_in_transaction_session_timeout` (a warning without them); `uv run python -m
+  app.maintenance database` (in `backend/`) says what the server is, how its largest tables
+  are kept by vacuum, and what to look at (`deploying.md`, "The database").
 - `STORAGE_URL` is where uploaded files and rendered page images are kept: a directory as
   `file:///var/lib/emudoc`, or an S3-compatible bucket as `s3://bucket/prefix`. The default is
   `backend/data` inside the checkout; a deployment names a place of its own. A bucket is reached
@@ -446,7 +454,8 @@ the storage holds, signs everyone out and records the restore in each organisati
 lost document's files still hold. With `--dry-run` it changes nothing and fails when the storage
 lacks a document's original at that point: `deploy/restore-drill.sh` restores the newest backup
 into a throwaway copy and runs it against the live storage, the monthly restore drill
-(`deploying.md`, "The drill").
+(`deploying.md`, "The drill"); `deploy/managed-restore-drill.sh` does the same for a managed
+database, which the provider restores to a new instance (`deploy/rds-drill.sh` for RDS).
 A chat is kept for the plan's retention after its last question (30 days on Free, a year on
 Pro, for good on Team and Enterprise), which the chat list and the account page say; sessions
 and one-time links are removed a month after they ended.
@@ -524,6 +533,7 @@ backend/app/
                 the jobs the worker gave up on: the operator's digest, listing and requeue
   scanning.py   the malware scan of uploads: the clamd client, the quarantine, the digest
   startup.py    the checks and the services every process starts with
+  postgres.py   what the app needs of its Postgres server: pgvector, the role's timeouts, vacuum
   search.py     hybrid search over passages
   folders.py    the folder tree as paths and subtrees
   agent/        the five tools and the tool-use loop
@@ -555,6 +565,9 @@ deploy/
   restore-drill.sh
                 the restore drill: the newest backup into a throwaway copy, checked against the
                 live storage
+  managed-restore-drill.sh
+                the same drill for a managed database, with the provider's restore and delete
+                as two commands; rds-drill.sh is RDS's
 Dockerfile      the one image for every process; .dockerignore names what goes into it
 ```
 

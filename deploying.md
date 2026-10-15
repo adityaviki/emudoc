@@ -7,11 +7,13 @@ on one machine; this is what changes for a deployment. The processes below run f
 
 ## The pieces
 
-- **Postgres 17 with pgvector**, named in `DATABASE_URL`. The schema is applied as a release
-  step, before the new version starts: `alembic upgrade head`. A process
-  that finds the database behind its migrations refuses to serve and says so. A database off
-  the deployment's own network, such as a managed one, is reached with its certificate
-  checked: "Encryption", below.
+- **Postgres 17 with pgvector 0.8 or later**, named in `DATABASE_URL`, managed or with a
+  standby of the deployment's own, on no public address, its role given a statement and an
+  idle timeout, and a pooler in front when the replicas need more connections than it takes:
+  "The database", below. The schema is applied as a release step, before the new version
+  starts: `alembic upgrade head`. A process that finds the database behind its migrations
+  refuses to serve and says so. A database off the deployment's own network, such as a
+  managed one, is reached with its certificate checked: "Encryption", below.
 - **Storage** for uploads and page images, named in `STORAGE_URL`: a directory the API and
   every worker can reach, or an S3-compatible bucket with the `AWS_*` variables.
 - **The API**: `uvicorn app.main:app`, serving `/api` and the built frontend, which the image
@@ -212,6 +214,177 @@ Kubernetes 1.30, and an older cluster runs `exec: { command: [sleep, "5"] }` ins
 takes no new connection, and its answer streams end at once, for their pages to follow again
 from another replica.
 
+## The database
+
+Postgres 17 with pgvector 0.8 or later, either managed (RDS, Cloud SQL, Azure's flexible
+server and the like, which bring pgvector) or run by the deployment as a primary with a
+standby. Either way it has no public address: it sits on the deployment's private network,
+or the provider's network the servers are attached to, and is reached with its certificate
+checked when that network is not the deployment's own ("Encryption", below). Every process
+says at start what it found, "The database is Postgres 17.6 with pgvector 0.8.1; the role
+emudoc has statement_timeout 30s and idle_in_transaction_session_timeout 5min.", and
+`python -m app.maintenance database` reports the same with the state of the largest tables
+("Vacuum", below).
+
+**pgvector 0.8** brought iterative index scans, which searches by meaning use. Without them
+the vector index hands back the 40 passages nearest the question from the whole table, every
+project's, and the project's filter drops the others' afterwards, so in a database of many
+projects a search finds few of its own passages or none. Production refuses to start with an
+older one and says what to run: `ALTER EXTENSION vector UPDATE;` as the database's owner when
+the server has a newer one installed (a managed database after a minor version upgrade), or
+an upgrade of the server's pgvector when it has not. Development warns and searches without.
+
+**High availability**: a managed database's standby (Multi-AZ) or the deployment's own
+(Patroni, or a streaming replica promoted by hand) takes over under the same address, or, with
+two hosts in the URL, `?host=db-a,db-b&target_session_attrs=read-write` finds the one that
+takes writes. A failover drops every connection, and for a minute or so none can be made. The
+pools check a connection as they hand it out and replace a dead one, so what was idle carries
+on. What was running at that moment: a request fails, and readiness (`/api/health`) says 503
+until the database answers; the worker's claims fail and are tried again every 5 seconds, and
+its listener connects again. A document whose stage lost the database is run again from that
+stage with the usual backoff once it answers ("Retrying in 1 minute"), or, if it was still away
+when that was to be written, when the job's lease runs out, 5 minutes on; it is never failed for
+the failover. An answer being written ends failed, "The answer failed unexpectedly.", for the
+member to ask again, or starts over by itself when the database stayed away past its lease.
+
+### The role's timeouts
+
+The app connects as one role, which the deployment gives two limits, so that a query that runs
+away does not hold its connection and its locks until it ends by itself, and a transaction left
+open does not keep vacuum from cleaning up after it:
+
+```sql
+ALTER ROLE emudoc SET statement_timeout = '30s';
+ALTER ROLE emudoc SET idle_in_transaction_session_timeout = '5min';
+```
+
+New connections take them, so restart the app after. In production a role without them is a
+warning at every start, with these two statements. A member's request whose statement runs
+into the limit is answered with 503 and "The database took longer over this request than it
+allows, so the request was stopped. Try again in a moment.", and the API's log has one line
+naming the route ("GET /api/… was stopped by the database: …"). The work whose length is the
+data's lifts both for its own transaction (`unbounded` in `backend/app/db.py`): the
+migrations, `rebuild-embeddings`, the look at every passage at start for a changed embedding
+model, the housekeeping round and `sweep-orphans` (which keep one transaction open while the
+storage lists), `after-restore`, an account's purge and a project's deletion. The worker's
+stages hold no transaction while they wait for the model, the scanner or the embeddings
+endpoint, so the idle limit never ends one. Leave `transaction_timeout` unset: an upload
+keeps its transaction while each file goes to the storage. Set the limits on the role, not in
+`DATABASE_URL`'s `options`, which pgbouncer refuses.
+
+### A pooler
+
+Each process holds up to `DB_POOL_SIZE` + `DB_MAX_OVERFLOW` connections (15 by default), and a
+database takes about 100 (`max_connections`; a managed one sets it from its memory). When the
+replicas need more, a pooler between them and the database lets many client connections share
+a few server ones: pgbouncer, or the provider's (RDS Proxy, Azure's built-in pgbouncer, Cloud
+SQL's managed pooling, Supabase's port 6543).
+
+In **session mode** a client keeps its server connection until it disconnects, and the app
+needs nothing. In **transaction mode** it has one for a transaction at a time, which shares
+them far better and changes two things, both set with:
+
+```ini
+# DATABASE_URL is the pooler's address.
+DATABASE_POOLER=transaction
+# The database itself, or the pooler's port in session mode.
+DATABASE_LISTEN_URL=postgresql+psycopg://emudoc:…@db.internal:5432/emudoc?sslmode=verify-full&sslrootcert=system
+```
+
+- **No prepared statements.** psycopg prepares a statement after its fifth run on a
+  connection, and the next transaction may run on a server connection that never saw it:
+  "prepared statement "_pg3_0" already exists" or "does not exist", on pgbouncer before 1.21
+  or with `max_prepared_statements = 0`. With `DATABASE_POOLER=transaction` nothing is
+  prepared.
+- **The listener elsewhere.** The worker's listener holds a `LISTEN jobs` that tells it the
+  moment a job is queued. Through a pooler in transaction mode the `LISTEN` ends up on a
+  server connection the pooler then hands to someone else, and nothing reaches the listener,
+  without an error. `DATABASE_LISTEN_URL` gives it an address of its own, one connection per
+  worker process. Without one, behind a pooler in transaction mode, the worker does not
+  listen, says so at start, and finds queued jobs by polling every 2 seconds, which is that
+  much longer before an answer starts.
+
+The rest works through either mode: every advisory lock the app takes is the transaction's
+(migrations, housekeeping, `after-restore`, the alerts), and the one setting it changes,
+search's `hnsw.iterative_scan`, is `SET LOCAL`. The release step and the maintenance commands
+may go through the pooler too. `DATABASE_LISTEN_URL` is held to the same rules as
+`DATABASE_URL` in production: its own password, and its certificate checked off the own
+network. `docker compose --profile pgbouncer up -d --wait` runs pgbouncer in transaction mode
+in front of the development database for trying it (`docker-compose.yml`), and the test suite
+passes through it.
+
+A pgbouncer of the deployment's own, beside the database:
+
+```ini
+[databases]
+emudoc = host=127.0.0.1 port=5432 dbname=emudoc
+
+[pgbouncer]
+listen_addr = 10.0.0.5
+listen_port = 6432
+auth_type = scram-sha-256
+auth_file = /etc/pgbouncer/userlist.txt
+pool_mode = transaction
+# The replicas' pools together; each client connection costs pgbouncer little.
+max_client_conn = 500
+# The server connections per database and role: under max_connections, with room for the
+# listeners, the release step and an operator's psql.
+default_pool_size = 40
+client_tls_sslmode = require
+client_tls_cert_file = /etc/pgbouncer/server.crt
+client_tls_key_file = /etc/pgbouncer/server.key
+```
+
+Clients that reach it off the own network check its certificate as they would the database's,
+so its certificate names the address in `DATABASE_URL`.
+
+### Vacuum
+
+Postgres keeps a deleted or replaced row until vacuum removes it, and autovacuum does that by
+itself once a table's dead rows pass a share of it (20 % by default). Some of the app's tables
+churn: `passages` loses every passage of a document indexed again and gains new ones, and a
+change of `EMBEDDING_MODEL` replaces every row at once, each with an entry in the vector index
+that stays until vacuum has been; `chat_events`, `jobs` and `rate_limits` are written and
+pruned all day. A table vacuum falls behind on is read slower, dead rows included, and keeps
+growing.
+
+```text
+$ python -m app.maintenance database
+Postgres 17.6 with pgvector 0.8.1, which searches with iterative index scans.
+The role emudoc has statement_timeout 30s and idle_in_transaction_session_timeout 5min.
+DATABASE_URL goes through a pooler in transaction mode, which is sent no prepared statement, and the worker listens for queued jobs at DATABASE_LISTEN_URL.
+
+The largest tables:
+  table          rows  dead     size  indexes  vacuumed  analysed
+  passages    412,880    3%  1.8 GB   3.1 GB   2 h ago   2 h ago
+  …
+The oldest open transaction began 2 s ago (active).
+Nothing to look at.
+```
+
+It exits with 1, and says what to do, when a table has 10,000 dead rows or more and they are
+over a fifth of it, when a transaction has been open for over an hour (vacuum keeps every row
+replaced since it began, in every table), when pgvector is older than 0.8, and in production
+when the role has no timeouts. Run it from a timer that mails on failure, as for the drill, or
+take the same numbers from `pg_stat_user_tables` (`n_dead_tup`, `last_autovacuum`) and
+`pg_stat_activity` (`xact_start`) into the monitoring, where a managed database's own metrics
+have them too.
+
+When `passages` falls behind: `VACUUM (VERBOSE, ANALYZE) passages;` at once, and autovacuum
+sooner for that table from then on:
+
+```sql
+ALTER TABLE passages SET (autovacuum_vacuum_scale_factor = 0.05, autovacuum_analyze_scale_factor = 0.02);
+```
+
+Vacuuming an HNSW index after many rows were replaced, as after a change of embedding model,
+takes long; pgvector's advice is to rebuild the index first, which builds it without the dead
+entries and leaves the vacuum little to do: `REINDEX INDEX CONCURRENTLY ix_passages_embedding;`
+then the vacuum. The build is fastest when the index fits in `maintenance_work_mem` (Postgres
+says "hnsw graph no longer fits into maintenance_work_mem" when it does not), which a session
+raises for itself: `SET maintenance_work_mem = '2GB';` before it, on a server with the memory
+to spare. `rebuild-embeddings` builds the index the same way.
+
 ## TLS at a reverse proxy
 
 Nothing in the app speaks TLS. A reverse proxy holds the certificate, answers the browsers on
@@ -390,13 +563,16 @@ the server. Production refuses to start otherwise, and says which:
   `require` encrypts to whoever answers, and `verify-ca` takes any server the authority signed
   for, another customer's database at the same provider among them, so production takes
   neither. The API's pool, the worker's listener, alembic and the maintenance commands all
-  connect by the one URL. `sslrootcert=system` needs libpq 16 or later; psycopg's binary
+  connect by the one URL (the listener by `DATABASE_LISTEN_URL` when it is set, held to the
+  same rule). `sslrootcert=system` needs libpq 16 or later; psycopg's binary
   package brings libpq 18, with an OpenSSL that looks for the system's authorities in a
   directory of the machine it was built on, so the process needs `SSL_CERT_FILE` naming the
   system's bundle: `/etc/ssl/certs/ca-certificates.crt` on Debian, Ubuntu and Arch,
   `/etc/pki/tls/certs/ca-bundle.crt` on Fedora and RHEL. The image sets it. Without it every
-  certificate fails, "SSL error: certificate verify failed", while `psql`, which has the
-  system's libpq, connects.
+  certificate would fail, "SSL error: certificate verify failed", while `psql`, which has the
+  system's libpq, connects; so production refuses to start with `sslrootcert=system` and no
+  `SSL_CERT_FILE` or `SSL_CERT_DIR` that is there, naming this machine's bundle, and
+  development warns.
 - **The embeddings endpoint, a model's address and the bucket** (`EMBEDDING_BASE_URL`,
   `OLLAMA_BASE_URL`, `OPENAI_BASE_URL`, `AWS_ENDPOINT_URL`) need `https://` when they are
   outside. The HTTP clients check the certificate by default, and nothing in the app turns
@@ -759,7 +935,8 @@ or backed up with restic, at least as often as a restore would need, and kept no
    --target-action=promote restore`, then start Postgres. Its log says "recovery stopping
    before commit of transaction …" and "archive recovery complete". (pgBackRest takes the time
    in this form only; `Z` is refused.) A managed database is restored to a new instance and
-   `DATABASE_URL` pointed at it.
+   `DATABASE_URL` pointed at it, with `DATABASE_LISTEN_URL` and a pooler's `[databases]`
+   entry if there are any, and the role's timeouts come back with it.
 3. `uv run alembic upgrade head`, if the code is newer than the database at that moment.
 4. A directory is restored from its snapshot, of the same moment or later, never earlier.
    A bucket with versions is left as it is: the next step brings back from it what was deleted
@@ -933,6 +1110,57 @@ Reading a report:
   storage lacks a document's original (the bucket's versions do not reach back that far, or the
   file is gone).
 
+**With a managed database** the provider keeps the backups and restores them only to a new
+instance, so the monthly drill is `deploy/managed-restore-drill.sh` instead: it has the provider
+make a copy at the latest moment it can (or at the moment given), brings the copy to the code's
+schema, runs the same dry run against the live storage, and deletes the copy whatever happened,
+failing with its name if the delete did not go through. Every provider restores its own way,
+so its part is two commands the deployment names, each given the copy's name:
+
+- `DRILL_RESTORE NAME [TIME]` restores to a new instance called `NAME`, waits until it takes
+  connections, and prints `DATABASE_URL=` the copy's URL and `DRILL_MOMENT=` the moment it
+  restored to, each on a line of its own;
+- `DRILL_DISCARD NAME` deletes the instance and its backups, and succeeds when there is none.
+
+`deploy/rds-drill.sh` is RDS's, configured by the variables its header lists:
+
+```ini
+# /etc/emudoc/drill.env, for a drill machine in production's VPC
+DRILL_RESTORE=/opt/emudoc/deploy/rds-drill.sh restore
+DRILL_DISCARD=/opt/emudoc/deploy/rds-drill.sh discard
+AWS_REGION=eu-central-1
+RDS_SOURCE=emudoc-production
+RDS_SUBNET_GROUP=emudoc-private
+RDS_SECURITY_GROUPS=sg-0b5d1e7c9a2f4e601
+RDS_INSTANCE_CLASS=db.r7g.large
+RDS_URL=postgresql+psycopg://emudoc:…@HOST:5432/emudoc?sslmode=verify-full&sslrootcert=/etc/emudoc/rds-global-bundle.pem
+```
+
+The copy has no public address, no standby and no deletion protection, is encrypted with
+production's key when production is, and is tagged `purpose=restore-drill`, so that one left
+behind is found. The latest moment is the source's `LatestRestorableTime`, read just before
+the restore is asked for, which the copy reaches or passes by seconds. The drill's machine
+needs the AWS CLI with credentials allowed only to describe, restore, tag and delete instances
+(the four actions in the script's header), a way into the copy (the subnet group and a security
+group that let it in), and the app's settings with the storage's read-only keys, as above; the
+unit is the one above, with `ExecStart=/opt/emudoc/deploy/managed-restore-drill.sh` and a user
+of its own in place of `postgres`. A copy costs an instance for the length of the drill, which
+for a large database is mostly the provider's restore. Its report reads like the one above,
+without a replay, which the provider's restore includes:
+
+```text
+Restoring the database to the latest moment the provider can as emudoc-drill-20261101-050000.
+The copy is at 2026-11-01 04:58:41+00.
+…
+The drill took …: the restore …, the schema …, the check …; deleting the instance follows.
+The drill passed.
+Deleting the instance emudoc-drill-20261101-050000.
+```
+
+The script was checked with a stand-in for the provider (the hook copied a database on the
+same server and printed its URL) and `rds-drill.sh` against a fake AWS CLI, not against RDS:
+the first real drill is the check of the provider's part.
+
 The monthly drill leaves out a bucket lost as a whole (its deletion, or its service's failure),
 which only replication to a second bucket elsewhere survives (point `STORAGE_URL` at the replica
 to drill it); a directory's snapshots, since it reads the live directory; and the app's start
@@ -1083,3 +1311,11 @@ before the app would hold it.
     from where it was once the API is back, the API's log says "Shutting down" and "Finished
     server process" within a second of the stop, and has no `Cancel … running task(s)` line,
     which would mean a request outlasted the 8 seconds.
+15. The API's and the worker's logs say at start "The database is Postgres 17.… with pgvector
+    0.8.…; the role emudoc has statement_timeout 30s and idle_in_transaction_session_timeout
+    5min.", with no warning from `app.postgres`, and `python -m app.maintenance database` (from
+    the image, `docker compose -f deploy/compose.yml run --rm --no-deps worker python -m
+    app.maintenance database`) ends with "Nothing to look at." and exits with 0. Behind a pooler
+    in transaction mode, the worker's log has no line saying the threads "find queued jobs by
+    polling", and an answer starts within a second of the question. From a machine outside the
+    deployment's network, `pg_isready -h` the database's host gets no answer.

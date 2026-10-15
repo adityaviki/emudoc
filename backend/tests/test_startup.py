@@ -1,5 +1,6 @@
 """What every process checks before it serves or works (app/startup.py) that no other module's
-tests cover: a temporary directory to write uploads in."""
+tests cover: a temporary directory to write uploads in, and in development a word on a database
+URL whose certificate check would fail."""
 
 import os
 import tempfile
@@ -7,7 +8,7 @@ import tempfile
 import pytest
 
 from app.config import get_settings
-from app.startup import check_temporary_directory, prepare
+from app.startup import check_temporary_directory, prepare, warn_about_trust_store
 
 pytestmark = pytest.mark.skipif(os.geteuid() == 0, reason="root writes in any directory")
 
@@ -44,4 +45,26 @@ def test_a_tmpdir_python_passed_over_is_named(monkeypatch, tmp_path, caplog):
     with caplog.at_level("WARNING", logger="app.startup"):
         check_temporary_directory()
     assert tempfile.gettempdir() == str(tmp_path)
+    assert caplog.text == ""
+
+
+def test_development_says_why_the_system_s_authorities_would_not_be_found(
+    monkeypatch, caplog, services
+):
+    # Production refuses the setting (test_config.py); development starts, and the warning
+    # comes before the first connection fails with "certificate verify failed".
+    monkeypatch.setattr("app.startup.BUNDLED_LIBPQ", True)
+    for name in ("SSL_CERT_FILE", "SSL_CERT_DIR"):
+        monkeypatch.delenv(name, raising=False)
+    settings = get_settings()
+    trusting = "postgresql+psycopg://app:secret@db.example.com/emudoc?sslrootcert=system"
+    monkeypatch.setattr(settings, "database_listen_url", trusting)
+    with caplog.at_level("WARNING", logger="app.startup"):
+        prepare(settings, services)
+    assert "DATABASE_LISTEN_URL trusts the system's certificate authorities" in caplog.text
+    assert "set SSL_CERT_FILE to" in caplog.text
+
+    caplog.clear()
+    with caplog.at_level("WARNING", logger="app.startup"):
+        warn_about_trust_store(settings, {"SSL_CERT_DIR": "/"})
     assert caplog.text == ""

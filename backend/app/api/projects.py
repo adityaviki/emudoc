@@ -12,6 +12,7 @@ from app.api.deps import (
     WorkerDep,
 )
 from app.audit import audit
+from app.db import unbounded
 from app.entitlements import check_project
 from app.indexing.pipeline import reset_stages
 from app.jobs import BULK, queue_index
@@ -91,6 +92,9 @@ def delete_project(
         target=("project", project.id),
         detail={"name": project.name, "documents": _document_count(session, project)},
     )
+    # One statement that deletes every passage, section and fact of every document with the
+    # project, which for a large one takes longer than the role lets a request's statement run.
+    unbounded(session)
     session.delete(project)
     session.commit()
     # Every file of every document in the project sits under the project's prefix.

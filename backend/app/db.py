@@ -2,13 +2,16 @@
 
 from collections.abc import Iterator
 
+import psycopg
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import MetaData, create_engine
+from psycopg.errors import QueryCanceled
+from sqlalchemy import Connection, MetaData, create_engine, text
 from sqlalchemy.dialects.postgresql import REGCONFIG
 from sqlalchemy.dialects.postgresql.base import ischema_names
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import BACKEND_DIR, Settings, get_settings
@@ -22,6 +25,20 @@ ischema_names.setdefault("regconfig", REGCONFIG)
 # DB_POOL_TIMEOUT (`pool_exhausted` in app/main.py sends it with 503; an answer that is being
 # streamed ends with it).
 BUSY = "The app is handling as many requests as it can right now. Wait a moment and try again."
+# What a request is refused with when the database stopped one of its statements, at the role's
+# statement_timeout (`statement_canceled` in app/main.py).
+TOO_SLOW = (
+    "The database took longer over this request than it allows, so the request was stopped. "
+    "Try again in a moment."
+)
+# The timeouts a deployment gives its database role (deploying.md, "The database"), lifted by
+# `unbounded`; transaction_timeout is Postgres 17's, and a server without it is not asked.
+_UNBOUNDED = text(
+    "SELECT set_config('statement_timeout', '0', true), "
+    "set_config('idle_in_transaction_session_timeout', '0', true), "
+    "CASE WHEN current_setting('transaction_timeout', true) IS NOT NULL "
+    "THEN set_config('transaction_timeout', '0', true) END"
+)
 
 
 def make_engine(settings: Settings) -> Engine:
@@ -31,7 +48,12 @@ def make_engine(settings: Settings) -> Engine:
     while it sat idle is replaced instead of failing the request that got it. `hide_parameters`
     keeps a statement's values out of the errors it raises, and so out of the log: they are a
     passage's text, a question, a fact (app/logs.py).
+
+    Behind a pooler in transaction mode (DATABASE_POOLER) each transaction may run on another
+    server connection, and psycopg, which prepares a statement after its fifth run on a
+    connection, would find it missing there; so nothing is prepared.
     """
+    pooled = settings.database_pooler == "transaction"
     return create_engine(
         settings.database_url,
         pool_pre_ping=True,
@@ -39,6 +61,7 @@ def make_engine(settings: Settings) -> Engine:
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
         pool_timeout=settings.db_pool_timeout,
+        connect_args={"prepare_threshold": None} if pooled else {},
     )
 
 
@@ -70,6 +93,39 @@ class Base(DeclarativeBase):
 def get_session() -> Iterator[Session]:
     with SessionLocal() as session:
         yield session
+
+
+def unbounded(connection: Connection | Session) -> None:
+    """Lift the database role's timeouts for the rest of the caller's transaction.
+
+    A deployment gives the role a statement_timeout and an idle_in_transaction_session_timeout
+    (deploying.md, "The database"), so that a query that runs away on a member's request, or a
+    transaction a process left open, does not hold its connection, its locks and vacuum's
+    horizon until it ends by itself. Work whose length is the data's rather than a request's
+    lifts them for itself: the migrations, resizing the vectors, the housekeeping round (whose
+    walk of the storage keeps one transaction open between statements), a restore's repair, an
+    account's purge and a project's deletion. The settings are the transaction's own
+    (`is_local`), so they end with it, and a pooler in transaction mode carries them nowhere.
+    """
+    connection.execute(_UNBOUNDED)
+
+
+def connection_lost(error: BaseException) -> bool:
+    """Whether the database went away under the work: its connection dropped (a failover, a
+    restart, a pooler that let go, a timeout that ended the session) or none could be made.
+    Unlike an error in what was asked, it passes by itself. SQLAlchemy flags the first
+    (`connection_invalidated`); the second is psycopg's error without a SQLSTATE, since the
+    server said nothing."""
+    if not isinstance(error, DBAPIError):
+        return False
+    refused = isinstance(error.orig, psycopg.OperationalError) and error.orig.sqlstate is None
+    return error.connection_invalidated or refused
+
+
+def canceled(error: DBAPIError) -> bool:
+    """Whether the database stopped the statement: its statement_timeout, or an operator's
+    pg_cancel_backend."""
+    return isinstance(error.orig, QueryCanceled)
 
 
 def alembic_config() -> Config:

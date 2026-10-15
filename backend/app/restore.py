@@ -51,7 +51,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.audit import audit_event
-from app.db import SessionLocal
+from app.db import SessionLocal, unbounded
 from app.retention import purge_due_accounts, reapply_erasures
 from app.storage import ROOT_PREFIX, Deletion, S3Storage, Storage, StoredObject, is_rendered
 
@@ -171,6 +171,8 @@ def after_restore(storage: Storage, restored_to: datetime, *, dry_run: bool = Fa
     pending = (restored.brought_back or []) if dry_run else []
     survey = _survey(storage, pending)
     with SessionLocal() as session:
+        # Run with the app stopped, over every row and every key: no request's limits apply.
+        unbounded(session)
         if not dry_run:
             session.execute(_HOLD_INSERTS)
         restored.reached, restored.reached_by = _reach(session)

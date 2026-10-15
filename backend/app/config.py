@@ -1,5 +1,6 @@
 import os
 import re
+from collections.abc import Mapping
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
@@ -7,12 +8,18 @@ from typing import Any, Literal, NamedTuple
 from urllib.parse import urlsplit
 
 from dotenv import dotenv_values
+from psycopg import pq
 from pydantic import Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 
-from app.network import database_problem, plain_http_problem, scanner_problem
+from app.network import (
+    database_problem,
+    plain_http_problem,
+    scanner_problem,
+    trust_store_problem,
+)
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 ROOT_DIR = BACKEND_DIR.parent
@@ -113,6 +120,20 @@ class Settings(BaseSettings):
     # database stops (see `load_settings`) rather than reach for a loopback server with a
     # well-known password. `.env.example` names the docker-compose.yml container.
     database_url: str
+    # The pooler DATABASE_URL goes through, if any (deploying.md, "The database"). Empty for a
+    # direct connection or a pooler in session mode, which gives each client a server
+    # connection of its own. `transaction` for a pooler in transaction mode, such as
+    # pgbouncer's usual setup, which hands a client a server connection for one transaction at
+    # a time: the app then prepares no statement (pgbouncer before 1.21, or without
+    # max_prepared_statements, cannot carry one to the next transaction), and the worker
+    # listens for queued jobs at DATABASE_LISTEN_URL, since a LISTEN outlives the transaction
+    # it was made in.
+    database_pooler: Literal["", "transaction"] = ""
+    # Where the worker's listener connects (app/jobs.py) when DATABASE_URL goes through a
+    # pooler in transaction mode: the database itself, or the pooler's port in session mode.
+    # Empty, the listener uses DATABASE_URL; behind a pooler in transaction mode the worker then
+    # does not listen, and its threads find queued jobs by polling, every two seconds.
+    database_listen_url: str = ""
     # Where uploaded files and rendered pages are kept (see app/storage.py): a directory on
     # this machine as file:///var/lib/emudoc, or an S3-compatible bucket as s3://bucket/prefix,
     # reached with the AWS_* variables in the environment. The default is backend/data inside
@@ -313,6 +334,11 @@ class Settings(BaseSettings):
             raise ValueError("DATABASE_URL is empty")
         return value
 
+    @field_validator("database_pooler", "database_listen_url", mode="before")
+    @classmethod
+    def _trimmed(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
     @field_validator("storage_url")
     @classmethod
     def _names_a_directory_or_a_bucket(cls, value: str) -> str:
@@ -421,7 +447,16 @@ class Settings(BaseSettings):
             )
         return self
 
-    def production_problems(self) -> list[str]:
+    @property
+    def listen_url(self) -> str | None:
+        """Where the worker listens for queued jobs, or None when it cannot and polls instead:
+        a LISTEN made through a pooler in transaction mode ends up on whichever server
+        connection the pooler hands out next, and nothing reaches the listener."""
+        if self.database_listen_url:
+            return self.database_listen_url
+        return None if self.database_pooler == "transaction" else self.database_url
+
+    def production_problems(self, environ: Mapping[str, str] = os.environ) -> list[str]:
         """What stops these settings from serving a deployment, each as the step that fixes it.
 
         Development's conveniences are production's holes: the well-known database password,
@@ -429,18 +464,27 @@ class Settings(BaseSettings):
         uploads nobody scans, a model key that may be on a free tier which trains on what it
         is sent, files and links whose place depends on where the process happens to run, and
         connections that would carry the documents unencrypted across a network the deployment
-        does not own (app/network.py). Empty in development, and for settings that are fit.
+        does not own (app/network.py), or that could not check the server's certificate at all.
+        `environ` is read for the last: OpenSSL takes where to look for the authorities from
+        the process environment, not from these settings. Empty in development, and for
+        settings that are fit.
         """
         if self.environment != "production":
             return []
         problems = []
-        if _password_of(self.database_url) == DEVELOPMENT_PASSWORD:
-            problems.append(
-                "DATABASE_URL carries the development database's password; give the "
-                "deployment's database a password of its own."
-            )
-        if problem := database_problem(self.database_url):
-            problems.append(problem)
+        urls = [("DATABASE_URL", self.database_url)]
+        if self.database_listen_url:
+            urls.append(("DATABASE_LISTEN_URL", self.database_listen_url))
+        for variable, url in urls:
+            if _password_of(url) == DEVELOPMENT_PASSWORD:
+                problems.append(
+                    f"{variable} carries the development database's password; give the "
+                    "deployment's database a password of its own."
+                )
+            if problem := database_problem(url, variable):
+                problems.append(problem)
+            if problem := trust_store_problem(variable, url, environ, BUNDLED_LIBPQ):
+                problems.append(problem)
         if self.local_account:
             problems.append(
                 "LOCAL_ACCOUNT is true, which lets any request without a session act as the "
@@ -517,6 +561,10 @@ class Settings(BaseSettings):
             )
         return problems
 
+
+# Whether psycopg runs on the libpq and OpenSSL its binary package brings, rather than the
+# system's (app/network.py, `trust_store_problem`).
+BUNDLED_LIBPQ = pq.__impl__ == "binary"
 
 MISSING_DATABASE = (
     "DATABASE_URL is not set, and the app has no default database. Put the database's URL, "

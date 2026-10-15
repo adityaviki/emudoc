@@ -61,7 +61,7 @@ from sqlalchemy import text
 
 from app.answers import abandon_answer, run_answer
 from app.config import Settings, get_settings
-from app.db import SessionLocal
+from app.db import SessionLocal, connection_lost
 from app.deadletters import alert_failed_jobs
 from app.errors import summary
 from app.indexing.pipeline import (
@@ -153,9 +153,11 @@ def _run_index(job: Job, services: Services) -> str | None:
     except LeaseLost:
         # The document is another worker's now, which marks it as its run goes.
         raise
-    except Exception:
-        # Each stage catches its own errors; this is the pipeline itself failing around them.
-        _fail_document(document_id, CRASHED)
+    except Exception as error:
+        # Each stage catches its own errors; this is the pipeline itself failing around them,
+        # or the database still away after a stage lost it, which the next claim resumes.
+        if not connection_lost(error):
+            _fail_document(document_id, CRASHED)
         raise
     # From the first stage worth running again; the ones behind it run again with it.
     if failure := next((failure for failure in failures if failure.transient), None):
@@ -296,10 +298,20 @@ class Worker:
             self._spawn(partial(self._loop, index_kinds), f"indexer-{index}")
         for index in range(self._answer_concurrency):
             self._spawn(partial(self._loop, [ANSWER_QUESTION]), f"answerer-{index}")
-        self._spawn(self._listen, "listener")
+        settings = get_settings()
+        if settings.listen_url:
+            self._spawn(self._listen, "listener")
+        else:
+            log.warning(
+                "DATABASE_URL goes through a pooler in transaction mode, which cannot carry the "
+                "LISTEN that tells the worker a job was queued, and DATABASE_LISTEN_URL is not "
+                "set: the threads find queued jobs by polling, so a question waits up to %g "
+                "seconds before its answer starts. Set DATABASE_LISTEN_URL to the database "
+                "itself, or to the pooler's port in session mode.",
+                POLL_SECONDS,
+            )
         self._spawn(self._heartbeat, "heartbeat")
         self._spawn(self._housekeep, "housekeeper")
-        settings = get_settings()
         if self._mailer is not None and settings.alert_email:
             self._spawn(self._alert, "alerter")
         elif settings.environment == "production":
@@ -420,6 +432,17 @@ class Worker:
                         job.kind,
                     )
                 except Exception as error:
+                    if connection_lost(error):
+                        # As for a process that died: the lease runs out, and the next claim
+                        # runs the job again, given up after max_attempts of these.
+                        log.warning(
+                            "Job %s (%s) stopped: the database could not be reached (%s); the "
+                            "next claim runs it again once its lease has run out",
+                            job.id,
+                            job.kind,
+                            summary(error.orig or error).splitlines()[0],
+                        )
+                        return
                     log.exception("Job %s (%s) failed", job.id, job.kind)
                     # The operator reads it in the digest: the kind and where, as in the log.
                     self._finish(job, "failed", summary(error))

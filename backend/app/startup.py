@@ -3,7 +3,8 @@
 The API (app/main.py) and the worker (app/worker.py) start the same way: they refuse a database
 or a storage this code was not written for, queue what a changed embedding model left stale,
 build the services the pipeline and the agent run with, and in production refuse to run without
-a usable model, with a model or a bucket reached in the clear across a network the deployment
+a usable model, with a pgvector that loses a project's passages to the search's filter
+(app/postgres.py), with a model or a bucket reached in the clear across a network the deployment
 does not own (app/network.py), with a bucket that keeps deleted files longer than the privacy
 policy says (`check_versions` in app/storage.py), or outside the region the deployment promises
 (app/residency.py), and anywhere without a temporary directory to write in. One function
@@ -16,13 +17,14 @@ import os
 import tempfile
 from collections.abc import Mapping
 
-from app.config import Settings, export_env_file, model_provider
+from app.config import BUNDLED_LIBPQ, Settings, export_env_file, model_provider
 from app.db import check_schema
 from app.embeddings import Embedder
 from app.indexing.pipeline import Services
 from app.llm import LLM, LLMUnavailable
 from app.maintenance import check_embeddings, requeue_stale_embeddings, warn_about_old_layout
-from app.network import MODEL_BASE_URLS, plain_http_problem
+from app.network import MODEL_BASE_URLS, plain_http_problem, trust_store_problem
+from app.postgres import check_database
 from app.residency import check_residency
 from app.scanning import check_scanner, scanner_from_settings
 from app.search import check_fts_language
@@ -45,7 +47,9 @@ def prepare(settings: Settings, services: Services | None = None) -> Services:
     `StorageError` or `ScanError` with what to do, and the process must not run.
     """
     check_temporary_directory()
+    warn_about_trust_store(settings, os.environ)
     check_schema()
+    check_database(settings)
     check_embeddings()
     check_fts_language()
     requeue_stale_embeddings()
@@ -102,6 +106,20 @@ def check_temporary_directory() -> None:
             named,
             directory,
         )
+
+
+def warn_about_trust_store(settings: Settings, environ: Mapping[str, str]) -> None:
+    """In development, say before the first connection why a database URL that trusts the
+    system's authorities will fail to verify the server; production refuses it with the other
+    settings (`Settings.production_problems`)."""
+    if settings.environment == "production":
+        return
+    for variable, url in (
+        ("DATABASE_URL", settings.database_url),
+        ("DATABASE_LISTEN_URL", settings.database_listen_url),
+    ):
+        if url and (problem := trust_store_problem(variable, url, environ, BUNDLED_LIBPQ)):
+            log.warning(problem)
 
 
 def check_model(settings: Settings, llm: LLM) -> None:

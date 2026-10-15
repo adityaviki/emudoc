@@ -15,10 +15,10 @@ from sqlalchemy.orm import Session
 
 from app.audit import audit_event
 from app.config import get_settings
-from app.db import SessionLocal
+from app.db import SessionLocal, connection_lost
 from app.embeddings import Embedder
 from app.entitlements import check_pages
-from app.errors import AppError
+from app.errors import AppError, summary
 from app.indexing.enrich import (
     ExtractedFact,
     analyze_document,
@@ -47,6 +47,8 @@ log = logging.getLogger(__name__)
 REQUIRED_STAGES = ("scan", "parse", "structure")
 # Longest image edge sent for OCR; larger scans are scaled down to this.
 MAX_IMAGE_EDGE = 2576
+# A stage's detail while it waits to run again after the database went away under it.
+LOST_DATABASE = "The connection to the database was lost while this stage ran."
 MISSING_ORIGINAL = (
     "The uploaded file is missing from the storage. Delete this document and upload it again."
 )
@@ -249,6 +251,12 @@ def _run_stage(
     document_id = document.id
     try:
         detail = stage(session, document, services, meter)
+        # The stage's rows are flushed with its mark, so a database lost at this commit is
+        # lost under the stage, and handled below like one lost while it ran.
+        _set_stage(session, document, name, "done", detail, lease)
+        return None
+    except LeaseLost:
+        raise
     except StageSkipped as skipped:
         session.rollback()
         _set_stage(session, document, name, "skipped", str(skipped), lease)
@@ -262,13 +270,23 @@ def _run_stage(
         return StageFailure(name, str(error), transient, retry_at, threat)
     except Exception as error:
         session.rollback()
+        if connection_lost(error):
+            # The database went away under the stage, as in a failover. Once it answers again
+            # the stage is run again with the usual backoff, as for a provider that is down;
+            # while it does not, marking the stage raises, and the job's lease runs out for
+            # the next claim to resume the document (app/worker.py).
+            log.warning(
+                "Stage %s of document %s lost its database connection: %s",
+                name,
+                document_id,
+                summary(error.orig or error).splitlines()[0],
+            )
+            _set_stage(session, document, name, "failed", LOST_DATABASE, lease)
+            return StageFailure(name, LOST_DATABASE, transient=True)
         log.exception("Stage %s failed for document %s", name, document_id)
         message = f"Unexpected error: {type(error).__name__}"
         _set_stage(session, document, name, "failed", message, lease)
         return StageFailure(name, message, transient=False)
-    else:
-        _set_stage(session, document, name, "done", detail, lease)
-        return None
     finally:
         _charge(session, meter, document_id)
 
@@ -277,14 +295,26 @@ def _charge(session: Session, meter: Meter, document_id: int) -> None:
     """Record what the stage used, in a transaction of its own once the stage's has been
     committed or rolled back: a stage that failed made its calls before it failed, and one
     whose work a lost lease discarded made them too, like the next worker that runs it again
-    (app/usage.py)."""
+    (app/usage.py). A stage whose failure could not be marked leaves its transaction broken,
+    so the record starts from a rollback, which after a commit is nothing."""
     try:
+        session.rollback()
         if meter.record(session):
             session.commit()
     except PoolTimeout:
         session.rollback()
         log.warning(
             "The usage of document %s was not recorded: every database connection is in use",
+            document_id,
+        )
+    except Exception as error:
+        # A stage that lost the database ends here on its way out; what it raised is what
+        # the worker must see, not this.
+        if not connection_lost(error):
+            raise
+        session.rollback()
+        log.warning(
+            "The usage of document %s was not recorded: the database could not be reached",
             document_id,
         )
 
@@ -363,6 +393,7 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
                 # Each page is a model call, so the day's spending limit is checked here, after
                 # the refusals that no day would lift, and before a page is read.
                 _wait_for_the_day(session, document)
+                _done_reading(session)
                 blocks = _with_ocr(
                     path, document.filename, parsed.blocks, parsed.ocr_pages, services.llm, meter
                 )
@@ -485,6 +516,7 @@ def _structure(session: Session, document: Document, services: Services, meter: 
             note = "; sections not inferred (the day's spending limit is reached)"
         else:
             usage = meter.calls(INFER_SECTIONS, get_settings().index_model)
+            _done_reading(session)
             try:
                 hints = infer_sections(services.llm, blocks, usage)
             except LLMError as error:
@@ -551,6 +583,7 @@ def _enrich(session: Session, document: Document, services: Services, meter: Met
         select(Section).where(Section.document_id == document.id).order_by(Section.ordinal)
     ).all()
     usage = meter.calls(ENRICH, get_settings().index_model)
+    _done_reading(session)
     analysis = analyze_document(services.llm, document, sections, blocks, usage)
 
     profile = analysis.profile
@@ -647,6 +680,7 @@ def _embed(session: Session, document: Document, services: Services, meter: Mete
     ).all()
     if not passages:
         return "no passages"
+    _done_reading(session)
     vectors = services.embedder.embed_documents(
         [f"{passage.context}\n\n{passage.text}" for passage in passages]
     )
@@ -657,6 +691,23 @@ def _embed(session: Session, document: Document, services: Services, meter: Mete
         passage.embedding = vector
         passage.embedding_model = services.embedder.model
     return f"{len(passages)} passages"
+
+
+def _done_reading(session: Session) -> None:
+    """End the stage's transaction before it waits on the model or the embeddings endpoint, so
+    that the wait holds no connection, no snapshot and no lock.
+
+    The stage has only read so far, so the commit writes nothing, and unlike a rollback it
+    keeps what was read loaded (the session does not expire on commit); what the stage writes
+    afterwards goes into a transaction of its own, committed with the stage's mark under the
+    lease. The waits run to minutes (a long document's summaries, a scan's pages), and a
+    transaction open across one keeps vacuum from removing any row replaced since it began,
+    every re-index's old passages among them, holds a server connection of a pooler in
+    transaction mode, and is ended by the role's idle_in_transaction_session_timeout, which
+    fails the stage at its next statement (deploying.md, "The database"). The scan and the
+    parse child need nothing of this: the stage has read nothing when they run.
+    """
+    session.commit()
 
 
 def _blocks(session: Session, document_id: int) -> Sequence[Block]:

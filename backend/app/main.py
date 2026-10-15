@@ -7,14 +7,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from starlette.convertors import PathConvertor, register_url_convertor
 
 from app.api import audit, auth, chats, documents, folders, projects, query
 from app.api.deps import RETRY_AFTER, AccountDep, ServicesDep, SessionDep, refuse_cross_site
 from app.config import ROOT_DIR, get_settings
-from app.db import BUSY, engine
+from app.db import BUSY, TOO_SLOW, canceled, engine
 from app.errors import summary
 from app.headers import SecurityHeaders, content_security_policy
 from app.indexing.pipeline import Services
@@ -183,6 +183,24 @@ def pool_exhausted(request: Request, error: Exception) -> JSONResponse:
     )
 
 
+def statement_canceled(request: Request, error: Exception) -> JSONResponse:
+    """A statement the database stopped, at the role's statement_timeout (deploying.md, "The
+    database"): 503 and a sentence for the member, and for the operator one line that names the
+    route rather than a traceback. Any other operational error goes on as it came, to the 500
+    and the traceback of an error nobody planned for."""
+    if not (isinstance(error, DBAPIError) and canceled(error)):
+        raise error
+    log.warning(
+        "%s %s was stopped by the database: %s",
+        request.method,
+        request.url.path,
+        summary(error.orig).splitlines()[0],
+    )
+    return JSONResponse(
+        {"detail": TOO_SLOW}, status_code=503, headers={"Retry-After": str(RETRY_AFTER)}
+    )
+
+
 def create_app(
     services: Services | None = None,
     mailer: Mailer | None = None,
@@ -227,6 +245,7 @@ def create_app(
     app.add_exception_handler(RequestValidationError, invalid_request)
     app.add_exception_handler(StorageError, storage_unavailable)
     app.add_exception_handler(PoolTimeout, pool_exhausted)
+    app.add_exception_handler(OperationalError, statement_canceled)
     # No CORSMiddleware, on purpose: the frontend is served from this origin, and the defence
     # against a request forged from another site (refuse_cross_site in api/deps.py) rests on
     # the app answering no cross-origin request. test_no_other_origin_is_answered in

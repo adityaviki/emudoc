@@ -14,7 +14,7 @@ from sqlalchemy import Connection, text
 
 from app import models  # noqa: F401  (registers every table on Base.metadata)
 from app.config import get_settings
-from app.db import MIGRATION_LOCK, Base, engine
+from app.db import MIGRATION_LOCK, Base, engine, unbounded
 
 config = context.config
 target_metadata = Base.metadata
@@ -55,6 +55,9 @@ def run_on(connection: Connection) -> None:
         connection=connection, target_metadata=target_metadata, render_item=render_item
     )
     with context.begin_transaction():
+        # A migration's length is the data's (an index built over every passage), and so may
+        # be the wait for the lock below: neither is held to the role's timeouts.
+        unbounded(connection)
         # Two processes upgrading the same database at once (replicas of a new release) wait
         # for each other here, and the second finds nothing left to do. The lock lasts for the
         # transaction, which is the whole run, and Alembic itself takes none.

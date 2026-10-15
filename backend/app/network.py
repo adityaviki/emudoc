@@ -19,6 +19,8 @@ the companies it sends data to.
 """
 
 import ipaddress
+import os
+from collections.abc import Mapping
 from urllib.parse import urlsplit
 
 from sqlalchemy.engine import URL, make_url
@@ -38,6 +40,12 @@ MODEL_BASE_URLS = {
 # names the host: `require` encrypts to whoever answers, and `verify-ca` takes any server the
 # authority signed for, such as another customer's database at the same provider.
 VERIFIED = "verify-full"
+# Where Linux distributions keep the system's bundle of certificate authorities: Debian's,
+# Ubuntu's and Arch's, then Fedora's and RHEL's. The image sets SSL_CERT_FILE to the first.
+SYSTEM_BUNDLES = (
+    ("/etc/ssl/certs/ca-certificates.crt", "Debian, Ubuntu and Arch"),
+    ("/etc/pki/tls/certs/ca-bundle.crt", "Fedora and RHEL"),
+)
 
 
 def host_of(url: str) -> str:
@@ -54,10 +62,10 @@ def on_own_network(host: str) -> bool:
     return address.is_private or address.is_loopback or address.is_link_local
 
 
-def database_problem(url: str) -> str | None:
-    """What lets DATABASE_URL reach a database off the deployment's own network without
-    encrypting the connection and checking the server's certificate, as the step that fixes
-    it; None when every host it names is on the own network or the URL asks for both."""
+def database_problem(url: str, variable: str = "DATABASE_URL") -> str | None:
+    """What lets the URL in `variable` reach a database off the deployment's own network
+    without encrypting the connection and checking the server's certificate, as the step that
+    fixes it; None when every host it names is on the own network or the URL asks for both."""
     try:
         parsed = make_url(url)
     except ArgumentError:
@@ -69,12 +77,53 @@ def database_problem(url: str) -> str | None:
     if not away or (modes and all(mode == VERIFIED for mode in modes)):
         return None
     return (
-        f"DATABASE_URL connects to {away[0]} without sslmode={VERIFIED}, so the connection "
+        f"{variable} connects to {away[0]} without sslmode={VERIFIED}, so the connection "
         "may go unencrypted, or encrypted to a server that only claims to be the database, "
         "and the documents' text and the members' sign-ins with it; add "
         f"?sslmode={VERIFIED}&sslrootcert=system to the URL (with the path of the provider's "
         "certificate authority in place of system when a public one did not sign the "
         "server's), or reach the database on the deployment's own network."
+    )
+
+
+def trust_store_problem(
+    variable: str, url: str, environ: Mapping[str, str], bundled_libpq: bool
+) -> str | None:
+    """What leaves a database URL that trusts the system's certificate authorities
+    (`sslrootcert=system`) trusting none, as the step that fixes it; None when the URL names
+    its authority otherwise, or the process can find the system's.
+
+    libpq takes `system` to mean OpenSSL's default store, and the OpenSSL that psycopg's binary
+    package brings (`bundled_libpq`) looks for it in a directory of the machine it was built
+    on, which no other machine has: every certificate fails to verify, "certificate verify
+    failed", while psql, with the system's libpq, connects. OpenSSL reads SSL_CERT_FILE and
+    SSL_CERT_DIR in its place. PGSSLROOTCERT is libpq's own default for the parameter.
+    """
+    if not bundled_libpq:
+        return None
+    try:
+        roots = make_url(url).query.get("sslrootcert", environ.get("PGSSLROOTCERT", ""))
+    except ArgumentError:
+        return None
+    if "system" not in ((roots,) if isinstance(roots, str) else roots):
+        return None
+    named = [(name, environ.get(name, "")) for name in ("SSL_CERT_FILE", "SSL_CERT_DIR")]
+    if os.path.isfile(named[0][1]) or os.path.isdir(named[1][1]):
+        return None
+    missing = [f"{name} names {path}, which is not there" for name, path in named if path]
+    found = [path for path, _ in SYSTEM_BUNDLES if os.path.isfile(path)]
+    if found:
+        bundle = f"this machine's bundle, {found[0]}"
+    else:
+        bundle = "the system's bundle: " + ", ".join(
+            f"{path} on {systems}" for path, systems in SYSTEM_BUNDLES
+        )
+    return (
+        f"{variable} trusts the system's certificate authorities (sslrootcert=system), but "
+        "psycopg's binary package looks for them in a directory of the machine it was built "
+        "on, so every server's certificate would fail to verify"
+        + (f" ({'; '.join(missing)})" if missing else "")
+        + f"; set SSL_CERT_FILE to {bundle} (the image sets it)."
     )
 
 

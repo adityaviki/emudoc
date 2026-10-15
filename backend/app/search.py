@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import engine
 from app.embeddings import Embedder, EmbeddingError
+from app.postgres import server
 
 # Reciprocal rank fusion constant: the usual value, which damps the gap between top ranks.
 RRF_K = 60
@@ -193,10 +194,7 @@ def check_fts_language() -> None:
 
 @lru_cache
 def _iterative_scan_supported() -> bool:
-    """Iterative index scans arrived in pgvector 0.8."""
+    """Iterative index scans arrived in pgvector 0.8. Production does not start without them
+    (`check_database` in app/postgres.py); development searches without them."""
     with engine.connect() as connection:
-        version = connection.scalar(
-            text("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
-        )
-    major, minor = (int(part) for part in str(version).split(".")[:2])
-    return (major, minor) >= (0, 8)
+        return server(connection).iterative_scans

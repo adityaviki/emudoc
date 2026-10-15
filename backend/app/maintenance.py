@@ -53,7 +53,7 @@ from app.answers import EVENT_HISTORY, prune_events
 from app.audit import audit_event, prune_audit
 from app.auth import CREDENTIAL_HISTORY, prune_credentials
 from app.config import export_env_file, get_settings
-from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine
+from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine, unbounded
 from app.deadletters import describe, failed_jobs, requeue
 from app.entitlements import PLANS, Entitlements
 from app.jobs import BULK, HISTORY, prune_finished, queue_index_by_id
@@ -61,6 +61,7 @@ from app.logs import configure_logging
 from app.models import PLANS as PLAN_NAMES
 from app.models import Document, Organization
 from app.parsing import MIME_TYPES
+from app.postgres import concerns, database_report, describe_database
 from app.ratelimit import prune_rate_limits
 from app.restore import after_restore, describe_restore
 from app.retention import prune_chats, purge_due_accounts, reapply_erasures
@@ -140,6 +141,8 @@ def requeue_stale_embeddings() -> int:
     """
     settings = get_settings()
     with engine.begin() as connection:
+        # A look at every passage, at every start: on a large database longer than a request.
+        unbounded(connection)
         queued = _queue_embed_stage(
             connection,
             "SELECT document_id FROM passages "
@@ -165,6 +168,7 @@ def rebuild_embeddings() -> int:
     settings = get_settings()
     check_schema()
     with engine.begin() as connection:
+        unbounded(connection)
         # The same lock a migration run holds, so this never interleaves with `alembic upgrade
         # head`, and a second copy of the command waits and then finds the column already right.
         connection.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": MIGRATION_LOCK})
@@ -384,6 +388,9 @@ def housekeeping(storage: Storage) -> None:
     settings = get_settings()
     keep = timedelta(days=settings.page_image_days) if settings.page_image_days else None
     with engine.begin() as connection:
+        # The walk keeps this transaction open, idle, between its batches, for as long as the
+        # storage takes to list.
+        unbounded(connection)
         taken = connection.scalar(
             text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": HOUSEKEEPING_LOCK}
         )
@@ -688,6 +695,16 @@ def main(argv: list[str] | None = None) -> None:
     plan.add_argument(
         "plan", nargs="?", choices=PLAN_NAMES, help="the plan to put the organisation on"
     )
+    commands.add_parser(
+        "database",
+        help="report on the database server: versions, timeouts, tables and vacuum",
+        description="Say which Postgres and pgvector the database has, the timeouts of the "
+        "role the app connects as, how the pooler is set up, the largest tables with their "
+        "dead rows and when vacuum and analyse last ran, and the oldest open transaction. It "
+        "changes nothing, and exits with 1 when something needs looking at: a pgvector before "
+        "0.8, in production a role without timeouts, a table autovacuum is behind on, or a "
+        "transaction open for over an hour.",
+    )
     args = parser.parse_args(argv)
     configure_logging("%(levelname)s %(name)s: %(message)s")
     # The schema check sets up a migration context, which announces itself; nothing to act on.
@@ -744,6 +761,7 @@ def main(argv: list[str] | None = None) -> None:
             check_schema()
             storage.check()
             with engine.begin() as connection:
+                unbounded(connection)
                 # The app's own round waits rather than running beside this one.
                 connection.execute(
                     text("SELECT pg_advisory_xact_lock(:key)"), {"key": HOUSEKEEPING_LOCK}
@@ -814,6 +832,14 @@ def main(argv: list[str] | None = None) -> None:
             with SessionLocal() as session:
                 for line in usage_report(session, args.organization, args.days):
                     print(line)
+        elif args.command == "database":
+            check_schema()
+            with engine.connect() as connection:
+                report = database_report(connection)
+            for line in describe_database(report, settings):
+                print(line)
+            if concerns(report, settings):
+                sys.exit(1)
         elif args.command == "plan":
             check_schema()
             with SessionLocal() as session:

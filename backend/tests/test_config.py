@@ -145,6 +145,11 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "OPERATOR_NAME",
         "OPERATOR_EMAIL",
         "BACKUP_DAYS",
+        "DATABASE_POOLER",
+        "DATABASE_LISTEN_URL",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "PGSSLROOTCERT",
     ):
         monkeypatch.delenv(name, raising=False)
     return {
@@ -288,7 +293,9 @@ def test_production_takes_gemini_s_developer_api_only_on_the_paid_tier(deploymen
         load_settings(**deployment)
 
 
-def test_production_sends_nothing_off_its_own_network_unencrypted(deployment):
+def test_production_sends_nothing_off_its_own_network_unencrypted(
+    deployment, monkeypatch, tmp_path
+):
     # A managed database, a scanner on another host and a hosted embeddings endpoint are each
     # reached across networks nobody in the deployment controls.
     deployment.update(
@@ -308,6 +315,9 @@ def test_production_sends_nothing_off_its_own_network_unencrypted(deployment):
     assert "secret" not in stop.value.code
 
     # Verified, over HTTPS, or inside the network, the same pieces are fit.
+    bundle = tmp_path / "ca-certificates.crt"
+    bundle.write_text("")
+    monkeypatch.setenv("SSL_CERT_FILE", str(bundle))
     deployment.update(
         database_url="postgresql+psycopg://app:secret@db.example.com:5432/emudoc"
         "?sslmode=verify-full&sslrootcert=system",
@@ -315,6 +325,91 @@ def test_production_sends_nothing_off_its_own_network_unencrypted(deployment):
         embedding_base_url="https://embeddings.example.com/v1",
     )
     assert load_settings(**deployment).production_problems() == []
+
+
+TRUSTING_THE_SYSTEM = (
+    "postgresql+psycopg://app:secret@db.example.com:5432/emudoc"
+    "?sslmode=verify-full&sslrootcert=system"
+)
+
+
+def test_production_trusts_the_system_s_authorities_only_where_it_can_find_them(
+    deployment, monkeypatch, tmp_path
+):
+    # psycopg's binary package brings an OpenSSL that looks for the authorities in a directory
+    # of the machine it was built on: without SSL_CERT_FILE every certificate would fail, and
+    # the operator would read "certificate verify failed" from a server whose certificate is
+    # fine. Refused before anything connects, with the variable to set.
+    monkeypatch.setattr("app.config.BUNDLED_LIBPQ", True)
+    deployment["database_url"] = TRUSTING_THE_SYSTEM
+    with pytest.raises(SystemExit) as stop:
+        load_settings(**deployment)
+    (line,) = stop.value.code.splitlines()[1:]
+    assert line.startswith("  - DATABASE_URL trusts the system's certificate authorities")
+    assert "every server's certificate would fail to verify; set SSL_CERT_FILE to" in line
+
+    # A variable that names nothing is no better, and the sentence says which.
+    monkeypatch.setenv("SSL_CERT_FILE", str(tmp_path / "missing.crt"))
+    with pytest.raises(SystemExit) as stop:
+        load_settings(**deployment)
+    assert f"SSL_CERT_FILE names {tmp_path / 'missing.crt'}, which is not there" in stop.value.code
+
+    # A bundle, or a directory of authorities, is what OpenSSL reads instead.
+    bundle = tmp_path / "ca-certificates.crt"
+    bundle.write_text("")
+    monkeypatch.setenv("SSL_CERT_FILE", str(bundle))
+    assert load_settings(**deployment).production_problems() == []
+    monkeypatch.delenv("SSL_CERT_FILE")
+    monkeypatch.setenv("SSL_CERT_DIR", str(tmp_path))
+    assert load_settings(**deployment).production_problems() == []
+    monkeypatch.delenv("SSL_CERT_DIR")
+
+    # The provider's own authority by its path needs neither, and neither does a libpq of the
+    # system's, which knows where the system keeps them.
+    deployment["database_url"] = TRUSTING_THE_SYSTEM.replace("system", "/etc/emudoc/rds.pem")
+    assert load_settings(**deployment).production_problems() == []
+    deployment["database_url"] = TRUSTING_THE_SYSTEM
+    monkeypatch.setattr("app.config.BUNDLED_LIBPQ", False)
+    assert load_settings(**deployment).production_problems() == []
+
+    # libpq's own variable stands for the parameter when the URL leaves it out.
+    monkeypatch.setattr("app.config.BUNDLED_LIBPQ", True)
+    monkeypatch.setenv("PGSSLROOTCERT", "system")
+    deployment["database_url"] = TRUSTING_THE_SYSTEM.replace("&sslrootcert=system", "")
+    with pytest.raises(SystemExit, match="DATABASE_URL trusts the system's"):
+        load_settings(**deployment)
+
+
+def test_behind_a_transaction_pooler_the_worker_listens_elsewhere_or_polls(deployment):
+    # A LISTEN made through a pooler in transaction mode lands on whichever server connection
+    # the pooler hands out next, so the listener needs an address of its own.
+    settings = load_settings(**deployment)
+    assert settings.listen_url == A_DATABASE
+    settings = load_settings(**deployment, database_pooler=" transaction ")
+    assert settings.database_pooler == "transaction"
+    assert settings.listen_url is None
+    direct = "postgresql+psycopg://app:secret@db-direct.internal:5432/emudoc"
+    settings = load_settings(
+        **deployment, database_pooler="transaction", database_listen_url=direct
+    )
+    assert settings.listen_url == direct
+    with pytest.raises(ValueError, match="database_pooler"):
+        load_settings(**deployment, database_pooler="statement")
+
+
+def test_the_listener_s_address_is_held_to_the_database_s_rules(deployment):
+    # It carries no documents, but it signs in as the app's role: a copied development
+    # password or a connection off the network in the clear is refused for it as well.
+    deployment.update(
+        database_pooler="transaction",
+        database_listen_url="postgresql+psycopg://emudoc:emudoc@db.example.com:5432/emudoc",
+    )
+    with pytest.raises(SystemExit) as stop:
+        load_settings(**deployment)
+    lines = stop.value.code.splitlines()[1:]
+    assert len(lines) == 2
+    assert lines[0].startswith("  - DATABASE_LISTEN_URL carries the development database's")
+    assert lines[1].startswith("  - DATABASE_LISTEN_URL connects to db.example.com without")
 
 
 def test_the_api_runs_the_worker_itself_in_development_only(deployment, monkeypatch):
