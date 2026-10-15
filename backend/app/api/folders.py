@@ -1,16 +1,18 @@
 """Folders: the tree of a project's library. A document sits in one folder or at the root."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
+    AccountDep,
     EditableFolderDep,
     EditableProjectDep,
     ProjectDep,
     ServicesDep,
     SessionDep,
 )
+from app.audit import audit
 from app.folders import PATH_SEPARATOR, folder_paths, subtree_ids
 from app.models import Document, Folder, Project
 from app.schemas import FolderIn, FolderOut, FolderPatch
@@ -58,11 +60,26 @@ def update_folder(folder: EditableFolderDep, body: FolderPatch, session: Session
 
 
 @router.delete("/folders/{folder_id}", status_code=204)
-def delete_folder(folder: EditableFolderDep, session: SessionDep, services: ServicesDep):
+def delete_folder(
+    folder: EditableFolderDep,
+    session: SessionDep,
+    services: ServicesDep,
+    account: AccountDep,
+    request: Request,
+):
     """Delete the folder with its subfolders and every document in them."""
     documents = session.scalars(
         select(Document).where(Document.folder_id.in_(subtree_ids(session, folder)))
     ).all()
+    audit(
+        session,
+        account,
+        request,
+        "folder_deleted",
+        project_id=folder.project_id,
+        target=("folder", folder.id),
+        detail={"name": folder.name, "documents": len(documents)},
+    )
     session.delete(folder)
     session.commit()
     services.storage.discard(*(document.storage_prefix for document in documents))

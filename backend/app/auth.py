@@ -133,14 +133,15 @@ def complete_mfa(row: UserSession) -> None:
     row.expires_at = now() + dt.timedelta(days=get_settings().session_days)
 
 
-def revoke_sessions(session: Session, user_id: int, except_id: int | None = None) -> None:
-    """Sign the user out everywhere, except on the session given."""
+def revoke_sessions(session: Session, user_id: int, except_id: int | None = None) -> int:
+    """Sign the user out everywhere, except on the session given; returns how many sessions
+    that ended."""
     statement = update(UserSession).where(
         UserSession.user_id == user_id, UserSession.revoked_at.is_(None)
     )
     if except_id is not None:
         statement = statement.where(UserSession.id != except_id)
-    session.execute(statement.values(revoked_at=now()))
+    return session.execute(statement.values(revoked_at=now())).rowcount
 
 
 _PRUNE_SESSIONS = text("DELETE FROM sessions WHERE expires_at < :before OR revoked_at < :before")

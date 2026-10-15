@@ -25,9 +25,9 @@ backlog gets the larger share. `daily_spend_micros` is what a day of the organis
 use may cost, by the prices the usage rows are costed with; app/spending.py holds the check,
 beside the platform's own daily limit, since the two are read together. `retention_days` is
 how long a chat is kept after its last question, which the housekeeper holds it to
-(app/retention.py). `model_tier`, `api_access` and `connectors` are declared for the features
-that will read them (the organisation settings, the API keys, the connectors) and enforced by
-nothing yet.
+(app/retention.py), and `audit_days` how long a row of the audit log is (app/audit.py).
+`model_tier`, `api_access` and `connectors` are declared for the features that will read them
+(the organisation settings, the API keys, the connectors) and enforced by nothing yet.
 """
 
 from dataclasses import dataclass
@@ -83,6 +83,9 @@ class Entitlements:
     connectors: bool
     # How many days a chat is kept after its last question (app/retention.py).
     retention_days: int | None
+    # How many days the organisation's audit log keeps a row (app/audit.py): longer than a
+    # chat, since an audit trail answers questions about the past.
+    audit_days: int | None
     # standard | premium: which models answer and index for the organisation, once the
     # organisation settings choose a model by it.
     model_tier: str
@@ -105,6 +108,7 @@ PLANS: dict[str, Entitlements] = {
         api_access=False,
         connectors=False,
         retention_days=30,
+        audit_days=90,
         model_tier="standard",
         priority=1,
         daily_spend_micros=1_000_000,
@@ -119,6 +123,7 @@ PLANS: dict[str, Entitlements] = {
         api_access=True,
         connectors=False,
         retention_days=365,
+        audit_days=365,
         model_tier="standard",
         priority=2,
         daily_spend_micros=10_000_000,
@@ -133,6 +138,7 @@ PLANS: dict[str, Entitlements] = {
         api_access=True,
         connectors=True,
         retention_days=None,
+        audit_days=365,
         model_tier="premium",
         priority=3,
         daily_spend_micros=50_000_000,
@@ -148,6 +154,7 @@ PLANS: dict[str, Entitlements] = {
         api_access=True,
         connectors=True,
         retention_days=None,
+        audit_days=None,
         model_tier="premium",
         priority=4,
         daily_spend_micros=None,

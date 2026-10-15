@@ -18,6 +18,7 @@ from datetime import UTC
 from sqlalchemy import ColumnElement, and_, select, text
 from sqlalchemy.orm import Session
 
+from app.audit import audit_event
 from app.db import SessionLocal
 from app.indexing.pipeline import reset_stages
 from app.jobs import INDEX_DOCUMENT, queue_index
@@ -175,6 +176,14 @@ def requeue(session: Session, failures: list[FailedJob]) -> Requeue:
             )
             reset_stages(document, stage)
             queue_index(session, document)
+            audit_event(
+                session,
+                "document_requeued",
+                org_id=job.org_id,
+                project_id=document.project_id,
+                target=("document", document.id),
+                detail={"filename": document.filename, "stage": stage},
+            )
             outcome.queued += 1
             outcome.lines.append(f"Queued {failure.about} again from stage {stage} (job {job.id}).")
         session.delete(job)

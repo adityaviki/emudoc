@@ -412,11 +412,16 @@ every six hours), and so what the privacy notice can promise:
 - **Sessions and one-time links** go 30 days after they expired or were revoked
   (`CREDENTIAL_HISTORY` in `backend/app/auth.py`), with the address and browser a session
   recorded and the address a link went to.
+- **Audit log rows** go once they are older than the organisation's plan keeps them
+  (`audit_days` in `backend/app/entitlements.py`: 90 days on Free, 365 on Pro and Team, never
+  on Enterprise). A row holds the client's address it was recorded from, which the privacy
+  notice names with that period; an account's purge clears it from the rows of that account.
 - **A deleted account** goes 14 days after its user asked (`DELETION_GRACE` in
   `backend/app/retention.py`), within six hours of the day, with every organisation it was the
   only member of: projects, documents and their files, chats, jobs and usage. In an
   organisation with other members, the user's membership, sessions and chats go and its usage
-  rows stay with the organisation without their name; the last owner of such an organisation
+  and audit rows stay with the organisation without their name (and the audit rows without
+  their addresses); the last owner of such an organisation
   cannot ask until another member is an owner, and one who became the last owner meanwhile is
   succeeded at the purge by the next member in role and seniority (logged as a warning). The
   log names accounts by id only.

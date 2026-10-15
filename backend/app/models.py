@@ -56,6 +56,38 @@ USAGE_UNITS = ("calls", "input_tokens", "output_tokens", "pages", "bytes", "inpu
 # What an organisation is entitled to (app/entitlements.py), from the plan with the least to
 # the one with no limits. A new organisation starts on the first.
 PLANS = ("free", "pro", "team", "enterprise")
+# What the audit log records (app/audit.py): its members' sign-ins and what they did to their
+# accounts, what was done to the organisation's documents and the sharing of its chats, and
+# what the operator and the app did to it on their own.
+AUDIT_ACTIONS = (
+    "sign_up",
+    "sign_in",
+    "sign_in_failed",
+    "sign_out",
+    "session_revoked",
+    "other_sessions_revoked",
+    "password_changed",
+    "password_reset_requested",
+    "password_reset",
+    "mfa_enabled",
+    "mfa_disabled",
+    "account_exported",
+    "account_deletion_requested",
+    "account_deletion_cancelled",
+    "account_purged",
+    "role_changed",
+    "plan_changed",
+    "project_deleted",
+    "folder_deleted",
+    "document_uploaded",
+    "document_downloaded",
+    "document_deleted",
+    "document_quarantined",
+    "document_requeued",
+    "chat_shared",
+    "chat_unshared",
+    "chat_deleted",
+)
 
 
 def _one_of(column: str, values: tuple[str, ...], table: str) -> CheckConstraint:
@@ -751,3 +783,51 @@ class RateLimit(Base):
     key: Mapped[str] = mapped_column(String(300), primary_key=True)
     window_start: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
     count: Mapped[int] = mapped_column(Integer)
+
+
+class AuditEvent(Base):
+    """One thing done to an organisation's documents, chats or members' accounts, kept for its
+    admins (app/audit.py).
+
+    The row is written in the transaction of what it records, so the two commit or roll back
+    together. It names the action, the member who acted (or, for a sign-in, the account signed
+    into; null for what the operator or the app did, and once the member's account is gone),
+    the project and the object it was done to, the client's address, and a few words of
+    detail: a file's name, a role before and after. It never holds what a document, a question
+    or an answer says. The project and the object are plain ids rather than foreign keys, since
+    the row outlives them: "deleted the project" names the project that is gone. The
+    organisation's rows go with it.
+    """
+
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        _one_of("action", AUDIT_ACTIONS, "audit_events"),
+        # An object is a type and an id together or neither.
+        CheckConstraint(
+            "(target_type IS NULL) = (target_id IS NULL)", name="ck_audit_events_target"
+        ),
+        # What the audit route reads: one organisation's rows, the newest first, page by page.
+        Index("ix_audit_events_org_newest", "org_id", "id"),
+        # What the housekeeper prunes by: every organisation's rows older than its plan keeps.
+        Index("ix_audit_events_occurred", "occurred_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"))
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    action: Mapped[str] = mapped_column(String(40))
+    project_id: Mapped[int | None] = mapped_column(Integer)
+    # project | folder | document | chat | session | user
+    target_type: Mapped[str | None] = mapped_column(String(40))
+    target_id: Mapped[int | None] = mapped_column(BigInteger)
+    # {"filename": "invoice.pdf"}, {"from": "member", "to": "owner"}: names and settings as
+    # they were, never content.
+    detail: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    # The address the request came from, as uvicorn believes it; cleared when the account it
+    # was recorded for is deleted (app/retention.py).
+    ip: Mapped[str | None] = mapped_column(String(45))
+    occurred_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

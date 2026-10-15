@@ -389,6 +389,35 @@ class OAuthProviderOut(BaseModel):
     label: str
 
 
+class AuditEventOut(BaseModel):
+    """One row of the organisation's audit log (app/audit.py)."""
+
+    id: int
+    occurred_at: dt.datetime
+    # One of AUDIT_ACTIONS in app/models.py, such as "document_deleted".
+    action: str
+    # The member who acted, or whose account a sign-in was for, as the account is now; all
+    # three None for what the operator or the app did, and once the account is deleted.
+    user_id: int | None
+    user_name: str | None
+    user_email: str | None
+    ip: str | None
+    project_id: int | None
+    # What it was done to: "document" and its id. The object may be gone since.
+    target_type: str | None
+    target_id: int | None
+    # Names and settings as they were: {"filename": "invoice.pdf"}.
+    detail: dict[str, Any]
+
+
+class AuditPage(BaseModel):
+    """A page of the audit log, the newest row first."""
+
+    events: list[AuditEventOut]
+    # What to pass as `before` for the next, older page; None on the last one.
+    next_before: int | None
+
+
 class AuthOptions(BaseModel):
     """What the sign-in page can offer besides a password."""
 
@@ -492,6 +521,16 @@ class ExportedChat(BaseModel):
     messages: list[ExportedMessage]
 
 
+class ExportedActivity(BaseModel):
+    """A row of an organisation's audit log that names the user (app/audit.py)."""
+
+    organization: str
+    action: str
+    ip: str | None
+    detail: dict[str, Any]
+    occurred_at: dt.datetime
+
+
 class ExportedUsage(BaseModel):
     organization: str
     kind: str
@@ -510,3 +549,4 @@ class AccountExport(BaseModel):
     sessions: list[ExportedSession]
     chats: list[ExportedChat]
     usage: list[ExportedUsage]
+    activity: list[ExportedActivity]

@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 from typing import BinaryIO
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pypdfium2 import PdfiumError
@@ -26,6 +26,7 @@ from app.api.deps import (
     limited,
 )
 from app.api.folders import folder_paths, resolve_folder
+from app.audit import audit
 from app.config import Settings, get_settings
 from app.entitlements import check_upload, size_label
 from app.indexing.pipeline import reset_stages
@@ -94,6 +95,7 @@ def upload_documents(
     services: ServicesDep,
     worker: WorkerDep,
     account: AccountDep,
+    request: Request,
     folder_id: int | None = None,
 ):
     """Upload files into a folder of the project (the root when no folder is given).
@@ -184,9 +186,9 @@ def upload_documents(
             # Stored before the row is committed: a storage that fails leaves no row behind,
             # and the error says what happened (`storage_unavailable` in main.py).
             services.storage.put(document.storage_key, spool, document.mime_type)
-            # The document, the job that indexes it and the member's usage are committed
-            # together. The bytes are the upload's; its pages are counted when the parse
-            # learns how many there are (app/indexing/pipeline.py).
+            # The document, the job that indexes it, the member's usage and the audit row are
+            # committed together. The bytes are the upload's; its pages are counted when the
+            # parse learns how many there are (app/indexing/pipeline.py).
             queue_index(session, document)
             record(
                 session,
@@ -196,6 +198,15 @@ def upload_documents(
                 kind=UPLOAD,
                 measures={"bytes": size},
                 ref=(DOCUMENT, document.id),
+            )
+            audit(
+                session,
+                account,
+                request,
+                "document_uploaded",
+                project_id=project.id,
+                target=("document", document.id),
+                detail={"filename": document.filename, "size_bytes": size},
             )
             session.commit()
             documents.append(document)
@@ -331,7 +342,22 @@ def unique_filename(session: SessionDep, project_id: int, folder_id: int | None,
 
 
 @router.delete("/documents/{document_id}", status_code=204)
-def delete_document(document: EditableDocumentDep, session: SessionDep, services: ServicesDep):
+def delete_document(
+    document: EditableDocumentDep,
+    session: SessionDep,
+    services: ServicesDep,
+    account: AccountDep,
+    request: Request,
+):
+    audit(
+        session,
+        account,
+        request,
+        "document_deleted",
+        project_id=document.project_id,
+        target=("document", document.id),
+        detail={"filename": document.filename},
+    )
     session.delete(document)
     session.commit()
     services.storage.discard(document.storage_prefix)
@@ -366,18 +392,37 @@ def _scanned(document: Document) -> None:
 
 
 @router.get("/documents/{document_id}/file")
-def download_file(document: DocumentDep, services: ServicesDep) -> Response:
+def download_file(
+    document: DocumentDep,
+    services: ServicesDep,
+    session: SessionDep,
+    account: AccountDep,
+    request: Request,
+) -> Response:
     """The uploaded file as it was uploaded; the storage decides whether it is sent from here or
     from a signed URL.
 
     It comes as a download: a PDF that a browser opened in its own viewer could run scripts and
     submit forms, and the app shows a document's pages from its own renderings anyway. An image
     is the exception: the document pane's preview is an `<img>`, and a browser runs nothing in one.
+
+    Every time the file is sent, or a URL to it signed, is a download in the audit log, the
+    image preview's included: the bytes leave either way.
     """
     _scanned(document)
     storage = services.storage
     if not storage.exists(document.storage_key):
         raise HTTPException(404, MISSING_FILE)
+    audit(
+        session,
+        account,
+        request,
+        "document_downloaded",
+        project_id=document.project_id,
+        target=("document", document.id),
+        detail={"filename": document.filename},
+    )
+    session.commit()
     return storage.response(
         document.storage_key,
         media_type=document.mime_type,

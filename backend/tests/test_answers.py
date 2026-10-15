@@ -81,8 +81,10 @@ def test_the_answerer_lane_takes_the_question_at_once(
     asked = ask(client, chat["id"], "Notice period?")
     wait_until(lambda: message(session, asked["answer"]["id"]).status == "done", timeout=5)
     assert message(session, asked["answer"]["id"]).content == "90 days."
+    # The answer is settled a moment before its job is marked done, in a commit of its own.
+    wait_until(lambda: answer_jobs(session)[0].status == "done", timeout=5)
     (job,) = answer_jobs(session)
-    assert job.status == "done" and job.worker_id == worker.id
+    assert job.worker_id == worker.id
     names = {thread.name for thread in worker._threads}
     assert "answerer-0" in names and "listener" in names and "indexer-0" not in names
 

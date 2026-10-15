@@ -18,10 +18,11 @@ someone else asked to delete, gets it back. When it is due, the housekeeper purg
 in it (projects, documents, chats, jobs, usage), then the user with their sessions, sign-in
 identities, links and chats, and after the commit the organisations' files. In an organisation
 that keeps other members, the user's membership and chats go and its documents stay, since a
-document carries no uploader and belongs to the team. The last owner of such an organisation
-is refused at the request (`deletion_refusal`); one who is the last owner by the time of the
-purge all the same is succeeded by the next member in role and seniority, so that no
-organisation is left without an owner and no erasure is held up.
+document carries no uploader and belongs to the team; so do its audit rows of the user, without
+the addresses they were recorded from, and one saying the account was deleted (app/audit.py).
+The last owner of such an organisation is refused at the request (`deletion_refusal`); one who
+is the last owner by the time of the purge all the same is succeeded by the next member in role
+and seniority, so that no organisation is left without an owner and no erasure is held up.
 
 The purge takes each due user under `FOR UPDATE SKIP LOCKED`, one transaction each, so replicas
 can run it side by side, and a user who keeps their account at that moment either waits for the
@@ -50,6 +51,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import Connection, and_, delete, func, select, text
 from sqlalchemy.orm import Session, aliased
 
+from app.audit import audit_event, forget_addresses
 from app.db import SessionLocal, engine
 from app.entitlements import MONTHS, PLANS
 from app.models import ROLES, Membership, Organization, User
@@ -210,13 +212,19 @@ def reapply_erasures(storage: Storage) -> list[int]:
 def purge_account(session: Session, user: User) -> list[str]:
     """Delete the user and every organisation they are the only member of, the rows cascading
     from them; returns those organisations' prefixes in the storage, for the caller to discard
-    once the deletion is committed. The caller commits."""
+    once the deletion is committed. The caller commits.
+
+    An organisation that keeps other members keeps its audit rows of the user too, without the
+    addresses they were recorded from, and gains one saying the account was deleted."""
+    forget_addresses(session, user.id)
     alone = []
     for membership, members, owners in _memberships(session, user.id):
         if not members:
             alone.append(membership.org_id)
-        elif membership.role == "owner" and not owners:
+            continue
+        if membership.role == "owner" and not owners:
             _promote_successor(session, membership.org_id, user.id)
+        audit_event(session, "account_purged", org_id=membership.org_id, target=("user", user.id))
     if alone:
         session.execute(delete(Organization).where(Organization.id.in_(alone)))
     session.execute(delete(User).where(User.id == user.id))
@@ -257,5 +265,12 @@ def _promote_successor(session: Session, org_id: int, user_id: int) -> None:
         user_id,
         successor.user_id,
         successor.role,
+    )
+    audit_event(
+        session,
+        "role_changed",
+        org_id=org_id,
+        target=("user", successor.user_id),
+        detail={"from": successor.role, "to": "owner"},
     )
     successor.role = "owner"

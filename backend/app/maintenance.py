@@ -44,6 +44,7 @@ from sqlalchemy import Connection, select, text
 from sqlalchemy.orm import Session
 
 from app.answers import EVENT_HISTORY, prune_events
+from app.audit import audit_event, prune_audit
 from app.auth import CREDENTIAL_HISTORY, prune_credentials
 from app.config import get_settings
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine
@@ -390,6 +391,7 @@ def housekeeping(storage: Storage) -> None:
         events = prune_events(connection)
         minutes = prune_rate_limits(connection)
         chats = prune_chats(connection)
+        audited = prune_audit(connection)
         credentials = prune_credentials(connection)
     reapply_erasures(storage)
     accounts = purge_due_accounts(storage)
@@ -397,6 +399,8 @@ def housekeeping(storage: Storage) -> None:
         log.info("Housekeeping: deleted %s accounts whose deletion was due", accounts)
     if chats:
         log.info("Housekeeping: deleted %s chats kept past their plan's retention", chats)
+    if audited:
+        log.info("Housekeeping: deleted %s audit log rows kept past their plan's days", audited)
     if credentials:
         log.info(
             "Housekeeping: removed %s sessions and links that ended more than %s days ago",
@@ -478,6 +482,10 @@ def plan_report(session: Session, slug: str, plan: str | None) -> list[str]:
     if plan is not None:
         organization.plan = plan
     changed = plan is not None and plan != was
+    if changed:
+        audit_event(
+            session, "plan_changed", org_id=organization.id, detail={"from": was, "to": plan}
+        )
     verb = f"moved from the {was.capitalize()} plan to" if changed else "is on"
     lines = [
         f"{organization.name} ({slug}) {verb} the {organization.plan.capitalize()} plan, "

@@ -301,6 +301,61 @@ export interface MfaSetup {
   otpauth_url: string
 }
 
+/** What the audit log records: `AUDIT_ACTIONS` in backend/app/models.py. */
+export type AuditAction =
+  | 'sign_up'
+  | 'sign_in'
+  | 'sign_in_failed'
+  | 'sign_out'
+  | 'session_revoked'
+  | 'other_sessions_revoked'
+  | 'password_changed'
+  | 'password_reset_requested'
+  | 'password_reset'
+  | 'mfa_enabled'
+  | 'mfa_disabled'
+  | 'account_exported'
+  | 'account_deletion_requested'
+  | 'account_deletion_cancelled'
+  | 'account_purged'
+  | 'role_changed'
+  | 'plan_changed'
+  | 'project_deleted'
+  | 'folder_deleted'
+  | 'document_uploaded'
+  | 'document_downloaded'
+  | 'document_deleted'
+  | 'document_quarantined'
+  | 'document_requeued'
+  | 'chat_shared'
+  | 'chat_unshared'
+  | 'chat_deleted'
+
+/** One row of the organisation's audit log, which its owners and admins read. */
+export interface AuditEvent {
+  id: number
+  occurred_at: string
+  action: AuditAction
+  /** The member who acted, or whose account a sign-in was for; null for the operator or the app, and once the account is deleted. */
+  user_id: number | null
+  user_name: string | null
+  user_email: string | null
+  ip: string | null
+  project_id: number | null
+  /** What it was done to, which may be gone since. */
+  target_type: string | null
+  target_id: number | null
+  /** Names and settings as they were, such as `{ filename: 'invoice.pdf' }`. */
+  detail: Record<string, string | number | boolean | null>
+}
+
+/** A page of the audit log, the newest row first. */
+export interface AuditPage {
+  events: AuditEvent[]
+  /** What to pass as `before` for the next, older page; null on the last one. */
+  next_before: number | null
+}
+
 // The password rules the server applies (backend/app/schemas.py), so forms can say so first.
 export const PASSWORD_MIN_LENGTH = 8
 export const PASSWORD_MAX_LENGTH = 200
@@ -429,6 +484,12 @@ export const api = {
   status: () => request<SystemStatus>('/status'),
   /** Public: answers without a session. */
   subprocessors: () => request<Subprocessors>('/subprocessors'),
+  /** Owners and admins only; anyone else gets a 403. */
+  audit: (before: number | null = null, limit = 50) => {
+    const params = new URLSearchParams({ limit: String(limit) })
+    if (before != null) params.set('before', String(before))
+    return request<AuditPage>(`/audit?${params}`)
+  },
 
   projects: () => request<Project[]>('/projects'),
   project: (id: number) => request<Project>(`/projects/${id}`),

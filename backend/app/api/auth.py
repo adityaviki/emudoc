@@ -28,6 +28,7 @@ from app.api.deps import (
     limited,
     refuse_past,
 )
+from app.audit import audit, audit_sign_in
 from app.config import get_settings
 from app.entitlements import entitlements_of
 from app.export import account_export
@@ -114,6 +115,7 @@ def signup(
         raise HTTPException(409, "An account with this email already exists. Sign in instead.")
     account = create_account(session, email, body.name.strip(), auth.hash_password(body.password))
     user_session, token = auth.start_session(session, account.user, request)
+    audit(session, account, request, "sign_up", detail={"method": "password"})
     session.commit()
     _send_verification(session, account.user, request, mailer)
     auth.set_session_cookie(response, request, token)
@@ -126,10 +128,17 @@ def login(body: LoginIn, request: Request, response: Response, session: SessionD
     refuse_past(session, (ADDRESSES, by_address(request)), (SIGN_INS, by_email(body.email)))
     user = session.scalar(select(User).where(User.email == body.email.strip().lower()))
     if user is None or not auth.verify_password(body.password, user.password_hash):
+        # An address with no account is a stranger's and leaves no row (app/audit.py).
+        if user is not None:
+            audit_sign_in(session, user, request, "sign_in_failed", {"reason": "password"})
+            session.commit()
         raise HTTPException(401, SIGN_IN_FAILED)
     if auth.needs_rehash(user.password_hash):
         user.password_hash = auth.hash_password(body.password)
     _, token = auth.start_session(session, user, request, needs_mfa=user.mfa_enabled)
+    # With two-factor on, the sign-in is recorded once the code has been entered.
+    if not user.mfa_enabled:
+        audit_sign_in(session, user, request, "sign_in", {"method": "password"})
     session.commit()
     auth.set_session_cookie(response, request, token, needs_mfa=user.mfa_enabled)
     return LoginOut(mfa_required=user.mfa_enabled)
@@ -146,10 +155,17 @@ def verify_mfa(body: CodeIn, request: Request, response: Response, session: Sess
     # Counted for the account as well as the address: a code has a million values, and the
     # session that waits for it could be tried from anywhere.
     refuse_past(session, (ADDRESSES, by_address(request)), (SIGN_INS, by_email(user.email)))
-    if not (auth.check_totp(user, body.code) or auth.use_recovery_code(user, body.code)):
+    if auth.check_totp(user, body.code):
+        factor = "authenticator"
+    elif auth.use_recovery_code(user, body.code):
+        factor = "recovery_code"
+    else:
+        audit_sign_in(session, user, request, "sign_in_failed", {"reason": "code"})
+        session.commit()
         raise HTTPException(401, CODE_INVALID)
     auth.complete_mfa(user_session)
     account = account_for_user(session, user, user_session.id)
+    audit_sign_in(session, user, request, "sign_in", {"second_factor": factor})
     session.commit()
     auth.set_session_cookie(response, request, token)
     return _me(account)
@@ -161,6 +177,8 @@ def logout(request: Request, response: Response, session: SessionDep):
     user_session = auth.find_session(session, token) if token else None
     if user_session is not None:
         user_session.revoked_at = auth.now()
+        if not user_session.needs_mfa:
+            audit_sign_in(session, session.get(User, user_session.user_id), request, "sign_out")
         session.commit()
     auth.clear_session_cookie(response)
 
@@ -204,13 +222,14 @@ def forgot_password(body: EmailIn, request: Request, session: SessionDep, mailer
     if user is None:
         return
     token = auth.issue_link_token(session, user, "reset_password", user.email, auth.RESET_LINK_TTL)
+    audit_sign_in(session, user, request, "password_reset_requested")
     session.commit()
     subject, text = password_reset_email(user.name, _link(request, RESET_PAGE, token))
     _send(mailer, user.email, subject, text)
 
 
 @router.post("/password/reset", status_code=204)
-def reset_password(body: PasswordResetIn, session: SessionDep):
+def reset_password(body: PasswordResetIn, request: Request, session: SessionDep):
     """Set a new password from a reset link and sign the account out everywhere."""
     link = auth.redeem_link_token(session, body.token, "reset_password")
     if link is None:
@@ -221,11 +240,14 @@ def reset_password(body: PasswordResetIn, session: SessionDep):
     if user.email == link.email:
         user.email_verified_at = user.email_verified_at or auth.now()
     auth.revoke_sessions(session, user.id)
+    audit_sign_in(session, user, request, "password_reset")
     session.commit()
 
 
 @router.post("/password", status_code=204)
-def change_password(body: PasswordChangeIn, account: AccountDep, session: SessionDep):
+def change_password(
+    body: PasswordChangeIn, account: AccountDep, request: Request, session: SessionDep
+):
     """Change the password and sign out every other session."""
     user = account.user
     if user.password_hash is None:
@@ -236,6 +258,7 @@ def change_password(body: PasswordChangeIn, account: AccountDep, session: Sessio
         raise HTTPException(403, "The current password is not right.")
     user.password_hash = auth.hash_password(body.new_password)
     auth.revoke_sessions(session, user.id, except_id=account.session_id)
+    audit(session, account, request, "password_changed")
     session.commit()
 
 
@@ -269,20 +292,28 @@ def list_sessions(account: AccountDep, session: SessionDep):
 
 
 @router.delete("/sessions/{session_id}", status_code=204)
-def revoke_session(session_id: int, account: AccountDep, response: Response, session: SessionDep):
+def revoke_session(
+    session_id: int,
+    account: AccountDep,
+    request: Request,
+    response: Response,
+    session: SessionDep,
+):
     row = session.get(UserSession, session_id)
     if row is None or row.user_id != account.user.id:
         raise HTTPException(404, "Session not found")
     row.revoked_at = auth.now()
+    audit(session, account, request, "session_revoked", target=("session", row.id))
     session.commit()
     if row.id == account.session_id:
         auth.clear_session_cookie(response)
 
 
 @router.delete("/sessions", status_code=204)
-def revoke_other_sessions(account: AccountDep, session: SessionDep):
+def revoke_other_sessions(account: AccountDep, request: Request, session: SessionDep):
     """Sign out everywhere else."""
-    auth.revoke_sessions(session, account.user.id, except_id=account.session_id)
+    revoked = auth.revoke_sessions(session, account.user.id, except_id=account.session_id)
+    audit(session, account, request, "other_sessions_revoked", detail={"count": revoked})
     session.commit()
 
 
@@ -312,6 +343,13 @@ def delete_account(
         raise HTTPException(409, refusal)
     user.deletion_due_at = auth.now() + DELETION_GRACE
     auth.revoke_sessions(session, user.id, except_id=account.session_id)
+    audit(
+        session,
+        account,
+        request,
+        "account_deletion_requested",
+        detail={"due_at": user.deletion_due_at.isoformat()},
+    )
     session.commit()
     subject, text = account_deletion_email(
         user.name, day(user.deletion_due_at), f"{_app_url(request)}{LOGIN_PAGE}"
@@ -324,17 +362,23 @@ def delete_account(
 
 
 @router.delete("/account/deletion", response_model=MeOut)
-def keep_account(account: AnyAccountDep, session: SessionDep):
+def keep_account(account: AnyAccountDep, request: Request, session: SessionDep):
     """Keep an account that was set to be deleted: nothing of it is removed before the day."""
+    if account.user.deletion_due_at is not None:
+        audit(session, account, request, "account_deletion_cancelled")
     account.user.deletion_due_at = None
     session.commit()
     return _me(account)
 
 
 @router.get("/account/export", response_model=AccountExport)
-def export_account(account: AnyAccountDep, session: SessionDep, response: Response):
+def export_account(
+    account: AnyAccountDep, request: Request, session: SessionDep, response: Response
+):
     """Everything kept about the user as a person, as a file to save (app/export.py)."""
     export = account_export(session, account.user)
+    audit(session, account, request, "account_exported")
+    session.commit()
     filename = f"emudoc-account-{export.exported_at:%Y-%m-%d}.json"
     response.headers["Content-Disposition"] = content_disposition(filename)
     response.headers["Cache-Control"] = "no-store"
@@ -359,7 +403,7 @@ def setup_mfa(account: AccountDep, session: SessionDep):
 
 
 @router.post("/mfa/enable", response_model=RecoveryCodesOut)
-def enable_mfa(body: CodeIn, account: AccountDep, session: SessionDep):
+def enable_mfa(body: CodeIn, account: AccountDep, request: Request, session: SessionDep):
     """Turn two-factor sign-in on once the app shows the right code; returns the recovery codes."""
     user = account.user
     if user.mfa_enabled:
@@ -373,12 +417,13 @@ def enable_mfa(body: CodeIn, account: AccountDep, session: SessionDep):
     user.totp_enabled_at = auth.now()
     # Other sessions were opened without the second factor; this one just proved it.
     auth.revoke_sessions(session, user.id, except_id=account.session_id)
+    audit(session, account, request, "mfa_enabled")
     session.commit()
     return RecoveryCodesOut(recovery_codes=codes)
 
 
 @router.post("/mfa/disable", status_code=204)
-def disable_mfa(body: MfaDisableIn, account: AccountDep, session: SessionDep):
+def disable_mfa(body: MfaDisableIn, account: AccountDep, request: Request, session: SessionDep):
     """Turn two-factor sign-in off, confirmed by the password or by a code."""
     user = account.user
     if not user.mfa_enabled:
@@ -397,6 +442,7 @@ def disable_mfa(body: MfaDisableIn, account: AccountDep, session: SessionDep):
     user.totp_enabled_at = None
     user.totp_last_step = None
     user.recovery_code_hashes = []
+    audit(session, account, request, "mfa_disabled")
     session.commit()
 
 
@@ -448,6 +494,8 @@ def oauth_callback(
         session.rollback()
         return _back_to_login(request, error=str(refusal))
     _, token = auth.start_session(session, user, request, needs_mfa=user.mfa_enabled)
+    if not user.mfa_enabled:
+        audit_sign_in(session, user, request, "sign_in", {"method": found.name})
     session.commit()
     if user.mfa_enabled:
         response = _back_to_login(request, mfa="1", next=handshake.next)
@@ -485,6 +533,7 @@ def _user_for_claims(
         account = create_account(
             session, claims.email, claims.name, email_verified=claims.email_verified
         )
+        audit(session, account, request, "sign_up", detail={"method": provider.name})
         user = account.user
         if not claims.email_verified:
             _send_verification(session, user, request, mailer)

@@ -37,6 +37,7 @@ from app.api.deps import (
     SessionDep,
     limited,
 )
+from app.audit import audit
 from app.config import get_settings
 from app.db import SessionLocal
 from app.entitlements import check_question
@@ -92,18 +93,38 @@ def get_chat(chat: ChatDep):
 
 
 @router.patch("/chats/{chat_id}", response_model=ChatOut)
-def update_chat(chat: OwnChatDep, body: ChatPatch, session: SessionDep):
+def update_chat(
+    chat: OwnChatDep, body: ChatPatch, session: SessionDep, account: AccountDep, request: Request
+):
     """Rename the chat, or share it with the project and take it private again."""
     if body.title is not None:
         chat.title = body.title.strip()
-    if body.visibility is not None:
+    if body.visibility is not None and body.visibility != chat.visibility:
         chat.visibility = body.visibility
+        # The title stays out of the row: it is the chat's first question until renamed.
+        action = "chat_shared" if chat.visibility == "project" else "chat_unshared"
+        audit(
+            session,
+            account,
+            request,
+            action,
+            project_id=chat.project_id,
+            target=("chat", chat.id),
+        )
     session.commit()
     return chat
 
 
 @router.delete("/chats/{chat_id}", status_code=204)
-def delete_chat(chat: OwnChatDep, session: SessionDep):
+def delete_chat(chat: OwnChatDep, session: SessionDep, account: AccountDep, request: Request):
+    audit(
+        session,
+        account,
+        request,
+        "chat_deleted",
+        project_id=chat.project_id,
+        target=("chat", chat.id),
+    )
     session.delete(chat)
     session.commit()
 

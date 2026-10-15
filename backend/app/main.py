@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 
-from app.api import auth, chats, documents, folders, projects, query
+from app.api import audit, auth, chats, documents, folders, projects, query
 from app.api.deps import RETRY_AFTER, AccountDep, ServicesDep, SessionDep, refuse_cross_site
 from app.config import ROOT_DIR, get_settings
 from app.db import BUSY, engine
@@ -148,6 +148,7 @@ def create_app(
         documents.router,
         query.router,
         chats.router,
+        audit.router,
     ):
         app.include_router(router, prefix="/api", dependencies=[Depends(refuse_cross_site)])
 

@@ -391,7 +391,8 @@ routes are under `/api/auth`, the pages in `frontend/src/account/`.
 
 The account page also downloads "your data": one JSON file with everything kept about the user
 as a person (the account, how it signs in, its organisations, the sessions of the last month,
-the chats it started with every message, and the usage counted to it), without the password
+the chats it started with every message, the usage counted to it, and the audit log's rows that
+name it), without the password
 hash, the authenticator secret or the organisation's documents (`backend/app/export.py`, `GET
 /api/auth/account/export`). Deleting the account takes the password, or the address typed out
 for an account that signs in only through Google or Microsoft. It signs out every other browser,
@@ -405,6 +406,18 @@ nothing else), so an account that a restored backup brings back is purged again 
 A chat is kept for the plan's retention after its last question (30 days on Free, a year on
 Pro, for good on Team and Enterprise), which the chat list and the account page say; sessions
 and one-time links are removed a month after they ended.
+
+Each organisation keeps an audit log (`backend/app/audit.py`): its members' sign-ins (and
+failed ones for their accounts), password, two-factor and session changes, exports and
+deletion requests, every upload, download and deletion of a document, folder or project, chats
+shared, taken private or deleted, and what the operator (a plan change, a requeue) and the app
+(a quarantine, an account purge with the owner it promoted) did on their own. A row names the
+member, the project and the object, the client's address, and names or settings as they were
+(a file's name, a role before and after), never what a document, a question or a chat's title
+says. Its owners and admins read it page by page through `GET /api/audit`; the view with
+filters is still to come. A row is kept 90 days on Free, a year on Pro and Team, and for good
+on Enterprise. A purged account's rows stay with an organisation that keeps other members,
+without their addresses, and the account export includes the rows that name its user.
 
 `/subprocessors` lists the companies the deployment sends data to, what for and what each
 receives, for anyone to read before signing up (the sign-up page and the user menu link to it).

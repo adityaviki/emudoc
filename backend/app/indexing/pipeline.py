@@ -13,6 +13,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
+from app.audit import audit_event
 from app.config import get_settings
 from app.db import SessionLocal
 from app.embeddings import Embedder
@@ -98,8 +99,12 @@ class StageFailure:
     # When the stage asks to be run again, when it knows: the next midnight UTC for the day's
     # spending limit. None leaves the moment to the worker's backoff.
     retry_at: datetime | None = None
-    # The scan flagged the file: the document is quarantined, not failed, and never retried.
-    quarantine: bool = False
+    # The threat the scan named: the document is quarantined, not failed, and never retried.
+    threat: str | None = None
+
+    @property
+    def quarantine(self) -> bool:
+        return self.threat is not None
 
 
 Stage = Callable[[Session, Document, Services, Meter], str]
@@ -176,6 +181,14 @@ def _quarantine(
     _delete_derived(session, document.id, Fact, Passage, Section, Block)
     document.status = "quarantined"
     document.error = failure.message
+    audit_event(
+        session,
+        "document_quarantined",
+        org_id=document.project.org_id,
+        project_id=document.project_id,
+        target=("document", document.id),
+        detail={"filename": document.filename, "threat": failure.threat},
+    )
     _commit(session, lease)
 
 
@@ -245,9 +258,8 @@ def _run_stage(
         _set_stage(session, document, name, "failed", str(error), lease)
         transient = isinstance(error, AppError) and error.transient
         retry_at = error.until if isinstance(error, StageDeferred) else None
-        return StageFailure(
-            name, str(error), transient, retry_at, quarantine=isinstance(error, MalwareFound)
-        )
+        threat = error.threat if isinstance(error, MalwareFound) else None
+        return StageFailure(name, str(error), transient, retry_at, threat)
     except Exception as error:
         session.rollback()
         log.exception("Stage %s failed for document %s", name, document_id)

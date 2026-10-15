@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import func, select
 
 from app.api.deps import (
@@ -11,6 +11,7 @@ from app.api.deps import (
     Stage,
     WorkerDep,
 )
+from app.audit import audit
 from app.entitlements import check_project
 from app.indexing.pipeline import reset_stages
 from app.jobs import BULK, queue_index
@@ -74,7 +75,22 @@ def update_project(project: EditableProjectDep, body: ProjectIn, session: Sessio
 
 
 @router.delete("/{project_id}", status_code=204)
-def delete_project(project: EditableProjectDep, session: SessionDep, services: ServicesDep):
+def delete_project(
+    project: EditableProjectDep,
+    session: SessionDep,
+    services: ServicesDep,
+    account: AccountDep,
+    request: Request,
+):
+    audit(
+        session,
+        account,
+        request,
+        "project_deleted",
+        project_id=project.id,
+        target=("project", project.id),
+        detail={"name": project.name, "documents": _document_count(session, project)},
+    )
     session.delete(project)
     session.commit()
     # Every file of every document in the project sits under the project's prefix.
