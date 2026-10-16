@@ -73,6 +73,11 @@ checkout of the commit to deploy, tagged with it:
 docker build -t emudoc:$(git rev-parse --short HEAD) .
 ```
 
+`.github/scripts/check-image.sh emudoc:<tag>` tries it against the development database of
+`docker-compose.yml`: it runs the release step, the API and a worker from the image, read-only
+with a tmpfs at `/tmp` as below, and checks the probes, the page and the files the page names.
+CI does the same for every change.
+
 It holds Python 3.13 on Debian's slim image with the backend's locked dependencies (`uv sync
 --frozen --no-dev`, compiled ahead), the app and its migrations, and the frontend's build, under
 `/app` as in a checkout, so the API serves the frontend from its own origin as "TLS at a reverse

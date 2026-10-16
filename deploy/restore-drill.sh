@@ -54,6 +54,8 @@ span() {
   fi
 }
 
+# Run by the trap below, which ShellCheck 0.11 does not count in a script that ends with exit.
+# shellcheck disable=SC2329
 cleanup() {
   if [[ -f $scratch/data/postmaster.pid ]]; then
     "$pg_bin/pg_ctl" -D "$scratch/data" -m immediate stop >/dev/null || true

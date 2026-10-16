@@ -1,0 +1,76 @@
+# What `trivy config` reports of the deployment and the image that was looked at and accepted,
+# each with its reason (CI, "Deployment"). A new finding fails the check until it is changed or
+# added here with a reason of its own; an entry whose reason no longer holds is removed.
+
+misconfigurations:
+  - id: AWS-0104
+    paths: [deploy/aws/modules/environment/network.tf]
+    statement: >-
+      The instance reaches the model providers, the image registries, ClamAV's signature
+      mirrors, Ollama's models, SES and the AWS APIs, whose addresses move; an allowlist needs
+      an egress proxy that names hosts, not a security group of addresses.
+
+  - id: AWS-0132
+    paths: [deploy/aws/modules/environment/bucket.tf]
+    statement: >-
+      The documents are encrypted at rest with S3's own keys (AES256, which the app reports at
+      start). A customer-managed key adds a key policy, a request to KMS per object and a cost;
+      it comes with 4.3's customer-managed keys.
+
+  - id: AWS-0136
+    paths: [deploy/aws/modules/environment/alerts.tf]
+    statement: >-
+      The topic is encrypted with SNS's AWS-managed key, and its messages name a unit and an
+      instance, never a document.
+
+  - id: AWS-0033
+    paths: [deploy/aws/account/main.tf]
+    statement: >-
+      ECR encrypts the images with its own key (AES256); an image holds the code and no setting,
+      key or document.
+
+  - id: AWS-0089
+    paths: [deploy/aws/account/main.tf, deploy/aws/modules/environment/bucket.tf]
+    statement: >-
+      No server access logs on the state and documents buckets yet: who read which object
+      belongs with the account's own records in 1.7 (CloudTrail data events or access logs),
+      not here.
+
+  - id: AWS-0133
+    paths: [deploy/aws/modules/environment/database.tf]
+    statement: >-
+      The database's own metrics (Performance Insights or Database Insights) come with 1.7's
+      metrics; `python -m app.maintenance database` covers what the app needs meanwhile.
+
+  - id: AWS-0143
+    paths: [deploy/aws/modules/environment/mail.tf]
+    statement: >-
+      SES's SMTP password can only be made from an IAM user's access key, so the mail relay's
+      credentials need a user; its one policy allows sending mail from the domain and nothing
+      else.
+
+  - id: AWS-0176
+    paths: [deploy/aws/modules/environment/database.tf]
+    statement: >-
+      The app signs in with a password from SSM over TLS checked against RDS's authority
+      (verify-full). IAM tokens last 15 minutes, so every new pooled connection would need one
+      made first, which neither the pool nor the listener does.
+
+  - id: AWS-0177
+    paths: [deploy/aws/modules/environment/database.tf]
+    statement: >-
+      Deletion protection is the root's choice: production sets it (with a final snapshot),
+      staging does not, so that it can be destroyed and built again.
+
+  - id: AWS-0178
+    paths: [deploy/aws/modules/environment/network.tf]
+    statement: >-
+      VPC flow logs come with the account's own records in 1.7; the instance takes HTTP and
+      HTTPS only, and the database the instance only.
+
+  - id: DS-0026
+    paths: [Dockerfile]
+    statement: >-
+      One image runs the API, the worker, the migrations and the maintenance commands, each
+      healthy in its own way, so the compose files give each service its check
+      (deploy/compose.yml, deploy/aws/compose.yml).

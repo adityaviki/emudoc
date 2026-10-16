@@ -542,6 +542,14 @@ cd frontend && pnpm lint && pnpm build
 `tofu test` in `deploy/aws/modules/environment` checks the AWS module against a mocked
 provider; the backend suite checks that what it writes is what production asks for.
 
+CI (`.github/workflows/ci.yml`, GitHub Actions) runs all of it on every push to `main` and
+every pull request: the backend's lint, format and suite, once against Postgres and once
+through pgbouncer in transaction mode; the frontend's lint and build; the image, built and then
+started by `.github/scripts/check-image.sh` (the migrations, the API and a worker, read-only,
+against the development database); the AWS configuration's format, validation and tests;
+shellcheck on every shell script; actionlint on the workflow; and trivy on the OpenTofu and the
+Dockerfile, with what was looked at and accepted in `.trivyignore.yaml`, each with its reason.
+
 The backend tests use a separate `emudoc_test` database and make no network calls: the AI
 model, the embedding model, the mailer and the identity providers are replaced by stand-ins, and
 the requests to Gemini, Claude and OpenRouter are checked through their real SDKs against recorded
@@ -602,6 +610,8 @@ deploy/
                 roots, the operator's push-image.sh and release.sh, and what the image carries
                 for the instance (compose.yml over the one above, Caddyfile, host/)
 Dockerfile      the one image for every process; .dockerignore names what goes into it
+.github/        CI: the checks of every push and pull request (workflows/ci.yml) and the
+                image's smoke test (scripts/check-image.sh)
 ```
 
 ## Not built yet

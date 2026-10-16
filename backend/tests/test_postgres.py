@@ -430,7 +430,11 @@ def test_the_app_starts_against_a_role_with_timeouts(services, role_timeouts):
 def connection_dropped_at(*prefixes: str):
     """Kill the database session that runs the first statement starting with each prefix in
     turn, as a failover does, just before the statement reaches it; between them, and after,
-    the database answers again at once."""
+    the database answers again at once.
+
+    The session is asked its own process id rather than read from the connection, since a
+    pooler reports one of its own: the question opens the transaction the statement then runs
+    in, which a pooler in transaction mode keeps on the server connection that answered."""
     url = engine.url.set(drivername="postgresql").render_as_string(hide_password=False)
     dropped: list[str] = []
 
@@ -440,7 +444,7 @@ def connection_dropped_at(*prefixes: str):
         ):
             return
         dropped.append(statement)
-        pid = conn.connection.dbapi_connection.info.backend_pid
+        (pid,) = cursor.connection.execute("SELECT pg_backend_pid()").fetchone()
         with psycopg.connect(url, autocommit=True) as other:
             other.execute("SELECT pg_terminate_backend(%s, 5000)", (pid,))
 
