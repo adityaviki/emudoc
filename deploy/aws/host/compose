@@ -1,0 +1,15 @@
+#!/bin/bash
+# Compose for the running release on the AWS instance, with its files and settings:
+#
+#   sudo emudoc-compose ps
+#   sudo emudoc-compose logs --since 1h worker
+#   sudo emudoc-compose run --rm --no-deps worker python -m app.maintenance failed-jobs
+#
+# `run` needs --no-deps, or it runs the release step first.
+
+set -euo pipefail
+current=/opt/emudoc/current
+files=${EMUDOC_COMPOSE_FILES:-"-f $current/compose.yml -f $current/aws/compose.yml"}
+# The files' names hold no spaces.
+# shellcheck disable=SC2086
+exec docker compose --env-file "${EMUDOC_COMPOSE_ENV:-/etc/emudoc/compose.env}" $files "$@"

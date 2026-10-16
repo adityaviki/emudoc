@@ -1,0 +1,188 @@
+#!/usr/bin/env python3
+"""The env files of a release on the AWS instance (deploy/aws/host/release), from the SSM
+parameters under the environment's path, which `aws ssm get-parameters-by-path --recursive
+--with-decryption` writes to this script's input:
+
+  settings/NAME   what the OpenTofu module writes (deploy/aws/modules/environment/settings.tf)
+  secrets/NAME    what the operator puts there by hand: the models' keys, the OAuth secrets
+
+It writes four files into --out, each readable by root alone and each in the form its reader
+takes, since Compose, `docker run` and systemd quote values each their own way. The paths in
+them name --home, where the release moves them once it succeeded:
+
+  emudoc.env      the app's settings, for Compose's env_file (deploy/compose.yml)
+  compose.env     what Compose puts into the files themselves: the image, the domain, the
+                  embedding model (`docker compose --env-file`)
+  drill-app.env   the app's settings for the restore drill's dry run (`docker run --env-file`),
+                  without the models' and sign-in providers' keys, which it does not use, and
+                  with the storage reader's credentials in place of the app's
+  drill.env       the drill's own settings (a systemd EnvironmentFile)
+
+Python 3.9, the instance's own; nothing outside the standard library.
+"""
+
+import argparse
+import json
+import os
+import re
+import sys
+import tempfile
+from urllib.parse import urlsplit, urlunsplit
+
+NAME = re.compile(r"[A-Z][A-Z0-9_]*")
+# Settings the dry run does not use, kept from its container.
+UNUSED_BY_THE_DRILL = re.compile(r".*(_API_KEY|_SECRET)")
+# Where the containers find their credentials and the database's authority
+# (deploy/aws/compose.yml); the drill's container mounts the reader's.
+CREDENTIALS = "/run/emudoc/aws"
+
+
+class Refused(Exception):
+    """A setting the release cannot write; the message says which and what to do."""
+
+
+def read_parameters(answer: dict, path: str) -> "tuple[dict[str, str], set[str]]":
+    """The settings by name, and the names that came from the secrets path."""
+    settings: "dict[str, str]" = {}
+    secrets: "set[str]" = set()
+    for parameter in answer.get("Parameters", []):
+        relative = parameter["Name"][len(path) :].strip("/")
+        kind, _, name = relative.partition("/")
+        if kind not in ("settings", "secrets"):
+            continue
+        if not NAME.fullmatch(name):
+            raise Refused(
+                f"{parameter['Name']} is not a setting's name: the last part is the variable's"
+                " name in capitals, as .env.example spells it."
+            )
+        if name in settings:
+            raise Refused(
+                f"{name} is set twice, under {path}/settings and {path}/secrets: delete one."
+            )
+        value = parameter["Value"]
+        if "\n" in value or "\r" in value:
+            raise Refused(f"{name} holds a line break, which no env file can carry.")
+        settings[name] = value
+        if kind == "secrets":
+            secrets.add(name)
+    return settings, secrets
+
+
+def compose_line(name: str, value: str) -> str:
+    """A line of a Compose env file: in double quotes, where Compose takes a backslash and a
+    quote escaped and expands $ unless doubled."""
+    quoted = value.replace("\\", "\\\\").replace('"', '\\"').replace("$", "$$")
+    return f'{name}="{quoted}"\n'
+
+
+def docker_line(name: str, value: str) -> str:
+    """A line of `docker run --env-file`, which takes the value as it stands."""
+    return f"{name}={value}\n"
+
+
+def systemd_line(name: str, value: str) -> str:
+    """A line of a systemd EnvironmentFile: in double quotes, with a backslash and a quote
+    escaped; systemd expands nothing in it."""
+    quoted = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'{name}="{quoted}"\n'
+
+
+def with_host(url: str, host: str) -> str:
+    """The URL with its host replaced: the drill's RDS_URL names the copy's address HOST."""
+    parts = urlsplit(url)
+    userinfo, at, _ = parts.netloc.rpartition("@")
+    port = f":{parts.port}" if parts.port else ""
+    return urlunsplit(parts._replace(netloc=f"{userinfo}{at}{host}{port}"))
+
+
+def write(directory: str, name: str, content: str) -> None:
+    """Replaces the file at once, readable by its owner alone, so that nothing reads half."""
+    handle, path = tempfile.mkstemp(dir=directory, prefix=f".{name}.")
+    try:
+        with os.fdopen(handle, "w") as file:
+            file.write(content)
+        os.chmod(path, 0o600)
+        os.replace(path, os.path.join(directory, name))
+    except BaseException:
+        os.unlink(path)
+        raise
+
+
+def files(settings: "dict[str, str]", image: str, home: str) -> "dict[str, str]":
+    """Each file's content by its name, for the files kept in `home`."""
+    for needed in ("APP_URL", "DATABASE_URL"):
+        if needed not in settings:
+            raise Refused(f"{needed} is not among the settings; apply the OpenTofu root again.")
+    domain = urlsplit(settings["APP_URL"]).hostname or ""
+    if not domain:
+        raise Refused(f"APP_URL has no host: {settings['APP_URL']!r}.")
+
+    app = "".join(compose_line(name, value) for name, value in sorted(settings.items()))
+
+    compose = {
+        "EMUDOC_IMAGE": image,
+        "EMUDOC_ENV": os.path.join(home, "emudoc.env"),
+        "EMUDOC_DOMAIN": domain,
+    }
+    # deploy/compose.yml pulls the embedding model under this name; unset, its own default.
+    if "EMBEDDING_MODEL" in settings:
+        compose["EMBEDDING_MODEL"] = settings["EMBEDDING_MODEL"]
+
+    drill_app = {
+        name: value
+        for name, value in settings.items()
+        if not UNUSED_BY_THE_DRILL.fullmatch(name) and name != "DATABASE_URL"
+    }
+    drill_app["AWS_CONFIG_FILE"] = "/run/aws/config"
+    drill_app["AWS_EC2_METADATA_DISABLED"] = "true"
+    # One line, split on spaces by the drill (deploy/managed-restore-drill.sh): the dry run reads
+    # the bucket with the reader's credentials and reaches the copy with DATABASE_URL, which
+    # the drill exports and `-e` passes on without putting it on a command line.
+    drill_command = " ".join(
+        [
+            "docker run --rm --read-only --tmpfs /tmp",
+            f"--env-file {os.path.join(home, 'drill-app.env')} -e DATABASE_URL",
+            f"-v {CREDENTIALS}/reader:/run/aws:ro",
+            "-v /etc/emudoc/rds-ca.pem:/etc/emudoc/rds-ca.pem:ro",
+            image,
+        ]
+    )
+    drill = {
+        "DRILL_APP": drill_command,
+        "DRILL_RESTORE": "/opt/emudoc/current/rds-drill.sh restore",
+        "DRILL_DISCARD": "/opt/emudoc/current/rds-drill.sh discard",
+        "RDS_URL": with_host(settings["DATABASE_URL"], "HOST"),
+    }
+
+    return {
+        "emudoc.env": app,
+        "compose.env": "".join(compose_line(n, v) for n, v in compose.items()),
+        "drill-app.env": "".join(docker_line(n, v) for n, v in sorted(drill_app.items())),
+        "drill.env": "".join(systemd_line(n, v) for n, v in drill.items()),
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--path", required=True, help="the environment's SSM path")
+    parser.add_argument("--image", required=True, help="the image the release runs")
+    parser.add_argument("--out", required=True, help="the directory the files go into")
+    parser.add_argument("--home", help="the directory they are kept in; --out unless given")
+    args = parser.parse_args()
+    try:
+        settings, secrets = read_parameters(json.load(sys.stdin), args.path.rstrip("/"))
+        home = args.home or args.out
+        for name, content in files(settings, args.image, home).items():
+            write(args.out, name, content)
+    except Refused as refusal:
+        print(refusal, file=sys.stderr)
+        return 1
+    print(
+        f"{len(settings)} settings, {len(secrets)} of them from {args.path}/secrets, written to"
+        f" {args.out}."
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

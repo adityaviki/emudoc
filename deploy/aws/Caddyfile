@@ -1,0 +1,28 @@
+# Caddy in front of the API on the AWS instance (deploy/aws/compose.yml), as deploying.md's
+# "TLS at a reverse proxy" gives it: the certificate from Let's Encrypt once the domain leads
+# here, the query cut from the access log, and the body limits. EMUDOC_DOMAIN is APP_URL's
+# host, which the release passes in.
+
+{$EMUDOC_DOMAIN} {
+	# Caddy keeps no access log without this block; with it, the query is cut from each
+	# address, since it carries a search's words ("Logs" in deploying.md).
+	log {
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp \?.*$ ?…
+			}
+		}
+	}
+	# The upload route alone takes a large body, MAX_UPLOAD_REQUEST_MB (500 by default); the
+	# proxy refuses a larger one before the app has read it. Every other request is small.
+	@uploads path_regexp ^/api/projects/[0-9]+/documents$
+	request_body @uploads {
+		max_size 500MB
+	}
+	@others not path_regexp ^/api/projects/[0-9]+/documents$
+	request_body @others {
+		max_size 1MB
+	}
+	reverse_proxy 127.0.0.1:8000
+}

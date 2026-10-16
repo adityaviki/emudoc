@@ -172,7 +172,10 @@ TLS at a reverse proxy in front of uvicorn, is [`deploying.md`](deploying.md).
 worker, the migrations and the maintenance commands, with the frontend built in; it runs as a
 user of its own on a read-only filesystem and refuses development's settings.
 `deploy/compose.yml` runs it on one machine, the migrations first; `deploying.md` ("The
-image") says what a container needs.
+image") says what a container needs. `deploy/aws` is the same on AWS as OpenTofu code, staging
+and production alike: Postgres on RDS, the bucket, and an EC2 instance that runs the compose
+file with Caddy in front, released by image tag (`deploy/aws/push-image.sh`, then
+`deploy/aws/release.sh staging <tag>`; `deploying.md`, "On AWS").
 
 The database schema is a set of migrations in `backend/migrations/`; `uv run alembic upgrade
 head` applies the ones the database has not seen yet, so run it again after updating. The backend
@@ -536,6 +539,9 @@ cd backend && uv run pytest          # needs the database container
 cd frontend && pnpm lint && pnpm build
 ```
 
+`tofu test` in `deploy/aws/modules/environment` checks the AWS module against a mocked
+provider; the backend suite checks that what it writes is what production asks for.
+
 The backend tests use a separate `emudoc_test` database and make no network calls: the AI
 model, the embedding model, the mailer and the identity providers are replaced by stand-ins, and
 the requests to Gemini, Claude and OpenRouter are checked through their real SDKs against recorded
@@ -591,6 +597,10 @@ deploy/
   managed-restore-drill.sh
                 the same drill for a managed database, with the provider's restore and delete
                 as two commands; rds-drill.sh is RDS's
+  aws/          staging and production on AWS in OpenTofu: account/ once per account,
+                modules/environment/ an environment, shared/ the settings both take, the two
+                roots, the operator's push-image.sh and release.sh, and what the image carries
+                for the instance (compose.yml over the one above, Caddyfile, host/)
 Dockerfile      the one image for every process; .dockerignore names what goes into it
 ```
 

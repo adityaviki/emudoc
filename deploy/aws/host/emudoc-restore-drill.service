@@ -1,0 +1,16 @@
+# The monthly restore drill (deploying.md, "The drill"): RDS restores the database at its latest
+# moment to a new instance, which is migrated, checked against the live bucket with
+# after-restore --dry-run and deleted. journalctl -u emudoc-restore-drill keeps each report.
+[Unit]
+Description=Emudoc restore drill
+Wants=network-online.target
+After=network-online.target docker.service
+OnFailure=emudoc-alert@%n.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/emudoc/host.env
+EnvironmentFile=/etc/emudoc/drill.env
+ExecStart=/opt/emudoc/current/managed-restore-drill.sh
+# RDS's restore of a large database takes hours (RDS_WAIT_LIMIT gives it 6).
+TimeoutStartSec=12h

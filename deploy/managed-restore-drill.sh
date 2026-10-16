@@ -27,8 +27,13 @@
 
 set -euo pipefail
 
-backend=${DRILL_BACKEND:-$(cd "$(dirname "$0")/../backend" && pwd)}
-read -ra app <<<"${DRILL_APP:-uv --directory $backend run --frozen --no-dev}"
+# The checkout is looked for only without DRILL_APP: the image needs none beside the script.
+if [[ -n ${DRILL_APP:-} ]]; then
+  read -ra app <<<"$DRILL_APP"
+else
+  backend=${DRILL_BACKEND:-$(cd "$(dirname "$0")/../backend" && pwd)}
+  app=(uv --directory "$backend" run --frozen --no-dev)
+fi
 read -ra restore <<<"${DRILL_RESTORE:?DRILL_RESTORE names the command that restores the database to a new instance}"
 read -ra discard <<<"${DRILL_DISCARD:?DRILL_DISCARD names the command that deletes the instance}"
 # The provider's names allow letters, digits and hyphens; this one says what it is and when.

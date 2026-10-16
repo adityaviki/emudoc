@@ -1,0 +1,20 @@
+#!/bin/bash
+# Reports a unit that failed to the environment's SNS topic (alerts.tf): its name, the
+# instance and the time, and where to read why; never its log, which may name a document.
+#
+#   emudoc-alert UNIT
+
+set -euo pipefail
+# shellcheck source=/dev/null
+. /etc/emudoc/host.env
+
+unit=${1:?usage: $0 UNIT}
+token=$(curl -fsS --max-time 5 -X PUT http://169.254.169.254/latest/api/token \
+  -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')
+instance=$(curl -fsS --max-time 5 -H "X-aws-ec2-metadata-token: $token" \
+  http://169.254.169.254/latest/meta-data/instance-id)
+aws sns publish --topic-arn "$EMUDOC_ALERTS" \
+  --subject "Emudoc $EMUDOC_ENVIRONMENT: $unit failed" \
+  --message "$unit failed on the instance $instance at $(date -u '+%Y-%m-%d %H:%M') UTC.
+Its log says why: aws ssm start-session --target $instance, then journalctl -u $unit." \
+  >/dev/null

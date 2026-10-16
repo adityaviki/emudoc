@@ -8,9 +8,14 @@
 #
 # `up` runs the release step, `alembic upgrade head`, and starts the API and the worker only
 # once it has succeeded: the app refuses a database behind its migrations and never upgrades
-# one itself. Updating is the same command with the new image's tag. The operator's commands
-# run beside them with `run --rm --no-deps worker python -m app.maintenance …`; without
-# --no-deps, `run` runs the release step first.
+# one itself. It replaces the running ones before the release step, though, so an update with
+# the new image's tag runs the release step alone first and stops if it fails:
+#
+#   docker compose -f deploy/compose.yml run --rm --no-deps migrate && \
+#     docker compose -f deploy/compose.yml up -d --wait
+#
+# The operator's commands run beside them with `run --rm --no-deps worker python -m
+# app.maintenance …`; without --no-deps, `run` runs the release step first.
 #
 # The settings are the file EMUDOC_ENV names, /etc/emudoc/emudoc.env unless set: the variables
 # of .env.example, readable by root only, and outside the checkout. Compose reads it, not the

@@ -23,9 +23,14 @@ scratch=${DRILL_DIR:-/var/tmp/emudoc-drill}
 pg_bin=${DRILL_PG_BIN:-/usr/lib/postgresql/17/bin}
 role=${DRILL_ROLE:-emudoc}
 database=${DRILL_DATABASE:-emudoc}
-backend=${DRILL_BACKEND:-$(cd "$(dirname "$0")/../backend" && pwd)}
-# How the app's commands run: in the checkout, with uv.
-read -ra app <<<"${DRILL_APP:-uv --directory $backend run --frozen --no-dev}"
+# How the app's commands run: DRILL_APP's, or in the checkout with uv, which is looked for only
+# without DRILL_APP, since the image needs none beside the script.
+if [[ -n ${DRILL_APP:-} ]]; then
+  read -ra app <<<"$DRILL_APP"
+else
+  backend=${DRILL_BACKEND:-$(cd "$(dirname "$0")/../backend" && pwd)}
+  app=(uv --directory "$backend" run --frozen --no-dev)
+fi
 # How long recovery may replay the archive before the drill gives up, in seconds.
 recovery_limit=${DRILL_RECOVERY_LIMIT:-21600}
 

@@ -1,7 +1,8 @@
 # What the image is built from, and nothing else: everything is left out unless named here, so
 # .env, the uploads in backend/data, the tests, a frontend .env.local and whatever lands in the
 # checkout later never reach the build or the image. A file the app reads at run time, or the
-# frontend's build needs, is added here.
+# frontend's build needs, is added here, as is one a release on AWS runs from the image
+# (deploy/aws/host/release).
 *
 !backend/pyproject.toml
 !backend/uv.lock
@@ -16,4 +17,10 @@
 !frontend/src/
 !frontend/tsconfig*.json
 !frontend/vite.config.ts
+!deploy/compose.yml
+!deploy/managed-restore-drill.sh
+!deploy/rds-drill.sh
+!deploy/aws/compose.yml
+!deploy/aws/Caddyfile
+!deploy/aws/host/
 **/__pycache__/

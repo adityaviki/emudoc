@@ -49,6 +49,8 @@ on one machine; this is what changes for a deployment. The processes below run f
 - **Backups** of the database and of the files, encrypted and kept for `BACKUP_DAYS`, which
   restore to the same point: "Backups", below.
 
+`deploy/aws` builds all of it on AWS, staging and production alike: "On AWS", below.
+
 The settings arrive through the process environment or a secret manager, never a `.env` file:
 `ENVIRONMENT=production` makes the app copy nothing from one, and makes it refuse to start with
 development's conveniences (the compose database's password, `LOCAL_ACCOUNT=true`, no
@@ -145,7 +147,15 @@ docker compose -f deploy/compose.yml run --rm --no-deps worker python -m app.mai
 
 `up` runs `alembic upgrade head` first and starts the API and the worker once it has
 succeeded, and `--wait` returns once the API answers its health check and the worker keeps
-its alive file. The file gives its
+its alive file. It replaces the running API and worker before it runs the migrations, though,
+so a migration that fails there leaves neither running; an update runs them alone first, and
+stops there if they fail:
+
+```bash
+docker compose -f deploy/compose.yml run --rm --no-deps migrate && \
+  docker compose -f deploy/compose.yml up -d --wait
+```
+ The file gives its
 network a subnet of its own, `10.73.0.0/24`, so that `FORWARDED_ALLOW_IPS` can name the gateway
 (change both if the subnet collides with one the machine reaches), and its project another name
 than the development file's, so one machine can run both. The database, the mail relay, a
@@ -1320,7 +1330,8 @@ so its part is two commands the deployment names, each given the copy's name:
   restored to, each on a line of its own;
 - `DRILL_DISCARD NAME` deletes the instance and its backups, and succeeds when there is none.
 
-`deploy/rds-drill.sh` is RDS's, configured by the variables its header lists:
+`deploy/rds-drill.sh` is RDS's, configured by the variables its header lists (on AWS the
+environment's instance runs it, set up by `deploy/aws`: "The drill on AWS", below):
 
 ```ini
 # /etc/emudoc/drill.env, for a drill machine in production's VPC
@@ -1434,6 +1445,188 @@ every API replica counts the same. The proxy needs no rate limit of its own. One
 more than `RATE_SIGN_INS_PER_ADDRESS` a minute, or an office behind one address is held
 before the app would hold it.
 
+## On AWS
+
+`deploy/aws` is this guide on AWS as OpenTofu code (1.12 or later): an environment is a network
+of its own, Postgres on RDS, the documents' bucket, and one EC2 instance that runs
+`deploy/compose.yml` from the image with Caddy in front. Staging and production are the same
+module twice, with their own sizes, database, bucket, keys and spending cap, and run the same
+image: every release runs on staging first.
+
+```text
+                       ┌─ EC2, Amazon Linux 2023 ───────────────────────┐
+  browsers ─ 80, 443 ─▶│ Caddy ─▶ API ─┐   worker   ClamAV   Ollama      │
+                       └───────────────┼────────────────────────────────┘
+                                       ├─▶ RDS Postgres 17 (private subnets, TLS checked)
+                                       └─▶ S3 bucket (versioned, encrypted)
+  SSM /emudoc/<environment>/settings, /secrets, /release ─▶ each release on the instance
+```
+
+The directories:
+
+- `account/`, once per AWS account: the bucket the environments' state is kept in
+  (`emudoc-state-<account>`), the KMS key OpenTofu encrypts that state with before it leaves the
+  operator's machine (`alias/emudoc-state`; the state holds the database's password and SES's
+  SMTP key), and the image repository, `emudoc` in ECR, whose tags are immutable and scanned as
+  they are pushed. Its own state holds no secret and stays where it is applied.
+- `modules/environment/`, an environment, with its tests (`tofu test` there, against a mocked
+  AWS: what each resource is made with, and the inputs it refuses).
+- `shared/`, the settings both environments take: the operator, the models and their prices,
+  `BACKUP_DAYS` and `DATA_REGION`. Staging names the models production does, which is what
+  pinning them is for.
+- `staging/` and `production/`, the two roots. They differ in the domain, the sizes (a
+  `t3a.large` and a `db.t4g.small` without a standby against a `t3a.xlarge` and a
+  `db.t4g.medium` with one), deletion protection and the spending cap.
+- `push-image.sh` and `release.sh`, the operator's; `compose.yml`, `Caddyfile` and `host/`,
+  which the image carries and each release runs on the instance.
+
+### What an environment is made of
+
+- **The network**: a VPC (`network_cidr`, a /16), one public subnet for the instance and two
+  private ones for the database, which have no route out. The internet reaches the instance on
+  80 and 443 (UDP too, for HTTP/3) and nothing else: there is no SSH, and a shell is Systems
+  Manager's (`aws ssm start-session --target <instance>`). The database takes connections from
+  the instance alone.
+- **The database**: RDS Postgres 17, whose builds bring pgvector 0.8 from 17.1, encrypted, on no
+  public address, with `rds.force_ssl` on. The app connects as the master user, which may create
+  the extension the first migration asks for. "The role's timeouts" above are the parameter
+  group's here, for the whole server, which is the app's alone: the app reads them as its
+  connection sees them, and its long work lifts them for its own transaction as before. RDS
+  keeps point-in-time backups for `backup_days`, at most its 35, which is `BACKUP_DAYS`. With
+  deletion protection (production), deleting the database leaves a final snapshot, which outlives
+  `BACKUP_DAYS` until it is deleted by hand: do so once it is not needed, since the privacy
+  policy promises the backups end within those days. `DATABASE_URL` asks for `verify-full`
+  against RDS's own authority, which no public bundle holds: each release fetches the region's
+  bundle from `truststore.pki.rds.amazonaws.com` into `/etc/emudoc/rds-ca.pem`, which the
+  containers mount, and keeps the copy it has when the trust store cannot be reached.
+- **The bucket**: versioned, with one rule over every key that removes an earlier version two
+  days before `BACKUP_DAYS` run out ("The files", above), encrypted (SSE-S3), never public, and
+  refusing any request without TLS.
+- **The instance**: Amazon Linux 2023 on x86_64 (the image is built and checked for it) with
+  Docker, an encrypted disk and an Elastic IP the domain leads to. Its first start
+  (`cloud-config.yaml`) installs Docker, Compose 5.5.1 (checked against its SHA-256) and ECR's
+  credentials helper, and runs the recorded release, if there is one. It holds nothing that is
+  not made again: the documents are in the bucket, the rows in RDS, the settings in SSM, so a
+  change to the boot replaces it, and so does a new Amazon Linux, which the instance does not
+  take by itself (`dnf` stays at the release the image was made from). Replace it every month,
+  beside the drill, with `tofu apply -replace=module.emudoc.aws_instance.app`: a few minutes
+  of downtime, a new certificate from Let's Encrypt, and the embedding model pulled again
+  under its name, whose weights could have moved since: a versioned tag in `EMBEDDING_MODEL`
+  keeps them.
+- **Credentials**: the instance metadata service answers the host alone (IMDSv2, one hop), so
+  no container holds the instance's role, which reads the settings, pulls the image and runs
+  the drill. ClamAV, which opens hostile files, and Ollama hold no credentials at all. The API
+  and the worker reach the bucket with the app role's, which allow the bucket and nothing else:
+  the host renews an hour's session of it every quarter of an hour into
+  `/run/emudoc/aws/app` (`emudoc-credentials.timer`), and boto3 reads the file again whenever
+  the session it holds nears its end. The drill's dry run gets the storage reader's, which
+  can only list the bucket.
+- **Mail**, when the root names a `mail` domain: SES with the domain verified by DKIM, and SMTP
+  credentials that may send from it and do nothing else, written into `SMTP_URL`. A new SES
+  account sends only to verified addresses until AWS grants it production access, which is
+  asked for by hand in SES's console. Without `mail`, `SMTP_URL` and `MAIL_FROM` go into the
+  secrets path for a relay of the deployment's own.
+- **DNS**: with `dns_zone_id`, the domain's record and the DKIM records are made in Route 53;
+  otherwise `tofu output dns_records` lists them for the DNS kept elsewhere. Caddy asks Let's
+  Encrypt for the certificate once the name leads to the instance.
+- **Alerts**: an SNS topic the instance reports a failed drill, a failed credentials renewal
+  (the containers lose the bucket within the hour) or a failed start to, naming the unit and the
+  instance, never a log line. `alert_email` subscribes an address, which must confirm it.
+
+### The settings
+
+The app's settings are SSM parameters under `/emudoc/<environment>/`: what the module knows from
+the infrastructure and the roots' `settings` under `settings/` (`DATABASE_URL` and `SMTP_URL`
+as SecureStrings), and the secrets the module cannot know under `secrets/`, put there by hand so
+that no key passes through a plan or the state:
+
+```bash
+read -rs key && printf '%s' "$key" | aws ssm put-parameter --type SecureString \
+  --name /emudoc/staging/secrets/ANTHROPIC_API_KEY --value file:///dev/stdin
+```
+
+Each release writes them into the env files (`deploy/aws/host/settings`): a name set in both
+places, or a value with a line break, stops it. A fresh checkout's plan refuses `OPERATOR_NAME`,
+`OPERATOR_EMAIL`, `AGENT_MODEL` and `INDEX_MODEL` left empty in `shared/main.tf`, which
+production cannot start without; an empty value there is a setting left unset. Keys never go
+into the roots: the plan refuses a name that ends like one. A changed setting reaches the
+containers with the next release (the same tag again does).
+
+### Setting it up
+
+1. Once per account: `tofu -chdir=deploy/aws/account init`, then `apply`, with credentials of
+   the account's administrator. Keeping staging and production in accounts of their own isolates
+   them further; the module is the same, and the account root runs in each.
+2. Fill in `shared/main.tf` and each root's domain, zone, `mail` and `alert_email`, then
+   `tofu -chdir=deploy/aws/staging init -backend-config=bucket=emudoc-state-<account>` and
+   `apply`.
+3. Put the keys into the secrets path as above: each model's provider and each fallback's, the
+   OAuth clients' secrets, and `SMTP_URL` without `mail`.
+4. Make the DNS records if the zone is not in Route 53, ask SES for production access, and
+   confirm the alerts' subscription.
+5. Build and push the image of the commit checked out, then release it:
+
+   ```bash
+   tag=$(deploy/aws/push-image.sh)
+   deploy/aws/release.sh staging "$tag"
+   ```
+
+6. Check staging as "Checking it" says, and drill a restore by hand on it ("The drill").
+7. The same for production, with the tag staging ran.
+
+### A release
+
+`release.sh` has Systems Manager run `emudoc-release TAG` on the environment's instance, waits,
+prints what it said, records the tag in `/emudoc/<environment>/release` and asks
+`/api/health` over HTTPS. On the instance, `emudoc-release` pulls the image, takes out the
+`deploy/` directory it carries (`/opt/emudoc/releases/<tag>`), and runs its
+`aws/host/release`, so that what a release does on the host comes with the image and runs on
+staging before production. That writes the settings into `/etc/emudoc/next`, fetches RDS's
+authority, renews the containers' credentials, runs the migrations and the embedding model's
+pull each in a container of their own, then `up --wait` with `deploy/aws/compose.yml` over
+`deploy/compose.yml`; once that succeeded it moves the settings into `/etc/emudoc`, points
+`/opt/emudoc/current` at the release, and keeps the three releases before it. A migration that
+fails ends the release with the one before it still serving and still recorded. The API is
+away for a few seconds of each release, the time it takes to stop and start, during which the
+page follows answers again as on any one machine.
+
+Going back is `release.sh` with an earlier tag, as long as no migration came between: an image
+refuses a database whose schema is newer than its own.
+
+On the instance, `sudo emudoc-compose` is Compose with the running release's files and
+settings: `ps`, `logs --since 1h worker`, `run --rm --no-deps worker python -m
+app.maintenance models`. `/etc/emudoc` holds `host.env` (what the module told the instance),
+the env files and RDS's authority; the units are `emudoc-boot`, `emudoc-credentials` and its
+timer, `emudoc-restore-drill` and its timer, and `emudoc-alert@`.
+
+### The drill on AWS
+
+The instance runs the managed drill every month ("The drill", above) as root:
+`managed-restore-drill.sh` of the running release with `rds-drill.sh` as its hooks, the copy in
+the environment's subnet group, security group and parameter group, at the environment's
+database class unless `drill_instance_class` says otherwise, and the dry run in a container with
+the storage reader's credentials. The instance's role may restore only its own database, and
+tag and delete only copies called `emudoc-drill-…` that carry `purpose=restore-drill`.
+`journalctl -u emudoc-restore-drill` keeps each report; a failed one reaches the alerts topic.
+
+### What it leaves out
+
+- The app's own high availability: one instance in one zone. RDS's standby covers the database;
+  a lost instance or zone is downtime until `tofu apply` makes another, which runs the recorded
+  release by itself.
+- Throughput beyond one machine: Ollama embeds on the instance's CPUs, and the app gives a batch
+  of 32 passages 120 seconds. Two vCPUs are slow for long passages; embed stages that keep
+  failing on time call for a larger instance or a hosted endpoint ("The embeddings
+  endpoint").
+- Continuous delivery, metrics and alarms, a CDN or firewall in front, IPv6, the bucket's
+  replication to a second region, and VPC flow logs.
+
+It was checked without an AWS account: the module by `tofu test` against a mocked provider and
+by `validate`, and the instance's part on Docker 25 (Amazon Linux's) with Compose 5.5.1, fakes
+for the AWS CLI and systemd, a TLS Postgres under an RDS name and MinIO with the module's
+policies as session policies. The first `apply` and release on a real account are the check of
+the rest.
+
 ## Checking it
 
 1. `curl -sS https://emudoc.example.com/api/health` answers `{"status":"ok"}` and the browser
@@ -1528,3 +1721,10 @@ before the app would hold it.
     compose -f deploy/compose.yml run --rm --no-deps worker python -m app.maintenance models`
     ends with "Every model answered as the app asks it" and exits with 0, with no line saying
     `MODEL_PRICES` has no price for a model.
+18. On AWS, `release.sh` ends with "is released on staging, and … is ready". On the instance
+    (`aws ssm start-session`), `sudo emudoc-compose ps` shows the API and the worker healthy
+    on the tag, `systemctl list-timers 'emudoc-*'` the credentials' renewal within the quarter
+    hour and the drill's next run, and `sudo docker run --rm <image> python -c 'import boto3;
+    print(boto3.Session().get_credentials())'` prints `None` after a second: a container does
+    not reach the instance's role. A release of a tag whose migration fails ends with "was not
+    recorded", and `/api/health` answers throughout.
