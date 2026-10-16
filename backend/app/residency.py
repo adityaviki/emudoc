@@ -33,7 +33,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import func, select, update
 
-from app.config import REGIONS, Settings, model_provider
+from app.config import REGIONS, Settings, listing, model_provider
 from app.db import SessionLocal
 from app.llm import inference_geo, openrouter_url
 from app.models import Organization
@@ -239,14 +239,12 @@ def residency_problems(
     if not region:
         return []
     problems = []
+    # A fallback is sent what its primary is, so it is held to the region too.
     models: dict[str, list[str]] = {}
-    for variable, name in (
-        ("INDEX_MODEL", settings.index_model),
-        ("AGENT_MODEL", settings.agent_model),
-    ):
-        models.setdefault(name, []).append(variable)
+    for model in settings.models:
+        models.setdefault(model.name, []).append(model.variable)
     for name, variables in models.items():
-        uses = f"{variables[0]} uses" if len(variables) == 1 else "INDEX_MODEL and AGENT_MODEL use"
+        uses = f"{listing(variables)} {'uses' if len(variables) == 1 else 'use'}"
         if problem := _model_problem(uses, name, region, environ):
             problems.append(problem)
     if problem := _embeddings_problem(settings.embedding_base_url, region):

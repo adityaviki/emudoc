@@ -10,7 +10,7 @@ import pytest
 import app.embeddings as embeddings
 from app.config import get_settings
 from app.embeddings import BATCH_SIZE, Embedder, EmbeddingError
-from app.usage import ModelUsage
+from app.usage import Calls, ModelUsage
 
 
 def embedder(handler) -> Embedder:
@@ -114,7 +114,10 @@ def test_the_tokens_the_endpoint_reports_are_counted_batch_by_batch():
     with pytest.raises(EmbeddingError, match="returned 503"):
         embedder(billing).embed_documents(["passage"] * (BATCH_SIZE * 2 + 1), usage)
     assert answered == [BATCH_SIZE, BATCH_SIZE]
-    assert usage == ModelUsage(input_tokens=7 * BATCH_SIZE * 2)
+    # Tokens under the embedding model's name, and no model call: the texts are no request
+    # to a model, and the stage counts them itself.
+    model = get_settings().embedding_model
+    assert usage.models == {model: Calls(input_tokens=7 * BATCH_SIZE * 2)}
 
     # An endpoint that says nothing about tokens adds none; the texts are still counted by
     # the stage that sent them.

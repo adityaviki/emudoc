@@ -39,7 +39,7 @@ STORAGE_URL_FORMS = (
 )
 MODEL_PRICES_FORM = (
     "MODEL_PRICES lists what each model costs per million tokens in and out, as "
-    "model=in/out separated by commas, such as google:gemini-2.5-flash-lite=0.10/0.40"
+    "model=in/out separated by commas, such as google:gemini-3.5-flash-lite=0.30/2.50"
 )
 SCANNER_URL_FORMS = (
     "SCANNER_URL names the ClamAV daemon that scans uploads as clamd://host:3310 or, for one on "
@@ -47,6 +47,18 @@ SCANNER_URL_FORMS = (
 )
 SCANNER_OFF = "off"
 CLAMD_PORT = 3310
+# The work a model does: indexing (INDEX_MODEL: sections, summaries, facts, scans) or answering
+# (AGENT_MODEL: the Ask tab's agent), each with its fallback.
+INDEX = "index"
+AGENT = "agent"
+# The model a development checkout runs when .env names none. Production refuses to run on it
+# (`Settings.production_problems`): a default moves with the code and the provider retires
+# models on a schedule of its own, so a deployment names the model it was tried with.
+DEFAULT_MODEL = "google:gemini-3.5-flash-lite"
+# Names a provider moves to a newer model when it likes: Google's `gemini-flash-latest`,
+# OpenAI's `chatgpt-4o-latest`, Anthropic's former `-latest` aliases, a `:latest` tag, and
+# OpenRouter's router, which picks a model per request.
+MOVING_ALIAS = re.compile(r"(?:^|[-_.:/])latest$|^openrouter/auto$", re.IGNORECASE)
 # The regions a deployment can keep its documents in (DATA_REGION), by the code the setting and
 # `organizations.region` hold, with the name the app says them by (app/residency.py).
 REGIONS = {"eu": "the European Union", "us": "the United States"}
@@ -68,6 +80,20 @@ def parse_scanner_url(value: str) -> tuple[str, int] | str | None:
         elif not parts.netloc and parts.path.startswith("/"):
             return parts.path
     raise ValueError(f"{SCANNER_URL_FORMS}; {value!r} is neither.")
+
+
+class ModelSetting(NamedTuple):
+    """A model the settings name: the variable that names it, the `provider:model` name, and
+    the work it does (INDEX or AGENT)."""
+
+    variable: str
+    name: str
+    role: str
+
+    @property
+    def fallback(self) -> bool:
+        """Whether the model is asked only when its role's first model cannot answer."""
+        return self.variable.endswith("_FALLBACK_MODEL")
 
 
 class ModelPrice(NamedTuple):
@@ -174,8 +200,17 @@ class Settings(BaseSettings):
 
     # The model behind structure inference, summaries, facts, OCR and the agent, as
     # provider:model. Each provider reads its own key from the environment (see .env.example).
-    agent_model: str = "google:gemini-2.5-flash-lite"
-    index_model: str = "google:gemini-2.5-flash-lite"
+    # Production refuses the defaults and the aliases a provider moves (MOVING_ALIAS).
+    agent_model: str = DEFAULT_MODEL
+    index_model: str = DEFAULT_MODEL
+    # The model asked instead when the one above cannot answer: its provider is down,
+    # overloaded or out of reach, or refuses the key, the account or the model itself, as it
+    # does once the model is retired (app/llm.py). Empty, there is none. Best from another
+    # provider, which an outage or a revoked key of the first does not reach. A fallback is
+    # sent what its primary is, so it is a subprocessor too, held to the same region, terms
+    # and transport, and needs its price in MODEL_PRICES.
+    agent_fallback_model: str = ""
+    index_fallback_model: str = ""
     # How hard the model thinks. Empty leaves the model's own default; models that cannot
     # think ignore it.
     agent_effort: Effort = "medium"
@@ -338,7 +373,15 @@ class Settings(BaseSettings):
             raise ValueError("DATABASE_URL is empty")
         return value
 
-    @field_validator("database_pooler", "database_listen_url", mode="before")
+    @field_validator(
+        "database_pooler",
+        "database_listen_url",
+        "agent_model",
+        "index_model",
+        "agent_fallback_model",
+        "index_fallback_model",
+        mode="before",
+    )
     @classmethod
     def _trimmed(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
@@ -451,6 +494,41 @@ class Settings(BaseSettings):
             )
         return self
 
+    @model_validator(mode="after")
+    def _a_fallback_is_another_model(self) -> "Settings":
+        for role, primary, fallback in (
+            ("AGENT", self.agent_model, self.agent_fallback_model),
+            ("INDEX", self.index_model, self.index_fallback_model),
+        ):
+            if fallback and fallback == primary:
+                raise ValueError(
+                    f"{role}_FALLBACK_MODEL names {role}_MODEL's own model, {fallback}, which "
+                    "would only be asked twice; name another model, best from another "
+                    "provider, or leave it empty."
+                )
+        return self
+
+    @property
+    def models(self) -> list[ModelSetting]:
+        """Every model these settings name, the primaries first, with the variable that names
+        each. Whatever reads a model name for anything but a request (the region, the
+        subprocessors, the terms, the transport, the start's checks) reads them all, since a
+        fallback is sent what its primary is. A fallback left empty is none; a primary is
+        always there, and an empty one says so when it is used."""
+        fallbacks = [
+            ModelSetting("INDEX_FALLBACK_MODEL", self.index_fallback_model, INDEX),
+            ModelSetting("AGENT_FALLBACK_MODEL", self.agent_fallback_model, AGENT),
+        ]
+        return [
+            ModelSetting("INDEX_MODEL", self.index_model, INDEX),
+            ModelSetting("AGENT_MODEL", self.agent_model, AGENT),
+            *(fallback for fallback in fallbacks if fallback.name),
+        ]
+
+    def models_for(self, role: str) -> list[ModelSetting]:
+        """The models that do `role`'s work, in the order they are asked."""
+        return [model for model in self.models if model.role == role]
+
     @property
     def listen_url(self) -> str | None:
         """Where the worker listens for queued jobs, or None when it cannot and polls instead:
@@ -533,10 +611,30 @@ class Settings(BaseSettings):
             "every passage as it is indexed and every search",
         ):
             problems.append(problem)
-        models = (("AGENT_MODEL", self.agent_model), ("INDEX_MODEL", self.index_model))
-        gemini = [variable for variable, name in models if model_provider(name) == "google"]
+        unset = [
+            variable
+            for variable, name in (("INDEX_MODEL", "index_model"), ("AGENT_MODEL", "agent_model"))
+            if name not in self.model_fields_set or not getattr(self, name)
+        ]
+        if unset:
+            problems.append(
+                f"{listing(unset)} {'is' if len(unset) == 1 else 'are'} not set, so the "
+                f"deployment would run on the default, {DEFAULT_MODEL}, which a release of the "
+                "app may change and its provider may stop serving on a schedule of its own; "
+                "name the model the deployment was tried with, as provider:model, and try it "
+                "with `python -m app.maintenance models`."
+            )
+        for model in self.models:
+            if moving_alias(model.name):
+                problems.append(
+                    f"{model.variable} is {model.name}, an alias its provider moves to a newer "
+                    "model when it likes, so the prices, the region and the answers could "
+                    "change under the deployment without a release; name the version the alias "
+                    "points to now, from the provider's list of models."
+                )
+        gemini = [model.variable for model in self.models if model_provider(model.name) == "google"]
         if gemini and not self.google_paid_tier:
-            uses = f"{gemini[0]} uses" if len(gemini) == 1 else "AGENT_MODEL and INDEX_MODEL use"
+            uses = f"{listing(gemini)} {'uses' if len(gemini) == 1 else 'use'}"
             problems.append(
                 f"{uses} the Gemini Developer API (google:), whose free tier lets Google use "
                 "the documents and questions it is sent to improve its products, and the app "
@@ -571,7 +669,22 @@ class Settings(BaseSettings):
                 "DAILY_SPEND_CAP is set, but MODEL_PRICES is empty, so no cost is recorded and "
                 "the cap would count nothing; list what each model costs, or remove the cap."
             )
+        elif self.daily_spend_cap and (unpriced := self.unpriced_models):
+            problems.append(
+                f"DAILY_SPEND_CAP is set, but MODEL_PRICES has no price for {listing(unpriced)}, "
+                "so what it answers would count nothing against the cap; add its price."
+            )
         return problems
+
+    @property
+    def unpriced_models(self) -> list[str]:
+        """The models MODEL_PRICES has no price for, each as "VARIABLE provider:model": what
+        they answer costs nothing the spending limits count (app/spending.py)."""
+        return [
+            f"{model.variable} {model.name}"
+            for model in self.models
+            if model.name not in self.prices
+        ]
 
 
 # Whether psycopg runs on the libpq and OpenSSL its binary package brings, rather than the
@@ -595,6 +708,16 @@ def unfit_for_production(problems: list[str]) -> str:
 def model_provider(name: str) -> str:
     """The provider of a `provider:model` name, as DISABLED_PROVIDERS and Pydantic AI name it."""
     return name.partition(":")[0]
+
+
+def moving_alias(name: str) -> bool:
+    """Whether the `provider:model` name is an alias the provider moves (MOVING_ALIAS)."""
+    return MOVING_ALIAS.search(name.partition(":")[2]) is not None
+
+
+def listing(names: list[str]) -> str:
+    """Names as a sentence lists them: "A", "A and B", "A, B and C"."""
+    return ", ".join(names[:-1]) + f" and {names[-1]}" if len(names) > 1 else names[0]
 
 
 def _listed(value: str) -> list[str]:

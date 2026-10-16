@@ -477,7 +477,7 @@ def _with_ocr(
     by_page: dict[int, list[ParsedBlock]] = defaultdict(list)
     for block in blocks:
         by_page[block.page or 1].append(block)
-    usage = meter.calls(OCR, get_settings().index_model)
+    usage = meter.calls(OCR)
     for page in ocr_pages:
         if suffix == ".pdf":
             image, media_type = render_page(path, page), "image/png"
@@ -515,7 +515,7 @@ def _structure(session: Session, document: Document, services: Services, meter: 
             log.warning("Sections of document %s were not inferred: %s", document.id, reason)
             note = "; sections not inferred (the day's spending limit is reached)"
         else:
-            usage = meter.calls(INFER_SECTIONS, get_settings().index_model)
+            usage = meter.calls(INFER_SECTIONS)
             _done_reading(session)
             try:
                 hints = infer_sections(services.llm, blocks, usage)
@@ -582,7 +582,7 @@ def _enrich(session: Session, document: Document, services: Services, meter: Met
     sections = session.scalars(
         select(Section).where(Section.document_id == document.id).order_by(Section.ordinal)
     ).all()
-    usage = meter.calls(ENRICH, get_settings().index_model)
+    usage = meter.calls(ENRICH)
     _done_reading(session)
     analysis = analyze_document(services.llm, document, sections, blocks, usage)
 
@@ -685,7 +685,7 @@ def _embed(session: Session, document: Document, services: Services, meter: Mete
     # MODEL_PRICES under EMBEDDING_MODEL like a model's (app/usage.py).
     vectors = services.embedder.embed_documents(
         [f"{passage.context}\n\n{passage.text}" for passage in passages],
-        meter.calls(EMBED, services.embedder.model),
+        meter.calls(EMBED),
     )
     # The texts are counted once the vectors are back: a request that failed embedded nothing
     # the document keeps, and the stage runs again.

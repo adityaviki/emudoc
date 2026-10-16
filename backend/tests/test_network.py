@@ -131,8 +131,10 @@ def test_a_model_s_address_off_the_network_needs_https():
 
     for fit in ("https://models.example.com/v1", "http://vllm.internal:8000/v1"):
         check_transport(settings, DIRECTORY, {"OPENAI_BASE_URL": fit})
-    # An address no configured model reads is not this check's business.
+    # An address no configured model reads is not this check's business; a fallback's is.
     check_transport(production(), DIRECTORY, environ)
+    with pytest.raises(RuntimeError, match="OPENAI_BASE_URL sends"):
+        check_transport(production(agent_fallback_model="openai:gpt-5.1"), DIRECTORY, environ)
 
 
 def test_a_bucket_off_the_network_needs_https():

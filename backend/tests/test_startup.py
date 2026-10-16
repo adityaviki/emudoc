@@ -12,10 +12,12 @@ import pytest
 from app.config import get_settings
 from app.startup import (
     check_embedder,
+    check_model,
     check_temporary_directory,
     prepare,
     warn_about_trust_store,
 )
+from tests.conftest import FakeLLM
 from tests.test_embeddings import embedder, refuse, vector
 
 pytestmark = pytest.mark.skipif(os.geteuid() == 0, reason="root writes in any directory")
@@ -161,3 +163,30 @@ def test_a_start_refused_for_its_endpoint_queues_nothing_to_embed_again(
     prepare(get_settings(), services)
     session.refresh(indexed)
     assert indexed.stages["embed"]["status"] == "pending"
+
+
+# The models: which do the work and which take it over, built at start and never asked.
+
+
+def test_the_start_names_the_models_and_their_fallbacks(monkeypatch, caplog):
+    monkeypatch.setattr(get_settings(), "agent_fallback_model", "anthropic:claude-haiku-5-5")
+    with caplog.at_level("INFO", logger="app.startup"):
+        check_model(get_settings(), FakeLLM())
+    assert caplog.messages == [
+        "Documents are indexed by google:gemini-2.5-flash-lite",
+        "Questions are answered by google:gemini-2.5-flash-lite, and by "
+        "anthropic:claude-haiku-5-5 when it cannot answer",
+    ]
+
+
+def test_production_says_what_stops_while_a_model_without_a_fallback_cannot_answer(
+    production, monkeypatch, caplog
+):
+    monkeypatch.setattr(get_settings(), "agent_fallback_model", "anthropic:claude-haiku-5-5")
+    with caplog.at_level("WARNING", logger="app.startup"):
+        check_model(get_settings(), FakeLLM())
+    assert caplog.messages == [
+        "INDEX_MODEL has no fallback, so while google:gemini-2.5-flash-lite is down, refuses "
+        "the key or has been retired, no document gets its summaries, facts or scanned pages "
+        "read; set INDEX_FALLBACK_MODEL, best to a model of another provider."
+    ]

@@ -107,6 +107,20 @@ def test_claude_is_kept_in_the_us_by_the_app_and_never_in_the_eu():
     assert "Vertex AI (google-cloud:) or Bedrock (bedrock:eu.<model>)" in problem
 
 
+def test_a_fallback_is_held_to_the_region_as_its_primary_is():
+    # It is sent what its primary is, whenever the primary cannot answer.
+    (problem,) = problems(agent_fallback_model="anthropic:claude-haiku-5-5")
+    assert problem.startswith("AGENT_FALLBACK_MODEL uses Claude")
+    (problem,) = problems(
+        index_fallback_model="google:gemini-3.5-flash-lite",
+        agent_fallback_model="google:gemini-3.5-flash-lite",
+    )
+    assert problem.startswith(
+        "INDEX_FALLBACK_MODEL and AGENT_FALLBACK_MODEL use the Gemini Developer API"
+    )
+    assert problems(agent_fallback_model="openrouter:anthropic/claude-haiku-5-5") == []
+
+
 @pytest.mark.parametrize("region", ["eu", "us"])
 def test_openrouter_is_sent_to_the_region_s_own_address(region):
     model = "openrouter:anthropic/claude-sonnet-5"

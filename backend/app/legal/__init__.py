@@ -145,7 +145,8 @@ def _fill(name: str, settings: Settings, **values: str) -> str:
 def _models(settings: Settings, environ: Mapping[str, str]) -> str:
     """What the model providers, the embeddings endpoint's among them, may do with what they
     are sent, as far as the settings show."""
-    names = {settings.agent_model, settings.index_model}
+    # A fallback is sent what its primary is, so the promise holds it too.
+    names = {model.name for model in settings.models}
     if not settings.google_paid_tier and any(model_provider(n) == "google" for n in names):
         return (
             "This deployment uses the free tier of Google's Gemini API, under which Google may "

@@ -20,7 +20,7 @@ from app.jobs import INDEX_DOCUMENT, claim
 from app.mail import MailError
 from app.maintenance import main
 from app.models import SpendAlert
-from app.spending import alert_spending, day_of, retry_after, when
+from app.spending import alert_spending, day_of, retry_after, warn_without_prices, when
 from app.usage import ANSWER, record
 from app.worker import HANDLERS, Worker
 from tests.conftest import FakeMailer, FakeTurn
@@ -348,6 +348,23 @@ def test_the_plan_command_shows_the_days_limit_as_money(session, account, capsys
     assert capsys.readouterr().out.splitlines()[-1].split() == ["daily_spend_micros", "no", "limit"]
     main(["plan", "local", "pro"])
     assert capsys.readouterr().out.splitlines()[-1] == "  daily_spend_micros  USD 10.00 a day"
+
+
+def test_production_is_told_when_the_plans_limits_count_nothing_of_a_model(monkeypatch, caplog):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "environment", "production")
+    with caplog.at_level("WARNING", logger="app.spending"):
+        warn_without_prices(settings)
+        monkeypatch.setattr(settings, "model_prices", PRICED)
+        warn_without_prices(settings)
+        monkeypatch.setattr(settings, "index_fallback_model", "anthropic:claude-haiku-5-5")
+        warn_without_prices(settings)
+    nothing, fallback = caplog.messages
+    assert nothing.startswith("MODEL_PRICES is not set: no cost is recorded")
+    assert fallback == (
+        "MODEL_PRICES has no price for INDEX_FALLBACK_MODEL anthropic:claude-haiku-5-5, so what "
+        "it answers counts nothing against the plans' daily spending limits; add its price."
+    )
 
 
 def test_the_day_is_the_utc_day():

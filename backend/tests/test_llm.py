@@ -8,8 +8,10 @@ requests reach Gemini and Claude, through the real SDKs, in the form each API ta
 import asyncio
 import json
 import os
+import re
 import socket
 import threading
+from types import SimpleNamespace
 
 import anthropic
 import httpx2
@@ -24,21 +26,30 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.models import Model
-from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
 from pydantic_ai.profiles import ModelProfile
 
 from app.agent.loop import run_agent
 from app.config import Settings, export_env_file
 from app.indexing.enrich import DocumentAnalysis
 from app.indexing.pipeline import Services
-from app.llm import INDEX_SYSTEM, LLM, OCR_PROMPT, LLMError, LLMUnavailable
-from app.usage import ModelUsage
+from app.llm import (
+    INDEX_SYSTEM,
+    LLM,
+    OCR_PROMPT,
+    PASS_OVER_SECONDS,
+    LLMError,
+    LLMUnavailable,
+)
+from app.usage import Calls, ModelUsage
 
 GEMINI = "google:gemini-2.5-flash-lite"
 CLAUDE = "anthropic:claude-opus-5-5"
 OPENROUTER = "openrouter:google/gemini-2.5-flash-lite"
 VERTEX = "google-cloud:gemini-2.5-flash-lite"
 SCRIPTED = "scripted:model"
+# A second scripted model, of a provider of its own so that the kill switch can tell them apart.
+BACKUP = "backup:model"
 TOOL_NAMES = ["list_documents", "get_outline", "search", "query_facts", "read"]
 QUESTION = [ModelRequest(parts=[UserPromptPart("What is the notice period?")])]
 
@@ -105,6 +116,22 @@ class Script:
 def scripted_llm(model: Model, **settings) -> LLM:
     llm = LLM(Settings(_env_file=None, index_model=SCRIPTED, agent_model=SCRIPTED, **settings))
     llm._models[SCRIPTED] = model
+    return llm
+
+
+def fallback_llm(primary: Model, backup: Model, **settings) -> LLM:
+    """An LLM whose every kind of work is SCRIPTED's, with BACKUP as its fallback."""
+    llm = LLM(
+        Settings(
+            _env_file=None,
+            index_model=SCRIPTED,
+            agent_model=SCRIPTED,
+            index_fallback_model=BACKUP,
+            agent_fallback_model=BACKUP,
+            **settings,
+        )
+    )
+    llm._models.update({SCRIPTED: primary, BACKUP: backup})
     return llm
 
 
@@ -509,6 +536,246 @@ def test_a_turn_that_runs_too_long_is_given_up(monkeypatch):
     assert stopped.wait(timeout=5)
 
 
+# Fallbacks: the next model is asked what the first could not answer, and only then.
+
+GEMINI_KEY_REJECTED = {
+    "error": {
+        "code": 400,
+        "status": "INVALID_ARGUMENT",
+        "details": [{"reason": "API_KEY_INVALID"}],
+    }
+}
+
+
+@pytest.mark.parametrize(
+    ("error", "said"),
+    [
+        (ModelHTTPError(503, "m", "Overloaded."), r"The request to m failed \(503\)."),
+        (ModelHTTPError(429, "m"), "The rate limit for m was reached."),
+        # A retired model is not found.
+        (ModelHTTPError(404, "m"), "The model m was not found, or is served no longer."),
+        (ModelHTTPError(401, "m"), "The API key for m was rejected."),
+        (ModelHTTPError(402, "m"), "The account that pays for m has no credit left."),
+        (ModelHTTPError(403, "m"), "This API key is not allowed to use m."),
+        (ModelHTTPError(400, "m", GEMINI_KEY_REJECTED), "The API key for m was rejected."),
+        (ModelAPIError("m", "Connection error."), "Could not reach the provider of m."),
+    ],
+)
+def test_the_fallback_answers_what_the_first_model_cannot(error, said, caplog):
+    primary, backup = Script(error), Script(text_reply(ANALYSIS))
+    llm = fallback_llm(FunctionModel(primary), FunctionModel(backup))
+    usage = ModelUsage()
+    result = llm.structured("the document", DocumentAnalysis, usage)
+
+    assert result.title == "Master Services Agreement"
+    # The backup was asked the same request, and is what the run is charged for.
+    assert [part.content for part in backup.requests[0][0][0].parts] == ["the document"]
+    assert list(usage.models) == [BACKUP] and usage.calls == 1
+    (record,) = [r for r in caplog.records if r.name == "app.llm"]
+    assert record.levelname == "WARNING"
+    assert record.getMessage().startswith(
+        f"INDEX_MODEL {SCRIPTED} failed, so INDEX_FALLBACK_MODEL {BACKUP} is asked instead: "
+    )
+    assert re.search(said, record.getMessage())
+
+
+@pytest.mark.parametrize(
+    ("reply", "expected"),
+    [
+        # The request, not the model, was refused: the next model would refuse it too, or the
+        # app has a fault the fallback would hide.
+        (ModelHTTPError(400, "m", "No such field."), r"^The request to m failed \(400\).$"),
+        (ModelHTTPError(422, "m"), r"^The request to m failed \(422\).$"),
+        (ModelResponse(parts=[], finish_reason="content_filter"), "declined"),
+        (RuntimeError("boom"), "failed unexpectedly"),
+        # Slow: a document too large for the time would be as slow on the next model.
+        (timed_out_api_error(), "took too long to answer"),
+    ],
+)
+def test_a_request_the_first_model_refused_is_not_asked_of_the_fallback(reply, expected):
+    backup = Script(text_reply(ANALYSIS))
+    llm = fallback_llm(FunctionModel(Script(reply)), FunctionModel(backup))
+    with pytest.raises(LLMError, match=expected):
+        llm.structured("the document", DocumentAnalysis)
+    assert backup.requests == []
+
+
+def test_an_indexing_request_that_runs_too_long_is_not_asked_of_the_fallback(monkeypatch):
+    async def slow(messages: list, info: AgentInfo) -> ModelResponse:
+        await asyncio.sleep(60)
+        return text_reply(ANALYSIS)
+
+    monkeypatch.setattr("app.llm.INDEX_TIMEOUT", 0.2)
+    backup = Script(text_reply(ANALYSIS))
+    llm = fallback_llm(FunctionModel(slow), FunctionModel(backup))
+    with pytest.raises(LLMError, match="did not answer within 0.2 seconds"):
+        llm.structured("the document", DocumentAnalysis)
+    assert backup.requests == []
+
+
+def test_when_every_model_fails_the_error_says_what_each_failed_with():
+    llm = fallback_llm(
+        FunctionModel(Script(ModelHTTPError(503, "first"))),
+        FunctionModel(Script(ModelHTTPError(401, "second"))),
+    )
+    with pytest.raises(LLMError) as raised:
+        llm.structured("the document", DocumentAnalysis)
+    assert str(raised.value) == (
+        "The request to first failed (503). The API key for second was rejected."
+    )
+    # The first model is down for now and may answer the next attempt.
+    assert raised.value.transient is True
+
+    llm = fallback_llm(
+        FunctionModel(Script(ModelHTTPError(404, "first"))),
+        FunctionModel(Script(ModelHTTPError(400, "second"))),
+    )
+    with pytest.raises(LLMError) as raised:
+        llm.structured("the document", DocumentAnalysis)
+    assert raised.value.transient is False
+
+
+def test_a_model_that_failed_is_asked_after_its_fallback_for_a_minute(monkeypatch):
+    clock = [1000.0]
+    monkeypatch.setattr("app.llm.time", SimpleNamespace(monotonic=lambda: clock[0]))
+    primary = Script(ModelHTTPError(503, "m"))
+    backup = Script(text_reply(ANALYSIS), text_reply(ANALYSIS))
+    llm = fallback_llm(FunctionModel(primary), FunctionModel(backup))
+
+    def asked() -> tuple[int, int]:
+        return len(primary.requests), len(backup.requests)
+
+    llm.structured("first", DocumentAnalysis)
+    # A provider that is down would otherwise cost every request its retries first.
+    llm.structured("second", DocumentAnalysis)
+    assert asked() == (1, 2)
+    # A minute after it failed, it is asked first again.
+    clock[0] += PASS_OVER_SECONDS
+    primary.replies.append(text_reply(ANALYSIS))
+    llm.structured("third", DocumentAnalysis)
+    assert asked() == (2, 2)
+    # Passed over, it is still asked when its fallback fails too.
+    primary.replies += [ModelHTTPError(503, "m"), text_reply(ANALYSIS)]
+    backup.replies += [text_reply(ANALYSIS), ModelHTTPError(503, "b")]
+    llm.structured("fourth", DocumentAnalysis)
+    usage = ModelUsage()
+    llm.structured("fifth", DocumentAnalysis, usage)
+    assert asked() == (4, 4) and list(usage.models) == [SCRIPTED]
+
+
+def test_a_switched_off_model_leaves_its_work_to_the_fallback(caplog):
+    backup = Script(text_reply(ANALYSIS))
+    llm = fallback_llm(
+        FunctionModel(Script()), FunctionModel(backup), disabled_providers="scripted"
+    )
+    # What the switch and the fallback are there for: the app keeps working.
+    assert llm.problem() is None and llm.available is True
+    usage = ModelUsage()
+    assert llm.structured("the document", DocumentAnalysis, usage).facts[0].number == 90
+    assert list(usage.models) == [BACKUP]
+    assert f"{SCRIPTED} is switched off: DISABLED_PROVIDERS names" in caplog.text
+
+    both = fallback_llm(
+        FunctionModel(Script()), FunctionModel(Script()), disabled_providers="scripted,backup"
+    )
+    assert both.problem().startswith(f"{SCRIPTED} is switched off")
+    with pytest.raises(LLMUnavailable) as raised:
+        both.structured("the document", DocumentAnalysis)
+    assert raised.value.transient is True
+    assert f"{SCRIPTED} is switched off" in str(raised.value)
+    assert f"{BACKUP} is switched off" in str(raised.value)
+
+
+def test_a_fallback_that_cannot_be_set_up_stops_the_app_as_its_primary_would(monkeypatch):
+    # A fallback that cannot be built is none, and production refuses to start without it
+    # rather than find out at the first outage.
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    llm = LLM(
+        Settings(
+            _env_file=None, index_model=GEMINI, agent_model=GEMINI, agent_fallback_model=CLAUDE
+        )
+    )
+    assert llm.problem() == f"Set ANTHROPIC_API_KEY in .env to use {CLAUDE}."
+    with pytest.raises(LLMUnavailable) as raised:
+        llm.check()
+    assert raised.value.transient is False
+
+
+def test_a_turn_the_first_model_cannot_open_is_asked_of_the_fallback():
+    async def overloaded(messages: list, info: AgentInfo):
+        raise ModelHTTPError(503, "m")
+        yield ""
+
+    async def answer(messages: list, info: AgentInfo):
+        yield "Ninety days."
+
+    llm = fallback_llm(
+        FunctionModel(stream_function=overloaded), FunctionModel(stream_function=answer)
+    )
+    with llm.stream_agent("Be brief.", QUESTION, []) as stream:
+        assert list(stream)
+        assert stream.response().text == "Ninety days."
+    assert stream.model == BACKUP
+
+
+def test_a_turn_that_failed_after_its_first_event_is_not_asked_of_the_fallback():
+    # What the first model sent may have been shown; a second answer would follow it.
+    asked = []
+
+    async def breaks_off(messages: list, info: AgentInfo):
+        yield "The notice "
+        raise ModelHTTPError(503, "m")
+
+    async def answer(messages: list, info: AgentInfo):
+        asked.append(messages)
+        yield "Ninety days."
+
+    llm = fallback_llm(
+        FunctionModel(stream_function=breaks_off), FunctionModel(stream_function=answer)
+    )
+    received = []
+    with pytest.raises(LLMError, match=r"^The request to m failed \(503\).$"):
+        with llm.stream_agent("Be brief.", QUESTION, []) as stream:
+            received.extend(stream)
+    assert received and asked == []
+
+
+def test_an_answer_the_fallback_finished_is_charged_to_each_model_that_answered(services, indexed):
+    async def searches_then_is_overloaded(messages: list, info: AgentInfo):
+        if len(messages) > 1:
+            raise ModelHTTPError(529, "m", "Overloaded.")
+        yield {
+            0: DeltaToolCall(
+                name="search",
+                json_args=json.dumps({"query": "termination notice"}),
+                tool_call_id="c1",
+            )
+        }
+
+    async def answers(messages: list, info: AgentInfo):
+        yield "The notice period is 90 days."
+
+    llm = fallback_llm(
+        FunctionModel(stream_function=searches_then_is_overloaded),
+        FunctionModel(stream_function=answers),
+    )
+    usage = ModelUsage()
+    question = [{"role": "user", "content": "What is the notice period?"}]
+    recorded = Services(llm, services.embedder, services.storage)
+    events = list(run_agent(recorded, indexed.project_id, question, usage))
+
+    assert "".join(e["text"] for e in events if e["type"] == "text") == (
+        "The notice period is 90 days."
+    )
+    # The first turn was the primary's, the second its fallback's once the primary was
+    # overloaded: each model's calls are counted under its own name, for its own price, and
+    # the answer names the model that ended it.
+    assert list(usage.models) == [SCRIPTED, BACKUP]
+    assert usage.models[SCRIPTED].calls == usage.models[BACKUP].calls == 1
+    assert events[-1]["usage"] == usage.spent() and usage.spent()["model"] == BACKUP
+
+
 # Recorded HTTP: the requests as Gemini and Claude receive them, through the real SDKs.
 
 
@@ -538,16 +805,25 @@ CLIENT_FACTORY = {
 
 def recorded_llm(monkeypatch, recorder: Recorder, model: str, **settings) -> LLM:
     """An LLM built as the app builds it, except that its HTTP client answers from a recording."""
-    provider = model.split(":")[0]
+    return recorded_models(
+        monkeypatch, {model: recorder}, index_model=model, agent_model=model, **settings
+    )
+
+
+def recorded_models(monkeypatch, recorders: dict[str, Recorder], **settings) -> LLM:
+    """An LLM built as the app builds it, each model's provider answering from its own
+    recording."""
     # Vertex AI takes Gemini's variable for a key of its own (express mode), and a service
     # account's file would win over it.
     monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
-    monkeypatch.setenv(f"{provider.partition('-')[0].upper()}_API_KEY", "test-key")
-    monkeypatch.setattr(
-        f"{CLIENT_FACTORY[provider]}.create_async_httpx2_client",
-        lambda: httpx2.AsyncClient(transport=httpx2.MockTransport(recorder)),
-    )
-    return LLM(Settings(_env_file=None, index_model=model, agent_model=model, **settings))
+    for model, recorder in recorders.items():
+        provider = model.split(":")[0]
+        monkeypatch.setenv(f"{provider.partition('-')[0].upper()}_API_KEY", "test-key")
+        monkeypatch.setattr(
+            f"{CLIENT_FACTORY[provider]}.create_async_httpx2_client",
+            lambda recorder=recorder: httpx2.AsyncClient(transport=httpx2.MockTransport(recorder)),
+        )
+    return LLM(Settings(_env_file=None, **settings))
 
 
 def ask(llm: LLM, services, document) -> list[dict]:
@@ -604,8 +880,9 @@ def test_gemini_structured_request(monkeypatch):
     )
 
     assert result.title == "Master Services Agreement" and result.facts[0].number == 90
-    # The run's one request, with the token counts the provider reported, for the bill.
-    assert (usage.calls, usage.input_tokens, usage.output_tokens) == (1, 25, 30)
+    # The run's one request, with the token counts the provider reported, for the bill, under
+    # the model's name as the settings give it, which is how MODEL_PRICES prices it.
+    assert usage.models == {GEMINI: Calls(calls=1, input_tokens=25, output_tokens=30)}
     request = recorder.requests[0]
     assert request.url.path.endswith("/models/gemini-2.5-flash-lite:generateContent")
     assert request.headers["x-goog-api-key"] == "test-key"
@@ -756,7 +1033,7 @@ def test_openrouter_structured_request(monkeypatch):
     result = llm.structured("the document", DocumentAnalysis, usage)
 
     assert result.title == "Master Services Agreement" and result.facts[0].number == 90
-    assert (usage.calls, usage.input_tokens, usage.output_tokens) == (1, 25, 30)
+    assert usage.models == {OPENROUTER: Calls(calls=1, input_tokens=25, output_tokens=30)}
     request = recorder.requests[0]
     assert str(request.url) == "https://openrouter.ai/api/v1/chat/completions"
     assert request.headers["authorization"] == "Bearer test-key"
@@ -961,3 +1238,99 @@ def test_agent_loop_over_recorded_claude_streams(monkeypatch, services, indexed)
     (result,) = follow_up[2]["content"]
     assert result["type"] == "tool_result" and result["tool_use_id"] == "toolu_01"
     assert "ninety (90) days" in json.dumps(result["content"])
+
+
+# A retired model, as each provider says so: not found.
+GEMINI_RETIRED = {
+    "error": {
+        "code": 404,
+        "message": "models/gemini-2.5-flash-lite is not found for API version v1beta.",
+        "status": "NOT_FOUND",
+    }
+}
+CLAUDE_RETIRED = {
+    "type": "error",
+    "error": {"type": "not_found_error", "message": "model: claude-opus-5-5"},
+}
+
+
+def test_a_retired_gemini_model_leaves_its_requests_to_claude(monkeypatch, caplog):
+    gemini_recorder = Recorder(httpx2.Response(404, json=GEMINI_RETIRED))
+    claude_recorder = Recorder(
+        httpx2.Response(200, json=message([{"type": "text", "text": json.dumps(ANALYSIS)}]))
+    )
+    llm = recorded_models(
+        monkeypatch,
+        {GEMINI: gemini_recorder, CLAUDE: claude_recorder},
+        index_model=GEMINI,
+        agent_model=GEMINI,
+        index_fallback_model=CLAUDE,
+    )
+    usage = ModelUsage()
+    result = llm.structured("the document", DocumentAnalysis, usage)
+
+    assert result.title == "Master Services Agreement"
+    # A 404 is not retried: Gemini was asked once, and Claude the request as Claude takes it.
+    assert len(gemini_recorder.requests) == 1
+    body = claude_recorder.body()
+    assert body["model"] == "claude-opus-5-5" and body["system"][0]["text"] == INDEX_SYSTEM
+    assert body["messages"][0]["content"][0]["text"] == "the document"
+    assert body["output_config"]["format"]["type"] == "json_schema"
+    assert usage.models == {CLAUDE: Calls(calls=1, input_tokens=12, output_tokens=34)}
+    assert (
+        f"INDEX_MODEL {GEMINI} failed, so INDEX_FALLBACK_MODEL {CLAUDE} is asked instead: The "
+        "model gemini-2.5-flash-lite was not found, or is served no longer."
+    ) in caplog.text
+    # Nothing of the provider's words reaches the log.
+    assert "API version" not in caplog.text
+
+
+def test_each_model_is_asked_with_its_own_provider_s_settings(monkeypatch):
+    # Claude is told where to run in the body of the request, which another provider's API
+    # would refuse; OpenRouter sends whatever extra body it is given.
+    chunk = {
+        "id": "gen-04",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "google/gemini-2.5-flash-lite",
+        "choices": [{"index": 0, "delta": {"content": "Ninety days."}, "finish_reason": "stop"}],
+    }
+    reply = {
+        "id": "gen-05",
+        "object": "chat.completion",
+        "created": 0,
+        "model": "google/gemini-2.5-flash-lite",
+        "provider": "Google",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": json.dumps(ANALYSIS)},
+                "finish_reason": "stop",
+            }
+        ],
+    }
+    claude_recorder = Recorder(*[httpx2.Response(404, json=CLAUDE_RETIRED) for _ in range(2)])
+    openrouter_recorder = Recorder(httpx2.Response(200, json=reply), openrouter_stream(chunk))
+    llm = recorded_models(
+        monkeypatch,
+        {CLAUDE: claude_recorder, OPENROUTER: openrouter_recorder},
+        index_model=CLAUDE,
+        agent_model=CLAUDE,
+        index_fallback_model=OPENROUTER,
+        agent_fallback_model=OPENROUTER,
+        data_region="us",
+    )
+    clock = [1000.0]
+    monkeypatch.setattr("app.llm.time", SimpleNamespace(monotonic=lambda: clock[0]))
+    llm.structured("the document", DocumentAnalysis)
+    # A minute on, Claude is asked first again, and fails again.
+    clock[0] += PASS_OVER_SECONDS
+    with llm.stream_agent("Be brief.", QUESTION, []) as stream:
+        list(stream)
+        assert stream.response().text == "Ninety days."
+    assert stream.model == OPENROUTER
+    assert [claude_recorder.body(index)["inference_geo"] for index in (0, 1)] == ["us", "us"]
+    assert "cache_control" in claude_recorder.body(1)
+    for index in (0, 1):
+        assert "inference_geo" not in openrouter_recorder.requests[index].content.decode()
+        assert openrouter_recorder.body(index)["provider"] == {"data_collection": "deny"}

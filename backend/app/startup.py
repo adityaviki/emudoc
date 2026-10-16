@@ -18,7 +18,7 @@ import os
 import tempfile
 from collections.abc import Mapping
 
-from app.config import BUNDLED_LIBPQ, Settings, export_env_file, model_provider
+from app.config import AGENT, BUNDLED_LIBPQ, INDEX, Settings, export_env_file, model_provider
 from app.db import check_schema
 from app.embeddings import Embedder, EmbeddingError
 from app.indexing.pipeline import Services
@@ -34,6 +34,11 @@ from app.storage import Storage, check_versions, report_encryption, storage_from
 
 log = logging.getLogger(__name__)
 
+# What stops while a role's model cannot answer and nothing takes its place.
+UNANSWERED = {
+    INDEX: "no document gets its summaries, facts or scanned pages read",
+    AGENT: "no question is answered",
+}
 # What a model's address and the bucket's carry, for the sentences that refuse plain HTTP.
 MODEL_READS = "the documents and the questions the model reads"
 BUCKET_HOLDS = "every upload, and every page image a browser opens,"
@@ -133,14 +138,37 @@ def warn_about_trust_store(settings: Settings, environ: Mapping[str, str]) -> No
 
 
 def check_model(settings: Settings, llm: LLM) -> None:
-    """In production, refuse to start without a usable model, unless it was switched off.
+    """In production, refuse to start without a usable model, unless it was switched off, and
+    say which models do the work and which take it over.
 
     Development runs without one, with summaries, facts and the Ask tab off (README, "What
     works without what"). A deployment that silently offered that much less is misconfigured,
-    not degraded, so it stops at once with the key to set. A model whose provider the operator
-    switched off (DISABLED_PROVIDERS, app/llm.py) is the one exception: the switch exists to
-    stop the spending while the app keeps serving, so the process starts and says what is off.
+    not degraded, so it stops at once with the key to set; a fallback that cannot be set up is
+    refused as its primary would be, since it would be found out at the first outage. A model
+    whose provider the operator switched off (DISABLED_PROVIDERS, app/llm.py) is the one
+    exception: the switch exists to stop the spending while the app keeps serving, so the
+    process starts and says what is off. The models are built, not asked: an answer at every
+    start of every replica would cost tokens, and an outage of the first model would hold a
+    release its fallback could serve. `python -m app.maintenance models` asks them
+    (app/trial.py).
     """
+    for role, work in ((INDEX, "Documents are indexed"), (AGENT, "Questions are answered")):
+        primary, *fallbacks = settings.models_for(role)
+        if fallbacks:
+            log.info(
+                "%s by %s, and by %s when it cannot answer", work, primary.name, fallbacks[0].name
+            )
+        else:
+            log.info("%s by %s", work, primary.name)
+            if settings.environment == "production":
+                log.warning(
+                    "%s has no fallback, so while %s is down, refuses the key or has been "
+                    "retired, %s; set %s_FALLBACK_MODEL, best to a model of another provider.",
+                    primary.variable,
+                    primary.name,
+                    UNANSWERED[role],
+                    primary.variable.removesuffix("_MODEL"),
+                )
     if settings.environment != "production":
         return
     try:
@@ -200,10 +228,7 @@ def check_transport(settings: Settings, storage: Storage, environ: Mapping[str, 
         return
     problems = []
     # One sentence per variable: OPENAI_BASE_URL serves three prefixes.
-    variables = {
-        MODEL_BASE_URLS.get(model_provider(name)): None
-        for name in (settings.index_model, settings.agent_model)
-    }
+    variables = {MODEL_BASE_URLS.get(model_provider(model.name)): None for model in settings.models}
     for variable in filter(None, variables):
         url = environ.get(variable, "")
         if problem := plain_http_problem(variable, url, MODEL_READS):

@@ -124,7 +124,7 @@ def run_agent(
             yield {"type": "error", "message": str(error)}
             return
 
-        usage.add(response.usage)
+        usage.add(stream.model, response.usage)
 
         if response.finish_reason == "content_filter":
             yield {
@@ -210,7 +210,7 @@ def run_agent(
 
     # What the answer used, as its row will show it once the run has recorded it, so a
     # follower shows the same line at once.
-    yield {"type": "done", "usage": usage.spent(get_settings().agent_model)}
+    yield {"type": "done", "usage": usage.spent()}
 
 
 def _chat_message(message: dict[str, str]) -> ModelMessage:

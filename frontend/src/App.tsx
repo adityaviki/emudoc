@@ -218,6 +218,11 @@ function VerifyBanner({ me }: { me: Me }) {
   )
 }
 
+/** A model and the one asked when it cannot answer: "a (b when it cannot)". */
+function withFallback(model: string, fallback: string | null) {
+  return fallback ? `${model} (${fallback} when it cannot)` : model
+}
+
 /** Shows whether the two optional services, the AI model and embeddings, are usable. */
 function ServiceStatus() {
   const { data } = useStatus()
@@ -227,7 +232,7 @@ function ServiceStatus() {
       label: 'AI model',
       ok: data.llm.available,
       detail: data.llm.available
-        ? `Answers with ${data.llm.agent_model}, indexes with ${data.llm.index_model}`
+        ? `Answers with ${withFallback(data.llm.agent_model, data.llm.agent_fallback_model)}, indexes with ${withFallback(data.llm.index_model, data.llm.index_fallback_model)}`
         : `${data.llm.error ?? 'Not configured.'} Then restart the backend to get answers, summaries and facts.`,
     },
     {

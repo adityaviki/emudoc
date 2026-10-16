@@ -203,7 +203,8 @@ most once a minute for it, so an endpoint that comes back shows within the minut
 press "Run the model on them" in the Documents tab to enrich what was indexed without it.
 `DISABLED_PROVIDERS` switches a provider's models off on purpose, with the same effect and the
 reason shown in the header, and the same button enriches what was indexed meanwhile once it is
-lifted. Running without the model is for development: with `ENVIRONMENT=production` the
+lifted; a fallback of another provider (`AGENT_FALLBACK_MODEL`, `INDEX_FALLBACK_MODEL`, below)
+does the work meanwhile instead. Running without the model is for development: with `ENVIRONMENT=production` the
 backend refuses to start until the key is in the environment, unless the model was switched
 off that way. The same goes for the embeddings: production refuses to start without
 `EMBEDDING_BASE_URL`, or with an endpoint that turns the start's request down, and starts with a
@@ -271,7 +272,8 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   in `PRICE_CURRENCY` by the costs `MODEL_PRICES` gives; `0`, the default, is no limit. Past
   it every question is refused with 503 until midnight UTC and every indexing stage that needs
   a model waits for it. The limit per organisation is its plan's. Production refuses the cap
-  without `MODEL_PRICES`, since it would count nothing.
+  without a price in `MODEL_PRICES` for every model named, fallbacks included, since what a
+  model without one answers would count nothing.
 - `DISABLED_PROVIDERS` is the kill switch: the model providers switched off, by the prefix of a
   `provider:model` name, separated by commas (`google,anthropic`). A model of a provider named
   here cannot be used until the name is removed and the backend and the worker restarted;
@@ -373,8 +375,11 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   document with more fails before a page is read, with a message that says to split it; `0`
   removes the limit.
 - `AGENT_MODEL` and `INDEX_MODEL` name the AI models as `provider:model`. Both default to
-  `google:gemini-2.5-flash-lite`. Indexing is the high-volume side and the agent answers
-  questions, so the two can differ, even across providers. The index model is sent the text
+  `google:gemini-3.5-flash-lite`, Google's model for new projects (since September 2026 Google
+  serves Gemini 2.5 only to accounts that used it before). Indexing is the high-volume side and
+  the agent answers questions, so the two can differ, even across providers. Production refuses
+  to run on the default, and on an alias its provider moves to a newer model when it likes
+  (`gemini-flash-latest`, `chatgpt-4o-latest`): a deployment names the version it tried. The index model is sent the text
   and the scanned pages of every document, the agent each question and the passages it reads,
   so a deployment uses providers whose terms forbid training on them (`deploying.md` says
   where each provider stands). Production refuses `google:` models, the Gemini Developer API,
@@ -389,6 +394,19 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   its project. To switch models, change these lines and restart. [Pydantic
   AI](https://pydantic.dev/docs/ai/models/overview/) makes the requests, so any model it
   supports can be named.
+- `AGENT_FALLBACK_MODEL` and `INDEX_FALLBACK_MODEL` name the model asked when the first cannot
+  answer: its provider is down, overloaded or out of reach, refuses the key or the account, no
+  longer serves the model, or is switched off with `DISABLED_PROVIDERS`. Not for a request the
+  provider refused or a reply that took too long. The process logs each time it falls back and
+  asks the fallback first for the next minute; what the fallback answered is counted under its
+  own name and price. Best one of another provider, with its key: it is sent what the first is,
+  so it is a subprocessor held to the same region, terms and prices, and a production start
+  refuses one it cannot set up and warns about a kind of work without one.
+  `uv run python -m app.maintenance models` (in `backend/`) asks every model named, fallbacks
+  included, what the app asks of it (two facts of a note, the number on a drawn scan, a call
+  to one of the agent's tools) and exits with 1 when one fails: the start only builds the
+  models, so this is how a fallback is tried before it is needed (`deploying.md`, "The
+  models", which also lists where each provider announces the models it retires).
 - `AGENT_EFFORT` and `INDEX_EFFORT` set how hard a model thinks, for models that can.
 - `AGENT_MAX_TURNS` is how many rounds of tool calls one answer may make, 12 by default; an
   answer that needs more stops with what it has and says so. Each round is a model request,
@@ -554,7 +572,8 @@ backend/app/
   api/          HTTP endpoints
   headers.py    the headers every response carries for the browser
   answers.py    an answer as a job: the worker writes its events, the API streams them
-  llm.py        every call to the AI model
+  llm.py        every call to the AI model, and the fallback when the first model cannot answer
+  trial.py      the models command: each model asked what the app asks of it
 backend/migrations/
                 the database schema as Alembic migrations, one file per change
 frontend/src/

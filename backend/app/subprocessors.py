@@ -22,7 +22,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from app.config import Settings, model_provider
+from app.config import AGENT, INDEX, Settings, model_provider
 from app.network import MODEL_BASE_URLS, host_of, on_own_network
 from app.oidc import providers
 from app.residency import Place, bucket_place, endpoint_place, model_place
@@ -83,6 +83,18 @@ ANSWERING = (
     "Questions, the project's name and description, and the passages, facts and outlines read "
     "to answer them.",
 )
+# A fallback (app/llm.py) does the same work, only when the model that usually does cannot.
+INDEXING_FALLBACK = (
+    "Reads documents to index them when the model that usually does cannot: it infers their "
+    "sections, writes summaries, pulls out facts, and transcribes scanned pages and images.",
+    INDEXING[1],
+)
+ANSWERING_FALLBACK = (
+    "Answers the questions asked in the Ask tab when the model that usually does cannot.",
+    ANSWERING[1],
+)
+ROLES = {INDEX: INDEXING, AGENT: ANSWERING}
+FALLBACK_ROLES = {INDEX: INDEXING_FALLBACK, AGENT: ANSWERING_FALLBACK}
 # OpenRouter passes each request on to a provider of the model, chosen under DATA_POLICY
 # (app/llm.py), and the reader should know there is a second company behind it.
 FORWARDED = (
@@ -171,14 +183,16 @@ def subprocessors(
 
 
 def _models(settings: Settings, environ: Mapping[str, str]) -> list[Subprocessor]:
-    """One entry per company behind INDEX_MODEL and AGENT_MODEL, both roles in one entry when
-    a company serves both."""
+    """One entry per company behind the models, fallbacks included, which are sent what their
+    primaries are; both roles in one entry when a company serves both."""
     roles: dict[str, list[tuple[str, str]]] = {}
     places: dict[str, list[str]] = {}
     # Only the openrouter: adapter sends the data policy; another prefix pointed at OpenRouter's
     # address reaches it without one, and the page must not say otherwise.
     forwarded: dict[str, bool] = {}
-    for model, role in ((settings.index_model, INDEXING), (settings.agent_model, ANSWERING)):
+    for setting in settings.models:
+        model, usual = setting.name, ROLES[setting.role]
+        role = FALLBACK_ROLES[setting.role] if setting.fallback else usual
         prefix = model_provider(model)
         if (variable := MODEL_BASE_URLS.get(prefix)) and (url := environ.get(variable)):
             name = _company(url)
@@ -186,8 +200,10 @@ def _models(settings: Settings, environ: Mapping[str, str]) -> list[Subprocessor
             name = MODEL_PROVIDERS.get(prefix, prefix)
         if not name:
             continue
-        if role not in roles.setdefault(name, []):
-            roles[name].append(role)
+        # The primaries come first, so a company that does a kind of work anyway is not also
+        # said to stand in for itself.
+        if role not in (served := roles.setdefault(name, [])) and usual not in served:
+            served.append(role)
         # Two models of one company may run in different places, such as two Bedrock profiles.
         where = _where(model_place(model, settings.data_region, environ))
         if where and where not in places.setdefault(name, []):

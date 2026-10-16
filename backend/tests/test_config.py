@@ -9,12 +9,16 @@ from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from app.config import (
+    AGENT,
     BACKEND_DIR,
+    DEFAULT_MODEL,
     MISSING_DATABASE,
     ROOT_DIR,
     ModelPrice,
+    Settings,
     get_settings,
     load_settings,
 )
@@ -151,12 +155,18 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "SSL_CERT_FILE",
         "SSL_CERT_DIR",
         "PGSSLROOTCERT",
+        "AGENT_MODEL",
+        "INDEX_MODEL",
+        "AGENT_FALLBACK_MODEL",
+        "INDEX_FALLBACK_MODEL",
     ):
         monkeypatch.delenv(name, raising=False)
     return {
         "_env_file": None,
         "environment": "production",
         "database_url": A_DATABASE,
+        "agent_model": "google:gemini-2.5-flash-lite",
+        "index_model": "google:gemini-2.5-flash-lite",
         "storage_url": (tmp_path / "data").as_uri(),
         "app_url": "https://emudoc.example.com",
         "smtp_url": "smtp://mailer:secret@smtp.example.com:587",
@@ -257,6 +267,17 @@ def test_a_spend_cap_without_prices_is_refused_in_production(deployment):
 
     deployment["model_prices"] = "google:gemini-2.5-flash-lite=0.10/0.40"
     assert load_settings(**deployment).daily_spend_cap_micros == 5_000_000
+    # A model without a price, a fallback's included, would answer outside the cap.
+    deployment["agent_fallback_model"] = "anthropic:claude-haiku-5-5"
+    with pytest.raises(SystemExit) as stop:
+        load_settings(**deployment)
+    assert stop.value.code.splitlines()[1] == (
+        "  - DAILY_SPEND_CAP is set, but MODEL_PRICES has no price for AGENT_FALLBACK_MODEL "
+        "anthropic:claude-haiku-5-5, so what it answers would count nothing against the cap; "
+        "add its price."
+    )
+    deployment["model_prices"] += ",anthropic:claude-haiku-5-5=1/5"
+    assert load_settings(**deployment).production_problems() == []
     # Development is told nothing: it runs with whatever it has.
     del deployment["model_prices"]
     assert load_settings(**{**deployment, "environment": "development"}).production_problems() == []
@@ -301,8 +322,14 @@ def test_production_takes_gemini_s_developer_api_only_on_the_paid_tier(deploymen
     with pytest.raises(SystemExit) as stop:
         load_settings(**deployment)
     (line,) = stop.value.code.splitlines()[1:]
-    assert "AGENT_MODEL and INDEX_MODEL use the Gemini Developer API" in line
+    assert "INDEX_MODEL and AGENT_MODEL use the Gemini Developer API" in line
     assert "set GOOGLE_PAID_TIER=true, or use Vertex AI as google-cloud:<model>" in line
+    # A fallback is sent what its primary is.
+    deployment["agent_fallback_model"] = "google:gemini-3.5-flash-lite"
+    with pytest.raises(SystemExit) as stop:
+        load_settings(**deployment)
+    assert "INDEX_MODEL, AGENT_MODEL and AGENT_FALLBACK_MODEL use the Gemini" in stop.value.code
+    del deployment["agent_fallback_model"]
 
     deployment["agent_model"] = "anthropic:claude-opus-5-5"
     with pytest.raises(SystemExit) as stop:
@@ -316,6 +343,70 @@ def test_production_takes_gemini_s_developer_api_only_on_the_paid_tier(deploymen
     deployment.update(index_model="google:gemini-2.5-flash-lite", disabled_providers="google")
     with pytest.raises(SystemExit):
         load_settings(**deployment)
+
+
+def test_production_runs_only_on_the_models_it_names(deployment):
+    # The default moves with the code, and its provider retires it when it likes: Google kept
+    # Gemini 2.5 from new accounts in September 2026.
+    del deployment["agent_model"]
+    with pytest.raises(SystemExit) as stop:
+        load_settings(**deployment)
+    (line,) = stop.value.code.splitlines()[1:]
+    assert line == (
+        "  - AGENT_MODEL is not set, so the deployment would run on the default, "
+        f"{DEFAULT_MODEL}, which a release of the app may change and its provider may stop "
+        "serving on a schedule of its own; name the model the deployment was tried with, as "
+        "provider:model, and try it with `python -m app.maintenance models`."
+    )
+    deployment["index_model"] = " "
+    with pytest.raises(SystemExit, match="INDEX_MODEL and AGENT_MODEL are not set"):
+        load_settings(**deployment)
+    # Named, even as the default itself, it is the operator's choice.
+    deployment.update(index_model=DEFAULT_MODEL, agent_model=DEFAULT_MODEL)
+    assert load_settings(**deployment).production_problems() == []
+    del deployment["agent_model"]
+    assert load_settings(**{**deployment, "environment": "development"}).production_problems() == []
+
+
+@pytest.mark.parametrize(
+    "alias",
+    [
+        "google:gemini-flash-latest",
+        "openai:chatgpt-4o-latest",
+        "anthropic:claude-3-7-sonnet-latest",
+        "ollama:qwen3:latest",
+        "openrouter:openrouter/auto",
+    ],
+)
+def test_production_refuses_a_model_its_provider_moves(deployment, alias):
+    # Behind an alias the provider puts a newer model when it likes, with other prices, other
+    # places and other answers, and no release of the deployment.
+    deployment["agent_fallback_model"] = alias
+    with pytest.raises(SystemExit) as stop:
+        load_settings(**deployment)
+    (line,) = stop.value.code.splitlines()[1:]
+    assert line.startswith(f"  - AGENT_FALLBACK_MODEL is {alias}, an alias its provider moves")
+    assert line.endswith(
+        "name the version the alias points to now, from the provider's list of models."
+    )
+    assert load_settings(**{**deployment, "environment": "development"}).agent_fallback_model
+
+
+def test_a_fallback_is_another_model():
+    with pytest.raises(ValidationError, match="INDEX_FALLBACK_MODEL names INDEX_MODEL's own model"):
+        Settings(
+            _env_file=None,
+            index_model="anthropic:claude-haiku-5-5",
+            index_fallback_model=" anthropic:claude-haiku-5-5 ",
+        )
+    settings = Settings(_env_file=None, agent_fallback_model=" anthropic:claude-haiku-5-5 ")
+    assert [(model.variable, model.name) for model in settings.models_for(AGENT)] == [
+        ("AGENT_MODEL", "google:gemini-2.5-flash-lite"),
+        ("AGENT_FALLBACK_MODEL", "anthropic:claude-haiku-5-5"),
+    ]
+    # Without fallbacks the primaries are all there is, blank or not.
+    blank = Settings(_env_file=None, index_model="")
+    assert [model.variable for model in blank.models] == ["INDEX_MODEL", "AGENT_MODEL"]
 
 
 def test_production_sends_nothing_off_its_own_network_unencrypted(
@@ -538,6 +629,35 @@ def test_a_production_start_runs_with_a_switched_off_model(production, monkeypat
     assert status["available"] is False
     assert status["error"].startswith("google:gemini-2.5-flash-lite is switched off:")
     assert "is switched off" in caplog.text and "runs without the model" in caplog.text
+
+
+def test_a_production_start_needs_the_fallback_it_names(production, monkeypatch):
+    # A fallback that cannot be set up would be found out at the first outage, not before.
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(get_settings(), "agent_fallback_model", "anthropic:claude-haiku-5-5")
+    with pytest.raises(RuntimeError, match="production does not start without it") as error:
+        with TestClient(create_app()):
+            pass
+    assert "Set ANTHROPIC_API_KEY in the environment to use anthropic:claude-haiku-5-5" in str(
+        error.value
+    )
+
+
+def test_a_production_start_with_a_switched_off_model_runs_on_its_fallback(
+    production, monkeypatch, caplog
+):
+    # The switch and the fallback together keep the app answering while the bill is stopped.
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(get_settings(), "disabled_providers", "google")
+    monkeypatch.setattr(get_settings(), "agent_fallback_model", "anthropic:claude-haiku-5-5")
+    monkeypatch.setattr(get_settings(), "index_fallback_model", "anthropic:claude-haiku-5-5")
+    with caplog.at_level("WARNING", logger="app.startup"):
+        with TestClient(create_app()) as client:
+            status = client.get("/api/status").json()["llm"]
+    assert status["available"] is True and status["error"] is None
+    assert "runs without the model" not in caplog.text
 
 
 def test_the_interactive_api_docs_are_served_in_development_only(client, services, production):

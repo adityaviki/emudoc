@@ -42,7 +42,7 @@ from decimal import Decimal
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from app.config import Settings, get_settings
+from app.config import Settings, get_settings, listing
 from app.db import MIGRATION_LOCK, SessionLocal
 from app.entitlements import MONTHS, PLANS, entitlements_of
 from app.mail import Mailer
@@ -124,12 +124,21 @@ def when(moment: datetime) -> str:
 
 def warn_without_prices(settings: Settings) -> None:
     """Say, at a production start, that the plans' daily limits count nothing without
-    MODEL_PRICES; the platform's limit without them is refused outright (app/config.py)."""
+    MODEL_PRICES, or nothing of a model it has no price for, a fallback's included; the
+    platform's limit is refused outright in either case (app/config.py)."""
     limited = any(plan.daily_spend_micros is not None for plan in PLANS.values())
-    if settings.environment == "production" and limited and not settings.model_prices:
+    if settings.environment != "production" or not limited:
+        return
+    if not settings.model_prices:
         log.warning(
             "MODEL_PRICES is not set: no cost is recorded, so the plans' daily spending limits "
             "count nothing. List what each model costs per million tokens in and out."
+        )
+    elif unpriced := settings.unpriced_models:
+        log.warning(
+            "MODEL_PRICES has no price for %s, so what it answers counts nothing against the "
+            "plans' daily spending limits; add its price.",
+            listing(unpriced),
         )
 
 

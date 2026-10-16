@@ -39,7 +39,6 @@ from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
 from app.agent.loop import run_agent
-from app.config import get_settings
 from app.db import BUSY, SessionLocal
 from app.indexing.pipeline import Services
 from app.jobs import ANSWER_QUESTION, LIVE, Lease, LeaseLost, enqueue, renew
@@ -348,14 +347,16 @@ def _charge(session: Session, usage: ModelUsage, message_id: int, payer: dict[st
         return
     session.rollback()
     try:
-        record(
-            session,
-            **payer,
-            kind=ANSWER,
-            measures=usage.measures,
-            model=get_settings().agent_model,
-            ref=(CHAT_MESSAGE, message_id),
-        )
+        # Each model's calls at its own price: a fallback may have answered some turns.
+        for model, calls in usage.models.items():
+            record(
+                session,
+                **payer,
+                kind=ANSWER,
+                measures=calls.measures,
+                model=model,
+                ref=(CHAT_MESSAGE, message_id),
+            )
         session.commit()
     except PoolTimeout:
         log.warning(

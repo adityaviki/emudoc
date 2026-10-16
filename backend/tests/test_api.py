@@ -409,14 +409,19 @@ def test_health_says_only_that_the_app_is_up(client):
     assert client.get("/api/health").json() == {"status": "ok"}
 
 
-def test_status_reports_what_is_missing(client, services):
+def test_status_reports_what_is_missing(client, services, monkeypatch):
     health = client.get("/api/status").json()
     assert health["llm"] == {
         "available": True,
         "agent_model": "google:gemini-2.5-flash-lite",
         "index_model": "google:gemini-2.5-flash-lite",
+        "agent_fallback_model": None,
+        "index_fallback_model": None,
         "error": None,
     }
+    monkeypatch.setattr(get_settings(), "agent_fallback_model", "anthropic:claude-haiku-5-5")
+    health = client.get("/api/status").json()
+    assert health["llm"]["agent_fallback_model"] == "anthropic:claude-haiku-5-5"
     assert health["embeddings"]["ok"] is True
     # The currency the costs on usage are in (PRICE_CURRENCY).
     assert health["currency"] == "USD"

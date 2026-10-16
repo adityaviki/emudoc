@@ -443,6 +443,10 @@ class LLMStatus(BaseModel):
     available: bool
     agent_model: str
     index_model: str
+    # What is asked when the model above cannot answer (AGENT_FALLBACK_MODEL,
+    # INDEX_FALLBACK_MODEL); None without one.
+    agent_fallback_model: str | None
+    index_fallback_model: str | None
     error: str | None
 
 

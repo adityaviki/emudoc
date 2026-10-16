@@ -145,7 +145,15 @@ export interface SearchResult {
 }
 
 export interface SystemStatus {
-  llm: { available: boolean; agent_model: string; index_model: string; error: string | null }
+  llm: {
+    available: boolean
+    agent_model: string
+    index_model: string
+    /** What is asked when the model before it cannot answer; null without one. */
+    agent_fallback_model: string | null
+    index_fallback_model: string | null
+    error: string | null
+  }
   embeddings: { ok: boolean; model: string; error: string | null }
   /** The currency the costs on usage are in, an ISO 4217 code. */
   currency: string

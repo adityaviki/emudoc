@@ -4,6 +4,7 @@ import threading
 import time
 
 import httpx
+from pydantic_ai.usage import RunUsage
 
 from app.config import Settings
 from app.errors import AppError, provider_codes
@@ -141,8 +142,9 @@ class Embedder:
                 f"{self.model} returns {len(vectors[0])}-dimensional vectors but EMBEDDING_DIM "
                 f"is {self.dim}."
             )
-        if usage is not None:
-            usage.input_tokens += _tokens(body)
+        if usage is not None and (tokens := _tokens(body)):
+            # Tokens without a model call: an embedding is priced for what it was sent alone.
+            usage.add(self.model, RunUsage(input_tokens=tokens))
         return vectors
 
 

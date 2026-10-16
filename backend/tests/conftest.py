@@ -88,6 +88,7 @@ os.environ["STORAGE_URL"] = STORAGE_ROOT.as_uri()
 # Pinned, so the tests do not follow whichever models the developer's .env selects. The
 # embedding size is the one `FakeEmbedder` produces and the migrations size the column by.
 os.environ["AGENT_MODEL"] = os.environ["INDEX_MODEL"] = "google:gemini-2.5-flash-lite"
+os.environ["AGENT_FALLBACK_MODEL"] = os.environ["INDEX_FALLBACK_MODEL"] = ""
 os.environ["EMBEDDING_MODEL"] = "nomic-embed-text"
 os.environ["EMBEDDING_DIM"] = "768"
 # Nothing listens there: an app built with its real services finds the endpoint down at once,
@@ -111,7 +112,7 @@ from pydantic_ai.messages import (  # noqa: E402
     PartStartEvent,
     ToolCallPart,
 )
-from pydantic_ai.usage import RequestUsage  # noqa: E402
+from pydantic_ai.usage import RequestUsage, RunUsage  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
 from app.accounts import Account, local_account  # noqa: E402
@@ -173,7 +174,7 @@ class FakeEmbedder:
     def embed_documents(self, texts: list[str], usage=None) -> list[list[float]]:
         vectors = [self._vector(text_) for text_ in texts]
         if usage is not None:
-            usage.input_tokens += self.TOKENS_PER_TEXT * len(texts)
+            usage.add(self.model, RunUsage(input_tokens=self.TOKENS_PER_TEXT * len(texts)))
         return vectors
 
     def embed_query(self, text_: str) -> list[float]:
@@ -218,8 +219,9 @@ class FakeLLM:
         if self.failure is not None:
             raise self.failure
         if usage is not None:
-            # Every indexing request costs the same here, like every agent turn (`FakeTurn`).
-            usage.add(RequestUsage(input_tokens=10, output_tokens=5))
+            # Every indexing request costs the same here, like every agent turn (`FakeTurn`),
+            # and is answered by INDEX_MODEL.
+            usage.add(get_settings().index_model, RequestUsage(input_tokens=10, output_tokens=5))
         if schema is OcrPage:
             return OcrPage(
                 blocks=[
@@ -635,6 +637,11 @@ class FakeTurn:
 
     def __exit__(self, *exc):
         return False
+
+    @property
+    def model(self) -> str:
+        """The model that answered the turn, as `ModelStream.model` names it: AGENT_MODEL."""
+        return get_settings().agent_model
 
     def __iter__(self):
         for index, part in enumerate(self.parts):

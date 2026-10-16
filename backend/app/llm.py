@@ -18,6 +18,18 @@ two providers that let a request choose: OpenRouter is reached at the region's o
 (`openrouter_url`), which sends a request only to providers in the region, and Claude is told to
 run in the US when that is the region (`inference_geo`). The other providers are placed by their
 own settings, which the start-up checks read.
+
+Each kind of work may have a fallback (AGENT_FALLBACK_MODEL, INDEX_FALLBACK_MODEL): the model
+asked when the first cannot answer because its provider is down, overloaded or out of reach, or
+refuses the key, the account or the model itself, as it does a model it retired (`_falls_back`).
+It is not asked when the request was refused, since another model would refuse it too or it
+hides a fault of the app's, nor when a reply took too long. A model that failed so is asked
+after its fallback for PASS_OVER_SECONDS, so that a provider that is down costs one request a
+minute its retries rather than every request. Each model is asked with the settings of its own
+provider (Claude's `inference_geo` goes to Claude alone), which is why the app tries them itself
+rather than through Pydantic AI's FallbackModel, which sends one set to all. What a fallback
+answered is counted under its own name and price (app/usage.py), and is logged with what made
+the first model fail.
 """
 
 import asyncio
@@ -59,8 +71,9 @@ from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.google_cloud import GoogleCloudProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.tools import ToolDefinition
+from pydantic_ai.usage import RunUsage
 
-from app.config import Settings, model_provider
+from app.config import AGENT, INDEX, ModelSetting, Settings, model_provider
 from app.errors import AppError, provider_codes
 from app.usage import ModelUsage
 
@@ -84,6 +97,12 @@ STREAM_STALL = 60
 GOOGLE_ATTEMPTS = 3
 # The statuses a provider answers with when it, not the request, is the problem for the moment.
 TRANSIENT_STATUSES = {408, 429}
+# The statuses by which a provider refuses the key, the account or the model rather than the
+# request (a model it retired is not found): another model, best another provider's, may well
+# answer what this one will not, so a fallback is asked.
+REFUSALS = frozenset({401, 402, 403, 404})
+# How long, in seconds, a model that failed in a way that asks its fallback is asked after it.
+PASS_OVER_SECONDS = 60
 # What OpenRouter is told about where it may send a request: only to providers of the model that
 # keep no data and train on none (OpenRouter's `data_collection`). Its default allows providers
 # that store prompts and may train on them; a model that no such provider serves fails with
@@ -150,7 +169,10 @@ def describe_error(error: Exception) -> str:
         elif status == 403:
             message = f"This API key is not allowed to use {model}."
         elif status == 404:
-            message = f"The model {model} was not found. Check AGENT_MODEL and INDEX_MODEL."
+            message = (
+                f"The model {model} was not found, or is served no longer. Check AGENT_MODEL, "
+                "INDEX_MODEL and their fallbacks."
+            )
         elif status == 402 or NO_CREDIT & set(codes):
             message = f"The account that pays for {model} has no credit left."
         elif status == 429:
@@ -171,23 +193,64 @@ def describe_error(error: Exception) -> str:
     return "The model request failed unexpectedly."
 
 
-def _failure(error: Exception) -> LLMError:
+def _failure(error: Exception, earlier: Sequence[Exception] = ()) -> LLMError:
     """The app's error for a failed request. The log gets the same sentence and the kind of
     error, and the traceback of an unexpected one without its message (app/logs.py): the
     message of a malformed reply carries the reply, and a provider's body may echo the request.
+
+    `earlier` holds what the models asked before failed with, each logged as its fallback was
+    asked (`LLM._fell_back`). The error then says every model's failure, in the order they were
+    asked, and is transient when any was: the model that is down for now may answer the next
+    attempt, though its fallback refused the key.
     """
-    if isinstance(error, LLMError):
+    if not isinstance(error, LLMError):
+        expected = isinstance(error, ModelAPIError | UnexpectedModelBehavior | UserError)
+        expected = expected or _timed_out(error)
+        log.warning(
+            "Model request failed (%s): %s",
+            type(error).__name__,
+            describe_error(error),
+            exc_info=None if expected else error,
+        )
+    failures = [*earlier, error]
+    if len(failures) == 1 and isinstance(error, LLMError):
         return error
-    expected = isinstance(error, ModelAPIError | UnexpectedModelBehavior | UserError)
-    expected = expected or _timed_out(error)
-    message = describe_error(error)
-    log.warning(
-        "Model request failed (%s): %s",
-        type(error).__name__,
-        message,
-        exc_info=None if expected else error,
-    )
-    return LLMError(message, transient=_transient(error))
+    message = " ".join(_said(failure) for failure in failures)
+    transient = any(_passing(failure) for failure in failures)
+    # Every model could not be set up or is switched off: the work is unavailable, as for one.
+    unavailable = all(isinstance(failure, LLMUnavailable) for failure in failures)
+    return (LLMUnavailable if unavailable else LLMError)(message, transient=transient)
+
+
+def _said(error: Exception) -> str:
+    """The sentence a failure is told by: the app's own error says it, a provider's is
+    described (`describe_error`)."""
+    return str(error) if isinstance(error, LLMError) else describe_error(error)
+
+
+def _passing(error: Exception) -> bool:
+    return error.transient if isinstance(error, LLMError) else _transient(error)
+
+
+def _falls_back(error: Exception) -> bool:
+    """Whether the next model is asked the request this error ended: the model could not be
+    set up or is switched off, or its provider was down, overloaded or out of reach, or refused
+    the key, the account or the model, as it does a model it retired. Not for a request it
+    refused (a 400 and the like, a content filter, a reply that would not validate), which the
+    next model would refuse too or which hides a fault of the app's, nor for one that took too
+    long, as a document too large for the time would on the next model as well."""
+    if isinstance(error, LLMUnavailable):
+        return True
+    if _timed_out(error):
+        return False
+    if isinstance(error, ModelHTTPError):
+        codes = set(provider_codes(error.body))
+        return (
+            _transient(error)
+            or error.status_code in REFUSALS
+            or bool((KEY_REJECTED | NO_CREDIT) & codes)
+        )
+    return isinstance(error, ModelAPIError)
 
 
 def _transient(error: Exception) -> bool:
@@ -324,30 +387,38 @@ def _submit[R](coroutine: Coroutine[Any, Any, R]) -> Future[R]:
 
 
 _END = object()
+# A model ready for a turn with its settings, or what stops it from being used.
+type _Prepared = tuple[Model, dict[str, Any]] | LLMUnavailable
 
 
 class ModelStream:
     """One streamed model turn: a context manager to iterate for events, then ask for `response()`.
 
     The request runs on the model loop and passes its events through a queue, so the stream
-    can be read from any thread, even a different one for each event.
+    can be read from any thread, even a different one for each event. The models are asked in
+    turn while each fails before its first event in a way that asks the next (`_falls_back`);
+    once one has sent an event, the turn is its own, since what it sent may have been shown.
+    `model` then names the one that answered, as the settings name it.
     """
 
     def __init__(
         self,
-        model: Model,
+        llm: "LLM",
+        candidates: Sequence[tuple[ModelSetting, "_Prepared"]],
         messages: Sequence[ModelMessage],
-        settings: dict[str, Any],
         parameters: ModelRequestParameters,
     ):
-        self._model = model
+        self._llm = llm
+        self._candidates = list(candidates)
         self._messages = list(messages)
-        self._settings = settings
         self._parameters = parameters
         self._events: queue.SimpleQueue[Any] = queue.SimpleQueue()
         self._future: Future[ModelResponse] | None = None
         self._deadline = 0.0
         self._ended = False
+        # What the models asked before the last one failed with, for the error that says all.
+        self._failures: list[Exception] = []
+        self.model: str | None = None
 
     def __enter__(self) -> "ModelStream":
         self._deadline = time.monotonic() + AGENT_TIMEOUT
@@ -392,19 +463,36 @@ class ModelStream:
         try:
             return self._future.result()
         except Exception as error:
-            raise _failure(error) from error
+            raise _failure(error, self._failures) from error
 
     async def _pump(self) -> ModelResponse:
         try:
-            async with model_request_stream(
-                self._model,
-                self._messages,
-                model_settings=self._settings,
-                model_request_parameters=self._parameters,
-            ) as stream:
-                async for event in stream:
-                    self._events.put(event)
-                return stream.get()
+            for position, (candidate, prepared) in enumerate(self._candidates):
+                sent = False
+                try:
+                    if isinstance(prepared, LLMUnavailable):
+                        raise prepared
+                    model, settings = prepared
+                    async with model_request_stream(
+                        model,
+                        self._messages,
+                        model_settings=settings,
+                        model_request_parameters=self._parameters,
+                    ) as stream:
+                        async for event in stream:
+                            sent = True
+                            self._events.put(event)
+                        response = stream.get()
+                except Exception as error:
+                    following = self._candidates[position + 1 : position + 2]
+                    if sent or not following or not _falls_back(error):
+                        raise
+                    self._failures.append(error)
+                    self._llm._fell_back(candidate, error, following[0][0])
+                    continue
+                self.model = candidate.name
+                return response
+            raise LLMUnavailable("No model is set for answering; set AGENT_MODEL.")
         finally:
             self._events.put(_END)
 
@@ -413,14 +501,29 @@ class LLM:
     def __init__(self, settings: Settings):
         self._settings = settings
         self._models: dict[str, Model] = {}
+        # Until when each model that failed in a way that asks its fallback is asked after it
+        # (`time.monotonic`), shared by every thread of the process.
+        self._passed_over: dict[str, float] = {}
         self._lock = threading.Lock()
 
     def check(self) -> None:
-        """Raise `LLMUnavailable` with what stops the configured models from being used: a
-        key or a package that is missing, or a provider that is switched off, which the error
-        marks transient."""
-        for name in (self._settings.index_model, self._settings.agent_model):
-            self._model(name)
+        """Raise `LLMUnavailable` with what stops the models from being used: one that cannot
+        be set up (a key or a package missing, a name unknown), whichever work it does, since a
+        fallback that cannot be built is none; or work whose every model is switched off
+        (DISABLED_PROVIDERS), which the error marks transient. A model switched off while its
+        fallback is not stops nothing: the fallback answers."""
+        off: dict[str, LLMUnavailable] = {}
+        for model in self._settings.models:
+            try:
+                self._model(model.name)
+            except LLMUnavailable as error:
+                if not error.transient:
+                    raise
+                off[model.name] = error
+        for role in (INDEX, AGENT):
+            names = [model.name for model in self._settings.models_for(role)]
+            if all(name in off for name in names):
+                raise off[names[0]]
 
     def problem(self) -> str | None:
         """What stops the configured models from being used, or None when nothing does."""
@@ -452,15 +555,64 @@ class LLM:
     def _geo(self, name: str) -> str | None:
         return inference_geo(name, self._settings.data_region)
 
+    def _candidates(self, role: str) -> list[ModelSetting]:
+        """The models for `role`'s work in the order to ask them: as the settings list them,
+        except that one passed over (`_fell_back`) goes after the others, and is still asked
+        when they fail too."""
+        now = time.monotonic()
+        with self._lock:
+            passed = {name for name, until in self._passed_over.items() if until > now}
+        return sorted(self._settings.models_for(role), key=lambda model: model.name in passed)
+
+    def _fell_back(self, model: ModelSetting, error: Exception, following: ModelSetting) -> None:
+        """Say that `model` failed with `error` and `following` is asked instead, and pass
+        `model` over for PASS_OVER_SECONDS."""
+        with self._lock:
+            self._passed_over[model.name] = time.monotonic() + PASS_OVER_SECONDS
+        log.warning(
+            "%s %s failed, so %s %s is asked instead: %s",
+            model.variable,
+            model.name,
+            following.variable,
+            following.name,
+            _said(error),
+        )
+
     def structured(
         self,
         content: str | Sequence[UserContent],
         schema: type[T],
         usage: ModelUsage | None = None,
     ) -> T:
-        """One indexing request whose reply is validated against `schema`. What it cost is
-        added to `usage` once it is answered (app/usage.py)."""
-        model = self._model(self._settings.index_model)
+        """One indexing request whose reply is validated against `schema`, asked of each model
+        for indexing in turn while one fails in a way that asks the next (`_falls_back`). What
+        it cost is added to `usage` once it is answered, under the model that answered
+        (app/usage.py)."""
+        candidates = self._candidates(INDEX)
+        failures: list[Exception] = []
+        for position, candidate in enumerate(candidates):
+            try:
+                output, spent = self._structured(candidate.name, content, schema)
+            except Exception as error:
+                following = candidates[position + 1 : position + 2]
+                if not following or not _falls_back(error):
+                    raise _failure(error, failures) from error
+                failures.append(error)
+                self._fell_back(candidate, error, following[0])
+                continue
+            if usage is not None:
+                # Every request of the run: the provider's reply that failed validation and
+                # was asked again was paid for too.
+                usage.add(candidate.name, spent)
+            return output
+        raise LLMUnavailable("No model is set for indexing; set INDEX_MODEL.")
+
+    def _structured(
+        self, name: str, content: str | Sequence[UserContent], schema: type[T]
+    ) -> tuple[T, RunUsage]:
+        """Ask the model `name` once, as `structured` does, and return the reply with what the
+        run used; raise what the request failed with as it was raised."""
+        model = self._model(name)
         # A provider that can hold its reply to a JSON schema is asked to. For the rest,
         # Pydantic AI requests the schema as a tool call instead.
         constrained = model.profile.get("supports_json_schema_output", False)
@@ -470,7 +622,7 @@ class LLM:
             instructions=INDEX_SYSTEM,
             model_settings=_settings(
                 self._settings.index_effort,
-                self._geo(self._settings.index_model),
+                self._geo(name),
                 max_tokens=INDEX_MAX_TOKENS,
                 timeout=INDEX_TIMEOUT,
             ),
@@ -483,13 +635,7 @@ class LLM:
         except TimeoutError:
             message = f"The model did not answer within {INDEX_TIMEOUT:g} seconds."
             raise _give_up(future, message) from None
-        except Exception as error:
-            raise _failure(error) from error
-        if usage is not None:
-            # Every request of the run: the provider's reply that failed validation and was
-            # asked again was paid for too.
-            usage.add(result.usage)
-        return result.output
+        return result.output, result.usage
 
     def ocr_page(
         self, image: bytes, media_type: str, usage: ModelUsage | None = None
@@ -502,21 +648,32 @@ class LLM:
         self, instructions: str, messages: Sequence[ModelMessage], tools: Sequence[ToolDefinition]
     ) -> ModelStream:
         """Open one streamed agent turn; use as a context manager."""
+        # Built here, on the caller's thread: building a model may read credentials, which
+        # would hold up every other request on the model loop.
         return ModelStream(
-            self._model(self._settings.agent_model),
+            self,
+            [
+                (candidate, self._agent_model(candidate.name))
+                for candidate in self._candidates(AGENT)
+            ],
             messages,
-            # Anthropic caches a prompt prefix only when asked, and the loop resends a growing
-            # one every turn. Other providers ignore the setting. The SDK's timeout is the HTTP
-            # library's, which for a stream is per read, so it is the longest pause allowed; the
-            # whole turn is bounded by `ModelStream`.
-            _settings(
-                self._settings.agent_effort,
-                self._geo(self._settings.agent_model),
-                anthropic_cache=True,
-                timeout=STREAM_STALL,
-            ),
             ModelRequestParameters(
                 function_tools=list(tools),
                 instruction_parts=[InstructionPart(content=instructions)],
             ),
         )
+
+    def _agent_model(self, name: str) -> "_Prepared":
+        """The model `name` and the settings of an agent turn asked of it, or what stops the
+        model from being used, raised when its turn comes (`ModelStream._pump`)."""
+        # Anthropic caches a prompt prefix only when asked, and the loop resends a growing one
+        # every turn. Other providers ignore the setting. The SDK's timeout is the HTTP
+        # library's, which for a stream is per read, so it is the longest pause allowed; the
+        # whole turn is bounded by `ModelStream`.
+        settings = _settings(
+            self._settings.agent_effort, self._geo(name), anthropic_cache=True, timeout=STREAM_STALL
+        )
+        try:
+            return self._model(name), settings
+        except LLMUnavailable as error:
+            return error

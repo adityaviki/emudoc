@@ -18,6 +18,8 @@ DEVELOPMENT = {
     "database_url": "postgresql+psycopg://db.internal/emudoc",
     "index_model": "google:gemini-2.5-flash-lite",
     "agent_model": "google:gemini-2.5-flash-lite",
+    "index_fallback_model": "",
+    "agent_fallback_model": "",
     "embedding_base_url": "http://127.0.0.1:11434/v1",
     "smtp_url": "",
     "hosting_provider": "",
@@ -84,6 +86,23 @@ def test_a_deployment_lists_every_company_it_sends_data_to_in_order():
     assert purposes["Microsoft"] == "Signs in the members who choose to sign in with Microsoft."
     # The relay's password is in its URL; the list names the company, never the URL.
     assert all("secret" not in str(entry) for entry in entries)
+
+
+def test_a_fallback_s_company_is_listed_as_standing_in():
+    # It is sent what its primary is, whenever the primary cannot answer.
+    settings = configured(agent_fallback_model="anthropic:claude-haiku-5-5")
+    gemini, claude = subprocessors(settings, DIRECTORY, {})
+    assert (gemini.name, claude.name) == ("Google (Gemini API)", "Anthropic")
+    assert claude.purpose == (
+        "Answers the questions asked in the Ask tab when the model that usually does cannot."
+    )
+    assert claude.data.startswith("Questions, the project's name and description")
+    # A company that does the work anyway does not stand in for itself.
+    (gemini,) = subprocessors(
+        configured(index_fallback_model="google:gemini-3.5-flash-lite"), DIRECTORY, {}
+    )
+    assert "usually" not in gemini.purpose
+    assert gemini.data.count("The text of documents") == 1
 
 
 def test_services_on_the_deployment_s_own_network_are_not_subprocessors():

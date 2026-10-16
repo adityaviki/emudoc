@@ -77,12 +77,8 @@ _DAILY = text(
 
 
 @dataclass
-class ModelUsage:
-    """The model calls one piece of work made, counted as each was answered.
-
-    The agent loop fills one as it goes (`run_agent` in app/agent/loop.py), so whoever runs
-    the loop has the calls made so far even when the loop is left early.
-    """
+class Calls:
+    """The requests one model answered for one piece of work, and the tokens they took."""
 
     calls: int = 0
     input_tokens: int = 0
@@ -104,34 +100,75 @@ class ModelUsage:
             "output_tokens": self.output_tokens,
         }
 
-    def spent(self, model: str) -> dict[str, Any]:
-        """The calls as the row they were for shows them once recorded: the counts, the
-        model, and their cost by the model's price."""
-        costs = [cost_of(model, unit, quantity) for unit, quantity in self.measures.items()]
-        return {"model": model, **self.measures, "cost_micros": _total(costs)}
+
+@dataclass
+class ModelUsage:
+    """The model calls one piece of work made, by the model that answered each, counted as
+    each was answered.
+
+    By model, since a fallback (app/llm.py) answers the requests its primary could not, at a
+    price of its own, and one run may use both. A model is named as the settings name it
+    (`provider:model`), which is how MODEL_PRICES prices it, never as a reply names it. The
+    agent loop fills one as it goes (`run_agent` in app/agent/loop.py), so whoever runs the
+    loop has the calls made so far even when the loop is left early.
+    """
+
+    models: dict[str, Calls] = field(default_factory=dict)
+
+    def add(self, model: str, usage: RequestUsage | RunUsage) -> None:
+        """Count what `model` answered (`Calls.add`). A run of no requests counts tokens
+        alone, as an embeddings endpoint reports them for texts that are no model call."""
+        self.models.setdefault(model, Calls()).add(usage)
+
+    @property
+    def calls(self) -> int:
+        return sum(spent.calls for spent in self.models.values())
+
+    @property
+    def model(self) -> str | None:
+        """The model that began answering last, which the row the calls were for names once
+        they are recorded (`add` below); None while nothing was answered."""
+        return next(reversed(self.models), None)
+
+    @property
+    def measures(self) -> dict[str, int]:
+        """The counts by unit, summed over the models."""
+        return {
+            unit: sum(spent.measures[unit] for spent in self.models.values())
+            for unit in Calls().measures
+        }
+
+    def spent(self) -> dict[str, Any]:
+        """The calls as the row they were for shows them once recorded: the counts summed,
+        the model that began answering last, and each model's calls priced at its own price,
+        added up."""
+        costs = [
+            cost_of(model, unit, quantity)
+            for model, spent in self.models.items()
+            for unit, quantity in spent.measures.items()
+        ]
+        return {"model": self.model, **self.measures, "cost_micros": _total(costs)}
 
 
 @dataclass
 class _Spent:
-    """What one run spent on one kind: its model calls and whatever else it counted."""
+    """What one run spent on one kind: its model calls, by model, and whatever else it
+    counted, with the model those counts were given with."""
 
-    model: str | None = None
     calls: ModelUsage = field(default_factory=ModelUsage)
     counts: Counter[str] = field(default_factory=Counter)
-
-    @property
-    def measures(self) -> dict[str, int]:
-        return dict(Counter(self.calls.measures) + self.counts)
+    model: str | None = None
 
 
 class Meter:
     """What one piece of work has used so far, by kind, for the rows to write when it ends.
 
-    The pipeline fills one through a document's run (app/indexing/pipeline.py): a stage counts
-    the model calls of a kind into the `ModelUsage` that `calls` hands out, as each is
-    answered, and anything else with `add`; the run writes the rows with `record` at the end
-    of every stage, however the stage ended, so a stage that failed halfway is charged for the
-    calls it made before, and the next stage starts from nothing.
+    The pipeline fills one through a document's run (app/indexing/pipeline.py): a stage hands
+    the `ModelUsage` that `calls` gives out to the model, which counts each request into it
+    under the model that answered, and counts anything else with `add`; the run writes the
+    rows with `record` at the end of every stage, however the stage ended, so a stage that
+    failed halfway is charged for the calls it made before, and the next stage starts from
+    nothing.
     """
 
     def __init__(
@@ -146,31 +183,40 @@ class Meter:
         self._ref = ref
         self._spent: dict[str, _Spent] = {}
 
-    def calls(self, kind: str, model: str) -> ModelUsage:
-        """The accumulator for the model calls of `kind`, which `model` answers."""
-        return self._spent_on(kind, model).calls
+    def calls(self, kind: str) -> ModelUsage:
+        """The accumulator for the model calls of `kind`."""
+        return self._spent.setdefault(kind, _Spent()).calls
 
     def add(self, kind: str, unit: str, quantity: int, model: str | None = None) -> None:
         """Count `quantity` more of `unit` for `kind`."""
-        self._spent_on(kind, model).counts[unit] += quantity
-
-    def _spent_on(self, kind: str, model: str | None) -> _Spent:
         spent = self._spent.setdefault(kind, _Spent())
+        spent.counts[unit] += quantity
         if model is not None:
             spent.model = model
-        return spent
 
     def record(self, session: Session) -> list[UsageEvent]:
-        """Add one row per kind and unit used since the last call to the caller's transaction,
-        and start counting afresh."""
+        """Add the rows of what was used since the last call to the caller's transaction, and
+        start counting afresh: one per kind, model and unit for the calls, each model's at its
+        own price, and one per kind and unit for the other counts, which name the model they
+        were given with or else the one that began answering the kind's calls last (the pages
+        a scan's model read)."""
         rows: list[UsageEvent] = []
         for kind, spent in self._spent.items():
+            for model, calls in spent.calls.models.items():
+                rows += record(
+                    session,
+                    **self._payer,
+                    kind=kind,
+                    measures=calls.measures,
+                    model=model,
+                    ref=self._ref,
+                )
             rows += record(
                 session,
                 **self._payer,
                 kind=kind,
-                measures=spent.measures,
-                model=spent.model,
+                measures=spent.counts,
+                model=spent.model or spent.calls.model,
                 ref=self._ref,
             )
         self._spent = {}

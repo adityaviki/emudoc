@@ -104,6 +104,8 @@ def status(services: ServicesDep, account: AccountDep):
             available=problem is None,
             agent_model=settings.agent_model,
             index_model=settings.index_model,
+            agent_fallback_model=settings.agent_fallback_model or None,
+            index_fallback_model=settings.index_fallback_model or None,
             error=problem,
         ),
         embeddings=EmbeddingStatus(ok=error is None, model=settings.embedding_model, error=error),

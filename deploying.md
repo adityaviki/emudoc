@@ -37,8 +37,10 @@ on one machine; this is what changes for a deployment. The processes below run f
   search into a vector for search by meaning: Ollama beside the app, as the compose file runs
   it, or a hosted one: "The embeddings endpoint", below.
 - **An SMTP relay** in `SMTP_URL` for the sign-in links.
-- **The model providers** named by `INDEX_MODEL` and `AGENT_MODEL`, each on terms that forbid
-  training on what it is sent: "What leaves the deployment", below.
+- **The model providers** named by `INDEX_MODEL` and `AGENT_MODEL`, and by their fallbacks,
+  each on terms that forbid training on what it is sent, each model named by its version and
+  tried with `python -m app.maintenance models`: "The models" and "What leaves the deployment",
+  below.
 - **A region**, if the deployment promises one: `DATA_REGION=eu` or `us` holds the models, the
   bucket and the embeddings to it, and every server and database must be in it too: "Keeping
   the data in one region", below.
@@ -51,8 +53,9 @@ The settings arrive through the process environment or a secret manager, never a
 `ENVIRONMENT=production` makes the app copy nothing from one, and makes it refuse to start with
 development's conveniences (the compose database's password, `LOCAL_ACCOUNT=true`, no
 `STORAGE_URL`, `APP_URL`, `SMTP_URL`, `SCANNER_URL`, `EMBEDDING_BASE_URL`, `HOSTING_PROVIDER`,
-`OPERATOR_NAME`, `OPERATOR_EMAIL` or `BACKUP_DAYS`, a free-tier
-Gemini key, no key for the model, an embeddings endpoint that turns its requests down, with
+`OPERATOR_NAME`, `OPERATOR_EMAIL` or `BACKUP_DAYS`, no `AGENT_MODEL` or `INDEX_MODEL` or one
+its provider moves, a free-tier Gemini key, no key for a model or its fallback, an embeddings
+endpoint that turns its requests down, with
 `DATA_REGION` anything outside the region, and a connection that would carry the documents
 unencrypted off the deployment's own network), naming each.
 `.env.example` documents every setting; the README's "Configuration" says what the ones that
@@ -459,6 +462,123 @@ replaces every row of `passages`, so rebuild the vector index and vacuum after i
 above), and embedding every passage again takes hours on a CPU and costs every token again
 on a hosted endpoint.
 
+## The models
+
+`INDEX_MODEL` reads every document, to infer its sections, write summaries, pull out facts and
+transcribe scanned pages; `AGENT_MODEL` answers in the Ask tab. Each is written
+`provider:model`, each may have a fallback, and every one of them is a company the documents
+are sent to ("What leaves the deployment").
+
+**Pinned.** Production refuses to start with `AGENT_MODEL` or `INDEX_MODEL` unset: the default
+(`google:gemini-3.5-flash-lite` in October 2026) moves with the app's releases, and Google
+showed what a provider does with a model on its own schedule when, on 18 September 2026, it
+stopped serving Gemini 2.5 to accounts that had not used it. It refuses as well, for any of the
+four settings, an alias its provider moves to a newer model when it likes: a name ending in
+`latest` (`gemini-flash-latest`, `chatgpt-4o-latest`, a `:latest` tag) and OpenRouter's
+`openrouter/auto`. Behind an alias the model changes without a release of the deployment, and
+with it the price (`MODEL_PRICES` is keyed by the name), the place (`DATA_REGION`) and the
+answers. Name the version the provider lists, as `google:gemini-3.5-flash-lite`. Changing a
+model is then a release of its own: the setting, its key, its price in `MODEL_PRICES`, a look
+at `/subprocessors`, and `python -m app.maintenance models`, below.
+
+**A fallback.** `INDEX_FALLBACK_MODEL` and `AGENT_FALLBACK_MODEL` name the model asked when the
+first cannot answer. It is asked when the first model's provider is down or overloaded (429,
+5xx; after the provider's SDK has retried), cannot be reached, or refuses the key, the account
+or the model itself (401, 402, 403, 404), which is how a retired model fails, and when the first
+model cannot be set up or is switched off (`DISABLED_PROVIDERS`). It is not asked for a request
+the provider refused (another 4xx, a content filter, a reply that would not validate), which the
+next model would refuse too or which hides a fault of the app's, nor for a reply that took too
+long, as a document too large for the time would be on the fallback as well; nor once the first
+model has begun to answer a turn, since what it wrote may already be on a member's screen. Each
+time it is asked, the process logs one line, `INDEX_MODEL google:gemini-3.5-flash-lite failed,
+so INDEX_FALLBACK_MODEL anthropic:claude-haiku-5-5 is asked instead: The model
+gemini-3.5-flash-lite was not found, or is served no longer.`, and for the next minute asks the
+fallback first, so that a provider that is down costs one request a minute its retries rather
+than every request. When both fail, the members see both sentences. What a fallback answered is
+counted and priced under its own name, on the usage rows and under the answer or the document.
+
+Take the fallback from another provider: one of the same provider covers a retired or
+overloaded model, but not an outage, a revoked key or an unpaid bill. The kill switch then
+keeps the app working: `DISABLED_PROVIDERS=google` with fallbacks of Anthropic's stops Google's
+bill while Claude indexes and answers. A fallback is sent what its primary is, so it is held to
+everything a primary is: the subprocessor list names its company ("when the model that usually
+does cannot"), `DATA_REGION` and the privacy policy's training promise cover it,
+`GOOGLE_PAID_TIER` is needed for a `google:` one, its address may not be plain HTTP off the
+own network, and its key must be in the environment: a start refuses a fallback that cannot be
+set up, as it would its primary. It needs its price in `MODEL_PRICES`, or what it answers
+counts nothing against the spending limits: production refuses `DAILY_SPEND_CAP` without one
+and warns for the plans' limits. A production start without a fallback for a kind of work
+warns, saying what stops while the model cannot answer; a deployment that keeps to one
+provider on purpose lives with the line. The process says at start which models do the work:
+"Documents are indexed by google:gemini-3.5-flash-lite, and by anthropic:claude-haiku-5-5 when
+it cannot answer".
+
+**Trying them.** A start builds every model, which catches a missing key or package, but asks
+none: an answer at every start of every replica would cost tokens, and an outage of the first
+model would hold a release that its fallback could serve. So a fallback would first be asked on
+the day it is needed, unless the operator asks it before:
+
+```bash
+docker compose -f deploy/compose.yml run --rm --no-deps worker python -m app.maintenance models
+```
+
+asks each model what the app asks of it, alone, without its fallback: a model for indexing two
+facts of a short delivery note and the number on a page the app draws (a model that cannot read
+images would fail every scan), a model for answering one turn with the agent's tools, in which it
+must call one (one that answers without would answer questions without reading the documents).
+It prints each request's outcome, how long it took and what the model used, says when a model
+has no price in `MODEL_PRICES`, records nothing as an organisation's usage, and exits with 1 when
+a model failed or answered in a way the app cannot use:
+
+```text
+INDEX_MODEL: ollama:qwen3-vl:4b
+  ok      an indexing request: read note 12 and 40 pallets (13.1 s)
+  ok      a scanned page: read 'Invoice 4711' (41.1 s)
+          2 calls, 1,278 tokens in, 2,177 out; MODEL_PRICES has no price for it, so the spending limits count none
+AGENT_MODEL: ollama:qwen3.5:4b
+  ok      a turn with the agent's tools: called list_documents (11.5 s)
+          1 call, 1,645 tokens in, 150 out; MODEL_PRICES has no price for it, so the spending limits count none
+AGENT_FALLBACK_MODEL: ollama:gemma3:4b
+  FAILED  a turn with the agent's tools: The request to gemma3:4b failed (400). The provider's error code: invalid_request_error. (0.0 s)
+ollama:gemma3:4b did not answer as the app asks; until it does, the work above fails or falls back. Fix the setting or the key, or name another model.
+```
+
+(Ollama refuses tools for gemma3, so that fallback would have failed every question it was
+given.) It costs a few thousand tokens per model. Run it after changing a model or a key, before
+launch, and monthly: beside the restore drill's timer ("The drill"), a unit that runs it and
+mails on failure keeps a fallback from going stale unseen.
+
+**Retirements.** Every provider retires models on a schedule of its own, and says so first in
+these places (October 2026):
+
+- **The Gemini API** (`google:`): the deprecations page,
+  <https://ai.google.dev/gemini-api/docs/deprecations>, which lists every model's earliest
+  shutdown date and its replacement, and the release notes,
+  <https://ai.google.dev/gemini-api/docs/changelog>, where announcements land first. Neither
+  offers a feed or a mailing list: put both on the operator's monthly list. A preview model can
+  go with two weeks' notice; a `-latest` alias moves with every release, with two weeks' notice
+  by mail only for a breaking change.
+- **Vertex AI** (`google-cloud:`): "Model versions and lifecycle",
+  <https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions>, with dates
+  of its own, which can differ from the Gemini API's for the same model. Point the project's
+  notification contacts at an address the operator reads.
+- **Anthropic** (`anthropic:`): <https://platform.claude.com/docs/en/about-claude/model-deprecations>.
+  Anthropic mails the customers who use a model at least 60 days before it retires a publicly
+  released one; the console's usage export shows which key used which model. Claude through
+  Bedrock or Vertex AI follows those platforms' dates instead.
+- **OpenAI** (`openai:`): <https://developers.openai.com/api/docs/deprecations>. OpenAI mails
+  the customers who use a model, at least six months ahead for a generally available model and
+  as little as two weeks for a preview.
+- **OpenRouter** (`openrouter:`) serves a model while its provider does: follow the provider's
+  page.
+
+The mail goes to the provider account's address, so make it the operator's shared one (the
+`ALERT_EMAIL` address serves), not one person's. When a retirement is announced, name the
+replacement as the fallback first and run `models`; then make it the primary, put the old one's
+replacement or another provider's model in the fallback, and move `MODEL_PRICES`. A model that
+retires unnoticed fails with 404, and the fallback answers while the log says the model "was not
+found, or is served no longer".
+
 ## TLS at a reverse proxy
 
 Nothing in the app speaks TLS. A reverse proxy holds the certificate, answers the browsers on
@@ -711,7 +831,8 @@ the disks' keys are the deployment's, the same for every organisation.
 ## What leaves the deployment
 
 The documents are invoices, contracts and bank statements, and three settings decide which
-companies read them:
+companies read them, with the fallbacks of the first two ("The models"), which are sent the
+same:
 
 - `INDEX_MODEL` is sent the text of every document, to infer its sections, write summaries and
   pull out facts, and an image of every scanned page and uploaded image, to transcribe it.
@@ -1401,3 +1522,9 @@ before the app would hold it.
     library for something it says in other words than its own, such as "late fees" for a
     contract that speaks of a penalty for delay: the passage is found, the document's embed
     stage is done, and the API's log has no line saying a search "matched keywords only".
+17. The API's and the worker's logs say at start "Documents are indexed by" and "Questions are
+    answered by" the models, each with its fallback "when it cannot answer", and no line says a
+    model "has no fallback" unless the deployment keeps to one provider on purpose. `docker
+    compose -f deploy/compose.yml run --rm --no-deps worker python -m app.maintenance models`
+    ends with "Every model answered as the app asks it" and exits with 0, with no line saying
+    `MODEL_PRICES` has no price for a model.

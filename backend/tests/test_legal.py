@@ -28,6 +28,8 @@ DEVELOPMENT = {
     "database_url": "postgresql+psycopg://db.internal/emudoc",
     "index_model": "google:gemini-2.5-flash-lite",
     "agent_model": "google:gemini-2.5-flash-lite",
+    "index_fallback_model": "",
+    "agent_fallback_model": "",
     "google_paid_tier": False,
     "scanner_url": "",
     "embedding_base_url": "http://127.0.0.1:11434/v1",
@@ -127,6 +129,13 @@ def test_the_privacy_policy_says_what_the_settings_do():
     )
     assert "None of the AI model providers" in local
     assert "ask us about them" in policy(index_model="groq:llama", agent_model="groq:llama")
+    # A fallback is sent what its primary is, so the promise holds it too.
+    claude = {
+        "index_model": "anthropic:claude-haiku-5-5",
+        "agent_model": "anthropic:claude-opus-5-5",
+    }
+    assert "ask us about them" in policy(**claude, agent_fallback_model="groq:llama")
+    assert "free tier" in policy(**claude, index_fallback_model="google:gemini-3.5-flash-lite")
     # The embeddings endpoint is sent every passage, so the promise holds it too: one on the
     # deployment's network or under OpenAI's or Google Cloud's terms keeps it, any other not.
     for endpoint in (

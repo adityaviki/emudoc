@@ -34,6 +34,10 @@ with `--requeue` queues their documents again from the stage they stopped at.
 
 `usage` prints what an organisation used per day (app/usage.py): the model calls and tokens
 of its answers today, and whatever is metered next.
+
+`models` asks every model the settings name, fallbacks included, what the app asks of it
+(app/trial.py), and exits 1 when one does not answer as the app needs: the start only builds
+them, so this is where a fallback is tried before its day.
 """
 
 import argparse
@@ -75,6 +79,7 @@ from app.storage import (
     project_prefix,
     storage_from_settings,
 )
+from app.trial import describe_trials, try_models
 from app.usage import DailyUsage, daily, money
 
 log = logging.getLogger(__name__)
@@ -705,6 +710,18 @@ def main(argv: list[str] | None = None) -> None:
         "0.8, in production a role without timeouts, a table autovacuum is behind on, or a "
         "transaction open for over an hour.",
     )
+    commands.add_parser(
+        "models",
+        help="ask every model the settings name, fallbacks included, what the app asks of it",
+        description="Ask each model that AGENT_MODEL, INDEX_MODEL and their fallbacks name "
+        "what the app asks of it, alone, without its fallback: a model for indexing two facts "
+        "of a short delivery note and the number on a drawn scan, a model for answering one "
+        "turn in which it must call one of the agent's tools. It prints what each did, how long "
+        "it took and what it cost, records nothing as an organisation's usage, and exits with "
+        "1 when a model failed or answered in a way the app cannot use. It costs a few "
+        "thousand tokens per model; run it after changing a model, before a launch, and at "
+        "intervals, since providers retire models on their own schedules.",
+    )
     args = parser.parse_args(argv)
     configure_logging("%(levelname)s %(name)s: %(message)s")
     # The schema check sets up a migration context, which announces itself; nothing to act on.
@@ -839,6 +856,15 @@ def main(argv: list[str] | None = None) -> None:
             for line in describe_database(report, settings):
                 print(line)
             if concerns(report, settings):
+                sys.exit(1)
+        elif args.command == "models":
+            # Each request's outcome is in the lines below; the model layer's and the HTTP
+            # clients' own lines would only say it again.
+            logging.getLogger().setLevel(logging.ERROR)
+            trials = try_models(settings)
+            for line in describe_trials(trials, settings):
+                print(line)
+            if any(trial.failed for trial in trials):
                 sys.exit(1)
         elif args.command == "plan":
             check_schema()
