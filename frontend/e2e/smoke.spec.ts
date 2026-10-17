@@ -1,0 +1,70 @@
+import { join } from 'node:path'
+import { expect, test } from '@playwright/test'
+
+// The member's way through the app, end to end: sign up, make a project, upload a contract,
+// wait for it to be indexed, find it by searching, ask about it, and open the passage the
+// answer cites. The answer is the stand-in's (e2e/standin.py): the first sentence of the
+// passage its search found best, with that passage's reference.
+const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
+
+test('a new member uploads a contract, finds it, asks about it and opens the cited passage', async ({ page }) => {
+  test.setTimeout(120_000)
+
+  await test.step('sign up', async () => {
+    await page.goto('/signup')
+    await page.getByLabel('Name', { exact: true }).fill('Ada Lovelace')
+    // A new address every run, so that a server kept from an earlier run takes it too.
+    await page.getByLabel('Email', { exact: true }).fill(`ada.${Date.now()}@example.com`)
+    await page.getByLabel('Password', { exact: true }).fill('a sentence to remember')
+    await page.getByLabel(/I accept the terms of service/).check()
+    await page.getByRole('button', { name: 'Create account' }).click()
+    await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
+  })
+
+  await test.step('make a project', async () => {
+    await page.getByRole('button', { name: 'New project' }).click()
+    await page.getByLabel('Name', { exact: true }).fill('Supplier contracts')
+    await page.getByRole('button', { name: 'Create project' }).click()
+    await expect(page).toHaveURL(/\/projects\/\d+$/)
+  })
+
+  await test.step('upload the contract and wait for it to be indexed', async () => {
+    await page.locator('input[type="file"]').setInputFiles(CONTRACT)
+    // Every stage done but the malware scan, which has no scanner here.
+    const status = page.getByRole('img', { name: /^Ready/ })
+    await expect(status).toBeVisible({ timeout: 60_000 })
+    for (const stage of ['Parse', 'Outline', 'Summaries and facts', 'Embeddings']) {
+      await expect(status).toHaveAccessibleName(new RegExp(`${stage}: done`))
+    }
+    await expect(status).toHaveAccessibleName(/Malware scan: skipped/)
+  })
+
+  await test.step('search the project', async () => {
+    await page.getByLabel('Search', { exact: true }).fill('written notice')
+    const hit = page.getByRole('button', { name: /Service contract/ })
+    await expect(hit.first().locator('mark', { hasText: /^notice$/i }).first()).toBeVisible()
+    await page.getByRole('button', { name: 'Clear search' }).click()
+    await expect(page).not.toHaveURL(/[?&]q=/)
+  })
+
+  await test.step('ask, and get an answer that cites the contract', async () => {
+    const composer = page.getByPlaceholder('Ask a question about these documents')
+    await composer.fill('How much notice does ending the contract take?')
+    await composer.press('Enter')
+    await expect(page).toHaveURL(/[?&]chat=\d+/)
+    const citation = page.getByRole('button', { name: '1', exact: true })
+    await expect(citation).toBeVisible({ timeout: 30_000 })
+    await expect(citation).toHaveAttribute('title', 'Service contract · 4 Termination')
+    await expect(page.getByText(/Searched for "How much notice/)).toBeVisible()
+    await expect(page.getByText("Either party may end this contract by giving ninety days' written notice to the other.")).toBeVisible()
+    await expect(page.getByText('Thinking')).toHaveCount(0)
+  })
+
+  await test.step('open the cited passage', async () => {
+    await page.getByRole('button', { name: '1', exact: true }).click()
+    await expect(page).toHaveURL(/\/documents\/\d+\?(.*&)?passage=\d+/)
+    await expect(page.getByRole('heading', { name: 'Service contract', exact: true })).toBeVisible()
+    await expect(page.getByText('Showing: 4 Termination')).toBeVisible()
+    await expect(page.getByText(/^Either party may end this contract .* on the first page\.$/)).toBeInViewport()
+  })
+})

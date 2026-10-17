@@ -15,6 +15,7 @@
 !frontend/index.html
 !frontend/public/
 !frontend/src/
+frontend/src/**/*.test.ts
 !frontend/tsconfig*.json
 !frontend/vite.config.ts
 !deploy/compose.yml

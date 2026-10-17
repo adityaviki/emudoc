@@ -542,8 +542,19 @@ The development server on :5173 sends none of this; the build served on :8000 do
 
 ```bash
 cd backend && uv run pytest          # needs the database container
-cd frontend && pnpm lint && pnpm build
+cd frontend && pnpm lint && pnpm test && pnpm build
+cd frontend && pnpm e2e              # after pnpm build; needs the database container
 ```
+
+The frontend's unit tests (`pnpm test`, Vitest) sit beside the modules they test
+(`src/**/*.test.ts`) and run in Node with `fetch` stubbed: the chat's events and its
+reconnections, the workspace's URLs, the formatting. `pnpm e2e` (Playwright) drives the built
+page in Chromium as a new member: sign up, make a project, upload a contract, wait for it to be
+indexed, search for it, ask about it and open the passage the answer cites. It starts the app
+itself (`frontend/e2e/serve.sh`, in a database of its own, `emudoc_e2e`, made afresh each run)
+against a stand-in for the model and the embeddings endpoint (`frontend/e2e/standin.py`), which
+answers the same way every run and needs no key. Chromium comes once with `pnpm exec
+playwright install chromium`.
 
 `tofu test` in `deploy/aws/modules/environment` and `deploy/aws/account` checks the AWS
 configuration against a mocked provider; the backend suite checks that what it writes is what
@@ -551,7 +562,8 @@ production asks for.
 
 CI (`.github/workflows/ci.yml`, GitHub Actions) runs all of it on every push to `main` and
 every pull request: the backend's lint, format and suite, once against Postgres and once
-through pgbouncer in transaction mode; the frontend's lint and build; the image, built and then
+through pgbouncer in transaction mode; the frontend's lint, unit tests and build; the browser
+test; the image, built and then
 started by `.github/scripts/check-image.sh` (the migrations, the API and a worker, read-only,
 against the development database); the AWS configuration's format, validation and tests;
 shellcheck on every shell script; actionlint on the workflow; and trivy on the OpenTofu and the
@@ -634,6 +646,7 @@ backend/app/
   trial.py      the models command: each model asked what the app asks of it
 backend/migrations/
                 the database schema as Alembic migrations, one file per change
+frontend/e2e/   the browser test, the app's start for it and the stand-in model it runs against
 frontend/src/
   pages/        the Projects page and the Workspace (two panes)
   workspace/    the library, tabs, document viewers and the chat pane
