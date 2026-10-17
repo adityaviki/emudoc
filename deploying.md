@@ -454,7 +454,7 @@ matches keywords only…". A start refused this way changes nothing, even with a
 through. Afterwards each search that falls back to keywords logs "A search in project 12
 matched keywords only: …", and the members' status line says the same.
 
-**Beside the app.** The compose file runs Ollama 0.34.3 as `ollama`, on its network only, with
+**Beside the app.** The compose file runs Ollama as `ollama`, on its network only, with
 the model in the `models` volume, and a one-shot `embedding-model` service the API and the
 worker wait for, which pulls `nomic-embed-text` when the volume does not have it yet and never
 again: the same name pulled later may bring other weights, whose vectors would not match the
@@ -463,8 +463,14 @@ nothing from it. Another Ollama model is named to compose as well as in the env 
 size and prefixes), `export EMBEDDING_MODEL=mxbai-embed-large` beside `EMUDOC_IMAGE`; a name the
 registry does not know stops `up` with "pull model manifest: file does not exist". Ollama
 keeps the model in memory for good (`OLLAMA_KEEP_ALIVE=-1`; the container holds about 600 MB
-with nomic-embed-text), and its image is large, 3.7 GB to download and 9.2 GB on disk, nearly
-all of it libraries for a GPU. On the deployment's own network it is no subprocessor and takes plain HTTP
+with nomic-embed-text) and asks ollama.com for nothing else (`OLLAMA_NO_CLOUD=1`: from 0.40 on
+it would otherwise fetch models to recommend every four hours), and its image is large, 3.8 GB
+to download and 9.2 GB on disk, nearly all of it libraries for a GPU. An update of Ollama
+keeps the vectors: 0.40.5 embedded the same texts as 0.34.3 to the last digit, from the model
+0.34.3 had pulled (whose manifest it rewrites, which 0.34.3 still reads) and from a fresh pull.
+Ollama's notes say a later release will convert models pulled by earlier ones in the
+background, as 0.40.2 did until 0.40.3 took it out: compare the vectors before taking that one
+(embed a few passages before and after, on a copy of the volume). On the deployment's own network it is no subprocessor and takes plain HTTP
 ("Encryption"); on another machine there, such as a GPU server for a large backlog, it listens
 on a private address (`OLLAMA_HOST=10.0.0.7:11434` in its environment), and across a network
 the deployment does not own it sits behind TLS, as production requires.

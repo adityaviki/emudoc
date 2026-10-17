@@ -268,6 +268,8 @@ def main(argv: list[str] | None = None) -> int:
     except (UnsupportedFile, FileTooLarge, UnreadableFile) as error:
         payload, code = {"error": str(error)}, REFUSED
     except Exception as error:
+        if _out_of_memory(error):
+            os._exit(OUT_OF_MEMORY)
         # The frames and kinds without the messages, which may quote the file (a cell, a
         # stream of a PDF): the parent logs what this prints (app/errors.py).
         print(described(error), file=sys.stderr)
@@ -278,6 +280,17 @@ def main(argv: list[str] | None = None) -> int:
     except MemoryError:
         os._exit(OUT_OF_MEMORY)
     return code
+
+
+def _out_of_memory(error: BaseException | None) -> bool:
+    """Whether the parse ran out of memory under a library's own error: pdfplumber raises what
+    pdfminer raised as a PdfminerException, a MemoryError too, so where the cap is hit decides
+    which error the parse ends with."""
+    while error is not None:
+        if isinstance(error, MemoryError):
+            return True
+        error = error.__cause__ or error.__context__
+    return False
 
 
 def _name(error: Exception) -> str:

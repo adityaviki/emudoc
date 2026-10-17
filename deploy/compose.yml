@@ -128,6 +128,10 @@ services:
       # Keep the model loaded (the container holds about 600 MB with nomic-embed-text): Ollama
       # unloads one idle for five minutes, and the next search would wait for it to load again.
       OLLAMA_KEEP_ALIVE: "-1"
+      # No cloud: since 0.40 Ollama otherwise asks ollama.com for models to recommend at start
+      # and every four hours. The registry it pulls the model from is not cloud, and still
+      # answers `embedding-model`.
+      OLLAMA_NO_CLOUD: "1"
     volumes:
       - models:/root/.ollama
     read_only: true

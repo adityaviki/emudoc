@@ -3,6 +3,7 @@ import subprocess
 import zipfile
 
 import pytest
+from pdfplumber.utils.exceptions import PdfminerException
 from PIL import Image
 
 from app.parsing import FileTooLarge, UnreadableFile, UnsupportedFile, limits, parse_file, sheet
@@ -168,6 +169,25 @@ def test_a_parse_that_needs_too_much_memory_is_stopped(sample_pdf):
         "Parsing needs more than the 1 MB of memory allowed and was stopped. Split the file "
         "into smaller parts and upload those."
     )
+
+
+def test_memory_a_library_reports_as_its_own_error_is_told_as_memory(sample_pdf, monkeypatch):
+    # pdfplumber raises what pdfminer raised as its own error, a MemoryError too, so the cap
+    # above ends either way, by where it is hit. The child is run here in this process.
+    def parse_out_of_memory(*args, **kwargs):
+        try:
+            raise MemoryError
+        except MemoryError as error:
+            raise PdfminerException(error)  # noqa: B904, as pdfplumber raises it
+
+    def exit_with(code):
+        raise SystemExit(code)
+
+    monkeypatch.setattr(limits, "parse_file", parse_out_of_memory)
+    monkeypatch.setattr(limits.os, "_exit", exit_with)
+    with pytest.raises(SystemExit) as exited:
+        limits.main([str(sample_pdf), "upload.pdf"])
+    assert exited.value.code == limits.OUT_OF_MEMORY
 
 
 def test_a_pdf_with_too_many_pages_is_refused(sample_pdf):

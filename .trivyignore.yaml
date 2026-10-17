@@ -1,6 +1,15 @@
 # What `trivy config` reports of the deployment and the image that was looked at and accepted,
-# each with its reason (CI, "Deployment"). A new finding fails the check until it is changed or
-# added here with a reason of its own; an entry whose reason no longer holds is removed.
+# each with its reason (CI, "Deployment"), and what `trivy image` reports of the image (Audit).
+# A new finding fails the check until it is changed or added here with a reason of its own; an
+# entry whose reason no longer holds is removed.
+
+secrets:
+  - id: gcp-service-account
+    paths: ["/app/backend/.venv/lib/python3.13/site-packages/anthropic/**"]
+    statement: >-
+      No key: the Anthropic SDK's docstrings (from 1.15) say that an agent's execution identity
+      may be sent as `{"type": "service_account"}`, the phrase the rule looks for in a Google
+      service account's key file. Only the SDK's own files are passed over.
 
 misconfigurations:
   - id: AWS-0104
