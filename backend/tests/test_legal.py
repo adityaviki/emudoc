@@ -139,7 +139,7 @@ def test_the_privacy_policy_says_what_the_settings_do():
     # The embeddings endpoint is sent every passage, so the promise holds it too: one on the
     # deployment's network or under OpenAI's or Google Cloud's terms keeps it, any other not.
     for endpoint in (
-        "http://ollama:11434/v1",
+        "http://embeddings:8080/v1",
         "https://api.openai.com/v1",
         "https://europe-west4-aiplatform.googleapis.com/v1/projects/p/locations/l/endpoints/openapi",
     ):

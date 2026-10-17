@@ -191,7 +191,8 @@ migrations cannot be upgraded; the command says so, and `docker compose down -v`
 
 For semantic search, run [Ollama](https://ollama.com) with `ollama pull nomic-embed-text`, or
 point `EMBEDDING_BASE_URL` at any OpenAI-compatible embeddings endpoint. The backend asks it for
-one vector at start and logs what it found.
+one vector at start and logs what it found. A deployment runs llama.cpp's server with the same
+model beside the app (`deploy/compose.yml`), whose vectors agree with Ollama's.
 
 When working on the app, run `./dev.sh` instead and open <http://localhost:5173>. It starts the
 database, applies the migrations, and runs the backend (restarting when Python changes) and the
@@ -565,7 +566,10 @@ every pull request: the backend's lint, format and suite, once against Postgres 
 through pgbouncer in transaction mode; the frontend's lint, unit tests and build; the browser
 test; the image, built and then
 started by `.github/scripts/check-image.sh` (the migrations, the API and a worker, read-only,
-against the development database); the AWS configuration's format, validation and tests;
+against the development database); the deployment's embeddings server, started from the
+compose file by `.github/scripts/check-embeddings.sh` and asked for the vectors in
+`.github/scripts/embeddings.json`, which are those the deployments' databases hold; the AWS
+configuration's format, validation and tests;
 shellcheck on every shell script; actionlint on the workflow; and trivy on the OpenTofu and the
 Dockerfile, with what was looked at and accepted in `.trivyignore.yaml`, each with its reason;
 that uv, pnpm, Node and Python are named at the Dockerfile's versions wherever else they
@@ -589,8 +593,9 @@ included, by pip-audit against OSV, where any known vulnerability fails; the fro
 `pnpm audit`, where a high or critical one fails; the image, built from this commit, by trivy,
 where a high or critical one fails once a fix is released, so a fixed vulnerability in a base
 that has not moved is found the morning after; and the images the deployment runs beside it
-(ClamAV, Ollama, Caddy) by the same scan, where what waits for their projects' next release is
-accepted in `deploy/.trivyignore.yaml` until a date (`deploying.md`, "The image"). By hand:
+(ClamAV, llama.cpp's server, Caddy) by the same scan, where what waits for their projects' next
+release is accepted in `deploy/.trivyignore.yaml` until a date (`deploying.md`, "The image").
+By hand:
 
 ```bash
 uv --directory backend export --locked --all-groups --no-emit-project --quiet |

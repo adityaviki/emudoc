@@ -1,9 +1,10 @@
 # Three roles. The instance's role is the host's alone: the instance metadata service answers
-# no container (one hop, instance.tf), so ClamAV, which opens hostile files, and Ollama hold no
-# credentials at all. The app's containers get the app role's instead, which reaches the bucket
-# and nothing else, through a credentials file the host renews (deploy/aws/host/credentials).
-# The drill's dry run gets the reader's, which can only list the bucket. The policies are
-# written out rather than built by aws_iam_policy_document, so that the tests read them.
+# no container (one hop, instance.tf), so ClamAV, which opens hostile files, and llama.cpp's
+# server hold no credentials at all. The app's containers get the app role's instead, which
+# reaches the bucket and nothing else, through a credentials file the host renews
+# (deploy/aws/host/credentials). The drill's dry run gets the reader's, which can only list
+# the bucket. The policies are written out rather than built by aws_iam_policy_document, so
+# that the tests read them.
 
 data "aws_ecr_repository" "app" {
   name = var.repository

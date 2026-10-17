@@ -89,7 +89,9 @@ updates:
         update-types: ["version-update:semver-minor"]
 
   # docker-compose.yml (the development database, the profiles), deploy/compose.yml (ClamAV
-  # and Ollama beside the app) and deploy/aws/compose.yml (Caddy).
+  # and llama.cpp's server beside the app) and deploy/aws/compose.yml (Caddy). llama.cpp's
+  # `server` tag is its daily build: each Monday proposes that morning's digest, as the
+  # cooldown reads push dates from Docker Hub alone, and CI's Embeddings job checks it.
   - package-ecosystem: docker-compose
     directories: [/, /deploy, /deploy/aws]
     schedule:

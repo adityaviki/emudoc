@@ -126,6 +126,94 @@ def test_the_tokens_the_endpoint_reports_are_counted_batch_by_batch():
     assert usage == ModelUsage()
 
 
+def llama_server(context: int, answered: list[list[str]]):
+    """An endpoint that refuses a request with an input past `context` tokens as llama.cpp's
+    server does, a token a character as for Chinese, and keeps the requests it answered. Each
+    vector starts with its input's length, so that the order can be read back."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        inputs = json.loads(request.content)["input"]
+        for text in inputs:
+            if len(text) > context:
+                return httpx.Response(
+                    400,
+                    json={
+                        "error": {
+                            "code": 400,
+                            "message": f"input ({len(text)} tokens) is larger than the max "
+                            f"context size ({context} tokens). skipping",
+                            "type": "exceed_context_size_error",
+                            "n_prompt_tokens": len(text),
+                            "n_ctx": context,
+                        }
+                    },
+                )
+        answered.append(inputs)
+        rest = [0.5] * (get_settings().embedding_dim - 1)
+        data = [
+            {"index": i, "embedding": [float(len(text)), *rest]} for i, text in enumerate(inputs)
+        ]
+        return httpx.Response(
+            200, json={"data": data, "usage": {"prompt_tokens": sum(map(len, inputs))}}
+        )
+
+    return handler
+
+
+def test_an_input_past_the_models_context_is_embedded_from_its_beginning():
+    # Ollama cuts such an input itself; llama.cpp's server refuses the whole batch, which
+    # would fail the document's embed stage for one dense passage.
+    answered: list[list[str]] = []
+    prefix = get_settings().embedding_document_prefix
+    long = "请在三十天内支付发票。" * 100
+    usage = ModelUsage()
+
+    vectors = embedder(llama_server(100, answered)).embed_documents(
+        ["The notice period.", long, "Late deliveries."], usage
+    )
+
+    # Each input asked for alone once the batch was refused, the long one cut to the share of
+    # its characters the context holds, less a margin.
+    kept = (prefix + long)[:90]
+    assert answered == [
+        [prefix + "The notice period."],
+        [kept],
+        [prefix + "Late deliveries."],
+    ]
+    assert [vector[0] for vector in vectors] == [
+        len(prefix + "The notice period."),
+        90,
+        len(prefix + "Late deliveries."),
+    ]
+    # Only what was answered is counted, as the endpoint bills it.
+    assert usage.models[get_settings().embedding_model].input_tokens == sum(
+        len(batch[0]) for batch in answered
+    )
+
+
+def test_an_endpoint_that_refuses_every_length_fails_without_quoting_the_input():
+    def refusing(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "error": {
+                    "message": "input 'the termination clause' is larger than the context",
+                    "type": "exceed_context_size_error",
+                    "n_prompt_tokens": 10,
+                    "n_ctx": 5,
+                }
+            },
+        )
+
+    with pytest.raises(EmbeddingError) as error:
+        embedder(refusing).embed_query("the termination clause")
+    assert str(error.value) == (
+        "Embedding endpoint returned 400 (error code exceed_context_size_error): an input of "
+        "10 tokens is past the model's 5."
+    )
+    assert error.value.transient is False
+
+
 # The check behind the status line, which every open tab polls.
 
 

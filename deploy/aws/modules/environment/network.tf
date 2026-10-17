@@ -94,8 +94,8 @@ resource "aws_vpc_security_group_ingress_rule" "web" {
   cidr_ipv4         = "0.0.0.0/0"
 }
 
-# Out to the model providers, the image registries, ClamAV's signatures, Ollama's models, the
-# AWS APIs and the database.
+# Out to the model providers, the image registries, ClamAV's signatures, the embedding model's
+# weights (Hugging Face), the AWS APIs and the database.
 resource "aws_vpc_security_group_egress_rule" "instance" {
   security_group_id = aws_security_group.instance.id
   description       = "anything"

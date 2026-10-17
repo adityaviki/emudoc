@@ -304,7 +304,7 @@ run "staging" {
       aws_ssm_parameter.setting["APP_URL"].value == "https://staging.emudoc.example.com"
       && aws_ssm_parameter.setting["STORAGE_URL"].value == "s3://emudoc-staging-documents-123456789012"
       && aws_ssm_parameter.setting["SCANNER_URL"].value == "clamd://clamav:3310"
-      && aws_ssm_parameter.setting["EMBEDDING_BASE_URL"].value == "http://ollama:11434/v1"
+      && aws_ssm_parameter.setting["EMBEDDING_BASE_URL"].value == "http://embeddings:8080/v1"
       && aws_ssm_parameter.setting["HOSTING_PROVIDER"].value == "Amazon Web Services, eu-central-1"
       && aws_ssm_parameter.setting["BACKUP_DAYS"].value == "35"
       && aws_ssm_parameter.setting["AGENT_MODEL"].value == "anthropic:claude-sonnet-5-5"

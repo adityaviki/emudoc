@@ -119,13 +119,13 @@ jobs:
           HIGH,CRITICAL --ignore-unfixed --table-mode detailed --exit-code 1
           --ignorefile .trivyignore.yaml "emudoc:$GITHUB_SHA"
 
-  # The images the deployment runs beside the app (ClamAV, Ollama, Caddy), each at the digest
+  # The images the deployment runs beside the app (ClamAV, llama.cpp, Caddy), each at the digest
   # the compose files pin, by the same scan. Only their projects can fix what it finds: the fix
   # is a newer tag or a rebuild, which Dependabot proposes (the `compose` group). Until one is
   # released, a finding is accepted in deploy/.trivyignore.yaml with a statement and an
   # expired_at, after which it fails here again unless the release has come. trivy reads each
   # image from its registry for the instance's platform, layer by layer, rather than from a
-  # copy in Docker: Ollama's is 9 GB unpacked.
+  # copy pulled into Docker, so that no image is unpacked on the runner's disk.
   beside:
     name: Images beside the app
     runs-on: ubuntu-24.04
@@ -135,8 +135,8 @@ jobs:
         with:
           persist-credentials: false
       # What trivy found in each layer, kept from one run to the next: a layer never changes
-      # under its digest, so only a new image's are downloaded and read again (Ollama's 3.8 GB
-      # take a minute here, a second once kept), and the database, downloaded fresh beside them,
+      # under its digest, so only a new image's are downloaded and read again (llama.cpp's
+      # 300 MB, rebuilt every day, take seconds), and the database, downloaded fresh beside them,
       # is matched against what was kept. A new trivy computes keys of its own and reads the
       # layers again.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -146,8 +146,9 @@ jobs:
           restore-keys: trivy-layers-
       # The compose files name the images; to be read they need a settings file, the app's
       # image (left out of the list) and Caddy's domain. trivy runs as the runner's user, so
-      # that the cache can save what it wrote, and is given 20 minutes: Ollama's image took
-      # longer than its five-minute default to download on a slower line than a runner's.
+      # that the cache can save what it wrote, and is given 20 minutes: an image of gigabytes
+      # (Ollama's, until October 2026) outlasted its five-minute default on a slower line than a
+      # runner's.
       - name: Audit
         shell: bash
         env:

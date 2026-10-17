@@ -27,7 +27,7 @@ WRITTEN = {
     "STORAGE_URL": "s3://emudoc-staging-documents-123456789012",
     "AWS_DEFAULT_REGION": "eu-central-1",
     "SCANNER_URL": "clamd://clamav:3310",
-    "EMBEDDING_BASE_URL": "http://ollama:11434/v1",
+    "EMBEDDING_BASE_URL": "http://embeddings:8080/v1",
     "HOSTING_PROVIDER": "Amazon Web Services, eu-central-1",
     "BACKUP_DAYS": "35",
     "DATABASE_URL": DATABASE_URL,
@@ -158,6 +158,27 @@ def test_the_host_writes_each_value_as_it_is(tmp_path):
         "EMUDOC_DOMAIN": "staging.emudoc.example.com",
     }
     assert all(path.stat().st_mode & 0o777 == 0o600 for path in tmp_path.iterdir())
+
+
+def test_other_embedding_weights_reach_compose(tmp_path):
+    # deploy/compose.yml downloads and serves the weights these name; the model's name is the
+    # app's alone, as llama.cpp's server answers whatever a request names.
+    weights = {
+        "EMBEDDING_WEIGHTS_URL": "https://huggingface.co/m/resolve/0123abc/model.f16.gguf",
+        "EMBEDDING_WEIGHTS_SHA256": "ab" * 32,
+    }
+    settings = WRITTEN | OPERATOR | weights | {"EMBEDDING_MODEL": "mxbai-embed-large"}
+    assert write_env_files(tmp_path, settings, SECRETS).returncode == 0
+    compose = compose_values((tmp_path / "compose.env").read_text())
+    assert (
+        compose
+        == {
+            "EMUDOC_IMAGE": "registry.example/emudoc:3f2c1ab",
+            "EMUDOC_ENV": "/etc/emudoc/emudoc.env",
+            "EMUDOC_DOMAIN": "staging.emudoc.example.com",
+        }
+        | weights
+    )
 
 
 def test_the_drill_gets_production_settings_without_the_keys(tmp_path):

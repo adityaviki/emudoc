@@ -21,6 +21,16 @@ Members:
 
 Operators:
 
+- The compose file runs llama.cpp's server for the embeddings in place of Ollama, as
+  `embeddings` at `http://embeddings:8080/v1`, which `EMBEDDING_BASE_URL` must now name: the
+  same model, nomic-embed-text, with the same vectors (to a cosine of 0.999999), so nothing is
+  embedded again; an image of 1.2 GB on disk in place of 9.2 GB, without the 43 known
+  vulnerabilities Ollama's binary carried; and the weights downloaded from Hugging Face once
+  and checked against their SHA-256. Other weights are named by `EMBEDDING_WEIGHTS_URL` and
+  `EMBEDDING_WEIGHTS_SHA256`, where `EMBEDDING_MODEL` alone named Ollama's. Ollama's volume
+  and image can go (`docker volume rm emudoc-deploy_models`). Dependabot proposes a build of
+  the server every week, and CI checks each against the stored vectors (`deploying.md`, "The
+  embeddings endpoint").
 - The images the deployment runs beside the app, ClamAV's, Ollama's and Caddy's, are scanned
   for known vulnerabilities every morning too. Caddy 2.11.7 carries three in Go's HTTP and
   TLS code, fixed in Go 1.26.9 after it was built, and Ollama 0.40.5 forty-three, since Ollama

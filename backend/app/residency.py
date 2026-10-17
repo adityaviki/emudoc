@@ -321,8 +321,8 @@ def _embeddings_problem(url: str, region: str) -> str | None:
     also = f", or OpenAI's at {OPENAI_EU} with European data residency" if region == "eu" else ""
     return (
         f"EMBEDDING_BASE_URL is at {host_of(url)}, which is not in {where} as far as the "
-        "settings show; run the embeddings on the deployment's own network, as the default "
-        f"(Ollama) does{also}."
+        "settings show; run the embeddings on the deployment's own network, as the compose "
+        f"file's server does{also}."
     )
 
 

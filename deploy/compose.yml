@@ -1,7 +1,7 @@
 # Emudoc on one machine from its image (deploying.md, "The image"): the release step, the API,
-# a worker, and ClamAV and Ollama for them. The database, the mail relay, the bucket if there
-# is one, and the reverse proxy that ends TLS in front of the API are the deployment's ("The
-# pieces").
+# a worker, and ClamAV and llama.cpp's server for them. The database, the mail relay, the bucket
+# if there is one, and the reverse proxy that ends TLS in front of the API are the deployment's
+# ("The pieces").
 #
 #   export EMUDOC_IMAGE=emudoc:$(git rev-parse HEAD)
 #   docker compose -f deploy/compose.yml up -d --wait
@@ -9,9 +9,11 @@
 # `up` runs the release step, `alembic upgrade head`, and starts the API and the worker only
 # once it has succeeded: the app refuses a database behind its migrations and never upgrades
 # one itself. It replaces the running ones before the release step, though, so an update with
-# the new image's tag runs the release step alone first and stops if it fails:
+# the new image's tag runs the release step alone first and stops if it fails, and so does the
+# embeddings server with the download of its weights:
 #
 #   docker compose -f deploy/compose.yml run --rm --no-deps migrate && \
+#     docker compose -f deploy/compose.yml up -d --wait embeddings && \
 #     docker compose -f deploy/compose.yml up -d --wait
 #
 # The operator's commands run beside them with `run --rm --no-deps worker python -m
@@ -22,7 +24,7 @@
 # app; it expands $ in a value unless the value is in single quotes.
 #   STORAGE_URL=file:///var/lib/emudoc   for the files volume below, or s3://… for a bucket
 #   SCANNER_URL=clamd://clamav:3310      the daemon below
-#   EMBEDDING_BASE_URL=http://ollama:11434/v1   the embeddings endpoint below
+#   EMBEDDING_BASE_URL=http://embeddings:8080/v1   the embeddings endpoint below
 
 # Apart from the development file's project (emudoc), so that one machine can run both.
 name: emudoc-deploy
@@ -56,8 +58,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      embedding-model:
-        condition: service_completed_successfully
+      embeddings:
+        condition: service_healthy
     # For a proxy on this machine (deploying.md, "TLS at a reverse proxy"). Its requests reach
     # the API from the network's gateway, the only address whose X-Forwarded-For and
     # X-Forwarded-Proto the API believes.
@@ -92,8 +94,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      embedding-model:
-        condition: service_completed_successfully
+      embeddings:
+        condition: service_healthy
     # It serves nothing to ask: it touches the file every 10 seconds while all its threads run,
     # and exits, to be restarted, when one has ended. Stuck is a file a minute old, or none.
     healthcheck:
@@ -120,53 +122,77 @@ services:
       - clamdb:/var/lib/clamav
     restart: unless-stopped
 
-  # The embeddings endpoint (deploying.md, "The embeddings endpoint"), on this network only:
-  # it is sent every passage and every search, and sends nothing out.
-  ollama:
-    image: ollama/ollama:0.40.5@sha256:5d3a2f25f9825628daba94dc0b1d421c7d57d6c03ae5faa9ba050e058bab8241
+  # Downloads the embedding model's weights into the volume when they are not there yet, and
+  # checks them against their SHA-256 first; the file is named by it, so other weights are
+  # another file, and the server is started again with them. The default is nomic-embed-text
+  # v1.5 at 16 bits as Nomic published it, at a fixed commit (deploying.md, "Beside the
+  # app": its vectors are those of Ollama's nomic-embed-text); another model is named with
+  # `export EMBEDDING_WEIGHTS_URL=… EMBEDDING_WEIGHTS_SHA256=…` beside EMUDOC_IMAGE, as well as
+  # EMBEDDING_MODEL and the rest in the env file. The image is the server's, which has curl.
+  embedding-model:
+    image: ghcr.io/ggml-org/llama.cpp:server@sha256:f41d47eee678c02656eefc9ed8cce76cab584aa7032805eeef0e6639fcfda485
     environment:
-      # Keep the model loaded (the container holds about 600 MB with nomic-embed-text): Ollama
-      # unloads one idle for five minutes, and the next search would wait for it to load again.
-      OLLAMA_KEEP_ALIVE: "-1"
-      # No cloud: since 0.40 Ollama otherwise asks ollama.com for models to recommend at start
-      # and every four hours. The registry it pulls the model from is not cloud, and still
-      # answers `embedding-model`.
-      OLLAMA_NO_CLOUD: "1"
+      EMBEDDING_WEIGHTS_URL: ${EMBEDDING_WEIGHTS_URL:-https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/0188c9bf409793f810680a5a431e7b899c46104c/nomic-embed-text-v1.5.f16.gguf}
+      EMBEDDING_WEIGHTS_SHA256: &weights ${EMBEDDING_WEIGHTS_SHA256:-f7af6f66802f4df86eda10fe9bbcfc75c39562bed48ef6ace719a251cf1c2fdb}
+    entrypoint: [/bin/sh, -c]
+    command:
+      - |
+        set -eu
+        weights="/models/$$EMBEDDING_WEIGHTS_SHA256.gguf" part=/models/download.part
+        [ -f "$$weights" ] && exit 0
+        curl -fsSL --retry 3 -o "$$part" "$$EMBEDDING_WEIGHTS_URL"
+        if ! echo "$$EMBEDDING_WEIGHTS_SHA256  $$part" | sha256sum -c --status; then
+          rm -f "$$part"
+          echo "The file at EMBEDDING_WEIGHTS_URL is not the one EMBEDDING_WEIGHTS_SHA256 names." >&2
+          exit 1
+        fi
+        mv "$$part" "$$weights"
+    # As root, the owner of the new volume, but with no capability: it writes there alone.
     volumes:
-      - models:/root/.ollama
+      - embedding-model:/models
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: "no"
+
+  # The embeddings endpoint (deploying.md, "The embeddings endpoint"): llama.cpp's server, on
+  # this network only. It is sent every passage and every search, and sends nothing out. The
+  # tag is the daily build (this digest is b11706), which Dependabot proposes each Monday and
+  # CI checks against the vectors the deployments hold (.github/scripts/check-embeddings.sh).
+  embeddings:
+    image: ghcr.io/ggml-org/llama.cpp:server@sha256:f41d47eee678c02656eefc9ed8cce76cab584aa7032805eeef0e6639fcfda485
+    depends_on:
+      embedding-model:
+        condition: service_completed_successfully
+    environment:
+      EMBEDDING_WEIGHTS_SHA256: *weights
+    user: 65534:65534
+    entrypoint: [/bin/sh, -c]
+    # Embeddings alone, without the chat page or the slots' state, and warnings and errors
+    # alone in the log, which otherwise takes lines for every input. The batches hold 8,192
+    # tokens, more than any input the app sends (6,000 characters, which nomic-embed-text reads
+    # as a token each at most): with the default 512 an input past them is refused as a server
+    # error, which the app would try again, where past the model's context (2,048 tokens) it is
+    # refused as such, and the app cuts it (app/embeddings.py). The container holds about
+    # 500 MB with nomic-embed-text.
+    command:
+      - >-
+        exec /app/llama-server --model "/models/$$EMBEDDING_WEIGHTS_SHA256.gguf" --embeddings
+        --batch-size 8192 --ubatch-size 8192 --no-webui --no-slots --log-verbosity 2
+    volumes:
+      - embedding-model:/models:ro
     read_only: true
     tmpfs:
       - /tmp
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    # The image has no curl either; its own command asks the server.
     healthcheck:
-      test: [CMD, ollama, list]
+      test: [CMD, curl, -fsS, -o, /dev/null, http://127.0.0.1:8080/health]
       interval: 30s
       timeout: 5s
       start_period: 10s
       retries: 3
     restart: unless-stopped
-
-  # Pulls the embedding model into the volume when it is not there yet, and never again: the
-  # same name pulled later may bring other weights, whose vectors would not match the stored
-  # ones. A model other than nomic-embed-text is named here as well as in the env file, with
-  # `export EMBEDDING_MODEL=…` beside EMUDOC_IMAGE.
-  embedding-model:
-    image: ollama/ollama:0.40.5@sha256:5d3a2f25f9825628daba94dc0b1d421c7d57d6c03ae5faa9ba050e058bab8241
-    depends_on:
-      ollama:
-        condition: service_healthy
-    environment:
-      OLLAMA_HOST: ollama:11434
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text}
-    entrypoint: [/bin/sh, -c]
-    command:
-      - ollama show "$$EMBEDDING_MODEL" > /dev/null 2>&1 || ollama pull "$$EMBEDDING_MODEL"
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    restart: "no"
 
 # A subnet of its own, so that the gateway the proxy's requests come from is known; change both
 # addresses if it collides with a network this machine already reaches.
@@ -180,4 +206,4 @@ networks:
 volumes:
   files:
   clamdb:
-  models:
+  embedding-model:

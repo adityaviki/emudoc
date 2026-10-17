@@ -210,6 +210,21 @@ jobs:
         if: env.PUSH == 'true'
         run: deploy/aws/push-image.sh "emudoc:$GITHUB_SHA"
 
+  # The compose file's embeddings service, started as a deployment starts it, against the
+  # vectors the deployments' databases hold and the refusal the app cuts a long input on
+  # (.github/scripts/check-embeddings.sh): Dependabot proposes a new build of llama.cpp's server
+  # every week, and nothing else here starts it.
+  embeddings:
+    name: Embeddings
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Vectors
+        run: .github/scripts/check-embeddings.sh
+
   opentofu:
     name: OpenTofu
     runs-on: ubuntu-24.04
@@ -305,7 +320,7 @@ jobs:
   # workflow's, by hand, and takes only what ran here.
   staging:
     name: Staging
-    needs: [backend, frontend, e2e, image, opentofu, secrets, scripts]
+    needs: [backend, frontend, e2e, image, embeddings, opentofu, secrets, scripts]
     if: >-
       github.event_name == 'push' && github.ref == 'refs/heads/main'
       && vars.AWS_PUSH_ROLE != '' && vars.AWS_STAGING_ROLE != ''

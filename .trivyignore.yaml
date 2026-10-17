@@ -16,8 +16,9 @@ misconfigurations:
     paths: [deploy/aws/modules/environment/network.tf]
     statement: >-
       The instance reaches the model providers, the image registries, ClamAV's signature
-      mirrors, Ollama's models, SES and the AWS APIs, whose addresses move; an allowlist needs
-      an egress proxy that names hosts, not a security group of addresses.
+      mirrors, the embedding model's weights on Hugging Face, SES and the AWS APIs, whose
+      addresses move; an allowlist needs an egress proxy that names hosts, not a security group
+      of addresses.
 
   - id: AWS-0132
     paths: [deploy/aws/modules/environment/bucket.tf]

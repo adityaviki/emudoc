@@ -17,7 +17,7 @@ locals {
       STORAGE_URL        = "s3://${aws_s3_bucket.documents.bucket}"
       AWS_DEFAULT_REGION = local.region
       SCANNER_URL        = "clamd://clamav:3310"
-      EMBEDDING_BASE_URL = "http://ollama:11434/v1"
+      EMBEDDING_BASE_URL = "http://embeddings:8080/v1"
       HOSTING_PROVIDER   = local.hosting_provider
       BACKUP_DAYS        = tostring(var.backup_days)
     },

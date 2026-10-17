@@ -34,8 +34,8 @@ on one machine; this is what changes for a deployment. The processes below run f
   deployment that runs without a scanner says so with `SCANNER_URL=off`, and the worker
   warns at every start.
 - **An embeddings endpoint** in `EMBEDDING_BASE_URL`, which turns every passage and every
-  search into a vector for search by meaning: Ollama beside the app, as the compose file runs
-  it, or a hosted one: "The embeddings endpoint", below.
+  search into a vector for search by meaning: llama.cpp's server beside the app, as the
+  compose file runs it, or a hosted one: "The embeddings endpoint", below.
 - **An SMTP relay** in `SMTP_URL` for the sign-in links.
 - **The model providers** named by `INDEX_MODEL` and `AGENT_MODEL`, and by their fallbacks,
   each on terms that forbid training on what it is sent, each model named by its version and
@@ -147,14 +147,14 @@ API's asks `/api/health`, the worker's reads the age of the file it keeps with `
 
 Its bases are pinned by digest (`python:3.13-slim-trixie@sha256:…` and `node:24-slim@sha256:…`
 in the `Dockerfile`, and uv's), as are the images beside it in the compose files (ClamAV,
-Ollama, Caddy), so a commit builds the same image whenever it is built and a tag moved on a
-registry changes nothing until a commit does. A security fix in Debian therefore reaches a
-deployment as a commit and a release. Dependabot proposes the digest a base was rebuilt with
-every Monday (`.github/dependabot.yml`), and the Audit workflow builds the image every morning
-and fails on a high or critical vulnerability that has a fix (trivy), which is the sign to take
-that pull request, or to move the digest by hand (`docker buildx imagetools inspect
-python:3.13-slim-trixie` prints the tag's), and to release the new commit. The same scan by hand,
-of an image built here, with what was accepted in `.trivyignore.yaml`:
+llama.cpp's server, Caddy), so a commit builds the same image whenever it is built and a tag
+moved on a registry changes nothing until a commit does. A security fix in Debian therefore
+reaches a deployment as a commit and a release. Dependabot proposes the digest a base was
+rebuilt with every Monday (`.github/dependabot.yml`), and the Audit workflow builds the image
+every morning and fails on a high or critical vulnerability that has a fix (trivy), which is the
+sign to take that pull request, or to move the digest by hand (`docker buildx imagetools inspect
+python:3.13-slim-trixie` prints the tag's), and to release the new commit. The same scan by
+hand, of an image built here, with what was accepted in `.trivyignore.yaml`:
 
 ```bash
 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/src:ro" -w /src \
@@ -162,16 +162,18 @@ docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/src:ro" -
   --ignorefile .trivyignore.yaml emudoc:<tag>
 ```
 
-The images that run beside it, ClamAV's, Ollama's and Caddy's, get the same scan every morning
-(Audit's "Images beside the app"), each at the digest the compose files pin, read from its
-registry for `linux/amd64`, the instance's platform. Only their projects can fix what it finds,
-in a newer tag or a rebuild, which Dependabot proposes like a base's and which is released the
-same way. Until one comes, a finding is accepted in `deploy/.trivyignore.yaml` with the reason
-it can wait and an `expired_at`, after which the morning run fails again unless the release has
-come; an entry whose finding has gone is removed. Ollama builds every release with the Go its
-`go.mod` names, which it seldom moves, so its binary carries most of a year's fixes to Go as
-findings; they are accepted for what reaches Ollama, which is the app alone, on the compose
-network. By hand, the list and one image (Ollama's takes about five minutes):
+The images that run beside it, ClamAV's, llama.cpp's and Caddy's, get the same scan every
+morning (Audit's "Images beside the app"), each at the digest the compose files pin, read from
+its registry for `linux/amd64`, the instance's platform. Only their projects can fix what it
+finds, in a newer tag or a rebuild, which Dependabot proposes like a base's and which is
+released the same way. Until one comes, a finding is accepted in `deploy/.trivyignore.yaml` with
+the reason it can wait and an `expired_at`, after which the morning run fails again unless the
+release has come; an entry whose finding has gone is removed. llama.cpp's server is built every
+day on Ubuntu's current packages, so a fix reaches its image within a day and the deployment
+with the next Monday's pull request. Ollama, which ran in its place until October 2026, builds
+every release with the Go its `go.mod` names and seldom moves it, so its binary carried 43 high
+vulnerabilities Go had fixed, which any scanner of the deployment would report. By hand, the
+list and one image:
 
 ```bash
 EMUDOC_ENV=/dev/null EMUDOC_IMAGE=emudoc:app EMUDOC_DOMAIN=example.org \
@@ -182,8 +184,8 @@ docker run --rm -v "$PWD:/src:ro" -w /src aquasec/trivy:0.73.0 image --image-src
 ```
 
 `deploy/compose.yml` puts it together on one machine: the release step, the API, a worker,
-ClamAV and Ollama, with the settings in `/etc/emudoc/emudoc.env` (`EMUDOC_ENV` names another
-file):
+ClamAV, and llama.cpp's server for the embeddings, with the settings in
+`/etc/emudoc/emudoc.env` (`EMUDOC_ENV` names another file):
 
 ```bash
 export EMUDOC_IMAGE=emudoc:$(git rev-parse HEAD)
@@ -196,10 +198,12 @@ docker compose -f deploy/compose.yml run --rm --no-deps worker python -m app.mai
 succeeded, and `--wait` returns once the API answers its health check and the worker keeps
 its alive file. It replaces the running API and worker before it runs the migrations, though,
 so a migration that fails there leaves neither running; an update runs them alone first, and
-stops there if they fail:
+stops there if they fail, and so does the embeddings server, whose download and start the API
+and the worker wait for in the same way:
 
 ```bash
 docker compose -f deploy/compose.yml run --rm --no-deps migrate && \
+  docker compose -f deploy/compose.yml up -d --wait embeddings && \
   docker compose -f deploy/compose.yml up -d --wait
 ```
  The file gives its
@@ -208,10 +212,10 @@ network a subnet of its own, `10.73.0.0/24`, so that `FORWARDED_ALLOW_IPS` can n
 than the development file's, so one machine can run both. The database, the mail relay, a
 bucket and the proxy are the deployment's: the env file names them, with
 `SCANNER_URL=clamd://clamav:3310` for the daemon beside the app and
-`EMBEDDING_BASE_URL=http://ollama:11434/v1` for the embeddings. Compose expands `$` in the env
-file's values unless they are in single quotes, which a password may need. Wherever this guide
-says `uv run …`, the image runs the same command through `docker compose … run --rm --no-deps
-worker`: without `--no-deps`, `run` runs the release step first, with whatever image
+`EMBEDDING_BASE_URL=http://embeddings:8080/v1` for the embeddings. Compose expands `$` in the
+env file's values unless they are in single quotes, which a password may need. Wherever this
+guide says `uv run …`, the image runs the same command through `docker compose … run --rm
+--no-deps worker`: without `--no-deps`, `run` runs the release step first, with whatever image
 `EMUDOC_IMAGE` names.
 
 ## Health checks
@@ -463,9 +467,9 @@ address, an Ollama on 127.0.0.1, is in the image the container itself, so produc
 start with `EMBEDDING_BASE_URL` unset or blank.
 
 Every process asks the endpoint for one vector at start and says what it found: "Passages are
-embedded by nomic-embed-text at http://ollama:11434/v1". An endpoint that turns the request
+embedded by nomic-embed-text at http://embeddings:8080/v1". An endpoint that turns the request
 down stops a production start, with the settings to look at: a model it does not serve (404;
-Ollama's until `ollama pull`), a model that makes no embeddings (501 from Ollama), a key it
+an Ollama's until `ollama pull`), a model that makes no embeddings (501 from Ollama), a key it
 refuses (401), vectors of another size than `EMBEDDING_DIM`. One that is out of reach or busy
 may be starting beside the app, so the process starts and warns: "Until it answers, search
 matches keywords only…". A start refused this way changes nothing, even with a new
@@ -473,34 +477,54 @@ matches keywords only…". A start refused this way changes nothing, even with a
 through. Afterwards each search that falls back to keywords logs "A search in project 12
 matched keywords only: …", and the members' status line says the same.
 
-**Beside the app.** The compose file runs Ollama as `ollama`, on its network only, with
-the model in the `models` volume, and a one-shot `embedding-model` service the API and the
-worker wait for, which pulls `nomic-embed-text` when the volume does not have it yet and never
-again: the same name pulled later may bring other weights, whose vectors would not match the
-stored ones. A first `up` needs the model's 274 MB from Ollama's registry; later ones need
-nothing from it. Another Ollama model is named to compose as well as in the env file (with its
-size and prefixes), `export EMBEDDING_MODEL=mxbai-embed-large` beside `EMUDOC_IMAGE`; a name the
-registry does not know stops `up` with "pull model manifest: file does not exist". Ollama
-keeps the model in memory for good (`OLLAMA_KEEP_ALIVE=-1`; the container holds about 600 MB
-with nomic-embed-text) and asks ollama.com for nothing else (`OLLAMA_NO_CLOUD=1`: from 0.40 on
-it would otherwise fetch models to recommend every four hours), and its image is large, 3.8 GB
-to download and 9.2 GB on disk, nearly all of it libraries for a GPU. An update of Ollama
-keeps the vectors: 0.40.5 embedded the same texts as 0.34.3 to the last digit, from the model
-0.34.3 had pulled (whose manifest it rewrites, which 0.34.3 still reads) and from a fresh pull.
-Ollama's notes say a later release will convert models pulled by earlier ones in the
-background, as 0.40.2 did until 0.40.3 took it out: compare the vectors before taking that one
-(embed a few passages before and after, on a copy of the volume). On the deployment's own network it is no subprocessor and takes plain HTTP
-("Encryption"); on another machine there, such as a GPU server for a large backlog, it listens
-on a private address (`OLLAMA_HOST=10.0.0.7:11434` in its environment), and across a network
-the deployment does not own it sits behind TLS, as production requires.
+**Beside the app.** The compose file runs llama.cpp's server (`ghcr.io/ggml-org/llama.cpp`,
+its `server` image) as `embeddings`, on its network only, as an unprivileged user on a read-only
+filesystem, with the weights in the `embedding-model` volume. A one-shot `embedding-model`
+service fills it before the server starts: it downloads `EMBEDDING_WEIGHTS_URL` when the volume
+has no file named by `EMBEDDING_WEIGHTS_SHA256`, checks the download against that hash and
+keeps it under it, so a first `up` needs the weights' 274 MB from Hugging Face and later ones
+nothing from anywhere, and every machine and every release serves the same file. The default is
+nomic-embed-text v1.5 at 16 bits as Nomic published it, at a fixed commit of its repository. The
+server answers whatever model a request names, so `EMBEDDING_MODEL` stays the app's name for
+the weights, under which the vectors are stored and priced. Its vectors are Ollama's:
+llama.cpp b11706 and Ollama 0.40.5 embedded the same texts to a cosine of 0.999999 or closer,
+with the same token counts, so a deployment that ran Ollama keeps its stored vectors and its
+`EMBEDDING_MODEL`, and can remove what Ollama leaves behind (`docker volume rm
+emudoc-deploy_models`, `docker image rm ollama/ollama:0.40.5`). Other weights are another GGUF
+file named to compose beside `EMUDOC_IMAGE`, `export
+EMBEDDING_WEIGHTS_URL=https://huggingface.co/<repository>/resolve/<commit>/<file>.gguf
+EMBEDDING_WEIGHTS_SHA256=<the SHA-256 Hugging Face shows for the file>`, with a new
+`EMBEDDING_MODEL`, its `EMBEDDING_DIM` and prefixes in the env file ("Changing the model",
+below); on AWS the two are settings like the others. A file that does not match the hash stops
+`up` with "The file at EMBEDDING_WEIGHTS_URL is not the one EMBEDDING_WEIGHTS_SHA256 names."
 
-On a CPU, embedding is the slow part of indexing. On an 8-core laptop CPU (Ryzen 7 7435HS,
-October 2026), Ollama embedded a batch of 32 passages of 1,500 characters in 6 seconds and of
-6,000 characters (the most the app sends) in 33; the app waits 120 seconds for a batch.
-Hugging Face's text-embeddings-inference also serves `/v1/embeddings`, from a 240 MB image,
-but its CPU build (1.9) could not load nomic-embed-text v1.5 on its fast backend and ran it
-five times slower than Ollama, so that a batch of long passages outlasted the 120 seconds; it
-suits a GPU, or a model its ONNX backend loads.
+The server makes embeddings alone (no chat page, no slots endpoint) and logs warnings and
+errors, never what it is sent. It holds about 500 MB with nomic-embed-text, and its image is 300
+MB to download and 1.2 GB on disk. Its batches hold 8,192 tokens (`--ubatch-size`), more than
+the 6,000 characters the app sends at most, so that an input past the model's context of 2,048
+tokens, such as a passage of dense Chinese or a long row of a table, is refused as such (400,
+`exceed_context_size_error`) rather than as a failure of the server's; the app then embeds that
+input from its beginning, cut to what the context holds, as Ollama did by itself. llama.cpp has
+no releases but a build a day under the `server` tag: Dependabot proposes the newest digest
+every Monday, and CI's Embeddings job (`.github/scripts/check-embeddings.sh`) starts the compose
+file's two services with it and fails when the vectors of `.github/scripts/embeddings.json` move
+(a cosine below 0.9999), the texts' token count changes, or the refusal does. A build that fails
+it is not taken; a later one that passes is. The vectors are the ones the deployments' databases
+hold, so a build whose vectors moved would rank every stored passage against a query of another
+model, without a word in any log; other weights chosen on purpose rewrite the file with the
+script's `--write`. On the deployment's own network the server is no subprocessor and takes
+plain HTTP ("Encryption"); on another machine there, such as a GPU server for a large backlog
+(llama.cpp's CUDA image), it listens on a private address, and across a network the deployment
+does not own it sits behind TLS, as production requires.
+
+On a CPU, embedding is the slow part of indexing. On an 8-core laptop CPU (Ryzen 7 7435HS, in
+Docker, October 2026), llama.cpp b11706 embedded a batch of 32 passages of 1,500 characters in
+7 seconds and of 6,000 characters (the most the app sends) in 23, and Ollama 0.40.5 in 9 to 11
+and in 23; the app waits 120 seconds for a batch. Hugging Face's text-embeddings-inference also
+serves `/v1/embeddings`, from a 240 MB image, but its CPU build (1.9) could not load
+nomic-embed-text v1.5 on its fast backend and ran it five times slower than Ollama, so that a
+batch of long passages outlasted the 120 seconds; it suits a GPU, or a model its ONNX backend
+loads.
 
 **A hosted endpoint** is any OpenAI-compatible service with a key in `EMBEDDING_API_KEY`, such
 as OpenAI's: `EMBEDDING_BASE_URL=https://api.openai.com/v1`,
@@ -865,12 +889,12 @@ the server. Production refuses to start otherwise, and says which:
 - **Sign-in with Google and Microsoft** goes to their HTTPS addresses, which are fixed in the
   code.
 
-Inside the own network the app takes plain connections: the proxy to uvicorn on the loopback,
-a compose database, Ollama, ClamAV. That network is the operator's to protect. On one machine
-or one compose network nothing crosses a wire. Where it spans machines over a network the
-operator does not own, such as a cloud's private network between hosts, encrypt it underneath
-(WireGuard, or the provider's encrypted private networking) or encrypt those connections as
-well: `sslmode=verify-full` and `https://` work inside the network as anywhere.
+Inside the own network the app takes plain connections: the proxy to uvicorn on the loopback, a
+compose database, the embeddings server, ClamAV. That network is the operator's to protect. On
+one machine or one compose network nothing crosses a wire. Where it spans machines over a
+network the operator does not own, such as a cloud's private network between hosts, encrypt it
+underneath (WireGuard, or the provider's encrypted private networking) or encrypt those
+connections as well: `sslmode=verify-full` and `https://` work inside the network as anywhere.
 
 ### At rest
 
@@ -919,9 +943,10 @@ same:
   pull out facts, and an image of every scanned page and uploaded image, to transcribe it.
 - `AGENT_MODEL` is sent each question, the project's name and description, and every passage,
   fact, outline and list of documents the agent reads to answer it.
-- `EMBEDDING_BASE_URL` is sent every passage as it is indexed and each search. Ollama beside
-  the app, as the compose file runs it, sends nothing out; a hosted endpoint is a company like
-  the others ("The embeddings endpoint").
+- `EMBEDDING_BASE_URL` is sent every passage as it is indexed and each search. llama.cpp's
+  server beside the app, as the compose file runs it, sends nothing out (its weights come in
+  once, from Hugging Face); a hosted endpoint is a company like the others ("The embeddings
+  endpoint").
 
 Each must be on terms that let it use none of this to train or improve its models, under a data
 processing addendum the operator has accepted. Where the providers stood in October 2026 (read
@@ -999,7 +1024,7 @@ change; in development each is a warning.
   `hel1`), and a Cloudflare R2 bucket in the EU jurisdiction by its `….eu.r2.cloudflarestorage.com`
   address. A bucket on another service cannot be placed and is refused; a directory, or a bucket
   on the deployment's own network, is where the deployment is.
-- The embeddings endpoint: the default, Ollama on the deployment's own network, is where the
+- The embeddings endpoint: the compose file's, on the deployment's own network, is where the
   deployment is; a hosted endpoint is placed only at Vertex AI's addresses or OpenAI's
   European one, and any other is refused.
 
@@ -1526,7 +1551,7 @@ image: every release runs on staging first.
 
 ```text
                        ┌─ EC2, Amazon Linux 2023 ───────────────────────┐
-  browsers ─ 80, 443 ─▶│ Caddy ─▶ API ─┐   worker   ClamAV   Ollama      │
+  browsers ─ 80, 443 ─▶│ Caddy ─▶ API ─┐   worker   ClamAV   llama.cpp   │
                        └───────────────┼────────────────────────────────┘
                                        ├─▶ RDS Postgres 17 (private subnets, TLS checked)
                                        └─▶ S3 bucket (versioned, encrypted)
@@ -1583,12 +1608,12 @@ The directories:
   change to the boot replaces it, and so does a new Amazon Linux, which the instance does not
   take by itself (`dnf` stays at the release the image was made from). Replace it every month,
   beside the drill, with `tofu apply -replace=module.emudoc.aws_instance.app`: a few minutes
-  of downtime, a new certificate from Let's Encrypt, and the embedding model pulled again
-  under its name, whose weights could have moved since: a versioned tag in `EMBEDDING_MODEL`
-  keeps them.
+  of downtime, a new certificate from Let's Encrypt, and the embedding model's weights
+  downloaded again, the same file by its SHA-256.
 - **Credentials**: the instance metadata service answers the host alone (IMDSv2, one hop), so
   no container holds the instance's role, which reads the settings, pulls the image and runs
-  the drill. ClamAV, which opens hostile files, and Ollama hold no credentials at all. The API
+  the drill. ClamAV, which opens hostile files, and llama.cpp's server hold no credentials at
+  all. The API
   and the worker reach the bucket with the app role's, which allow the bucket and nothing else:
   the host renews an hour's session of it every quarter of an hour into
   `/run/emudoc/aws/app` (`emudoc-credentials.timer`), and boto3 reads the file again whenever
@@ -1750,8 +1775,8 @@ tag and delete only copies called `emudoc-drill-…` that carry `purpose=restore
 - The app's own high availability: one instance in one zone. RDS's standby covers the database;
   a lost instance or zone is downtime until `tofu apply` makes another, which runs the recorded
   release by itself.
-- Throughput beyond one machine: Ollama embeds on the instance's CPUs, and the app gives a batch
-  of 32 passages 120 seconds. Two vCPUs are slow for long passages; embed stages that keep
+- Throughput beyond one machine: llama.cpp embeds on the instance's CPUs, and the app gives a
+  batch of 32 passages 120 seconds. Two vCPUs are slow for long passages; embed stages that keep
   failing on time call for a larger instance or a hosted endpoint ("The embeddings
   endpoint").
 - Metrics and alarms, a CDN or firewall in front, IPv6, the bucket's replication to a second

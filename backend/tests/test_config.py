@@ -171,7 +171,7 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "app_url": "https://emudoc.example.com",
         "smtp_url": "smtp://mailer:secret@smtp.example.com:587",
         "scanner_url": "clamd://clamav:3310",
-        "embedding_base_url": "http://ollama:11434/v1",
+        "embedding_base_url": "http://embeddings:8080/v1",
         "google_paid_tier": True,
         "hosting_provider": "Hetzner Online GmbH, Germany",
         "operator_name": "Emudoc GmbH, Example Street 1, 10115 Berlin, Germany",
@@ -303,7 +303,7 @@ def test_production_names_its_embeddings_endpoint(deployment):
         load_settings(**deployment)
     (line,) = stop.value.code.splitlines()[1:]
     assert line.startswith("  - EMBEDDING_BASE_URL is not set")
-    assert "such as http://ollama:11434/v1 for the compose file's service" in line
+    assert "such as http://embeddings:8080/v1 for the compose file's server" in line
     deployment["embedding_base_url"] = " "
     with pytest.raises(SystemExit, match="EMBEDDING_BASE_URL is not set"):
         load_settings(**deployment)

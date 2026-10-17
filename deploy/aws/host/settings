@@ -12,7 +12,7 @@ them name --home, where the release moves them once it succeeded:
 
   emudoc.env      the app's settings, for Compose's env_file (deploy/compose.yml)
   compose.env     what Compose puts into the files themselves: the image, the domain, the
-                  embedding model (`docker compose --env-file`)
+                  embedding model's weights (`docker compose --env-file`)
   drill-app.env   the app's settings for the restore drill's dry run (`docker run --env-file`),
                   without the models' and sign-in providers' keys, which it does not use, and
                   with the storage reader's credentials in place of the app's
@@ -124,9 +124,10 @@ def files(settings: "dict[str, str]", image: str, home: str) -> "dict[str, str]"
         "EMUDOC_ENV": os.path.join(home, "emudoc.env"),
         "EMUDOC_DOMAIN": domain,
     }
-    # deploy/compose.yml pulls the embedding model under this name; unset, its own default.
-    if "EMBEDDING_MODEL" in settings:
-        compose["EMBEDDING_MODEL"] = settings["EMBEDDING_MODEL"]
+    # The weights deploy/compose.yml downloads and serves; unset, its own default.
+    for name in ("EMBEDDING_WEIGHTS_URL", "EMBEDDING_WEIGHTS_SHA256"):
+        if name in settings:
+            compose[name] = settings[name]
 
     drill_app = {
         name: value

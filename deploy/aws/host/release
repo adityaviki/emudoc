@@ -57,12 +57,12 @@ systemctl enable --quiet --now emudoc-credentials.timer
 export EMUDOC_COMPOSE_FILES="-f $deploy/compose.yml -f $deploy/aws/compose.yml"
 export EMUDOC_COMPOSE_ENV=/etc/emudoc/next/compose.env EMUDOC_ENV=/etc/emudoc/next/emudoc.env
 compose=/usr/local/sbin/emudoc-compose
-# The release step and the embedding model first, each in a container of its own: `up` replaces
-# the API and the worker before it runs them, so a migration or a pull that failed there would
-# leave neither running. Here a failure ends the release with the old ones serving.
+# The release step, then the embeddings server with the download of its weights: `up` replaces
+# the API and the worker before it runs what they wait for, so a migration or a download that
+# failed there, or a server that did not start, would leave neither running. Here a failure
+# ends the release with the old ones serving.
 $compose run --rm --no-deps migrate
-$compose up --detach --wait ollama
-$compose run --rm --no-deps embedding-model
+$compose up --detach --wait embeddings
 # Then the rest, the steps above again (done, they do nothing). A first release waits for
 # ClamAV's signatures.
 $compose up --detach --wait --wait-timeout 1200 --remove-orphans

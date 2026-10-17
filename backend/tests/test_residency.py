@@ -26,7 +26,7 @@ FIT = {
     "data_region": "eu",
     "index_model": "google-cloud:gemini-2.5-flash-lite",
     "agent_model": "google-cloud:gemini-2.5-flash-lite",
-    "embedding_base_url": "http://ollama:11434/v1",
+    "embedding_base_url": "http://embeddings:8080/v1",
 }
 DIRECTORY = LocalStorage(Path("unused"))
 # A Vertex AI service account in the EU multi-region.

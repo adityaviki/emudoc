@@ -46,8 +46,9 @@ BUCKET_HOLDS = "every upload, and every page image a browser opens,"
 # What to look at when the embeddings endpoint turns the start's request down.
 EMBEDDING_SETTINGS = (
     "Check that EMBEDDING_BASE_URL is the address /embeddings is under, such as "
-    "http://ollama:11434/v1, that the endpoint serves EMBEDDING_MODEL (Ollama's after `ollama "
-    "pull`) as vectors of EMBEDDING_DIM, and EMBEDDING_API_KEY if it asks for one."
+    "http://embeddings:8080/v1 for the compose file's server, that the endpoint serves "
+    "EMBEDDING_MODEL (Ollama's after `ollama pull`) as vectors of EMBEDDING_DIM, and "
+    "EMBEDDING_API_KEY if it asks for one."
 )
 
 
@@ -196,7 +197,7 @@ def check_embedder(settings: Settings, embedder: Embedder) -> None:
     stage of every document fails, is tried again and is given up. In production an endpoint
     that refuses the request, with a wrong address, model, size or key, is misconfigured, not
     degraded, and the process stops with the settings to look at. One that is out of reach or
-    busy may be starting beside the app, as the compose file's Ollama does, so the process
+    busy may be starting beside the app, as the compose file's server does, so the process
     starts and says so; development starts either way.
     """
     try:

@@ -1,5 +1,5 @@
 # What `trivy image` reports of the images the deployment runs beside the app, ClamAV's,
-# Ollama's and Caddy's (deploy/compose.yml, deploy/aws/compose.yml), that was looked at and
+# llama.cpp's and Caddy's (deploy/compose.yml, deploy/aws/compose.yml), that was looked at and
 # accepted until their projects release the fix (Audit, "Images beside the app"). Only those
 # projects can fix them, so each entry names the file in the image it was found in (`paths`, as
 # trivy prints the target: a binary has no leading slash), which keeps it from accepting the
@@ -31,63 +31,3 @@ vulnerabilities:
     statement: >-
       Caddy offers Encrypted Client Hello only with its `ech` global option, which
       deploy/aws/Caddyfile does not set, so the server never decodes the extension.
-
-  # Ollama 0.40.5's binary. Ollama builds every release with the Go its go.mod names, 1.26.0
-  # (February), and with modules as old, so no release brings these fixes until Ollama moves
-  # them; the date is when to look at the reason again, which changes with the compose files.
-  - &ollama
-    id: CVE-2026-25679
-    paths: [usr/bin/ollama]
-    expired_at: 2027-01-17
-    statement: >-
-      Ollama listens on the compose network alone, and only the API and the worker send it
-      requests: the passages and searches to embed, as JSON. It sends one out, the
-      embedding-model service's pull of the model from its registry, over TLS. What is listed
-      beside denial of service is code those requests do not run (SSH, the module checksum
-      database, HTML and its templates, the image decoders) or code of the pull (certificate
-      checks against a misissued certificate, os.Root over the files the pull writes). The rest
-      is denial of service in code a request runs, net/http's server and the JSON and text it
-      decodes, which a document's text reaches only through the app: at worst Ollama stops
-      answering, and the app searches by keywords and retries the embedding stage meanwhile.
-  - {<<: *ollama, id: CVE-2026-25681}
-  - {<<: *ollama, id: CVE-2026-27136}
-  - {<<: *ollama, id: CVE-2026-27137}
-  - {<<: *ollama, id: CVE-2026-27145}
-  - {<<: *ollama, id: CVE-2026-32280}
-  - {<<: *ollama, id: CVE-2026-32281}
-  - {<<: *ollama, id: CVE-2026-32283}
-  - {<<: *ollama, id: CVE-2026-32285}
-  - {<<: *ollama, id: CVE-2026-33810}
-  - {<<: *ollama, id: CVE-2026-33811}
-  - {<<: *ollama, id: CVE-2026-33814}
-  - {<<: *ollama, id: CVE-2026-33818}
-  - {<<: *ollama, id: CVE-2026-39820}
-  - {<<: *ollama, id: CVE-2026-39821}
-  - {<<: *ollama, id: CVE-2026-39822}
-  - {<<: *ollama, id: CVE-2026-39828}
-  - {<<: *ollama, id: CVE-2026-39829}
-  - {<<: *ollama, id: CVE-2026-39830}
-  - {<<: *ollama, id: CVE-2026-39831}
-  - {<<: *ollama, id: CVE-2026-39832}
-  - {<<: *ollama, id: CVE-2026-39835}
-  - {<<: *ollama, id: CVE-2026-39836}
-  - {<<: *ollama, id: CVE-2026-42499}
-  - {<<: *ollama, id: CVE-2026-42504}
-  - {<<: *ollama, id: CVE-2026-42508}
-  - {<<: *ollama, id: CVE-2026-46595}
-  - {<<: *ollama, id: CVE-2026-46597}
-  - {<<: *ollama, id: CVE-2026-46600}
-  - {<<: *ollama, id: CVE-2026-46602}
-  - {<<: *ollama, id: CVE-2026-46603}
-  - {<<: *ollama, id: CVE-2026-56852}
-  - {<<: *ollama, id: CVE-2026-56853}
-  - {<<: *ollama, id: CVE-2026-56854}
-  - {<<: *ollama, id: CVE-2026-56858}
-  - {<<: *ollama, id: CVE-2026-56859}
-  - {<<: *ollama, id: CVE-2026-56860}
-  - {<<: *ollama, id: CVE-2026-56862}
-  - {<<: *ollama, id: CVE-2026-56864}
-  - {<<: *ollama, id: CVE-2026-56865}
-  - {<<: *ollama, id: CVE-2026-78667}
-  - {<<: *ollama, id: CVE-2026-78669}
-  - {<<: *ollama, id: CVE-2026-97031}

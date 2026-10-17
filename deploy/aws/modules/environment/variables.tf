@@ -42,13 +42,13 @@ variable "network_cidr" {
 }
 
 variable "instance_type" {
-  description = "The EC2 instance that runs the API, the worker, ClamAV, Ollama and Caddy. x86_64 only: the image is built and checked for it. It needs about 8 GB of memory, and Ollama embeds on its CPUs."
+  description = "The EC2 instance that runs the API, the worker, ClamAV, llama.cpp's server and Caddy. x86_64 only: the image is built and checked for it. It needs about 8 GB of memory, and llama.cpp embeds on its CPUs."
   type        = string
   default     = "t3a.large"
 }
 
 variable "disk_gb" {
-  description = "The instance's disk: the images (Ollama's alone is 9 GB on disk), the embedding model, ClamAV's signatures and the logs. The documents are in the bucket."
+  description = "The instance's disk: the images (the app's and its last three releases', ClamAV's, llama.cpp's and Caddy's), the embedding model, ClamAV's signatures and the logs. The documents are in the bucket."
   type        = number
   default     = 60
 }

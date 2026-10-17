@@ -1,4 +1,5 @@
-"""Embeddings from any OpenAI-compatible /embeddings endpoint (Ollama by default)."""
+"""Embeddings from any OpenAI-compatible /embeddings endpoint (Ollama by default, llama.cpp's
+server in the compose file)."""
 
 import threading
 import time
@@ -14,6 +15,14 @@ from app.usage import ModelUsage
 BATCH_SIZE = 32
 # Passages are far shorter; this only guards the model's context window.
 MAX_INPUT_CHARS = 6000
+# The error type of llama.cpp's server for an input past the model's context (2,048 tokens
+# for nomic-embed-text, a few hundred characters of dense text past what a passage usually
+# holds), with the input's tokens and the context beside it. Ollama cuts such an input to the
+# context itself; this server refuses the whole request, so the app cuts it instead, to the
+# share of its characters that the context holds and a margin, as tokens are not spread
+# evenly. The vector then stands for the input's beginning, as Ollama's did.
+TOO_LONG = "exceed_context_size_error"
+KEEP_SHARE = 0.9
 # The statuses an endpoint answers with when it, not the request, is the problem for the moment:
 # these and the 5xx family, but for 501, which says the endpoint cannot do this at all (Ollama's
 # answer for a model that makes no embeddings).
@@ -34,6 +43,15 @@ CHECK_TIMEOUT = 10
 
 class EmbeddingError(AppError):
     pass
+
+
+class InputTooLong(EmbeddingError):
+    """An input of the request was past the model's context: `tokens` of `context`."""
+
+    def __init__(self, message: str, tokens: int, context: int):
+        super().__init__(message)
+        self.tokens = tokens
+        self.context = context
 
 
 class Embedder:
@@ -99,10 +117,23 @@ class Embedder:
     def _embed(
         self, inputs: list[str], timeout: float = TIMEOUT, usage: ModelUsage | None = None
     ) -> list[list[float]]:
-        payload = {
-            "model": self.model,
-            "input": [text[:MAX_INPUT_CHARS] for text in inputs],
-        }
+        inputs = [text[:MAX_INPUT_CHARS] for text in inputs]
+        try:
+            return self._request(inputs, timeout, usage)
+        except InputTooLong as error:
+            if len(inputs) > 1:
+                # The refusal does not say which input it was: each is asked for alone, which
+                # is rare enough that the batch's requests do not matter.
+                return [vector for text in inputs for vector in self._embed([text], timeout, usage)]
+            keep = int(len(inputs[0]) * min(error.context / error.tokens, 1) * KEEP_SHARE)
+            if keep < 1:
+                raise
+            return self._embed([inputs[0][:keep]], timeout, usage)
+
+    def _request(
+        self, inputs: list[str], timeout: float, usage: ModelUsage | None
+    ) -> list[list[float]]:
+        payload = {"model": self.model, "input": inputs}
         try:
             response = self._client.post("/embeddings", json=payload, timeout=timeout)
             response.raise_for_status()
@@ -112,8 +143,15 @@ class Embedder:
             # Told by its status and codes: the body of an endpoint's error may quote the
             # passages it was sent, and the message reaches the log (app/errors.py).
             status = error.response.status_code
-            codes = provider_codes(_json_or_none(error.response))
+            refusal = _json_or_none(error.response)
+            codes = provider_codes(refusal)
             detail = f" (error code {', '.join(codes)})" if codes else ""
+            if status == 400 and TOO_LONG in codes and (sizes := _sizes(refusal)):
+                raise InputTooLong(
+                    f"Embedding endpoint returned 400{detail}: an input of {sizes[0]} tokens "
+                    f"is past the model's {sizes[1]}.",
+                    *sizes,
+                ) from error
             raise EmbeddingError(
                 f"Embedding endpoint returned {status}{detail}.",
                 transient=status in TRANSIENT_STATUSES
@@ -149,11 +187,23 @@ class Embedder:
 
 
 def _tokens(body: dict) -> int:
-    """The tokens the endpoint says the request took, as OpenAI's API, Ollama and
-    text-embeddings-inference report them; zero when it says nothing usable."""
+    """The tokens the endpoint says the request took, as OpenAI's API, Ollama, llama.cpp's
+    server and text-embeddings-inference report them; zero when it says nothing usable."""
     usage = body.get("usage")
     tokens = usage.get("prompt_tokens") if isinstance(usage, dict) else None
     return tokens if isinstance(tokens, int) and tokens > 0 else 0
+
+
+def _sizes(body: object) -> tuple[int, int] | None:
+    """The tokens of the input and the model's context that llama.cpp's server puts beside
+    TOO_LONG, or None when it says less."""
+    error = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(error, dict):
+        return None
+    tokens, context = error.get("n_prompt_tokens"), error.get("n_ctx")
+    if isinstance(tokens, int) and isinstance(context, int) and tokens > 0 and context > 0:
+        return tokens, context
+    return None
 
 
 def _json_or_none(response: httpx.Response) -> object:

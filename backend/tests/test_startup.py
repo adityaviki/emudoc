@@ -110,6 +110,7 @@ def test_production_refuses_an_endpoint_that_turns_the_request_down(production, 
         "it. Embedding endpoint returned 404 (error code not_found_error). Check that "
         "EMBEDDING_BASE_URL is the address /embeddings is under"
     )
+    assert "such as http://embeddings:8080/v1 for the compose file's server" in message
     assert "(Ollama's after `ollama pull`) as vectors of EMBEDDING_DIM" in message
     assert "try pulling it first" not in message
 
@@ -121,7 +122,7 @@ def test_production_refuses_an_endpoint_that_turns_the_request_down(production, 
 
 
 def test_an_endpoint_out_of_reach_lets_production_start(production, services, caplog):
-    # The compose file's Ollama may still be starting beside the app; the stage tries again.
+    # The compose file's server may still be starting beside the app; the stage tries again.
     with caplog.at_level("WARNING", logger="app.startup"):
         prepare(get_settings(), replace(services, embedder=embedder(refuse)))
     assert (

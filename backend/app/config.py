@@ -603,7 +603,7 @@ class Settings(BaseSettings):
                 "EMBEDDING_BASE_URL is not set, and its default, Ollama at 127.0.0.1, is this "
                 "process's own machine (in the image, its own container), where nothing "
                 "answers, so search would match keywords only; name the embeddings endpoint, "
-                "such as http://ollama:11434/v1 for the compose file's service."
+                "such as http://embeddings:8080/v1 for the compose file's server."
             )
         if problem := plain_http_problem(
             "EMBEDDING_BASE_URL",
