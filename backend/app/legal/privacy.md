@@ -37,9 +37,9 @@ organisation uploaded a document about you, ask the organisation first; we help 
   what a document, a question or an answer says.
 - **Abuse protection**: how many requests each account, each IP address and each email address
   (as a hash only) made in a minute, to slow down password guessing and floods.
-- **Server logs**: the IP address, time and path of each request, and the service's own record
-  of what it did, to keep it running and to find faults. They never hold what a document, a
-  question or an answer says, nor an email address.
+- **Server logs**: the IP address, time and path of each request and the account and project it
+  was for, and the service's own record of what it did, to keep it running and to find faults.
+  They never hold what a document, a question or an answer says, nor an email address.
 
 We send you email only about your account: to confirm your address, to reset your password,
 and to confirm that you asked for your account to be deleted. We send no marketing, show no

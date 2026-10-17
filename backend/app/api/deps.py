@@ -39,6 +39,7 @@ from app.config import get_settings
 from app.db import get_session
 from app.indexing.pipeline import Services
 from app.legal import terms_due, terms_pending
+from app.logs import about
 from app.mail import Mailer
 from app.models import Chat, Document, Folder, Passage, Project, User
 from app.ratelimit import Key, Limit, by_user, hit
@@ -107,20 +108,25 @@ async def refuse_cross_site(request: Request) -> None:
 
 
 def get_account(request: Request, session: SessionDep) -> Account:
-    """The organisation and user a request acts as: the session's user, or the local account."""
+    """The organisation and user a request acts as: the session's user, or the local account.
+    What the request logs from here on names them."""
     token = request.cookies.get(SESSION_COOKIE)
     if token:
         user_session = find_session(session, token)
         # A session that still waits for the authenticator code grants nothing yet.
         if user_session is not None and not user_session.needs_mfa:
             user = session.get(User, user_session.user_id)
+            about(user_id=user.id)
             account = account_for_user(session, user, user_session.id)
             if account is None:
                 raise HTTPException(403, NO_ORGANISATION)
+            about(org_id=account.organization.id)
             touch_session(session, user_session)
             return account
     if get_settings().local_account:
-        return local_account(session)
+        account = local_account(session)
+        about(user_id=account.user.id, org_id=account.organization.id)
+        return account
     raise HTTPException(401, SIGN_IN)
 
 
@@ -186,6 +192,7 @@ def get_project(project_id: int, session: SessionDep, account: AccountDep) -> Pr
     )
     if project is None:
         raise HTTPException(404, "Project not found")
+    about(project_id=project.id)
     return project
 
 
@@ -193,6 +200,7 @@ def get_document(document_id: int, session: SessionDep, account: AccountDep) -> 
     document = _in_organization(session, account, Document, document_id)
     if document is None:
         raise HTTPException(404, "Document not found")
+    about(document_id=document.id)
     return document
 
 
@@ -220,12 +228,16 @@ def get_chat(chat_id: int, session: SessionDep, account: AccountDep) -> Chat:
 def _in_organization[T: (Document, Folder, Passage, Chat)](
     session: Session, account: Account, model: type[T], object_id: int
 ) -> T | None:
-    """The row with this id, provided its project belongs to the account's organisation."""
-    return session.scalar(
+    """The row with this id, provided its project belongs to the account's organisation. What
+    the request logs from here on names the project, once it is known to be the account's."""
+    found = session.scalar(
         select(model)
         .join(Project, Project.id == model.project_id)
         .where(model.id == object_id, Project.org_id == account.organization.id)
     )
+    if found is not None:
+        about(project_id=found.project_id)
+    return found
 
 
 ProjectDep = Annotated[Project, Depends(get_project)]

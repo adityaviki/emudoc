@@ -82,7 +82,8 @@ from app.storage import (
 from app.trial import describe_trials, try_models
 from app.usage import DailyUsage, daily, money
 
-log = logging.getLogger(__name__)
+# By its name rather than `__name__`, which is "__main__" when the module runs as a command.
+log = logging.getLogger("app.maintenance")
 
 REBUILD_COMMAND = "uv run python -m app.maintenance rebuild-embeddings"
 RELOCATE_COMMAND = "uv run python -m app.maintenance relocate-files"
@@ -723,7 +724,8 @@ def main(argv: list[str] | None = None) -> None:
         "intervals, since providers retire models on their own schedules.",
     )
     args = parser.parse_args(argv)
-    configure_logging("%(levelname)s %(name)s: %(message)s")
+    # Text whatever LOG_FORMAT says: the commands are run, and their lines read, by a person.
+    configure_logging("text", "%(levelname)s %(name)s: %(message)s")
     # The schema check sets up a migration context, which announces itself; nothing to act on.
     logging.getLogger("alembic.runtime.migration").setLevel(logging.WARNING)
 

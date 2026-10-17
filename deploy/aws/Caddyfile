@@ -24,5 +24,9 @@
 	request_body @others {
 		max_size 1MB
 	}
-	reverse_proxy 127.0.0.1:8000
+	# Each request's id, which Caddy's access log names `uuid` and the app's lines
+	# `request_id`; one the browser sent is replaced ("Logs" in deploying.md).
+	reverse_proxy 127.0.0.1:8000 {
+		header_up X-Request-ID {http.request.uuid}
+	}
 }

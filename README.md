@@ -504,6 +504,13 @@ and why, never with the value it refused, so a short password or a link's token 
 back in the response. `deploying.md` ("Logs") gives the
 proxy a log format to match.
 
+In production the API, the worker and the migrations write one JSON object a line to standard
+error (`LOG_FORMAT`, text in development): the time in UTC, the level, the logger, the message,
+and the ids of what the line was logged about, the request's id with the user, organisation
+and project it acts on, or the job's id and kind with its document or answer. uvicorn's own
+lines, its access log included, come out the same way, without the probes that succeeded.
+Every response carries its request's id in `X-Request-ID`, the proxy's when it sent one.
+
 Each organisation keeps an audit log (`backend/app/audit.py`): its members' sign-ins (and
 failed ones for their accounts), password, two-factor and session changes, exports and
 deletion requests, every upload, download and deletion of a document, folder or project, chats

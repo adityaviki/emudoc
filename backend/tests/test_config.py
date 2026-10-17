@@ -145,6 +145,7 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "SCANNER_URL",
         "EMBEDDING_BASE_URL",
         "RUN_WORKER",
+        "LOG_FORMAT",
         "GOOGLE_PAID_TIER",
         "HOSTING_PROVIDER",
         "OPERATOR_NAME",
@@ -538,6 +539,21 @@ def test_the_api_runs_the_worker_itself_in_development_only(deployment, monkeypa
     assert load_settings(**deployment, run_worker=False).run_worker is False
     monkeypatch.setenv("RUN_WORKER", "")
     assert load_settings(**deployment).run_worker is True
+
+
+def test_a_deployment_logs_json_and_development_text(deployment, monkeypatch):
+    # Unset, the format follows the environment: lines for a collector in production, for a
+    # person at a terminal in development. Either can be said outright; a blank line is unset.
+    assert load_settings(**deployment).log_format == "json"
+    assert load_settings(**deployment, log_format="text").log_format == "text"
+    deployment["environment"] = "development"
+    assert load_settings(**deployment).log_format == "text"
+    assert load_settings(**deployment, log_format="json").log_format == "json"
+    monkeypatch.setenv("LOG_FORMAT", "")
+    assert load_settings(**deployment).log_format == "text"
+    monkeypatch.setenv("LOG_FORMAT", "yaml")
+    with pytest.raises(ValidationError, match="log_format"):
+        load_settings(**deployment)
 
 
 def test_a_process_that_runs_the_worker_needs_a_pool_for_its_threads(deployment):

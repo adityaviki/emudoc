@@ -11,6 +11,8 @@ its day, in the same commit.
 
 Members:
 
+- The privacy policy says that the server logs name the account and project each request was
+  for.
 - The user menu shows the version of Emudoc that runs.
 - When Gemini cannot be reached, questions and documents go to the second model, as they did
   when Gemini was down or refused them.
@@ -21,6 +23,16 @@ Members:
 
 Operators:
 
+- In production the API, the worker and the migrations log one JSON object a line, with the
+  time in UTC and what the line was about: the request's id and the user, organisation and
+  project it acted on, or the job's id and kind and its document or answer. `LOG_FORMAT=text`
+  gives the lines development writes; the maintenance commands write text either way.
+  uvicorn's lines, its access log included, come out the same way, and the probes that
+  succeeded are left out of the access log.
+- Every response carries its request's id in `X-Request-ID`. The id is the proxy's when it
+  sends one, which the Caddy and nginx examples in `deploying.md` and the AWS Caddyfile now
+  do, so the proxy's access log and the app's lines name the same request.
+- The worker's lines are logged as `app.worker`, where they were `__main__`.
 - The compose file runs llama.cpp's server for the embeddings in place of Ollama, as
   `embeddings` at `http://embeddings:8080/v1`, which `EMBEDDING_BASE_URL` must now name: the
   same model, nomic-embed-text, with the same vectors (to a cosine of 0.999999), so nothing is

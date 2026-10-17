@@ -141,6 +141,13 @@ class Settings(BaseSettings):
     # environment, set by the deployment or a secret manager, and secrets never go through a
     # file in the repository; a staging deployment is production too.
     environment: Literal["development", "production"] = "development"
+    # How the API, the worker and the migrations write their log (app/logs.py): `json`, one
+    # object a line with the ids of the request or job it was logged about, for a collector to
+    # search; `text`, lines for a person at a terminal. Unset, json in production and text in
+    # development. The maintenance commands write text whatever it says, since a person reads
+    # them. There is no level to set: below INFO, the libraries log what they send, documents
+    # and questions included.
+    log_format: Literal["text", "json"] | None = None
 
     # The database, as a SQLAlchemy URL. There is no default: a process that was not told its
     # database stops (see `load_settings`) rather than reach for a loopback server with a
@@ -464,7 +471,7 @@ class Settings(BaseSettings):
             )
         return value
 
-    @field_validator("run_worker", "backup_days", mode="before")
+    @field_validator("run_worker", "backup_days", "log_format", mode="before")
     @classmethod
     def _blank_means_unset(cls, value: object) -> object:
         # A blank `RUN_WORKER=` line leaves the choice to the environment, like no line at all.
@@ -476,6 +483,12 @@ class Settings(BaseSettings):
     def _run_the_worker_unless_deployed(self) -> "Settings":
         if self.run_worker is None:
             self.run_worker = self.environment == "development"
+        return self
+
+    @model_validator(mode="after")
+    def _log_json_when_deployed(self) -> "Settings":
+        if self.log_format is None:
+            self.log_format = "text" if self.environment == "development" else "json"
         return self
 
     @model_validator(mode="after")

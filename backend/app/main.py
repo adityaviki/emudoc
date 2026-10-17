@@ -19,7 +19,7 @@ from app.errors import summary
 from app.headers import SecurityHeaders, content_security_policy
 from app.indexing.pipeline import Services
 from app.legal import TERMS_VERSION, privacy_policy, published, terms_of_service
-from app.logs import configure_logging
+from app.logs import RequestIds, configure_logging
 from app.mail import Mailer, mailer_from_settings
 from app.schemas import (
     EmbeddingStatus,
@@ -257,6 +257,8 @@ def create_app(
     # the app answering no cross-origin request. test_no_other_origin_is_answered in
     # tests/test_headers.py says what a frontend on another origin would need instead.
     app.add_middleware(SecurityHeaders)
+    # Outside the others, so that what they log is logged under the request's id too.
+    app.add_middleware(RequestIds)
     for router in (
         system,
         auth.router,
@@ -291,5 +293,5 @@ def create_app(
     return app
 
 
-configure_logging()
+configure_logging(get_settings().log_format)
 app = create_app()

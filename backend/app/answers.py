@@ -42,6 +42,7 @@ from app.agent.loop import run_agent
 from app.db import BUSY, SessionLocal
 from app.indexing.pipeline import Services
 from app.jobs import ANSWER_QUESTION, LIVE, Lease, LeaseLost, enqueue, renew
+from app.logs import about
 from app.models import Chat, ChatMessage, Job, Project
 from app.spending import check_platform_spend, check_spend
 from app.usage import ANSWER, CHAT_MESSAGE, ModelUsage, record
@@ -277,6 +278,7 @@ def answer(message_id: int, services: Services, lease: Lease | None = None) -> N
         # Whose usage the run's model calls are, read now: the rollback below expires the
         # rows, and reading one afterwards would take a connection back for the whole run.
         payer = {"org_id": project.org_id, "project_id": project_id, "user_id": chat.user_id}
+        about(user_id=chat.user_id)
         over = check_platform_spend(session) or check_spend(session, project.organization)
         # Answers without text, such as failed ones, are left out of the conversation.
         history = [

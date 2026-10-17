@@ -778,7 +778,11 @@ emudoc.example.com {
     request_body @others {
         max_size 1MB
     }
-    reverse_proxy 127.0.0.1:8000
+    # Each request's id, which Caddy's access log names `uuid` and the app's lines
+    # `request_id`; one the browser sent is replaced ("Logs" below).
+    reverse_proxy 127.0.0.1:8000 {
+        header_up X-Request-ID {http.request.uuid}
+    }
 }
 ```
 
@@ -790,9 +794,10 @@ the ones in the `upstream` block's pool. Its default `proxy_read_timeout` of a m
 enough for an answer's stream, since the app's keep-alive comes every 15 seconds of silence.
 
 ```nginx
-# The path without its query, which carries a search's words ("Logs" below), and no Referer.
+# The path without its query, which carries a search's words ("Logs" below), and no Referer;
+# last, the request's id, which the app's lines name too.
 log_format emudoc '$remote_addr - [$time_local] "$request_method $uri $server_protocol" '
-                  '$status $body_bytes_sent $request_time';
+                  '$status $body_bytes_sent $request_time $request_id';
 
 upstream emudoc {
     server 127.0.0.1:8000;
@@ -816,6 +821,8 @@ server {
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # Each request's id, in place of any the browser sent.
+    proxy_set_header X-Request-ID $request_id;
 
     location / {
         proxy_pass http://emudoc;
@@ -1487,6 +1494,44 @@ a delete marker with the time of the file it deletes rather than the time of the
 listing of it can say what was deleted after a moment; MinIO and AWS stamp the delete.
 
 ## Logs
+
+The API, the worker and the release step's migrations write their log to standard error,
+where Docker and systemd collect it. In production each line is one JSON object
+(`LOG_FORMAT=json`, the default there; `text` gives the lines development writes):
+
+```json
+{"time": "2026-10-18T09:30:00.123Z", "level": "WARNING", "logger": "app.search",
+ "message": "A search in project 7 matched keywords only: …",
+ "request_id": "0f8fad5b-d9cb-469f-a165-70867728950e", "org_id": 2, "user_id": 4,
+ "project_id": 7}
+```
+
+shown here on four lines. `time` is UTC, and the ids say what the line was logged about, as
+far as that was known when it was written; an id not known is left out:
+
+- **A request's** `request_id`, and once the session was read its `user_id` and `org_id`, and
+  once the project was found in that organisation its `project_id` (and a document's
+  `document_id`). The id is the proxy's `X-Request-ID` when it sends a well-formed one (letters,
+  digits and `-_.:`, 8 to 128 of them), which both examples above do, so the proxy's access
+  log and the app's lines name the same request (Caddy's `uuid` field, nginx's last); without
+  one the app makes its own. Every response carries it back in `X-Request-ID`, for a member to
+  quote.
+- **A job's** `job_id` and `job_kind`, its `org_id` and `project_id`, and the `document_id` it
+  indexes or the `message_id` of the answer it writes, with the asking member's `user_id`.
+- **Neither**, for the start, the housekeeping and the alerts, which are the process's own.
+
+uvicorn's lines go the same way, its access log included, whose lines add `method`, `path`
+(the query's values hidden, below), `status` and `client`; a uvicorn `--log-config` changes
+nothing, the app sets uvicorn's loggers up itself. The probes that succeed, `/api/livez` and
+`/api/health` answering below 400, are left out of the access log, since an orchestrator asks
+them every few seconds; a 503 from `/api/health` stays. There is no level to set: the app logs
+from INFO, and below it the model and storage libraries would log what they send, documents
+and questions included. The maintenance commands write text whatever `LOG_FORMAT` says, since
+a person runs them and reads them.
+
+The other processes beside the app keep their own: Caddy writes JSON, llama.cpp's server plain
+lines, and only its warnings and errors (`--log-verbosity 2`; `--log-jsonl` would make them
+JSON, in `deploy/compose.yml`), ClamAV plain lines.
 
 What the app writes to its log never holds what a document says, a question, an answer or a
 key (`backend/app/logs.py`), whatever collects it and however long it is kept:

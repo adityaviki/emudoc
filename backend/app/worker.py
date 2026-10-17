@@ -84,7 +84,7 @@ from app.jobs import (
     queue_index,
     release,
 )
-from app.logs import configure_logging
+from app.logs import configure_logging, logging_about
 from app.mail import Mailer, mailer_from_settings
 from app.maintenance import housekeeping
 from app.models import Document, Job
@@ -93,7 +93,8 @@ from app.spending import alert_spending, when
 from app.startup import prepare
 from app.storage import StorageError
 
-log = logging.getLogger(__name__)
+# By its name rather than `__name__`, which is "__main__" when the module runs as a command.
+log = logging.getLogger("app.worker")
 
 POLL_SECONDS = 2.0
 # How often the listener checks whether the worker is stopping, between notifications; no
@@ -406,6 +407,19 @@ class Worker:
             self._run(job)
 
     def _run(self, job: Job) -> None:
+        # Every line the run logs, the handler's and the settling's, names the job and what
+        # it is for.
+        with logging_about(
+            job_id=job.id,
+            job_kind=job.kind,
+            org_id=job.org_id,
+            project_id=job.project_id,
+            document_id=job.payload.get("document_id"),
+            message_id=job.payload.get("message_id"),
+        ):
+            self._settle(job)
+
+    def _settle(self, job: Job) -> None:
         handler = HANDLERS[job.kind]
         try:
             with self._holding(job.id):
@@ -611,11 +625,11 @@ def main(argv: list[str] | None = None) -> None:
             args.alive_file.unlink()
         except OSError as error:
             sys.exit(f"The --alive-file {args.alive_file} cannot be written: {error.strerror}.")
-    configure_logging()
+    settings = get_settings()
+    configure_logging(settings.log_format)
     # The schema check sets up a migration context, which announces itself; nothing to act on.
     logging.getLogger("alembic.runtime.migration").setLevel(logging.WARNING)
 
-    settings = get_settings()
     try:
         services = prepare(settings)
     except (RuntimeError, StorageError, ScanError) as error:

@@ -5,9 +5,6 @@ The app does not run migrations itself; `alembic upgrade head` is a step before 
 the app only checks the result (`check_schema` in app/db.py).
 """
 
-import logging
-from logging.config import fileConfig
-
 from alembic import context
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Connection, text
@@ -15,6 +12,7 @@ from sqlalchemy import Connection, text
 from app import models  # noqa: F401  (registers every table on Base.metadata)
 from app.config import get_settings
 from app.db import MIGRATION_LOCK, Base, engine, unbounded
+from app.logs import configure_logging
 
 config = context.config
 target_metadata = Base.metadata
@@ -42,10 +40,9 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    # The command line logs which migrations run. A process that has set up logging already,
-    # such as the test suite, keeps its own.
-    if config.config_file_name and not logging.getLogger().hasHandlers():
-        fileConfig(config.config_file_name, disable_existing_loggers=False)
+    # The command line logs which migrations run, as the app's processes log (LOG_FORMAT): the
+    # release step's lines are read beside theirs.
+    configure_logging(get_settings().log_format)
     with engine.connect() as connection:
         run_on(connection)
 
