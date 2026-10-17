@@ -593,6 +593,23 @@ given.) It costs a few thousand tokens per model. Run it after changing a model 
 launch, and monthly: beside the restore drill's timer ("The drill"), a unit that runs it and
 mails on failure keeps a fallback from going stale unseen.
 
+**Every morning, from GitHub.** The Models workflow (`.github/workflows/models.yml`) runs the
+same command at 05:47 UTC, and by hand from Actions, Models, Run workflow, once the repository
+names the models: the variables `AGENT_MODEL` and `INDEX_MODEL`, with `AGENT_FALLBACK_MODEL`,
+`INDEX_FALLBACK_MODEL`, `DATA_REGION` and `MODEL_PRICES` as the deployment sets them, and the
+keys their providers need as the secrets `GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`,
+`OPENROUTER_API_KEY` or `OPENAI_API_KEY` (Settings, Secrets and variables, Actions, or `gh
+variable set AGENT_MODEL --body google:gemini-3.5-flash-lite` and `gh secret set
+GOOGLE_API_KEY`). Without the two variables it is skipped. GitHub mails a failed scheduled run
+to whoever last changed the schedule. It is the one workflow that holds a key, so it runs from
+`main` alone and never on a pull request. Give it keys of its own, made for it at each provider
+with a low spending limit, rather than production's: one that leaks from GitHub is then revoked
+without touching the deployment, and production's stay in its secret manager. The variables
+follow production's settings by hand: change them with the model, or the workflow goes on
+asking the one production stopped using. A model the deployment reaches on its own network
+(`ollama:`, an `OPENAI_BASE_URL` there) or through a service account (`google-cloud:`) cannot be
+asked from GitHub; run the command on the deployment for it, as above.
+
 **Retirements.** Every provider retires models on a schedule of its own, and says so first in
 these places (October 2026):
 

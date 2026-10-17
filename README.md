@@ -600,6 +600,11 @@ docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/src:ro" -
   --ignorefile .trivyignore.yaml emudoc:<tag>
 ```
 
+The suites answer for the models from recorded responses, so the models themselves are asked
+every morning by the Models workflow (`.github/workflows/models.yml`), once the repository
+names them and holds their keys: `python -m app.maintenance models` against every model and
+fallback the deployment names (`deploying.md`, "The models").
+
 Dependabot (`.github/dependabot.yml`) proposes the updates of both lock files and of the
 workflows' actions once a week, a week after their release, and those of the images, which
 are pinned by digest: the image's bases in the `Dockerfile` and the compose files' images, a
@@ -669,7 +674,8 @@ deploy/
 Dockerfile      the one image for every process; .dockerignore names what goes into it
 .github/        CI: the checks of every push and pull request and staging's releases
                 (workflows/ci.yml), a release by hand (workflows/release.yml), the daily
-                audit of the dependencies and the image (workflows/audit.yml), Dependabot's
+                audit of the dependencies and the image (workflows/audit.yml), the daily
+                question to the deployment's models (workflows/models.yml), Dependabot's
                 updates (dependabot.yml), the image's smoke test (scripts/check-image.sh) and
                 the tools' versions (scripts/check-versions.sh)
 .githooks/      the pre-commit hook that refuses a key or a .env file (git config

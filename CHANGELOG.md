@@ -21,6 +21,9 @@ Members:
 
 Operators:
 
+- The Models workflow asks every model and fallback the deployment names what the app asks of
+  them, every morning, once the repository names them and holds their keys (`deploying.md`,
+  "The models").
 - Ollama 0.40.5 and Caddy 2.11.7 in the compose files (Caddy's fixes a crash when proxying a
   request body over HTTP/2). Ollama runs with `OLLAMA_NO_CLOUD=1`, so that it asks ollama.com
   for the embedding model alone, not, as 0.40 would every four hours, for models to recommend.
