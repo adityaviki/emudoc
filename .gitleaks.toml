@@ -1,0 +1,35 @@
+# What gitleaks looks for in the history (CI, "Secrets"; the pre-commit hook in .githooks), on
+# top of its own rules, and what it was shown and accepted, each with its reason. A new finding
+# fails the check until the key is revoked and the commit rewritten, or it is accepted here
+# with a reason of its own. Never with a `gitleaks:allow` comment in the code: the check passes
+# --ignore-gitleaks-allow, so every exception is in this file.
+
+[extend]
+useDefault = true
+
+# A machine's own settings, whatever they hold: a .env names the keys of the machine it is on,
+# and OpenTofu's state every secret the infrastructure made. .gitignore leaves both out; this
+# is for the one added with `git add -f`, or under a name .gitignore does not know.
+[[rules]]
+id = "env-file"
+description = "A .env file, which holds a machine's settings and keys and stays on it"
+path = '''(^|/)\.env(\.[^/]+)?$'''
+
+  [[rules.allowlists]]
+  description = "The documented settings with their defaults and no key (.env.example)."
+  paths = ['''(^|/)\.env\.example$''']
+
+[[rules]]
+id = "opentofu-state"
+description = "OpenTofu's state, which holds every secret the infrastructure made"
+path = '''\.tfstate(\.[^/]+)?$'''
+
+[[allowlists]]
+description = """
+The tests name Alembic's revisions (twelve hexadecimal digits) in constants such as
+STORAGE_KEYS, after the migration they stand for, which generic-api-key takes for a key.\
+"""
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^backend/tests/test_migrations\.py$''']
+regexes = ['''^[0-9a-f]{12}$''']

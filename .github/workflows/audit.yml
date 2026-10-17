@@ -1,8 +1,9 @@
-# The dependencies' known vulnerabilities, every morning and on every change to a manifest or a
-# lock file. CI runs only when the code changes, so it would find an advisory published since at
-# the next change; this finds it the day after, and GitHub mails a failed scheduled run to
-# whoever last changed the schedule below. Each step is the command a developer runs (CLAUDE.md,
-# "Commands"); Dependabot (.github/dependabot.yml) proposes the updates that fix most findings.
+# The known vulnerabilities of the dependencies and of the image, every morning and on every
+# change to a manifest, a lock file or the Dockerfile. CI runs only when the code changes, so it
+# would find an advisory published since at the next change; this finds it the day after, and
+# GitHub mails a failed scheduled run to whoever last changed the schedule below. Each step is
+# the command a developer runs (CLAUDE.md, "Commands"); Dependabot (.github/dependabot.yml)
+# proposes the updates that fix most findings.
 name: Audit
 
 on:
@@ -10,15 +11,18 @@ on:
     - cron: "17 5 * * *"
   push:
     branches: [main]
-    paths: &locks
+    paths: &audited
       - backend/pyproject.toml
       - backend/uv.lock
       - frontend/package.json
       - frontend/pnpm-lock.yaml
       - frontend/pnpm-workspace.yaml
+      - Dockerfile
+      - .dockerignore
+      - .trivyignore.yaml
       - .github/workflows/audit.yml
   pull_request:
-    paths: *locks
+    paths: *audited
   workflow_dispatch:
 
 # The audits read the lock files and ask the advisory databases: no step writes to the
@@ -29,6 +33,10 @@ permissions:
 concurrency:
   group: audit-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # CI's (ci.yml); .github/scripts/check-versions.sh holds the two to one image.
+  TRIVY: aquasec/trivy:0.73.0@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c
 
 jobs:
   python:
@@ -82,3 +90,27 @@ jobs:
       # gives the reason. Never pass --ignore here: it records, it does not filter.
       - name: Audit
         run: pnpm audit --audit-level high
+
+  # The image a release builds from this commit, its bases pinned (Dockerfile): Debian's packages
+  # and the backend's environment against trivy's database, downloaded fresh each run, and the
+  # files for keys. A rebuild every morning is what finds a fixed vulnerability in a base that
+  # has not moved; the fix is Dependabot's pull request with the rebuilt base's digest, or the
+  # package's update. High and critical with a fix released fail; one without a fix cannot be
+  # acted on and is left out (--ignore-unfixed). An accepted one goes into .trivyignore.yaml's
+  # vulnerabilities with a statement.
+  image:
+    name: Image vulnerabilities
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build
+        run: docker build -t "emudoc:$GITHUB_SHA" .
+      - name: Audit
+        run: >-
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/src:ro" -w /src
+          "$TRIVY" image --quiet --skip-version-check --scanners vuln,secret --severity
+          HIGH,CRITICAL --ignore-unfixed --table-mode detailed --exit-code 1
+          --ignorefile .trivyignore.yaml "emudoc:$GITHUB_SHA"

@@ -3,9 +3,10 @@
 # pull request like any other, and the audit workflow those that change a lock file. Minor and
 # patch updates come as one pull request per ecosystem, a major one alone.
 #
-# Not here: the image's bases and the compose files' images (Docker), and the OpenTofu
-# providers. The versions of uv, pnpm, Node and Python, named in the Dockerfile and the
-# workflows, move by hand; .github/scripts/check-versions.sh fails when they disagree.
+# Not here: the OpenTofu providers. The versions of uv, pnpm, Node and Python, named in the
+# Dockerfile and the workflows, move by hand (below, only the digests of Node's and Python's
+# tags move); .github/scripts/check-versions.sh fails when they disagree. uv's image, copied
+# from in the Dockerfile rather than built from, is one Dependabot does not read.
 version: 2
 
 updates:
@@ -57,3 +58,51 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+
+  # The image's bases (Dockerfile) and the compose files' images, each pinned by digest. An
+  # update is the digest a tag was rebuilt with (Debian's security updates, ClamAV's
+  # signatures) or a newer tag with its own. Only a newer version waits the week: the cooldown
+  # of a digest counts from the tag's last push, and these tags are pushed every week or two,
+  # so a week's wait could hold a rebuilt base back for good. A major release is an upgrade to
+  # plan, not an update (a Postgres, a Node, Caddy 3), and Python's minor too: 3.14 is another
+  # interpreter. One pull request per ecosystem, without update-types, which would leave a
+  # digest out: Dependabot groups by the version that changes, and a digest changes none.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    cooldown:
+      semver-major-days: 7
+      semver-minor-days: 7
+      semver-patch-days: 7
+    groups:
+      images:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: python
+        update-types: ["version-update:semver-minor"]
+
+  # docker-compose.yml (the development database, the profiles), deploy/compose.yml (ClamAV
+  # and Ollama beside the app) and deploy/aws/compose.yml (Caddy).
+  - package-ecosystem: docker-compose
+    directories: [/, /deploy, /deploy/aws]
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    cooldown:
+      semver-major-days: 7
+      semver-minor-days: 7
+      semver-patch-days: 7
+    groups:
+      compose:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

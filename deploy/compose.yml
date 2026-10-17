@@ -108,7 +108,7 @@ services:
       retries: 3
 
   clamav:
-    image: clamav/clamav:stable
+    image: clamav/clamav:1.5@sha256:638d90201ee7ee6a82d249a2fc23b132e578673b5f1f2766852b127676ca1ef6
     # Its limits let it scan a file as large as MAX_UPLOAD_MB; raise them together. It needs
     # about a gigabyte of memory, and a minute at start to load the signatures, during which
     # the worker holds uploads in the queue.
@@ -123,7 +123,7 @@ services:
   # The embeddings endpoint (deploying.md, "The embeddings endpoint"), on this network only:
   # it is sent every passage and every search, and sends nothing out.
   ollama:
-    image: ollama/ollama:0.34.3
+    image: ollama/ollama:0.34.3@sha256:7ab595e4ead391f6818c7215297781282babe0701f6d9a9f8862ac591360a58b
     environment:
       # Keep the model loaded (the container holds about 600 MB with nomic-embed-text): Ollama
       # unloads one idle for five minutes, and the next search would wait for it to load again.
@@ -149,7 +149,7 @@ services:
   # ones. A model other than nomic-embed-text is named here as well as in the env file, with
   # `export EMBEDDING_MODEL=…` beside EMUDOC_IMAGE.
   embedding-model:
-    image: ollama/ollama:0.34.3
+    image: ollama/ollama:0.34.3@sha256:7ab595e4ead391f6818c7215297781282babe0701f6d9a9f8862ac591360a58b
     depends_on:
       ollama:
         condition: service_healthy

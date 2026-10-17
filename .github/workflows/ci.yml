@@ -26,6 +26,8 @@ env:
   SHELLCHECK: koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
   ACTIONLINT: rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
   TRIVY: aquasec/trivy:0.73.0@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c
+  # Also the pre-commit hook's (.githooks/pre-commit), which reads it from here.
+  GITLEAKS: ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 
 jobs:
   backend:
@@ -157,6 +159,26 @@ jobs:
         run: |
           tofu -chdir=deploy/aws/modules/environment init -input=false
           tofu -chdir=deploy/aws/modules/environment test
+
+  # A key or a .env file in any commit, gitleaks' rules and .gitleaks.toml's. Found here, it has
+  # been pushed: revoke the key first, then rewrite the history. The pre-commit hook finds it
+  # before the commit.
+  secrets:
+    name: Secrets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Every commit of every branch, not only the one checked.
+          fetch-depth: 0
+      # --ignore-gitleaks-allow: an exception is an entry in .gitleaks.toml with its reason,
+      # never a comment in the code.
+      - name: History
+        run: >-
+          docker run --rm -v "$PWD:/repo:ro" -w /repo "$GITLEAKS" git --redact --verbose
+          --no-banner --ignore-gitleaks-allow .
 
   scripts:
     name: Scripts and configuration

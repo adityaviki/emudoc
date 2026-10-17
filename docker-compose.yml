@@ -4,7 +4,7 @@
 # database and names it in DATABASE_URL.
 services:
   db:
-    image: pgvector/pgvector:pg17
+    image: pgvector/pgvector:0.8.7-pg17@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
     environment:
       POSTGRES_USER: emudoc
       POSTGRES_PASSWORD: emudoc
@@ -27,7 +27,7 @@ services:
   #   AWS_ACCESS_KEY_ID=emudoc  AWS_SECRET_ACCESS_KEY=emudoc-secret
   # The tests never need it: they run the bucket storage against a fake.
   s3:
-    image: versity/versitygw
+    image: versity/versitygw:v1.9.0@sha256:eb7f786fcd91e72194e48fcf1ac16302d686bf8e3a71434bdbc067a6efd3fdc7
     profiles: ["s3"]
     entrypoint: ["sh", "-c", "mkdir -p /data/emudoc && exec versitygw posix /data"]
     environment:
@@ -45,7 +45,7 @@ services:
   # scan a file as large as MAX_UPLOAD_MB; raise them together. The tests never need it: they
   # run the pipeline against a fake scanner, and the clamd client against a fake daemon.
   clamav:
-    image: clamav/clamav:stable
+    image: clamav/clamav:1.5@sha256:638d90201ee7ee6a82d249a2fc23b132e578673b5f1f2766852b127676ca1ef6
     profiles: ["clamav"]
     environment:
       CLAMD_CONF_StreamMaxLength: 100M
@@ -66,7 +66,7 @@ services:
   # The suite runs through it too, with TEST_DATABASE_SERVER=emudoc:emudoc@127.0.0.1:6438 and
   # the same two settings, the listener's naming emudoc_test.
   pgbouncer:
-    image: edoburu/pgbouncer:v1.26.0-p0
+    image: edoburu/pgbouncer:v1.26.0-p0@sha256:b17551c776ef7e5769ef80b956d20f85e2fd25dd8912d31d58f782aad495b711
     profiles: ["pgbouncer"]
     environment:
       DB_HOST: db

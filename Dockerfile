@@ -8,9 +8,13 @@
 # migrations where it would in a checkout. It holds no settings: a deployment passes them in
 # the environment, and .dockerignore keeps .env and the uploads out of the build.
 
-ARG PYTHON_IMAGE=python:3.13-slim-trixie
+# The bases are pinned by digest, so a tag moved on the registry changes nothing until this file
+# does; Dependabot proposes the new digest when the tag is rebuilt (.github/dependabot.yml), and
+# the Audit workflow builds the image every day and fails on a fixed vulnerability in it. One
+# Python for the two stages below, since the environment one builds runs on the other's.
+FROM python:3.13-slim-trixie@sha256:70729b46c69b4f1e97c4822c1af3df53a1476cf5ddc6c087c0c10bc3a5678c2f AS base
 
-FROM node:24-slim AS frontend
+FROM node:24-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5 AS frontend
 RUN npm install --global pnpm@11.2.2
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
@@ -18,8 +22,8 @@ RUN pnpm install --frozen-lockfile
 COPY frontend/ ./
 RUN pnpm build
 
-FROM ${PYTHON_IMAGE} AS backend
-COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /bin/uv
+FROM base AS backend
+COPY --from=ghcr.io/astral-sh/uv:0.11.15@sha256:e590846f4776907b254ac0f44b5b380347af5d90d668138ca7938d1b0c2f98d3 /uv /bin/uv
 # The image's own Python, never one uv downloads, so the environment's interpreter is the one
 # the final stage has at the same path. Compiled now, since the running image cannot write.
 ENV UV_PYTHON_DOWNLOADS=never UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
@@ -27,11 +31,14 @@ WORKDIR /app/backend
 COPY backend/pyproject.toml backend/uv.lock backend/.python-version ./
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 
-FROM ${PYTHON_IMAGE}
+FROM base
 # A user of its own with a fixed id, for volumes and for runAsNonRoot, and the directory a
 # file:// storage keeps its files in, which a named volume mounted there takes over with its
 # owner and mode: the group may list it, as the restore drill does (deploying.md, "The drill").
-RUN groupadd --system --gid 10001 emudoc \
+# Without the base's pip, which nothing here runs (uv built the environment) and whose own
+# copies of urllib3 and msgpack would be the image's to keep patched.
+RUN python -m pip uninstall --yes --quiet --root-user-action ignore pip \
+  && groupadd --system --gid 10001 emudoc \
   && useradd --system --uid 10001 --gid emudoc --home-dir /nonexistent --no-create-home \
       --shell /usr/sbin/nologin emudoc \
   && install -d -o emudoc -g emudoc -m 750 /var/lib/emudoc

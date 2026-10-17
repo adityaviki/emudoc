@@ -549,23 +549,40 @@ started by `.github/scripts/check-image.sh` (the migrations, the API and a worke
 against the development database); the AWS configuration's format, validation and tests;
 shellcheck on every shell script; actionlint on the workflow; and trivy on the OpenTofu and the
 Dockerfile, with what was looked at and accepted in `.trivyignore.yaml`, each with its reason;
-and that uv, pnpm, Node and Python are named at the Dockerfile's versions wherever else they
-appear (`.github/scripts/check-versions.sh`).
+that uv, pnpm, Node and Python are named at the Dockerfile's versions wherever else they
+appear (`.github/scripts/check-versions.sh`); and gitleaks over every commit, for keys and for
+any `.env` file whatever it holds (`.gitleaks.toml`, which says what was accepted and why).
 
-The dependencies are audited for known vulnerabilities every morning and on every change to a
-manifest or a lock file (`.github/workflows/audit.yml`): every Python package `uv.lock` holds,
-the development tools' included, by pip-audit against OSV, where any known vulnerability fails,
-and the frontend's by `pnpm audit`, where a high or critical one fails. By hand:
+A key that CI finds has been pushed, and has to be revoked. The pre-commit hook in `.githooks`
+runs the same gitleaks on what is staged and refuses the commit instead; it needs Docker, and
+is turned on once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The dependencies and the image are audited for known vulnerabilities every morning and on every
+change to a manifest, a lock file or the Dockerfile (`.github/workflows/audit.yml`): every
+Python package `uv.lock` holds, the development tools' included, by pip-audit against OSV,
+where any known vulnerability fails; the frontend's by `pnpm audit`, where a high or critical
+one fails; and the image, built from this commit, by trivy, where a high or critical one fails
+once a fix is released, so a fixed vulnerability in a base that has not moved is found the
+morning after. By hand:
 
 ```bash
 uv --directory backend export --locked --all-groups --no-emit-project --quiet |
   uv --directory backend run --locked --only-group audit pip-audit --disable-pip --strict \
     --requirement /dev/stdin --vulnerability-service osv
 pnpm --dir frontend audit --audit-level high
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/src:ro" -w /src \
+  aquasec/trivy:0.73.0 image --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed \
+  --ignorefile .trivyignore.yaml emudoc:<tag>
 ```
 
 Dependabot (`.github/dependabot.yml`) proposes the updates of both lock files and of the
-workflows' actions once a week, a week after their release.
+workflows' actions once a week, a week after their release, and those of the images, which
+are pinned by digest: the image's bases in the `Dockerfile` and the compose files' images, a
+newer version a week after its release and a rebuilt tag's new digest at once.
 
 The backend tests use a separate `emudoc_test` database and make no network calls: the AI
 model, the embedding model, the mailer and the identity providers are replaced by stand-ins, and
@@ -628,9 +645,11 @@ deploy/
                 for the instance (compose.yml over the one above, Caddyfile, host/)
 Dockerfile      the one image for every process; .dockerignore names what goes into it
 .github/        CI: the checks of every push and pull request (workflows/ci.yml), the daily
-                audit of the dependencies (workflows/audit.yml), Dependabot's updates
-                (dependabot.yml), the image's smoke test (scripts/check-image.sh) and the
-                tools' versions (scripts/check-versions.sh)
+                audit of the dependencies and the image (workflows/audit.yml), Dependabot's
+                updates (dependabot.yml), the image's smoke test (scripts/check-image.sh) and
+                the tools' versions (scripts/check-versions.sh)
+.githooks/      the pre-commit hook that refuses a key or a .env file (git config
+                core.hooksPath .githooks)
 ```
 
 ## Not built yet

@@ -82,9 +82,12 @@ It holds Python 3.13 on Debian's slim image with the backend's locked dependenci
 --frozen --no-dev`, compiled ahead), the app and its migrations, and the frontend's build, under
 `/app` as in a checkout, so the API serves the frontend from its own origin as "TLS at a reverse
 proxy" asks. It holds no `.env`, no uploads, no tests, and neither uv nor Node: `.dockerignore`
-names what goes into the build and leaves out everything else. It runs as `emudoc`, uid and gid
-10001, with `ENVIRONMENT=production` set, so a container started without its settings refuses
-to run rather than running as development. The commands:
+names what goes into the build and leaves out everything else. Nor pip, which the base brings
+and the build removes, since nothing in the image installs anything. It runs as `emudoc`, uid
+and gid 10001, with `ENVIRONMENT=production` set, so a container started without its settings
+refuses to run rather than running as development.
+
+The commands:
 
 ```bash
 alembic upgrade head                    # the release step, once per release
@@ -138,6 +141,23 @@ themselves. A container needs:
 The image has no curl, so a health check runs Python, as the compose file below does: the
 API's asks `/api/health`, the worker's reads the age of the file it keeps with `--alive-file`
 ("Health checks", below).
+
+Its bases are pinned by digest (`python:3.13-slim-trixie@sha256:…` and `node:24-slim@sha256:…`
+in the `Dockerfile`, and uv's), as are the images beside it in the compose files (ClamAV,
+Ollama, Caddy), so a commit builds the same image whenever it is built and a tag moved on a
+registry changes nothing until a commit does. A security fix in Debian therefore reaches a
+deployment as a commit and a release. Dependabot proposes the digest a base was rebuilt with
+every Monday (`.github/dependabot.yml`), and the Audit workflow builds the image every morning
+and fails on a high or critical vulnerability that has a fix (trivy), which is the sign to take
+that pull request, or to move the digest by hand (`docker buildx imagetools inspect
+python:3.13-slim-trixie` prints the tag's), and to release the new commit. The same scan by hand,
+of an image built here, with what was accepted in `.trivyignore.yaml`:
+
+```bash
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/src:ro" -w /src \
+  aquasec/trivy:0.73.0 image --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed \
+  --ignorefile .trivyignore.yaml emudoc:<tag>
+```
 
 `deploy/compose.yml` puts it together on one machine: the release step, the API, a worker,
 ClamAV and Ollama, with the settings in `/etc/emudoc/emudoc.env` (`EMUDOC_ENV` names another

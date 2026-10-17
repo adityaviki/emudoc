@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Refuses a commit that adds a key or a .env file, by gitleaks' rules and .gitleaks.toml's,
+# before it is in the history: CI's Secrets job finds one only once it is pushed, when the key
+# has to be revoked. Turned on once per clone (README, "Tests"):
+#
+#   git config core.hooksPath .githooks
+#
+# The gitleaks of CI (ci.yml's GITLEAKS), from its image, so Docker must be running. `git commit
+# --no-verify` skips it.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+image=$(sed -n 's/^  GITLEAKS: //p' .github/workflows/ci.yml)
+if [[ -z $image ]]; then
+  echo "pre-commit: .github/workflows/ci.yml names no GITLEAKS image." >&2
+  exit 1
+fi
+if ! docker info >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks runs in Docker, which is not running: start it, or skip the" \
+    "check with git commit --no-verify." >&2
+  exit 1
+fi
+exec docker run --rm -v "$PWD:/repo:ro" -w /repo "$image" git --pre-commit --staged --redact \
+  --verbose --no-banner --log-level warn --ignore-gitleaks-allow .
