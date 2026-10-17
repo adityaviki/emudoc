@@ -32,7 +32,7 @@ concurrency:
 
 jobs:
   python:
-    name: Python
+    name: Python dependencies
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -57,7 +57,7 @@ jobs:
           --requirement /dev/stdin --vulnerability-service osv --progress-spinner off
 
   frontend:
-    name: Frontend
+    name: Frontend dependencies
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     defaults:
