@@ -176,6 +176,9 @@ jobs:
           docker run --rm -v "$PWD:/mnt" -w /mnt "$SHELLCHECK" "${scripts[@]}"
       - name: Workflows
         run: docker run --rm -v "$PWD:/repo" -w /repo "$ACTIONLINT" -color
+      # uv, pnpm, Node and Python at the Dockerfile's versions wherever else they are named.
+      - name: Tool versions
+        run: .github/scripts/check-versions.sh
       # The deployment's OpenTofu and the Dockerfile; what was looked at and accepted is in
       # .trivyignore.yaml with its reason. The checks are the ones this trivy release carries,
       # so a newer set changes nothing until the image does.

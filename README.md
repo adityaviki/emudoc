@@ -548,7 +548,24 @@ through pgbouncer in transaction mode; the frontend's lint and build; the image,
 started by `.github/scripts/check-image.sh` (the migrations, the API and a worker, read-only,
 against the development database); the AWS configuration's format, validation and tests;
 shellcheck on every shell script; actionlint on the workflow; and trivy on the OpenTofu and the
-Dockerfile, with what was looked at and accepted in `.trivyignore.yaml`, each with its reason.
+Dockerfile, with what was looked at and accepted in `.trivyignore.yaml`, each with its reason;
+and that uv, pnpm, Node and Python are named at the Dockerfile's versions wherever else they
+appear (`.github/scripts/check-versions.sh`).
+
+The dependencies are audited for known vulnerabilities every morning and on every change to a
+manifest or a lock file (`.github/workflows/audit.yml`): every Python package `uv.lock` holds,
+the development tools' included, by pip-audit against OSV, where any known vulnerability fails,
+and the frontend's by `pnpm audit`, where a high or critical one fails. By hand:
+
+```bash
+uv --directory backend export --locked --all-groups --no-emit-project --quiet |
+  uv --directory backend run --locked --only-group audit pip-audit --disable-pip --strict \
+    --requirement /dev/stdin --vulnerability-service osv
+pnpm --dir frontend audit --audit-level high
+```
+
+Dependabot (`.github/dependabot.yml`) proposes the updates of both lock files and of the
+workflows' actions once a week, a week after their release.
 
 The backend tests use a separate `emudoc_test` database and make no network calls: the AI
 model, the embedding model, the mailer and the identity providers are replaced by stand-ins, and
@@ -610,8 +627,10 @@ deploy/
                 roots, the operator's push-image.sh and release.sh, and what the image carries
                 for the instance (compose.yml over the one above, Caddyfile, host/)
 Dockerfile      the one image for every process; .dockerignore names what goes into it
-.github/        CI: the checks of every push and pull request (workflows/ci.yml) and the
-                image's smoke test (scripts/check-image.sh)
+.github/        CI: the checks of every push and pull request (workflows/ci.yml), the daily
+                audit of the dependencies (workflows/audit.yml), Dependabot's updates
+                (dependabot.yml), the image's smoke test (scripts/check-image.sh) and the
+                tools' versions (scripts/check-versions.sh)
 ```
 
 ## Not built yet

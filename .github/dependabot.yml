@@ -1,0 +1,59 @@
+# Pull requests that move the dependencies to their newer releases, once a week, after a week's
+# wait: a release that turns out to be malicious is usually pulled within days. CI checks each
+# pull request like any other, and the audit workflow those that change a lock file. Minor and
+# patch updates come as one pull request per ecosystem, a major one alone.
+#
+# Not here: the image's bases and the compose files' images (Docker), and the OpenTofu
+# providers. The versions of uv, pnpm, Node and Python, named in the Dockerfile and the
+# workflows, move by hand; .github/scripts/check-versions.sh fails when they disagree.
+version: 2
+
+updates:
+  - package-ecosystem: uv
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    cooldown:
+      default-days: 7
+    groups:
+      backend:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  # pnpm's lock file. Dependabot's own pnpm is older than the 11 the image and CI run; CI's
+  # `pnpm install --frozen-lockfile` is the check that pnpm 11 takes the lock file it writes.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    cooldown:
+      default-days: 7
+    groups:
+      frontend:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      # Node's types follow the Node the frontend is built with (24, the Dockerfile's).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+
+  # The actions in .github/workflows, pinned by commit: an update moves the commit and the tag
+  # in its comment together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
