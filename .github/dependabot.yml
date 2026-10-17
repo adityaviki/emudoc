@@ -61,12 +61,14 @@ updates:
 
   # The image's bases (Dockerfile) and the compose files' images, each pinned by digest. An
   # update is the digest a tag was rebuilt with (Debian's security updates, ClamAV's
-  # signatures) or a newer tag with its own. Only a newer version waits the week: the cooldown
-  # of a digest counts from the tag's last push, and these tags are pushed every week or two,
-  # so a week's wait could hold a rebuilt base back for good. A major release is an upgrade to
-  # plan, not an update (a Postgres, a Node, Caddy 3), and Python's minor too: 3.14 is another
-  # interpreter. One pull request per ecosystem, without update-types, which would leave a
-  # digest out: Dependabot groups by the version that changes, and a digest changes none.
+  # signatures) or a newer tag with its own. These two ecosystems take one cooldown in days for
+  # both (the semver-*-days options make the whole file invalid, and Dependabot then runs
+  # nothing at all), and a digest's counts from the tag's last push: these tags are pushed every
+  # week or two, so a week's wait could hold a rebuilt base back for good. Hence a day, the
+  # least it takes, for a newer tag too. A major release is an upgrade to plan, not an update
+  # (a Postgres, a Node, Caddy 3), and Python's minor too: 3.14 is another interpreter. One pull
+  # request per ecosystem, without update-types, which would leave a digest out: Dependabot
+  # groups by the version that changes, and a digest changes none.
   - package-ecosystem: docker
     directory: /
     schedule:
@@ -75,9 +77,7 @@ updates:
       time: "06:00"
       timezone: Etc/UTC
     cooldown:
-      semver-major-days: 7
-      semver-minor-days: 7
-      semver-patch-days: 7
+      default-days: 1
     groups:
       images:
         patterns: ["*"]
@@ -97,9 +97,7 @@ updates:
       time: "06:00"
       timezone: Etc/UTC
     cooldown:
-      semver-major-days: 7
-      semver-minor-days: 7
-      semver-patch-days: 7
+      default-days: 1
     groups:
       compose:
         patterns: ["*"]
