@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The image's smoke test (CI, "Image"): the release step, the API and the worker start from the
 # image as a deployment runs them, on a read-only filesystem with a tmpfs at /tmp and the files
-# on a volume, and the API answers its probes and serves the page and the files it names. The
+# on a volume, and the API answers its probes with the commit the image was built from and
+# serves the page and the files it names. The
 # suite builds no image, so this is what finds a file the image lacks (.dockerignore is an
 # allowlist), a path that moved or something written outside /tmp. Development's settings,
 # since production's want a mail relay, a scanner, a model key and the rest: what is checked is
@@ -83,6 +84,13 @@ for ((tries = 60; ; tries--)); do
   sleep 1
 done
 curl -fsS "$address/api/livez" >/dev/null
+# The version the build was given (the Dockerfile's VERSION, also its revision label), which
+# deploy/aws/release.sh waits for after a release.
+revision=$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")
+if [[ $(curl -fsS "$address/api/health") != *"\"version\":\"$revision\""* ]]; then
+  echo "The API does not name the version the image was built with, $revision." >&2
+  exit 1
+fi
 if ! page=$(curl -fsS "$address/projects") || ! grep -q '<div id="root">' <<<"$page"; then
   echo "The API does not serve the page." >&2
   exit 1
@@ -108,4 +116,4 @@ done
 running api
 
 passed=true
-echo "The image $image migrates, serves the page, its ${#files[@]} files and the probes, and runs the worker."
+echo "The image $image ($revision) migrates, serves the page, its ${#files[@]} files and the probes, and runs the worker."

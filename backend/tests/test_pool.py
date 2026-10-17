@@ -74,7 +74,7 @@ def test_an_exhausted_pool_refuses_a_request_with_503_and_a_sentence(
         assert time.monotonic() - started < 5
         assert "GET /api/health was refused: every database connection is in use" in caplog.text
     # With the connection back, the same request goes through.
-    assert client.get("/api/health").json() == {"status": "ok"}
+    assert client.get("/api/health").json()["status"] == "ok"
 
 
 def test_an_answer_holds_no_connection_while_the_model_thinks(session, services, account, indexed):

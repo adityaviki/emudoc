@@ -1,0 +1,19 @@
+Copyright (c) 2026 adityaviki. All rights reserved.
+
+This repository and everything in it (the source code, its documentation, the deployment files
+and the container images built from them, together "the Software") are proprietary and
+confidential.
+
+No one may use, copy, modify, merge, publish, distribute, sublicense or sell the Software, in
+whole or in part, in source or compiled form, nor run it as a service for others, without the
+copyright holder's prior written permission. Access to this repository grants no license.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR
+OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+The third-party software the Software depends on (the packages in backend/uv.lock and
+frontend/pnpm-lock.yaml, and the base images the Dockerfile names) remains under its own
+licenses.

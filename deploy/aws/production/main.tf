@@ -83,6 +83,8 @@ module "emudoc" {
     from   = "Emudoc <no-reply@emudoc.example.com>"
   }
   alert_email = ""
+
+  github_repository = module.shared.github_repository
 }
 
 output "instance_id" {
@@ -99,4 +101,8 @@ output "dns_records" {
 
 output "parameters" {
   value = module.emudoc.parameters
+}
+
+output "release_role" {
+  value = module.emudoc.release_role
 }

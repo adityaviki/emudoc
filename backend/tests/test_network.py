@@ -159,7 +159,7 @@ def test_production_does_not_start_with_a_model_reached_over_plain_http(
 
     monkeypatch.setenv("OPENAI_BASE_URL", "https://models.example.com/v1")
     with TestClient(create_app(services=services)) as client:
-        assert client.get("/api/health").json() == {"status": "ok"}
+        assert client.get("/api/health").json()["status"] == "ok"
 
 
 def test_the_pool_and_the_listener_keep_the_url_s_tls_parameters(monkeypatch):

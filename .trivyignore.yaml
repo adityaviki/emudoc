@@ -29,6 +29,13 @@ misconfigurations:
       ECR encrypts the images with its own key (AES256); an image holds the code and no setting,
       key or document.
 
+  - id: AWS-0032
+    paths: [deploy/aws/account/main.tf]
+    statement: >-
+      The repository's policy has one statement, a Deny of the pushes to every principal but
+      CI's role (and `pushers`); trivy reads its Principal "*" as public access, which only an
+      Allow would give. Nothing outside the account can pull or push.
+
   - id: AWS-0089
     paths: [deploy/aws/account/main.tf, deploy/aws/modules/environment/bucket.tf]
     statement: >-

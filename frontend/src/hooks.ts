@@ -21,6 +21,11 @@ export function useStatus() {
   return useQuery({ queryKey: ['status'], queryFn: api.status, staleTime: 60_000, refetchInterval: 60_000 })
 }
 
+/** The version the API runs, for the user menu: asked as the menu opens, since a release changes it. */
+export function useVersion() {
+  return useQuery({ queryKey: ['health'], queryFn: api.health, staleTime: 60_000, select: (health) => health.version })
+}
+
 export function useFolders(projectId: number) {
   return useQuery({ queryKey: ['folders', projectId], queryFn: () => api.folders(projectId) })
 }

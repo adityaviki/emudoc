@@ -1,5 +1,6 @@
 # The settings staging and production share, so that staging runs what production will: the
-# operator's word, the models and their prices, the backups' window and the region. Each root
+# operator's word, the models and their prices, the backups' window and the region, and the
+# repository whose CI releases them, which the account root reads as well. Each root
 # adds what is its own (its spending cap, its alert address) with merge(); keys and secrets go
 # into each environment's secrets path by hand, never here (deploying.md, "On AWS"). An empty
 # value is no setting; the plan refuses OPERATOR_NAME, OPERATOR_EMAIL, AGENT_MODEL and
@@ -34,4 +35,9 @@ output "backup_days" {
 output "data_region" {
   description = "DATA_REGION: eu, us, or empty for no promise (deploying.md, \"Keeping the data in one region\")."
   value       = ""
+}
+
+output "github_repository" {
+  description = "The GitHub repository, as owner/name, whose workflows on main push the images and release them (deploying.md, \"Releases from CI\"); empty for no role that trusts GitHub."
+  value       = "emudocai/emudoc"
 }

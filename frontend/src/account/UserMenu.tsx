@@ -4,9 +4,10 @@ import { useNavigate } from 'react-router'
 import { useMe, useSignOut } from '../auth.ts'
 import { Floating, Menu } from '../components/Menu.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
+import { useVersion } from '../hooks.ts'
 
 /** The signed-in user's initials in the header, opening the way to the account page, the
- * terms, the privacy policy and the subprocessor list, and out. */
+ * terms, the privacy policy and the subprocessor list, and out, above the version that runs. */
 export function UserMenu() {
   const me = useMe()
   const signOut = useSignOut()
@@ -44,9 +45,23 @@ export function UserMenu() {
             {me.name && <p className="truncate text-xs text-muted">{me.email}</p>}
           </div>
           <Menu items={items} onClose={close} />
+          <RunningVersion />
         </Floating>
       )}
     </>
+  )
+}
+
+/** The release the API runs, for a member telling support what they saw, or an operator checking a release. */
+function RunningVersion() {
+  const version = useVersion()
+  if (!version.data) return null
+  // A commit is shortened as GitHub shortens it, with the whole of it on hover.
+  const shown = /^[0-9a-f]{40}$/.test(version.data) ? version.data.slice(0, 7) : version.data
+  return (
+    <p title={version.data} className="border-t border-line px-3 py-1.5 text-[11px] text-muted">
+      Emudoc {shown}
+    </p>
   )
 }
 

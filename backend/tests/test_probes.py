@@ -1,7 +1,7 @@
 """What an orchestrator, a load balancer and an uptime service ask the API: whether the process
 is alive (`/api/livez`, touching nothing), whether it can serve (`/api/health`, the database),
-both with HEAD as well as GET, as the page is; and what the status line asks of the embedding
-endpoint, which every open tab polls."""
+both with HEAD as well as GET, as the page is, and which version answers; and what the status
+line asks of the embedding endpoint, which every open tab polls."""
 
 import threading
 from dataclasses import replace
@@ -18,7 +18,10 @@ from app.config import get_settings
 from app.db import SessionLocal, engine
 from app.embeddings import Embedder
 from app.main import NOT_READY, create_app
+from app.version import VERSION, running_version
 from tests.conftest import APP_HEADERS
+
+COMMIT = "0123456789abcdef0123456789abcdef01234567"
 
 
 @pytest.fixture
@@ -38,7 +41,7 @@ def database_down(client):
 def test_liveness_touches_nothing_and_readiness_the_database(client, database_down, caplog):
     # An outage of the database must not have every replica restarted, which cures nothing;
     # it takes them out of the load balancer's rotation instead.
-    assert client.get("/api/livez").json() == {"status": "ok"}
+    assert client.get("/api/livez").json() == {"status": "ok", "version": VERSION}
     with caplog.at_level("WARNING", logger="app.main"):
         response = client.get("/api/health")
     assert (response.status_code, response.json()) == (503, {"detail": NOT_READY})
@@ -49,6 +52,21 @@ def test_liveness_touches_nothing_and_readiness_the_database(client, database_do
     )
     assert "\n" not in line and "Traceback" not in caplog.text
     assert "127.0.0.1" not in response.text
+
+
+def test_the_probes_name_the_version_that_answers(client, monkeypatch):
+    # deploy/aws/release.sh waits until the commit it released answers, and the user menu
+    # shows it.
+    monkeypatch.setattr("app.main.VERSION", COMMIT)
+    for path in ("/api/livez", "/api/health"):
+        assert client.get(path).json() == {"status": "ok", "version": COMMIT}
+
+
+def test_an_image_names_its_commit_and_a_checkout_says_development():
+    assert running_version({"EMUDOC_VERSION": f"{COMMIT}\n"}) == COMMIT
+    # The Dockerfile's argument passed empty, or a checkout, whose files may be edited.
+    assert running_version({"EMUDOC_VERSION": " "}) == "development"
+    assert running_version({}) == "development"
 
 
 def test_liveness_answers_while_every_thread_is_busy(client):

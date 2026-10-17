@@ -37,3 +37,8 @@ output "dns_records" {
   description = "The records the domain and the mail need, for a DNS outside Route 53; with dns_zone_id they are made here."
   value       = local.dns_records
 }
+
+output "release_role" {
+  description = "The role CI releases this environment with: the repository variable AWS_STAGING_ROLE or AWS_PRODUCTION_ROLE. Null without github_repository."
+  value       = one(aws_iam_role.release[*].arn)
+}

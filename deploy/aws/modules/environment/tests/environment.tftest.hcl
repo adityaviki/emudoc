@@ -65,6 +65,7 @@ variables {
     # Empty is unset, as deploy/aws/shared/main.tf lists the settings it leaves out.
     AGENT_FALLBACK_MODEL = ""
   }
+  github_repository = "emudocai/emudoc"
 }
 
 run "staging" {
@@ -87,6 +88,10 @@ run "staging" {
   override_resource {
     target = aws_iam_role.reader
     values = { arn = "arn:aws:iam::123456789012:role/emudoc-staging-storage-reader" }
+  }
+  override_resource {
+    target = aws_instance.app
+    values = { arn = "arn:aws:ec2:eu-central-1:123456789012:instance/i-0123456789abcdef0" }
   }
 
   # The database: private, encrypted, TLS only, its backups within BACKUP_DAYS.
@@ -253,6 +258,38 @@ run "staging" {
     error_message = "The instance reads its own environment's parameters only."
   }
 
+  # CI's role: a workflow on main of the repository alone, which may release and nothing more.
+  assert {
+    condition = jsondecode(aws_iam_role.release[0].assume_role_policy).Statement[0] == {
+      Effect    = "Allow"
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Principal = { Federated = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com" }
+      Condition = {
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          "token.actions.githubusercontent.com:sub" = "repo:emudocai/emudoc:ref:refs/heads/main"
+        }
+      }
+    }
+    error_message = "Only a job of a workflow on the repository's main takes on the release role."
+  }
+  assert {
+    condition = {
+      for statement in local.release_policy.Statement : statement.Sid => statement.Resource
+      } == {
+      FindTheInstance  = "*"
+      RunTheRelease    = ["arn:aws:ec2:eu-central-1:123456789012:instance/i-0123456789abcdef0", "arn:aws:ssm:eu-central-1::document/AWS-RunShellScript"]
+      FollowTheRelease = "*"
+      RecordTheRelease = "arn:aws:ssm:eu-central-1:123456789012:parameter/emudoc/staging/release"
+      FindTheApp       = "arn:aws:ssm:eu-central-1:123456789012:parameter/emudoc/staging/settings/APP_URL"
+    }
+    error_message = "CI releases on this environment's instance and records its tag, and reads no setting but APP_URL."
+  }
+  assert {
+    condition     = output.release_role == aws_iam_role.release[0].arn
+    error_message = "The role is an output, for the repository variable."
+  }
+
   # The settings: what production asks for, and the database checked against RDS's authority.
   assert {
     condition = toset(keys(aws_ssm_parameter.setting)) == toset([
@@ -345,6 +382,35 @@ run "production" {
     condition     = length(aws_sns_topic_subscription.alerts) == 1 && strcontains(local.cloud_config, "      EMUDOC_DRILL=no\n")
     error_message = "The alert address is subscribed, and a drill can be turned off."
   }
+  assert {
+    condition = one([
+      for statement in local.release_policy.Statement : statement
+      if statement.Action == "ssm:GetParameterHistory"
+      ]).Resource == "arn:aws:ssm:eu-central-1:123456789012:parameter/emudoc/staging/release" && one([
+      for statement in local.release_policy.Statement : statement.Resource
+      if statement.Sid == "RecordTheRelease"
+    ]) == "arn:aws:ssm:eu-central-1:123456789012:parameter/emudoc/production/release"
+    error_message = "Production's role reads staging's release history, which release.sh checks a tag against, and records its own."
+  }
+}
+
+run "without_github" {
+  command = plan
+  variables {
+    github_repository = ""
+  }
+  assert {
+    condition     = length(aws_iam_role.release) == 0 && output.release_role == null
+    error_message = "Without a repository, nothing trusts GitHub."
+  }
+}
+
+run "a_repository_without_its_owner" {
+  command = plan
+  variables {
+    github_repository = "emudoc"
+  }
+  expect_failures = [var.github_repository]
 }
 
 run "backup_days_past_rds" {

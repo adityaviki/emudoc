@@ -171,3 +171,14 @@ variable "drill_instance_class" {
   type        = string
   default     = ""
 }
+
+variable "github_repository" {
+  description = "The GitHub repository, as owner/name, whose workflows on main may release this environment through GitHub's OpenID Connect provider, which the account root makes (deploying.md, \"Releases from CI\"); empty makes no such role."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.github_repository == "" || can(regex("^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$", var.github_repository))
+    error_message = "The repository is owner/name, such as emudocai/emudoc."
+  }
+}

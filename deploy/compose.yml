@@ -3,7 +3,7 @@
 # is one, and the reverse proxy that ends TLS in front of the API are the deployment's ("The
 # pieces").
 #
-#   export EMUDOC_IMAGE=emudoc:$(git rev-parse --short HEAD)
+#   export EMUDOC_IMAGE=emudoc:$(git rev-parse HEAD)
 #   docker compose -f deploy/compose.yml up -d --wait
 #
 # `up` runs the release step, `alembic upgrade head`, and starts the API and the worker only

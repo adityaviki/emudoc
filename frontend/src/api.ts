@@ -159,6 +159,13 @@ export interface SystemStatus {
   currency: string
 }
 
+/** Whether the API can serve, and which version it runs (backend/app/version.py). */
+export interface Health {
+  status: 'ok'
+  /** The commit the image was built from, its full SHA, or "development" for a checkout. */
+  version: string
+}
+
 /** A company the deployment sends data to, as the server reads it from its settings. */
 export interface Subprocessor {
   name: string
@@ -511,6 +518,8 @@ export const oauthStartUrl = (provider: string, next: string) =>
 
 export const api = {
   status: () => request<SystemStatus>('/status'),
+  /** Public: the readiness probe, which also names the version that answered. */
+  health: () => request<Health>('/health'),
   /** Public: answers without a session. */
   subprocessors: () => request<Subprocessors>('/subprocessors'),
   /** Public: the terms of service and privacy policy. */

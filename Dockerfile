@@ -1,8 +1,10 @@
 # syntax=docker/dockerfile:1
 # Emudoc's image: the API, the worker, the release step and the maintenance commands, one image
-# with a command each (deploying.md, "The image"). Build it here, tagged with the commit:
+# with a command each (deploying.md, "The image"). Build it here, tagged with the commit and
+# naming it:
 #
-#   docker build -t emudoc:$(git rev-parse --short HEAD) .
+#   commit=$(git rev-parse HEAD)
+#   docker build -t emudoc:$commit --build-arg VERSION=$commit .
 #
 # It keeps the checkout's layout under /app, so the backend finds the frontend's build and its
 # migrations where it would in a checkout. It holds no settings: a deployment passes them in
@@ -53,6 +55,12 @@ COPY --from=frontend /app/frontend/dist /app/frontend/dist
 # emudoc-release): the compose files, Caddy's, the drill's scripts and the host's own, so that
 # a tag carries the deployment it was tested with. The app reads none of it.
 COPY deploy /app/deploy
+# The commit the image is built from, the full SHA its tag repeats, which /api/health and the
+# user menu show (app/version.py) and deploy/aws/release.sh waits for; "unknown" when the build
+# was not told. Declared after the last RUN and COPY: it differs with every commit, and a layer
+# after it would be built again each time.
+ARG VERSION=unknown
+LABEL org.opencontainers.image.revision=$VERSION
 # Production unless told otherwise: a container started without its settings refuses to run
 # with development's, rather than running with them. psycopg's binary package brings an OpenSSL
 # that looks for the system's certificates where it was built, so a database reached with
@@ -61,7 +69,8 @@ ENV PATH=/app/backend/.venv/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
-    ENVIRONMENT=production
+    ENVIRONMENT=production \
+    EMUDOC_VERSION=$VERSION
 USER 10001:10001
 EXPOSE 8000
 # A stop ends the answer streams at once and gives the other requests in progress 8 seconds,

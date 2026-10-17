@@ -142,6 +142,15 @@ def test_development_starts_whatever_the_endpoint_says(services, caplog):
     assert unreachable.startswith("Embedding endpoint unreachable at http://embeddings.")
 
 
+def test_the_start_names_the_version_first(services, monkeypatch, caplog):
+    # A refused start is read against the release that refused, so the line comes before any
+    # check that could refuse.
+    monkeypatch.setattr("app.startup.VERSION", "0123456789abcdef0123456789abcdef01234567")
+    with caplog.at_level("INFO", logger="app.startup"):
+        prepare(get_settings(), services)
+    assert caplog.messages[0] == "Starting Emudoc 0123456789abcdef0123456789abcdef01234567"
+
+
 def test_the_start_names_the_endpoint_that_answers(production, caplog):
     with caplog.at_level("INFO", logger="app.startup"):
         check_embedder(get_settings(), embedder(vector))

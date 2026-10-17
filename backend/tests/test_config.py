@@ -615,7 +615,7 @@ def test_a_production_start_needs_the_model(production, services, monkeypatch):
 
     # With a usable model the same start goes through.
     with TestClient(create_app(services=services)) as client:
-        assert client.get("/api/health").json() == {"status": "ok"}
+        assert client.get("/api/health").json()["status"] == "ok"
 
 
 def test_a_production_start_runs_with_a_switched_off_model(production, monkeypatch, caplog):

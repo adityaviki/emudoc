@@ -31,6 +31,7 @@ from app.scanning import check_scanner, scanner_from_settings
 from app.search import check_fts_language
 from app.spending import warn_without_prices
 from app.storage import Storage, check_versions, report_encryption, storage_from_settings
+from app.version import VERSION
 
 log = logging.getLogger(__name__)
 
@@ -58,6 +59,9 @@ def prepare(settings: Settings, services: Services | None = None) -> Services:
     from the environment as they are created. A check that fails raises `RuntimeError`,
     `StorageError` or `ScanError` with what to do, and the process must not run.
     """
+    # First, so that what a start logs, a refusal included, is read against the release that
+    # logged it.
+    log.info("Starting Emudoc %s", VERSION)
     check_temporary_directory()
     warn_about_trust_store(settings, os.environ)
     check_schema()

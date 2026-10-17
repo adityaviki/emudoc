@@ -33,6 +33,7 @@ from app.shutdown import Stop, heard_stop
 from app.startup import prepare
 from app.storage import StorageError
 from app.subprocessors import subprocessors
+from app.version import VERSION
 from app.worker import Worker
 
 log = logging.getLogger(__name__)
@@ -69,7 +70,7 @@ async def alive():
     and not in the thread pool, which a burst of slow requests can fill for a while without
     the process being stuck.
     """
-    return HealthOut(status="ok")
+    return HealthOut(status="ok", version=VERSION)
 
 
 @system.get("/health", response_model=HealthOut)
@@ -78,9 +79,12 @@ def health(session: SessionDep):
     """Whether the app can serve requests, for load balancers, uptime checks and an
     orchestrator's readiness probe: a free database connection, and a database that answers.
 
-    It says nothing else: this route is public, so it must not reveal how the app is set up.
-    A database that cannot be reached is 503 with one line in the log, not a traceback per
-    probe; a pool with no connection free is 503 too (`pool_exhausted`).
+    Besides, it names the version that answered (app/version.py), which deploy/aws/release.sh
+    waits for and the user menu shows: the commit an image was built from, which says which
+    code runs and nothing of how it is set up. Nothing else: this route is public, so it must
+    not reveal the deployment's settings. A database that cannot be reached is 503 with one
+    line in the log, not a traceback per probe; a pool with no connection free is 503 too
+    (`pool_exhausted`).
     """
     try:
         session.execute(text("SELECT 1"))
@@ -90,7 +94,7 @@ def health(session: SessionDep):
         reason = summary(error.orig or error).splitlines()[0]
         log.warning("Not ready: the database cannot be reached (%s)", reason)
         return JSONResponse({"detail": NOT_READY}, status_code=503)
-    return HealthOut(status="ok")
+    return HealthOut(status="ok", version=VERSION)
 
 
 @system.get("/status", response_model=StatusOut)

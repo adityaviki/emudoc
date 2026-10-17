@@ -493,6 +493,8 @@ class LegalOut(BaseModel):
 
 class HealthOut(BaseModel):
     status: Literal["ok"]
+    # The commit the image was built from, or "development" (app/version.py).
+    version: str
 
 
 # The account export (app/export.py): what the app keeps about a person, as the file the

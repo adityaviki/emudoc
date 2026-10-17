@@ -2,7 +2,8 @@
 # main, on every pull request, and by hand on any branch (Actions, CI, Run workflow). Each step
 # runs the command a developer would, so a red step is reproduced by running it on a checkout.
 # Actions are pinned by commit and the tools that come as images by digest: a moved tag changes
-# nothing here until this file does.
+# nothing here until this file does. A push to main also pushes the image it checked and, once
+# every check passed, releases it on staging (deploying.md, "Releases from CI").
 name: CI
 
 on:
@@ -11,8 +12,9 @@ on:
   pull_request:
   workflow_dispatch:
 
-# The checks read the code: no step writes to the repository, holds a secret or reaches a
-# deployment.
+# The checks read the code: no step writes to the repository or holds a secret. The two jobs
+# that reach the deployment on main ask GitHub for a token of their own, which AWS trades for an
+# hour of a role that trusts main alone (deploy/aws/account, modules/environment/release.tf).
 permissions:
   contents: read
 
@@ -107,20 +109,50 @@ jobs:
       - name: Build
         run: pnpm build
 
+  # The image of the commit, built once, named by its full SHA (the version /api/health
+  # reports) and smoke-tested. On main it is also scanned as the Audit workflow scans it, and
+  # pushed to the account's repository, which takes images from this job's role alone; the
+  # Staging job below releases it once every check passed. Without the repository variables
+  # (deploying.md, "Releases from CI") the job stops after the smoke test.
   image:
     name: Image
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # A pull request's token says pull_request and another branch's names it: AWS refuses both.
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AWS_PUSH_ROLE != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Build
-        run: docker build -t "emudoc:$GITHUB_SHA" .
+        run: docker build -t "emudoc:$GITHUB_SHA" --build-arg "VERSION=$GITHUB_SHA" .
       - name: Database
         run: docker compose up -d --wait db
       - name: Run
         run: .github/scripts/check-image.sh "emudoc:$GITHUB_SHA"
+      # What is known today about what would ship: a high or critical vulnerability with a fix
+      # stops the release here, as it fails Audit's morning run (audit.yml, the same command).
+      - name: Vulnerabilities
+        if: env.PUSH == 'true'
+        run: >-
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/src:ro" -w /src
+          "$TRIVY" image --quiet --skip-version-check --scanners vuln,secret --severity
+          HIGH,CRITICAL --ignore-unfixed --table-mode detailed --exit-code 1
+          --ignorefile .trivyignore.yaml "emudoc:$GITHUB_SHA"
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        if: env.PUSH == 'true'
+        with:
+          role-to-assume: ${{ vars.AWS_PUSH_ROLE }}
+          role-session-name: github-${{ github.run_id }}-${{ github.run_attempt }}
+          aws-region: ${{ vars.AWS_REGION || 'eu-central-1' }}
+      # Unless the repository has it already, as when the job runs again.
+      - name: Push
+        if: env.PUSH == 'true'
+        run: deploy/aws/push-image.sh "emudoc:$GITHUB_SHA"
 
   opentofu:
     name: OpenTofu
@@ -154,11 +186,13 @@ jobs:
             tofu -chdir="deploy/aws/$root" init -backend=false -input=false
             tofu -chdir="deploy/aws/$root" validate
           done
-      # The module against a mocked AWS: no account, no credentials.
+      # The module and the account root against a mocked AWS: no account, no credentials. The
+      # account root was set up by the step before.
       - name: Test
         run: |
           tofu -chdir=deploy/aws/modules/environment init -input=false
           tofu -chdir=deploy/aws/modules/environment test
+          tofu -chdir=deploy/aws/account test
 
   # A key or a .env file in any commit, gitleaks' rules and .gitleaks.toml's. Found here, it has
   # been pushed: revoke the key first, then rewrite the history. The pre-commit hook finds it
@@ -208,3 +242,34 @@ jobs:
         run: >-
           docker run --rm -v "$PWD:/src:ro" -w /src "$TRIVY" config --quiet --skip-check-update
           --exit-code 1 --ignorefile .trivyignore.yaml .
+
+  # Every commit on main that passed every check runs on staging: the image the Image job
+  # pushed, released by deploy/aws/release.sh, which waits until staging's /api/health names
+  # the commit. One release at a time, whichever workflow starts it; production is the Release
+  # workflow's, by hand, and takes only what ran here.
+  staging:
+    name: Staging
+    needs: [backend, frontend, image, opentofu, secrets, scripts]
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main'
+      && vars.AWS_PUSH_ROLE != '' && vars.AWS_STAGING_ROLE != ''
+    runs-on: ubuntu-24.04
+    # Systems Manager gives the release an hour on the instance (release.sh).
+    timeout-minutes: 70
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: release-staging
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_STAGING_ROLE }}
+          role-session-name: github-${{ github.run_id }}-${{ github.run_attempt }}
+          aws-region: ${{ vars.AWS_REGION || 'eu-central-1' }}
+      - name: Release
+        run: deploy/aws/release.sh staging "$GITHUB_SHA"

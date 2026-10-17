@@ -268,7 +268,7 @@ def test_production_does_not_start_outside_its_region(session, services, monkeyp
     monkeypatch.setattr(get_settings(), "agent_model", "google-cloud:gemini-2.5-flash-lite")
     monkeypatch.setattr(get_settings(), "embedding_base_url", "http://127.0.0.1:11434/v1")
     with TestClient(create_app(services=services)) as client:
-        assert client.get("/api/health").json() == {"status": "ok"}
+        assert client.get("/api/health").json()["status"] == "ok"
 
 
 def test_development_says_what_is_outside_the_region_and_starts(session, monkeypatch, caplog):

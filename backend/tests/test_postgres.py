@@ -423,7 +423,7 @@ def test_production_s_report_asks_for_timeouts_and_exits_1(session, production, 
 def test_the_app_starts_against_a_role_with_timeouts(services, role_timeouts):
     # The start's own checks, the requeue's look at every passage among them, and a request.
     with TestClient(create_app(services=services)) as client:
-        assert client.get("/api/health").json() == {"status": "ok"}
+        assert client.get("/api/health").json()["status"] == "ok"
 
 
 @contextmanager

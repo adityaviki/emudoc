@@ -406,7 +406,7 @@ def storage_key(document_id) -> str:
 
 
 def test_health_says_only_that_the_app_is_up(client):
-    assert client.get("/api/health").json() == {"status": "ok"}
+    assert client.get("/api/health").json()["status"] == "ok"
 
 
 def test_status_reports_what_is_missing(client, services, monkeypatch):

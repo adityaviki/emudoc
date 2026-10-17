@@ -67,10 +67,13 @@ matter do.
 
 `Dockerfile` builds one image for every process: the API is its default command, and the
 worker, the release step and the maintenance commands are the others. Build it from a clean
-checkout of the commit to deploy, tagged with it:
+checkout of the commit to deploy, tagged with its full SHA and told it as `VERSION`, which
+`/api/health` reports, the user menu shows and each process logs as it starts ("Starting
+Emudoc 3f2c1ab…"); an image built without it says `unknown`, a checkout `development`:
 
 ```bash
-docker build -t emudoc:$(git rev-parse --short HEAD) .
+commit=$(git rev-parse HEAD)
+docker build -t emudoc:$commit --build-arg VERSION=$commit .
 ```
 
 `.github/scripts/check-image.sh emudoc:<tag>` tries it against the development database of
@@ -164,7 +167,7 @@ ClamAV and Ollama, with the settings in `/etc/emudoc/emudoc.env` (`EMUDOC_ENV` n
 file):
 
 ```bash
-export EMUDOC_IMAGE=emudoc:$(git rev-parse --short HEAD)
+export EMUDOC_IMAGE=emudoc:$(git rev-parse HEAD)
 docker compose -f deploy/compose.yml up -d --wait                 # also updates to a new tag
 docker compose -f deploy/compose.yml up -d --scale worker=3       # more workers
 docker compose -f deploy/compose.yml run --rm --no-deps worker python -m app.maintenance failed-jobs
@@ -202,10 +205,11 @@ replica unready but none of them stuck, since a restart cures nothing and costs 
   nothing, neither the database nor a thread of the pool that the routes run in, which a burst
   of slow requests can fill for a while.
 - **`GET /api/health`**, the API is ready: 200 once it holds a database connection and the
-  database answers. 503 otherwise: a database it cannot reach logs one line, "Not ready: the
-  database cannot be reached (…)", and a pool with every connection in use says `BUSY`, as
-  any route would. It says nothing else, since it is public. The load balancer, an uptime
-  service and `up --wait` ask this one.
+  database answers, with the version that answered: `{"status":"ok","version":"3f2c1ab…"}`,
+  the commit the image was built from. 503 otherwise: a database it cannot reach logs one
+  line, "Not ready: the database cannot be reached (…)", and a pool with every connection in
+  use says `BUSY`, as any route would. It says nothing else, since it is public. The load
+  balancer, an uptime service, `up --wait` and a release ask this one.
 - Both answer `HEAD` as well as `GET`, and so does the page (`HEAD /`), which uptime services
   often probe instead.
 - **The worker** serves nothing to ask. Started with `--alive-file PATH`, it touches the file
@@ -1492,17 +1496,19 @@ The directories:
 - `account/`, once per AWS account: the bucket the environments' state is kept in
   (`emudoc-state-<account>`), the KMS key OpenTofu encrypts that state with before it leaves the
   operator's machine (`alias/emudoc-state`; the state holds the database's password and SES's
-  SMTP key), and the image repository, `emudoc` in ECR, whose tags are immutable and scanned as
-  they are pushed. Its own state holds no secret and stays where it is applied.
+  SMTP key), the image repository, `emudoc` in ECR, whose tags are immutable and scanned as
+  they are pushed, and GitHub's sign-in with the role CI pushes with, the one role the
+  repository takes images from ("Releases from CI"). Its own state holds no secret and stays
+  where it is applied; its tests are `tofu test` there.
 - `modules/environment/`, an environment, with its tests (`tofu test` there, against a mocked
   AWS: what each resource is made with, and the inputs it refuses).
 - `shared/`, the settings both environments take: the operator, the models and their prices,
-  `BACKUP_DAYS` and `DATA_REGION`. Staging names the models production does, which is what
-  pinning them is for.
+  `BACKUP_DAYS` and `DATA_REGION`, and the GitHub repository CI runs in. Staging names the
+  models production does, which is what pinning them is for.
 - `staging/` and `production/`, the two roots. They differ in the domain, the sizes (a
   `t3a.large` and a `db.t4g.small` without a standby against a `t3a.xlarge` and a
   `db.t4g.medium` with one), deletion protection and the spending cap.
-- `push-image.sh` and `release.sh`, the operator's; `compose.yml`, `Caddyfile` and `host/`,
+- `push-image.sh` and `release.sh`, which CI runs; `compose.yml`, `Caddyfile` and `host/`,
   which the image carries and each release runs on the instance.
 
 ### What an environment is made of
@@ -1581,7 +1587,9 @@ containers with the next release (the same tag again does).
 
 1. Once per account: `tofu -chdir=deploy/aws/account init`, then `apply`, with credentials of
    the account's administrator. Keeping staging and production in accounts of their own isolates
-   them further; the module is the same, and the account root runs in each.
+   them further; the module is the same, and the account root runs in each, but CI pushes to
+   one repository and the second account's instance would need leave to pull from it, which
+   the module does not give.
 2. Fill in `shared/main.tf` and each root's domain, zone, `mail` and `alert_email`, then
    `tofu -chdir=deploy/aws/staging init -backend-config=bucket=emudoc-state-<account>` and
    `apply`.
@@ -1589,21 +1597,20 @@ containers with the next release (the same tag again does).
    OAuth clients' secrets, and `SMTP_URL` without `mail`.
 4. Make the DNS records if the zone is not in Route 53, ask SES for production access, and
    confirm the alerts' subscription.
-5. Build and push the image of the commit checked out, then release it:
-
-   ```bash
-   tag=$(deploy/aws/push-image.sh)
-   deploy/aws/release.sh staging "$tag"
-   ```
-
+5. Give CI the roles (the repository variables of "Releases from CI"), then run CI on `main`
+   (Actions, CI, Run workflow, or the next push): it pushes the image and releases it on
+   staging.
 6. Check staging as "Checking it" says, and drill a restore by hand on it ("The drill").
-7. The same for production, with the tag staging ran.
+7. The same for production, with the Release workflow and the commit staging ran.
 
 ### A release
 
 `release.sh` has Systems Manager run `emudoc-release TAG` on the environment's instance, waits,
-prints what it said, records the tag in `/emudoc/<environment>/release` and asks
-`/api/health` over HTTPS. On the instance, `emudoc-release` pulls the image, takes out the
+prints what it said, records the tag in `/emudoc/<environment>/release` and waits a minute at
+most for `/api/health` over HTTPS to name the tag: a domain that leads elsewhere, or an API
+that kept its old version, fails it. Any environment but staging takes only a tag staging's
+release history holds (SSM keeps its last 100 releases), so every release runs on staging
+first. On the instance, `emudoc-release` pulls the image, takes out the
 `deploy/` directory it carries (`/opt/emudoc/releases/<tag>`), and runs its
 `aws/host/release`, so that what a release does on the host comes with the image and runs on
 staging before production. That writes the settings into `/etc/emudoc/next`, fetches RDS's
@@ -1615,14 +1622,76 @@ fails ends the release with the one before it still serving and still recorded. 
 away for a few seconds of each release, the time it takes to stop and start, during which the
 page follows answers again as on any one machine.
 
-Going back is `release.sh` with an earlier tag, as long as no migration came between: an image
-refuses a database whose schema is newer than its own.
+Going back is releasing an earlier tag (the Release workflow; `release.sh` prints the one it
+replaced), as long as no migration came between: an image refuses a database whose schema is
+newer than its own.
 
 On the instance, `sudo emudoc-compose` is Compose with the running release's files and
 settings: `ps`, `logs --since 1h worker`, `run --rm --no-deps worker python -m
 app.maintenance models`. `/etc/emudoc` holds `host.env` (what the module told the instance),
 the env files and RDS's authority; the units are `emudoc-boot`, `emudoc-credentials` and its
 timer, `emudoc-restore-drill` and its timer, and `emudoc-alert@`.
+
+### Releases from CI
+
+What an environment runs was built by CI from a commit on `main`, after every check passed;
+no one releases from their own machine, and no AWS key is kept in GitHub.
+
+```text
+  push to main ─▶ CI ─┬─ Backend ×2, Frontend, OpenTofu, Scripts, Secrets ──────┐
+                      └─ Image: build, smoke test, scan, push to ECR <sha> ─────┴─▶ Staging:
+                                                               release.sh staging <sha>
+  by hand ─▶ Release: production <sha> ─▶ did staging run it? ─▶ release.sh production <sha>
+```
+
+- **The image** is built once, by CI's Image job, from the commit and named by its full SHA
+  (`--build-arg VERSION`, which `/api/health` reports). On a push to `main` the job smoke-tests
+  it (`check-image.sh`), scans it as the Audit workflow does (a high or critical
+  vulnerability with a fix stops the release there, and Audit's morning run reports the same),
+  and pushes it with `push-image.sh`, unless the repository holds the tag already.
+- **Staging** is released by CI's Staging job once every job of the run passed, with
+  `release.sh staging <sha>`, one release at a time.
+- **Production**, and staging again (a changed setting reaches the containers with a release
+  of the same tag), are the Release workflow's: Actions, Release, Run workflow, from `main`,
+  with the environment and the commit, its seven-digit SHA as GitHub shows it or the whole.
+  `release.sh` refuses a commit staging never ran. Going back is the same with an earlier
+  commit.
+- **Credentials**: each job that reaches AWS asks GitHub for a token naming the repository and
+  the branch, which AWS trades for an hour of a role through GitHub's OpenID Connect provider
+  (the account root makes it). The push role (`emudoc-github-push`, account root) may push to
+  the repository and nothing else; each environment's release role
+  (`emudoc-<environment>-github-release`, `modules/environment/release.tf`) may find its
+  instance, have Systems Manager run the release there, follow it, record the tag and read
+  `APP_URL`, and production's also reads staging's release history. Each trusts a job of a
+  workflow on `main` of `github_repository` (`shared/`) alone: a pull request's token, or
+  another branch's, is refused.
+- **The repository takes images from CI alone**: its policy denies the pushes to every
+  principal but the push role, the account's administrators included, so an image built on
+  someone's machine cannot reach an environment. While GitHub cannot run the workflows, an
+  operator names their own role in the account root's `pushers` (`tofu apply -var
+  'pushers=["arn:aws:iam::<account>:role/<role>"]'`), pushes and releases with the two scripts
+  from a clean checkout of the commit, and applies the root again without it afterwards.
+- `tofu apply` stays the operator's: it needs rights over IAM, KMS and the state, which no
+  workflow should hold while anyone who can push to `main` controls what the workflows run.
+
+The repository variables, from the roots' outputs once they are applied (Settings, Secrets and
+variables, Actions, Variables, or `gh`):
+
+```bash
+gh variable set AWS_PUSH_ROLE --body "$(tofu -chdir=deploy/aws/account output -raw push_role)"
+gh variable set AWS_STAGING_ROLE --body "$(tofu -chdir=deploy/aws/staging output -raw release_role)"
+gh variable set AWS_PRODUCTION_ROLE --body "$(tofu -chdir=deploy/aws/production output -raw release_role)"
+gh variable set AWS_REGION --body eu-central-1      # the roots' region, which is also the default
+```
+
+Without `AWS_PUSH_ROLE` CI checks the image and pushes nothing, and without it or
+`AWS_STAGING_ROLE` the Staging job is skipped, so CI runs before AWS is set up. Two things wait
+for a paid GitHub plan, which a private repository needs for them: protecting `main` (no push
+without a pull request whose checks passed: Backend (postgres), Backend (pgbouncer), Frontend,
+Image, OpenTofu, Scripts and configuration, Secrets), and a `production` environment with
+required reviewers, whose release role would then trust `environment:production` instead of
+`main`. Until then, anyone who may push to `main` may release, and what reaches production is
+held back by staging alone.
 
 ### The drill on AWS
 
@@ -1643,19 +1712,22 @@ tag and delete only copies called `emudoc-drill-…` that carry `purpose=restore
   of 32 passages 120 seconds. Two vCPUs are slow for long passages; embed stages that keep
   failing on time call for a larger instance or a hosted endpoint ("The embeddings
   endpoint").
-- Continuous delivery, metrics and alarms, a CDN or firewall in front, IPv6, the bucket's
-  replication to a second region, and VPC flow logs.
+- Metrics and alarms, a CDN or firewall in front, IPv6, the bucket's replication to a second
+  region, and VPC flow logs.
 
-It was checked without an AWS account: the module by `tofu test` against a mocked provider and
-by `validate`, and the instance's part on Docker 25 (Amazon Linux's) with Compose 5.5.1, fakes
-for the AWS CLI and systemd, a TLS Postgres under an RDS name and MinIO with the module's
-policies as session policies. The first `apply` and release on a real account are the check of
-the rest.
+It was checked without an AWS account: the module and the account root by `tofu test` against
+a mocked provider and by `validate`, the instance's part on Docker 25 (Amazon Linux's) with
+Compose 5.5.1, fakes for the AWS CLI and systemd, a TLS Postgres under an RDS name and MinIO
+with the module's policies as session policies, and `push-image.sh` and `release.sh` with a
+fake AWS CLI, a registry of their own and a health check that answered each version. The first
+`apply` and release on a real account are the check of the rest, GitHub's sign-in and the
+repository's policy among them.
 
 ## Checking it
 
-1. `curl -sS https://emudoc.example.com/api/health` answers `{"status":"ok"}` and the browser
-   shows the certificate. Plain `http://` redirects to it. From the image, `docker compose -f
+1. `curl -sS https://emudoc.example.com/api/health` answers `{"status":"ok","version":"…"}`
+   with the commit released, which the user menu shows too, and the browser shows the
+   certificate. Plain `http://` redirects to it. From the image, `docker compose -f
    deploy/compose.yml ps -a` shows the release step exited with 0 and the API and the worker
    healthy, and
    `docker compose … exec api touch /app/x` fails with "Read-only file system".

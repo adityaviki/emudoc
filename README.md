@@ -168,14 +168,20 @@ again from the next one; the other requests get what `--timeout-graceful-shutdow
 (8 seconds in the image). Putting it on a server, with
 TLS at a reverse proxy in front of uvicorn, is [`deploying.md`](deploying.md).
 
-`docker build -t emudoc:$(git rev-parse --short HEAD) .` builds one image for the API, the
-worker, the migrations and the maintenance commands, with the frontend built in; it runs as a
-user of its own on a read-only filesystem and refuses development's settings.
+`docker build -t emudoc:$(git rev-parse HEAD) --build-arg VERSION=$(git rev-parse HEAD) .`
+builds one image for the API, the worker, the migrations and the maintenance commands, with the
+frontend built in, tagged with the commit it is built from and naming it: `/api/health`
+reports that version and the user menu shows it, and a checkout says `development`. It runs as
+a user of its own on a read-only filesystem and refuses development's settings.
 `deploy/compose.yml` runs it on one machine, the migrations first; `deploying.md` ("The
 image") says what a container needs. `deploy/aws` is the same on AWS as OpenTofu code, staging
 and production alike: Postgres on RDS, the bucket, and an EC2 instance that runs the compose
-file with Caddy in front, released by image tag (`deploy/aws/push-image.sh`, then
-`deploy/aws/release.sh staging <tag>`; `deploying.md`, "On AWS").
+file with Caddy in front. CI releases it: every commit on `main` that passes the checks is
+pushed and released on staging, and production is released by hand from the Release workflow,
+with a commit staging ran (`deploying.md`, "Releases from CI").
+
+What changed, release by release, is in [`CHANGELOG.md`](CHANGELOG.md). The code is
+proprietary ([`LICENSE`](LICENSE)).
 
 The database schema is a set of migrations in `backend/migrations/`; `uv run alembic upgrade
 head` applies the ones the database has not seen yet, so run it again after updating. The backend
@@ -539,8 +545,9 @@ cd backend && uv run pytest          # needs the database container
 cd frontend && pnpm lint && pnpm build
 ```
 
-`tofu test` in `deploy/aws/modules/environment` checks the AWS module against a mocked
-provider; the backend suite checks that what it writes is what production asks for.
+`tofu test` in `deploy/aws/modules/environment` and `deploy/aws/account` checks the AWS
+configuration against a mocked provider; the backend suite checks that what it writes is what
+production asks for.
 
 CI (`.github/workflows/ci.yml`, GitHub Actions) runs all of it on every push to `main` and
 every pull request: the backend's lint, format and suite, once against Postgres and once
@@ -552,6 +559,8 @@ Dockerfile, with what was looked at and accepted in `.trivyignore.yaml`, each wi
 that uv, pnpm, Node and Python are named at the Dockerfile's versions wherever else they
 appear (`.github/scripts/check-versions.sh`); and gitleaks over every commit, for keys and for
 any `.env` file whatever it holds (`.gitleaks.toml`, which says what was accepted and why).
+On `main` it also scans the image it checked, pushes it, and once every check passed releases
+it on staging (`deploying.md`, "Releases from CI").
 
 A key that CI finds has been pushed, and has to be revoked. The pre-commit hook in `.githooks`
 runs the same gitleaks on what is staged and refuses the commit instead; it needs Docker, and
@@ -603,6 +612,7 @@ backend/app/
                 the jobs the worker gave up on: the operator's digest, listing and requeue
   scanning.py   the malware scan of uploads: the clamd client, the quarantine, the digest
   startup.py    the checks and the services every process starts with
+  version.py    the version a process runs: the commit its image was built from
   postgres.py   what the app needs of its Postgres server: pgvector, the role's timeouts, vacuum
   search.py     hybrid search over passages
   folders.py    the folder tree as paths and subtrees
@@ -641,15 +651,17 @@ deploy/
                 as two commands; rds-drill.sh is RDS's
   aws/          staging and production on AWS in OpenTofu: account/ once per account,
                 modules/environment/ an environment, shared/ the settings both take, the two
-                roots, the operator's push-image.sh and release.sh, and what the image carries
+                roots, push-image.sh and release.sh, which CI runs, and what the image carries
                 for the instance (compose.yml over the one above, Caddyfile, host/)
 Dockerfile      the one image for every process; .dockerignore names what goes into it
-.github/        CI: the checks of every push and pull request (workflows/ci.yml), the daily
+.github/        CI: the checks of every push and pull request and staging's releases
+                (workflows/ci.yml), a release by hand (workflows/release.yml), the daily
                 audit of the dependencies and the image (workflows/audit.yml), Dependabot's
                 updates (dependabot.yml), the image's smoke test (scripts/check-image.sh) and
                 the tools' versions (scripts/check-versions.sh)
 .githooks/      the pre-commit hook that refuses a key or a .env file (git config
                 core.hooksPath .githooks)
+CHANGELOG.md    what each day's commits changed for members and operators
 ```
 
 ## Not built yet
