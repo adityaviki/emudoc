@@ -16,6 +16,8 @@ Members:
   when Gemini was down or refused them.
 - A file that needs more memory to parse than allowed says so and suggests splitting it, where
   it sometimes said that it could not be parsed.
+- A passage opened from an answer's citation or a search result comes into view in a text
+  document, where it sometimes stayed below the screen once the outline appeared beside it.
 
 Operators:
 

@@ -70,15 +70,17 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
 
   // A PDF shows its rendered pages, with the text laid over them; everything else shows its text.
   const pages = isPdf(document)
+  const hasOutline = !pages && !isImage(document) && !isSheet(document)
 
-  const loaded = content.isSuccess
+  // The outline, when it arrives, narrows the text beside it and moves every block down, so the
+  // scroll to the focused block waits for it as well as for the text.
+  const loaded = content.isSuccess && (!hasOutline || !outline.isPending)
   useEffect(() => {
     if (focusStart == null || !loaded) return
     const target = pages ? `page-${focusPage}` : `block-${focusStart}`
     window.document.getElementById(target)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
   }, [focusStart, focusPage, loaded, pages])
 
-  const hasOutline = !pages && !isImage(document) && !isSheet(document)
   const focusLabel =
     passage.data && blockFocus
       ? [sectionPath(passage.data.context, passage.data.document_title), pageLabel(passage.data.page_start, passage.data.page_end)]
