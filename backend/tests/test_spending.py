@@ -8,6 +8,7 @@ start (tests/test_config.py)."""
 
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from pydantic_ai.messages import TextPart
@@ -34,6 +35,18 @@ from tests.test_usage import scanned_pdf
 # out) each cost 1.50, so a plan's USD 1.00 a day is spent by one of them.
 PRICED = f"{get_settings().agent_model}=100000/100000"
 OPERATOR = "ops@example.test"
+
+
+@pytest.fixture(autouse=True)
+def one_day(monkeypatch):
+    """Hold the limits' clock at noon of this UTC day, as if a test took no time: the day is a
+    fixed window, and one that turned while a test spent would start its sums over, which only
+    `yesterday` should do. The rows themselves are stamped with the real time, which the sum
+    since the held day's midnight counts whichever side of midnight it falls."""
+    now = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0)
+    monkeypatch.setattr(
+        "app.spending.datetime", SimpleNamespace(now=lambda tz: now, combine=datetime.combine)
+    )
 
 
 @pytest.fixture
