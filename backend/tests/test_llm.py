@@ -279,8 +279,8 @@ def test_ocr_sends_the_image_before_the_instruction():
             False,
         ),
         ([ModelAPIError("m", "Connection error.")], "Could not reach the provider of m", True),
-        # The provider took too long: the SDK's request timed out, which the Anthropic and
-        # OpenAI adapters wrap and the Google one lets through as the HTTP library raised it.
+        # The provider took too long: the SDK's request timed out, which every adapter wraps
+        # (Google's since Pydantic AI 2.55), and the HTTP library's error as it was raised.
         ([timed_out_api_error()], "took too long to answer. Try again.", True),
         ([httpx2.ReadTimeout("timed out")], "took too long to answer. Try again.", True),
         ([RuntimeError("boom")], "failed unexpectedly", False),
@@ -780,15 +780,20 @@ def test_an_answer_the_fallback_finished_is_charged_to_each_model_that_answered(
 
 
 class Recorder:
-    """A transport that answers from a queue and keeps every request it saw."""
+    """A transport that answers from a queue and keeps every request it saw. An error in the
+    queue is raised in place of an answer, as the HTTP library raises a connection that fails."""
 
-    def __init__(self, *responses: httpx2.Response):
+    def __init__(self, *responses: httpx2.Response | httpx2.TransportError):
         self.responses = list(responses)
         self.requests: list[httpx2.Request] = []
 
     def __call__(self, request: httpx2.Request) -> httpx2.Response:
         self.requests.append(request)
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if isinstance(response, httpx2.TransportError):
+            response.request = request
+            raise response
+        return response
 
     def body(self, index: int = 0) -> dict:
         return json.loads(self.requests[index].content)
@@ -1283,6 +1288,33 @@ def test_a_retired_gemini_model_leaves_its_requests_to_claude(monkeypatch, caplo
     ) in caplog.text
     # Nothing of the provider's words reaches the log.
     assert "API version" not in caplog.text
+
+
+def test_a_gemini_out_of_reach_leaves_its_requests_to_claude(monkeypatch, caplog):
+    # Pydantic AI reports Google's connection that could not be made as it reports any
+    # provider's (a ModelAPIError since 2.55; the HTTP library's own error before, which was
+    # no reason to ask the next model). Gemini is asked once rather than again after a second,
+    # as an overload would be.
+    monkeypatch.setattr("app.llm.GOOGLE_ATTEMPTS", 1)
+    gemini_recorder = Recorder(httpx2.ConnectError("Connection refused"))
+    claude_recorder = Recorder(
+        httpx2.Response(200, json=message([{"type": "text", "text": json.dumps(ANALYSIS)}]))
+    )
+    llm = recorded_models(
+        monkeypatch,
+        {GEMINI: gemini_recorder, CLAUDE: claude_recorder},
+        index_model=GEMINI,
+        agent_model=GEMINI,
+        index_fallback_model=CLAUDE,
+    )
+    result = llm.structured("the document", DocumentAnalysis)
+
+    assert result.title == "Master Services Agreement"
+    assert len(gemini_recorder.requests) == len(claude_recorder.requests) == 1
+    assert (
+        f"INDEX_MODEL {GEMINI} failed, so INDEX_FALLBACK_MODEL {CLAUDE} is asked instead: Could "
+        "not reach the provider of gemini-2.5-flash-lite."
+    ) in caplog.text
 
 
 def test_each_model_is_asked_with_its_own_provider_s_settings(monkeypatch):

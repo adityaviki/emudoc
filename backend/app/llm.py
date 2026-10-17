@@ -262,9 +262,9 @@ def _transient(error: Exception) -> bool:
 
 
 def _timed_out(error: BaseException | None) -> bool:
-    """Whether a request ended because the provider took too long. Each SDK reports that in an
-    exception of its own, raised from the HTTP library's, and Google's lets the library's
-    through as it is; the chain of causes tells for all of them."""
+    """Whether a request ended because the provider took too long. Each adapter reports that in
+    a `ModelAPIError` raised from the SDK's exception or the HTTP library's (Google's let the
+    library's through as it was before Pydantic AI 2.55); the chain of causes tells for all."""
     while error is not None:
         if isinstance(error, TimeoutError | httpx.TimeoutException | httpx2.TimeoutException):
             return True

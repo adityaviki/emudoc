@@ -12,6 +12,8 @@ its day, in the same commit.
 Members:
 
 - The user menu shows the version of Emudoc that runs.
+- When Gemini cannot be reached, questions and documents go to the second model, as they did
+  when Gemini was down or refused them.
 - A file that needs more memory to parse than allowed says so and suggests splitting it, where
   it sometimes said that it could not be parsed.
 
