@@ -3,7 +3,9 @@ requests per email address and per client address, counted in the database, refu
 and the seconds until the minute turns, and pruned by the housekeeper."""
 
 from datetime import UTC, datetime, timedelta, timezone
+from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import text
 
 from app.api.auth import CODE_INVALID, SIGN_IN_FAILED
@@ -27,6 +29,15 @@ from tests.test_chats import ask, new_chat
 FROM_ACCOUNT = "from your account"
 FROM_ADDRESS = "from your address"
 FOR_EMAIL = "for this email address"
+
+
+@pytest.fixture(autouse=True)
+def one_minute(monkeypatch):
+    """Hold the limiter's clock in the middle of this minute, as if a test took no time: the
+    minute is a fixed window, so one that turned while a test signed in would start its counts
+    over, which only `minute_turned` should do."""
+    now = datetime.now(UTC).replace(second=30, microsecond=0)
+    monkeypatch.setattr("app.ratelimit.datetime", SimpleNamespace(now=lambda tz: now))
 
 
 def counts(session) -> list[tuple[str, str, int]]:

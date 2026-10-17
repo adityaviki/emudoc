@@ -22,7 +22,6 @@ Operators:
 - Ollama 0.40.5 and Caddy 2.11.7 in the compose files (Caddy's fixes a crash when proxying a
   request body over HTTP/2). Ollama runs with `OLLAMA_NO_CLOUD=1`, so that it asks ollama.com
   for the embedding model alone, not, as 0.40 would every four hours, for models to recommend.
-
 - `/api/health` and `/api/livez` name the version, the commit the image was built from (the
   Dockerfile's `VERSION`), each process logs it as it starts, and the image is tagged with the
   commit's full SHA.
