@@ -1,9 +1,10 @@
-# The known vulnerabilities of the dependencies and of the image, every morning and on every
-# change to a manifest, a lock file or the Dockerfile. CI runs only when the code changes, so it
-# would find an advisory published since at the next change; this finds it the day after, and
-# GitHub mails a failed scheduled run to whoever last changed the schedule below. Each step is
-# the command a developer runs (CLAUDE.md, "Commands"); Dependabot (.github/dependabot.yml)
-# proposes the updates that fix most findings.
+# The known vulnerabilities of the dependencies, of the image and of the images the deployment
+# runs beside it, every morning and on every change to a manifest, a lock file, the Dockerfile or
+# the deployment's compose files. CI runs only when the code changes, so it would find an
+# advisory published since at the next change; this finds it the day after, and GitHub mails a
+# failed scheduled run to whoever last changed the schedule below. Each step is the command a
+# developer runs (CLAUDE.md, "Commands"); Dependabot (.github/dependabot.yml) proposes the
+# updates that fix most findings.
 name: Audit
 
 on:
@@ -20,6 +21,9 @@ on:
       - Dockerfile
       - .dockerignore
       - .trivyignore.yaml
+      - deploy/compose.yml
+      - deploy/aws/compose.yml
+      - deploy/.trivyignore.yaml
       - .github/workflows/audit.yml
   pull_request:
     paths: *audited
@@ -114,3 +118,57 @@ jobs:
           "$TRIVY" image --quiet --skip-version-check --scanners vuln,secret --severity
           HIGH,CRITICAL --ignore-unfixed --table-mode detailed --exit-code 1
           --ignorefile .trivyignore.yaml "emudoc:$GITHUB_SHA"
+
+  # The images the deployment runs beside the app (ClamAV, Ollama, Caddy), each at the digest
+  # the compose files pin, by the same scan. Only their projects can fix what it finds: the fix
+  # is a newer tag or a rebuild, which Dependabot proposes (the `compose` group). Until one is
+  # released, a finding is accepted in deploy/.trivyignore.yaml with a statement and an
+  # expired_at, after which it fails here again unless the release has come. trivy reads each
+  # image from its registry for the instance's platform, layer by layer, rather than from a
+  # copy in Docker: Ollama's is 9 GB unpacked.
+  beside:
+    name: Images beside the app
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # What trivy found in each layer, kept from one run to the next: a layer never changes
+      # under its digest, so only a new image's are downloaded and read again (Ollama's 3.8 GB
+      # take about five minutes), and the database, downloaded fresh beside them, is matched
+      # against what was kept. A new trivy computes keys of its own and reads the layers again.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/trivy/fanal
+          key: trivy-layers-${{ hashFiles('deploy/compose.yml', 'deploy/aws/compose.yml', '.github/workflows/audit.yml') }}
+          restore-keys: trivy-layers-
+      # The compose files name the images; to be read they need a settings file, the app's
+      # image (left out of the list) and Caddy's domain. trivy runs as the runner's user, so
+      # that the cache can save what it wrote.
+      - name: Audit
+        shell: bash
+        env:
+          EMUDOC_ENV: /dev/null
+          EMUDOC_IMAGE: emudoc:app
+          EMUDOC_DOMAIN: example.org
+        run: |
+          images=$(
+            docker compose -f deploy/compose.yml -f deploy/aws/compose.yml config --images |
+              grep -vxF "$EMUDOC_IMAGE" | sort -u
+          )
+          mkdir -p "$RUNNER_TEMP/trivy"
+          failed=()
+          for image in $images; do
+            echo "$image"
+            docker run --rm --user "$(id -u):$(id -g)" -v "$RUNNER_TEMP/trivy:/cache" \
+              -v "$PWD:/src:ro" -w /src "$TRIVY" image --cache-dir /cache --timeout 20m \
+              --quiet --skip-version-check --image-src remote --platform linux/amd64 \
+              --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed \
+              --table-mode detailed --exit-code 1 --ignorefile deploy/.trivyignore.yaml \
+              "$image" || failed+=("${image%%@*}")
+          done
+          if ((${#failed[@]})); then
+            echo "::error::A high or critical vulnerability with a fix, or a failed scan, in ${failed[*]}"
+            exit 1
+          fi

@@ -162,6 +162,25 @@ docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/src:ro" -
   --ignorefile .trivyignore.yaml emudoc:<tag>
 ```
 
+The images that run beside it, ClamAV's, Ollama's and Caddy's, get the same scan every morning
+(Audit's "Images beside the app"), each at the digest the compose files pin, read from its
+registry for `linux/amd64`, the instance's platform. Only their projects can fix what it finds,
+in a newer tag or a rebuild, which Dependabot proposes like a base's and which is released the
+same way. Until one comes, a finding is accepted in `deploy/.trivyignore.yaml` with the reason
+it can wait and an `expired_at`, after which the morning run fails again unless the release has
+come; an entry whose finding has gone is removed. Ollama builds every release with the Go its
+`go.mod` names, which it seldom moves, so its binary carries most of a year's fixes to Go as
+findings; they are accepted for what reaches Ollama, which is the app alone, on the compose
+network. By hand, the list and one image (Ollama's takes about five minutes):
+
+```bash
+EMUDOC_ENV=/dev/null EMUDOC_IMAGE=emudoc:app EMUDOC_DOMAIN=example.org \
+  docker compose -f deploy/compose.yml -f deploy/aws/compose.yml config --images
+docker run --rm -v "$PWD:/src:ro" -w /src aquasec/trivy:0.73.0 image --image-src remote \
+  --platform linux/amd64 --timeout 20m --scanners vuln,secret --severity HIGH,CRITICAL \
+  --ignore-unfixed --ignorefile deploy/.trivyignore.yaml caddy:2.11.7@sha256:…
+```
+
 `deploy/compose.yml` puts it together on one machine: the release step, the API, a worker,
 ClamAV and Ollama, with the settings in `/etc/emudoc/emudoc.env` (`EMUDOC_ENV` names another
 file):

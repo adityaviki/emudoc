@@ -582,13 +582,15 @@ is turned on once per clone:
 git config core.hooksPath .githooks
 ```
 
-The dependencies and the image are audited for known vulnerabilities every morning and on every
-change to a manifest, a lock file or the Dockerfile (`.github/workflows/audit.yml`): every
-Python package `uv.lock` holds, the development tools' included, by pip-audit against OSV,
-where any known vulnerability fails; the frontend's by `pnpm audit`, where a high or critical
-one fails; and the image, built from this commit, by trivy, where a high or critical one fails
-once a fix is released, so a fixed vulnerability in a base that has not moved is found the
-morning after. By hand:
+The dependencies and the images are audited for known vulnerabilities every morning and on
+every change to a manifest, a lock file, the Dockerfile or the deployment's compose files
+(`.github/workflows/audit.yml`): every Python package `uv.lock` holds, the development tools'
+included, by pip-audit against OSV, where any known vulnerability fails; the frontend's by
+`pnpm audit`, where a high or critical one fails; the image, built from this commit, by trivy,
+where a high or critical one fails once a fix is released, so a fixed vulnerability in a base
+that has not moved is found the morning after; and the images the deployment runs beside it
+(ClamAV, Ollama, Caddy) by the same scan, where what waits for their projects' next release is
+accepted in `deploy/.trivyignore.yaml` until a date (`deploying.md`, "The image"). By hand:
 
 ```bash
 uv --directory backend export --locked --all-groups --no-emit-project --quiet |

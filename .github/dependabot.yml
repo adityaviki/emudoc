@@ -1,7 +1,8 @@
 # Pull requests that move the dependencies to their newer releases, once a week, after a week's
 # wait: a release that turns out to be malicious is usually pulled within days. CI checks each
-# pull request like any other, and the audit workflow those that change a lock file. Minor and
-# patch updates come as one pull request per ecosystem, a major one alone.
+# pull request like any other, and the audit workflow those that change a lock file, the
+# Dockerfile or the deployment's compose files. Minor and patch updates come as one pull request
+# per ecosystem, a major one alone.
 #
 # Not here: the OpenTofu providers. The versions of uv, pnpm, Node and Python, named in the
 # Dockerfile and the workflows, move by hand (below, only the digests of Node's and Python's

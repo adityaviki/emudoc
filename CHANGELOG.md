@@ -21,6 +21,11 @@ Members:
 
 Operators:
 
+- The images the deployment runs beside the app, ClamAV's, Ollama's and Caddy's, are scanned
+  for known vulnerabilities every morning too. Caddy 2.11.7 carries three in Go's HTTP and
+  TLS code, fixed in Go 1.26.9 after it was built, and Ollama 0.40.5 forty-three, since Ollama
+  builds with Go 1.26.0; both are accepted until a date in `deploy/.trivyignore.yaml`, each
+  with what it exposes (`deploying.md`, "The image").
 - The Models workflow asks every model and fallback the deployment names what the app asks of
   them, every morning, once the repository names them and holds their keys (`deploying.md`,
   "The models").
