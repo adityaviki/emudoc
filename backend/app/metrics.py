@@ -17,8 +17,10 @@ There are two kinds of figure:
   adds them up.
 - What the database holds, the same whichever process reads it (`Holdings`): the documents by
   status, the queue by kind, the answers being written, the organisations and the bytes they
-  keep by plan, and the day's spend. Only a worker serves them, reading them when asked and at
-  most once every MEASURE_SECONDS, so the queries grow with the workers and not with the
+  keep by plan, and the day's spend; and how the server itself keeps up (app/postgres.py): the
+  live and dead rows of each table, the oldest open transaction, and the archiving of the
+  write-ahead log the backups rest on. Only a worker serves them, reading them when asked and
+  at most once every MEASURE_SECONDS, so the queries grow with the workers and not with the
   scrapers or the API replicas. Every worker serves the same figures, which a query takes once
   (`max without (instance)`), and one whose last reading failed serves none of them.
 
@@ -46,7 +48,7 @@ from typing import TYPE_CHECKING
 from wsgiref.simple_server import WSGIServer
 
 from prometheus_client import REGISTRY, Counter, Histogram, start_http_server
-from prometheus_client.core import GaugeMetricFamily, Metric
+from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily, Metric
 from prometheus_client.registry import Collector
 from sqlalchemy import Engine, text
 
@@ -55,6 +57,7 @@ from app.db import SessionLocal, engine
 from app.errors import AppError, summary
 from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT
 from app.models import STAGES
+from app.postgres import archive, database_report
 from app.spending import day_of, spent_since
 
 if TYPE_CHECKING:
@@ -350,8 +353,9 @@ class Pool:
 
 class Lanes:
     """A worker's job threads by lane (indexer, answerer): those alive, and those running a
-    job now. A worker whose thread ended exits to be restarted (app/worker.py), so the live
-    workers are the processes that answer, and the busy share says whether they keep up."""
+    job now; and whether it hears of queued jobs as they are queued. A worker whose thread
+    ended exits to be restarted (app/worker.py), so the live workers are the processes that
+    answer, and the busy share says whether they keep up."""
 
     def __init__(self, worker: "Worker"):
         self._worker = worker
@@ -372,6 +376,12 @@ class Lanes:
             busy.add_metric([lane], running)
         yield threads
         yield busy
+        yield GaugeMetricFamily(
+            "emudoc_worker_listening",
+            "1 while the worker hears of queued jobs as they are queued, 0 while it finds them "
+            "by polling, which makes a question wait up to two seconds for its answer to start.",
+            value=int(self._worker.listening()),
+        )
 
 
 _DOCUMENTS = text(
@@ -465,6 +475,35 @@ class Holdings:
                 "DAILY_SPEND_CAP in PRICE_CURRENCY, 0 for none.",
                 labels=currency,
             ),
+            "rows": GaugeMetricFamily(
+                "emudoc_db_table_rows",
+                "The rows of each table of the app's, by state: live, or dead and waiting for "
+                "vacuum, as the server's statistics estimate them.",
+                labels=["table", "state"],
+            ),
+            "transaction": GaugeMetricFamily(
+                "emudoc_db_oldest_transaction_seconds",
+                "How long the oldest transaction of the app's role but the reading's own has "
+                "been open, holding back vacuum in every table; 0 when none is.",
+            ),
+            "archived": CounterMetricFamily(
+                "emudoc_wal_archived",
+                "Segments of the write-ahead log the server archived since its statistics were "
+                "reset; served only by a server that archives.",
+            ),
+            "archive_failures": CounterMetricFamily(
+                "emudoc_wal_archive_failures",
+                "Attempts to archive a segment of the write-ahead log that failed.",
+            ),
+            "archive_age": GaugeMetricFamily(
+                "emudoc_wal_last_archived_seconds",
+                "How long ago the server last archived a segment of the write-ahead log.",
+            ),
+            "archive_pending": GaugeMetricFamily(
+                "emudoc_wal_segments_pending",
+                "Finished segments of the write-ahead log waiting to be archived; with the last "
+                "archive older than the recovery point, the backups are falling behind.",
+            ),
         }
 
     def _measure(self) -> list[Metric]:
@@ -486,6 +525,9 @@ class Holdings:
                     oldest[kind] = max(float(waited), 0.0)
             answering = session.scalar(_ANSWERING)
             spent = spent_since(session, day_of()[0])
+            connection = session.connection()
+            report = database_report(connection, limit=None)
+            archiving = archive(connection)
         for status, count in documents.items():
             families["documents"].add_metric([status], count)
         for plan in organizations.keys() | stored.keys():
@@ -499,6 +541,27 @@ class Holdings:
         currency = [self._settings.price_currency]
         families["spent"].add_metric(currency, spent / 1_000_000)
         families["cap"].add_metric(currency, self._settings.daily_spend_cap_micros / 1_000_000)
+        for table in report.tables:
+            families["rows"].add_metric([table.name, "live"], table.rows)
+            families["rows"].add_metric([table.name, "dead"], table.dead)
+        oldest = report.oldest.total_seconds() if report.oldest is not None else 0.0
+        families["transaction"].add_metric([], max(oldest, 0.0))
+        if archiving is None:
+            # No archiver to speak of: its figures are left out rather than say all is well.
+            for name in ("archived", "archive_failures", "archive_age", "archive_pending"):
+                del families[name]
+        else:
+            families["archived"].add_metric([], archiving.archived)
+            families["archive_failures"].add_metric([], archiving.failed)
+            if archiving.archived_at is None:
+                del families["archive_age"]
+            else:
+                age = (archiving.taken_at - archiving.archived_at).total_seconds()
+                families["archive_age"].add_metric([], max(age, 0.0))
+            if archiving.pending is None:
+                del families["archive_pending"]
+            else:
+                families["archive_pending"].add_metric([], archiving.pending)
         return list(families.values())
 
 

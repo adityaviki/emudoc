@@ -1,0 +1,26 @@
+# Prometheus beside deploy/compose.yml (deploying.md, "Metrics" and "Alerts"): it finds every
+# replica of the API and the worker by the services' names on the compose network, keeps which
+# kind of process each is as `process`, as alerts.yml expects, and sends what fires to an
+# Alertmanager under the name alertmanager.
+
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+rule_files:
+  - alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: [alertmanager:9093]
+
+scrape_configs:
+  - job_name: emudoc
+    dns_sd_configs:
+      - names: [api, worker]
+        type: A
+        port: 9464
+    relabel_configs:
+      - source_labels: [__meta_dns_name]
+        target_label: process

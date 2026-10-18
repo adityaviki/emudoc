@@ -275,9 +275,13 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   --wait` runs one to try this with.
 - `ALERT_EMAIL` is where the worker reports the jobs it gave up on, through the same mail
   settings as the sign-in links, as one digest every quarter of an hour, where it reports
-  the uploads the malware scan quarantined the same way, and where it warns once a day when
-  a day's spending on models reaches 80 % of a limit, the platform's or an organisation's.
-  Empty sends nothing; the `failed-jobs` command lists the failures either way.
+  the uploads the malware scan quarantined the same way, where it warns once a day when
+  a day's spending on models reaches 80 % of a limit, the platform's or an organisation's,
+  and where its watch (`backend/app/watch.py`) writes when something goes wrong and when it is
+  over: questions or documents waiting long for a worker, indexing or answers failing, a model
+  failing over to its fallback, the embeddings endpoint, the scanner or the storage not
+  answering, the database failing to archive its log or falling behind. Empty sends nothing;
+  the `failed-jobs` command lists the failures either way.
 - `DAILY_SPEND_CAP` is what every organisation together may spend on models in one UTC day,
   in `PRICE_CURRENCY` by the costs `MODEL_PRICES` gives; `0`, the default, is no limit. Past
   it every question is refused with 503 until midnight UTC and every indexing stage that needs
@@ -526,9 +530,11 @@ The API and the worker serve metrics in Prometheus's format on a port of their o
 requests by route pattern, the database pool, each model's requests, outcomes, time to the
 first event and tokens, stages, jobs, uploads and rate refusals, and from a worker the documents
 and the queue by status, the backlog's age, the answers being written, the organisations and
-their bytes by plan, and the day's spend (`backend/app/metrics.py`). No label names an
+their bytes by plan, the day's spend, and how the database server keeps up (dead rows, the
+oldest transaction, the archiving of its log) (`backend/app/metrics.py`). No label names an
 organisation, a user or anything a member typed. `deploying.md` ("Metrics") lists them, with a
-Prometheus to scrape them.
+Prometheus to scrape them; `deploy/prometheus/alerts.yml` holds alerting rules over them,
+tested with promtool ("Alerts").
 
 Each organisation keeps an audit log (`backend/app/audit.py`): its members' sign-ins (and
 failed ones for their accounts), password, two-factor and session changes, exports and

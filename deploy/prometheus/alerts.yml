@@ -1,0 +1,263 @@
+# What should wake the operator, as Prometheus alerting rules over the app's metrics
+# (deploying.md, "Alerts"; the metrics are its "Metrics"). prometheus.yml beside this file loads
+# it and names the processes as these rules expect: job "emudoc", and `process` api or worker.
+# promtool tests every rule against alerts.test.yml, in CI:
+#
+#   promtool test rules deploy/prometheus/alerts.test.yml
+#
+# critical is a member waiting now or a backup losing changes; warning is for the working day.
+# The figures a worker reads from the database are served by every worker alike, so the rules
+# take one of them (`max without (instance, process)`); what a process counts is its own.
+# The thresholds are a start: tune them to the deployment, in the tests too.
+
+groups:
+  - name: emudoc-processes
+    rules:
+      - alert: EmudocProcessDown
+        expr: up{job="emudoc"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The {{ $labels.process }} at {{ $labels.instance }} has not answered for 5 minutes."
+          description: "Its health check and its log say why; a worker that stopped exits to be restarted."
+
+      - alert: EmudocNoWorker
+        expr: absent(up{job="emudoc", process="worker"} == 1)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No worker has answered for 5 minutes."
+          description: "Nothing is indexed and no question is answered until one runs."
+
+      - alert: EmudocNoApi
+        expr: absent(up{job="emudoc", process="api"} == 1)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No API has answered for 5 minutes."
+          description: "The members cannot reach the app; the proxy answers 502."
+
+      - alert: EmudocRestarting
+        expr: changes(process_start_time_seconds{job="emudoc"}[30m]) >= 2
+        labels:
+          severity: warning
+        annotations:
+          summary: "The {{ $labels.process }} at {{ $labels.instance }} started {{ $value }} times again in 30 minutes."
+          description: "A worker exits when one of its threads ended, and its log names the thread; a process that keeps stopping at start says why in its last lines."
+
+      - alert: EmudocWorkerNotListening
+        expr: emudoc_worker_listening == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The worker at {{ $labels.instance }} finds queued jobs by polling."
+          description: "Each question waits up to two seconds for its answer to start. Behind a pooler in transaction mode, set DATABASE_LISTEN_URL; otherwise its log says why listening failed."
+
+  - name: emudoc-work
+    rules:
+      - alert: EmudocQuestionsWaiting
+        expr: max without (instance, process) (emudoc_job_oldest_due_seconds{kind="answer_question"}) > 60
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The oldest question has waited {{ $value | humanizeDuration }} for a worker."
+          description: "The answerer threads are all busy, or no worker claims: add workers or raise ANSWER_CONCURRENCY."
+
+      - alert: EmudocDocumentsWaiting
+        expr: max without (instance, process) (emudoc_job_oldest_due_seconds{kind="index_document"}) > 1800
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The oldest document has waited {{ $value | humanizeDuration }} to be indexed."
+          description: "The indexer threads are all busy, or no worker claims: add workers or raise WORKER_CONCURRENCY."
+
+      - alert: EmudocNoDatabaseFigures
+        expr: absent(emudoc_jobs)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No worker serves the database's figures."
+          description: "No worker runs, or its readings fail: its log says \"The metrics could not read the database\". The rules on the queue and the database see nothing meanwhile."
+
+      - alert: EmudocStageFailing
+        expr: |
+          sum by (stage) (increase(emudoc_stage_runs_total{outcome=~"failed|crashed"}[1h])) >= 5
+          and
+          sum by (stage) (increase(emudoc_stage_runs_total{outcome=~"failed|crashed"}[1h]))
+            / sum by (stage) (increase(emudoc_stage_runs_total{outcome!~"skipped|deferred"}[1h])) > 0.5
+        labels:
+          severity: warning
+        annotations:
+          summary: "The {{ $labels.stage }} stage failed in most of its runs of the last hour."
+          description: "The documents' stages say why to the members, the worker's log to the operator; python -m app.maintenance models asks every model what indexing asks of it."
+
+      - alert: EmudocStageCrashing
+        expr: sum by (stage) (increase(emudoc_stage_runs_total{outcome="crashed"}[30m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "The {{ $labels.stage }} stage crashed in the last 30 minutes."
+          description: "A crash is the app's own fault: the worker's log has the traceback, the error tracker the report."
+
+      - alert: EmudocJobsGivenUp
+        expr: sum by (kind) (increase(emudoc_job_runs_total{outcome=~"failed|crashed|abandoned"}[30m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "The worker gave up on {{ $labels.kind }} jobs in the last 30 minutes."
+          description: "python -m app.maintenance failed-jobs lists them with why; --requeue runs them again once the cause is fixed."
+
+  - name: emudoc-models
+    rules:
+      - alert: EmudocModelsDown
+        expr: |
+          sum by (role) (increase(emudoc_model_requests_total{role!="embed", outcome!~"ok|stopped"}[15m])) >= 5
+          unless
+          sum by (role) (increase(emudoc_model_requests_total{role!="embed", outcome="ok"}[15m])) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "No model of the {{ $labels.role }} work answered in 15 minutes."
+          description: "Every request failed, the fallback's too: the members' answers or indexing fail. python -m app.maintenance models asks each model; DISABLED_PROVIDERS stops a provider at once."
+
+      - alert: EmudocEmbeddingsDown
+        expr: |
+          sum(increase(emudoc_model_requests_total{role="embed", outcome!="ok"}[15m])) >= 3
+          unless
+          sum(increase(emudoc_model_requests_total{role="embed", outcome="ok"}[15m])) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "The embeddings endpoint answered none of its requests in 15 minutes."
+          description: "Searches match keywords only and new documents wait to be embedded; see deploying.md, \"The embeddings endpoint\"."
+
+      - alert: EmudocModelRefused
+        expr: sum by (model, role, outcome) (increase(emudoc_model_requests_total{outcome=~"401|402|403|404"}[15m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.model }} answered {{ $labels.outcome }} to the {{ $labels.role }} work."
+          description: "401 or 403 is a key revoked or refused, 402 an account out of credit, 404 a model its provider retired. A fallback covers it until it fails too."
+
+      - alert: EmudocModelFallingBack
+        expr: sum by (model, role) (increase(emudoc_model_fallbacks_total[15m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.model }} failed requests of the {{ $labels.role }} work to its fallback in the last 15 minutes."
+          description: "The members notice nothing until the fallback fails too. The worker's log says why in a line from app.llm."
+
+      - alert: EmudocModelRateLimited
+        expr: sum by (model, role) (increase(emudoc_model_requests_total{outcome="429"}[15m])) >= 10
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.model }} refused requests of the {{ $labels.role }} work for its rate, 10 or more in 15 minutes."
+          description: "Raise the account's limits with the provider, or lower WORKER_CONCURRENCY."
+
+      - alert: EmudocModelErrors
+        expr: |
+          sum by (model, role) (increase(emudoc_model_requests_total{outcome=~"5..|timeout|unreachable"}[15m])) >= 5
+          and
+          sum by (model, role) (increase(emudoc_model_requests_total{outcome=~"5..|timeout|unreachable"}[15m]))
+            / sum by (model, role) (increase(emudoc_model_requests_total[15m])) > 0.2
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than a fifth of the requests to {{ $labels.model }} for the {{ $labels.role }} work failed on the provider's side in 15 minutes."
+          description: "Its status page says whether it is down; the requests are tried again, and a fallback takes over the ones that keep failing."
+
+  - name: emudoc-capacity
+    rules:
+      - alert: EmudocPoolSaturated
+        expr: emudoc_db_connections{state="in_use"} / ignoring (state) emudoc_db_connections_limit > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The {{ $labels.process }} at {{ $labels.instance }} has used over 90 % of its database connections for 10 minutes."
+          description: "Raise DB_POOL_SIZE or DB_MAX_OVERFLOW within what the database takes, or add replicas."
+
+      - alert: EmudocPoolTimeouts
+        expr: increase(emudoc_db_pool_timeouts_total[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "The {{ $labels.process }} at {{ $labels.instance }} refused requests for want of a database connection."
+          description: "The members were answered 503 \"busy\": raise DB_POOL_SIZE or DB_MAX_OVERFLOW, or add replicas."
+
+      - alert: EmudocStorageGrowing
+        # 10 GiB a day of new originals.
+        expr: |
+          sum(max without (instance, process) (emudoc_stored_bytes))
+            - sum(max without (instance, process) (emudoc_stored_bytes offset 1d)) > 10737418240
+        labels:
+          severity: warning
+        annotations:
+          summary: "The originals grew by {{ $value | humanize1024 }}B in a day."
+          description: "python -m app.maintenance usage <slug> shows who uploads; the bucket's own size counts the rendered pages and earlier versions too."
+
+      - alert: EmudocSpendNearCap
+        expr: max without (instance, process) (emudoc_spent_today / (emudoc_daily_spend_cap > 0)) >= 0.8
+        labels:
+          severity: warning
+        annotations:
+          summary: "Today's spending on models has reached {{ $value | humanizePercentage }} of DAILY_SPEND_CAP."
+          description: "At the cap every question is refused and indexing waits for midnight UTC; the app mails ALERT_EMAIL too."
+
+      - alert: EmudocSpendCapReached
+        expr: max without (instance, process) (emudoc_spent_today / (emudoc_daily_spend_cap > 0)) >= 1
+        labels:
+          severity: critical
+        annotations:
+          summary: "Today's spending on models has reached DAILY_SPEND_CAP."
+          description: "Every question is refused and indexing waits until midnight UTC, unless the cap is raised and the app restarted."
+
+  - name: emudoc-database
+    rules:
+      - alert: EmudocWalArchiveFailing
+        expr: max without (instance, process) (increase(emudoc_wal_archive_failures_total[10m])) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "The database failed to archive its write-ahead log in the last 10 minutes."
+          description: "The backups miss every change since: run pgbackrest --stanza=emudoc check and read the server's log (deploying.md, \"Backups\")."
+
+      - alert: EmudocWalArchiveBehind
+        expr: |
+          max without (instance, process) (emudoc_wal_segments_pending) > 0
+          and
+          max without (instance, process) (emudoc_wal_last_archived_seconds) > 300
+        labels:
+          severity: critical
+        annotations:
+          summary: "Finished segments of the write-ahead log have waited over 5 minutes to be archived."
+          description: "A restore now would lose the changes in them, past the recovery point: look at pg_stat_archiver and the repository's disk or bucket."
+
+      - alert: EmudocVacuumBehind
+        expr: |
+          max without (instance, process, state) (emudoc_db_table_rows{state="dead"}) >= 10000
+          and
+          max without (instance, process, state) (emudoc_db_table_rows{state="dead"})
+            / sum without (state) (max without (instance, process) (emudoc_db_table_rows)) > 0.2
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Autovacuum is behind on {{ $labels.table }}."
+          description: "Run VACUUM (VERBOSE, ANALYZE) on it, and lower its autovacuum_vacuum_scale_factor (deploying.md, \"Vacuum\")."
+
+      - alert: EmudocLongTransaction
+        expr: max without (instance, process) (emudoc_db_oldest_transaction_seconds) > 3600
+        labels:
+          severity: warning
+        annotations:
+          summary: "A transaction has been open for {{ $value | humanizeDuration }}."
+          description: "Vacuum keeps every row deleted or replaced since it began: find it in pg_stat_activity and end it with pg_terminate_backend if nothing should run that long."

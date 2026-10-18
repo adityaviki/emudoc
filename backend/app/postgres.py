@@ -7,10 +7,13 @@ tables that churn (deploying.md, "The database"). `check_database` runs in `prep
 (app/startup.py): it refuses in production a pgvector that makes searches lose passages, says
 what the server is, and warns in production when the role has no timeouts. `database_report`
 is the `database` maintenance command's longer look, which adds how the largest tables are kept
-and how long the oldest open transaction has been holding vacuum back.
+and how long the oldest open transaction has been holding vacuum back; the worker's watch
+(app/watch.py) and the metrics (app/metrics.py) read the same of every table, and `archive`,
+how the server's archiving of its write-ahead log stands, which the backups rest on.
 """
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -38,6 +41,9 @@ DEAD_SHARE = 0.2
 # names the work that may run longer, which is the operator's to schedule).
 LONG_TRANSACTION = timedelta(hours=1)
 TABLES_SHOWN = 8
+# The recovery point deploying.md promises ("Recovery targets"): a finished segment of the
+# write-ahead log that has waited longer than this to be archived is a backup falling behind.
+ARCHIVE_LAG = timedelta(minutes=5)
 
 _SERVER = text(
     "SELECT split_part(current_setting('server_version'), ' ', 1) AS version, "
@@ -56,6 +62,19 @@ _TABLES = text(
     "FROM pg_stat_user_tables WHERE schemaname = current_schema() "
     "ORDER BY pg_total_relation_size(relid) DESC, relname LIMIT :limit"
 )
+# The archiver's own figures, which any role may read, and the segment being written now, which a
+# server in recovery has none of; the archive's mode says whether there is an archiver at all.
+_ARCHIVE = text(
+    "SELECT current_setting('archive_mode') AS mode, a.archived_count AS archived, "
+    "a.failed_count AS failed, a.last_archived_wal, a.last_archived_time AS archived_at, "
+    "a.last_failed_time AS failed_at, CASE WHEN pg_is_in_recovery() THEN NULL "
+    "ELSE pg_walfile_name(pg_current_wal_lsn()) END AS current_wal, "
+    "(SELECT setting::bigint FROM pg_settings WHERE name = 'wal_segment_size') AS segment_size, "
+    "now() AS taken_at FROM pg_stat_archiver a"
+)
+# A segment's name: its timeline, then the log and the segment within it, eight hex digits each.
+# A timeline's history file (00000002.history) is archived too, and names no segment.
+_SEGMENT = re.compile(r"^[0-9A-F]{8}([0-9A-F]{8})([0-9A-F]{8})")
 # The sessions of other roles show no transaction start to a role without pg_read_all_stats,
 # which leaves them out; the app's own are what this is for.
 _OLDEST = text(
@@ -100,6 +119,40 @@ class TableState:
 
 
 @dataclass
+class Archive:
+    """How the server's archiving of its write-ahead log stands, from pg_stat_archiver: the
+    segments archived and the attempts that failed since its statistics were last reset, when
+    the last of each happened, and how many finished segments wait for the archiver.
+
+    The archiver tries a segment until it goes and takes the next only then, so a failure newer
+    than the last success is a segment stuck now, and every segment behind it waits."""
+
+    archived: int
+    failed: int
+    archived_at: datetime | None
+    failed_at: datetime | None
+    # None when it cannot be told: nothing archived yet, or a history file archived last.
+    pending: int | None
+    taken_at: datetime
+
+    @property
+    def failing(self) -> bool:
+        return self.failed_at is not None and (
+            self.archived_at is None or self.failed_at > self.archived_at
+        )
+
+    @property
+    def behind(self) -> timedelta | None:
+        """How long the archive has stood still while a finished segment waited, once that is
+        past ARCHIVE_LAG; None while it keeps up. A quiet database finishes no segment, so an old
+        last archive alone is no lag."""
+        if not self.pending or self.archived_at is None:
+            return None
+        waited = self.taken_at - self.archived_at
+        return waited if waited > ARCHIVE_LAG else None
+
+
+@dataclass
 class Report:
     server: Server
     tables: list[TableState]
@@ -117,6 +170,35 @@ def server(connection: Connection) -> Server:
         vector=row["vector"],
         offered=row["offered"],
         timeouts={name: row[name] for name in TIMEOUTS},
+    )
+
+
+def archive(connection: Connection) -> Archive | None:
+    """How the server's archiving stands, or None when it archives nothing: archive_mode off, as
+    a development database has it, or a server in recovery, whose primary archives."""
+    row = connection.execute(_ARCHIVE).mappings().one()
+    if row["mode"] == "off" or row["current_wal"] is None:
+        return None
+    pending = None
+    last = _SEGMENT.match(row["last_archived_wal"] or "")
+    current = _SEGMENT.match(row["current_wal"])
+    if last and current:
+        # Numbered across the logs, which hold 4 GB of segments each; the timeline does not
+        # count, since a new one goes on from the segment the old one was at.
+        per_log = 0x1_0000_0000 // row["segment_size"]
+        first, now = (
+            int(log, 16) * per_log + int(segment, 16)
+            for log, segment in (last.groups(), current.groups())
+        )
+        # The segment being written is not finished; the one before it is the last that can be.
+        pending = max(now - first - 1, 0)
+    return Archive(
+        archived=row["archived"],
+        failed=row["failed"],
+        archived_at=row["archived_at"],
+        failed_at=row["failed_at"],
+        pending=pending,
+        taken_at=row["taken_at"],
     )
 
 
@@ -198,7 +280,8 @@ def check_database(settings: Settings) -> None:
         log.warning(problem)
 
 
-def database_report(connection: Connection, limit: int = TABLES_SHOWN) -> Report:
+def database_report(connection: Connection, limit: int | None = TABLES_SHOWN) -> Report:
+    """The server, the `limit` largest tables (None for every one) and the oldest transaction."""
     tables = [TableState(**row) for row in connection.execute(_TABLES, {"limit": limit}).mappings()]
     oldest = connection.execute(_OLDEST).one_or_none()
     return Report(
@@ -213,23 +296,30 @@ def database_report(connection: Connection, limit: int = TABLES_SHOWN) -> Report
 def concerns(report: Report, settings: Settings) -> list[str]:
     """What in the report needs the operator, each as a sentence with what to do: what the
     start refuses or warns of, an autovacuum behind, a transaction held open."""
-    found = []
+    return list(findings(report, settings).values())
+
+
+def findings(report: Report, settings: Settings) -> dict[str, str]:
+    """`concerns` by what each is about (`pgvector`, `timeouts`, `dead_rows:<table>`,
+    `long_transaction`), so that the watch (app/watch.py) tells a concern that goes on from a
+    new one while its figures move."""
+    found = {}
     if problem := vector_problem(report.server):
-        found.append(problem)
+        found["pgvector"] = problem
     if settings.environment == "production" and (problem := timeouts_problem(report.server)):
-        found.append(problem)
+        found["timeouts"] = problem
     for table in report.tables:
         if table.behind:
             share = table.dead / (table.rows + table.dead)
-            found.append(
+            found[f"dead_rows:{table.name}"] = (
                 f"{table.name} has {table.dead:,} dead rows, {share:.0%} of its rows, and was "
                 f"last vacuumed {_since(table.vacuumed, report.taken_at)}: autovacuum is "
                 f"behind on it; run `VACUUM (VERBOSE, ANALYZE) {table.name};` now and lower "
                 'the table\'s autovacuum_vacuum_scale_factor (deploying.md, "Vacuum").'
             )
     if report.oldest is not None and report.oldest > LONG_TRANSACTION:
-        found.append(
-            f"A transaction has been open for {_span(report.oldest)} "
+        found["long_transaction"] = (
+            f"A transaction has been open for {span(report.oldest)} "
             f"({report.oldest_state or 'its state hidden'}), and vacuum keeps every row deleted "
             "or replaced since it began; find it in pg_stat_activity and end it with "
             "pg_terminate_backend if nothing should be running that long."
@@ -275,7 +365,7 @@ def describe_database(report: Report, settings: Settings) -> list[str]:
         lines.append("No other transaction of this role is open.")
     else:
         lines.append(
-            f"The oldest open transaction began {_span(report.oldest)} ago "
+            f"The oldest open transaction began {span(report.oldest)} ago "
             f"({report.oldest_state or 'its state hidden'})."
         )
     if problems := concerns(report, settings):
@@ -309,10 +399,10 @@ def _version(value: str) -> tuple[int, ...]:
 
 
 def _since(moment: datetime | None, now: datetime) -> str:
-    return "never" if moment is None else f"{_span(now - moment)} ago"
+    return "never" if moment is None else f"{span(now - moment)} ago"
 
 
-def _span(delta: timedelta) -> str:
+def span(delta: timedelta) -> str:
     seconds = max(int(delta.total_seconds()), 0)
     if seconds < 120:
         return f"{seconds} s"

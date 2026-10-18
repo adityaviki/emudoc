@@ -1,0 +1,494 @@
+# Every rule of alerts.yml against the series that should and should not fire it, as the app
+# serves them: job "emudoc", `process` api or worker, the database's figures from two workers.
+#
+#   promtool test rules deploy/prometheus/alerts.test.yml
+
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  # The only worker stops answering, while the API answers.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="emudoc", process="worker", instance="10.73.0.5:9464"}'
+        values: "1 1 0x16"
+      - series: 'up{job="emudoc", process="api", instance="10.73.0.4:9464"}'
+        values: "1x18"
+      - series: 'emudoc_jobs{job="emudoc", process="worker", instance="10.73.0.5:9464", kind="index_document", state="due"}'
+        values: "0 0"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: EmudocProcessDown
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: EmudocProcessDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: emudoc
+              process: worker
+              instance: 10.73.0.5:9464
+            exp_annotations:
+              summary: The worker at 10.73.0.5:9464 has not answered for 5 minutes.
+              description: Its health check and its log say why; a worker that stopped exits to be restarted.
+      - eval_time: 8m
+        alertname: EmudocNoWorker
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: No worker has answered for 5 minutes.
+              description: Nothing is indexed and no question is answered until one runs.
+      - eval_time: 8m
+        alertname: EmudocNoApi
+        exp_alerts: []
+      # Its figures went with it (gone 5 minutes after the last reading), and the rules on the
+      # database see nothing.
+      - eval_time: 15m
+        alertname: EmudocNoDatabaseFigures
+        exp_alerts: []
+      - eval_time: 17m
+        alertname: EmudocNoDatabaseFigures
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: No worker serves the database's figures.
+              description: 'No worker runs, or its readings fail: its log says "The metrics could not read the database". The rules on the queue and the database see nothing meanwhile.'
+
+  # No API at all.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="emudoc", process="worker", instance="10.73.0.5:9464"}'
+        values: "1x10"
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: EmudocNoApi
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: No API has answered for 5 minutes.
+              description: The members cannot reach the app; the proxy answers 502.
+
+  # A worker that keeps starting again, and one that finds its jobs by polling.
+  - interval: 1m
+    input_series:
+      - series: 'process_start_time_seconds{job="emudoc", process="worker", instance="10.73.0.5:9464"}'
+        values: "1000 1000 1300 1300 1600 1600"
+      - series: 'process_start_time_seconds{job="emudoc", process="api", instance="10.73.0.4:9464"}'
+        values: "900x5"
+      - series: 'emudoc_worker_listening{job="emudoc", process="worker", instance="10.73.0.6:9464"}'
+        values: "0x12"
+      - series: 'emudoc_worker_listening{job="emudoc", process="worker", instance="10.73.0.5:9464"}'
+        values: "1x12"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: EmudocRestarting
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: emudoc
+              process: worker
+              instance: 10.73.0.5:9464
+            exp_annotations:
+              summary: The worker at 10.73.0.5:9464 started 2 times again in 30 minutes.
+              description: A worker exits when one of its threads ended, and its log names the thread; a process that keeps stopping at start says why in its last lines.
+      - eval_time: 11m
+        alertname: EmudocWorkerNotListening
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: emudoc
+              process: worker
+              instance: 10.73.0.6:9464
+            exp_annotations:
+              summary: The worker at 10.73.0.6:9464 finds queued jobs by polling.
+              description: Each question waits up to two seconds for its answer to start. Behind a pooler in transaction mode, set DATABASE_LISTEN_URL; otherwise its log says why listening failed.
+
+  # The backlog, as both workers read it from the database.
+  - interval: 1m
+    input_series:
+      - series: 'emudoc_job_oldest_due_seconds{job="emudoc", process="worker", instance="10.73.0.5:9464", kind="answer_question"}'
+        values: "0+60x50"
+      - series: 'emudoc_job_oldest_due_seconds{job="emudoc", process="worker", instance="10.73.0.6:9464", kind="answer_question"}'
+        values: "0+60x50"
+      - series: 'emudoc_job_oldest_due_seconds{job="emudoc", process="worker", instance="10.73.0.5:9464", kind="index_document"}'
+        values: "0+60x50"
+      - series: 'emudoc_jobs{job="emudoc", process="worker", instance="10.73.0.5:9464", kind="index_document", state="due"}'
+        values: "1x50"
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: EmudocQuestionsWaiting
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: EmudocQuestionsWaiting
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: emudoc
+              kind: answer_question
+            exp_annotations:
+              summary: The oldest question has waited 7m 0s for a worker.
+              description: "The answerer threads are all busy, or no worker claims: add workers or raise ANSWER_CONCURRENCY."
+      - eval_time: 45m
+        alertname: EmudocDocumentsWaiting
+        exp_alerts: []
+      - eval_time: 47m
+        alertname: EmudocDocumentsWaiting
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: emudoc
+              kind: index_document
+            exp_annotations:
+              summary: The oldest document has waited 47m 0s to be indexed.
+              description: "The indexer threads are all busy, or no worker claims: add workers or raise WORKER_CONCURRENCY."
+      - eval_time: 47m
+        alertname: EmudocNoDatabaseFigures
+        exp_alerts: []
+
+  # A stage that fails in most of its runs, one that fails now and then, and a crash.
+  - interval: 1m
+    input_series:
+      - series: 'emudoc_stage_runs_total{job="emudoc", process="worker", instance="10.73.0.5:9464", stage="enrich", outcome="failed"}'
+        values: "0+1x60"
+      - series: 'emudoc_stage_runs_total{job="emudoc", process="worker", instance="10.73.0.5:9464", stage="enrich", outcome="done"}'
+        values: "0x60"
+      - series: 'emudoc_stage_runs_total{job="emudoc", process="worker", instance="10.73.0.5:9464", stage="parse", outcome="failed"}'
+        values: "0+1x60"
+      - series: 'emudoc_stage_runs_total{job="emudoc", process="worker", instance="10.73.0.5:9464", stage="parse", outcome="done"}'
+        values: "0+10x60"
+      - series: 'emudoc_stage_runs_total{job="emudoc", process="worker", instance="10.73.0.5:9464", stage="parse", outcome="skipped"}'
+        values: "0+50x60"
+      - series: 'emudoc_stage_runs_total{job="emudoc", process="worker", instance="10.73.0.5:9464", stage="scan", outcome="crashed"}'
+        values: "0x30 1x30"
+      - series: 'emudoc_job_runs_total{job="emudoc", process="worker", instance="10.73.0.5:9464", kind="index_document", outcome="failed"}'
+        values: "0x30 2x30"
+      - series: 'emudoc_job_runs_total{job="emudoc", process="worker", instance="10.73.0.5:9464", kind="index_document", outcome="done"}'
+        values: "0+5x60"
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: EmudocStageFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              stage: enrich
+            exp_annotations:
+              summary: The enrich stage failed in most of its runs of the last hour.
+              description: The documents' stages say why to the members, the worker's log to the operator; python -m app.maintenance models asks every model what indexing asks of it.
+      - eval_time: 32m
+        alertname: EmudocStageCrashing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              stage: scan
+            exp_annotations:
+              summary: The scan stage crashed in the last 30 minutes.
+              description: "A crash is the app's own fault: the worker's log has the traceback, the error tracker the report."
+      - eval_time: 29m
+        alertname: EmudocStageCrashing
+        exp_alerts: []
+      - eval_time: 32m
+        alertname: EmudocJobsGivenUp
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              kind: index_document
+            exp_annotations:
+              summary: The worker gave up on index_document jobs in the last 30 minutes.
+              description: python -m app.maintenance failed-jobs lists them with why; --requeue runs them again once the cause is fixed.
+      # Half an hour on, it is over.
+      - eval_time: 62m
+        alertname: EmudocJobsGivenUp
+        exp_alerts: []
+
+  # The agent's models down, primary and fallback; the indexing's answering.
+  - interval: 1m
+    input_series:
+      - series: 'emudoc_model_requests_total{job="emudoc", process="worker", instance="10.73.0.5:9464", model="google:gemini-3.5-flash", role="agent", outcome="404"}'
+        values: "0+1x20"
+      - series: 'emudoc_model_requests_total{job="emudoc", process="worker", instance="10.73.0.5:9464", model="anthropic:claude-haiku-5-5", role="agent", outcome="503"}'
+        values: "0+1x20"
+      - series: 'emudoc_model_fallbacks_total{job="emudoc", process="worker", instance="10.73.0.5:9464", model="google:gemini-3.5-flash", role="agent"}'
+        values: "0+1x20"
+      - series: 'emudoc_model_requests_total{job="emudoc", process="worker", instance="10.73.0.5:9464", model="google:gemini-3.5-flash-lite", role="index", outcome="503"}'
+        values: "0+1x20"
+      - series: 'emudoc_model_requests_total{job="emudoc", process="worker", instance="10.73.0.5:9464", model="google:gemini-3.5-flash-lite", role="index", outcome="ok"}'
+        values: "0+2x20"
+      - series: 'emudoc_model_requests_total{job="emudoc", process="worker", instance="10.73.0.5:9464", model="google:gemini-3.5-flash-lite", role="index", outcome="429"}'
+        values: "0+1x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: EmudocModelsDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              role: agent
+            exp_annotations:
+              summary: No model of the agent work answered in 15 minutes.
+              description: "Every request failed, the fallback's too: the members' answers or indexing fail. python -m app.maintenance models asks each model; DISABLED_PROVIDERS stops a provider at once."
+      - eval_time: 15m
+        alertname: EmudocModelRefused
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              model: google:gemini-3.5-flash
+              role: agent
+              outcome: "404"
+            exp_annotations:
+              summary: google:gemini-3.5-flash answered 404 to the agent work.
+              description: 401 or 403 is a key revoked or refused, 402 an account out of credit, 404 a model its provider retired. A fallback covers it until it fails too.
+      - eval_time: 15m
+        alertname: EmudocModelFallingBack
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              model: google:gemini-3.5-flash
+              role: agent
+            exp_annotations:
+              summary: google:gemini-3.5-flash failed requests of the agent work to its fallback in the last 15 minutes.
+              description: The members notice nothing until the fallback fails too. The worker's log says why in a line from app.llm.
+      - eval_time: 15m
+        alertname: EmudocModelRateLimited
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              model: google:gemini-3.5-flash-lite
+              role: index
+            exp_annotations:
+              summary: google:gemini-3.5-flash-lite refused requests of the index work for its rate, 10 or more in 15 minutes.
+              description: Raise the account's limits with the provider, or lower WORKER_CONCURRENCY.
+      - eval_time: 15m
+        alertname: EmudocModelErrors
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              model: anthropic:claude-haiku-5-5
+              role: agent
+            exp_annotations:
+              summary: More than a fifth of the requests to anthropic:claude-haiku-5-5 for the agent work failed on the provider's side in 15 minutes.
+              description: Its status page says whether it is down; the requests are tried again, and a fallback takes over the ones that keep failing.
+          - exp_labels:
+              severity: warning
+              model: google:gemini-3.5-flash-lite
+              role: index
+            exp_annotations:
+              summary: More than a fifth of the requests to google:gemini-3.5-flash-lite for the index work failed on the provider's side in 15 minutes.
+              description: Its status page says whether it is down; the requests are tried again, and a fallback takes over the ones that keep failing.
+
+  # The embeddings endpoint out of reach, for the API's searches and the worker's stage alike.
+  - interval: 1m
+    input_series:
+      - series: 'emudoc_model_requests_total{job="emudoc", process="api", instance="10.73.0.4:9464", model="nomic-embed-text", role="embed", outcome="unreachable"}'
+        values: "0+1x20"
+      - series: 'emudoc_model_requests_total{job="emudoc", process="worker", instance="10.73.0.5:9464", model="nomic-embed-text", role="embed", outcome="ok"}'
+        values: "50x5 50+0x15"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: EmudocEmbeddingsDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: The embeddings endpoint answered none of its requests in 15 minutes.
+              description: Searches match keywords only and new documents wait to be embedded; see deploying.md, "The embeddings endpoint".
+      - eval_time: 20m
+        alertname: EmudocModelsDown
+        exp_alerts: []
+
+  # A pool in use to its limit, and the requests it refused.
+  - interval: 1m
+    input_series:
+      - series: 'emudoc_db_connections{job="emudoc", process="api", instance="10.73.0.4:9464", state="in_use"}'
+        values: "14x15"
+      - series: 'emudoc_db_connections_limit{job="emudoc", process="api", instance="10.73.0.4:9464"}'
+        values: "15x15"
+      - series: 'emudoc_db_connections{job="emudoc", process="worker", instance="10.73.0.5:9464", state="in_use"}'
+        values: "8x15"
+      - series: 'emudoc_db_connections_limit{job="emudoc", process="worker", instance="10.73.0.5:9464"}'
+        values: "15x15"
+      - series: 'emudoc_db_pool_timeouts_total{job="emudoc", process="api", instance="10.73.0.4:9464"}'
+        values: "0x10 3x5"
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: EmudocPoolSaturated
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: EmudocPoolSaturated
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: emudoc
+              process: api
+              instance: 10.73.0.4:9464
+            exp_annotations:
+              summary: The api at 10.73.0.4:9464 has used over 90 % of its database connections for 10 minutes.
+              description: Raise DB_POOL_SIZE or DB_MAX_OVERFLOW within what the database takes, or add replicas.
+      - eval_time: 12m
+        alertname: EmudocPoolTimeouts
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: emudoc
+              process: api
+              instance: 10.73.0.4:9464
+            exp_annotations:
+              summary: The api at 10.73.0.4:9464 refused requests for want of a database connection.
+              description: 'The members were answered 503 "busy": raise DB_POOL_SIZE or DB_MAX_OVERFLOW, or add replicas.'
+
+  # A day's growth of the originals, read by two workers.
+  - interval: 1h
+    input_series:
+      - series: 'emudoc_stored_bytes{job="emudoc", process="worker", instance="10.73.0.5:9464", plan="free"}'
+        values: "1073741824x24 13958643712"
+      - series: 'emudoc_stored_bytes{job="emudoc", process="worker", instance="10.73.0.6:9464", plan="free"}'
+        values: "1073741824x24 13958643712"
+      - series: 'emudoc_stored_bytes{job="emudoc", process="worker", instance="10.73.0.5:9464", plan="pro"}'
+        values: "5368709120x25"
+    alert_rule_test:
+      - eval_time: 24h
+        alertname: EmudocStorageGrowing
+        exp_alerts: []
+      - eval_time: 25h
+        alertname: EmudocStorageGrowing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: The originals grew by 12GiB in a day.
+              description: python -m app.maintenance usage <slug> shows who uploads; the bucket's own size counts the rendered pages and earlier versions too.
+
+  # The day's spending near the cap, then at it; a deployment without a cap.
+  - interval: 1m
+    input_series:
+      - series: 'emudoc_spent_today{job="emudoc", process="worker", instance="10.73.0.5:9464", currency="USD"}'
+        values: "50 85 100"
+      - series: 'emudoc_daily_spend_cap{job="emudoc", process="worker", instance="10.73.0.5:9464", currency="USD"}'
+        values: "100 100 100"
+      - series: 'emudoc_spent_today{job="emudoc", process="worker", instance="10.73.0.5:9464", currency="EUR"}'
+        values: "500 500 500"
+      - series: 'emudoc_daily_spend_cap{job="emudoc", process="worker", instance="10.73.0.5:9464", currency="EUR"}'
+        values: "0 0 0"
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: EmudocSpendNearCap
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: EmudocSpendNearCap
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: emudoc
+              currency: USD
+            exp_annotations:
+              summary: Today's spending on models has reached 85% of DAILY_SPEND_CAP.
+              description: At the cap every question is refused and indexing waits for midnight UTC; the app mails ALERT_EMAIL too.
+      - eval_time: 1m
+        alertname: EmudocSpendCapReached
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: EmudocSpendCapReached
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: emudoc
+              currency: USD
+            exp_annotations:
+              summary: Today's spending on models has reached DAILY_SPEND_CAP.
+              description: Every question is refused and indexing waits until midnight UTC, unless the cap is raised and the app restarted.
+
+  # Archiving that fails, then falls behind; both workers read the same server.
+  - interval: 1m
+    input_series:
+      - series: 'emudoc_wal_archive_failures_total{job="emudoc", process="worker", instance="10.73.0.5:9464"}'
+        values: "5 5 6 7 8 9 10 11"
+      - series: 'emudoc_wal_archive_failures_total{job="emudoc", process="worker", instance="10.73.0.6:9464"}'
+        values: "5 5 6 7 8 9 10 11"
+      - series: 'emudoc_wal_segments_pending{job="emudoc", process="worker", instance="10.73.0.5:9464"}'
+        values: "0 0 1 1 2 2 3 3"
+      - series: 'emudoc_wal_last_archived_seconds{job="emudoc", process="worker", instance="10.73.0.5:9464"}'
+        values: "30 90 150 210 270 330 390 450"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: EmudocWalArchiveFailing
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: EmudocWalArchiveFailing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: emudoc
+            exp_annotations:
+              summary: The database failed to archive its write-ahead log in the last 10 minutes.
+              description: 'The backups miss every change since: run pgbackrest --stanza=emudoc check and read the server''s log (deploying.md, "Backups").'
+      - eval_time: 4m
+        alertname: EmudocWalArchiveBehind
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: EmudocWalArchiveBehind
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: emudoc
+            exp_annotations:
+              summary: Finished segments of the write-ahead log have waited over 5 minutes to be archived.
+              description: "A restore now would lose the changes in them, past the recovery point: look at pg_stat_archiver and the repository's disk or bucket."
+
+  # A quiet database: its last archive grows old with nothing waiting.
+  - interval: 1m
+    input_series:
+      - series: 'emudoc_wal_segments_pending{job="emudoc", process="worker", instance="10.73.0.5:9464"}'
+        values: "0x10"
+      - series: 'emudoc_wal_last_archived_seconds{job="emudoc", process="worker", instance="10.73.0.5:9464"}'
+        values: "3600+60x10"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: EmudocWalArchiveBehind
+        exp_alerts: []
+
+  # Vacuum behind on one table; another with few dead rows; a transaction held open.
+  - interval: 1m
+    input_series:
+      - series: 'emudoc_db_table_rows{job="emudoc", process="worker", instance="10.73.0.5:9464", table="passages", state="dead"}'
+        values: "60000x70"
+      - series: 'emudoc_db_table_rows{job="emudoc", process="worker", instance="10.73.0.5:9464", table="passages", state="live"}'
+        values: "40000x70"
+      - series: 'emudoc_db_table_rows{job="emudoc", process="worker", instance="10.73.0.6:9464", table="passages", state="dead"}'
+        values: "60000x70"
+      - series: 'emudoc_db_table_rows{job="emudoc", process="worker", instance="10.73.0.6:9464", table="passages", state="live"}'
+        values: "40000x70"
+      - series: 'emudoc_db_table_rows{job="emudoc", process="worker", instance="10.73.0.5:9464", table="jobs", state="dead"}'
+        values: "40x70"
+      - series: 'emudoc_db_table_rows{job="emudoc", process="worker", instance="10.73.0.5:9464", table="jobs", state="live"}'
+        values: "7x70"
+      - series: 'emudoc_db_oldest_transaction_seconds{job="emudoc", process="worker", instance="10.73.0.5:9464"}'
+        values: "3500+100x5"
+    alert_rule_test:
+      - eval_time: 59m
+        alertname: EmudocVacuumBehind
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: EmudocVacuumBehind
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: emudoc
+              table: passages
+            exp_annotations:
+              summary: Autovacuum is behind on passages.
+              description: Run VACUUM (VERBOSE, ANALYZE) on it, and lower its autovacuum_vacuum_scale_factor (deploying.md, "Vacuum").
+      - eval_time: 1m
+        alertname: EmudocLongTransaction
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: EmudocLongTransaction
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: emudoc
+            exp_annotations:
+              summary: A transaction has been open for 1h 1m 40s.
+              description: "Vacuum keeps every row deleted or replaced since it began: find it in pg_stat_activity and end it with pg_terminate_backend if nothing should run that long."

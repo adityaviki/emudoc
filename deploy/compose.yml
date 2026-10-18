@@ -28,7 +28,8 @@
 #
 # The API and the worker serve their metrics on 9464 of their containers (the image's
 # METRICS_ADDRESS), which nothing below publishes: a scraper on this network asks api:9464 and
-# worker:9464, every replica of each by the service's name (deploying.md, "Metrics").
+# worker:9464, every replica of each by the service's name, as deploy/prometheus/prometheus.yml
+# does with the alerting rules beside it (deploying.md, "Metrics" and "Alerts").
 
 # Apart from the development file's project (emudoc), so that one machine can run both.
 name: emudoc-deploy

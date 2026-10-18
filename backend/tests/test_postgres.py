@@ -36,13 +36,17 @@ from app.main import create_app
 from app.maintenance import housekeeping, main, rebuild_embeddings, requeue_stale_embeddings
 from app.models import Document, Job, Organization, Project
 from app.postgres import (
+    ARCHIVE_LAG,
+    Archive,
     Report,
     Server,
     TableState,
+    archive,
     check_database,
     concerns,
     database_report,
     describe_database,
+    findings,
 )
 from app.restore import after_restore
 from app.retention import purge_due_accounts
@@ -384,6 +388,8 @@ def test_the_report_names_a_table_vacuum_is_behind_on_and_a_long_transaction(ses
         report.taken_at,
     )
     problems = concerns(behind, get_settings())
+    # The watch (app/watch.py) tells one concern from another by what it is about.
+    assert list(findings(behind, get_settings())) == ["dead_rows:passages", "long_transaction"]
     assert problems[0].startswith(
         "passages has 60,000 dead rows, 60% of its rows, and was last vacuumed never: "
         "autovacuum is behind on it; run `VACUUM (VERBOSE, ANALYZE) passages;` now"
@@ -401,6 +407,33 @@ def test_the_report_names_a_table_vacuum_is_behind_on_and_a_long_transaction(ses
     assert (
         concerns(Report(report.server, [small], None, None, report.taken_at), get_settings()) == []
     )
+
+
+def test_a_server_that_archives_nothing_has_no_archive_to_report(session):
+    # The compose database runs with archive_mode off, as development has it.
+    with engine.connect() as connection:
+        assert archive(connection) is None
+
+
+def test_the_archive_is_failing_once_a_failure_is_newer_than_the_last_success():
+    taken = datetime(2026, 10, 18, 9, 30, tzinfo=UTC)
+    keeping_up = Archive(
+        archived=40,
+        failed=2,
+        archived_at=taken - timedelta(minutes=20),
+        failed_at=taken - timedelta(hours=3),
+        pending=0,
+        taken_at=taken,
+    )
+    # A quiet database finishes no segment: an old last archive alone is no lag.
+    assert not keeping_up.failing and keeping_up.behind is None
+    stuck = replace(keeping_up, failed=9, failed_at=taken - timedelta(seconds=40), pending=4)
+    assert stuck.failing and stuck.behind == timedelta(minutes=20)
+    # A segment waits a moment for the archiver at every switch, within the recovery point.
+    switching = replace(keeping_up, archived_at=taken - ARCHIVE_LAG, pending=1)
+    assert switching.behind is None
+    never = replace(stuck, archived=0, archived_at=None, pending=None)
+    assert never.failing and never.behind is None
 
 
 def test_the_report_sees_a_transaction_another_client_holds(session):

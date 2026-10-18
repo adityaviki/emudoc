@@ -21,6 +21,15 @@ host=$deploy/aws/host
 image=$EMUDOC_REPOSITORY:$tag
 umask 077
 
+# One release at a time; the host's watch (host/watch) does not look while one runs, since the
+# containers it replaces would be reported in trouble.
+install -d -m 0755 /run/emudoc
+exec {lock}>/run/emudoc/release.lock
+if ! flock --nonblock "$lock"; then
+  echo "Another release is running on this instance." >&2
+  exit 1
+fi
+
 # The settings, into files of their own until the release succeeded: those in /etc/emudoc stay
 # the running release's, for emudoc-compose and the drill.
 install -d -m 0755 /etc/emudoc /usr/local/lib/emudoc
@@ -47,12 +56,13 @@ fi
 
 # The host's scripts and units, as this release has them.
 install -m 0755 "$host/credentials" /usr/local/lib/emudoc/credentials
+install -m 0755 "$host/watch" /usr/local/lib/emudoc/watch
 install -m 0755 "$host/compose" /usr/local/sbin/emudoc-compose
 install -m 0644 "$host"/*.service "$host"/*.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --quiet emudoc-credentials.service
 systemctl start emudoc-credentials.service
-systemctl enable --quiet --now emudoc-credentials.timer
+systemctl enable --quiet --now emudoc-credentials.timer emudoc-watch.timer
 
 export EMUDOC_COMPOSE_FILES="-f $deploy/compose.yml -f $deploy/aws/compose.yml"
 export EMUDOC_COMPOSE_ENV=/etc/emudoc/next/compose.env EMUDOC_ENV=/etc/emudoc/next/emudoc.env

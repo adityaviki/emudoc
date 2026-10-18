@@ -1,7 +1,9 @@
 # Where the instance reports what it did not manage on its own: a restore drill that failed, a
 # credentials refresh that failed (the containers lose the bucket within the hour), a start
-# that could not run the release. The message names the unit and the instance, never a log
-# line, which may name a document.
+# that could not run the release, a container that stopped or whose health check fails
+# (deploy/aws/host/watch). The message names the unit or the services and the instance, never
+# a log line, which may name a document. The app mails its own reports to the same address
+# (ALERT_EMAIL, settings.tf).
 
 resource "aws_sns_topic" "alerts" {
   name              = "${local.name}-alerts"

@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+"""The host's watch on the AWS instance (deploying.md, "Alerts"), run every five minutes by
+emudoc-watch.timer: whether each service of the running release has its container running and
+healthy, reported to the environment's alerts topic when that changes.
+
+The app's own watch runs in its worker (backend/app/watch.py), which cannot report a worker that
+stopped or an API that does not answer, and Docker restarts a container that exits but never one
+whose health check fails. A service is in trouble when its container is missing, not running
+or unhealthy; a one-shot (restart "no": the migrations, the weights' download) only when it
+exited with an error. A trouble is reported once it was there at two looks in a row, so that a
+container replaced by a release or restarting once is not; then the topic hears when a trouble
+begins and when none is left. What was seen and reported is kept in /run/emudoc/watch, which a
+restart of the instance empties. A release holds /run/emudoc/release.lock, and the watch does
+not look meanwhile.
+
+The topic's message names services and their states, never a log line, which may name a
+document.
+
+Python 3.9, the instance's own; nothing outside the standard library.
+"""
+
+import fcntl
+import json
+import os
+import subprocess
+import sys
+import urllib.request
+from datetime import datetime, timezone
+
+COMPOSE = os.environ.get("EMUDOC_COMPOSE", "/usr/local/sbin/emudoc-compose")
+STATE = os.environ.get("EMUDOC_WATCH_STATE", "/run/emudoc/watch")
+RELEASE_LOCK = os.environ.get("EMUDOC_RELEASE_LOCK", "/run/emudoc/release.lock")
+CURRENT = os.environ.get("EMUDOC_CURRENT", "/opt/emudoc/current")
+METADATA = os.environ.get("EMUDOC_METADATA", "http://169.254.169.254/latest")
+
+
+def compose(*args: str) -> str:
+    return subprocess.run(
+        [COMPOSE, *args], check=True, capture_output=True, text=True, timeout=60
+    ).stdout
+
+
+def containers(listed: str) -> list:
+    """`compose ps --format json`: one object a line since Compose 2.21, an array before."""
+    listed = listed.strip()
+    if listed.startswith("["):
+        return json.loads(listed)
+    return [json.loads(line) for line in listed.splitlines() if line.strip()]
+
+
+def troubles(config: dict, listed: list) -> dict:
+    """Each service in trouble, with its state in a few words."""
+    found = {}
+    by_service = {}
+    for container in listed:
+        by_service.setdefault(container["Service"], []).append(container)
+    for service, settings in sorted(config["services"].items()):
+        one_shot = str(settings.get("restart", "no")) == "no"
+        mine = by_service.get(service, [])
+        if not mine:
+            found[service] = "has no container"
+            continue
+        for container in mine:
+            state, health = container.get("State", ""), container.get("Health", "")
+            code = container.get("ExitCode", 0)
+            if state == "exited" and (one_shot and code == 0):
+                continue
+            if state == "exited":
+                found[service] = f"exited with status {code}"
+            elif state != "running":
+                found[service] = state or "in no state"
+            elif health == "unhealthy":
+                found[service] = "unhealthy"
+    return found
+
+
+def instance() -> str:
+    try:
+        token = urllib.request.urlopen(
+            urllib.request.Request(
+                f"{METADATA}/api/token",
+                method="PUT",
+                headers={"X-aws-ec2-metadata-token-ttl-seconds": "60"},
+            ),
+            timeout=5,
+        ).read()
+        return (
+            urllib.request.urlopen(
+                urllib.request.Request(
+                    f"{METADATA}/meta-data/instance-id",
+                    headers={"X-aws-ec2-metadata-token": token.decode()},
+                ),
+                timeout=5,
+            )
+            .read()
+            .decode()
+        )
+    except OSError:
+        return "<instance>"
+
+
+def publish(subject: str, message: str) -> None:
+    subprocess.run(
+        [
+            "aws",
+            "sns",
+            "publish",
+            "--topic-arn",
+            os.environ["EMUDOC_ALERTS"],
+            "--subject",
+            subject,
+            "--message",
+            message,
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        timeout=60,
+    )
+
+
+def listing(found: dict) -> str:
+    return "\n".join(f"  {service}: {state}" for service, state in sorted(found.items()))
+
+
+def look() -> dict:
+    try:
+        config = json.loads(compose("config", "--format", "json"))
+        return troubles(config, containers(compose("ps", "--all", "--format", "json")))
+    except (subprocess.SubprocessError, OSError, ValueError) as error:
+        # Docker itself not answering is a trouble of its own, reported like the others.
+        return {"docker compose": f"did not answer ({type(error).__name__})"}
+
+
+def main() -> int:
+    if not os.path.exists(CURRENT):
+        print("Nothing is released on this instance yet.")
+        return 0
+    os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    with open(RELEASE_LOCK, "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("A release is running; the next look is after it.")
+            return 0
+        found = look()
+    try:
+        with open(STATE) as kept:
+            state = json.load(kept)
+    except (OSError, ValueError):
+        state = {"seen": {}, "reported": {}}
+    # Reported once seen at the look before too, as it is now.
+    lasting = {
+        service: what for service, what in found.items() if state["seen"].get(service) == what
+    }
+    reported = state["reported"]
+    environment = os.environ.get("EMUDOC_ENVIRONMENT", "")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    if found:
+        print(f"In trouble:\n{listing(found)}")
+    if set(lasting.items()) - set(reported.items()):
+        target = instance()
+        publish(
+            f"Emudoc {environment}: {', '.join(sorted(lasting))} in trouble"[:100],
+            f"On the instance {target} at {now}, for five minutes and more:\n\n"
+            f"{listing(lasting)}\n\n"
+            "Docker starts again a container that exits, but not one whose health check "
+            f"fails. Look with aws ssm start-session --target {target}, then sudo "
+            "emudoc-compose ps, and sudo emudoc-compose logs --since 1h SERVICE; sudo "
+            "emudoc-compose restart SERVICE starts one again.",
+        )
+        reported = lasting
+    elif reported and not found:
+        publish(
+            f"Emudoc {environment}: the containers are well again",
+            f"On the instance {instance()} at {now}, every container runs and is healthy "
+            f"again. It was:\n\n{listing(reported)}",
+        )
+        reported = {}
+    else:
+        # What is over of it is no longer reported, so that it is reported should it come back.
+        reported = {
+            service: what for service, what in reported.items() if found.get(service) == what
+        }
+    with open(f"{STATE}.part", "w") as kept:
+        json.dump({"seen": found, "reported": reported}, kept)
+    os.replace(f"{STATE}.part", STATE)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

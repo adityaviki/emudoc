@@ -38,8 +38,11 @@ A job the worker could not complete ends `failed`, with `last_error` saying why:
 dying process `max_attempts` times, a handler that raised, or a stage that kept failing through
 every retry. Those are the dead letters (app/deadletters.py): the alerter thread mails the new
 ones to ALERT_EMAIL every quarter of an hour, and the `failed-jobs` command lists them. The same
-thread warns the operator when a day's spending nears a limit (app/spending.py) and reports
-the uploads the malware scan quarantined (app/scanning.py).
+thread warns the operator when a day's spending nears a limit (app/spending.py), reports
+the uploads the malware scan quarantined (app/scanning.py), and writes when something it can see
+goes wrong and when it is over: a backlog, indexing or answers that fail, a model failing over,
+an endpoint, the scanner or the storage that does not answer, the database falling behind
+(app/watch.py).
 """
 
 import argparse
@@ -103,6 +106,7 @@ from app.spending import alert_spending, when
 from app.startup import prepare
 from app.storage import StorageError
 from app.tracking import start_tracking
+from app.watch import watch
 
 # By its name rather than `__name__`, which is "__main__" when the module runs as a command.
 log = logging.getLogger("app.worker")
@@ -122,9 +126,9 @@ HOUSEKEEPING_DELAY = 60.0
 HOUSEKEEPING_INTERVAL = 6 * 3600.0
 # How often the jobs this process and the others gave up on are mailed to ALERT_EMAIL, as one
 # digest (app/deadletters.py), the day's spending is measured against its limits
-# (app/spending.py) and the quarantined uploads are reported (app/scanning.py): within the
-# quarter of an hour the retries take anyway, and seldom enough that a backlog of bad files is
-# one message, not hundreds.
+# (app/spending.py), the quarantined uploads are reported (app/scanning.py) and the watch looks
+# (app/watch.py): within the quarter of an hour the retries take anyway, and seldom enough that
+# a backlog of bad files is one message, not hundreds.
 ALERT_INTERVAL = 15 * 60.0
 # How long a stopping worker lets the jobs it is running finish before it hands them back.
 # Under the 10 seconds Docker allows by default before it kills a container; a deployment that
@@ -294,6 +298,8 @@ class Worker:
         self._id = f"{socket.gethostname()}:{os.getpid()}"
         self._wake = threading.Event()
         self._stop = threading.Event()
+        # Set while the listener's LISTEN is in place; clear while the threads only poll.
+        self._listening = threading.Event()
         self._threads: list[threading.Thread] = []
         # The jobs the threads are running now, whose leases the heartbeat extends, with the
         # lane of the thread that runs each.
@@ -331,7 +337,8 @@ class Worker:
             log.warning(
                 "ALERT_EMAIL is not set: the jobs the worker gives up on are reported in the "
                 "log only, and listed by `python -m app.maintenance failed-jobs`, and nobody is "
-                "warned when a day's spending nears a limit"
+                "warned when a day's spending nears a limit or when the worker's watch sees "
+                "something go wrong"
             )
 
     def stopped_threads(self) -> list[str]:
@@ -355,6 +362,13 @@ class Worker:
             )
             for lane in (INDEXER, ANSWERER)
         }
+
+    def listening(self) -> bool:
+        """Whether the worker hears of queued jobs as they are queued, rather than finding them
+        by polling: its listener holds its LISTEN (app/jobs.py). It does not where there is
+        nowhere to listen, behind a pooler in transaction mode without DATABASE_LISTEN_URL, and
+        while a lost connection waits to be made again."""
+        return self._listening.is_set()
 
     def _spawn(self, target: Callable[[], None], name: str) -> None:
         thread = threading.Thread(target=target, name=name, daemon=True)
@@ -405,8 +419,10 @@ class Worker:
         is down costs a question up to POLL_SECONDS, not the answer."""
         while not self._stop.is_set():
             try:
-                listen(self._stop, self.notify, LISTEN_SECONDS)
+                listen(self._stop, self.notify, LISTEN_SECONDS, self._listening)
             except Exception:
+                # The threads poll from now on, and the metrics say so while the retry waits.
+                self._listening.clear()
                 log.exception(
                     "Listening for queued jobs failed; the threads poll every %s seconds "
                     "meanwhile, and listening starts again in %s",
@@ -414,6 +430,8 @@ class Worker:
                     RETRY_SECONDS,
                 )
                 self._stop.wait(RETRY_SECONDS)
+            else:
+                self._listening.clear()
 
     def _loop(self, kinds: list[str]) -> None:
         while not self._stop.is_set():
@@ -561,8 +579,14 @@ class Worker:
             delay = HOUSEKEEPING_INTERVAL
 
     def _alert(self) -> None:
+        reports: dict[str, Callable[[Mailer, str], int]] = {
+            "failed jobs": alert_failed_jobs,
+            "spending": alert_spending,
+            "quarantines": alert_quarantines,
+            "watch": partial(watch, self._services),
+        }
         while not self._stop.wait(ALERT_INTERVAL):
-            for report in (alert_failed_jobs, alert_spending, alert_quarantines):
+            for name, report in reports.items():
                 try:
                     report(self._mailer, get_settings().alert_email)
                 except Exception:
@@ -570,7 +594,7 @@ class Worker:
                     # round, and the failures and warnings stay unreported until then.
                     log.exception(
                         "Reporting to ALERT_EMAIL failed (%s); it runs again in %s minutes",
-                        report.__name__,
+                        name,
                         ALERT_INTERVAL / 60,
                     )
 

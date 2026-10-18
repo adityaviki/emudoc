@@ -33,8 +33,8 @@ WRITTEN = {
     "SENTRY_ENVIRONMENT": "staging",
     "DATABASE_URL": DATABASE_URL,
 }
-# Written only when the root asks: a region, and mail through SES.
-WRITTEN_WHEN_ASKED = {"DATA_REGION", "MAIL_FROM", "SMTP_URL"}
+# Written only when the root asks: a region, mail through SES, and an address for the alerts.
+WRITTEN_WHEN_ASKED = {"DATA_REGION", "MAIL_FROM", "SMTP_URL", "ALERT_EMAIL"}
 # What the module refuses to go without (variables.tf): the operator's word.
 OPERATOR = {
     "OPERATOR_NAME": "Emudoc Ltd, 1 Example Street, Example Town",
@@ -209,3 +209,81 @@ def test_the_host_refuses_a_setting_set_twice(tmp_path):
     assert run.returncode == 1
     assert "APP_URL is set twice" in run.stderr
     assert not list(tmp_path.iterdir())
+
+
+def test_the_host_reports_containers_in_trouble_once_they_last(tmp_path):
+    # Compose 5.5.1's answers, as host/watch asks for them; the AWS CLI writes what it was given.
+    config = {
+        "services": {
+            "migrate": {"restart": "no"},
+            "api": {"restart": "unless-stopped"},
+            "worker": {"restart": "unless-stopped"},
+            "clamav": {"restart": "unless-stopped"},
+        }
+    }
+    ok = [
+        {"Service": "migrate", "State": "exited", "ExitCode": 0, "Health": ""},
+        {"Service": "api", "State": "running", "ExitCode": 0, "Health": "healthy"},
+        {"Service": "worker", "State": "running", "ExitCode": 0, "Health": "healthy"},
+        {"Service": "clamav", "State": "running", "ExitCode": 0, "Health": "starting"},
+    ]
+    stuck = [
+        {**ok[0], "ExitCode": 1},
+        ok[1],
+        {**ok[2], "Health": "unhealthy"},
+    ]
+    (tmp_path / "config.json").write_text(json.dumps(config))
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    (fake / "compose").write_text(
+        f'#!/bin/sh\ncase "$1" in config) cat {tmp_path}/config.json ;; '
+        f"ps) cat {tmp_path}/ps.json ;; esac\n"
+    )
+    (fake / "aws").write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" >> {tmp_path}/published\n')
+    for script in fake.iterdir():
+        script.chmod(0o755)
+    (tmp_path / "current").mkdir()
+    environment = {
+        "PATH": f"{fake}:/usr/bin:/bin",
+        "EMUDOC_COMPOSE": str(fake / "compose"),
+        "EMUDOC_WATCH_STATE": str(tmp_path / "run" / "watch"),
+        "EMUDOC_RELEASE_LOCK": str(tmp_path / "run" / "release.lock"),
+        "EMUDOC_CURRENT": str(tmp_path / "current"),
+        # Nothing listens there, so the instance's id is not waited for.
+        "EMUDOC_METADATA": "http://127.0.0.1:9",
+        "EMUDOC_ALERTS": "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-alerts",
+        "EMUDOC_ENVIRONMENT": "staging",
+    }
+
+    def look(containers: list[dict]) -> str:
+        # One object a line, as Compose writes them since 2.21.
+        (tmp_path / "ps.json").write_text("\n".join(json.dumps(each) for each in containers))
+        run = subprocess.run(
+            [sys.executable, AWS / "host" / "watch"],
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert run.returncode == 0, run.stderr
+        return run.stdout
+
+    def published() -> list[str]:
+        sent = tmp_path / "published"
+        return sent.read_text().split("sns\n")[1:] if sent.exists() else []
+
+    assert look(ok) == ""
+    # Seen once: a release replacing a container, or one restarting, is no trouble yet.
+    assert look(stuck) == (
+        "In trouble:\n  clamav: has no container\n  migrate: exited with status 1\n"
+        "  worker: unhealthy\n"
+    )
+    assert published() == []
+    look(stuck)
+    (message,) = published()
+    assert "--subject\nEmudoc staging: clamav, migrate, worker in trouble\n" in message
+    assert "  worker: unhealthy\n" in message
+    look(stuck)
+    assert len(published()) == 1
+    look(ok)
+    assert "--subject\nEmudoc staging: the containers are well again\n" in published()[-1]

@@ -3,8 +3,10 @@ figures a worker serves, the port of their own they are served on, and that no l
 what a member typed or who they are."""
 
 import asyncio
+import re
 import socket
 import threading
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -19,7 +21,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
 import app.main as main
-from app.config import get_settings, load_settings, parse_metrics_address
+from app.config import ROOT_DIR, get_settings, load_settings, parse_metrics_address
 from app.db import SessionLocal, engine
 from app.embeddings import EmbeddingError
 from app.indexing.enrich import DocumentAnalysis
@@ -27,8 +29,9 @@ from app.indexing.pipeline import process_document
 from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT
 from app.llm import LLMError
 from app.main import create_app
-from app.metrics import MEASURE_SECONDS, Holdings, Lanes, MetricsRefused, export_metrics
+from app.metrics import MEASURE_SECONDS, Holdings, Lanes, MetricsRefused, Pool, export_metrics
 from app.models import STAGES, Chat, ChatMessage, Job, Project
+from app.postgres import Archive
 from app.worker import Worker, serve
 from tests.conftest import APP_HEADERS, FakeEmbedder, FakeScanner
 from tests.test_api import create_project
@@ -456,11 +459,13 @@ def test_a_worker_counts_its_jobs_and_shows_its_lanes(session, services, make_do
     worker.start()
     try:
         assert services.embedder.embedding.wait(timeout=10)
+        wait_until(worker.listening)
         assert figures(lanes) == {
             ("emudoc_worker_threads", ("indexer",)): 2,
             ("emudoc_worker_threads", ("answerer",)): 1,
             ("emudoc_worker_busy", ("indexer",)): 1,
             ("emudoc_worker_busy", ("answerer",)): 0,
+            ("emudoc_worker_listening", ()): 1,
         }
         services.embedder.go.set()
 
@@ -477,8 +482,21 @@ def test_a_worker_counts_its_jobs_and_shows_its_lanes(session, services, make_do
         worker.stop()
     assert counted("emudoc_job_wait_seconds_count", kind=INDEX_DOCUMENT) == 1
     assert counted("emudoc_job_seconds_count", kind=INDEX_DOCUMENT) == 1
-    # A stopped worker's threads have ended.
+    # A stopped worker's threads have ended, its listener's with them.
     assert figures(lanes)[("emudoc_worker_threads", ("indexer",))] == 0
+    assert figures(lanes)[("emudoc_worker_listening", ())] == 0
+
+
+def test_a_worker_that_cannot_listen_says_so(services, monkeypatch):
+    # Behind a pooler in transaction mode without DATABASE_LISTEN_URL the threads poll.
+    monkeypatch.setattr(get_settings(), "database_pooler", "transaction")
+    monkeypatch.setattr(get_settings(), "database_listen_url", "")
+    worker = Worker(services, concurrency=1)
+    worker.start()
+    try:
+        assert figures(Lanes(worker))[("emudoc_worker_listening", ())] == 0
+    finally:
+        worker.stop()
 
 
 # What the database holds
@@ -558,6 +576,55 @@ def test_a_worker_serves_what_the_database_holds(
     assert read["emudoc_answers_in_flight", ()] == 1
     assert read["emudoc_spent_today", (currency,)] == 2.5
     assert read["emudoc_daily_spend_cap", (currency,)] == 10
+    # The server's own state: every table's rows, as its statistics estimate them, and no
+    # transaction but the reading's, which does not count. The test database archives nothing,
+    # so the archive's figures are left out rather than served as though all were well.
+    assert {key[1] for key in read if key[0] == "emudoc_db_table_rows"} >= {
+        ("documents", "live"),
+        ("documents", "dead"),
+        ("passages", "dead"),
+        ("watch_alerts", "live"),
+    }
+    assert read["emudoc_db_oldest_transaction_seconds", ()] == 0
+    assert not [key for key in read if key[0].startswith("emudoc_wal_")]
+
+
+def test_a_worker_serves_how_the_database_keeps_up(session, monkeypatch):
+    monkeypatch.setattr("app.metrics.MEASURE_SECONDS", 0)
+    with engine.connect() as other:
+        other.execute(text("SELECT 1"))
+        # A transaction open in another session, as a forgotten psql would hold one.
+        wait_until(
+            lambda: (
+                figures(Holdings(get_settings()))["emudoc_db_oldest_transaction_seconds", ()] > 0
+            )
+        )
+        other.rollback()
+
+    taken = datetime(2026, 10, 18, 9, 30, tzinfo=UTC)
+    stuck = Archive(
+        archived=120,
+        failed=7,
+        archived_at=taken - timedelta(minutes=12),
+        failed_at=taken - timedelta(seconds=30),
+        pending=3,
+        taken_at=taken,
+    )
+    monkeypatch.setattr("app.metrics.archive", lambda connection: stuck)
+    read = figures(Holdings(get_settings()))
+    assert read["emudoc_wal_archived_total", ()] == 120
+    assert read["emudoc_wal_archive_failures_total", ()] == 7
+    assert read["emudoc_wal_last_archived_seconds", ()] == 720
+    assert read["emudoc_wal_segments_pending", ()] == 3
+    # Nothing archived yet, and so nothing to measure the wait from.
+    monkeypatch.setattr(
+        "app.metrics.archive",
+        lambda connection: replace(stuck, archived=0, archived_at=None, pending=None),
+    )
+    read = figures(Holdings(get_settings()))
+    assert read["emudoc_wal_archive_failures_total", ()] == 7
+    assert ("emudoc_wal_last_archived_seconds", ()) not in read
+    assert ("emudoc_wal_segments_pending", ()) not in read
 
 
 def test_the_database_is_read_once_for_the_scrapers_that_ask_meanwhile(
@@ -607,3 +674,31 @@ def test_no_label_holds_what_a_member_typed_or_who_they_are(session, client, mon
     assert "emudoc_documents" in served
     for typed in ("grace", "hopper", "example.com", "Initech", "term-sheet", "confidential"):
         assert typed.lower() not in served.lower(), typed
+
+
+# The alerting rules (deploy/prometheus/alerts.yml)
+
+
+def test_every_metric_the_alerting_rules_name_is_served(session, services, monkeypatch):
+    # promtool tests the rules against series the tests name, so a name both got wrong would
+    # pass there: here the names are the ones a worker's exposition holds.
+    taken = datetime(2026, 10, 18, 9, 30, tzinfo=UTC)
+    monkeypatch.setattr(
+        "app.metrics.archive",
+        lambda connection: Archive(120, 7, taken, taken, 3, taken),
+    )
+    registry = CollectorRegistry()
+    for collector in (
+        Holdings(get_settings()),
+        Lanes(Worker(services, concurrency=1)),
+        Pool(engine, 15),
+    ):
+        registry.register(collector)
+    # By family, since a counter whose labels come with its first count serves no sample yet.
+    served = {"up"}  # Prometheus's own, from scraping.
+    for family in [*REGISTRY.collect(), *registry.collect()]:
+        served |= {family.name, f"{family.name}_total"} | {each.name for each in family.samples}
+    rules = (ROOT_DIR / "deploy" / "prometheus" / "alerts.yml").read_text()
+    named = set(re.findall(r"\b(emudoc_\w+|process_\w+|up(?=\{))", rules))
+    assert len(named) >= 20
+    assert named <= served, named - served

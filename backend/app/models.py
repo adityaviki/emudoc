@@ -778,6 +778,22 @@ class SpendAlert(Base):
     sent_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class WatchAlert(Base):
+    """A concern the worker's watch (app/watch.py) raised and has not seen end: the operator was
+    written to when it began and is written to again when it ends. The key says what it is
+    about (`backlog:index_document`, `fallback:AGENT_FALLBACK_MODEL`); the title and message
+    are what the operator was sent."""
+
+    __tablename__ = "watch_alerts"
+
+    key: Mapped[str] = mapped_column(String(200), primary_key=True)
+    title: Mapped[str] = mapped_column(Text)
+    message: Mapped[str] = mapped_column(Text)
+    raised_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class RateLimit(Base):
     """How many requests of one kind one caller made in one minute (app/ratelimit.py): the
     kind is the scope, the caller the key (a user, an address or an email address), and the

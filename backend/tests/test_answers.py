@@ -369,20 +369,28 @@ def test_the_events_of_old_answers_are_pruned(client, session, services, indexed
 
 def test_the_listener_recovers_from_a_lost_connection(services, monkeypatch, caplog):
     calls = []
+    lost = threading.Event()
 
-    def flaky_listen(stop, woken, timeout):
+    def flaky_listen(stop, woken, timeout, listening=None):
         calls.append(timeout)
+        listening.set()
         if len(calls) == 1:
+            lost.wait(10)
             raise ConnectionError("the database went away")
         stop.wait(10)
 
     monkeypatch.setattr(worker_module, "listen", flaky_listen)
-    monkeypatch.setattr(worker_module, "RETRY_SECONDS", 0.05)
+    monkeypatch.setattr(worker_module, "RETRY_SECONDS", 0.5)
     worker = Worker(services, concurrency=0)
     with caplog.at_level("ERROR", logger="app.worker"):
         worker.start()
         try:
-            wait_until(lambda: len(calls) >= 2)
+            wait_until(worker.listening)
+            lost.set()
+            # Polling while the retry waits, which the metrics say (emudoc_worker_listening).
+            wait_until(lambda: not worker.listening())
+            assert len(calls) == 1
+            wait_until(lambda: len(calls) >= 2 and worker.listening())
         finally:
             worker.stop()
     assert "Listening for queued jobs failed" in caplog.text

@@ -709,11 +709,11 @@ def session():
     with SessionLocal() as session_:
         # The platform's spending warnings belong to no organisation, so they are named too,
         # and so are the request counts of the rate limits, which the test client's one
-        # address would otherwise carry from test to test.
+        # address would otherwise carry from test to test, and the watch's alerts.
         session_.execute(
             text(
-                "TRUNCATE projects, organizations, users, spend_alerts, rate_limits "
-                "RESTART IDENTITY CASCADE"
+                "TRUNCATE projects, organizations, users, spend_alerts, rate_limits, "
+                "watch_alerts RESTART IDENTITY CASCADE"
             )
         )
         session_.commit()

@@ -358,7 +358,12 @@ def prune_finished(connection: Connection, age: timedelta = HISTORY) -> int:
     return connection.execute(_PRUNE, {"age": age}).rowcount
 
 
-def listen(stop: threading.Event, woken: Callable[[], None], timeout: float) -> None:
+def listen(
+    stop: threading.Event,
+    woken: Callable[[], None],
+    timeout: float,
+    listening: threading.Event | None = None,
+) -> None:
     """Call `woken` each time a job is queued, until `stop` is set.
 
     The connection is the process's own, outside the pool: a pooled one would be held for the
@@ -366,7 +371,8 @@ def listen(stop: threading.Event, woken: Callable[[], None], timeout: float) -> 
     is set (`Settings.listen_url`), since a pooler in transaction mode cannot carry a LISTEN;
     the caller does not listen when there is nowhere to. It is checked for a notification every
     `timeout` seconds without a query, which is how often a stop is noticed. A connection that
-    fails ends the call with the error; the caller decides whether to listen again.
+    fails ends the call with the error; the caller decides whether to listen again, and clears
+    `listening`, which is set once the LISTEN is in place, for the metrics to say so.
     """
     address = get_settings().listen_url
     if address is None:
@@ -374,6 +380,8 @@ def listen(stop: threading.Event, woken: Callable[[], None], timeout: float) -> 
     url = make_url(address).set(drivername="postgresql")
     with psycopg.connect(url.render_as_string(hide_password=False), autocommit=True) as conn:
         conn.execute(f"LISTEN {CHANNEL}")
+        if listening is not None:
+            listening.set()
         while not stop.is_set():
             for _ in conn.notifies(timeout=timeout):
                 woken()

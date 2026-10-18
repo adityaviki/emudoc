@@ -19,6 +19,19 @@ Members:
 
 Operators:
 
+- With `ALERT_EMAIL` set, the worker also writes when something it can see goes wrong, once when
+  it begins and once when it is over: questions or documents waiting long for a worker,
+  indexing or answers failing, a model failing over to its fallback, the embeddings endpoint,
+  the scanner or the storage not answering, the database failing to archive its log or falling
+  behind, and what `python -m app.maintenance database` flags. A migration adds the table that
+  remembers what was raised (`watch_alerts`). deploying.md, "Alerts".
+- `deploy/prometheus` holds 26 alerting rules over the metrics, tested with promtool in CI, and
+  the Prometheus configuration that loads them beside the compose file, for an Alertmanager.
+  The metrics gain whether a worker hears of queued jobs or polls for them, each table's live
+  and dead rows, the oldest open transaction, and the archiving of the write-ahead log.
+- On AWS, `alert_email` is the app's `ALERT_EMAIL` too, and the instance reports to the alerts
+  topic a container that stopped, restarts or fails its health check for five minutes and more,
+  and again when every container is well.
 - `SENTRY_DSN` reports the errors nobody planned for, the API's, the worker's and the page's, to
   Sentry, or to GlitchTip or a Sentry of your own, with what the log would show of them and the
   ids of the request or job as tags; never a message the app did not write, a frame's

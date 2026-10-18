@@ -49,7 +49,10 @@ on one machine; this is what changes for a deployment. The processes below run f
 - **Backups** of the database and of the files, encrypted and kept for `BACKUP_DAYS`, which
   restore to the same point: "Backups", below.
 - **A scraper for the metrics**, if the deployment keeps them: Prometheus or anything that reads
-  its format, asking the API and every worker on a port of their own: "Metrics", below.
+  its format, asking the API and every worker on a port of their own, with Alertmanager for the
+  rules in `deploy/prometheus`: "Metrics" and "Alerts", below.
+- **An address for the alerts**, `ALERT_EMAIL`, where the worker reports what it gave up on and
+  what it sees go wrong, through the same relay: "Alerts", below.
 
 `deploy/aws` builds all of it on AWS, staging and production alike: "On AWS", below.
 
@@ -1665,6 +1668,7 @@ across the instances, `sum without (instance)`):
 | `emudoc_index_runs_total` | Indexing runs, by how the document stood at the end: `ready`, `failed`, `quarantined` |
 | `emudoc_job_runs_total`, `emudoc_job_seconds`, `emudoc_job_wait_seconds` | Jobs a worker ran, by `kind` and `outcome` (`done`, `failed`, `crashed`, `abandoned`, `lost`, `unsettled`), how long each ran, and how long each waited for a worker once it was due |
 | `emudoc_worker_threads{lane}`, `emudoc_worker_busy{lane}` | A worker's job threads alive and running a job, by `lane` (`indexer`, `answerer`) |
+| `emudoc_worker_listening` | 1 while a worker hears of queued jobs as they are queued, 0 while it polls for them: behind a pooler in transaction mode without `DATABASE_LISTEN_URL`, or while its listener's lost connection waits to be made again |
 | `emudoc_upload_bytes`, `emudoc_upload_rejections_total` | The sizes of the files the API stored, and the files it refused by `reason`: `too_many` (a whole request), `plan`, `unsupported`, `empty`, `too_large`, `wrong_type`, `duplicate` |
 | `emudoc_rate_limited_total` | Requests refused for a rate, by the limit's `scope` ("Rates") |
 | `process_*`, `python_*` | The process's CPU, memory and open files, and Python's collector |
@@ -1683,15 +1687,16 @@ value.
 | `emudoc_answers_in_flight` | Answers queued or being written (`MAX_ANSWERS` holds each organisation to 20) |
 | `emudoc_organizations{plan}`, `emudoc_stored_bytes{plan}` | Organisations, and the bytes of the originals they keep, by plan |
 | `emudoc_spent_today{currency}`, `emudoc_daily_spend_cap{currency}` | The known cost of the models' work since midnight UTC (`MODEL_PRICES`), and `DAILY_SPEND_CAP` (0 for none) |
+| `emudoc_db_table_rows{table,state}` | Each of the app's tables' rows, `live` and `dead` (waiting for vacuum), as the server's statistics estimate them ("Vacuum") |
+| `emudoc_db_oldest_transaction_seconds` | How long the app's role's oldest open transaction has been holding vacuum back; 0 for none |
+| `emudoc_wal_archived_total`, `emudoc_wal_archive_failures_total`, `emudoc_wal_last_archived_seconds`, `emudoc_wal_segments_pending` | The server's archiving of its write-ahead log ("Backups"): the segments archived and the attempts that failed, how long ago the last went, and the finished segments waiting; none of them from a server that archives nothing (`archive_mode` off) or is in recovery |
 
 A Prometheus on the compose file's network finds every replica by the services' names, and
-keeps which kind of process each is:
+keeps which kind of process each is as `process`, with `deploy/prometheus/prometheus.yml`:
 
 ```yaml
-# prometheus.yml
 scrape_configs:
   - job_name: emudoc
-    scrape_interval: 30s
     dns_sd_configs:
       - names: [api, worker]
         type: A
@@ -1703,10 +1708,12 @@ scrape_configs:
 
 ```bash
 docker run -d --name prometheus --network emudoc-deploy_default -p 127.0.0.1:9090:9090 \
-  -v "$PWD/prometheus.yml:/etc/prometheus/prometheus.yml:ro" prom/prometheus:v3.15.0
+  -v "$PWD/deploy/prometheus:/etc/prometheus:ro" prom/prometheus:v3.15.0
 ```
 
-(checked with Prometheus 3.15 against the image's API and worker under those names). The
+(checked with Prometheus 3.15 against the image's API and worker under those names). The file
+also loads the alerting rules beside it and sends what fires to an Alertmanager: "Alerts",
+below. The
 counters whose labels are known in advance start at zero: every stage with every outcome, every
 job's kind with every outcome, the upload refusals and the rate limits, so that `increase` sees
 the first failure after a start. A model's outcomes appear with their first request, since the
@@ -1729,6 +1736,102 @@ emudoc_db_connections{state="in_use"} / ignoring (state) emudoc_db_connections_l
 The image runs one uvicorn process per container, which the metrics take for granted: with
 uvicorn's `--workers`, each process would count apart behind one port, and the scraper would
 read whichever answered.
+
+## Alerts
+
+Three watchers, since none of them sees everything: the worker, which sees the database and
+what it reaches and mails `ALERT_EMAIL`; rules on the metrics, which see every process from
+outside and need a scraper; and on AWS the host, which sees the containers.
+
+### What the worker mails
+
+With `ALERT_EMAIL` set and a mail relay, the worker's alerter thread reports to the address
+every quarter of an hour: the jobs it gave up on ("Emudoc gave up on…"), the day's
+spending at 80 % of a limit, the uploads the scan quarantined, and what its watch sees go wrong
+(`backend/app/watch.py`). The watch writes once when a concern begins ("Emudoc alert: …", what
+is wrong and what to do) and once when it is over ("Emudoc alert over: …", after how long),
+listing what goes on meanwhile, whichever worker looked; what is raised and not over is a row of
+`watch_alerts`. Every deployment has it, a scraper or not:
+
+| Alert | When | Where to look |
+| --- | --- | --- |
+| Questions, or documents, wait for a worker | The oldest due question has waited 5 minutes, the oldest due document an hour | The workers' logs; more workers, or `ANSWER_CONCURRENCY`, `WORKER_CONCURRENCY` |
+| Indexing fails | Of the documents whose indexing ended in the last hour, 5 and half or more have a stage that failed, by stage; one waiting for a retry is not counted until it settles, and a summary or a vector that failed counts though the document is ready | Each document's stages; the worker's log; `python -m app.maintenance models` |
+| Answers fail | Of the answers written in the last hour, 5 and a quarter or more failed | The worker's log, `app.llm` and `app.answers`; `models`; a spending limit, which mails its own warning |
+| `AGENT_MODEL` (or `INDEX_MODEL`) fails over to its fallback | The fallback answered a request of the role's in the last hour (the usage events name the model that answered) | The worker's `app.llm` line: "was not found, or is served no longer" is a retired model, "was rejected" a key revoked or out of credit ("The models") |
+| The embeddings endpoint, the malware scanner or the storage does not answer | Asked as the start asks them, at each round | Their sentence says what failed |
+| The database fails to archive its log, or its archive falls behind | The archiver's last attempt failed, or finished segments of the write-ahead log have waited past the 5-minute recovery point (`pg_stat_archiver`; a server that archives nothing has neither) | `pgbackrest --stanza=emudoc check`, the server's log ("Backups") |
+| The database needs looking at | What `python -m app.maintenance database` flags, every table looked at: pgvector before 0.8, production's role without timeouts, a table autovacuum is behind on, a transaction open over an hour | "The database", "Vacuum" |
+
+A check that cannot run (the log says "The watch could not check …") keeps the alerts it raised:
+a concern that cannot be seen is not over. The worker cannot report itself gone, nor an API
+that is down, nor what one process alone knows (its pool, its listener): that is the rules'
+and the host's. The mails name tables, models, services and counts, never a document, a
+question or an address.
+
+### Rules on the metrics
+
+`deploy/prometheus/alerts.yml` holds 26 Prometheus alerting rules over the metrics ("Metrics",
+above), each tested against the series that should and should not fire it
+(`deploy/prometheus/alerts.test.yml`, `promtool test rules`, in CI). They expect the scrape
+configuration of `prometheus.yml` beside them: job `emudoc`, and `process` `api` or `worker`.
+`critical` is a member waiting now or a backup losing changes, `warning` is for the working day.
+The thresholds are a start; tune them, and their tests, to the deployment.
+
+| Group | Rules |
+| --- | --- |
+| The processes | `EmudocProcessDown` (a target unanswered for 5 minutes), `EmudocNoWorker`, `EmudocNoApi`, `EmudocRestarting` (a process started twice again in half an hour: a worker exits when a thread ended), `EmudocWorkerNotListening` (polling for 10 minutes) |
+| The work | `EmudocQuestionsWaiting` (the oldest due question over a minute, for 5), `EmudocDocumentsWaiting` (the oldest due document over half an hour, for 15), `EmudocNoDatabaseFigures` (no worker serves them: none runs, or its readings fail), `EmudocStageFailing` (a stage failed or crashed in most of its runs of the last hour, 5 at least), `EmudocStageCrashing`, `EmudocJobsGivenUp` |
+| The models | `EmudocModelsDown` (no model of a role answered in 15 minutes, its fallback included), `EmudocEmbeddingsDown`, `EmudocModelRefused` (401, 402, 403 or 404), `EmudocModelFallingBack`, `EmudocModelRateLimited` (10 refusals for the rate in 15 minutes), `EmudocModelErrors` (a fifth of the requests failing on the provider's side) |
+| Capacity | `EmudocPoolSaturated` (90 % of a process's connections in use for 10 minutes), `EmudocPoolTimeouts` (members answered "busy"), `EmudocStorageGrowing` (10 GiB of new originals in a day), `EmudocSpendNearCap` (80 % of `DAILY_SPEND_CAP`), `EmudocSpendCapReached` |
+| The database | `EmudocWalArchiveFailing`, `EmudocWalArchiveBehind`, `EmudocVacuumBehind` (10,000 dead rows and a fifth of a table, for an hour), `EmudocLongTransaction` (over an hour) |
+
+Some of them say what the worker mails too, from the other side: the mail works without a
+scraper, the rules without a worker. An Alertmanager under the name `alertmanager` on the same
+network takes what fires, with a receiver of the deployment's own, such as mail:
+
+```yaml
+# alertmanager.yml
+route:
+  receiver: operator
+  group_by: [alertname]
+  repeat_interval: 4h
+  routes:
+    - matchers: ['severity="critical"']
+      receiver: operator
+      repeat_interval: 1h
+receivers:
+  - name: operator
+    email_configs:
+      - to: ops@example.com
+        from: alerts@emudoc.example.com
+        smarthost: smtp.example.com:587
+        auth_username: alerts@emudoc.example.com
+        auth_password_file: /etc/alertmanager/smtp-password
+```
+
+```bash
+docker run -d --name alertmanager --network emudoc-deploy_default \
+  -v "$PWD/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
+  -v "$PWD/smtp-password:/etc/alertmanager/smtp-password:ro" prom/alertmanager:v0.34.1
+```
+
+(the rules checked with Prometheus 3.15 against a running API and worker: every rule evaluated
+without an error, and a stopped API put `EmudocProcessDown` and `EmudocNoApi` pending; the
+configuration with `amtool check-config` of Alertmanager 0.34.1). Alertmanager alone is quiet
+when Prometheus is down: a dead man's switch (a rule that always fires, sent to a service that
+calls when it stops hearing it) is the deployment's choice.
+
+### The host's and the timers'
+
+Docker starts again a container that exits, never one whose health check fails, and the
+compose file's checks only mark it. On AWS the host looks every five minutes
+(`emudoc-watch.timer`, `deploy/aws/host/watch`) and reports to the alerts topic a container
+that is missing, stopped, restarting or unhealthy, or a one-shot that failed, once it was so at
+two looks in a row, and again when every container is well; a release holds the watch off.
+The drill and the credentials' renewal report their own failure (`OnFailure=`, "The drill on
+AWS"). On one machine, a timer the deployment runs for its drill ("The drill") mails its
+failure the same way, and a container's trouble is the rules' `EmudocProcessDown`.
 
 ## Rates
 
@@ -1829,8 +1932,11 @@ The directories:
   otherwise `tofu output dns_records` lists them for the DNS kept elsewhere. Caddy asks Let's
   Encrypt for the certificate once the name leads to the instance.
 - **Alerts**: an SNS topic the instance reports a failed drill, a failed credentials renewal
-  (the containers lose the bucket within the hour) or a failed start to, naming the unit and the
-  instance, never a log line. `alert_email` subscribes an address, which must confirm it.
+  (the containers lose the bucket within the hour), a failed start or a container in trouble
+  to (`emudoc-watch.timer`, "Alerts"), naming the unit or the services and the instance, never a
+  log line. `alert_email` subscribes an address, which must confirm it, and is the app's
+  `ALERT_EMAIL` too, where the worker mails what it gave up on and what its watch sees, through
+  the mail relay.
 
 ### The settings
 
@@ -1849,8 +1955,9 @@ places, or a value with a line break, stops it. A fresh checkout's plan refuses 
 `OPERATOR_EMAIL`, `AGENT_MODEL` and `INDEX_MODEL` left empty in `shared/main.tf`, which
 production cannot start without; an empty value there is a setting left unset. Keys never go
 into the roots: the plan refuses a name that ends like one, and `SENTRY_DSN`, which carries the
-tracker's key. The module writes `SENTRY_ENVIRONMENT`, the environment's name, itself. A changed setting reaches the
-containers with the next release (the same tag again does).
+tracker's key. The module writes `SENTRY_ENVIRONMENT`, the environment's name, itself, and
+`ALERT_EMAIL` from `alert_email`. A changed setting reaches the containers with the next
+release (the same tag again does).
 
 ### Setting it up
 
@@ -1981,9 +2088,10 @@ tag and delete only copies called `emudoc-drill-…` that carry `purpose=restore
   batch of 32 passages 120 seconds. Two vCPUs are slow for long passages; embed stages that keep
   failing on time call for a larger instance or a hosted endpoint ("The embeddings
   endpoint").
-- A scraper for the metrics (the containers serve them on 9464 of the compose network) and
-  alarms on them, a CDN or firewall in front, IPv6, the bucket's replication to a second
-  region, and VPC flow logs.
+- A scraper for the metrics (the containers serve them on 9464 of the compose network) and the
+  rules on them ("Alerts": the worker's mail and the host's watch cover part of them), an alarm
+  on the instance's own status checks, a CDN or firewall in front, IPv6, the bucket's
+  replication to a second region, and VPC flow logs.
 
 It was checked without an AWS account: the module and the account root by `tofu test` against
 a mocked provider and by `validate`, the instance's part on Docker 25 (Amazon Linux's) with
@@ -2104,3 +2212,12 @@ repository's policy among them.
     Upload a document and ask a question: the scraper shows `emudoc_stage_runs_total` with
     `outcome="done"` for every stage and `emudoc_model_requests_total` with `outcome="ok"`, and
     no series names a member, an organisation or the question.
+20. With `ALERT_EMAIL` set, the worker's log has no line saying it is not, and no line from
+    `app.watch` saying it "could not check" something. Stop the scanner (`docker compose -f
+    deploy/compose.yml stop clamav`): within the quarter of an hour the address gets "Emudoc
+    alert: the malware scanner does not answer", and after `start clamav` and the next round
+    "Emudoc alert over: …". With a scraper, its rules page lists the 26 rules of
+    `deploy/prometheus/alerts.yml` without an error and none firing; with the API stopped,
+    `EmudocProcessDown` fires after 5 minutes. On AWS, `systemctl list-timers emudoc-watch.timer`
+    shows the next look, and stopping a container for ten minutes (`sudo emudoc-compose stop
+    clamav`) reaches the alerts topic, and its start again "the containers are well again".

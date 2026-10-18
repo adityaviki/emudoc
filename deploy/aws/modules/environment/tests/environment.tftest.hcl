@@ -336,6 +336,10 @@ run "staging" {
     condition     = length(aws_route53_record.app) == 0 && length(aws_sesv2_email_identity.mail) == 0 && length(aws_sns_topic_subscription.alerts) == 0
     error_message = "Staging makes no DNS record, mail identity or subscription it was not asked for."
   }
+  assert {
+    condition     = !contains(keys(aws_ssm_parameter.setting), "ALERT_EMAIL")
+    error_message = "Without an alert address the app is given none."
+  }
 }
 
 run "production" {
@@ -382,6 +386,10 @@ run "production" {
   assert {
     condition     = length(aws_sns_topic_subscription.alerts) == 1 && strcontains(local.cloud_config, "      EMUDOC_DRILL=no\n")
     error_message = "The alert address is subscribed, and a drill can be turned off."
+  }
+  assert {
+    condition     = aws_ssm_parameter.setting["ALERT_EMAIL"].value == "operator@example.com"
+    error_message = "The app mails its own reports to the address the topic does."
   }
   assert {
     condition = one([
