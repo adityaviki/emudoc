@@ -26,6 +26,17 @@ Operators:
   an environment's name, which the AWS module sets; there `SENTRY_DSN` goes into the secrets
   path. The page reports through `POST /api/page-errors`, held to `RATE_PAGE_ERRORS` a minute
   per address (10). deploying.md, "Error tracking".
+- The API and the worker serve metrics in Prometheus's format at `METRICS_ADDRESS`, which the
+  image sets to 9464 of its container and the compose file publishes nowhere: requests by
+  route, the database pool, the models' requests, outcomes, latency, first events, tokens and
+  fallbacks, the stages, the jobs and their waits, the worker's threads, uploads and their
+  refusals, rate refusals, and from each worker the documents and jobs by status, the backlog's
+  age, the answers in flight, the organisations and their bytes by plan, and the day's spend
+  against `DAILY_SPEND_CAP`. No label names an organisation, a user or anything a member typed.
+  deploying.md, "Metrics", with a Prometheus to scrape them.
+- A process that runs the worker needs one more database connection than before for its
+  threads, the metrics' reading of the database: `DB_POOL_SIZE` + `DB_MAX_OVERFLOW` must hold
+  `WORKER_CONCURRENCY` + `ANSWER_CONCURRENCY` + 4 (the defaults do).
 - A 500 is JSON with the request's id in its body and in `X-Request-ID`, and carries the
   security headers, which it lacked.
 

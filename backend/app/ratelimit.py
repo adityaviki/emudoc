@@ -41,6 +41,7 @@ from sqlalchemy.orm import Session
 
 from app.accounts import Account
 from app.config import get_settings
+from app.metrics import RATE_LIMITED
 
 log = logging.getLogger(__name__)
 
@@ -91,6 +92,9 @@ ADDRESSES = Limit("address", "rate_sign_ins_per_address", "sign-in requests")
 # The page's error reports (app/tracking.py), which a page on a sign-in form sends too, so per
 # client address.
 PAGE_ERRORS = Limit("page_error", "rate_page_errors", "error reports")
+# Each limit's refusals are counted from zero in the metrics (app/metrics.py).
+for _limit in (UPLOADS, QUESTIONS, SEARCHES, SIGN_INS, ADDRESSES, PAGE_ERRORS):
+    RATE_LIMITED.labels(_limit.scope)
 
 
 class Key(NamedTuple):
@@ -160,6 +164,7 @@ def hit(session: Session, *hits: tuple[Limit, Key], now: datetime | None = None)
                 start.isoformat(timespec="seconds"),
                 limit.variable,
             )
+            RATE_LIMITED.labels(limit.scope).inc()
             return Refusal(limit.refusal(allowed, key.who), seconds_left(now, start))
     return None
 

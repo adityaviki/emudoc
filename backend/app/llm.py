@@ -75,6 +75,7 @@ from pydantic_ai.usage import RunUsage
 
 from app.config import AGENT, INDEX, ModelSetting, Settings, model_provider
 from app.errors import AppError, provider_codes
+from app.metrics import MODEL_FALLBACKS, model_request
 from app.usage import ModelUsage
 
 log = logging.getLogger(__name__)
@@ -272,6 +273,25 @@ def _timed_out(error: BaseException | None) -> bool:
     return False
 
 
+def _outcome(error: BaseException) -> str:
+    """How the metrics call the way a request ended (app/metrics.py): the provider's HTTP
+    status when it answered with one, else a word for what came instead."""
+    if isinstance(error, ModelHTTPError):
+        return str(error.status_code)
+    if isinstance(error, ContentFilterError):
+        return "filtered"
+    if isinstance(error, UnexpectedModelBehavior):
+        return "malformed"
+    # The app's own error inside a request is the one it raises when it stops waiting.
+    if _timed_out(error) or isinstance(error, LLMError):
+        return "timeout"
+    if isinstance(error, ModelAPIError):
+        return "unreachable"
+    if isinstance(error, asyncio.CancelledError):
+        return "stopped"
+    return "failed"
+
+
 def _give_up(future: Future[Any], message: str) -> LLMError:
     """Stop a request the app has waited long enough for, and the error to raise in its place."""
     future.cancel()
@@ -418,6 +438,9 @@ class ModelStream:
         self._ended = False
         # What the models asked before the last one failed with, for the error that says all.
         self._failures: list[Exception] = []
+        # Whether the reader stopped waiting for the model, which cancels its request as a
+        # reader that went away does; the metrics tell the two apart by it.
+        self._gave_up = False
         self.model: str | None = None
 
     def __enter__(self) -> "ModelStream":
@@ -456,6 +479,7 @@ class ModelStream:
                 message = f"The model did not finish within {AGENT_TIMEOUT:g} seconds."
             else:
                 message = f"The model sent nothing for {STREAM_STALL:g} seconds."
+            self._gave_up = True
             raise _give_up(self._future, message) from None
 
     def _reply(self) -> ModelResponse:
@@ -473,16 +497,19 @@ class ModelStream:
                     if isinstance(prepared, LLMUnavailable):
                         raise prepared
                     model, settings = prepared
-                    async with model_request_stream(
-                        model,
-                        self._messages,
-                        model_settings=settings,
-                        model_request_parameters=self._parameters,
-                    ) as stream:
-                        async for event in stream:
-                            sent = True
-                            self._events.put(event)
-                        response = stream.get()
+                    with model_request(candidate.name, AGENT, self._outcome) as request:
+                        async with model_request_stream(
+                            model,
+                            self._messages,
+                            model_settings=settings,
+                            model_request_parameters=self._parameters,
+                        ) as stream:
+                            async for event in stream:
+                                request.first_event()
+                                sent = True
+                                self._events.put(event)
+                            response = stream.get()
+                        request.used(response.usage.input_tokens, response.usage.output_tokens)
                 except Exception as error:
                     following = self._candidates[position + 1 : position + 2]
                     if sent or not following or not _falls_back(error):
@@ -495,6 +522,9 @@ class ModelStream:
             raise LLMUnavailable("No model is set for answering; set AGENT_MODEL.")
         finally:
             self._events.put(_END)
+
+    def _outcome(self, error: BaseException) -> str:
+        return "timeout" if self._gave_up else _outcome(error)
 
 
 class LLM:
@@ -569,6 +599,7 @@ class LLM:
         `model` over for PASS_OVER_SECONDS."""
         with self._lock:
             self._passed_over[model.name] = time.monotonic() + PASS_OVER_SECONDS
+        MODEL_FALLBACKS.labels(model.name, model.role).inc()
         log.warning(
             "%s %s failed, so %s %s is asked instead: %s",
             model.variable,
@@ -627,14 +658,16 @@ class LLM:
                 timeout=INDEX_TIMEOUT,
             ),
         )
-        future = _submit(agent.run(content))
-        try:
-            # The SDK's timeout above bounds each HTTP request; this bounds the whole call,
-            # which may make several of them when the provider retries.
-            result = future.result(timeout=INDEX_TIMEOUT)
-        except TimeoutError:
-            message = f"The model did not answer within {INDEX_TIMEOUT:g} seconds."
-            raise _give_up(future, message) from None
+        with model_request(name, INDEX, _outcome) as request:
+            future = _submit(agent.run(content))
+            try:
+                # The SDK's timeout above bounds each HTTP request; this bounds the whole call,
+                # which may make several of them when the provider retries.
+                result = future.result(timeout=INDEX_TIMEOUT)
+            except TimeoutError:
+                message = f"The model did not answer within {INDEX_TIMEOUT:g} seconds."
+                raise _give_up(future, message) from None
+            request.used(result.usage.input_tokens, result.usage.output_tokens)
         return result.output, result.usage
 
     def ocr_page(

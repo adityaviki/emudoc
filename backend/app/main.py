@@ -28,6 +28,7 @@ from app.indexing.pipeline import Services
 from app.legal import TERMS_VERSION, privacy_policy, published, terms_of_service
 from app.logs import REQUEST_ID_HEADER, RequestIds, configure_logging, current_context
 from app.mail import Mailer, mailer_from_settings
+from app.metrics import POOL_TIMEOUTS, HttpMetrics, export_metrics
 from app.ratelimit import PAGE_ERRORS, by_address
 from app.schemas import (
     EmbeddingStatus,
@@ -201,6 +202,7 @@ def pool_exhausted(request: Request, error: Exception) -> JSONResponse:
     the pool stood, so that a deployment that needs a larger pool or another replica shows up
     as a line to act on rather than as a traceback.
     """
+    POOL_TIMEOUTS.inc()
     log.warning(
         "%s %s was refused: every database connection is in use (%s)",
         request.method,
@@ -282,6 +284,10 @@ def create_app(
                 app.state.mailer,
                 answer_concurrency=settings.answer_concurrency,
             )
+        # The metrics' own server (METRICS_ADDRESS), with the worker's figures when the worker
+        # runs here; an address it cannot listen on stops the start before the worker's threads.
+        exporter = export_metrics(settings, app.state.worker)
+        if app.state.worker:
             app.state.worker.start()
         # A stop signal is noted before uvicorn waits for the open responses to end, so that
         # the answer streams end on it rather than hold the stop up (app/shutdown.py).
@@ -290,6 +296,8 @@ def create_app(
             yield
         if app.state.worker:
             app.state.worker.stop()
+        if exporter is not None:
+            exporter.close()
         app.state.http.close()
 
     app = FastAPI(
@@ -309,6 +317,8 @@ def create_app(
     # the app answering no cross-origin request. test_no_other_origin_is_answered in
     # tests/test_headers.py says what a frontend on another origin would need instead.
     app.add_middleware(SecurityHeaders)
+    # Outside the headers, so that a request is timed to the end of all of its answer.
+    app.add_middleware(HttpMetrics)
     # Outside the others, so that what they log is logged under the request's id too.
     app.add_middleware(RequestIds)
     for router in (

@@ -558,17 +558,18 @@ def test_a_deployment_logs_json_and_development_text(deployment, monkeypatch):
 
 def test_a_process_that_runs_the_worker_needs_a_pool_for_its_threads(deployment):
     # Each indexing and answering thread holds a connection while it works, and the heartbeat,
-    # housekeeper and alerter take one now and then; a pool that cannot hold them all would
-    # fail jobs for a reason the operator set, so the settings are refused with the arithmetic.
+    # housekeeper, alerter and the metrics' reading take one now and then; a pool that cannot
+    # hold them all would fail jobs for a reason the operator set, so the settings are refused
+    # with the arithmetic.
     deployment.update(run_worker=True, worker_concurrency=5, answer_concurrency=8)
     with pytest.raises(
         ValueError, match="WORKER_CONCURRENCY is 5 and ANSWER_CONCURRENCY is 8"
     ) as error:
         load_settings(**deployment)
-    assert "need 16 database connections" in str(error.value)
+    assert "need 17 database connections" in str(error.value)
     assert "DB_POOL_SIZE + DB_MAX_OVERFLOW allows 15" in str(error.value)
-    assert load_settings(**deployment, db_max_overflow=11).worker_concurrency == 5
-    deployment["worker_concurrency"] = 4
+    assert load_settings(**deployment, db_max_overflow=12).worker_concurrency == 5
+    deployment["worker_concurrency"] = 3
     assert load_settings(**deployment).db_pool_size == 5
     # An API replica that runs no worker has no indexing threads to hold connections.
     deployment.update(run_worker=False, worker_concurrency=50)

@@ -87,6 +87,16 @@ from app.jobs import (
 from app.logs import configure_logging, logging_about
 from app.mail import Mailer, mailer_from_settings
 from app.maintenance import housekeeping
+from app.metrics import (
+    ANSWERER,
+    INDEXER,
+    JOB_RUNS,
+    JOB_SECONDS,
+    JOB_WAIT,
+    MetricsRefused,
+    export_metrics,
+    lane_of,
+)
 from app.models import Document, Job
 from app.scanning import ScanError, alert_quarantines
 from app.spending import alert_spending, when
@@ -285,8 +295,9 @@ class Worker:
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
-        # The jobs the threads are running now, whose leases the heartbeat extends.
-        self._held: set[int] = set()
+        # The jobs the threads are running now, whose leases the heartbeat extends, with the
+        # lane of the thread that runs each.
+        self._held: dict[int, str] = {}
         self._held_lock = threading.Lock()
 
     @property
@@ -297,9 +308,9 @@ class Worker:
     def start(self) -> None:
         index_kinds = [kind for kind in HANDLERS if kind != ANSWER_QUESTION]
         for index in range(self._concurrency):
-            self._spawn(partial(self._loop, index_kinds), f"indexer-{index}")
+            self._spawn(partial(self._loop, index_kinds), f"{INDEXER}-{index}")
         for index in range(self._answer_concurrency):
-            self._spawn(partial(self._loop, [ANSWER_QUESTION]), f"answerer-{index}")
+            self._spawn(partial(self._loop, [ANSWER_QUESTION]), f"{ANSWERER}-{index}")
         settings = get_settings()
         if settings.listen_url:
             self._spawn(self._listen, "listener")
@@ -328,6 +339,22 @@ class Worker:
         what its work raises, so before a stop this is empty unless something went wrong that
         the worker cannot see; and a worker a thread short claims less, or keeps no lease."""
         return [thread.name for thread in self._threads if not thread.is_alive()]
+
+    def lanes(self) -> dict[str, tuple[int, int]]:
+        """Each lane's job threads that are alive, and those running a job now, for the
+        metrics (app/metrics.py)."""
+        with self._held_lock:
+            running = list(self._held.values())
+        return {
+            lane: (
+                sum(
+                    thread.name.startswith(f"{lane}-") and thread.is_alive()
+                    for thread in self._threads
+                ),
+                running.count(lane),
+            )
+            for lane in (INDEXER, ANSWERER)
+        }
 
     def _spawn(self, target: Callable[[], None], name: str) -> None:
         thread = threading.Thread(target=target, name=name, daemon=True)
@@ -405,9 +432,14 @@ class Worker:
                 if not self._stop.is_set():
                     self._wake.clear()
                 continue
+            # From when it was due: a retry's backoff is no wait for a worker.
+            JOB_WAIT.labels(job.kind).observe(
+                max((datetime.now(UTC) - job.run_at).total_seconds(), 0.0)
+            )
             self._run(job)
 
     def _run(self, job: Job) -> None:
+        started = time.monotonic()
         # Every line the run logs, the handler's and the settling's, names the job and what
         # it is for.
         with logging_about(
@@ -418,12 +450,16 @@ class Worker:
             document_id=job.payload.get("document_id"),
             message_id=job.payload.get("message_id"),
         ):
-            self._settle(job)
+            outcome = self._settle(job)
+        JOB_RUNS.labels(job.kind, outcome).inc()
+        JOB_SECONDS.labels(job.kind).observe(time.monotonic() - started)
 
-    def _settle(self, job: Job) -> None:
+    def _settle(self, job: Job) -> str:
+        """Run the job and record how it ended; returns that, as the metrics call it
+        (`JOB_RUNS` in app/metrics.py)."""
         handler = HANDLERS[job.kind]
         try:
-            with self._holding(job.id):
+            with self._holding(job):
                 if job.attempts > job.max_attempts:
                     # Every attempt so far ended with the lease running out: the process died
                     # each time, so running it once more would most likely kill this one.
@@ -433,13 +469,15 @@ class Worker:
                         job.kind,
                         job.max_attempts,
                     )
+                    outcome = "abandoned"
                     handler.abandon(job, self._services)
                     self._finish(job, "failed", f"Given up after {job.max_attempts} lost attempts")
-                    return
+                    return outcome
                 try:
                     given_up = handler.run(job, self._services)
                 except LeaseLost:
                     # The job is the other worker's to finish, or queued for the next one.
+                    outcome = "lost"
                     log.warning(
                         "Job %s (%s) was taken over or handed back while this worker was "
                         "running it; the run stopped at its next commit",
@@ -450,6 +488,7 @@ class Worker:
                     if connection_lost(error):
                         # As for a process that died: the lease runs out, and the next claim
                         # runs the job again, given up after max_attempts of these.
+                        outcome = "lost"
                         log.warning(
                             "Job %s (%s) stopped: the database could not be reached (%s); the "
                             "next claim runs it again once its lease has run out",
@@ -457,16 +496,20 @@ class Worker:
                             job.kind,
                             summary(error.orig or error).splitlines()[0],
                         )
-                        return
+                        return outcome
+                    outcome = "crashed"
                     log.exception("Job %s (%s) failed", job.id, job.kind)
                     # The operator reads it in the digest: the kind and where, as in the log.
                     self._finish(job, "failed", summary(error))
                 else:
+                    outcome = "failed" if given_up else "done"
                     self._finish(job, "failed" if given_up else "done", given_up)
         except Exception:
             # The database went away while the job was being settled. Its lease runs out and
             # another claim runs it again, which every handler must be able to take.
             log.exception("Job %s (%s) could not be settled", job.id, job.kind)
+            outcome = "unsettled"
+        return outcome
 
     def _finish(self, job: Job, status: str, error: str | None = None) -> None:
         if not finish(job, self._id, status, error):
@@ -477,14 +520,14 @@ class Worker:
             )
 
     @contextmanager
-    def _holding(self, job_id: int) -> Iterator[None]:
+    def _holding(self, job: Job) -> Iterator[None]:
         with self._held_lock:
-            self._held.add(job_id)
+            self._held[job.id] = lane_of(job.kind)
         try:
             yield
         finally:
             with self._held_lock:
-                self._held.discard(job_id)
+                self._held.pop(job.id, None)
 
     def _heartbeat(self) -> None:
         while not self._stop.wait(HEARTBEAT_SECONDS):
@@ -545,6 +588,10 @@ def serve(
 
     Every ALIVE_SECONDS meanwhile, while every thread runs, it touches `alive`, which it
     removes at the end: a health check calls the worker stuck when the file grows old.
+
+    With METRICS_ADDRESS it serves its metrics there, and the database's figures
+    (app/metrics.py); an address it cannot listen on raises `MetricsRefused` before any thread
+    starts.
     """
     worker = Worker(
         services,
@@ -552,6 +599,7 @@ def serve(
         mailer_from_settings(settings),
         answer_concurrency=settings.answer_concurrency,
     )
+    exporter = export_metrics(settings, worker)
     worker.start()
     log.info(
         "Worker %s is running, %s documents and %s answers at a time",
@@ -575,6 +623,8 @@ def serve(
             break
     log.info("Stopping; the running jobs have %s seconds to finish", grace)
     worker.stop(grace)
+    if exporter is not None:
+        exporter.close()
     if alive is not None:
         alive.unlink(missing_ok=True)
     log.info("Worker %s stopped", worker.id)
@@ -639,7 +689,11 @@ def main(argv: list[str] | None = None) -> None:
     stopping = threading.Event()
     for signum in (signal.SIGINT, signal.SIGTERM):
         signal.signal(signum, lambda *_: stopping.set())
-    if not serve(services, settings, stopping, args.grace, args.alive_file):
+    try:
+        whole = serve(services, settings, stopping, args.grace, args.alive_file)
+    except MetricsRefused as error:
+        sys.exit(str(error))
+    if not whole:
         sys.exit(1)
 
 

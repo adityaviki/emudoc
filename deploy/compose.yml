@@ -25,6 +25,10 @@
 #   STORAGE_URL=file:///var/lib/emudoc   for the files volume below, or s3://… for a bucket
 #   SCANNER_URL=clamd://clamav:3310      the daemon below
 #   EMBEDDING_BASE_URL=http://embeddings:8080/v1   the embeddings endpoint below
+#
+# The API and the worker serve their metrics on 9464 of their containers (the image's
+# METRICS_ADDRESS), which nothing below publishes: a scraper on this network asks api:9464 and
+# worker:9464, every replica of each by the service's name (deploying.md, "Metrics").
 
 # Apart from the development file's project (emudoc), so that one machine can run both.
 name: emudoc-deploy

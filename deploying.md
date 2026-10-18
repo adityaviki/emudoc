@@ -48,6 +48,8 @@ on one machine; this is what changes for a deployment. The processes below run f
   `OPERATOR_EMAIL` and `BACKUP_DAYS`: "Terms of service and privacy policy", below.
 - **Backups** of the database and of the files, encrypted and kept for `BACKUP_DAYS`, which
   restore to the same point: "Backups", below.
+- **A scraper for the metrics**, if the deployment keeps them: Prometheus or anything that reads
+  its format, asking the API and every worker on a port of their own: "Metrics", below.
 
 `deploy/aws` builds all of it on AWS, staging and production alike: "On AWS", below.
 
@@ -1631,6 +1633,103 @@ the tracker's setting. The DSN carries the project's key: on AWS it goes into
 `/emudoc/<environment>/secrets/SENTRY_DSN` by hand, like the model keys ("The settings"), and the
 plan refuses it among the roots' settings.
 
+## Metrics
+
+The API and the worker serve their metrics in Prometheus's text format at `METRICS_ADDRESS`, a
+host and port of their own: the image listens on `0.0.0.0:9464` of its container, and a
+checkout serves none unless told (`127.0.0.1:9464` on one machine). Any path answers;
+`/metrics` is the convention. An address the process cannot listen on stops it at start, as a
+port another process holds would.
+
+The port is for the deployment's own network alone, never one the proxy forwards or a host
+publishes: the metrics say how large the deployment is and which models it pays for. The
+compose file publishes nothing of it, and the image does not `EXPOSE` it, so `docker run -P`
+leaves it alone too. No label names an organisation, a user, a document or anything a member
+typed: a series per organisation would grow with every sign-up, and one organisation's figures
+are its usage, `python -m app.maintenance usage <slug>`. A label holds the app's own words: a
+model's configured name, a kind of work, a stage, a job's kind, a plan, a status, a route's
+pattern (`/api/projects/{project_id}/documents`, never the path with its ids).
+
+What each process counts as it works, the API's and the workers' each their own (add them up
+across the instances, `sum without (instance)`):
+
+| Metric | What it counts |
+| --- | --- |
+| `emudoc_http_requests_total`, `emudoc_http_request_seconds` | Requests the API answered, by `method`, `route` (`other` for none) and `status`; an answer's event stream lasts as long as the answer is written |
+| `emudoc_db_connections{state}`, `emudoc_db_connections_limit`, `emudoc_db_pool_timeouts_total` | The process's pool: connections `in_use` and `idle`, what `DB_POOL_SIZE` + `DB_MAX_OVERFLOW` allow, and the requests and answers refused for a full pool |
+| `emudoc_model_requests_total`, `emudoc_model_request_seconds` | Requests to a model or the embeddings endpoint, by `model` (as configured), `role` (`index`, `agent`, `embed`) and `outcome`: `ok`, the provider's HTTP status (`401`, `429`, `503`), `timeout`, `unreachable`, `filtered`, `malformed`, `stopped` or `failed` |
+| `emudoc_model_first_event_seconds` | How soon a model began an answer, which is when a member sees it start |
+| `emudoc_model_tokens_total` | The tokens the providers counted, by `model`, `role` and `direction` |
+| `emudoc_model_fallbacks_total` | Requests a model failed in a way that asked its fallback: its provider was down, or refused the key, the account or the model ("The models") |
+| `emudoc_stage_runs_total`, `emudoc_stage_seconds` | Indexing stages, by `stage` and `outcome`: `done`, `skipped`, `failed`, `transient` (tried again), `deferred` (to the next UTC day), `quarantined`, `crashed`, `database_lost` or `lease_lost` |
+| `emudoc_index_runs_total` | Indexing runs, by how the document stood at the end: `ready`, `failed`, `quarantined` |
+| `emudoc_job_runs_total`, `emudoc_job_seconds`, `emudoc_job_wait_seconds` | Jobs a worker ran, by `kind` and `outcome` (`done`, `failed`, `crashed`, `abandoned`, `lost`, `unsettled`), how long each ran, and how long each waited for a worker once it was due |
+| `emudoc_worker_threads{lane}`, `emudoc_worker_busy{lane}` | A worker's job threads alive and running a job, by `lane` (`indexer`, `answerer`) |
+| `emudoc_upload_bytes`, `emudoc_upload_rejections_total` | The sizes of the files the API stored, and the files it refused by `reason`: `too_many` (a whole request), `plan`, `unsupported`, `empty`, `too_large`, `wrong_type`, `duplicate` |
+| `emudoc_rate_limited_total` | Requests refused for a rate, by the limit's `scope` ("Rates") |
+| `process_*`, `python_*` | The process's CPU, memory and open files, and Python's collector |
+
+What the database holds, which only a worker serves, reading it when asked, at most once every
+15 seconds, so that the queries grow with the workers and not with the scrapers. Every worker
+serves the same figures: take one, `max without (instance)`. A worker whose reading failed
+serves none of them until the next and logs why, so the series go stale rather than hold an old
+value.
+
+| Metric | What it holds |
+| --- | --- |
+| `emudoc_documents{status}` | Documents `queued`, `processing`, `ready`, `failed`, `quarantined` |
+| `emudoc_jobs{kind,state}` | Jobs `due` (to be claimed now), `waiting` (a retry's backoff, or the next UTC day), `running`, and `failed` (kept 30 days for `failed-jobs`) |
+| `emudoc_job_oldest_due_seconds{kind}` | How long the oldest due job has waited for a worker: the backlog's age |
+| `emudoc_answers_in_flight` | Answers queued or being written (`MAX_ANSWERS` holds each organisation to 20) |
+| `emudoc_organizations{plan}`, `emudoc_stored_bytes{plan}` | Organisations, and the bytes of the originals they keep, by plan |
+| `emudoc_spent_today{currency}`, `emudoc_daily_spend_cap{currency}` | The known cost of the models' work since midnight UTC (`MODEL_PRICES`), and `DAILY_SPEND_CAP` (0 for none) |
+
+A Prometheus on the compose file's network finds every replica by the services' names, and
+keeps which kind of process each is:
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: emudoc
+    scrape_interval: 30s
+    dns_sd_configs:
+      - names: [api, worker]
+        type: A
+        port: 9464
+    relabel_configs:
+      - source_labels: [__meta_dns_name]
+        target_label: process
+```
+
+```bash
+docker run -d --name prometheus --network emudoc-deploy_default -p 127.0.0.1:9090:9090 \
+  -v "$PWD/prometheus.yml:/etc/prometheus/prometheus.yml:ro" prom/prometheus:v3.15.0
+```
+
+(checked with Prometheus 3.15 against the image's API and worker under those names). The
+counters whose labels are known in advance start at zero: every stage with every outcome, every
+job's kind with every outcome, the upload refusals and the rate limits, so that `increase` sees
+the first failure after a start. A model's outcomes appear with their first request, since the
+statuses a provider answers are not known beforehand.
+
+A few of the questions it answers:
+
+```promql
+# The backlog's age, and the live workers
+max without (instance) (emudoc_job_oldest_due_seconds{kind="index_document"})
+count(emudoc_worker_threads{lane="indexer"})
+# Stages that fail, and models that fail over, in the last quarter hour
+sum by (stage, outcome) (increase(emudoc_stage_runs_total{outcome=~"failed|crashed|transient"}[15m]))
+sum by (model) (increase(emudoc_model_fallbacks_total[15m]))
+# How soon an answer begins, at the 95th percentile, and the pools' share in use
+histogram_quantile(0.95, sum by (le) (rate(emudoc_model_first_event_seconds_bucket[5m])))
+emudoc_db_connections{state="in_use"} / ignoring (state) emudoc_db_connections_limit
+```
+
+The image runs one uvicorn process per container, which the metrics take for granted: with
+uvicorn's `--workers`, each process would count apart behind one port, and the scraper would
+read whichever answered.
+
 ## Rates
 
 The app holds each caller to a rate of its own (the `RATE_*` settings in `.env.example`): so
@@ -1882,7 +1981,8 @@ tag and delete only copies called `emudoc-drill-…` that carry `purpose=restore
   batch of 32 passages 120 seconds. Two vCPUs are slow for long passages; embed stages that keep
   failing on time call for a larger instance or a hosted endpoint ("The embeddings
   endpoint").
-- Metrics and alarms, a CDN or firewall in front, IPv6, the bucket's replication to a second
+- A scraper for the metrics (the containers serve them on 9464 of the compose network) and
+  alarms on them, a CDN or firewall in front, IPv6, the bucket's replication to a second
   region, and VPC flow logs.
 
 It was checked without an AWS account: the module and the account root by `tofu test` against
@@ -1995,3 +2095,12 @@ repository's policy among them.
     print(boto3.Session().get_credentials())'` prints `None` after a second: a container does
     not reach the instance's role. A release of a tag whose migration fails ends with "was not
     recorded", and `/api/health` answers throughout.
+19. The API's and the worker's logs say at start "Metrics are served at http://0.0.0.0:9464/metrics",
+    the worker's "with the database's figures". From the machine, `docker compose -f
+    deploy/compose.yml exec worker python -c "import urllib.request;
+    print(urllib.request.urlopen('http://127.0.0.1:9464/metrics').read().decode())" | grep
+    '^emudoc_documents'` lists the documents by status; from outside the deployment's network
+    the port gets no answer, and `https://emudoc.example.com/metrics` is the page, not them.
+    Upload a document and ask a question: the scraper shows `emudoc_stage_runs_total` with
+    `outcome="done"` for every stage and `emudoc_model_requests_total` with `outcome="ok"`, and
+    no series names a member, an organisation or the question.

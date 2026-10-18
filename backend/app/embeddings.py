@@ -10,6 +10,7 @@ from pydantic_ai.usage import RunUsage
 from app.config import Settings
 from app.errors import AppError, provider_codes
 from app.logs import bare_url
+from app.metrics import EMBED, model_request
 from app.usage import ModelUsage
 
 BATCH_SIZE = 32
@@ -133,57 +134,76 @@ class Embedder:
     def _request(
         self, inputs: list[str], timeout: float, usage: ModelUsage | None
     ) -> list[list[float]]:
-        payload = {"model": self.model, "input": inputs}
-        try:
-            response = self._client.post("/embeddings", json=payload, timeout=timeout)
-            response.raise_for_status()
-            body = response.json()
-            data = body["data"]
-        except httpx.HTTPStatusError as error:
-            # Told by its status and codes: the body of an endpoint's error may quote the
-            # passages it was sent, and the message reaches the log (app/errors.py).
-            status = error.response.status_code
-            refusal = _json_or_none(error.response)
-            codes = provider_codes(refusal)
-            detail = f" (error code {', '.join(codes)})" if codes else ""
-            if status == 400 and TOO_LONG in codes and (sizes := _sizes(refusal)):
-                raise InputTooLong(
-                    f"Embedding endpoint returned 400{detail}: an input of {sizes[0]} tokens "
-                    f"is past the model's {sizes[1]}.",
-                    *sizes,
+        with model_request(self.model, EMBED, _outcome) as request:
+            payload = {"model": self.model, "input": inputs}
+            try:
+                response = self._client.post("/embeddings", json=payload, timeout=timeout)
+                response.raise_for_status()
+                body = response.json()
+                data = body["data"]
+            except httpx.HTTPStatusError as error:
+                # Told by its status and codes: the body of an endpoint's error may quote the
+                # passages it was sent, and the message reaches the log (app/errors.py).
+                status = error.response.status_code
+                refusal = _json_or_none(error.response)
+                codes = provider_codes(refusal)
+                detail = f" (error code {', '.join(codes)})" if codes else ""
+                if status == 400 and TOO_LONG in codes and (sizes := _sizes(refusal)):
+                    raise InputTooLong(
+                        f"Embedding endpoint returned 400{detail}: an input of {sizes[0]} tokens "
+                        f"is past the model's {sizes[1]}.",
+                        *sizes,
+                    ) from error
+                raise EmbeddingError(
+                    f"Embedding endpoint returned {status}{detail}.",
+                    transient=status in TRANSIENT_STATUSES
+                    or (status >= 500 and status != NOT_IMPLEMENTED),
                 ) from error
-            raise EmbeddingError(
-                f"Embedding endpoint returned {status}{detail}.",
-                transient=status in TRANSIENT_STATUSES
-                or (status >= 500 and status != NOT_IMPLEMENTED),
-            ) from error
-        except httpx.TimeoutException as error:
-            raise EmbeddingError(
-                f"Embedding endpoint at {bare_url(str(self._client.base_url))} did not answer "
-                f"within {timeout:g} seconds.",
-                transient=True,
-            ) from error
-        except httpx.HTTPError as error:
-            # Not reached, or the connection dropped: the endpoint may well be back in a while.
-            raise EmbeddingError(
-                f"Embedding endpoint unreachable at {bare_url(str(self._client.base_url))}.",
-                transient=True,
-            ) from error
-        except (KeyError, TypeError, ValueError) as error:
-            raise EmbeddingError("Embedding endpoint returned an unexpected response.") from error
+            except httpx.TimeoutException as error:
+                raise EmbeddingError(
+                    f"Embedding endpoint at {bare_url(str(self._client.base_url))} did not answer "
+                    f"within {timeout:g} seconds.",
+                    transient=True,
+                ) from error
+            except httpx.HTTPError as error:
+                # Not reached, or the connection dropped: the endpoint may well be back in a while.
+                raise EmbeddingError(
+                    f"Embedding endpoint unreachable at {bare_url(str(self._client.base_url))}.",
+                    transient=True,
+                ) from error
+            except (KeyError, TypeError, ValueError) as error:
+                raise EmbeddingError(
+                    "Embedding endpoint returned an unexpected response."
+                ) from error
 
-        vectors = [item["embedding"] for item in sorted(data, key=lambda item: item["index"])]
-        if len(vectors) != len(inputs):
-            raise EmbeddingError("Embedding endpoint returned the wrong number of vectors.")
-        if vectors and len(vectors[0]) != self.dim:
-            raise EmbeddingError(
-                f"{self.model} returns {len(vectors[0])}-dimensional vectors but EMBEDDING_DIM "
-                f"is {self.dim}."
-            )
-        if usage is not None and (tokens := _tokens(body)):
+            vectors = [item["embedding"] for item in sorted(data, key=lambda item: item["index"])]
+            if len(vectors) != len(inputs):
+                raise EmbeddingError("Embedding endpoint returned the wrong number of vectors.")
+            if vectors and len(vectors[0]) != self.dim:
+                raise EmbeddingError(
+                    f"{self.model} returns {len(vectors[0])}-dimensional vectors but EMBEDDING_DIM "
+                    f"is {self.dim}."
+                )
+            tokens = _tokens(body)
+            request.used(tokens)
+        if usage is not None and tokens:
             # Tokens without a model call: an embedding is priced for what it was sent alone.
             usage.add(self.model, RunUsage(input_tokens=tokens))
         return vectors
+
+
+def _outcome(error: BaseException) -> str:
+    """How the metrics call the way a request ended (app/metrics.py), by what the endpoint's
+    error was raised from: its HTTP status, a timeout, no answer, or a reply of the wrong
+    shape."""
+    cause = error.__cause__ if isinstance(error, EmbeddingError) else error
+    if isinstance(cause, httpx.HTTPStatusError):
+        return str(cause.response.status_code)
+    if isinstance(cause, httpx.TimeoutException):
+        return "timeout"
+    if isinstance(cause, httpx.HTTPError):
+        return "unreachable"
+    return "malformed" if isinstance(error, EmbeddingError) else "failed"
 
 
 def _tokens(body: dict) -> int:

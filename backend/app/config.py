@@ -30,9 +30,14 @@ Effort = Literal["", "minimal", "low", "medium", "high", "xhigh"]
 # A deployment that carries it has copied the development setup, so production refuses it.
 DEVELOPMENT_PASSWORD = "emudoc"
 # The threads a worker runs besides its indexing and answering threads that take a connection
-# from the pool now and then: the heartbeat, the housekeeper and the alerter (app/worker.py).
-# The listener holds a connection of its own outside the pool.
-WORKER_HELPER_THREADS = 3
+# from the pool now and then: the heartbeat, the housekeeper and the alerter (app/worker.py),
+# and the metrics' server reading the database (app/metrics.py). The listener holds a
+# connection of its own outside the pool.
+WORKER_HELPER_THREADS = 4
+METRICS_ADDRESS_FORM = (
+    "METRICS_ADDRESS is a host and port, such as 127.0.0.1:9464, 0.0.0.0:9464 in a container or "
+    "[::]:9464, or empty for no metrics"
+)
 STORAGE_URL_FORMS = (
     "STORAGE_URL names a directory as file:///var/lib/emudoc or an S3-compatible bucket as "
     "s3://bucket/prefix"
@@ -62,6 +67,23 @@ MOVING_ALIAS = re.compile(r"(?:^|[-_.:/])latest$|^openrouter/auto$", re.IGNORECA
 # The regions a deployment can keep its documents in (DATA_REGION), by the code the setting and
 # `organizations.region` hold, with the name the app says them by (app/residency.py).
 REGIONS = {"eu": "the European Union", "us": "the United States"}
+
+
+def parse_metrics_address(value: str) -> tuple[str, int] | None:
+    """What METRICS_ADDRESS names: the (host, port) to serve the metrics at, or None for none
+    (empty). Raises `ValueError` naming the form for anything else."""
+    value = value.strip()
+    if not value:
+        return None
+    host, _, port = value.rpartition(":")
+    if host.startswith("[") and host.endswith("]"):
+        host = host[1:-1]
+    elif ":" in host:
+        # An IPv6 address without its brackets, whose port cannot be told from its last group.
+        host = ""
+    if host and port.isascii() and port.isdigit() and 0 < int(port) < 65536:
+        return host, int(port)
+    raise ValueError(f"{METRICS_ADDRESS_FORM}; {value!r} is not.")
 
 
 def parse_scanner_url(value: str) -> tuple[str, int] | str | None:
@@ -158,6 +180,11 @@ class Settings(BaseSettings):
     # The environment the tracker files the reports under, such as staging; empty takes
     # ENVIRONMENT, which is production on staging too.
     sentry_environment: str = ""
+    # Where the API and the worker serve their metrics, in Prometheus's format (app/metrics.py):
+    # host:port, on a port of their own that only the deployment's network may reach, never one
+    # the proxy forwards, since they say how large the deployment is and which models it pays
+    # for. Empty serves none. The image listens on 0.0.0.0:9464 of its container.
+    metrics_address: str = ""
 
     # The database, as a SQLAlchemy URL. There is no default: a process that was not told its
     # database stops (see `load_settings`) rather than reach for a loopback server with a
@@ -418,6 +445,12 @@ class Settings(BaseSettings):
         if parts.scheme == "s3" and parts.netloc and not parts.query and not parts.fragment:
             return value
         raise ValueError(f"{STORAGE_URL_FORMS}; {value!r} is neither")
+
+    @field_validator("metrics_address")
+    @classmethod
+    def _names_an_address_or_none(cls, value: str) -> str:
+        parse_metrics_address(value)
+        return value.strip()
 
     @field_validator("scanner_url")
     @classmethod

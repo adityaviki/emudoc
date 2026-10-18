@@ -31,6 +31,7 @@ from app.config import Settings, get_settings
 from app.entitlements import check_upload, size_label
 from app.indexing.pipeline import reset_stages
 from app.jobs import queue_index
+from app.metrics import UPLOAD_BYTES, UPLOAD_REJECTIONS
 from app.models import STAGES, Block, Document, Fact, Project, Section
 from app.parsing import IMAGE_TYPES, MIME_TYPES, SUPPORTED_EXTENSIONS, FileTooLarge
 from app.parsing.images import open_image
@@ -109,9 +110,11 @@ def upload_documents(
     settings = get_settings()
     limit = settings.max_upload_mb * 1024 * 1024
     if reason := too_many(files, settings):
+        UPLOAD_REJECTIONS.labels("too_many").inc()
         raise HTTPException(413, reason)
     organization = account.organization
     if reason := check_upload(session, organization):
+        UPLOAD_REJECTIONS.labels("plan").inc(len(files))
         raise HTTPException(402, reason)
     folder = resolve_folder(session, project, folder_id)
     documents: list[Document] = []
@@ -125,6 +128,7 @@ def upload_documents(
             rejected.append(
                 RejectedFile(filename=filename, reason=f"Unsupported type. Use {supported}.")
             )
+            UPLOAD_REJECTIONS.labels("unsupported").inc()
             continue
 
         # Spooled to a local temporary file while hashing: the hash finds a re-upload of the
@@ -135,21 +139,25 @@ def upload_documents(
             if size > limit or size == 0:
                 reason = "Empty file." if size == 0 else f"Larger than {settings.max_upload_mb} MB."
                 rejected.append(RejectedFile(filename=filename, reason=reason))
+                UPLOAD_REJECTIONS.labels("empty" if size == 0 else "too_large").inc()
                 continue
             # The extension picks the parser and the type the file is served as, so the bytes
             # must be what it says; refused here, before a duplicate is looked for or the plan
             # is counted, with a sentence about the file rather than a parser's a stage later.
             if reason := wrong_type(spool, suffix):
                 rejected.append(RejectedFile(filename=filename, reason=reason))
+                UPLOAD_REJECTIONS.labels("wrong_type").inc()
                 continue
 
             duplicate = _already_present(session, project.id, sha256, filename)
             if duplicate:
                 rejected.append(duplicate)
+                UPLOAD_REJECTIONS.labels("duplicate").inc()
                 continue
             # Counted again per file: each one committed above fills the plan a little more.
             if reason := check_upload(session, organization, size):
                 rejected.append(RejectedFile(filename=filename, reason=reason))
+                UPLOAD_REJECTIONS.labels("plan").inc()
                 continue
 
             document = Document(
@@ -180,6 +188,7 @@ def upload_documents(
                     _already_present(session, project.id, sha256, filename)
                     or RejectedFile(filename=filename, reason=LOST_RACE)
                 )
+                UPLOAD_REJECTIONS.labels("duplicate").inc()
                 continue
             document.storage_key = original_key(project.org_id, project.id, document.id, suffix)
             # A document's place in the storage is named by its ids, so a place that holds files
@@ -214,6 +223,7 @@ def upload_documents(
             )
             session.commit()
             documents.append(document)
+            UPLOAD_BYTES.observe(size)
         finally:
             spool.unlink(missing_ok=True)
 

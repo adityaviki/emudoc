@@ -114,6 +114,20 @@ for ((tries = 30; ; tries--)); do
   sleep 1
 done
 running api
+# The metrics, on the port of their own the image listens on (METRICS_ADDRESS), which nothing
+# publishes: the API's requests, and the worker's figures of the database.
+metrics() {
+  docker exec "$name-$1" python -c "import urllib.request
+print(urllib.request.urlopen('http://127.0.0.1:9464/metrics', timeout=5).read().decode())"
+}
+grep -q '^emudoc_http_requests_total{' <<<"$(metrics api)" || {
+  echo "The API serves no metrics on 9464." >&2
+  exit 1
+}
+grep -q '^emudoc_documents{' <<<"$(metrics worker)" || {
+  echo "The worker serves none of the database's figures on 9464." >&2
+  exit 1
+}
 
 passed=true
-echo "The image $image ($revision) migrates, serves the page, its ${#files[@]} files and the probes, and runs the worker."
+echo "The image $image ($revision) migrates, serves the page, its ${#files[@]} files and the probes, and runs the worker, and both serve their metrics."

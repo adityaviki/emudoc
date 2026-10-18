@@ -43,6 +43,7 @@ from app.db import BUSY, SessionLocal
 from app.indexing.pipeline import Services
 from app.jobs import ANSWER_QUESTION, LIVE, Lease, LeaseLost, enqueue, renew
 from app.logs import about
+from app.metrics import POOL_TIMEOUTS
 from app.models import Chat, ChatMessage, Job, Project
 from app.spending import check_platform_spend, check_spend
 from app.usage import ANSWER, CHAT_MESSAGE, ModelUsage, record
@@ -326,6 +327,7 @@ def _write(session: Session, writer: _Writer, events: Iterator[dict], lease: Lea
         # request is refused the same way, `pool_exhausted` in app/main.py): the answer
         # ends with the sentence that says to try again, and the operator sees the pool,
         # not a traceback.
+        POOL_TIMEOUTS.inc()
         log.warning("Answer %s stopped: every database connection is in use", message_id)
         session.rollback()
         reply.error = BUSY
@@ -378,6 +380,7 @@ def run_answer(job: Job, services: Services) -> str | None:
         raise
     except Exception as error:
         if isinstance(error, PoolTimeout):
+            POOL_TIMEOUTS.inc()
             log.warning("Answer %s failed: every database connection is in use", message_id)
         else:
             log.exception("Answer %s failed", message_id)

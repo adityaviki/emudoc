@@ -101,6 +101,9 @@ os.environ["ENVIRONMENT"] = "development"
 # Nothing the tests raise reaches the developer's tracker; tests/test_tracking.py starts one that
 # keeps what it would send.
 os.environ["SENTRY_DSN"] = os.environ["SENTRY_ENVIRONMENT"] = ""
+# Every app the tests start would listen for its metrics on the same port; tests/test_metrics.py
+# starts the server on a port of its own.
+os.environ["METRICS_ADDRESS"] = ""
 # The app under test starts no worker threads of its own: tests run the pipeline directly, or
 # build a `Worker` by hand (tests/test_jobs.py) and stop it.
 os.environ["RUN_WORKER"] = "false"

@@ -3,6 +3,7 @@
 import io
 import logging
 import re
+import time
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ from app.indexing.enrich import (
 from app.indexing.structure import SectionHint, build_outline
 from app.jobs import Lease, LeaseLost, renew
 from app.llm import LLM, LLMError
+from app.metrics import INDEX_RUNS, STAGE_RUNS, STAGE_SECONDS
 from app.models import STAGES, Block, Document, Fact, Passage, Section
 from app.parsing import IMAGE_TYPES, FileTooLarge, ParsedBlock, UnsupportedFile
 from app.parsing.images import open_image
@@ -161,15 +163,18 @@ def process_document(
             failures.append(failure)
             if failure.quarantine:
                 _quarantine(session, document, failure, lease)
+                INDEX_RUNS.labels("quarantined").inc()
                 return failures
             if name in REQUIRED_STAGES:
                 document.status = "failed"
                 document.error = failure.message
                 _commit(session, lease)
+                INDEX_RUNS.labels("failed").inc()
                 return failures
 
         document.status = "ready"
         _commit(session, lease)
+        INDEX_RUNS.labels("ready").inc()
         return failures
 
 
@@ -249,25 +254,32 @@ def _run_stage(
     failed."""
     _set_stage(session, document, name, "running", lease=lease)
     document_id = document.id
+    started = time.monotonic()
+    # How the run ended, for the metrics (app/metrics.py); a lease lost at any commit is that.
+    outcome = "lease_lost"
     try:
         detail = stage(session, document, services, meter)
         # The stage's rows are flushed with its mark, so a database lost at this commit is
         # lost under the stage, and handled below like one lost while it ran.
         _set_stage(session, document, name, "done", detail, lease)
+        outcome = "done"
         return None
     except LeaseLost:
         raise
     except StageSkipped as skipped:
         session.rollback()
+        outcome = "skipped"
         _set_stage(session, document, name, "skipped", str(skipped), lease)
         return None
     except (AppError, UnsupportedFile, FileTooLarge) as error:
         session.rollback()
-        _set_stage(session, document, name, "failed", str(error), lease)
         transient = isinstance(error, AppError) and error.transient
         retry_at = error.until if isinstance(error, StageDeferred) else None
         threat = error.threat if isinstance(error, MalwareFound) else None
-        return StageFailure(name, str(error), transient, retry_at, threat)
+        failure = StageFailure(name, str(error), transient, retry_at, threat)
+        outcome = _outcome(failure)
+        _set_stage(session, document, name, "failed", str(error), lease)
+        return failure
     except Exception as error:
         session.rollback()
         if connection_lost(error):
@@ -281,14 +293,28 @@ def _run_stage(
                 document_id,
                 summary(error.orig or error).splitlines()[0],
             )
+            outcome = "database_lost"
             _set_stage(session, document, name, "failed", LOST_DATABASE, lease)
             return StageFailure(name, LOST_DATABASE, transient=True)
         log.exception("Stage %s failed for document %s", name, document_id)
+        outcome = "crashed"
         message = f"Unexpected error: {type(error).__name__}"
         _set_stage(session, document, name, "failed", message, lease)
         return StageFailure(name, message, transient=False)
     finally:
+        STAGE_RUNS.labels(name, outcome).inc()
+        if outcome != "skipped":
+            STAGE_SECONDS.labels(name).observe(time.monotonic() - started)
         _charge(session, meter, document_id)
+
+
+def _outcome(failure: StageFailure) -> str:
+    """How the metrics call a stage that failed for a reason of its own (app/metrics.py)."""
+    if failure.quarantine:
+        return "quarantined"
+    if failure.retry_at is not None:
+        return "deferred"
+    return "transient" if failure.transient else "failed"
 
 
 def _charge(session: Session, meter: Meter, document_id: int) -> None:

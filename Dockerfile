@@ -64,14 +64,17 @@ LABEL org.opencontainers.image.revision=$VERSION
 # Production unless told otherwise: a container started without its settings refuses to run
 # with development's, rather than running with them. psycopg's binary package brings an OpenSSL
 # that looks for the system's certificates where it was built, so a database reached with
-# sslrootcert=system is checked against none unless SSL_CERT_FILE names them.
+# sslrootcert=system is checked against none unless SSL_CERT_FILE names them. The API and the
+# worker serve their metrics on 9464 of the container (deploying.md, "Metrics").
 ENV PATH=/app/backend/.venv/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     ENVIRONMENT=production \
+    METRICS_ADDRESS=0.0.0.0:9464 \
     EMUDOC_VERSION=$VERSION
 USER 10001:10001
+# The metrics' port is not exposed, so that `docker run -P` does not publish it with the API's.
 EXPOSE 8000
 # A stop ends the answer streams at once and gives the other requests in progress 8 seconds,
 # within the 10 Docker waits before it kills the process (deploying.md, "The image").

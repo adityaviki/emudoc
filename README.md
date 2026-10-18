@@ -521,6 +521,15 @@ on; the browser runs no tracker's script. A 500 answers with a sentence that end
 request's id as the reference to quote. The subprocessor list and the privacy policy name the
 tracker when it is a company's. `deploying.md` ("Error tracking") has the details.
 
+The API and the worker serve metrics in Prometheus's format on a port of their own
+(`METRICS_ADDRESS`; the image's containers on 9464, which the compose file publishes nowhere):
+requests by route pattern, the database pool, each model's requests, outcomes, time to the
+first event and tokens, stages, jobs, uploads and rate refusals, and from a worker the documents
+and the queue by status, the backlog's age, the answers being written, the organisations and
+their bytes by plan, and the day's spend (`backend/app/metrics.py`). No label names an
+organisation, a user or anything a member typed. `deploying.md` ("Metrics") lists them, with a
+Prometheus to scrape them.
+
 Each organisation keeps an audit log (`backend/app/audit.py`): its members' sign-ins (and
 failed ones for their accounts), password, two-factor and session changes, exports and
 deletion requests, every upload, download and deletion of a document, folder or project, chats
