@@ -54,6 +54,18 @@ FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
 STORAGE_DOWN = "Emudoc could not reach its file storage just now. Try again in a few minutes."
 NOT_READY = "Emudoc cannot serve requests just now. Try again in a few minutes."
 FAULT = "Emudoc ran into an error of its own, which it recorded."
+# What a deployment's status line tells members when the models or the embeddings endpoint
+# cannot be used: what they cannot do for now, naming no model, address or setting. Why is the
+# operator's, from the start's log, the metrics and the worker's watch (app/watch.py), which
+# read the same `LLM.problem()` and `Embedder.check()`.
+MODELS_UNAVAILABLE = (
+    "The AI model is unavailable just now, so questions cannot be asked and documents get no "
+    "summaries or facts. Try again later."
+)
+KEYWORDS_ONLY = (
+    "Search matches keywords only just now, so a passage that says the same in other words may "
+    "be missed. Try again later."
+)
 
 
 class PagePath(PathConvertor):
@@ -112,10 +124,28 @@ def health(session: SessionDep):
 
 @system.get("/status", response_model=StatusOut)
 def status(services: ServicesDep, account: AccountDep):
-    """Report which optional services are usable, so the UI can say what is missing."""
+    """Which optional services are usable, so the page can say what cannot be done.
+
+    In development whoever uses the app runs it, so the status speaks to the operator: it names
+    the models and says what stops them and what to change, the embeddings endpoint's address
+    included. A deployment's members are told what they cannot do for now and nothing of how
+    the deployment is set up, which is the operator's to read elsewhere (`MODELS_UNAVAILABLE`).
+    """
     settings = get_settings()
-    error = services.embedder.check()
+    reason = services.embedder.check()
     problem = services.llm.problem()
+    if settings.environment != "development":
+        return StatusOut(
+            llm=LLMStatus(available=problem is None, error=MODELS_UNAVAILABLE if problem else None),
+            embeddings=EmbeddingStatus(ok=reason is None, error=KEYWORDS_ONLY if reason else None),
+            currency=settings.price_currency,
+        )
+    if problem:
+        # The settings are read once, at the start: a key added to .env is used by the backend
+        # started after.
+        problem += " Then restart the backend to get answers, summaries and facts."
+    if reason:
+        reason += " Search falls back to keywords."
     return StatusOut(
         llm=LLMStatus(
             available=problem is None,
@@ -125,7 +155,7 @@ def status(services: ServicesDep, account: AccountDep):
             index_fallback_model=settings.index_fallback_model or None,
             error=problem,
         ),
-        embeddings=EmbeddingStatus(ok=error is None, model=settings.embedding_model, error=error),
+        embeddings=EmbeddingStatus(ok=reason is None, model=settings.embedding_model, error=reason),
         currency=settings.price_currency,
     )
 

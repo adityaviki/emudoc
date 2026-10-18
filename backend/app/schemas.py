@@ -440,19 +440,26 @@ class AuthOptions(BaseModel):
 
 
 class LLMStatus(BaseModel):
+    """Whether the models can be used. The names are the operator's, given in development only
+    (`status` in main.py); `error` is a sentence for whoever reads the status: what to change in
+    development, what members cannot do for now in a deployment."""
+
     available: bool
-    agent_model: str
-    index_model: str
+    agent_model: str | None = None
+    index_model: str | None = None
     # What is asked when the model above cannot answer (AGENT_FALLBACK_MODEL,
     # INDEX_FALLBACK_MODEL); None without one.
-    agent_fallback_model: str | None
-    index_fallback_model: str | None
+    agent_fallback_model: str | None = None
+    index_fallback_model: str | None = None
     error: str | None
 
 
 class EmbeddingStatus(BaseModel):
+    """Whether the embeddings endpoint answers; its model is named in development only, like
+    the models above."""
+
     ok: bool
-    model: str
+    model: str | None = None
     error: str | None
 
 

@@ -23,6 +23,7 @@ import { ProjectsPage } from './pages/ProjectsPage.tsx'
 import { LegalPage } from './pages/LegalPage.tsx'
 import { SubprocessorsPage } from './pages/SubprocessorsPage.tsx'
 import { Workspace } from './pages/Workspace.tsx'
+import { describeServices } from './status.ts'
 
 /**
  * Asks who is signed in before showing anything. The sign-in pages render on their own; every
@@ -218,34 +219,13 @@ function VerifyBanner({ me }: { me: Me }) {
   )
 }
 
-/** A model and the one asked when it cannot answer: "a (b when it cannot)". */
-function withFallback(model: string, fallback: string | null) {
-  return fallback ? `${model} (${fallback} when it cannot)` : model
-}
-
-/** Shows whether the two optional services, the AI model and embeddings, are usable. */
+/** Shows whether the two optional services, the AI model and semantic search, are usable. */
 function ServiceStatus() {
   const { data } = useStatus()
   if (!data) return null
-  const items = [
-    {
-      label: 'AI model',
-      ok: data.llm.available,
-      detail: data.llm.available
-        ? `Answers with ${withFallback(data.llm.agent_model, data.llm.agent_fallback_model)}, indexes with ${withFallback(data.llm.index_model, data.llm.index_fallback_model)}`
-        : `${data.llm.error ?? 'Not configured.'} Then restart the backend to get answers, summaries and facts.`,
-    },
-    {
-      label: 'Embeddings',
-      ok: data.embeddings.ok,
-      detail: data.embeddings.ok
-        ? `Semantic search with ${data.embeddings.model}`
-        : `${data.embeddings.error}. Search falls back to keywords.`,
-    },
-  ]
   return (
     <div className="hidden items-center gap-1 text-xs text-muted sm:flex">
-      {items.map((item) => (
+      {describeServices(data).map((item) => (
         <span
           key={item.label}
           title={item.detail}

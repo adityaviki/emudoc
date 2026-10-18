@@ -11,6 +11,9 @@ its day, in the same commit.
 
 Members:
 
+- When the AI model or semantic search cannot be used, the header and the Ask tab say what
+  cannot be done for now and to try later, and no longer name the models, the search service's
+  address or the settings to change. The header's "Embeddings" is called "Semantic search".
 - A page that runs into an error shows a Reload button and a reference to quote in place of a
   blank screen, and the error is reported. An error of the server's own says so in a sentence
   that ends with the reference, rather than "Internal Server Error".
@@ -19,6 +22,9 @@ Members:
 
 Operators:
 
+- In production `GET /api/status`, the members' status line, names no model, address or
+  setting: why the models or the embeddings endpoint cannot be used is in the start's log, the
+  metrics and the alerts. Development still names them and says what to change.
 - With `ALERT_EMAIL` set, the worker also writes when something it can see goes wrong, once when
   it begins and once when it is over: questions or documents waiting long for a worker,
   indexing or answers failing, a model failing over to its fallback, the embeddings endpoint,

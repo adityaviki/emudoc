@@ -22,7 +22,7 @@ from app.config import (
     get_settings,
     load_settings,
 )
-from app.main import create_app
+from app.main import MODELS_UNAVAILABLE, create_app
 
 A_DATABASE = "postgresql+psycopg://app:secret@db.internal:5432/emudoc"
 # The compose container's password on a server elsewhere: a copied development setup.
@@ -636,16 +636,16 @@ def test_a_production_start_needs_the_model(production, services, monkeypatch):
 
 
 def test_a_production_start_runs_with_a_switched_off_model(production, monkeypatch, caplog):
-    # The kill switch stops the spending, not the app: the process starts, says what is off,
-    # and the status route shows the users why the model is missing.
+    # The kill switch stops the spending, not the app: the process starts and logs what is
+    # off, and the status route tells the members that the model cannot be used for now.
     monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
     monkeypatch.setattr(get_settings(), "disabled_providers", "google")
     with caplog.at_level("WARNING", logger="app.startup"):
         with TestClient(create_app()) as client:
             status = client.get("/api/status").json()["llm"]
-    assert status["available"] is False
-    assert status["error"].startswith("google:gemini-2.5-flash-lite is switched off:")
-    assert "is switched off" in caplog.text and "runs without the model" in caplog.text
+    assert status["available"] is False and status["error"] == MODELS_UNAVAILABLE
+    assert "google:gemini-2.5-flash-lite is switched off: DISABLED_PROVIDERS" in caplog.text
+    assert "runs without the model" in caplog.text
 
 
 def test_a_production_start_needs_the_fallback_it_names(production, monkeypatch):

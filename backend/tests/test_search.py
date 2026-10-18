@@ -7,6 +7,7 @@ from app.indexing.pipeline import process_document
 from app.main import create_app
 from app.models import Passage, Project
 from app.search import _segments, check_fts_language, hybrid_search
+from tests.conftest import FakeEmbedder
 
 
 def search(session, services, document, query, **kwargs):
@@ -115,7 +116,7 @@ def test_keyword_search_survives_an_embedding_outage(session, services, indexed,
     # The operator hears of it, without the query.
     assert caplog.messages == [
         f"A search in project {indexed.project_id} matched keywords only: "
-        "Embedding endpoint unreachable"
+        f"{FakeEmbedder.UNREACHABLE}"
     ]
 
 

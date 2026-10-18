@@ -40,6 +40,7 @@ from app.logs import (
 )
 from app.models import Folder, Project
 from app.worker import HANDLERS, Handler, Worker
+from tests.conftest import FakeEmbedder
 from tests.test_api import create_project
 from tests.test_auth import signup
 from tests.test_chats import ask, new_chat
@@ -380,7 +381,7 @@ def test_a_requests_lines_name_its_id_the_member_and_the_project(
         "level": "WARNING",
         "logger": "app.search",
         "message": f"A search in project {project['id']} matched keywords only: "
-        "Embedding endpoint unreachable",
+        f"{FakeEmbedder.UNREACHABLE}",
         "request_id": request_id,
         "org_id": member["organization"]["id"],
         "user_id": member["id"],

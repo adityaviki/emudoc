@@ -8,6 +8,7 @@ from app.indexing import enrich
 from app.indexing.pipeline import StageFailure, process_document, reset_stages
 from app.models import Block, Fact, Passage, Section
 from app.parsing import images
+from tests.conftest import FakeEmbedder
 
 
 def rows(session, model, document):
@@ -104,7 +105,7 @@ def test_embedding_outage_does_not_fail_the_document(session, services, make_doc
     document = make_document(sample_pdf)
     # The run reports the stage for the job to run again later (tests/test_jobs.py).
     assert process_document(document.id, services) == [
-        StageFailure("embed", "Embedding endpoint unreachable", transient=True)
+        StageFailure("embed", FakeEmbedder.UNREACHABLE, transient=True)
     ]
     session.refresh(document)
 

@@ -144,17 +144,22 @@ export interface SearchResult {
   semantic: boolean
 }
 
+/**
+ * Whether the models and the embeddings endpoint can be used. The names are the operator's,
+ * given in development only; `error` is a sentence for whoever reads the status, what to
+ * change in development and what members cannot do for now in a deployment.
+ */
 export interface SystemStatus {
   llm: {
     available: boolean
-    agent_model: string
-    index_model: string
+    agent_model: string | null
+    index_model: string | null
     /** What is asked when the model before it cannot answer; null without one. */
     agent_fallback_model: string | null
     index_fallback_model: string | null
     error: string | null
   }
-  embeddings: { ok: boolean; model: string; error: string | null }
+  embeddings: { ok: boolean; model: string | null; error: string | null }
   /** The currency the costs on usage are in, an ISO 4217 code. */
   currency: string
 }

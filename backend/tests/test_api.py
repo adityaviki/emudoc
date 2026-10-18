@@ -6,9 +6,16 @@ from sqlalchemy import func, select
 
 from app.config import get_settings
 from app.indexing.pipeline import process_document
+from app.main import KEYWORDS_ONLY, MODELS_UNAVAILABLE
 from app.models import Job
 from app.parsing import images
-from tests.conftest import MISSING_KEY, compound_file, pageless_pdf, protected_pdf
+from tests.conftest import (
+    MISSING_KEY,
+    FakeEmbedder,
+    compound_file,
+    pageless_pdf,
+    protected_pdf,
+)
 
 
 def create_project(client, name="Contracts"):
@@ -426,13 +433,45 @@ def test_status_reports_what_is_missing(client, services, monkeypatch):
     # The currency the costs on usage are in (PRICE_CURRENCY).
     assert health["currency"] == "USD"
 
+    # In development whoever reads the status runs the app: what stops it, and what to do.
     services.embedder.fail = True
     services.llm.available = False
     health = client.get("/api/status").json()
     assert health["llm"]["available"] is False
-    assert health["llm"]["error"] == MISSING_KEY
+    assert health["llm"]["error"] == (
+        f"{MISSING_KEY} Then restart the backend to get answers, summaries and facts."
+    )
     assert health["embeddings"] == {
         "ok": False,
         "model": "nomic-embed-text",
-        "error": "Embedding endpoint unreachable",
+        "error": f"{FakeEmbedder.UNREACHABLE} Search falls back to keywords.",
     }
+
+
+def test_a_deployments_status_names_nothing_of_how_it_is_set_up(client, services, monkeypatch):
+    # Its members do not run it: they hear what they cannot do for now, and the operator reads
+    # why in the log, the metrics and the alerts.
+    monkeypatch.setattr(get_settings(), "environment", "production")
+    monkeypatch.setattr(get_settings(), "agent_fallback_model", "anthropic:claude-haiku-5-5")
+    assert client.get("/api/status").json() == {
+        "llm": {
+            "available": True,
+            "agent_model": None,
+            "index_model": None,
+            "agent_fallback_model": None,
+            "index_fallback_model": None,
+            "error": None,
+        },
+        "embeddings": {"ok": True, "model": None, "error": None},
+        "currency": "USD",
+    }
+
+    services.embedder.fail = True
+    services.llm.available = False
+    response = client.get("/api/status")
+    health = response.json()
+    assert health["llm"]["available"] is False
+    assert health["llm"]["error"] == MODELS_UNAVAILABLE
+    assert health["embeddings"] == {"ok": False, "model": None, "error": KEYWORDS_ONLY}
+    for setup in ("GOOGLE_API_KEY", "gemini", "claude", FakeEmbedder.address, "nomic", "restart"):
+        assert setup not in response.text

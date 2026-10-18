@@ -20,7 +20,7 @@ from app.spending import ALERT_LOCK
 from app.storage import StorageError
 from app.watch import watch
 from app.worker import Worker
-from tests.conftest import FakeMailer
+from tests.conftest import FakeEmbedder, FakeMailer
 from tests.test_jobs import wait_until
 
 OPERATOR = "ops@example.test"
@@ -253,8 +253,8 @@ def test_services_that_do_not_answer_are_written_together(session, services, mai
     _, subject, body = mailer.sent[0]
     assert subject == "Emudoc alerts: 3 begun"
     assert (
-        "- The embeddings endpoint at http://embeddings.test/v1 does not answer: Embedding "
-        "endpoint unreachable Searches match keywords only"
+        "- The embeddings endpoint at http://embeddings.test/v1 does not answer: "
+        f"{FakeEmbedder.UNREACHABLE} Searches match keywords only"
     ) in body
     assert "- The malware scanner at clamd://clamav:3310 cannot be reached" in body
     assert "- The bucket 'docs' cannot be used (AccessDenied). Uploads are refused" in body

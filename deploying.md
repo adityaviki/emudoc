@@ -249,6 +249,10 @@ replica unready but none of them stuck, since a restart cures nothing and costs 
 
 `GET /api/status` is no probe: it is the status line the members see, signed in only, and it
 asks the embeddings endpoint (at most once a minute per process, waiting 10 seconds at most).
+In production it names no model, address or setting: while the models cannot be used it says
+that questions cannot be asked and documents get no summaries or facts for now, and while the
+embeddings endpoint does not answer that search matches keywords only, each with "Try again
+later". The operator reads why in the start's log, the metrics and the alerts (below).
 
 Docker restarts nothing for a failing health check. The compose file's checks are what `up
 --wait` waits for and what `ps` shows; what restarts a container is its process exiting, with

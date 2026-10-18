@@ -161,6 +161,8 @@ class FakeEmbedder:
     model = "fake-embedder"
     dim = 768
     address = "http://embeddings.test/v1"
+    # What the endpoint out of reach is said to be, as `Embedder` says it: with its address.
+    UNREACHABLE = f"Embedding endpoint unreachable at {address}."
     # What the endpoint says each text took, as Ollama and OpenAI's API report it.
     TOKENS_PER_TEXT = 4
 
@@ -170,7 +172,7 @@ class FakeEmbedder:
 
     def _vector(self, text_: str) -> list[float]:
         if self.fail:
-            raise EmbeddingError("Embedding endpoint unreachable", transient=True)
+            raise EmbeddingError(self.UNREACHABLE, transient=True)
         vector = [0.0] * self.dim
         for word in re.findall(r"[a-z0-9]+", text_.lower()):
             vector[int(hashlib.md5(word.encode()).hexdigest(), 16) % self.dim] += 1.0
@@ -187,7 +189,7 @@ class FakeEmbedder:
         return self._vector(text_)
 
     def check(self) -> str | None:
-        return "Embedding endpoint unreachable" if self.fail else None
+        return self.UNREACHABLE if self.fail else None
 
     def probe(self) -> None:
         self._vector("ping")

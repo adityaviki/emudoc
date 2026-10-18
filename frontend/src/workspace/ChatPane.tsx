@@ -276,12 +276,7 @@ function Conversation({ chatId }: { chatId: number | null }) {
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto px-5">
         <div className="mx-auto max-w-3xl space-y-6 py-5">
-          {unavailable && (
-            <Notice>
-              The AI model is not configured. {health.data?.llm.error} Then restart the backend to ask
-              questions.
-            </Notice>
-          )}
+          {unavailable && <Notice>{health.data?.llm.error ?? 'The AI model is unavailable.'}</Notice>}
           {loading && <Loading />}
           {chat.isError && (
             <Notice tone="bad">
