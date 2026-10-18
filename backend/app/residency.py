@@ -167,6 +167,20 @@ def endpoint_place(url: str, region: str) -> Place | None:
     return None
 
 
+def tracker_place(url: str, region: str) -> Place | None:
+    """Where the error tracker at `url`, a SENTRY_DSN, keeps its reports; None when the host
+    does not show it. Sentry's EU region takes them under ingest.de.sentry.io, in Germany, and
+    its US region every other sentry.io host, the older ones without a region among them."""
+    host = host_of(url)
+    if on_own_network(host):
+        return Place("the deployment's own network", region or None)
+    if host.endswith(".ingest.de.sentry.io"):
+        return Place("Sentry's EU region, Germany", "eu")
+    if host == "sentry.io" or host.endswith(".sentry.io"):
+        return Place("Sentry's US region", "us")
+    return None
+
+
 def bucket_place(storage: Storage, region: str) -> Place | None:
     """Where the storage keeps the files; None when the app cannot tell."""
     if storage.origin is None:
@@ -233,7 +247,9 @@ def residency_problems(
 
     The models, the embeddings endpoint and the bucket are checked, the pieces that receive the
     documents and what is read from them. The mail relay and the sign-in providers receive
-    names and addresses, not documents, and are left to the operator (deploying.md).
+    names and addresses, not documents, and the error tracker where the code failed and the
+    ids it failed for (app/tracking.py), so they are left to the operator (deploying.md); the
+    subprocessor list says where each of them is when the settings show it.
     """
     region = settings.data_region
     if not region:

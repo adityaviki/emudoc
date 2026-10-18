@@ -294,8 +294,8 @@ run "staging" {
   assert {
     condition = toset(keys(aws_ssm_parameter.setting)) == toset([
       "APP_URL", "STORAGE_URL", "AWS_DEFAULT_REGION", "SCANNER_URL", "EMBEDDING_BASE_URL",
-      "HOSTING_PROVIDER", "BACKUP_DAYS", "OPERATOR_NAME", "OPERATOR_EMAIL", "AGENT_MODEL",
-      "INDEX_MODEL",
+      "HOSTING_PROVIDER", "BACKUP_DAYS", "SENTRY_ENVIRONMENT", "OPERATOR_NAME", "OPERATOR_EMAIL",
+      "AGENT_MODEL", "INDEX_MODEL",
     ])
     error_message = "Staging's settings are the module's and the root's, and no others."
   }
@@ -307,6 +307,7 @@ run "staging" {
       && aws_ssm_parameter.setting["EMBEDDING_BASE_URL"].value == "http://embeddings:8080/v1"
       && aws_ssm_parameter.setting["HOSTING_PROVIDER"].value == "Amazon Web Services, eu-central-1"
       && aws_ssm_parameter.setting["BACKUP_DAYS"].value == "35"
+      && aws_ssm_parameter.setting["SENTRY_ENVIRONMENT"].value == "staging"
       && aws_ssm_parameter.setting["AGENT_MODEL"].value == "anthropic:claude-sonnet-5-5"
     )
     error_message = "The settings carry what the infrastructure decided."
@@ -430,6 +431,20 @@ run "a_key_among_the_settings" {
       AGENT_MODEL    = "anthropic:claude-sonnet-5-5"
       INDEX_MODEL    = "anthropic:claude-haiku-5-5"
       GOOGLE_API_KEY = "AIza…"
+    }
+  }
+  expect_failures = [var.settings]
+}
+
+run "a_tracker_among_the_settings" {
+  command = plan
+  variables {
+    settings = {
+      OPERATOR_NAME  = "Emudoc Ltd"
+      OPERATOR_EMAIL = "privacy@example.com"
+      AGENT_MODEL    = "anthropic:claude-sonnet-5-5"
+      INDEX_MODEL    = "anthropic:claude-haiku-5-5"
+      SENTRY_DSN     = "https://0123456789abcdef@o1.ingest.de.sentry.io/2"
     }
   }
   expect_failures = [var.settings]

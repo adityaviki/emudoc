@@ -1060,7 +1060,8 @@ The app publishes the companies it sends data to at `/subprocessors`, a page any
 (the sign-up page and the user menu link to it; `GET /api/subprocessors` is the same as JSON).
 It is read from the settings, so it changes with them: who hosts the deployment, the bucket
 (by where its signed URLs lead), the companies behind the two models, a hosted embeddings
-endpoint, the mail relay, and Google and Microsoft when sign-in with them is set up. Each entry
+endpoint, the mail relay, the error tracker ("Error tracking"), and Google and Microsoft when
+sign-in with them is set up. Each entry
 says where the company handles what it receives when the settings show it (the bucket's region,
 the Vertex AI location, "Anywhere" for the Gemini Developer API), and with `DATA_REGION` the page
 opens with the region the documents are kept in. Who hosts
@@ -1574,6 +1575,62 @@ addresses, queries included. The examples above give each one without the query:
 front needs the same; most log the query unless told not to. The parse child prints the same
 traceback as the app when a parser crashes, which the worker logs.
 
+## Error tracking
+
+The log has every error. With `SENTRY_DSN` set, the API and the worker also report each error
+nobody planned for to a tracker, which groups them, counts them and tells someone: Sentry, or a
+server that takes its protocol, GlitchTip or a Sentry of the operator's own. One project can
+serve every environment: `SENTRY_ENVIRONMENT` files the reports under `staging` or
+`production` (the AWS module sets it to the environment's name; unset, it is `ENVIRONMENT`,
+which is `production` on staging too), and each report names its release, the commit's full
+SHA. A DSN that is not one stops the process at start with what to do.
+
+An error is an exception no route or stage handled, which the member gets as a 500; a line
+logged at ERROR, such as a job the worker gave up on or a stage that crashed; and an exception
+that ended a thread or the worker. A refusal the app answers on purpose is none: a 4xx, and the
+503s of a pool out of connections, a storage that is down or a statement the database stopped.
+
+A report holds what the log would show of the error and nothing more (`backend/app/tracking.py`,
+which rebuilds every event from what it may keep): the exception's kind and frames, with the
+lines of code around each, its message only when the app wrote it (as in the log, above), the
+line it was logged with, the route's pattern and the request's address with its query's
+parameter names but not their values, the release, and the ids of what the request or job was
+about as tags (`request_id`, `user_id`, `org_id`, `project_id`, `job_id`, `document_id`, …).
+It holds no frame's variables (a stage's hold the document's text), no request body, cookie or
+header, none of the log lines before it, and no email address; the SDK's own integrations are
+off, its AI integrations above all, which would record prompts and replies, and so are its
+traces, sessions and log forwarding.
+
+An error the page renders into replaces the page with a sentence and a Reload button, and is
+reported to the app (`POST /api/page-errors`, `RATE_PAGE_ERRORS` a minute per client address),
+not to the tracker: the browser runs no SDK, so the page's address with the library's search
+words, its requests and its console go nowhere, and the page's policy needs no other origin.
+The app logs one line and sends the tracker an event of the `javascript` platform: the error's
+kind, the API's status when it was the API's refusal, the frames in the page's built scripts
+and the page's path. A frame names a line and column of the minified script; to read it, build
+the release's commit with its source maps, which gives the same script byte for byte and its
+map beside it, and look the position up in the map with any source-map tool:
+
+```bash
+git -C emudoc checkout <sha>
+pnpm --dir emudoc/frontend exec vite build --sourcemap hidden --outDir /tmp/emudoc-<sha>
+```
+
+A member who meets an error has its reference to quote: a 500's sentence ends with the request's
+id ("give the reference 0f8fad5b-… when you report it"), which the body also carries as
+`request_id` and the response as `X-Request-ID`, and the page's error screen shows the id of the
+request that reported it. The log's lines and the tracker's report carry the same id.
+
+The tracker is a company that receives data unless it runs on the deployment's own network, so
+the subprocessor list names it by its DSN's host (Sentry's EU region is a DSN under
+`ingest.de.sentry.io`, in Germany; every other `sentry.io` host is its US region), and the
+privacy policy says what the reports hold. `DATA_REGION` does not hold the tracker to its
+region, since the reports hold no documents; under `eu`, take Sentry's EU region or a tracker of
+your own, and the list says where the reports go either way. How long the reports are kept is
+the tracker's setting. The DSN carries the project's key: on AWS it goes into
+`/emudoc/<environment>/secrets/SENTRY_DSN` by hand, like the model keys ("The settings"), and the
+plan refuses it among the roots' settings.
+
 ## Rates
 
 The app holds each caller to a rate of its own (the `RATE_*` settings in `.env.example`): so
@@ -1692,7 +1749,8 @@ Each release writes them into the env files (`deploy/aws/host/settings`): a name
 places, or a value with a line break, stops it. A fresh checkout's plan refuses `OPERATOR_NAME`,
 `OPERATOR_EMAIL`, `AGENT_MODEL` and `INDEX_MODEL` left empty in `shared/main.tf`, which
 production cannot start without; an empty value there is a setting left unset. Keys never go
-into the roots: the plan refuses a name that ends like one. A changed setting reaches the
+into the roots: the plan refuses a name that ends like one, and `SENTRY_DSN`, which carries the
+tracker's key. The module writes `SENTRY_ENVIRONMENT`, the environment's name, itself. A changed setting reaches the
 containers with the next release (the same tag again does).
 
 ### Setting it up

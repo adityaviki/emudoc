@@ -511,6 +511,16 @@ and project it acts on, or the job's id and kind with its document or answer. uv
 lines, its access log included, come out the same way, without the probes that succeeded.
 Every response carries its request's id in `X-Request-ID`, the proxy's when it sent one.
 
+With `SENTRY_DSN` set, the API and the worker report each error nobody planned for to Sentry,
+or to GlitchTip or a Sentry of your own (`backend/app/tracking.py`), with what the log would
+show of it and the ids of the request or job as tags: the exception's kind and frames, its
+message only when the app wrote it, never a frame's variables, a request's body, cookies or
+query values, nor an email address. An error the page renders into shows a Reload button and
+a reference, and is reported to the app (`POST /api/page-errors`), which logs it and passes it
+on; the browser runs no tracker's script. A 500 answers with a sentence that ends with the
+request's id as the reference to quote. The subprocessor list and the privacy policy name the
+tracker when it is a company's. `deploying.md` ("Error tracking") has the details.
+
 Each organisation keeps an audit log (`backend/app/audit.py`): its members' sign-ins (and
 failed ones for their accounts), password, two-factor and session changes, exports and
 deletion requests, every upload, download and deletion of a document, folder or project, chats

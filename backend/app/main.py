@@ -12,20 +12,30 @@ from sqlalchemy.exc import TimeoutError as PoolTimeout
 from starlette.convertors import PathConvertor, register_url_convertor
 
 from app.api import audit, auth, chats, documents, folders, projects, query
-from app.api.deps import RETRY_AFTER, AccountDep, ServicesDep, SessionDep, refuse_cross_site
+from app.api.deps import (
+    RETRY_AFTER,
+    AccountDep,
+    ServicesDep,
+    SessionDep,
+    refuse_cross_site,
+    refuse_past,
+)
 from app.config import ROOT_DIR, get_settings
 from app.db import BUSY, TOO_SLOW, canceled, engine
 from app.errors import summary
-from app.headers import SecurityHeaders, content_security_policy
+from app.headers import SecurityHeaders, content_security_policy, secure
 from app.indexing.pipeline import Services
 from app.legal import TERMS_VERSION, privacy_policy, published, terms_of_service
-from app.logs import RequestIds, configure_logging
+from app.logs import REQUEST_ID_HEADER, RequestIds, configure_logging, current_context
 from app.mail import Mailer, mailer_from_settings
+from app.ratelimit import PAGE_ERRORS, by_address
 from app.schemas import (
     EmbeddingStatus,
     HealthOut,
     LegalOut,
     LLMStatus,
+    PageErrorIn,
+    PageErrorOut,
     StatusOut,
     SubprocessorsOut,
 )
@@ -33,6 +43,7 @@ from app.shutdown import Stop, heard_stop
 from app.startup import prepare
 from app.storage import StorageError
 from app.subprocessors import subprocessors
+from app.tracking import report_page_error, start_tracking
 from app.version import VERSION
 from app.worker import Worker
 
@@ -41,6 +52,7 @@ log = logging.getLogger(__name__)
 FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
 STORAGE_DOWN = "Emudoc could not reach its file storage just now. Try again in a few minutes."
 NOT_READY = "Emudoc cannot serve requests just now. Try again in a few minutes."
+FAULT = "Emudoc ran into an error of its own, which it recorded."
 
 
 class PagePath(PathConvertor):
@@ -147,6 +159,17 @@ def legal(services: ServicesDep):
     )
 
 
+@system.post("/page-errors", response_model=PageErrorOut, status_code=202)
+def page_error(report: PageErrorIn, request: Request, session: SessionDep):
+    """An error the page rendered into, from its error boundary, for the log and the tracker
+    (app/tracking.py). Public, since a sign-in page can fail too, and held to RATE_PAGE_ERRORS
+    per client address. The answer is the id the report was logged under, which the page shows
+    as the reference to quote."""
+    refuse_past(session, (PAGE_ERRORS, by_address(request)))
+    report_page_error(report, str(request.base_url).rstrip("/"))
+    return PageErrorOut(reference=_request_id())
+
+
 def invalid_request(request: Request, error: RequestValidationError) -> JSONResponse:
     """A request whose body or parameters do not fit, refused with 422 and where and why each
     part does not, as FastAPI would, but without the values: its own answer repeats them, so a
@@ -207,6 +230,34 @@ def statement_canceled(request: Request, error: Exception) -> JSONResponse:
     )
 
 
+async def unexpected_error(request: Request, error: Exception) -> JSONResponse:
+    """An exception nobody planned for: 500, with a sentence for the member and the request's
+    id to quote, in the body and in X-Request-ID, by which the operator finds its traceback in
+    the log and its report in the tracker (app/tracking.py).
+
+    Starlette sends this answer from outside every middleware the app adds, so it puts the id
+    and the security headers on it itself, and then raises the exception again, for uvicorn to
+    log with its traceback. Async, so that a full thread pool does not hold the answer up.
+    """
+    request_id = _request_id()
+    detail = (
+        f"{FAULT} Try again, and if it fails again, give the reference {request_id} when you "
+        "report it."
+        if request_id
+        else f"{FAULT} Try again in a moment."
+    )
+    response = JSONResponse({"detail": detail, "request_id": request_id}, status_code=500)
+    if request_id:
+        response.headers[REQUEST_ID_HEADER] = request_id
+    secure(response.headers, request.scope)
+    return response
+
+
+def _request_id() -> str | None:
+    request_id = current_context().get("request_id")
+    return str(request_id) if request_id is not None else None
+
+
 def create_app(
     services: Services | None = None,
     mailer: Mailer | None = None,
@@ -252,6 +303,7 @@ def create_app(
     app.add_exception_handler(StorageError, storage_unavailable)
     app.add_exception_handler(PoolTimeout, pool_exhausted)
     app.add_exception_handler(OperationalError, statement_canceled)
+    app.add_exception_handler(Exception, unexpected_error)
     # No CORSMiddleware, on purpose: the frontend is served from this origin, and the defence
     # against a request forged from another site (refuse_cross_site in api/deps.py) rests on
     # the app answering no cross-origin request. test_no_other_origin_is_answered in
@@ -294,4 +346,5 @@ def create_app(
 
 
 configure_logging(get_settings().log_format)
+start_tracking(get_settings())
 app = create_app()

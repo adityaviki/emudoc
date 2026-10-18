@@ -54,6 +54,7 @@ export SCANNER_URL=off
 export SMTP_URL=
 export MODEL_PRICES=
 export DAILY_SPEND_CAP=0
+export SENTRY_DSN=
 
 uv --directory "$root/backend" run --locked alembic upgrade head
 exec uv --directory "$root/backend" run --locked uvicorn app.main:app --host 127.0.0.1 --port "$port"

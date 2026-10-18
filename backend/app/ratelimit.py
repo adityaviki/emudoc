@@ -88,6 +88,9 @@ SEARCHES = Limit("search", "rate_searches", "searches")
 # address it comes from is held to a scope of its own, with more room.
 SIGN_INS = Limit("sign_in", "rate_sign_ins", "sign-in requests")
 ADDRESSES = Limit("address", "rate_sign_ins_per_address", "sign-in requests")
+# The page's error reports (app/tracking.py), which a page on a sign-in form sends too, so per
+# client address.
+PAGE_ERRORS = Limit("page_error", "rate_page_errors", "error reports")
 
 
 class Key(NamedTuple):

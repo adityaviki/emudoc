@@ -38,10 +38,11 @@ DEVELOPMENT = {
     "operator_email": "",
     "backup_days": None,
     "session_days": 30,
+    "sentry_dsn": "",
 }
 DIRECTORY = LocalStorage(Path("unused"))
 # The SHA-256 of terms.md and privacy.md as the edition TERMS_VERSION names was settled.
-SETTLED = "78b65b5bb7d48db7ccd1f320e5acc9aac76833c57650e1ecff40d2b272521f3b"
+SETTLED = "65c0efc746f84b819963b2daa148c1413416e6bb8832ec97e341341a60820c93"
 OLDER = "2026-01-01"
 
 
@@ -177,6 +178,13 @@ def test_the_privacy_policy_says_what_the_settings_do():
     assert "scanned for malware" not in text
     assert "scanned for malware" in policy(scanner_url="clamd://clamav:3310")
     assert "scanned for malware" not in policy(scanner_url="off")
+
+    # Error reports are named where they are made, and where they go.
+    assert "Error reports" not in text
+    hosted = policy(sentry_dsn="https://key@o1.ingest.de.sentry.io/2")
+    assert "- **Error reports**: when the service runs into an error of its own" in hosted
+    assert "sent to the error tracker on the subprocessor list" in hosted
+    assert "kept on our own servers" in policy(sentry_dsn="http://key@glitchtip:8000/1")
 
 
 def test_the_documents_are_published_to_anyone(client, signed_in_only):

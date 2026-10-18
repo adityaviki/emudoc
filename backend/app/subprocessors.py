@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from app.config import AGENT, INDEX, Settings, model_provider
 from app.network import MODEL_BASE_URLS, host_of, on_own_network
 from app.oidc import providers
-from app.residency import Place, bucket_place, endpoint_place, model_place
+from app.residency import Place, bucket_place, endpoint_place, model_place, tracker_place
 from app.storage import Storage
 
 # The companies behind the model providers, by the prefix of a provider:model name.
@@ -56,6 +56,7 @@ KNOWN_DOMAINS = {
     "cohere.com": "Cohere",
     "digitaloceanspaces.com": "DigitalOcean",
     "fireworks.ai": "Fireworks AI",
+    "glitchtip.com": "GlitchTip",
     "gmail.com": "Google",
     "googleapis.com": "Google Cloud",
     "jina.ai": "Jina AI",
@@ -67,6 +68,7 @@ KNOWN_DOMAINS = {
     "postmarkapp.com": "Postmark",
     "resend.com": "Resend",
     "sendgrid.net": "Twilio SendGrid",
+    "sentry.io": "Sentry",
     "together.xyz": "Together AI",
     "voyageai.com": "Voyage AI",
     "wasabisys.com": "Wasabi",
@@ -121,8 +123,8 @@ def subprocessors(
 ) -> list[Subprocessor]:
     """The companies the deployment configured by `settings` hands its users' data to: who
     hosts it, then the bucket (`storage`, by the origin its signed URLs lead to; a directory is
-    the deployment's own), the models, the embeddings endpoint, the mail relay and the sign-in
-    providers.
+    the deployment's own), the models, the embeddings endpoint, the mail relay, the error
+    tracker and the sign-in providers.
 
     `environ` is where the model libraries read an address that moves a provider
     (`MODEL_BASE_URLS`) and Vertex AI its location, after `export_env_file` has copied `.env`
@@ -169,6 +171,18 @@ def subprocessors(
                 "operator's alerts.",
                 "Members' names and email addresses, and in the alerts the names of "
                 "organisations, projects and files.",
+            )
+        )
+    if settings.sentry_dsn and (name := _company(settings.sentry_dsn)):
+        found.append(
+            Subprocessor(
+                name,
+                "Collects the reports of the errors the service runs into, for the operator to "
+                "find and fix them.",
+                "Where in the service's code an error happened, and the ids of the request, "
+                "member, organisation and project it happened in. It receives no documents, "
+                "questions, answers or email addresses.",
+                _where(tracker_place(settings.sentry_dsn, region)),
             )
         )
     for provider in providers(settings).values():

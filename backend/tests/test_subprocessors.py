@@ -26,6 +26,7 @@ DEVELOPMENT = {
     "data_region": "",
     "google_oauth_client_id": "",
     "microsoft_oauth_client_id": "",
+    "sentry_dsn": "",
 }
 # Files in a directory, which is the deployment's own disk; the list only asks where it is.
 DIRECTORY = LocalStorage(Path("unused"))
@@ -258,3 +259,25 @@ def test_the_page_says_which_region_the_deployment_keeps_its_documents_in(
         "data": "Everything the app keeps: documents, questions and answers, and accounts.",
         "location": "The European Union",
     }
+
+
+def test_the_error_tracker_is_named_with_where_it_keeps_the_reports():
+    def tracker(dsn: str, region: str = ""):
+        settings = configured(sentry_dsn=dsn, data_region=region)
+        entries = subprocessors(settings, DIRECTORY, {})
+        return [entry for entry in entries if "errors" in entry.purpose]
+
+    (eu,) = tracker("https://key@o1.ingest.de.sentry.io/2", "eu")
+    assert eu.name == "Sentry"
+    assert eu.location == "The European Union (Sentry's EU region, Germany)"
+    assert eu.data.endswith("It receives no documents, questions, answers or email addresses.")
+    (us,) = tracker("https://key@o1.ingest.us.sentry.io/2")
+    assert us.location == "The United States (Sentry's US region)"
+    # Under a region the tracker is not held to it, since it receives no documents; the list
+    # says where it is.
+    assert tracker("https://key@o1.ingest.sentry.io/2", "eu")[0].location == us.location
+    (hosted,) = tracker("https://key@app.glitchtip.com/3")
+    assert (hosted.name, hosted.location) == ("GlitchTip", None)
+    # A tracker of the deployment's own is no subprocessor.
+    assert tracker("http://key@glitchtip:8000/1") == []
+    assert tracker("https://key@sentry.internal/1") == []

@@ -128,6 +128,7 @@ def privacy_policy(
             if parse_scanner_url(settings.scanner_url)
             else ""
         ),
+        error_reports=_error_reports(settings.sentry_dsn),
     )
 
 
@@ -178,14 +179,33 @@ def _embeds_on_such_terms(url: str) -> bool:
     return on_own_network(host) or NO_TRAINING_EMBEDDINGS.fullmatch(host) is not None
 
 
+def _error_reports(dsn: str) -> str:
+    """What the error tracker (app/tracking.py) is told, where SENTRY_DSN names one: by the
+    company on the subprocessor list, or by the deployment itself on its own network."""
+    if not dsn:
+        return ""
+    where = (
+        "kept on our own servers"
+        if on_own_network(host_of(dsn))
+        else "sent to the error tracker on the subprocessor list"
+    )
+    return (
+        "- **Error reports**: when the service runs into an error of its own, where in its code "
+        "it happened and the ids of the request, account, organisation and project it happened "
+        f"in, to find and fix the fault; they are {where}. They never hold what a document, a "
+        "question or an answer says, nor an email address."
+    )
+
+
 def _region(settings: Settings) -> str:
     if code := settings.data_region:
         return (
             f"Your documents, and everything read from them, are kept and processed in "
             f"{REGIONS[code]}: our servers and database, the file storage and every AI model "
             "provider that receives them are there, and the service refuses to start "
-            "otherwise. Email, and sign-in through Google or Microsoft, may be handled "
-            "elsewhere; the subprocessor list says where, where it is known."
+            "otherwise. Email, sign-in through Google or Microsoft, and error reports, which "
+            "hold no documents, may be handled elsewhere; the subprocessor list says where, "
+            "where it is known."
         )
     return (
         "This deployment does not keep the data in one region. The subprocessor list says where "

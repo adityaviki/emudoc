@@ -166,6 +166,27 @@ export interface Health {
   version: string
 }
 
+/** A frame of the page's own scripts that an error was raised in, minified as the browser ran it. */
+export interface PageFrame {
+  function: string | null
+  /** The built script's path, under /assets. */
+  file: string
+  line: number
+  column: number
+}
+
+/**
+ * An error the page rendered into, as its error boundary reports it (src/errors.ts): its kind,
+ * the API's status when it was the API's refusal, its frames, the innermost first, and the
+ * page's path without its query. Never its message, which may quote what the page showed.
+ */
+export interface PageError {
+  name: string
+  status: number | null
+  frames: PageFrame[]
+  path: string
+}
+
 /** A company the deployment sends data to, as the server reads it from its settings. */
 export interface Subprocessor {
   name: string
@@ -524,6 +545,9 @@ export const api = {
   subprocessors: () => request<Subprocessors>('/subprocessors'),
   /** Public: the terms of service and privacy policy. */
   legal: () => request<Legal>('/legal'),
+  /** Public, since a sign-in page can fail too: the reference is the id the app logged the report under. */
+  reportPageError: (report: PageError) =>
+    request<{ reference: string | null }>('/page-errors', json('POST', report)),
   /** Owners and admins only; anyone else gets a 403. */
   audit: (before: number | null = null, limit = 50) => {
     const params = new URLSearchParams({ limit: String(limit) })

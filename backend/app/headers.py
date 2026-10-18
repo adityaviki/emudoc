@@ -66,13 +66,7 @@ def content_security_policy(storage: Storage) -> str:
 
 
 class SecurityHeaders:
-    """Adds the headers to every HTTP response, after whatever the route set itself.
-
-    `Strict-Transport-Security` goes out when the request came over HTTPS, as uvicorn learns
-    from the proxy, and always in production, where a plain-HTTP request is a misconfiguration
-    the cookies already log; over http://localhost a browser would ignore it anyway. The
-    policy is built once at start (`app.state.policy`), since the storage does not change.
-    """
+    """Adds the headers to every HTTP response, after whatever the route set itself."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -81,20 +75,31 @@ class SecurityHeaders:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        strict = scope["scheme"] == "https" or get_settings().environment == "production"
-        policy: str = scope["app"].state.policy
-        api = scope["path"].startswith("/api/")
 
         async def send_with_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
-                headers = MutableHeaders(scope=message)
-                for name, value in ALWAYS.items():
-                    headers.setdefault(name, value)
-                headers.setdefault("Content-Security-Policy", policy)
-                if api:
-                    headers.setdefault("Cache-Control", API_NOT_KEPT)
-                if strict:
-                    headers.setdefault("Strict-Transport-Security", HSTS)
+                secure(MutableHeaders(scope=message), scope)
             await send(message)
 
         await self.app(scope, receive, send_with_headers)
+
+
+def secure(headers: MutableHeaders, scope: Scope) -> None:
+    """Put the headers on the response to the request `scope`, leaving those it set itself.
+
+    `Strict-Transport-Security` goes out when the request came over HTTPS, as uvicorn learns
+    from the proxy, and always in production, where a plain-HTTP request is a misconfiguration
+    the cookies already log; over http://localhost a browser would ignore it anyway. The
+    policy is built once at start (`app.state.policy`), since the storage does not change.
+
+    `SecurityHeaders` calls it for every response but one: the 500 of an error nobody planned
+    for is sent from outside every middleware the app adds (`unexpected_error` in app/main.py),
+    which calls it itself.
+    """
+    for name, value in ALWAYS.items():
+        headers.setdefault(name, value)
+    headers.setdefault("Content-Security-Policy", scope["app"].state.policy)
+    if scope["path"].startswith("/api/"):
+        headers.setdefault("Cache-Control", API_NOT_KEPT)
+    if scope["scheme"] == "https" or get_settings().environment == "production":
+        headers.setdefault("Strict-Transport-Security", HSTS)

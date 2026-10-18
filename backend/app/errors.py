@@ -74,6 +74,13 @@ def summary(error: BaseException) -> str:
     return f"{_kind(error)} at {_short_path(last.filename)}:{last.lineno} in {last.name}"
 
 
+def shown_messages(error: BaseException) -> list[tuple[str, str]]:
+    """The exception and its causes, the first one first, each as its class's name and what
+    the log may show of its message: what an error tracker may be told of them
+    (app/tracking.py)."""
+    return [(type(link).__qualname__, _message(link)) for link in _chain(error)]
+
+
 def provider_codes(body: object) -> list[str]:
     """The identifiers in a provider's error body: its type, code and status, and the reasons
     of Google's details, such as ["INVALID_ARGUMENT", "API_KEY_INVALID"]. Its words are left

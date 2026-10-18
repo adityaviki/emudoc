@@ -148,6 +148,16 @@ class Settings(BaseSettings):
     # them. There is no level to set: below INFO, the libraries log what they send, documents
     # and questions included.
     log_format: Literal["text", "json"] | None = None
+    # Where the API and the worker report the errors nobody planned for (app/tracking.py): a
+    # Sentry DSN, https://<key>@<host>/<project>, which GlitchTip and a Sentry of the operator's
+    # own take too. Empty reports nothing; the log has every error either way. A report holds
+    # what the log would show of the error, never a document's text, a question, an answer, a
+    # key or an email address, and the subprocessor list names the tracker's company unless it
+    # runs on the deployment's own network.
+    sentry_dsn: str = ""
+    # The environment the tracker files the reports under, such as staging; empty takes
+    # ENVIRONMENT, which is production on staging too.
+    sentry_environment: str = ""
 
     # The database, as a SQLAlchemy URL. There is no default: a process that was not told its
     # database stops (see `load_settings`) rather than reach for a loopback server with a
@@ -335,6 +345,10 @@ class Settings(BaseSettings):
     rate_searches: int = Field(default=120, ge=0)
     rate_sign_ins: int = Field(default=10, ge=0)
     rate_sign_ins_per_address: int = Field(default=60, ge=0)
+    # The page's reports of the errors it rendered into (app/tracking.py), per client address:
+    # a page that fails again on every load reports each time, and nothing else holds a script
+    # back from filling the log and the tracker with reports.
+    rate_page_errors: int = Field(default=10, ge=0)
     # Whether this process runs the background worker (app/worker.py) as well. Unset, it does
     # in development, so that one `uvicorn` indexes what it serves, and does not in production,
     # where the deployment runs `python -m app.worker` as its own process and scales it apart
@@ -383,6 +397,8 @@ class Settings(BaseSettings):
     @field_validator(
         "database_pooler",
         "database_listen_url",
+        "sentry_dsn",
+        "sentry_environment",
         "agent_model",
         "index_model",
         "agent_fallback_model",

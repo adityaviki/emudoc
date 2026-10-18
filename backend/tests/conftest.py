@@ -98,6 +98,9 @@ os.environ["EMBEDDING_BASE_URL"] = "http://127.0.0.1:9/v1"
 os.environ["LOCAL_ACCOUNT"] = "true"
 # The messages the tests pin tell a developer to edit `.env`; a production shell says otherwise.
 os.environ["ENVIRONMENT"] = "development"
+# Nothing the tests raise reaches the developer's tracker; tests/test_tracking.py starts one that
+# keeps what it would send.
+os.environ["SENTRY_DSN"] = os.environ["SENTRY_ENVIRONMENT"] = ""
 # The app under test starts no worker threads of its own: tests run the pipeline directly, or
 # build a `Worker` by hand (tests/test_jobs.py) and stop it.
 os.environ["RUN_WORKER"] = "false"

@@ -40,6 +40,7 @@ organisation uploaded a document about you, ask the organisation first; we help 
 - **Server logs**: the IP address, time and path of each request and the account and project it
   was for, and the service's own record of what it did, to keep it running and to find faults.
   They never hold what a document, a question or an answer says, nor an email address.
+$error_reports
 
 We send you email only about your account: to confirm your address, to reset your password,
 and to confirm that you asked for your account to be deleted. We send no marketing, show no
@@ -49,9 +50,10 @@ advertising, sell no personal data and build no profile of you.
 
 - **The companies that run the service with us** receive what each needs for its part: the host
   of our servers and database, the AI model providers that read the documents and answer the
-  questions, and, where used, the file storage, the email relay and the sign-in providers. The
-  [subprocessor list](/subprocessors) names each company, what it receives and, where known,
-  where it handles it; it is read from the service's own settings, so it is always current.
+  questions, and, where used, the file storage, the email relay, the error tracker and the
+  sign-in providers. The [subprocessor list](/subprocessors) names each company, what it
+  receives and, where known, where it handles it; it is read from the service's own settings,
+  so it is always current.
   $models
 - **The other members of your organisation** see its projects and documents and the chats you
   share with a project, and its owners and admins see your name, email address and the IP

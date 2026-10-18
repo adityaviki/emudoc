@@ -30,6 +30,7 @@ WRITTEN = {
     "EMBEDDING_BASE_URL": "http://embeddings:8080/v1",
     "HOSTING_PROVIDER": "Amazon Web Services, eu-central-1",
     "BACKUP_DAYS": "35",
+    "SENTRY_ENVIRONMENT": "staging",
     "DATABASE_URL": DATABASE_URL,
 }
 # Written only when the root asks: a region, and mail through SES.
@@ -47,8 +48,9 @@ SECRETS = {
     "SMTP_URL": "smtp://AKIAEXAMPLE:BAx%2Fy%2Bz%3D@email-smtp.eu-central-1.amazonaws.com:587",
     "ANTHROPIC_API_KEY": "sk-ant-example",
 }
-# Written for the app's sake, not production's checks: boto3 signs for the bucket's region.
-NOT_CHECKED = {"AWS_DEFAULT_REGION"}
+# Written for the app's sake, not production's checks: boto3 signs for the bucket's region, and
+# the error tracker files the reports by the environment's name.
+NOT_CHECKED = {"AWS_DEFAULT_REGION", "SENTRY_ENVIRONMENT"}
 
 
 @pytest.fixture(autouse=True)

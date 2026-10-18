@@ -7,6 +7,28 @@ full SHA is the image's tag, the version `/api/health` reports and the user menu
 they change. A commit that changes what a member or an operator sees adds its line here, under
 its day, in the same commit.
 
+## 2026-10-18
+
+Members:
+
+- A page that runs into an error shows a Reload button and a reference to quote in place of a
+  blank screen, and the error is reported. An error of the server's own says so in a sentence
+  that ends with the reference, rather than "Internal Server Error".
+- Where error reports are made, the privacy policy says what they hold, and the subprocessor
+  list names the error tracker when it is a company's.
+
+Operators:
+
+- `SENTRY_DSN` reports the errors nobody planned for, the API's, the worker's and the page's, to
+  Sentry, or to GlitchTip or a Sentry of your own, with what the log would show of them and the
+  ids of the request or job as tags; never a message the app did not write, a frame's
+  variables, a request's body, cookies or query values. `SENTRY_ENVIRONMENT` files them under
+  an environment's name, which the AWS module sets; there `SENTRY_DSN` goes into the secrets
+  path. The page reports through `POST /api/page-errors`, held to `RATE_PAGE_ERRORS` a minute
+  per address (10). deploying.md, "Error tracking".
+- A 500 is JSON with the request's id in its body and in `X-Request-ID`, and carries the
+  security headers, which it lacked.
+
 ## 2026-10-17
 
 Members:

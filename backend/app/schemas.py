@@ -497,6 +497,36 @@ class HealthOut(BaseModel):
     version: str
 
 
+class PageFrame(BaseModel):
+    """A frame of the page's own scripts that an error was raised in: the function's name as
+    the browser gives it, minified, and where it is in the built file (`frames` in
+    frontend/src/errors.ts)."""
+
+    function: str | None = Field(
+        None, max_length=200, pattern=r"^(?:new |async )?[A-Za-z0-9_$.<>\[\]/-]+$"
+    )
+    file: str = Field(max_length=200, pattern=r"^/assets/[A-Za-z0-9._-]+\.js$")
+    line: int = Field(ge=0)
+    column: int = Field(ge=0)
+
+
+class PageErrorIn(BaseModel):
+    """An error the page rendered into, as its error boundary reports it (app/tracking.py): the
+    error's kind, the status the API answered when it was the API's refusal, the frames of the
+    page's scripts, the innermost first, and the page's path without its query. Never its
+    message, which may quote what the page showed, nor anything else of the page."""
+
+    name: str = Field(max_length=100, pattern=r"^[A-Za-z_$][A-Za-z0-9_$.]*$")
+    status: int | None = Field(None, ge=100, le=599)
+    frames: list[PageFrame] = Field(default_factory=list, max_length=50)
+    path: str = Field(max_length=200, pattern=r"^/[A-Za-z0-9/_.~*-]*$")
+
+
+class PageErrorOut(BaseModel):
+    # The id the report was logged under, for the page to show as the reference to quote.
+    reference: str | None
+
+
 # The account export (app/export.py): what the app keeps about a person, as the file the
 # account page downloads. The app itself never reads it back.
 
