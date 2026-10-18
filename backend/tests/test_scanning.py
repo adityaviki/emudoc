@@ -22,6 +22,7 @@ from app.jobs import claim
 from app.models import Block, Document, Fact, Passage, Section
 from app.scanning import (
     NOT_SCANNED,
+    UNSCANNED,
     ClamdScanner,
     ScanError,
     alert_quarantines,
@@ -195,6 +196,11 @@ def test_a_daemon_that_refuses_the_file_or_talks_nonsense_is_not_retried(clamd, 
     assert str(error.value).startswith(
         "The malware scanner could not scan this file (INSTREAM size limit exceeded)."
     )
+    # The members cannot raise it, and are not told of clamd's settings.
+    assert error.value.members == (
+        "The malware scanner could not scan this file, so it is neither indexed nor opened. Try "
+        "uploading a smaller copy."
+    )
 
     clamd.reply = b"stream: something odd\0"
     with pytest.raises(ScanError, match="gave no verdict") as error:
@@ -359,6 +365,7 @@ def test_without_a_scanner_the_stage_is_skipped_and_the_file_is_served(
     assert NOT_SCANNED == (
         "No malware scanner is configured (SCANNER_URL), so this file was not scanned."
     )
+    assert UNSCANNED == "Uploads are not scanned for malware, so this file was not scanned."
     assert client.get(f"/api/documents/{document['id']}/file").status_code == 200
 
 
@@ -395,6 +402,45 @@ def test_a_scanner_that_is_down_holds_the_upload_until_it_answers(
     session.refresh(document)
     assert document.status == "ready" and stage_statuses(document)["scan"] == "done"
     assert client.get(f"/api/documents/{uploaded['id']}/file").status_code == 200
+
+
+def test_a_deployments_members_read_that_the_scanner_is_down_without_its_address(
+    client, session, services, sample_pdf, monkeypatch, caplog
+):
+    monkeypatch.setattr(get_settings(), "environment", "production")
+    project = create_project(client)
+    (uploaded,) = upload(client, project["id"], sample_pdf)["documents"]
+    services.scanner.outage = SCANNER_DOWN
+    with caplog.at_level("INFO", logger="app.worker"):
+        run_index(claim("w:1", INDEX), services)
+
+    document = session.get(Document, uploaded["id"])
+    session.refresh(document)
+    assert document.stages["scan"]["detail"] == (
+        f"{ScanError.members} Retrying in 1 minute (1 of {MAX_RETRIES})."
+    )
+    # The operator reads the daemon's address in the log, with the retry.
+    assert str(SCANNER_DOWN) in caplog.text
+
+    # The last retry fails too: the document says so in the members' words, and the job that
+    # gave up keeps the operator's for the dead letters (tests/test_deadletters.py).
+    session.execute(
+        text("UPDATE jobs SET run_at = now(), payload = payload || :retry WHERE status = 'queued'"),
+        {"retry": f'{{"retry": {MAX_RETRIES}}}'},
+    )
+    session.commit()
+    worker = Worker(services, concurrency=1)
+    worker._run(claim(worker.id, INDEX))
+    session.refresh(document)
+    assert document.status == "failed"
+    assert document.error == (
+        f'{ScanError.members} Tried {MAX_RETRIES + 1} times over 15 minutes; use "Index '
+        'again" once the service is back.'
+    )
+    shown = client.get(f"/api/documents/{uploaded['id']}").text
+    assert "clamd://" not in shown and "SCANNER_URL" not in shown
+    last = session.execute(text("SELECT last_error FROM jobs ORDER BY id DESC LIMIT 1")).scalar()
+    assert last == f"Stage scan failed {MAX_RETRIES + 1} times over 15 minutes: {SCANNER_DOWN}"
 
 
 def test_quarantines_are_mailed_to_the_operator_once(

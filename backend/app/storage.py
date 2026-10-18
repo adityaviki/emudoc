@@ -86,7 +86,11 @@ NOT_KEPT = {"Cache-Control": "no-store"}
 
 
 class StorageError(AppError):
-    """The storage could not do what was asked, said in words the user or operator can act on."""
+    """The storage could not do what was asked, said in words the operator can act on: the
+    bucket, the directory, the setting. A route answers members `STORAGE_DOWN` instead
+    (app/main.py); a stage tells them `members`."""
+
+    members = "Emudoc could not reach its file storage just now."
 
 
 def organization_prefix(org_id: int) -> str:

@@ -1,13 +1,17 @@
 import datetime as dt
+import json
 
 from PIL import Image
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.indexing import enrich
-from app.indexing.pipeline import StageFailure, process_document, reset_stages
+from app.embeddings import EmbeddingError
+from app.indexing import enrich, pipeline
+from app.indexing.pipeline import STAGE_CRASHED, StageFailure, process_document, reset_stages
+from app.llm import MODEL_UNAVAILABLE, LLMError
 from app.models import Block, Fact, Passage, Section
 from app.parsing import images
+from app.scanning import UNSCANNED
 from tests.conftest import FakeEmbedder
 
 
@@ -113,6 +117,82 @@ def test_embedding_outage_does_not_fail_the_document(session, services, make_doc
     assert stage_statuses(document)["embed"] == "failed"
     assert "unreachable" in document.stages["embed"]["detail"]
     assert all(passage.embedding is None for passage in rows(session, Passage, document))
+
+
+def test_a_deployments_members_read_what_failed_without_how_it_is_set_up(
+    session, services, make_document, sample_pdf, tmp_path, monkeypatch
+):
+    # The worker writes the stages' details, so its environment decides what they say; the
+    # operator reads the reasons in the log and the job's last_error (tests/test_jobs.py).
+    monkeypatch.setattr(get_settings(), "environment", "production")
+    services.llm.available = False
+    services.embedder.fail = True
+    services.scanner = None
+    document = make_document(sample_pdf)
+    members = (
+        "This document could not be prepared for semantic search just now, so search finds it "
+        "by its words alone."
+    )
+    assert process_document(document.id, services) == [
+        StageFailure("embed", FakeEmbedder.UNREACHABLE, transient=True, detail=members)
+    ]
+    session.refresh(document)
+    assert document.status == "ready"
+    assert document.stages["scan"] == {"status": "skipped", "detail": UNSCANNED}
+    assert document.stages["enrich"] == {
+        "status": "skipped",
+        "detail": "Summaries and facts need the AI model, which is unavailable just now. Use "
+        '"Index again" later to add them.',
+    }
+    assert document.stages["embed"] == {"status": "failed", "detail": EmbeddingError.members}
+
+    # A scan cannot be read without the model, which fails it in the members' words.
+    path = tmp_path / "scan.png"
+    Image.new("RGB", (400, 300), "white").save(path)
+    scan = make_document(path)
+    process_document(scan.id, services)
+    session.refresh(scan)
+    assert scan.status == "failed"
+    assert scan.error == (
+        "This file has no text layer, and reading scans and images needs the AI model, which "
+        'is unavailable just now. Use "Index again" later.'
+    )
+    assert scan.stages["parse"]["detail"] == scan.error
+
+    told = json.dumps([document.stages, scan.stages, scan.error])
+    for setup in ("GOOGLE_API_KEY", "gemini", ".env", FakeEmbedder.address, "SCANNER_URL"):
+        assert setup not in told
+
+
+def test_a_deployments_operator_reads_what_its_members_are_not_told(
+    session, services, make_document, sample_pdf, monkeypatch, caplog
+):
+    monkeypatch.setattr(get_settings(), "environment", "production")
+    rejected = "The API key for google:gemini-2.5-flash-lite was rejected."
+    services.llm.failure = LLMError(rejected, members=MODEL_UNAVAILABLE)
+    document = make_document(sample_pdf)
+    with caplog.at_level("WARNING", logger="app.indexing.pipeline"):
+        assert process_document(document.id, services) == [
+            StageFailure("enrich", rejected, transient=False, detail=MODEL_UNAVAILABLE)
+        ]
+    session.refresh(document)
+    assert document.stages["enrich"] == {"status": "failed", "detail": MODEL_UNAVAILABLE}
+    # Nothing runs the stage again, so the log is where the operator reads why.
+    assert f"Stage enrich of document {document.id} failed: {rejected}" in caplog.text
+
+    # A stage that broke names the exception's kind to the operator alone.
+    def crash(session_, document_, services_, meter):
+        raise ValueError("cannot split")
+
+    monkeypatch.setitem(pipeline._STAGES, "structure", crash)
+    services.llm.failure = None
+    broken = make_document(sample_pdf)
+    assert process_document(broken.id, services) == [
+        StageFailure("structure", "Unexpected error: ValueError", False, detail=STAGE_CRASHED)
+    ]
+    session.refresh(broken)
+    assert broken.status == "failed" and broken.error == STAGE_CRASHED
+    assert "ValueError" not in json.dumps(broken.stages)
 
 
 def test_reprocessing_from_enrich_keeps_the_parse(session, services, make_document, sample_pdf):

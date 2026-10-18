@@ -254,6 +254,20 @@ that questions cannot be asked and documents get no summaries or facts for now, 
 embeddings endpoint does not answer that search matches keywords only, each with "Try again
 later". The operator reads why in the start's log, the metrics and the alerts (below).
 
+A failure says as little to the members. In production a document's stage, its error and an
+answer's error name no model, address or setting either: a model that refused the key, ran out
+of credit or could not be reached is "unavailable just now", a request it refused "could not be
+answered", an embeddings endpoint that did not answer leaves the document "found by its words
+alone", a scanner out of reach holds the file ("cannot be opened yet"), and the storage "could
+not be reached"; each is followed by the retry the worker queued, or by "Tried 6 times…" once it
+gives up. What a member's file or question caused is said as before (no text layer, too many
+pages, a content filter, a reply that took too long). The operator's sentence, with the model,
+the address and what to change, is in the log: the worker's line with each retry, `Stage enrich
+of document 12 failed: …` for a failure nothing runs again, the model's own failures
+(`Model request failed …`), and the job's `last_error` once the worker gives up (`failed-jobs`).
+Rows written before keep what they said. A development checkout shows the operator's sentence,
+as its status line does.
+
 Docker restarts nothing for a failing health check. The compose file's checks are what `up
 --wait` waits for and what `ps` shows; what restarts a container is its process exiting, with
 `restart: unless-stopped`. An orchestrator that restarts on a failed liveness check, such as
@@ -591,8 +605,10 @@ time it is asked, the process logs one line, `INDEX_MODEL google:gemini-3.5-flas
 so INDEX_FALLBACK_MODEL anthropic:claude-haiku-5-5 is asked instead: The model
 gemini-3.5-flash-lite was not found, or is served no longer.`, and for the next minute asks the
 fallback first, so that a provider that is down costs one request a minute its retries rather
-than every request. When both fail, the members see both sentences. What a fallback answered is
-counted and priced under its own name, on the usage rows and under the answer or the document.
+than every request. When both fail, the error says both sentences, which the log keeps and a
+development checkout shows; a deployment's members read why the last model failed in words that
+name neither ("The AI model is unavailable just now. Try again later."). What a fallback answered
+is counted and priced under its own name, on the usage rows and under the answer or the document.
 
 Take the fallback from another provider: one of the same provider covers a retired or
 overloaded model, but not an outage, a revoked key or an unpaid bill. The kill switch then

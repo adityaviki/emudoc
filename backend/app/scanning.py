@@ -45,13 +45,18 @@ CONNECT_TIMEOUT = 10
 CHUNK = 64 * 1024
 # What a document's stage says when there was no scanner to run.
 NOT_SCANNED = "No malware scanner is configured (SCANNER_URL), so this file was not scanned."
+# The same, as a deployment's members are told it (app/errors.py, `shown`).
+UNSCANNED = "Uploads are not scanned for malware, so this file was not scanned."
 # How many quarantines one digest lists in full; the mail is the alert, not the listing.
 DIGEST_LIMIT = 50
 
 
 class ScanError(AppError):
     """The scanner could not say whether the file is clean: it could not be reached (passing)
-    or it refused the file (not)."""
+    or it refused the file (not). The message names the daemon and its settings, the
+    operator's; the members are told that the file waits for the scanner."""
+
+    members = "The malware scanner is unavailable just now, so this file cannot be opened yet."
 
 
 class Scanner(ABC):
@@ -122,7 +127,11 @@ class ClamdScanner(Scanner):
             raise ScanError(
                 f"The malware scanner could not scan this file ({reason}). Ask the operator "
                 "to check clamd's StreamMaxLength and MaxFileSize against the size an upload "
-                "may have."
+                "may have.",
+                members=(
+                    "The malware scanner could not scan this file, so it is neither indexed nor "
+                    "opened. Try uploading a smaller copy."
+                ),
             )
         raise ScanError(
             f"The malware scanner at {self.url} gave no verdict: it answered {reply!r}. Check "

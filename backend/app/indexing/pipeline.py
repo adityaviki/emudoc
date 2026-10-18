@@ -19,7 +19,7 @@ from app.config import get_settings
 from app.db import SessionLocal, connection_lost
 from app.embeddings import Embedder
 from app.entitlements import check_pages
-from app.errors import AppError, summary
+from app.errors import AppError, shown, summary
 from app.indexing.enrich import (
     ExtractedFact,
     analyze_document,
@@ -37,7 +37,7 @@ from app.parsing.images import open_image
 from app.parsing.limits import ParseLimits, parse_within_limits
 from app.parsing.pdf import render_page
 from app.parsing.types import clean_text
-from app.scanning import NOT_SCANNED, Scanner, quarantine_message
+from app.scanning import NOT_SCANNED, UNSCANNED, Scanner, quarantine_message
 from app.spending import check_platform_spend, check_spend, day_of
 from app.storage import Storage
 from app.usage import DOCUMENT, EMBED, ENRICH, INFER_SECTIONS, OCR, UPLOAD, Meter
@@ -53,6 +53,12 @@ MAX_IMAGE_EDGE = 2576
 LOST_DATABASE = "The connection to the database was lost while this stage ran."
 MISSING_ORIGINAL = (
     "The uploaded file is missing from the storage. Delete this document and upload it again."
+)
+# What a deployment's members read of a stage that raised something the app did not expect,
+# where the stage's error names the exception's kind for the operator, whose log has the rest.
+STAGE_CRASHED = (
+    'Emudoc ran into an error of its own at this stage, which it recorded. Use "Index again" '
+    "to try once more."
 )
 
 
@@ -88,8 +94,9 @@ class StageDeferred(PipelineError):
         self.until = until
 
 
-class StageSkipped(Exception):
-    pass
+class StageSkipped(AppError):
+    """The stage does not run for this document, or cannot as the deployment is set up; the
+    message says which, as the stage's detail, and `members` as for an error."""
 
 
 @dataclass(frozen=True)
@@ -105,6 +112,15 @@ class StageFailure:
     retry_at: datetime | None = None
     # The threat the scan named: the document is quarantined, not failed, and never retried.
     threat: str | None = None
+    # What the document's members read of it, in the stage's detail and the document's error:
+    # the message, or in a deployment the members' sentence where the message is the
+    # operator's (app/errors.py, `shown`). The message is the operator's, for the log and the
+    # job's last_error. Empty is the message.
+    detail: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.detail:
+            object.__setattr__(self, "detail", self.message)
 
     @property
     def quarantine(self) -> bool:
@@ -167,7 +183,7 @@ def process_document(
                 return failures
             if name in REQUIRED_STAGES:
                 document.status = "failed"
-                document.error = failure.message
+                document.error = failure.detail
                 _commit(session, lease)
                 INDEX_RUNS.labels("failed").inc()
                 return failures
@@ -187,7 +203,7 @@ def _quarantine(
     stage, app/scanning.py). The file itself stays in the storage for a delete to remove."""
     _delete_derived(session, document.id, Fact, Passage, Section, Block)
     document.status = "quarantined"
-    document.error = failure.message
+    document.error = failure.detail
     audit_event(
         session,
         "document_quarantined",
@@ -226,7 +242,7 @@ def await_retry(document: Document, failure: StageFailure, notice: str) -> None:
     reset_stages(document, failure.stage)
     document.stages = {
         **document.stages,
-        failure.stage: {"status": "failed", "detail": f"{failure.message} {notice}"},
+        failure.stage: {"status": "failed", "detail": f"{failure.detail} {notice}"},
     }
     if ready:
         document.status = "ready"
@@ -235,7 +251,7 @@ def await_retry(document: Document, failure: StageFailure, notice: str) -> None:
 def give_up_retrying(document: Document, failure: StageFailure, notice: str) -> None:
     """Leave the document as the last run left it, with the notice after the stage's error, and
     in the document's own error when the stage was a required one."""
-    detail = f"{failure.message} {notice}"
+    detail = f"{failure.detail} {notice}"
     document.stages = {**document.stages, failure.stage: {"status": "failed", "detail": detail}}
     if document.status == "failed":
         document.error = detail
@@ -269,16 +285,20 @@ def _run_stage(
     except StageSkipped as skipped:
         session.rollback()
         outcome = "skipped"
-        _set_stage(session, document, name, "skipped", str(skipped), lease)
+        _set_stage(session, document, name, "skipped", _shown(skipped), lease)
         return None
     except (AppError, UnsupportedFile, FileTooLarge) as error:
         session.rollback()
         transient = isinstance(error, AppError) and error.transient
         retry_at = error.until if isinstance(error, StageDeferred) else None
         threat = error.threat if isinstance(error, MalwareFound) else None
-        failure = StageFailure(name, str(error), transient, retry_at, threat)
+        failure = StageFailure(name, str(error), transient, retry_at, threat, _shown(error))
         outcome = _outcome(failure)
-        _set_stage(session, document, name, "failed", str(error), lease)
+        if isinstance(error, AppError) and error.members is not None and not transient:
+            # The members read their own sentence, so the operator's is told here; the worker
+            # tells one it runs again (app/worker.py).
+            log.warning("Stage %s of document %s failed: %s", name, document_id, error)
+        _set_stage(session, document, name, "failed", failure.detail, lease)
         return failure
     except Exception as error:
         session.rollback()
@@ -298,14 +318,21 @@ def _run_stage(
             return StageFailure(name, LOST_DATABASE, transient=True)
         log.exception("Stage %s failed for document %s", name, document_id)
         outcome = "crashed"
-        message = f"Unexpected error: {type(error).__name__}"
-        _set_stage(session, document, name, "failed", message, lease)
-        return StageFailure(name, message, transient=False)
+        crash = AppError(f"Unexpected error: {type(error).__name__}", members=STAGE_CRASHED)
+        failure = StageFailure(name, str(crash), transient=False, detail=_shown(crash))
+        _set_stage(session, document, name, "failed", failure.detail, lease)
+        return failure
     finally:
         STAGE_RUNS.labels(name, outcome).inc()
         if outcome != "skipped":
             STAGE_SECONDS.labels(name).observe(time.monotonic() - started)
         _charge(session, meter, document_id)
+
+
+def _shown(error: Exception) -> str:
+    """What the document's members read of what ended a stage: the worker writes the stage's
+    detail, so its environment decides (app/errors.py, `shown`)."""
+    return shown(error, development=get_settings().environment == "development")
 
 
 def _outcome(failure: StageFailure) -> str:
@@ -381,7 +408,7 @@ def _scan(session: Session, document: Document, services: Services, meter: Meter
     (`_quarantine`); without a scanner the stage is skipped and the document says so.
     """
     if services.scanner is None:
-        raise StageSkipped(NOT_SCANNED)
+        raise StageSkipped(NOT_SCANNED, members=UNSCANNED)
     if not services.storage.exists(document.storage_key):
         raise PipelineError(MISSING_ORIGINAL)
     with services.storage.localize(document.storage_key) as path:
@@ -428,7 +455,11 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
             else:
                 raise PipelineError(
                     "This file has no text layer, and reading scans and images needs the AI "
-                    f"model. {services.llm.problem()}"
+                    f"model. {services.llm.problem()}",
+                    members=(
+                        "This file has no text layer, and reading scans and images needs the AI "
+                        'model, which is unavailable just now. Use "Index again" later.'
+                    ),
                 )
     if not blocks:
         raise PipelineError("No text could be extracted from this file.")
@@ -601,7 +632,13 @@ def _needs_inferred_sections(blocks: Sequence[Block]) -> bool:
 
 def _enrich(session: Session, document: Document, services: Services, meter: Meter) -> str:
     if not services.llm.available:
-        raise StageSkipped(f"Summaries and facts need the AI model. {services.llm.problem()}")
+        raise StageSkipped(
+            f"Summaries and facts need the AI model. {services.llm.problem()}",
+            members=(
+                "Summaries and facts need the AI model, which is unavailable just now. Use "
+                '"Index again" later to add them.'
+            ),
+        )
     _wait_for_the_day(session, document)
 
     blocks = _blocks(session, document.id)

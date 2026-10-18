@@ -26,6 +26,7 @@ from sqlalchemy.exc import TimeoutError as PoolTimeout
 from app.agent.tools import TOOLS, ToolContext
 from app.config import get_settings
 from app.db import SessionLocal
+from app.errors import shown
 from app.indexing.pipeline import Services
 from app.llm import LLMError
 from app.models import Project
@@ -121,7 +122,10 @@ def run_agent(
                         yield {"type": "text", "text": text}
                 response = stream.response()
         except LLMError as error:
-            yield {"type": "error", "message": str(error)}
+            # The answer's error is the asker's to read: a deployment tells them the members'
+            # sentence, and the operator reads which model failed and why in the log (app/llm.py).
+            development = get_settings().environment == "development"
+            yield {"type": "error", "message": shown(error, development=development)}
             return
 
         usage.add(stream.model, response.usage)

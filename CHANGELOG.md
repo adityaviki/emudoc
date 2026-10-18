@@ -7,6 +7,23 @@ full SHA is the image's tag, the version `/api/health` reports and the user menu
 they change. A commit that changes what a member or an operator sees adds its line here, under
 its day, in the same commit.
 
+## 2026-10-19
+
+Members:
+
+- A document whose indexing failed, and an answer that failed, say what it means for you ("The
+  AI model is unavailable just now.", a document "found by its words alone" until semantic
+  search takes it) and how it goes on, and no longer name the model, a service's address or
+  the settings to change.
+
+Operators:
+
+- In production a document's stage, its error and an answer's error name no model, address or
+  setting. The operator's sentence is in the log (the worker's line with each retry, `Stage …
+  of document … failed: …` for a failure nothing runs again, the model's own failures) and in
+  the job's `last_error` once the worker gives up. Development still shows it to whoever uses
+  the app, and rows written before keep what they said.
+
 ## 2026-10-18
 
 Members:

@@ -43,7 +43,14 @@ CHECK_TIMEOUT = 10
 
 
 class EmbeddingError(AppError):
-    pass
+    """The endpoint could not embed what it was sent, which every message says by its address,
+    its status or a setting: the operator's to read. A member reads one on a document's embed
+    stage alone (a query's falls back to keywords, app/search.py)."""
+
+    members = (
+        "This document could not be prepared for semantic search just now, so search finds it "
+        "by its words alone."
+    )
 
 
 class InputTooLong(EmbeddingError):

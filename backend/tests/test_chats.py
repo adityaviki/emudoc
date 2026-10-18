@@ -15,7 +15,7 @@ from app.api.chats import STILL_ANSWERING
 from app.config import get_settings
 from app.db import BUSY
 from app.jobs import ANSWER_QUESTION, LIVE
-from app.llm import LLMUnavailable
+from app.llm import MODEL_UNAVAILABLE, LLMUnavailable
 from app.models import ChatEvent, Job
 from tests.conftest import MISSING_KEY, FakeTurn
 
@@ -324,6 +324,27 @@ def test_asking_without_a_model_saves_the_error(client, services, indexed):
         "Hello",
         "Hello again",
     ]
+
+
+def test_a_deployments_answer_fails_without_naming_the_model_or_its_key(
+    client, services, indexed, monkeypatch
+):
+    # The worker writes the answer's error for the asker; the operator reads the model's name
+    # and why in the log (app/llm.py) and the alerts.
+    monkeypatch.setattr(get_settings(), "environment", "production")
+
+    def unavailable(*args):
+        raise LLMUnavailable(MISSING_KEY)
+
+    services.llm.stream_agent = unavailable
+    chat = new_chat(client, indexed.project_id)
+    assert answered(client, services, chat["id"], "Hello") == [
+        {"type": "error", "message": MODEL_UNAVAILABLE},
+        {"type": "end", "status": "failed"},
+    ]
+    shown = client.get(f"/api/chats/{chat['id']}")
+    assert shown.json()["messages"][-1]["error"] == MODEL_UNAVAILABLE
+    assert "GOOGLE_API_KEY" not in shown.text and "gemini" not in shown.text
 
 
 def test_an_answer_that_finds_every_connection_in_use_ends_with_the_busy_sentence(

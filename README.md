@@ -24,7 +24,11 @@ that failed because the model, the embedding endpoint or the bucket was out of r
 rate limiting, a dropped connection) is run again by itself after 1, 2, 4 and 8 minutes; the
 stage says so in the document's status until it succeeds, and after the last try it stays
 failed until "Index again". A stage that failed for a reason that will not pass on its own, such
-as a rejected key or a file nothing can be read from, is not retried. A job the worker gave up
+as a rejected key or a file nothing can be read from, is not retried. In development the
+stage's words are the operator's (the model, the endpoint's address, the setting to change); a
+deployment's members read what it means for them ("The AI model is unavailable just now.", a
+document "found by its words alone") and nothing of how the deployment is set up, and so does an
+answer that failed, while the operator reads the rest in the log. A job the worker gave up
 on, after the last retry, after a crash, or after losing it to a dying process three times, is
 kept as failed for a month: `uv run python -m app.maintenance failed-jobs` (in `backend/`)
 lists them with the reason, and `--requeue` runs their documents again from the stage they
@@ -502,7 +506,8 @@ and one-time links are removed a month after they ended.
 The log holds no document text, question, answer or key (`backend/app/logs.py`): a traceback
 keeps its frames and the kinds of its exceptions but not their messages unless the app wrote
 them, a database error its SQLSTATE and names rather than the row it refused, a provider's error
-its status and codes rather than its words (members see the same), and the access log a query's
+its status and codes rather than its words (a developer sees the same, a deployment's members
+neither), and the access log a query's
 parameter names without their values, as does the line httpx writes for each request the app
 sends, without the user and password an address may carry. A failed parse names the document
 by its id. The links in emails carry their token after `#`, which

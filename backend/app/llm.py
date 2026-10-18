@@ -115,6 +115,12 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1"
 # account has nothing left to pay with (OpenAI), whatever the status.
 KEY_REJECTED = frozenset({"authentication_error", "invalid_api_key", "API_KEY_INVALID"})
 NO_CREDIT = frozenset({"insufficient_quota"})
+# What a deployment's members are told of a model that failed for a reason of the deployment's
+# (its key, its account, its settings, its provider being down or switched off), and of one
+# that refused the request itself, in place of a sentence that names the model or a setting
+# (`_told`). The operator reads which model and why in the log and the alerts.
+MODEL_UNAVAILABLE = "The AI model is unavailable just now. Try again later."
+MODEL_FAILED = "The AI model could not answer this request."
 
 # The library greets its first run with a banner; this process keeps its output to its log.
 pydantic_ai.BANNER_ENABLED = False
@@ -131,7 +137,10 @@ class LLMError(AppError):
 
 
 class LLMUnavailable(LLMError):
-    pass
+    """The model cannot be used as the deployment is set up, or is switched off, which every
+    message says by its name and the setting to change."""
+
+    members = MODEL_UNAVAILABLE
 
 
 class OcrBlock(BaseModel):
@@ -154,12 +163,14 @@ OCR_PROMPT = (
 
 
 def describe_error(error: Exception) -> str:
-    """A short message for a failed model request, safe to show a user and to log.
+    """A short message for a failed model request, safe to log and to show a developer; a
+    deployment's members are told `_told`'s sentence instead where this one names the model.
 
     A provider's error is told by its status and the codes in its body (`provider_codes`), not
     by its words: those may echo what was sent (OpenRouter's moderation quotes the flagged
     text), show part of the key (OpenAI's 401), or name the platform's account with the
-    provider, and the message reaches the log and the operator's digest as well as the members.
+    provider, and the message reaches the log and the operator's digest as well as development's
+    members.
     """
     if isinstance(error, ModelHTTPError):
         model = error.model_name
@@ -220,13 +231,33 @@ def _failure(error: Exception, earlier: Sequence[Exception] = ()) -> LLMError:
     transient = any(_passing(failure) for failure in failures)
     # Every model could not be set up or is switched off: the work is unavailable, as for one.
     unavailable = all(isinstance(failure, LLMUnavailable) for failure in failures)
-    return (LLMUnavailable if unavailable else LLMError)(message, transient=transient)
+    # The members are told why the last model asked failed, which is why the work did; with
+    # several models the message names each of them, whatever their sentences say.
+    members = _told(error) or (_said(error) if len(failures) > 1 else None)
+    return (LLMUnavailable if unavailable else LLMError)(
+        message, transient=transient, members=members
+    )
 
 
 def _said(error: Exception) -> str:
     """The sentence a failure is told by: the app's own error says it, a provider's is
     described (`describe_error`)."""
     return str(error) if isinstance(error, LLMError) else describe_error(error)
+
+
+def _told(error: Exception) -> str | None:
+    """What a deployment's members are told of a failure in place of its sentence (`_said`),
+    or None when that names nothing of the deployment: a content filter, a malformed reply and
+    a timeout are said without the model's name. A provider that refused the key, the account
+    or the model, or was out of reach, is the deployment's to fix or wait out; one that refused
+    the request is said to have, without its status."""
+    if isinstance(error, LLMError):
+        return error.members
+    if isinstance(error, ModelHTTPError):
+        return MODEL_UNAVAILABLE if _falls_back(error) else MODEL_FAILED
+    if _timed_out(error) or not isinstance(error, ModelAPIError | UserError):
+        return None
+    return MODEL_UNAVAILABLE
 
 
 def _passing(error: Exception) -> bool:

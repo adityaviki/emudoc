@@ -31,11 +31,14 @@ from pydantic_ai.profiles import ModelProfile
 
 from app.agent.loop import run_agent
 from app.config import Settings, export_env_file
+from app.errors import shown
 from app.indexing.enrich import DocumentAnalysis
 from app.indexing.pipeline import Services
 from app.llm import (
     INDEX_SYSTEM,
     LLM,
+    MODEL_FAILED,
+    MODEL_UNAVAILABLE,
     OCR_PROMPT,
     PASS_OVER_SECONDS,
     LLMError,
@@ -372,6 +375,7 @@ def test_a_switched_off_provider_stops_its_models_as_a_passing_problem(monkeypat
     assert str(raised.value) == off
     # By design a passing problem, unlike a missing key: the stages that meet it retry.
     assert raised.value.transient is True
+    assert raised.value.members == MODEL_UNAVAILABLE
     # The other provider's model is untouched.
     assert llm._model(CLAUDE).model_name.startswith("claude")
 
@@ -625,6 +629,8 @@ def test_when_every_model_fails_the_error_says_what_each_failed_with():
     )
     # The first model is down for now and may answer the next attempt.
     assert raised.value.transient is True
+    # A deployment's members are told why the last model failed, without naming either.
+    assert raised.value.members == MODEL_UNAVAILABLE
 
     llm = fallback_llm(
         FunctionModel(Script(ModelHTTPError(404, "first"))),
@@ -633,6 +639,49 @@ def test_when_every_model_fails_the_error_says_what_each_failed_with():
     with pytest.raises(LLMError) as raised:
         llm.structured("the document", DocumentAnalysis)
     assert raised.value.transient is False
+    assert raised.value.members == MODEL_FAILED
+
+    # The fallback's own sentence names no model, but the message names the first.
+    llm = fallback_llm(
+        FunctionModel(Script(ModelHTTPError(503, "first"))),
+        FunctionModel(Script(ModelResponse(parts=[], finish_reason="content_filter"))),
+    )
+    with pytest.raises(LLMError) as raised:
+        llm.structured("the document", DocumentAnalysis)
+    assert str(raised.value).startswith("The request to first failed (503). ")
+    assert raised.value.members == "The model declined to process this content."
+
+
+@pytest.mark.parametrize(
+    ("reply", "members"),
+    [
+        # The deployment's to fix or to wait out: the key, the account, the model, the provider.
+        (ModelHTTPError(401, "m"), MODEL_UNAVAILABLE),
+        (ModelHTTPError(400, "m", GEMINI_KEY_REJECTED), MODEL_UNAVAILABLE),
+        (ModelHTTPError(402, "m"), MODEL_UNAVAILABLE),
+        (ModelHTTPError(403, "m"), MODEL_UNAVAILABLE),
+        (ModelHTTPError(404, "m"), MODEL_UNAVAILABLE),
+        (ModelHTTPError(429, "m"), MODEL_UNAVAILABLE),
+        (ModelHTTPError(503, "m", "Overloaded."), MODEL_UNAVAILABLE),
+        (ModelAPIError("m", "Connection error."), MODEL_UNAVAILABLE),
+        # The request itself was refused, which its status says to the operator alone.
+        (ModelHTTPError(400, "m", "No such field."), MODEL_FAILED),
+        (ModelHTTPError(422, "m"), MODEL_FAILED),
+        # Said without the model's name already, so the members read it as it is.
+        (ModelResponse(parts=[], finish_reason="content_filter"), None),
+        (timed_out_api_error(), None),
+        (RuntimeError("boom"), None),
+    ],
+)
+def test_a_deployments_members_are_told_of_a_failure_without_the_model(reply, members):
+    llm = scripted_llm(FunctionModel(Script(reply)))
+    with pytest.raises(LLMError) as raised:
+        llm.structured("the document", DocumentAnalysis)
+    error = raised.value
+    assert error.members == members
+    assert shown(error, development=False) == (members or str(error))
+    # A developer runs the app they use, and reads the operator's sentence.
+    assert shown(error, development=True) == str(error)
 
 
 def test_a_model_that_failed_is_asked_after_its_fallback_for_a_minute(monkeypatch):

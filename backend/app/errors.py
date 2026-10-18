@@ -1,5 +1,6 @@
-"""The base of the errors the app raises on purpose: a message the user can act on, and whether
-the cause is expected to pass on its own; and how any error is told in the log.
+"""The base of the errors the app raises on purpose: a message the user can act on, whether the
+cause is expected to pass on its own, and what a deployment's members are told when the message
+is the operator's; and how any error is told in the log.
 
 The log must never hold what a document says, a question, an answer or a key, and an
 exception's message is where those slip in: a validation error quotes the value it refused, a
@@ -36,12 +37,31 @@ class AppError(Exception):
     again in a while. It is set where the error is made, from what the provider answered, never
     guessed from the message. Everything else needs a person to change something first.
 
+    `members` is what a deployment's members are told in its place when the message is the
+    operator's: one that names a model, an address or a setting, or says what to change in the
+    deployment. It is set where the error is made, as `transient` is, or by a class whose every
+    message is the operator's; None leaves the message for everyone. Which of the two a member
+    reads is decided where it is written for them (`shown`).
+
     Its message is shown in the log, so it must never quote a document, a question or a key.
     """
 
-    def __init__(self, message: str, *, transient: bool = False):
+    members: str | None = None
+
+    def __init__(self, message: str, *, transient: bool = False, members: str | None = None):
         super().__init__(message)
         self.transient = transient
+        if members is not None:
+            self.members = members
+
+
+def shown(error: BaseException, *, development: bool) -> str:
+    """What a member is shown of the error: in development its message, since whoever uses the
+    app there runs it too, and in a deployment the members' sentence where the message is the
+    operator's (`AppError.members`), which the operator reads in the log and the alerts."""
+    if not development and isinstance(error, AppError) and error.members is not None:
+        return error.members
+    return str(error)
 
 
 def described(error: BaseException) -> str:
