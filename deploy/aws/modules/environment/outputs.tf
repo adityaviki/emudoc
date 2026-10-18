@@ -18,6 +18,11 @@ output "bucket" {
   value       = aws_s3_bucket.documents.bucket
 }
 
+output "logs" {
+  description = "The bucket of the documents bucket's access logs (access/) and the VPC's flow logs (flow/)."
+  value       = aws_s3_bucket.logs.bucket
+}
+
 output "database" {
   description = "The RDS instance's identifier and address."
   value       = { identifier = aws_db_instance.main.identifier, address = aws_db_instance.main.address }

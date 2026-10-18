@@ -37,12 +37,13 @@ DEVELOPMENT = {
     "operator_name": "",
     "operator_email": "",
     "backup_days": None,
+    "access_log_days": None,
     "session_days": 30,
     "sentry_dsn": "",
 }
 DIRECTORY = LocalStorage(Path("unused"))
 # The SHA-256 of terms.md and privacy.md as the edition TERMS_VERSION names was settled.
-SETTLED = "65c0efc746f84b819963b2daa148c1413416e6bb8832ec97e341341a60820c93"
+SETTLED = "5a2e3a3843b29951418eeb59aa06acbc448d719680267f1c510e671b0be3d597"
 OLDER = "2026-01-01"
 
 
@@ -185,6 +186,19 @@ def test_the_privacy_policy_says_what_the_settings_do():
     assert "- **Error reports**: when the service runs into an error of its own" in hosted
     assert "sent to the error tracker on the subprocessor list" in hosted
     assert "kept on our own servers" in policy(sentry_dsn="http://key@glitchtip:8000/1")
+
+    # The infrastructure's records of connections are named where it keeps them, with how long,
+    # and the file storage's part where the browser fetches files from it.
+    assert "Connection records" not in text
+    recorded = policy(storage=in_a_bucket, access_log_days=30)
+    assert "- **Connection records**: the IP address of every connection to our servers" in recorded
+    assert "the file's id and, for a download, its name." in recorded
+    assert "(BACKUP_DAYS is not set).\n- **Connection records**, 30 days.\n\n## Cookies" in recorded
+    assert "for a download" not in policy(access_log_days=30)
+    # Each record kept only where it is set stays a bullet of the same list.
+    both = policy(storage=in_a_bucket, access_log_days=30, sentry_dsn="https://k@sentry.io/2")
+    assert "\n\n- **Connection records**" not in both
+    assert "or an answer says.\n- **Error reports**" in both
 
 
 def test_the_documents_are_published_to_anyone(client, signed_in_only):

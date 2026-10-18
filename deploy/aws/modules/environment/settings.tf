@@ -20,6 +20,7 @@ locals {
       EMBEDDING_BASE_URL = "http://embeddings:8080/v1"
       HOSTING_PROVIDER   = local.hosting_provider
       BACKUP_DAYS        = tostring(var.backup_days)
+      ACCESS_LOG_DAYS    = tostring(var.access_log_days)
       # What the error tracker files the reports under, should the operator give it a
       # SENTRY_DSN (a secret, since it carries the project's key): staging and production
       # are both ENVIRONMENT=production.
@@ -57,7 +58,7 @@ resource "aws_ssm_parameter" "setting" {
         keys(local.operator_settings),
         concat(keys(local.managed_settings), keys(local.secret_settings)),
       )) == 0
-      error_message = "settings names one the module sets itself (APP_URL, STORAGE_URL, AWS_DEFAULT_REGION, SCANNER_URL, EMBEDDING_BASE_URL, HOSTING_PROVIDER, BACKUP_DAYS, SENTRY_ENVIRONMENT, DATA_REGION, MAIL_FROM, ALERT_EMAIL, DATABASE_URL, SMTP_URL): use the module's own variable for it."
+      error_message = "settings names one the module sets itself (APP_URL, STORAGE_URL, AWS_DEFAULT_REGION, SCANNER_URL, EMBEDDING_BASE_URL, HOSTING_PROVIDER, BACKUP_DAYS, ACCESS_LOG_DAYS, SENTRY_ENVIRONMENT, DATA_REGION, MAIL_FROM, ALERT_EMAIL, DATABASE_URL, SMTP_URL): use the module's own variable for it."
     }
   }
 }

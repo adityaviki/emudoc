@@ -1,9 +1,12 @@
 # The account root against a mocked AWS (tofu test, in this root's directory): who may push an
-# image, and with what. Nothing reaches AWS.
+# image, and with what, and what the account's trail records. Nothing reaches AWS.
 
 mock_provider "aws" {
   mock_data "aws_caller_identity" {
     defaults = { account_id = "123456789012" }
+  }
+  mock_data "aws_partition" {
+    defaults = { partition = "aws" }
   }
   mock_resource "aws_ecr_repository" {
     defaults = {
@@ -13,6 +16,10 @@ mock_provider "aws" {
   }
   mock_resource "aws_iam_openid_connect_provider" {
     defaults = { arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com" }
+  }
+  # CloudTrail refuses a key that is not named by an ARN.
+  mock_resource "aws_kms_key" {
+    defaults = { arn = "arn:aws:kms:eu-central-1:123456789012:key/trail" }
   }
   mock_resource "aws_iam_role" {
     defaults = { arn = "arn:aws:iam::123456789012:role/emudoc-github-push" }
@@ -79,4 +86,101 @@ run "an_operator_while_github_is_down" {
     ]
     error_message = "pushers lets another role push beside CI."
   }
+}
+
+run "the_trail" {
+  override_resource {
+    target = aws_s3_bucket.state
+    values = { arn = "arn:aws:s3:::emudoc-state-123456789012" }
+  }
+  override_resource {
+    target = aws_s3_bucket.trail
+    values = { arn = "arn:aws:s3:::emudoc-trail-123456789012", id = "emudoc-trail-123456789012" }
+  }
+
+  assert {
+    condition = (
+      aws_cloudtrail.account.is_multi_region_trail
+      && aws_cloudtrail.account.include_global_service_events
+      && aws_cloudtrail.account.enable_log_file_validation
+      && aws_cloudtrail.account.kms_key_id == "arn:aws:kms:eu-central-1:123456789012:key/trail"
+      && aws_cloudtrail.account.s3_bucket_name == "emudoc-trail-123456789012"
+    )
+    error_message = "The trail records every region, signs its files and encrypts them with its own key, in its own bucket."
+  }
+  assert {
+    condition = (
+      length(aws_cloudtrail.account.advanced_event_selector) == 2
+      && one(aws_cloudtrail.account.advanced_event_selector[0].field_selector).field == "eventCategory"
+      && one(aws_cloudtrail.account.advanced_event_selector[0].field_selector).equals == tolist(["Management"])
+    )
+    error_message = "The trail records every call to the APIs."
+  }
+  assert {
+    condition = {
+      for field in aws_cloudtrail.account.advanced_event_selector[1].field_selector :
+      field.field => field.equals != null ? field.equals : field.starts_with
+      } == {
+      eventCategory    = tolist(["Data"])
+      "resources.type" = tolist(["AWS::S3::Object"])
+      "resources.ARN"  = tolist(["arn:aws:s3:::emudoc-state-123456789012/"])
+    }
+    error_message = "The trail records every request for an object of the state bucket, and of no other."
+  }
+  assert {
+    condition = one([
+      for statement in jsondecode(aws_kms_key.trail.policy).Statement : statement
+      if statement.Sid == "CloudTrailEncrypts"
+      ]) == {
+      Sid       = "CloudTrailEncrypts"
+      Effect    = "Allow"
+      Principal = { Service = "cloudtrail.amazonaws.com" }
+      Action    = "kms:GenerateDataKey*"
+      Resource  = "*"
+      Condition = {
+        StringEquals = { "aws:SourceArn" = "arn:aws:cloudtrail:eu-central-1:123456789012:trail/emudoc" }
+        StringLike   = { "kms:EncryptionContext:aws:cloudtrail:arn" = "arn:aws:cloudtrail:*:123456789012:trail/*" }
+      }
+    }
+    error_message = "CloudTrail encrypts with the key for this trail alone."
+  }
+  assert {
+    condition = one([
+      for statement in jsondecode(aws_s3_bucket_policy.trail.policy).Statement : statement
+      if statement.Sid == "CloudTrailWrites"
+      ]) == {
+      Sid       = "CloudTrailWrites"
+      Effect    = "Allow"
+      Principal = { Service = "cloudtrail.amazonaws.com" }
+      Action    = "s3:PutObject"
+      Resource  = "arn:aws:s3:::emudoc-trail-123456789012/AWSLogs/123456789012/*"
+      Condition = {
+        StringEquals = {
+          "aws:SourceArn" = "arn:aws:cloudtrail:eu-central-1:123456789012:trail/emudoc"
+          "s3:x-amz-acl"  = "bucket-owner-full-control"
+        }
+      }
+    }
+    error_message = "Only this trail writes to its bucket, under the account's own prefix."
+  }
+  assert {
+    condition = (
+      jsondecode(aws_s3_bucket_policy.trail.policy).Statement[0].Condition.Bool["aws:SecureTransport"] == "false"
+      && aws_s3_bucket_public_access_block.trail.block_public_policy
+      && aws_s3_bucket_public_access_block.trail.restrict_public_buckets
+    )
+    error_message = "The trail's bucket is never public and refuses a request without TLS."
+  }
+  assert {
+    condition     = aws_s3_bucket_lifecycle_configuration.trail.rule[0].expiration[0].days == 365
+    error_message = "The trail's files are kept for trail_days."
+  }
+}
+
+run "a_trail_kept_no_days" {
+  command = plan
+  variables {
+    trail_days = 0
+  }
+  expect_failures = [var.trail_days]
 }

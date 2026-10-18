@@ -93,6 +93,10 @@ run "staging" {
     target = aws_instance.app
     values = { arn = "arn:aws:ec2:eu-central-1:123456789012:instance/i-0123456789abcdef0" }
   }
+  override_resource {
+    target = aws_s3_bucket.logs
+    values = { arn = "arn:aws:s3:::emudoc-test-logs-123456789012" }
+  }
 
   # The database: private, encrypted, TLS only, its backups within BACKUP_DAYS.
   assert {
@@ -216,6 +220,97 @@ run "staging" {
     error_message = "The bucket refuses a request without TLS."
   }
 
+  # The records: every request to the documents bucket and every connection of the network,
+  # in a bucket of their own, gone before ACCESS_LOG_DAYS, which the privacy policy names.
+  assert {
+    condition = (
+      aws_s3_bucket_logging.documents.bucket == aws_s3_bucket.documents.id
+      && aws_s3_bucket_logging.documents.target_bucket == aws_s3_bucket.logs.id
+      && aws_s3_bucket_logging.documents.target_prefix == "access/"
+    )
+    error_message = "Every request to the documents bucket is recorded in the logs bucket."
+  }
+  assert {
+    condition = (
+      aws_flow_log.main.vpc_id == aws_vpc.main.id
+      && aws_flow_log.main.traffic_type == "ALL"
+      && aws_flow_log.main.log_destination_type == "s3"
+      && aws_flow_log.main.log_destination == "arn:aws:s3:::emudoc-test-logs-123456789012/flow/"
+    )
+    error_message = "Every connection of the network, accepted or refused, is recorded in the logs bucket."
+  }
+  assert {
+    condition = (
+      aws_s3_bucket_lifecycle_configuration.logs.rule[0].expiration[0].days == 28
+      && length(aws_s3_bucket_lifecycle_configuration.logs.rule) == 1
+      && aws_ssm_parameter.setting["ACCESS_LOG_DAYS"].value == "30"
+    )
+    error_message = "The logs go two days before ACCESS_LOG_DAYS, which the app is told for its privacy policy."
+  }
+  assert {
+    condition = (
+      aws_s3_bucket_public_access_block.logs.block_public_acls
+      && aws_s3_bucket_public_access_block.logs.block_public_policy
+      && aws_s3_bucket_public_access_block.logs.ignore_public_acls
+      && aws_s3_bucket_public_access_block.logs.restrict_public_buckets
+      && one(one(aws_s3_bucket_server_side_encryption_configuration.logs.rule).apply_server_side_encryption_by_default).sse_algorithm == "AES256"
+    )
+    error_message = "The logs bucket is never public, and encrypted with the keys S3 delivers access logs under."
+  }
+  assert {
+    condition = {
+      for statement in jsondecode(aws_s3_bucket_policy.logs.policy).Statement : statement.Sid => statement
+      if statement.Effect == "Allow"
+      } == {
+      AccessLogsOfTheDocuments = {
+        Sid       = "AccessLogsOfTheDocuments"
+        Effect    = "Allow"
+        Principal = { Service = "logging.s3.amazonaws.com" }
+        Action    = "s3:PutObject"
+        Resource  = "arn:aws:s3:::emudoc-test-logs-123456789012/access/*"
+        Condition = {
+          ArnLike      = { "aws:SourceArn" = "arn:aws:s3:::emudoc-test-documents-123456789012" }
+          StringEquals = { "aws:SourceAccount" = "123456789012" }
+        }
+      }
+      FlowLogsCheck = {
+        Sid       = "FlowLogsCheck"
+        Effect    = "Allow"
+        Principal = { Service = "delivery.logs.amazonaws.com" }
+        Action    = "s3:GetBucketAcl"
+        Resource  = "arn:aws:s3:::emudoc-test-logs-123456789012"
+        Condition = {
+          StringEquals = { "aws:SourceAccount" = "123456789012" }
+          ArnLike      = { "aws:SourceArn" = "arn:aws:logs:eu-central-1:123456789012:*" }
+        }
+      }
+      FlowLogs = {
+        Sid       = "FlowLogs"
+        Effect    = "Allow"
+        Principal = { Service = "delivery.logs.amazonaws.com" }
+        Action    = "s3:PutObject"
+        Resource  = "arn:aws:s3:::emudoc-test-logs-123456789012/flow/AWSLogs/123456789012/*"
+        Condition = {
+          StringEquals = { "aws:SourceAccount" = "123456789012", "s3:x-amz-acl" = "bucket-owner-full-control" }
+          ArnLike      = { "aws:SourceArn" = "arn:aws:logs:eu-central-1:123456789012:*" }
+        }
+      }
+    }
+    error_message = "Only S3's logging of the documents bucket and this account's flow logs write to the logs bucket, each under its own prefix."
+  }
+  assert {
+    condition     = jsondecode(aws_s3_bucket_policy.logs.policy).Statement[0].Condition.Bool["aws:SecureTransport"] == "false"
+    error_message = "The logs bucket refuses a request without TLS."
+  }
+  assert {
+    condition = (
+      aws_db_instance.main.database_insights_mode == "standard"
+      && aws_db_instance.main.performance_insights_enabled
+      && aws_db_instance.main.performance_insights_retention_period == 7
+    )
+    error_message = "Database Insights' standard mode keeps the database's load for the 7 days AWS charges nothing for."
+  }
+
   # The roles: the containers' reach the bucket alone, and only the host takes them on.
   assert {
     condition = toset(flatten([
@@ -294,8 +389,8 @@ run "staging" {
   assert {
     condition = toset(keys(aws_ssm_parameter.setting)) == toset([
       "APP_URL", "STORAGE_URL", "AWS_DEFAULT_REGION", "SCANNER_URL", "EMBEDDING_BASE_URL",
-      "HOSTING_PROVIDER", "BACKUP_DAYS", "SENTRY_ENVIRONMENT", "OPERATOR_NAME", "OPERATOR_EMAIL",
-      "AGENT_MODEL", "INDEX_MODEL",
+      "HOSTING_PROVIDER", "BACKUP_DAYS", "ACCESS_LOG_DAYS", "SENTRY_ENVIRONMENT", "OPERATOR_NAME",
+      "OPERATOR_EMAIL", "AGENT_MODEL", "INDEX_MODEL",
     ])
     error_message = "Staging's settings are the module's and the root's, and no others."
   }
@@ -349,6 +444,7 @@ run "production" {
     dns_zone_id       = "Z0123456789ABCDEFGHIJ"
     database_multi_az = true
     backup_days       = 14
+    access_log_days   = 14
     data_region       = "eu"
     alert_email       = "operator@example.com"
     restore_drill     = false
@@ -362,6 +458,13 @@ run "production" {
   assert {
     condition     = aws_s3_bucket_lifecycle_configuration.documents.rule[0].noncurrent_version_expiration[0].noncurrent_days == 12
     error_message = "The bucket follows backup_days."
+  }
+  assert {
+    condition = (
+      aws_s3_bucket_lifecycle_configuration.logs.rule[0].expiration[0].days == 12
+      && aws_ssm_parameter.setting["ACCESS_LOG_DAYS"].value == "14"
+    )
+    error_message = "The logs follow access_log_days."
   }
   assert {
     condition     = aws_ssm_parameter.setting["DATA_REGION"].value == "eu" && aws_ssm_parameter.setting["MAIL_FROM"].value == "Emudoc <no-reply@mail.example.com>"
@@ -428,6 +531,14 @@ run "backup_days_past_rds" {
     backup_days = 40
   }
   expect_failures = [var.backup_days]
+}
+
+run "access_logs_gone_too_soon_for_the_rule" {
+  command = plan
+  variables {
+    access_log_days = 2
+  }
+  expect_failures = [var.access_log_days]
 }
 
 run "a_key_among_the_settings" {

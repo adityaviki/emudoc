@@ -128,7 +128,17 @@ def privacy_policy(
             if parse_scanner_url(settings.scanner_url)
             else ""
         ),
-        error_reports=_error_reports(settings.sentry_dsn),
+        # Each a bullet of its own when it is kept at all, joined so that none leaves a blank
+        # line inside the list.
+        more_records="\n".join(
+            bullet
+            for bullet in (
+                _connection_records(settings.access_log_days, storage),
+                _error_reports(settings.sentry_dsn),
+            )
+            if bullet
+        ),
+        connection_retention=_connection_retention(settings.access_log_days),
     )
 
 
@@ -177,6 +187,33 @@ def _trains_on_nothing(name: str, environ: Mapping[str, str]) -> bool:
 def _embeds_on_such_terms(url: str) -> bool:
     host = host_of(url)
     return on_own_network(host) or NO_TRAINING_EMBEDDINGS.fullmatch(host) is not None
+
+
+def _connection_records(days: int | None, storage: Storage) -> str:
+    """What the infrastructure records of connections, where ACCESS_LOG_DAYS says it keeps
+    any: the network's flow logs, and the access logs of a bucket the browser fetches files
+    from (Storage.origin), whose signed address names a download in its query."""
+    if days is None:
+        return ""
+    files = (
+        ", and for every file your browser fetches straight from the file storage (the images "
+        "of document pages and the files you download) its IP address, the browser's "
+        "description of itself, the time, the file's id and, for a download, its name"
+        if storage.origin
+        else ""
+    )
+    return (
+        "- **Connection records**: the IP address of every connection to our servers, with its "
+        f"time, ports and size{files}. We keep them to keep the service secure and to find "
+        "faults, which is our legitimate interest. They never hold what a document, a question "
+        "or an answer says."
+    )
+
+
+def _connection_retention(days: int | None) -> str:
+    if days is None:
+        return ""
+    return f"- **Connection records**, {days} {'day' if days == 1 else 'days'}."
 
 
 def _error_reports(dsn: str) -> str:

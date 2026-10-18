@@ -327,6 +327,11 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   `/terms` and `/privacy` name them (Accounts, below). Production refuses to start without them,
   and with a versioned bucket that keeps a deleted file's earlier versions longer than
   `BACKUP_DAYS` (`deploying.md`, "Backups").
+- `ACCESS_LOG_DAYS` says how long the infrastructure keeps its records of connections, which
+  hold members' addresses: a network's flow logs, and the access logs of the bucket their
+  browsers fetch page images and downloads from. Set, the privacy policy names them and the
+  period; unset, it names none. The AWS deployment sets it and expires the logs by it
+  (`deploying.md`, "The account's records").
 - `DATA_REGION` is the region the deployment keeps its documents in: `eu` (the European Union)
   or `us` (the United States), empty for none. The backend holds to it what it can choose (an
   `openrouter:` model is reached at the region's own address, an `anthropic:` model is told to
@@ -467,7 +472,8 @@ anyone can read at `/terms` and `/privacy` (the sign-in pages and the user menu 
 The backend fills both in from its settings and constants (`backend/app/legal/`, `GET
 /api/legal`): who runs the deployment, where the documents are kept, how long each thing is
 kept on each plan, the two cookies, whether a model provider may learn from what it is sent,
-whether uploads are scanned. The account records the edition it accepted (`TERMS_VERSION`) and
+whether uploads are scanned, how long the infrastructure's records of connections are kept.
+The account records the edition it accepted (`TERMS_VERSION`) and
 when, and the audit log records the acceptance. An account made through Google or Microsoft,
 or one that accepted an older edition, sees only a page that asks for the current one, with a
 copy of its data and its deletion as the other ways out; the API refuses it everything else

@@ -15,9 +15,19 @@ Members:
   AI model is unavailable just now.", a document "found by its words alone" until semantic
   search takes it) and how it goes on, and no longer name the model, a service's address or
   the settings to change.
+- Where the deployment keeps records of connections, the privacy policy says what they hold
+  (your IP address, and for the page images and downloads your browser fetches from the file
+  storage, your browser and a download's file name) and how long they are kept.
 
 Operators:
 
+- On AWS the account root keeps a CloudTrail trail of every region (`account/trail.tf`): a key
+  and a bucket of its own, signed files kept `trail_days` (365), and every request for the
+  state bucket's objects. Each environment keeps the documents bucket's access logs and the
+  VPC's flow logs in a logs bucket of its own for `access_log_days` (30, `shared/`), and runs
+  Database Insights' standard mode on its database. The module writes the new setting
+  `ACCESS_LOG_DAYS`, from which the privacy policy names those logs and their period. Apply the
+  account root and both environments (deploying.md, "The account's records").
 - In production a document's stage, its error and an answer's error name no model, address or
   setting. The operator's sentence is in the log (the worker's line with each retry, `Stage …
   of document … failed: …` for a failure nothing runs again, the model's own failures) and in

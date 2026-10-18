@@ -74,6 +74,14 @@ resource "aws_db_instance" "main" {
   copy_tags_to_snapshot    = true
   delete_automated_backups = true
 
+  # Database Insights' standard mode (deploying.md, "The account's records"): the load by wait,
+  # statement and host over the last 7 days, which AWS keeps without charge. A statement is the
+  # app's with $1 in place of every value, since it binds them all, and the one host is the
+  # instance.
+  database_insights_mode                = "standard"
+  performance_insights_enabled          = true
+  performance_insights_retention_period = 7
+
   auto_minor_version_upgrade = true
   apply_immediately          = false
 

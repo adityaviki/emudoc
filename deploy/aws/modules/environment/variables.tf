@@ -94,6 +94,17 @@ variable "backup_days" {
   }
 }
 
+variable "access_log_days" {
+  description = "ACCESS_LOG_DAYS: how long the documents bucket's access logs and the VPC's flow logs are kept, which the privacy policy names, since they hold members' IP addresses."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.access_log_days >= 3 && floor(var.access_log_days) == var.access_log_days
+    error_message = "access_log_days is a whole number from 3: the logs bucket's rule removes the logs two days before it."
+  }
+}
+
 variable "data_region" {
   description = "DATA_REGION: eu, us, or empty for no promise. The app checks the bucket and the models against it at start; the region the provider is configured for must be in it."
   type        = string

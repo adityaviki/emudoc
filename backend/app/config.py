@@ -308,6 +308,13 @@ class Settings(BaseSettings):
     # deletion, since a purged account stays in a backup until it expires (app/retention.py
     # purges it again after a restore). Production refuses it unset, as the policy could not.
     backup_days: int | None = Field(default=None, ge=0)
+    # How many days the deployment's infrastructure keeps its records of connections: the
+    # network's flow logs, and the access logs of a bucket that members' browsers fetch page
+    # images and downloads from, which hold their IP addresses and browsers and, in a signed
+    # address, a download's name. The privacy policy names them and this period when it is
+    # set; unset says the deployment keeps none. The AWS module writes it beside the bucket
+    # rule that holds to it (deploying.md, "The account's records").
+    access_log_days: int | None = Field(default=None, ge=1)
     # The region the deployment keeps its documents in, and everything read from them, as a
     # code of REGIONS: eu or us (app/residency.py). Set, the app holds to the region what it
     # can choose itself (Claude's US-only inference, OpenRouter's regional address), checks
@@ -520,7 +527,7 @@ class Settings(BaseSettings):
             )
         return value
 
-    @field_validator("run_worker", "backup_days", "log_format", mode="before")
+    @field_validator("run_worker", "backup_days", "access_log_days", "log_format", mode="before")
     @classmethod
     def _blank_means_unset(cls, value: object) -> object:
         # A blank `RUN_WORKER=` line leaves the choice to the environment, like no line at all.

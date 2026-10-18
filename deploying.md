@@ -1112,7 +1112,10 @@ Google's free tier, and a hosted embeddings endpoint is promised nothing unless 
 Azure OpenAI's or Vertex AI's), and how long a deleted
 account stays in the backups (`BACKUP_DAYS`, the days the deployment keeps its database and
 bucket backups, 0 for none; the app makes none itself, 1.4). Production refuses to start
-without the three. The texts are a starting point: have counsel read them for the operator's
+without the three. Where the infrastructure keeps records of connections that hold members'
+addresses (a bucket's access logs, a network's flow logs), `ACCESS_LOG_DAYS` says how long, and
+the policy names them with it; unset, it names none. The AWS module sets it ("The account's
+records"). The texts are a starting point: have counsel read them for the operator's
 country and customers before launch, and edit the templates rather than writing pages beside
 them, so the facts keep coming from the settings.
 
@@ -1597,7 +1600,8 @@ key (`backend/app/logs.py`), whatever collects it and however long it is kept:
 The proxy keeps a log of its own, and both nginx's default format and Caddy's write whole
 addresses, queries included. The examples above give each one without the query: nginx logs
 `GET /api/projects/3/search`, Caddy `/api/projects/3/search?…`. A load balancer or CDN in
-front needs the same; most log the query unless told not to. The parse child prints the same
+front needs the same; most log the query unless told not to. On AWS, the documents bucket and
+the network keep records of their own, with members' addresses ("The account's records"). The parse child prints the same
 traceback as the app when a parser crashes, which the worker logs.
 
 ## Error tracking
@@ -1889,8 +1893,9 @@ The directories:
   operator's machine (`alias/emudoc-state`; the state holds the database's password and SES's
   SMTP key), the image repository, `emudoc` in ECR, whose tags are immutable and scanned as
   they are pushed, and GitHub's sign-in with the role CI pushes with, the one role the
-  repository takes images from ("Releases from CI"). Its own state holds no secret and stays
-  where it is applied; its tests are `tofu test` there.
+  repository takes images from ("Releases from CI"), and the account's trail, CloudTrail in
+  every region into a bucket of its own ("The account's records"). Its own state holds no
+  secret and stays where it is applied; its tests are `tofu test` there.
 - `modules/environment/`, an environment, with its tests (`tofu test` there, against a mocked
   AWS: what each resource is made with, and the inputs it refuses).
 - `shared/`, the settings both environments take: the operator, the models and their prices,
@@ -1957,6 +1962,50 @@ The directories:
   log line. `alert_email` subscribes an address, which must confirm it, and is the app's
   `ALERT_EMAIL` too, where the worker mails what it gave up on and what its watch sees, through
   the mail relay.
+- **Records**: the documents bucket's access logs and the network's flow logs in a logs
+  bucket of the environment's own, kept `access_log_days`, and Database Insights on the
+  database ("The account's records").
+
+### The account's records
+
+Three records of what reaches the deployment, beside the app's own log ("Logs"):
+
+- **The trail** (`account/trail.tf`): CloudTrail's record of every call to AWS's APIs in
+  every region, the console's included, with who made it and from which address, and of every
+  request for an object of the state bucket, whose states hold the database's password. Its
+  files go into a bucket of their own (`emudoc-trail-<account>`, the root's `trail_bucket`
+  output), encrypted with a key of their own (`alias/emudoc-trail`) and signed: `aws cloudtrail
+  validate-logs --trail-arn <arn> --start-time <time>` says whether any was changed or removed
+  since. They are kept `trail_days` (365, the account root's variable). The first copy of the
+  management events costs nothing, and the state bucket's data events are a handful per `tofu
+  plan`. The console's event history shows the last 90 days of management events without the
+  files; Athena queries the files. The trail holds what the operators, CI and the instances
+  did, and nothing of a member's, whose requests reach no API it records.
+- **The access logs and the flow logs** (`modules/environment/logs.tf`), in each environment's
+  logs bucket (`emudoc-<environment>-logs-<account>`, the `logs` output): S3's server access
+  logs of the documents bucket under `access/`, grouped by the day of the request, a line per
+  request with the requester's address and browser, the key, the operation and the answer; and
+  the VPC's flow logs under `flow/`, a line per connection to or from its subnets, accepted or
+  refused, with the addresses, ports and bytes. The page images, thumbnails and downloads a
+  member opens are fetched by their browser from the bucket by a signed address, so the access
+  logs hold members' addresses and browsers, and the signed address's query, which names a
+  download's file and carries its signature for its 15 minutes; the flow logs hold the address
+  of everyone who reached the instance. Both are personal data, kept `access_log_days` (30, in
+  `shared/`), which the module writes as `ACCESS_LOG_DAYS`, from which the privacy policy names
+  them and the period. The bucket's rule removes them two days before, as the documents
+  bucket's does for `BACKUP_DAYS`, and the bucket keeps no versions, so a removed log is gone.
+  S3 delivers access logs within a few hours, as best it can, and charges only for their
+  storage, where CloudTrail's data events for the documents bucket would cost per request,
+  every page a member opens among them. No role of the app's reaches the bucket.
+- **Database Insights**, in its standard mode on the RDS instance: the database's load by
+  wait, statement and host over the last 7 days, without charge, in CloudWatch's Database
+  Insights. A statement is shown as the app sent it, with `$1` for every value, since the app
+  binds them all, and the one host is the instance. `python -m app.maintenance database`
+  remains the check of the server's settings and vacuum ("The database").
+
+Without AWS, `ACCESS_LOG_DAYS` is how long the host's own records of connections are kept (a
+firewall's log, a provider's flow logs, a bucket's access logs), and unset, the privacy policy
+names none.
 
 ### The settings
 
@@ -2111,7 +2160,8 @@ tag and delete only copies called `emudoc-drill-…` that carry `purpose=restore
 - A scraper for the metrics (the containers serve them on 9464 of the compose network) and the
   rules on them ("Alerts": the worker's mail and the host's watch cover part of them), an alarm
   on the instance's own status checks, a CDN or firewall in front, IPv6, the bucket's
-  replication to a second region, and VPC flow logs.
+  replication to a second region, and alarms on the trail's events (the root user signing in,
+  a change to IAM), which would send it to CloudWatch Logs as well.
 
 It was checked without an AWS account: the module and the account root by `tofu test` against
 a mocked provider and by `validate`, the instance's part on Docker 25 (Amazon Linux's) with

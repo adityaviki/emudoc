@@ -47,17 +47,50 @@ misconfigurations:
       Allow would give. Nothing outside the account can pull or push.
 
   - id: AWS-0089
-    paths: [deploy/aws/account/main.tf, deploy/aws/modules/environment/bucket.tf]
+    paths: [deploy/aws/account/main.tf]
     statement: >-
-      No server access logs on the state and documents buckets yet: who read which object
-      belongs with the account's own records in 1.7 (CloudTrail data events or access logs),
-      not here.
+      The state bucket's requests are recorded by the account's trail as data events
+      (account/trail.tf), each with the principal that made it, rather than by server access
+      logs; and a state cannot be read without decrypting it with alias/emudoc-state, every use
+      of which the trail records too.
 
-  - id: AWS-0133
+  - id: AWS-0089
+    paths: [deploy/aws/account/trail.tf, deploy/aws/modules/environment/logs.tf]
+    statement: >-
+      The buckets the logs go to are the end of the line: logging their requests would need
+      another bucket whose own went unlogged, and S3 warns against a bucket logging into
+      itself. The trail's files are signed and read through the trail's key, every use of
+      which the trail records; no role of the app's reaches the environment's logs.
+
+  - id: AWS-0090
+    paths: [deploy/aws/account/trail.tf, deploy/aws/modules/environment/logs.tf]
+    statement: >-
+      Logs are written once, never changed, and expire by a rule: unversioned, an expired log
+      is gone, as the privacy policy says of the environment's access and flow logs
+      (ACCESS_LOG_DAYS). A trail file removed or changed is found by `aws cloudtrail
+      validate-logs` through the digest files that chain them; versions would not keep one
+      from an administrator, who may delete those too.
+
+  - id: AWS-0162
+    paths: [deploy/aws/account/trail.tf]
+    statement: >-
+      The trail is kept, signed, in its bucket and read there (Athena, or the console's event
+      history of the last 90 days). Sending it to CloudWatch Logs as well, at a cost per GB, is
+      for alarms on its events (the root user signing in, a change to IAM), which come with
+      1.7's scraper and alarms on AWS.
+
+  - id: AWS-0078
     paths: [deploy/aws/modules/environment/database.tf]
     statement: >-
-      The database's own metrics (Performance Insights or Database Insights) come with 1.7's
-      metrics; `python -m app.maintenance database` covers what the app needs meanwhile.
+      Database Insights' data is encrypted with RDS's AWS-managed key, as the database is; it
+      holds the load and the app's statements with $1 for every value, never a row. A
+      customer-managed key comes with 4.3's customer-managed keys.
+
+  - id: AWS-0132
+    paths: [deploy/aws/modules/environment/logs.tf]
+    statement: >-
+      S3 delivers server access logs only to a bucket encrypted with its own keys (SSE-S3); a
+      bucket with a KMS key as its default would be sent logs no one could read.
 
   - id: AWS-0143
     paths: [deploy/aws/modules/environment/mail.tf]
@@ -78,12 +111,6 @@ misconfigurations:
     statement: >-
       Deletion protection is the root's choice: production sets it (with a final snapshot),
       staging does not, so that it can be destroyed and built again.
-
-  - id: AWS-0178
-    paths: [deploy/aws/modules/environment/network.tf]
-    statement: >-
-      VPC flow logs come with the account's own records in 1.7; the instance takes HTTP and
-      HTTPS only, and the database the instance only.
 
   - id: DS-0026
     paths: [Dockerfile]

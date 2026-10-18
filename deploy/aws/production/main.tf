@@ -73,8 +73,9 @@ module "emudoc" {
   database_multi_az   = true
   deletion_protection = true
 
-  backup_days = module.shared.backup_days
-  data_region = module.shared.data_region
+  backup_days     = module.shared.backup_days
+  access_log_days = module.shared.access_log_days
+  data_region     = module.shared.data_region
   settings = merge(module.shared.settings, {
     DAILY_SPEND_CAP = "50"
   })

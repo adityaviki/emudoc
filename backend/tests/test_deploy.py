@@ -30,6 +30,7 @@ WRITTEN = {
     "EMBEDDING_BASE_URL": "http://embeddings:8080/v1",
     "HOSTING_PROVIDER": "Amazon Web Services, eu-central-1",
     "BACKUP_DAYS": "35",
+    "ACCESS_LOG_DAYS": "30",
     "SENTRY_ENVIRONMENT": "staging",
     "DATABASE_URL": DATABASE_URL,
 }
@@ -48,9 +49,10 @@ SECRETS = {
     "SMTP_URL": "smtp://AKIAEXAMPLE:BAx%2Fy%2Bz%3D@email-smtp.eu-central-1.amazonaws.com:587",
     "ANTHROPIC_API_KEY": "sk-ant-example",
 }
-# Written for the app's sake, not production's checks: boto3 signs for the bucket's region, and
-# the error tracker files the reports by the environment's name.
-NOT_CHECKED = {"AWS_DEFAULT_REGION", "SENTRY_ENVIRONMENT"}
+# Written for the app's sake, not production's checks: boto3 signs for the bucket's region, the
+# error tracker files the reports by the environment's name, and the privacy policy names how
+# long the access and flow logs are kept, which a deployment without them need not say.
+NOT_CHECKED = {"AWS_DEFAULT_REGION", "SENTRY_ENVIRONMENT", "ACCESS_LOG_DAYS"}
 
 
 @pytest.fixture(autouse=True)

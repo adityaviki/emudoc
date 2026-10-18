@@ -1,10 +1,10 @@
 # The settings staging and production share, so that staging runs what production will: the
-# operator's word, the models and their prices, the backups' window and the region, and the
-# repository whose CI releases them, which the account root reads as well. Each root
-# adds what is its own (its spending cap, its alert address) with merge(); keys and secrets go
-# into each environment's secrets path by hand, never here (deploying.md, "On AWS"). An empty
-# value is no setting; the plan refuses OPERATOR_NAME, OPERATOR_EMAIL, AGENT_MODEL and
-# INDEX_MODEL empty.
+# operator's word, the models and their prices, the backups' window, how long the access logs
+# are kept and the region, and the repository whose CI releases them, which the account root
+# reads as well. Each root adds what is its own (its spending cap, its alert address) with
+# merge(); keys and secrets go into each environment's secrets path by hand, never here
+# (deploying.md, "On AWS"). An empty value is no setting; the plan refuses OPERATOR_NAME,
+# OPERATOR_EMAIL, AGENT_MODEL and INDEX_MODEL empty.
 
 output "settings" {
   description = "Settings by their names in .env.example."
@@ -30,6 +30,11 @@ output "settings" {
 output "backup_days" {
   description = "BACKUP_DAYS, which the privacy policy names: RDS's retention and the bucket's rule."
   value       = 35
+}
+
+output "access_log_days" {
+  description = "ACCESS_LOG_DAYS, which the privacy policy names: how long the access logs of the documents bucket and the VPC's flow logs are kept (deploying.md, \"The account's records\")."
+  value       = 30
 }
 
 output "data_region" {
