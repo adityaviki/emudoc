@@ -1823,6 +1823,8 @@ across the instances, `sum without (instance)`):
 | `emudoc_stage_runs_total`, `emudoc_stage_seconds` | Indexing stages, by `stage` and `outcome`: `done`, `skipped`, `failed`, `transient` (tried again), `deferred` (to the next UTC day), `quarantined`, `crashed`, `database_lost` or `lease_lost` |
 | `emudoc_index_runs_total` | Indexing runs, by how the document stood at the end: `ready`, `failed`, `quarantined` |
 | `emudoc_job_runs_total`, `emudoc_job_seconds`, `emudoc_job_wait_seconds` | Jobs a worker ran, by `kind` and `outcome` (`done`, `failed`, `crashed`, `abandoned`, `lost`, `unsettled`), how long each ran, and how long each waited for a worker once it was due |
+| `emudoc_answer_first_text_seconds` | How long a member waited from the question to its answer's first words: the job's wait and its run up to its first text, once a run ("Service levels") |
+| `emudoc_document_ready_seconds` | How long an upload took to be ready, from the upload to the end of its first indexing, retries and waits included, once a document ("Service levels") |
 | `emudoc_worker_threads{lane}`, `emudoc_worker_busy{lane}` | A worker's job threads alive and running a job, by `lane` (`indexer`, `answerer`) |
 | `emudoc_worker_listening` | 1 while a worker hears of queued jobs as they are queued, 0 while it polls for them: behind a pooler in transaction mode without `DATABASE_LISTEN_URL`, or while its listener's lost connection waits to be made again |
 | `emudoc_upload_bytes`, `emudoc_upload_rejections_total` | The sizes of the files the API stored, and the files it refused by `reason`: `too_many` (a whole request), `plan`, `unsupported`, `empty`, `too_large`, `wrong_type`, `duplicate` |
@@ -1976,7 +1978,7 @@ question or an address.
 
 ### Rules on the metrics
 
-`deploy/prometheus/alerts.yml` holds 27 Prometheus alerting rules over the metrics ("Metrics",
+`deploy/prometheus/alerts.yml` holds 33 Prometheus alerting rules over the metrics ("Metrics",
 above), each tested against the series that should and should not fire it
 (`deploy/prometheus/alerts.test.yml`, `promtool test rules`, in CI). They expect the scrape
 configuration of `prometheus.yml` beside them: job `emudoc`, and `process` `api` or `worker`.
@@ -1991,6 +1993,7 @@ deployment.
 | The models | `EmudocModelsDown` (no model of a role answered in 15 minutes, its fallback included), `EmudocEmbeddingsDown`, `EmudocModelRefused` (401, 402, 403 or 404), `EmudocModelFallingBack`, `EmudocModelRateLimited` (10 refusals for the rate in 15 minutes), `EmudocModelErrors` (a fifth of the requests failing on the provider's side) |
 | Capacity | `EmudocPoolSaturated` (90 % of a process's connections in use for 10 minutes), `EmudocPoolTimeouts` (members answered "busy"), `EmudocStorageGrowing` (10 GiB of new originals in a day), `EmudocSpendNearCap` (80 % of `DAILY_SPEND_CAP`), `EmudocSpendCapReached` |
 | The database | `EmudocWalArchiveFailing`, `EmudocWalArchiveBehind`, `EmudocVacuumBehind` (10,000 dead rows and a fifth of a table, for an hour), `EmudocLongTransaction` (over an hour) |
+| The service levels | `EmudocErrorBudgetFastBurn` and `SlowBurn`, `EmudocAnswersLateFastBurn` and `SlowBurn`, `EmudocDocumentsLateFastBurn` and `SlowBurn`: an objective's budget spent too fast ("Service levels", below) |
 | The watchdog | `EmudocWatchdog`, which always fires: its silence is the alarm |
 
 Some of them say what the worker mails too, from the other side: the mail works without a
@@ -2105,6 +2108,344 @@ process that runs for Docker but does not answer. Within the rules, Alertmanager
 `EmudocProcessDown` back while `EmudocNoApi` or `EmudocNoWorker` says it of the same process.
 A failed instance is its status alarm's, and the silence's once it lasts a quarter of an hour:
 the first says why, the second that nothing on the instance reports meanwhile.
+
+## Service levels
+
+What the deployment promises its members, measured by the app itself, so that an alert says the
+promise is in danger before anything is broken outright. Each objective holds over 30 days, and
+the share of requests, answers or uploads it lets miss is its error budget:
+
+| Objective | Measured by | Budget |
+| --- | --- | --- |
+| **The app answers**: 99.5 % of the members' requests end without a server error | `emudoc_http_requests_total`, a 5xx status against every status, the probes left out | 0.5 %, a request in 200 |
+| **Answers begin**: 95 % of answers write their first words within 30 seconds of the question | `emudoc_answer_first_text_seconds`: the job's wait for a worker, and its run up to the first text | 5 % |
+| **Uploads are ready**: 95 % of uploads can be searched and asked about within 10 minutes | `emudoc_document_ready_seconds`: from the upload to the end of its first indexing, retries and waits included | 5 % |
+| **The app is up**: `/api/health` answers 200 through the proxy in 99.5 % of the minutes | An uptime service outside the deployment, asking every minute | 0.5 %, 3.6 hours |
+
+The numbers are a start, for a beta on one machine: tune them to what the members see, in the
+rules and their tests too, as the alerting rules' thresholds are.
+
+- **A server error** is a 500, the app's own fault, or a 503: a pool out of connections, a
+  statement the database stopped, a database or a storage that does not answer. A 4xx is the
+  request's (a plan's limit, a rate, a file too large) and counts as answered. The probes
+  (`/api/livez`, `/api/health`) are left out, since an orchestrator asks them more often than
+  the members ask anything, and an answer's event stream counts once, by the status it began
+  with. A request that never reached the app, the proxy's 502 while the API restarts or every
+  request while the machine is down, is not counted at all: that is the last line's, which only
+  a check from outside sees. Any uptime service does, a Route 53 health check on AWS or one of
+  the hosted ones, asking `https://<domain>/api/health` from more than one place and calling
+  after two misses in a row.
+- **An answer's wait** runs from the question, when its job is due, to its first words. The
+  agent's first tool calls are inside it, which the member sees as steps meanwhile. A run that
+  was lost starts the answer over and counts again, from the question. An answer that failed or
+  was stopped before any text counts nothing here: its failure is the watch's "Answers fail"
+  and the rules' `EmudocModelsDown`.
+- **An upload's wait** is measured once per document, when it is first ready
+  (`documents.ready_at`), so "Index again" or a new embedding model measures nothing. A
+  document that failed counts nothing here (the watch's "Indexing fails"). The day's spending
+  limit counts: a document held until midnight UTC is late by the member's clock. A scanned
+  page is a model request of its own, so a deployment whose members upload long scans sets the
+  objective by them.
+
+The figures over the period, and what a member waits at the 95th percentile over the last day:
+
+```promql
+# The share of the members' requests without a server error
+1 - sum(increase(emudoc_http_requests_total{route!~"/api/(livez|health)", status=~"5.."}[30d]))
+  / sum(increase(emudoc_http_requests_total{route!~"/api/(livez|health)"}[30d]))
+# The share of answers begun within 30 seconds, and of uploads ready within 10 minutes
+sum(increase(emudoc_answer_first_text_seconds_bucket{le="30.0"}[30d]))
+  / sum(increase(emudoc_answer_first_text_seconds_count[30d]))
+sum(increase(emudoc_document_ready_seconds_bucket{le="600.0"}[30d]))
+  / sum(increase(emudoc_document_ready_seconds_count[30d]))
+histogram_quantile(0.95, sum by (le) (rate(emudoc_answer_first_text_seconds_bucket[1d])))
+histogram_quantile(0.95, sum by (le) (rate(emudoc_document_ready_seconds_bucket[1d])))
+```
+
+(`le="30.0"`: Prometheus 3 writes a bucket's bound as a float.) On AWS the instance's
+Prometheus keeps 15 days, so its figures are the last fortnight's, `[14d]`; a month needs a
+Prometheus elsewhere ("What it leaves out").
+
+Six rules of `deploy/prometheus/alerts.yml` keep the three the app measures, two each, after the
+multiwindow burn rates of Google's SRE workbook. A **fast burn** spends the budget 14.4 times as
+fast as 30 days allow (2 % of it in an hour, all of it in two days), over the last hour and still
+over the last 5 minutes, so that the alert ends soon after the burn does: `critical`, for
+someone to look now. A **slow burn** spends it 6 times as fast (5 % in six hours, all of it in
+five days), over 6 hours and the last 30 minutes: `warning`, for the working day. Each needs a
+minimum in its window, 100 requests or 10 answers or uploads, so that one failure in a quiet
+hour is no burn:
+
+| Rules | Fire at |
+| --- | --- |
+| `EmudocErrorBudgetFastBurn`, `EmudocErrorBudgetSlowBurn` | Over 7.2 %, or over 3 %, of the members' requests ending in a server error |
+| `EmudocAnswersLateFastBurn`, `EmudocAnswersLateSlowBurn` | Over 72 %, or over 30 %, of answers begun after 30 seconds |
+| `EmudocDocumentsLateFastBurn`, `EmudocDocumentsLateSlowBurn` | Over 72 %, or over 30 %, of uploads ready after 10 minutes |
+
+A budget spent before its 30 days are over is the sign to put the work that makes the app
+answer, begin or index sooner ahead of the next feature, until the figures are back within it.
+
+## On call
+
+Who hears what, and how soon someone acts. Each way to the operator ends at an address or a
+pager the deployment names, and only the worker's mail depends on the machine in trouble, which
+the rules and, on AWS, CloudWatch back up:
+
+| From | What | To |
+| --- | --- | --- |
+| The worker | The jobs it gave up on, quarantines, spending at 80 % of a limit, its watch's alerts ("What the worker mails") | `ALERT_EMAIL`, through the app's mail relay |
+| Prometheus's rules | `critical` alerts every hour while they last, `warning` ones every 4 hours, and each once more when it is over | Alertmanager's receiver; on AWS the alerts topic |
+| The watchdog | Its silence | The dead man's switch; on AWS the alarm `emudoc-<environment>-alerts-silent`, on the alerts topic |
+| The host, on AWS | A container in trouble, a failed drill or renewal of the credentials, the instance's status checks | The alerts topic |
+| The account, on AWS | The trail's alarms (`root`, `iam`, `keys` and the others of "The account's records") | `account_alert_email` |
+| The uptime service | `/api/health` missed from outside | Its own notifications |
+| GitHub | A scheduled workflow that failed: Audit's scans, the Models workflow's requests | Whoever last changed the schedule |
+| The members | A failure they met, with its reference: the request's id, or the error screen's | `OPERATOR_EMAIL`, which the terms and the privacy policy name |
+
+How soon:
+
+- **`critical`**, the uptime service and the instance's alarms: a member waits now, or a backup
+  is losing changes. The person on call acts within 30 minutes, day or night, starting from "A
+  first look" below, and the paging service calls a second when the first has not answered in
+  15.
+- **`warning`**, the worker's mails and the account's alarms: within the working day. An
+  account alarm that nobody's own `tofu apply` explains may be someone else in the account, and
+  is looked at the same day ("The account's records").
+- **A member's report**: answered within a working day, with what was found.
+
+On one machine, the Alertmanager of "Rules on the metrics" gives `critical` a receiver of its
+own, a paging service's webhook or its `pagerduty_configs`, and the mail the rest. On AWS the
+alerts topic carries both severities alike, each message beginning with its severity and its
+subject naming the rule, so a pager subscribed to the topic (an SMS number, or a paging
+service's SNS integration: `aws sns subscribe --topic-arn <alerts> --protocol https
+--notification-endpoint <its url>`) is sent the warnings too: the paging service's own rules can
+hold back the messages that begin with `warning`. A subscription's filter policy could not,
+since CloudWatch's alarm messages carry no attribute to filter on.
+
+Every alert says where to look; the runbooks below say what to do for those that need more than
+a sentence. Each incident that called someone gets a short record: when it began and ended, what
+the members saw, the cause, and what changes so that it does not come back. The service levels'
+figures for each 30 days go into the same record.
+
+## Runbooks
+
+What to do, step by step, for what goes wrong most often, pointing at the sections that say
+more. `maintenance <command>` below is `python -m app.maintenance <command>` as the operator's
+other commands run ("The image"): `docker compose -f deploy/compose.yml run --rm --no-deps
+worker python -m app.maintenance …` on one machine, `sudo emudoc-compose run --rm --no-deps
+worker python -m app.maintenance …` on the AWS instance, `uv run python -m app.maintenance …`
+in a checkout's `backend/`; `compose` is `docker compose -f deploy/compose.yml` there and `sudo
+emudoc-compose` on the instance.
+
+### A first look
+
+When an alert or a member says something is wrong, and it is not yet clear what:
+
+1. `curl -sS https://<domain>/api/health` answers `{"status":"ok","version":"…"}` with the
+   release's commit. A 502 is the proxy without an API (step 2); a 503's cause is in the API's
+   log ("Not ready: the database cannot be reached", or `BUSY` for the pool).
+2. `compose ps -a`: the API and the worker `healthy`, the release step exited with 0, ClamAV and
+   the embeddings server running. A container that keeps starting says why in its last lines,
+   `compose logs --tail 50 <service>`.
+3. What the app logged at WARNING and above in the last hour: `compose logs --no-log-prefix
+   --since 1h api worker | jq -R 'fromjson? // empty' | jq -c 'select(.level != "INFO")'`. A
+   member's reference is a `request_id`: `select(.request_id == "…")` finds its lines, and their
+   `trace_id` the jobs the request queued ("Traces").
+4. `maintenance jobs` for the queue and the running jobs, `maintenance database` for the
+   server, Prometheus's alerts page for what else fires ("On AWS" under "Alerts" for the way to
+   it on the instance).
+
+### Members get server errors
+
+`EmudocErrorBudgetFastBurn` or `SlowBurn`, or a member who quotes a reference:
+
+1. Which requests: `sum by (route, status) (increase(emudoc_http_requests_total{status=~"5.."}[1h]))`.
+2. A 500 is the app's own fault: the error tracker groups them, and the API's log has each one's
+   traceback under its request id. If the last release brought it, release the one before
+   ("A release"), as long as no migration came between.
+3. A 503 is named in the log, and its sentence to the member says the same:
+   - `BUSY`, the pool: `EmudocPoolSaturated` too. Raise `DB_POOL_SIZE` and `DB_MAX_OVERFLOW`
+     within the database's `max_connections`, or put a pooler in front ("A pooler").
+   - A statement the database stopped ("… was stopped by the database"): the line names the
+     route; `maintenance database` shows vacuum and the oldest transaction, and on AWS Database
+     Insights the statements' load.
+   - `STORAGE_DOWN`: the line names the bucket or directory, and the watch mails "the storage
+     cannot be used". On AWS, `systemctl status emudoc-credentials`: the containers lose the
+     bucket within the hour of a renewal that failed.
+   - The database out of reach: readiness fails on every replica. A managed database's events
+     say whether it is failing over, which takes a minute or so ("The database").
+
+### Answers are slow, or do not begin
+
+`EmudocAnswersLateFastBurn` or `SlowBurn`, `EmudocQuestionsWaiting`, the watch's "Emudoc
+alert: questions wait for a worker", or a member's report:
+
+1. A backlog: `maintenance jobs` shows `answer_question` jobs due and how long the oldest has
+   waited, and `emudoc_worker_busy{lane="answerer"}` stands at `ANSWER_CONCURRENCY`. Raise it,
+   with the pool (an answer holds a connection each time it writes), or run another worker
+   (`compose up -d --scale worker=2`). No worker at all is `EmudocNoWorker`.
+2. A slow model: `histogram_quantile(0.95, sum by (le, model)
+   (rate(emudoc_model_first_event_seconds_bucket[15m])))`, against its provider's status page.
+   A fallback that answers slower than its primary shows here while `EmudocModelFallingBack`
+   fires.
+3. One slow answer: its run's line ("Traces"; the first recipe there finds the slowest of the
+   hour) splits its time into the wait, each model turn, each tool call and the writes, whose
+   total is the database's share.
+4. One organisation asking a lot holds only its own: each has at most `MAX_ANSWERS` in flight,
+   and the claim shares the threads between organisations.
+
+### An upload is stuck, or slow to be ready
+
+`EmudocDocumentsLateFastBurn` or `SlowBurn`, `EmudocDocumentsWaiting`, or a member whose
+document "stays processing". Its id is in the library's address and in every line the log has
+about it.
+
+1. `maintenance jobs --document <id>` says where it stands, each stage with what its members
+   read, its index jobs, and what the newest one means:
+   - due and waiting for a free indexer thread: a backlog, which more workers or
+     `WORKER_CONCURRENCY` shorten;
+   - waiting until a moment: a retry's backoff after a provider or a service failed, or the
+     day's spending limit until midnight UTC, as the stage's detail says;
+   - running under a worker's lease, which its run's line in that worker's log explains once it
+     ends ("Traces");
+   - a lease that ran out: the worker stopped or lost the database, and the next free thread
+     takes the job over from the stage it stopped at, with nothing to do;
+   - given up: `maintenance failed-jobs` says why. Fix the cause (a key, a model, the scanner),
+     then `failed-jobs --requeue`, or let the member press "Index again".
+2. A run that holds its lease and never ends: a parse ends at `PARSE_TIMEOUT` and a model's
+   request at its own limit, so a stage that outlasts them is a fault. Its last lines are in the
+   worker's log under its `document_id`; `compose restart worker` hands its jobs back.
+3. Slow for everyone: `sum by (stage) (rate(emudoc_stage_seconds_sum[1h])) / sum by (stage)
+   (rate(emudoc_stage_seconds_count[1h]))` says which stage grew. Each scanned page is a model
+   request; embedding on the instance's CPUs is the slow part of a long document, for which a
+   larger instance or a hosted endpoint is the cure ("The embeddings endpoint").
+
+### A model provider is down
+
+`EmudocModelsDown`, `EmudocModelErrors`, `EmudocModelFallingBack`, the watch's "AGENT_MODEL
+fails over to its fallback" (or `INDEX_MODEL`), or the provider's status page:
+
+1. With a fallback of another provider there is nothing to do at once. The app asks the
+   fallback first for a minute after each failure, the members notice nothing, and what it
+   answers is priced under its own name. `EmudocModelsDown` fires only if the fallback fails
+   too.
+2. Without one, or with both down, the members read "The AI model is unavailable just now":
+   uploads are still parsed, outlined and searched by their words, their summaries and facts
+   wait for their retries, and questions fail. Name a fallback of another provider (its
+   variable, its key, its price), run `maintenance models` and release the same tag again
+   ("The models").
+3. A provider that bills while it fails, or a key that leaked: `DISABLED_PROVIDERS=<prefix>` and
+   a release, after which the fallback answers, or the app runs as it does without a key, until
+   the name is removed.
+4. Once it is over, the stages that gave up meanwhile are dead letters: `maintenance failed-jobs
+   --requeue`.
+
+### Switching models
+
+A new model is a release of its own, tried as a fallback first:
+
+1. It must keep the app's promises: terms that forbid training on what it is sent, a company
+   and a place that `/subprocessors` and `DATA_REGION` can name, `GOOGLE_PAID_TIER` for a
+   `google:` one ("What leaves the deployment"), and a version in its name, not an alias.
+2. Name it as the fallback of its kind of work, with its key where the secrets are and its
+   price in `MODEL_PRICES` (production refuses `DAILY_SPEND_CAP` with a model it cannot price),
+   and release.
+3. `maintenance models`: every model answers as the app asks, the new one among them.
+4. Make it the primary, with the old one or another provider's model as its fallback, and
+   release. The Models workflow's repository variables follow ("Every morning, from GitHub").
+5. Over the next days, `maintenance costs` by model and the answers' service level say what it
+   costs and how soon it begins.
+
+A retirement the provider announced is the same steps, before its date ("Retirements").
+
+### Changing the embedding model or its size
+
+Every passage is embedded again, which is the expensive part:
+
+1. What it costs. `maintenance database` gives the rows of `passages`. A hosted endpoint is paid
+   per token: the last full embedding's tokens are the `embed` rows of `maintenance costs` (or
+   `usage <slug>`) since it, at the new model's price. On the instance's CPUs llama.cpp takes 7
+   to 23 seconds per 32 passages, by their length, so 400,000 passages keep one server busy for
+   one to three days. Until a document's turn, a search by meaning ranks it poorly, and its
+   words still find it.
+2. A new `EMBEDDING_MODEL` of the same size (with its prefixes, and for the server beside the app
+   `EMBEDDING_WEIGHTS_URL` and `EMBEDDING_WEIGHTS_SHA256`): set it and release, and the start
+   queues every document's embed stage at bulk priority, behind the members' uploads. A new
+   `EMBEDDING_DIM`: stop the API and the workers, `maintenance rebuild-embeddings`, then release
+   ("The embeddings endpoint").
+3. The backlog is expected: silence `EmudocDocumentsWaiting` for its length ("On AWS" under
+   "Alerts"); the watch mails "Emudoc alert: documents wait for a worker" once, and again when
+   it is over. The uploads' service level stays as it was, since a document is measured once.
+4. When it is done, rebuild the vector index and vacuum `passages` ("Vacuum").
+
+### Rotating a key
+
+Make the new key, put it where the settings are kept, release the same tag, check that it works,
+then revoke the old one. A key that leaked is revoked first, and the app runs on the fallback, or
+without, meanwhile. On AWS a key is an SSM SecureString under `/emudoc/<environment>/secrets/`,
+put with the `read -rs` line of "The settings", and reaches the containers at the next release
+of the same tag (the Release workflow).
+
+| Key | The new one | Then |
+| --- | --- | --- |
+| A model provider's (`GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`, …) | The provider's console | `maintenance models`; for a leak, `DISABLED_PROVIDERS` first |
+| `EMBEDDING_API_KEY` | The endpoint's provider | The start's line "Passages are embedded by …", then a search by meaning |
+| The database's password | `ALTER ROLE emudoc PASSWORD '…'` and the new `DATABASE_URL`, with `DATABASE_LISTEN_URL` and a pooler's `userlist.txt`; on AWS `tofu apply -replace=module.emudoc.random_password.database`, which writes the new URL | Release at once: the processes keep the connections they hold, and new ones fail until then; `/api/health` |
+| `SMTP_URL`'s password | The relay; on AWS `tofu apply -replace='module.emudoc.aws_iam_access_key.smtp[0]'` | A password reset's mail |
+| `GOOGLE_OAUTH_CLIENT_SECRET`, `MICROSOFT_OAUTH_CLIENT_SECRET` | The provider's console, which holds two secrets at once | A sign-in with each, then the old secret deleted there |
+| `SENTRY_DSN` | A new client key in the tracker's project | An error reaches the tracker, then the old key disabled |
+| The bucket's (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) | The bucket's provider; on AWS there are none, the host renews a role's session every quarter of an hour | The start's line "The bucket keeps …" |
+| The Models workflow's | The provider, with a low spending limit | `gh secret set`, then a run by hand |
+| pgBackRest's `repo1-cipher-pass` | Not for a repository that holds backups: a new repository under the new passphrase, the old one kept with its own until its backups pass `BACKUP_DAYS` | `pgbackrest --stanza=emudoc info` |
+
+The KMS keys of the AWS roots rotate by themselves, every year.
+
+### Restoring a backup
+
+When the database or the files are lost or damaged, or a mistake must be undone:
+
+1. Choose the moment, in UTC: the last good one, from the log or the audit rows. The targets
+   are five minutes of the database and four hours to members working again ("Recovery
+   targets").
+2. Tell the members the app is down for a restore: the app cannot, being stopped.
+3. Follow "Restoring": stop the app, restore the database, run the migrations if the code is
+   newer, `after-restore --dry-run` and then `after-restore` with the moment, and start it.
+4. Tell the members what is undone since the moment, and that everyone signs in again.
+5. Write each step's time down beside the drill's, against the recovery time.
+
+The monthly drill is this runbook rehearsed ("The drill").
+
+### Draining the workers before a release
+
+A release stops the worker as any stop does: it claims no more, gives its running jobs 8
+seconds (`--grace`) and hands the rest back, which the new worker takes at once. An index job
+goes on from the stage it was in; an answer starts over, which its member sees begin again and
+which costs its model calls again. So nothing needs draining, but a release can choose its
+moment:
+
+1. `maintenance jobs`: the running jobs, and `emudoc_answers_in_flight` the answers being
+   written.
+2. To let the running answers end rather than start over, release when none runs, or give the
+   worker longer to stop: `--grace 120` in the worker's command and a `stop_grace_period` above
+   it in the compose file, at the price of a release that waits that long.
+3. A migration that the running code cannot work beside, such as one that changes the jobs
+   table or what a stage writes: `compose stop worker` first, then the release, so that no old
+   worker writes into the new schema.
+4. For planned work that sets off rules, a silence for its length ("On AWS" under "Alerts").
+
+### An organisation is spending fast
+
+The spending warning ("… has spent 80 % of …"), `EmudocSpendNearCap`, or a provider's own
+budget alert:
+
+1. `maintenance costs --days 1`: who spends today, against their plan's limit; `maintenance
+   usage <slug>` breaks one down by kind of work.
+2. The plan holds an organisation at its daily limit (questions refused, indexing held until
+   midnight UTC); `maintenance plan <slug>` says what it allows and moves it to another plan,
+   from its next request on.
+3. `DAILY_SPEND_CAP` holds every organisation together, and `DISABLED_PROVIDERS` stops a
+   provider's bill at once, for everyone.
+4. A model without a price counts toward neither: the end of `costs` lists the tokens recorded
+   without one, and `MODEL_PRICES` takes the price from the next request on.
 
 ## Rates
 
@@ -2586,7 +2927,7 @@ repository's policy among them.
     `app.watch` saying it "could not check" something. Stop the scanner (`docker compose -f
     deploy/compose.yml stop clamav`): within the quarter of an hour the address gets "Emudoc
     alert: the malware scanner does not answer", and after `start clamav` and the next round
-    "Emudoc alert over: …". With a scraper, its rules page lists the 27 rules of
+    "Emudoc alert over: …". With a scraper, its rules page lists the 33 rules of
     `deploy/prometheus/alerts.yml` without an error and none firing but `EmudocWatchdog`, which
     the dead man's switch hears; with the API stopped, `EmudocNoApi` fires after 5 minutes. On
     AWS, Prometheus's page through Session Manager ("Alerts", "On AWS") shows the same, and
@@ -2607,3 +2948,151 @@ repository's policy among them.
     calls by name, and the second recipe of "Traces" with its `trace_id` finds the API's lines
     of the question too, the access line of its `POST` with its `seconds`. Neither holds the
     question's words or the answer's.
+23. Upload a document and ask a question about it: the scraper shows
+    `emudoc_document_ready_seconds_count` and `emudoc_answer_first_text_seconds_count` at 1 or
+    more, and its rules page the six rules of `emudoc-service-levels`, none firing. The uptime
+    service outside the deployment shows `/api/health` up. `maintenance jobs` (as "Runbooks"
+    runs it) prints the queue, and `maintenance jobs --document` with the document's id says
+    "It is ready."
+
+## Every setting
+
+Every variable the app reads, with its default and what production asks of it. `.env.example`
+says more of each, and the sections above say how they fit together. "required" is what
+production refuses to start without (`production_problems` in `backend/app/config.py`, which
+`backend/tests/test_config.py` holds this list to, as it holds the list to every setting there
+is); "needed for" is what one choice brings with it. On AWS the module writes some of them and
+the roots' `settings` the others ("The settings").
+
+### The process
+
+| Variable | Default | In production | What |
+| --- | --- | --- | --- |
+| `ENVIRONMENT` | `development` | `production`, which the image sets | Whether production's checks apply; staging is production too |
+| `LOG_FORMAT` | `json` in production, `text` in development | | How each line is written ("Logs") |
+| `RUN_WORKER` | false in production, true in development | | Whether the API runs the worker's threads too ("The pieces") |
+| `METRICS_ADDRESS` | none; `0.0.0.0:9464` in the image | | Where the metrics are served, on the own network alone ("Metrics") |
+| `SENTRY_DSN` | none | a secret | The error tracker ("Error tracking") |
+| `SENTRY_ENVIRONMENT` | `ENVIRONMENT` | | What the tracker files the reports under |
+| `LOCAL_ACCOUNT` | `false` | refused when true | Requests without a session act as a local owner, for development |
+| `APP_URL` | the request's origin | required | Where members reach the app: the links in mail, the OAuth redirect |
+| `SESSION_DAYS` | `30` | | How long a sign-in lasts |
+| `FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | the proxy's address | uvicorn's: whose `X-Forwarded-*` headers are believed ("TLS at a reverse proxy") |
+| `TMPDIR` | `/tmp` | | Where uploads pass through and a worker copies an original to ("The image") |
+| `EMUDOC_VERSION` | `unknown` in an image built without `VERSION`, `development` in a checkout | | The image's `VERSION`, which `/api/health` names; not set by hand |
+
+### The database
+
+| Variable | Default | In production | What |
+| --- | --- | --- | --- |
+| `DATABASE_URL` | none: every process stops without it | required | The database, with `sslmode=verify-full` off the own network ("The database", "Encryption") |
+| `DATABASE_POOLER` | none | | `transaction` behind a pooler in transaction mode ("A pooler") |
+| `DATABASE_LISTEN_URL` | none | needed behind such a pooler | Where the worker listens for queued jobs |
+| `DB_POOL_SIZE` | `5` | | Connections each process keeps open |
+| `DB_MAX_OVERFLOW` | `10` | | Connections beyond them while those are in use |
+| `DB_POOL_TIMEOUT` | `5` | | Seconds a request waits for a connection before its 503 |
+| `SSL_CERT_FILE`, `SSL_CERT_DIR` | Debian's bundle in the image | needed for `sslrootcert=system` outside the image | Where OpenSSL finds the authorities ("Encryption") |
+| `PGSSLROOTCERT` | none | | libpq's default for `sslrootcert` |
+
+### Files and uploads
+
+| Variable | Default | In production | What |
+| --- | --- | --- | --- |
+| `STORAGE_URL` | `backend/data` in a checkout | required | The directory or bucket of the files ("The pieces", "Backups") |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | none | a secret, for a bucket | boto3's credentials for the bucket |
+| `AWS_DEFAULT_REGION` | none | needed for an AWS bucket | The bucket's region, which URLs are signed for |
+| `AWS_ENDPOINT_URL` | AWS's | needed for another provider's bucket | MinIO's, R2's, Hetzner's address, over `https://` off the own network |
+| `AWS_CONFIG_FILE`, `AWS_EC2_METADATA_DISABLED` | none | | boto3's; on AWS the role's renewed session (`/run/aws/config`) and no metadata service ("What an environment is made of") |
+| `PAGE_IMAGE_DAYS` | `30` | | How long a rendered page or thumbnail is kept; 0 for good |
+| `MAX_UPLOAD_MB` | `100` | | The largest file |
+| `MAX_UPLOAD_FILES` | `100` | | Files one request may carry |
+| `MAX_UPLOAD_REQUEST_MB` | `500` | | The bytes of one request's files together |
+| `SCANNER_URL` | none | required, `off` for none | The ClamAV daemon every upload is scanned by |
+| `PARSE_TIMEOUT` | `300` | | Seconds a parse may take |
+| `PARSE_MEMORY_MB` | `2048` | | The memory a parse may hold |
+| `PARSE_MAX_PAGES` | `500` | | The pages of a PDF |
+| `PARSE_MAX_ROWS` | `100000` | | The rows of a sheet |
+| `OCR_MAX_PAGES` | `100` | | The pages of one document read as scans |
+
+### The models
+
+| Variable | Default | In production | What |
+| --- | --- | --- | --- |
+| `AGENT_MODEL` | `google:gemini-3.5-flash-lite` | required, by its version | The model that answers ("The models") |
+| `INDEX_MODEL` | `google:gemini-3.5-flash-lite` | required, by its version | The model that reads the documents |
+| `AGENT_FALLBACK_MODEL` | none | a warning without | Asked when `AGENT_MODEL` cannot answer |
+| `INDEX_FALLBACK_MODEL` | none | a warning without | Asked when `INDEX_MODEL` cannot answer |
+| `AGENT_EFFORT` | `medium` | | How hard the agent's model thinks |
+| `INDEX_EFFORT` | `low` | | How hard the indexing model thinks |
+| `AGENT_MAX_TURNS` | `12` | | The rounds of tool calls one answer may make |
+| `MODEL_PRICES` | none | needed for `DAILY_SPEND_CAP` | Each model's price per million tokens in and out |
+| `PRICE_CURRENCY` | `USD` | | The prices' currency |
+| `DAILY_SPEND_CAP` | `0` | | What every organisation together may spend a day; 0 for no limit |
+| `DISABLED_PROVIDERS` | none | | The kill switch: providers switched off, by prefix |
+| `GOOGLE_PAID_TIER` | `false` | needed for a `google:` model | Billing is on for the Gemini key's project, so Google trains on nothing it is sent |
+| `GOOGLE_API_KEY`, `GEMINI_API_KEY` | none | a secret, for a `google:` model | The Gemini API's key |
+| `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` | `us-central1` for the location | needed for a `google-cloud:` model | Vertex AI's service account, project and location |
+| `ANTHROPIC_API_KEY` | none | a secret, for an `anthropic:` model | Anthropic's key |
+| `OPENROUTER_API_KEY` | none | a secret, for an `openrouter:` model | OpenRouter's key |
+| `OPENAI_API_KEY` | none | a secret, for an `openai:` model | OpenAI's key, or that of the server `OPENAI_BASE_URL` names |
+| `OPENAI_BASE_URL`, `OLLAMA_BASE_URL` | OpenAI's; an Ollama on this machine | over `https://` off the own network | Another address for `openai:` models, or Ollama's for `ollama:` ones |
+
+Other providers Pydantic AI supports read their own variables (`MISTRAL_API_KEY`, `GROQ_API_KEY`
+and the like), named on its models' pages.
+
+### Embeddings and search
+
+| Variable | Default | In production | What |
+| --- | --- | --- | --- |
+| `EMBEDDING_BASE_URL` | `http://127.0.0.1:11434/v1` | required | The OpenAI-compatible endpoint ("The embeddings endpoint") |
+| `EMBEDDING_API_KEY` | none | a secret, for a hosted endpoint | Its key |
+| `EMBEDDING_MODEL` | `nomic-embed-text` | | The model's name, under which the vectors are stored and priced |
+| `EMBEDDING_DIM` | `768` | | The vectors' size; a change needs `rebuild-embeddings` |
+| `EMBEDDING_QUERY_PREFIX` | `search_query: ` | | What a search is prefixed with |
+| `EMBEDDING_DOCUMENT_PREFIX` | `search_document: ` | | What a passage is prefixed with |
+| `FTS_LANGUAGE` | `english` | | The text search configuration of new passages |
+
+### The worker and the limits
+
+| Variable | Default | In production | What |
+| --- | --- | --- | --- |
+| `WORKER_CONCURRENCY` | `2` | | Documents a worker indexes at once |
+| `ANSWER_CONCURRENCY` | `8` | | Questions a worker answers at once |
+| `MAX_ANSWERS` | `20` | | Answers one organisation may have in flight |
+| `MAX_QUESTION_CHARS` | `20000` | | The longest question |
+| `RATE_UPLOADS` | `20` | | Upload requests a minute, per member ("Rates") |
+| `RATE_QUESTIONS` | `20` | | Questions a minute, per member |
+| `RATE_SEARCHES` | `120` | | Searches a minute, per member |
+| `RATE_SIGN_INS` | `10` | | Sign-in requests a minute, per address named |
+| `RATE_SIGN_INS_PER_ADDRESS` | `60` | | Sign-in requests a minute, per client address |
+| `RATE_PAGE_ERRORS` | `10` | | The page's error reports a minute, per client address |
+
+### Mail and sign-in
+
+| Variable | Default | In production | What |
+| --- | --- | --- | --- |
+| `SMTP_URL` | none: the mail is logged | required | The relay for the sign-in links and the operator's mail |
+| `MAIL_FROM` | `Emudoc <no-reply@localhost>` | | The sender |
+| `ALERT_EMAIL` | none | | Where the worker reports ("What the worker mails") |
+| `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | none | the client secret is a secret | Sign-in with Google |
+| `MICROSOFT_OAUTH_CLIENT_ID`, `MICROSOFT_OAUTH_CLIENT_SECRET` | none | the client secret is a secret | Sign-in with Microsoft |
+| `MICROSOFT_OAUTH_TENANT` | `common` | | Whose Microsoft accounts may sign in |
+
+### The operator's word
+
+| Variable | Default | In production | What |
+| --- | --- | --- | --- |
+| `HOSTING_PROVIDER` | none | required | Who runs the servers, first on `/subprocessors` |
+| `OPERATOR_NAME` | none | required | Who runs the deployment, as the terms name them |
+| `OPERATOR_EMAIL` | none | required | Where people write about their account and data |
+| `BACKUP_DAYS` | none | required | How long the backups are kept ("Backups") |
+| `SERVER_LOG_DAYS` | none | required | How long the server logs are kept ("How long they are kept") |
+| `ACCESS_LOG_DAYS` | none | | How long the infrastructure's connection records are kept, when it keeps any |
+| `DATA_REGION` | none | | `eu` or `us`, the region the documents stay in ("Keeping the data in one region") |
+
+The compose files read a few of their own: `EMUDOC_IMAGE` (the image to run) and `EMUDOC_ENV`
+(the settings' file, `/etc/emudoc/emudoc.env` by default) in `deploy/compose.yml`, with
+`EMBEDDING_WEIGHTS_URL` and `EMBEDDING_WEIGHTS_SHA256` for the embeddings server's weights;
+`EMUDOC_DOMAIN`, `EMUDOC_ENVIRONMENT`, `EMUDOC_ALERTS` and `EMUDOC_HEARTBEAT` in
+`deploy/aws/compose.yml`, which each release writes. The drill's `DRILL_*` and `RDS_*` are in
+its scripts' headers ("The drill").

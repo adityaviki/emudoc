@@ -44,7 +44,7 @@ from app.jobs import (
 )
 from app.llm import LLMError
 from app.main import create_app
-from app.maintenance import housekeeping
+from app.maintenance import housekeeping, main
 from app.models import Block, Document, Job, Project, Section
 from app.tracing import TRACE_ID
 from app.worker import HANDLERS, MAX_RETRIES, Handler, Worker, serve
@@ -933,3 +933,170 @@ def test_the_worker_retries_until_the_outage_passes(
     assert set(stage_statuses(document).values()) == {"done"}
     assert "Retrying" not in document.stages["enrich"]["detail"]
     assert [job.payload.get("retry", 0) for job in all_jobs(session)] == [0, 1]
+
+
+# The `jobs` command: what the queue holds now, and where one document's indexing stands, for
+# the operator before a release and at a document a member says is stuck.
+
+
+def hold(session, job_id: int, state: str, run_at: str, lease: str | None = None) -> None:
+    """Put a job into a state by hand: its status, how long ago it was due (an interval
+    Postgres reads, negative for the future) and, while running, its lease from now."""
+    queued = state == "queued"
+    session.execute(
+        text(
+            "UPDATE jobs SET status = :state, run_at = now() - CAST(:run_at AS interval), "
+            "attempts = :attempts, worker_id = :worker, "
+            "lease_until = now() + CAST(:lease AS interval), finished_at = :finished, "
+            "last_error = :error WHERE id = :id"
+        ),
+        {
+            "id": job_id,
+            "state": state,
+            "run_at": run_at,
+            "lease": lease,
+            "attempts": 0 if queued else 1,
+            "worker": None if queued else "host:41",
+            "finished": datetime.now(UTC) if state in ("done", "failed") else None,
+            "error": "RuntimeError: the parser broke" if state == "failed" else None,
+        },
+    )
+    session.commit()
+
+
+def job_for(session, document: Document) -> Job:
+    session.expire_all()
+    return session.scalars(
+        select(Job)
+        .where(Job.payload["document_id"].as_integer() == document.id)
+        .order_by(Job.id.desc())
+    ).first()
+
+
+def test_the_jobs_command_shows_the_queue_and_whether_each_running_job_is_held(
+    session, account, make_document, sample_pdf, sample_docx, sample_csv, capsys
+):
+    main(["jobs"])
+    assert capsys.readouterr().out == (
+        "Nothing is queued or running, and no job failed in the last 30 days.\n"
+    )
+
+    due = make_document(sample_pdf)
+    hold(session, job_for(session, due).id, "queued", "4 minutes")
+    waiting = make_document(sample_docx)
+    hold(session, job_for(session, waiting).id, "queued", "-2 hours")
+    running = make_document(sample_csv)
+    held = job_for(session, running).id
+    hold(session, held, "running", "10 minutes", "3 minutes 30 seconds")
+    failed = make_document(sample_pdf, "failed.pdf")
+    hold(session, job_for(session, failed).id, "failed", "1 hour")
+    project = session.get(Project, due.project_id)
+    answer = enqueue(
+        session,
+        "answer_question",
+        org_id=project.org_id,
+        project_id=project.id,
+        payload={"message_id": 4711},
+    )
+    session.commit()
+    hold(session, answer.id, "running", "50 seconds", "-90 seconds")
+
+    main(["jobs"])
+    slug = account.organization.slug
+    out = capsys.readouterr().out.splitlines()
+    assert out[0].startswith("The queue at ") and out[0].endswith(" UTC:")
+    assert out[1:] == [
+        "  kind             due  waiting  running  failed",
+        "  index_document     1        1        1       1",
+        "  answer_question    0        0        1       0",
+        "The oldest due index_document job has waited 4 min for a worker.",
+        "Running:",
+        "  job  kind             attempt         due  lease             about",
+        f"  {held:>3}  index_document   1 of 3   10 min ago  3 min left        "
+        f"{slug} / Test project / {sample_csv.name}",
+        f"  {answer.id:>3}  answer_question  1 of 3     50 s ago  ran out 90 s ago  "
+        f"{slug} / Test project / answer 4711",
+        "A lease that ran out is a worker that stopped or lost the database: the next free "
+        "thread of its lane takes the job over.",
+        "`failed-jobs` lists the failed ones with why.",
+    ]
+
+
+def test_the_jobs_command_says_where_a_document_stands_and_what_to_do(
+    session, services, account, make_document, sample_pdf, capsys
+):
+    def standing() -> list[str]:
+        main(["jobs", "--document", str(document.id)])
+        return capsys.readouterr().out.splitlines()
+
+    document = make_document(sample_pdf)
+    job = job_for(session, document).id
+    slug = account.organization.slug
+    hold(session, job, "queued", "3 minutes")
+    lines = standing()
+    assert lines[0].startswith(
+        f"Document {document.id}, {sample_pdf.name} in {slug} / Test project, is queued: uploaded "
+    )
+    assert lines[0].endswith(" UTC, not ready yet.")
+    assert lines[1:7] == [
+        "  stage      status   what its members read",
+        "  scan       pending",
+        "  parse      pending",
+        "  structure  pending",
+        "  enrich     pending",
+        "  embed      pending",
+    ]
+    assert lines[7] == "Its index jobs, newest first:"
+    assert lines[-1] == (
+        "Its job has been due for 3 min and waits for a free indexer thread: `jobs` shows the "
+        "queue, and more workers or WORKER_CONCURRENCY shorten it."
+    )
+    hold(session, job, "queued", "-2 hours")
+    assert standing()[-1].startswith("Its job waits until ")
+
+    hold(session, job, "running", "3 minutes", "4 minutes")
+    assert standing()[-1] == (
+        "Worker host:41 is running it; its run's line in that worker's log says where the time "
+        'went once it ends (deploying.md, "Traces").'
+    )
+    hold(session, job, "running", "10 minutes", "-90 seconds")
+    lines = standing()
+    assert lines[9].split()[:5] == [str(job), "running", "1", "of", "3"]
+    assert lines[9].endswith("ran out 90 s ago")
+    assert lines[-1] == (
+        "Its lease ran out 90 s ago: worker host:41 stopped or lost the database, and the next "
+        "free indexer thread takes the job over from the stage it stopped at."
+    )
+
+    hold(session, job, "failed", "1 hour")
+    lines = standing()
+    assert lines[-2:] == [
+        f"  Why job {job} failed: RuntimeError: the parser broke",
+        "The worker gave up on it, and its members see the failure; once the cause is fixed, "
+        "`failed-jobs --requeue` runs it again from the stage it stopped at.",
+    ]
+
+    # Indexed: the stages say so, and when it was first ready.
+    session.execute(text("DELETE FROM jobs"))
+    session.commit()
+    process_document(document.id, services)
+    lines = standing()
+    assert ", is ready: uploaded " in lines[0] and ", first ready " in lines[0]
+    assert [line.split()[:2] for line in lines[2:7]] == [
+        [stage, "done"] for stage in ("scan", "parse", "structure", "enrich", "embed")
+    ]
+    assert lines[-1] == "It is ready."
+
+    # A document left processing with no job, which the app never does.
+    session.execute(
+        text("UPDATE documents SET status = 'processing' WHERE id = :id"), {"id": document.id}
+    )
+    session.commit()
+    assert standing()[-1] == (
+        'No job is queued or running for it, which the app never leaves: "Index again" in the '
+        "library queues one."
+    )
+
+    with pytest.raises(SystemExit) as refused:
+        main(["jobs", "--document", "999999"])
+    assert str(refused.value) == "No document has the id 999999; it may have been deleted."

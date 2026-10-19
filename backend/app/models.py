@@ -418,6 +418,11 @@ class Document(Base):
     updated_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    # When the document was first ready to be searched and asked about, however many runs its
+    # upload's indexing took; null until then. A later run ("Index again", a new embedding
+    # model) leaves it, so that the time from the upload (`DOCUMENT_READY`, app/metrics.py) is
+    # measured once, as the member waited for it.
+    ready_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
     project: Mapped[Project] = relationship(back_populates="documents")
 

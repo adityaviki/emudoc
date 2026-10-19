@@ -267,6 +267,107 @@ groups:
           summary: "A transaction has been open for {{ $value | humanizeDuration }}."
           description: "Vacuum keeps every row deleted or replaced since it began: find it in pg_stat_activity and end it with pg_terminate_backend if nothing should run that long."
 
+  # The service levels (deploying.md, "Service levels"): 99.5 % of the members' requests
+  # without a server error, the probes left out; 95 % of answers begun within 30 seconds of the
+  # question; 95 % of uploads ready within 10 minutes; each over 30 days. Each objective has
+  # two rules on how fast its allowance (the error budget: 0.5 %, 5 %, 5 %) is spent, after
+  # Google's SRE workbook: a fast burn spends it 14.4 times as fast as the month allows (2 % of
+  # it in an hour, all of it in two days), over the last hour and still over the last 5
+  # minutes, so that it ends soon after the burn does; a slow burn 6 times as fast (5 % in six
+  # hours, all in five days), over 6 hours and the last 30 minutes. A minimum of requests or
+  # answers keeps a quiet hour's one failure from counting as a burn.
+  - name: emudoc-service-levels
+    rules:
+      - alert: EmudocErrorBudgetFastBurn
+        expr: |
+          sum(rate(emudoc_http_requests_total{route!~"/api/(livez|health)", status=~"5.."}[1h]))
+            / sum(rate(emudoc_http_requests_total{route!~"/api/(livez|health)"}[1h])) > 14.4 * 0.005
+          and
+          sum(rate(emudoc_http_requests_total{route!~"/api/(livez|health)", status=~"5.."}[5m]))
+            / sum(rate(emudoc_http_requests_total{route!~"/api/(livez|health)"}[5m])) > 14.4 * 0.005
+          and
+          sum(increase(emudoc_http_requests_total{route!~"/api/(livez|health)"}[1h])) >= 100
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of the members' requests of the last hour ended in a server error."
+          description: "At this rate the month's error budget is spent in two days. The API's log has each 500 with its request id, and the error tracker groups them; a 503 is the database, its pool or the storage (deploying.md, \"Runbooks\")."
+
+      - alert: EmudocErrorBudgetSlowBurn
+        expr: |
+          sum(rate(emudoc_http_requests_total{route!~"/api/(livez|health)", status=~"5.."}[6h]))
+            / sum(rate(emudoc_http_requests_total{route!~"/api/(livez|health)"}[6h])) > 6 * 0.005
+          and
+          sum(rate(emudoc_http_requests_total{route!~"/api/(livez|health)", status=~"5.."}[30m]))
+            / sum(rate(emudoc_http_requests_total{route!~"/api/(livez|health)"}[30m])) > 6 * 0.005
+          and
+          sum(increase(emudoc_http_requests_total{route!~"/api/(livez|health)"}[6h])) >= 100
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of the members' requests of the last 6 hours ended in a server error."
+          description: "At this rate the month's error budget is spent in five days. emudoc_http_requests_total by route and status says which requests fail; the API's log and the error tracker say why (deploying.md, \"Runbooks\")."
+
+      - alert: EmudocAnswersLateFastBurn
+        expr: |
+          1 - sum(rate(emudoc_answer_first_text_seconds_bucket{le="30.0"}[1h]))
+            / sum(rate(emudoc_answer_first_text_seconds_count[1h])) > 14.4 * 0.05
+          and
+          1 - sum(rate(emudoc_answer_first_text_seconds_bucket{le="30.0"}[5m]))
+            / sum(rate(emudoc_answer_first_text_seconds_count[5m])) > 14.4 * 0.05
+          and
+          sum(increase(emudoc_answer_first_text_seconds_count[1h])) >= 10
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of the answers of the last hour took over 30 seconds to begin."
+          description: "At this rate the month's allowance of late answers is spent in two days. A backlog is EmudocQuestionsWaiting's, a slow model shows in emudoc_model_first_event_seconds, and each answer's run line says where its time went (deploying.md, \"Traces\")."
+
+      - alert: EmudocAnswersLateSlowBurn
+        expr: |
+          1 - sum(rate(emudoc_answer_first_text_seconds_bucket{le="30.0"}[6h]))
+            / sum(rate(emudoc_answer_first_text_seconds_count[6h])) > 6 * 0.05
+          and
+          1 - sum(rate(emudoc_answer_first_text_seconds_bucket{le="30.0"}[30m]))
+            / sum(rate(emudoc_answer_first_text_seconds_count[30m])) > 6 * 0.05
+          and
+          sum(increase(emudoc_answer_first_text_seconds_count[6h])) >= 10
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of the answers of the last 6 hours took over 30 seconds to begin."
+          description: "At this rate the month's allowance of late answers is spent in five days. The slowest answers' run lines say whether the wait was for a worker, the model or a tool (deploying.md, \"Traces\")."
+
+      - alert: EmudocDocumentsLateFastBurn
+        expr: |
+          1 - sum(rate(emudoc_document_ready_seconds_bucket{le="600.0"}[1h]))
+            / sum(rate(emudoc_document_ready_seconds_count[1h])) > 14.4 * 0.05
+          and
+          1 - sum(rate(emudoc_document_ready_seconds_bucket{le="600.0"}[5m]))
+            / sum(rate(emudoc_document_ready_seconds_count[5m])) > 14.4 * 0.05
+          and
+          sum(increase(emudoc_document_ready_seconds_count[1h])) >= 10
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of the uploads ready in the last hour took over 10 minutes."
+          description: "At this rate the month's allowance of late uploads is spent in two days. A backlog is EmudocDocumentsWaiting's, retries show as failed stages, and each document's run line says which stage took the time (deploying.md, \"Traces\")."
+
+      - alert: EmudocDocumentsLateSlowBurn
+        expr: |
+          1 - sum(rate(emudoc_document_ready_seconds_bucket{le="600.0"}[6h]))
+            / sum(rate(emudoc_document_ready_seconds_count[6h])) > 6 * 0.05
+          and
+          1 - sum(rate(emudoc_document_ready_seconds_bucket{le="600.0"}[30m]))
+            / sum(rate(emudoc_document_ready_seconds_count[30m])) > 6 * 0.05
+          and
+          sum(increase(emudoc_document_ready_seconds_count[6h])) >= 10
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of the uploads ready in the last 6 hours took over 10 minutes."
+          description: "At this rate the month's allowance of late uploads is spent in five days. emudoc_stage_seconds says which stage grew; scanned pages and embedding on the instance's CPUs are the usual (deploying.md, \"Runbooks\")."
+
   # A dead man's switch: an alert that always fires, so that its silence says the rules are no
   # longer evaluated or no longer reach the operator. An Alertmanager sends it to a service that
   # calls when it stops hearing it (on AWS the heartbeat topic, whose silence CloudWatch

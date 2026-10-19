@@ -33,7 +33,9 @@ on, after the last retry, after a crash, or after losing it to a dying process t
 kept as failed for a month: `uv run python -m app.maintenance failed-jobs` (in `backend/`)
 lists them with the reason, and `--requeue` runs their documents again from the stage they
 stopped at; with `ALERT_EMAIL` set, the worker mails the new ones there every quarter of an
-hour as one digest. A request that gets no
+hour as one digest. `jobs` shows the queue as it stands, each running job with its lease, and
+with `--document <id>` where one document's indexing stands and what to do about it. A request
+that gets no
 answer is given up on and counts as the provider being out of reach: an indexing request after
 five minutes, an embedding request after two, and a turn of an answer in the chat after two
 minutes or a minute of silence, which the chat shows as an error. The parse stage runs the
@@ -568,6 +570,16 @@ Prometheus to scrape them; `deploy/prometheus/alerts.yml` holds alerting rules o
 tested with promtool ("Alerts"), and a watchdog for a dead man's switch. On AWS the instance
 runs Prometheus and Alertmanager with them, sending to the environment's alerts topic, and
 CloudWatch reports the instance's failed status checks and the alerts falling silent.
+
+Three service levels are measured the same way, each over 30 days: 99.5 % of the members'
+requests without a server error, 95 % of answers begun within 30 seconds of the question
+(`emudoc_answer_first_text_seconds`), and 95 % of uploads ready within 10 minutes
+(`emudoc_document_ready_seconds`, once per document, by `documents.ready_at`), with a fourth,
+the app up in 99.5 % of the minutes, for an uptime check from outside. Six of the rules alert when
+an objective's error budget is spent too fast, a fast burn at once and a slow one for the working
+day. `deploying.md` has them ("Service levels"), who hears which alert and how soon ("On call"),
+what to do for what goes wrong most often, from a stuck upload to a provider down or a key to
+rotate ("Runbooks"), and every variable the app reads with its default ("Every setting").
 
 Each organisation keeps an audit log (`backend/app/audit.py`): its members' sign-ins (and
 failed ones for their accounts), password, two-factor and session changes, exports and

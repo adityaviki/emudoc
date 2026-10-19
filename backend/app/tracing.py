@@ -124,10 +124,14 @@ class Timeline:
                     {"kind": kind, "at": began - self.began, "seconds": seconds, **details}
                 )
 
-    def mark(self, name: str) -> None:
-        """Note the moment `name` first happened in the run."""
+    def mark(self, name: str) -> float | None:
+        """Note the moment `name` first happened in the run. That first time, returns how long
+        the job had been due by then: its wait for a worker and the run so far."""
         with self._lock:
-            self._marks.setdefault(name, time.monotonic() - self.began)
+            if name in self._marks:
+                return None
+            at = self._marks[name] = time.monotonic() - self.began
+        return self.waited + at
 
     def timing(self, outcome: str) -> Timing:
         """The run so far, ended as `outcome` (as `JOB_RUNS` calls it, app/metrics.py)."""
@@ -209,10 +213,12 @@ def span(kind: str, *, listed: bool = True, **details: Detail) -> Iterator[dict[
         note(kind, began, listed=listed, **found)
 
 
-def mark(name: str) -> None:
-    """Note the moment `name` first happened in the run being timed, if any."""
+def mark(name: str) -> float | None:
+    """Note the moment `name` first happened in the run being timed, if any; returns, that
+    first time, how long the job had been due by then (`Timeline.mark`)."""
     if (timeline := _timeline.get()) is not None:
-        timeline.mark(name)
+        return timeline.mark(name)
+    return None
 
 
 def describe(job_id: int, kind: str, timing: Timing) -> str:

@@ -495,6 +495,161 @@ tests:
               summary: A transaction has been open for 1h 1m 40s.
               description: "Vacuum keeps every row deleted or replaced since it began: find it in pg_stat_activity and end it with pg_terminate_backend if nothing should run that long."
 
+  # One request of twenty ends in a server error: the slow burn's (over 3 %), not the fast
+  # one's (over 7.2 %). The probes' 503s, as a database outage gives them, count for neither.
+  - interval: 1m
+    input_series:
+      - series: 'emudoc_http_requests_total{job="emudoc", process="api", instance="10.73.0.4:9464", method="GET", route="/api/projects/{project_id}/documents", status="200"}'
+        values: "0+95x120"
+      - series: 'emudoc_http_requests_total{job="emudoc", process="api", instance="10.73.0.4:9464", method="POST", route="/api/chats/{chat_id}/messages", status="500"}'
+        values: "0+5x120"
+      - series: 'emudoc_http_requests_total{job="emudoc", process="api", instance="10.73.0.4:9464", method="GET", route="/api/health", status="503"}'
+        values: "0+1000x120"
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: EmudocErrorBudgetSlowBurn
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: '5% of the members'' requests of the last 6 hours ended in a server error.'
+              description: 'At this rate the month''s error budget is spent in five days. emudoc_http_requests_total by route and status says which requests fail; the API''s log and the error tracker say why (deploying.md, "Runbooks").'
+      - eval_time: 60m
+        alertname: EmudocErrorBudgetFastBurn
+        exp_alerts: []
+
+  # One of ten: the fast burn too.
+  - interval: 1m
+    input_series:
+      - series: 'emudoc_http_requests_total{job="emudoc", process="api", instance="10.73.0.4:9464", method="GET", route="/api/projects/{project_id}/documents", status="200"}'
+        values: "0+90x60"
+      - series: 'emudoc_http_requests_total{job="emudoc", process="api", instance="10.73.0.4:9464", method="GET", route="/api/projects/{project_id}/search", status="503"}'
+        values: "0+10x60"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: EmudocErrorBudgetFastBurn
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: '10% of the members'' requests of the last hour ended in a server error.'
+              description: 'At this rate the month''s error budget is spent in two days. The API''s log has each 500 with its request id, and the error tracker groups them; a 503 is the database, its pool or the storage (deploying.md, "Runbooks").'
+      - eval_time: 30m
+        alertname: EmudocErrorBudgetSlowBurn
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: '10% of the members'' requests of the last 6 hours ended in a server error.'
+              description: 'At this rate the month''s error budget is spent in five days. emudoc_http_requests_total by route and status says which requests fail; the API''s log and the error tracker say why (deploying.md, "Runbooks").'
+
+  # Half of a quiet API's requests fail, 24 of them an hour: too few to call a burn.
+  - interval: 5m
+    input_series:
+      - series: 'emudoc_http_requests_total{job="emudoc", process="api", instance="10.73.0.4:9464", method="GET", route="/api/projects/{project_id}/documents", status="200"}'
+        values: "0+1x24"
+      - series: 'emudoc_http_requests_total{job="emudoc", process="api", instance="10.73.0.4:9464", method="GET", route="/api/projects/{project_id}/documents", status="500"}'
+        values: "0+1x24"
+    alert_rule_test:
+      - eval_time: 120m
+        alertname: EmudocErrorBudgetFastBurn
+        exp_alerts: []
+      - eval_time: 120m
+        alertname: EmudocErrorBudgetSlowBurn
+        exp_alerts: []
+
+  # Half the answers begin after 30 seconds (the slow burn's, over 30 %, not the fast one's,
+  # over 72 %), and four uploads of five are ready after 10 minutes (both).
+  - interval: 1m
+    input_series:
+      - series: 'emudoc_answer_first_text_seconds_bucket{job="emudoc", process="worker", instance="10.73.0.5:9464", le="30.0"}'
+        values: "0+1x120"
+      - series: 'emudoc_answer_first_text_seconds_count{job="emudoc", process="worker", instance="10.73.0.5:9464"}'
+        values: "0+2x120"
+      - series: 'emudoc_document_ready_seconds_bucket{job="emudoc", process="worker", instance="10.73.0.5:9464", le="600.0"}'
+        values: "0+1x120"
+      - series: 'emudoc_document_ready_seconds_count{job="emudoc", process="worker", instance="10.73.0.5:9464"}'
+        values: "0+5x120"
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: EmudocAnswersLateSlowBurn
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: '50% of the answers of the last 6 hours took over 30 seconds to begin.'
+              description: 'At this rate the month''s allowance of late answers is spent in five days. The slowest answers'' run lines say whether the wait was for a worker, the model or a tool (deploying.md, "Traces").'
+      - eval_time: 60m
+        alertname: EmudocAnswersLateFastBurn
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: EmudocDocumentsLateFastBurn
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: '80% of the uploads ready in the last hour took over 10 minutes.'
+              description: 'At this rate the month''s allowance of late uploads is spent in two days. A backlog is EmudocDocumentsWaiting''s, retries show as failed stages, and each document''s run line says which stage took the time (deploying.md, "Traces").'
+      - eval_time: 60m
+        alertname: EmudocDocumentsLateSlowBurn
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: '80% of the uploads ready in the last 6 hours took over 10 minutes.'
+              description: 'At this rate the month''s allowance of late uploads is spent in five days. emudoc_stage_seconds says which stage grew; scanned pages and embedding on the instance''s CPUs are the usual (deploying.md, "Runbooks").'
+
+  # Four answers of five begin late (both burns); one upload of ten is late, within the
+  # allowance of neither.
+  - interval: 1m
+    input_series:
+      - series: 'emudoc_answer_first_text_seconds_bucket{job="emudoc", process="worker", instance="10.73.0.5:9464", le="30.0"}'
+        values: "0+1x120"
+      - series: 'emudoc_answer_first_text_seconds_count{job="emudoc", process="worker", instance="10.73.0.5:9464"}'
+        values: "0+5x120"
+      - series: 'emudoc_document_ready_seconds_bucket{job="emudoc", process="worker", instance="10.73.0.5:9464", le="600.0"}'
+        values: "0+9x120"
+      - series: 'emudoc_document_ready_seconds_count{job="emudoc", process="worker", instance="10.73.0.5:9464"}'
+        values: "0+10x120"
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: EmudocAnswersLateFastBurn
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: '80% of the answers of the last hour took over 30 seconds to begin.'
+              description: 'At this rate the month''s allowance of late answers is spent in two days. A backlog is EmudocQuestionsWaiting''s, a slow model shows in emudoc_model_first_event_seconds, and each answer''s run line says where its time went (deploying.md, "Traces").'
+      - eval_time: 60m
+        alertname: EmudocAnswersLateSlowBurn
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: '80% of the answers of the last 6 hours took over 30 seconds to begin.'
+              description: 'At this rate the month''s allowance of late answers is spent in five days. The slowest answers'' run lines say whether the wait was for a worker, the model or a tool (deploying.md, "Traces").'
+      - eval_time: 60m
+        alertname: EmudocDocumentsLateFastBurn
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: EmudocDocumentsLateSlowBurn
+        exp_alerts: []
+
+  # Every answer of a quiet hour is late, five of them: too few to call a burn.
+  - interval: 10m
+    input_series:
+      - series: 'emudoc_answer_first_text_seconds_bucket{job="emudoc", process="worker", instance="10.73.0.5:9464", le="30.0"}'
+        values: "0+0x12"
+      - series: 'emudoc_answer_first_text_seconds_count{job="emudoc", process="worker", instance="10.73.0.5:9464"}'
+        values: "0+1x12"
+    alert_rule_test:
+      - eval_time: 50m
+        alertname: EmudocAnswersLateFastBurn
+        exp_alerts: []
+      - eval_time: 50m
+        alertname: EmudocAnswersLateSlowBurn
+        exp_alerts: []
+
   # The watchdog fires from the first evaluation, whatever the app serves.
   - interval: 1m
     input_series: []

@@ -43,7 +43,7 @@ from app.db import BUSY, SessionLocal
 from app.indexing.pipeline import Services
 from app.jobs import ANSWER_QUESTION, LIVE, Lease, LeaseLost, enqueue, renew
 from app.logs import about
-from app.metrics import POOL_TIMEOUTS
+from app.metrics import ANSWER_FIRST_TEXT, POOL_TIMEOUTS
 from app.models import Chat, ChatMessage, Job, Project
 from app.spending import check_platform_spend, check_spend
 from app.tracing import FIRST_TEXT, WRITE, mark, span
@@ -261,8 +261,10 @@ class _Writer:
                 self._session.rollback()
                 raise LeaseLost(self._lease)
             self._session.commit()
-        if event["type"] == "text":
-            mark(FIRST_TEXT)
+        if event["type"] == "text" and (since_due := mark(FIRST_TEXT)) is not None:
+            # The job was due when the question was asked, so this is what the member waited
+            # for the answer to begin.
+            ANSWER_FIRST_TEXT.observe(since_due)
         self.seq += 1
         self._flushed_at = time.monotonic()
 

@@ -89,6 +89,19 @@ MAX_ATTEMPTS = 3
 # Finished jobs are kept this long for the operator (the failed ones carry `last_error`), then
 # pruned by housekeeping (app/maintenance.py).
 HISTORY = timedelta(days=30)
+# How a job stands for the operator: due (its run_at has come), waiting (a retry's backoff, or
+# the day's spending limit), running, or failed and kept for HISTORY (app/deadletters.py).
+JOB_STATES = ("due", "waiting", "running", "failed")
+
+# The queue by kind and state, with how long the oldest of each has been due: the metrics'
+# figures (app/metrics.py) and the `jobs` command's (app/maintenance.py). `done` is left out:
+# it only grows until the housekeeping prunes it.
+QUEUE_BY_STATE = text(
+    "SELECT kind, CASE WHEN status = 'queued' AND run_at <= now() THEN 'due' "
+    "WHEN status = 'queued' THEN 'waiting' ELSE status END AS state, count(*) AS jobs, "
+    "extract(epoch FROM now() - min(run_at)) AS oldest "
+    "FROM jobs WHERE status IN ('queued', 'running', 'failed') GROUP BY 1, 2"
+)
 
 # The due jobs are ordered by priority, then by how much of the workers their organisation has
 # had lately (`share`: its jobs of these kinds running on a live lease or finished within

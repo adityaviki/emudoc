@@ -30,7 +30,10 @@ With `--dry-run` it changes nothing and exits 1 when the storage lacks a documen
 that point, which makes it the check of the restore drill (deploying.md, "The drill").
 
 `failed-jobs` lists the jobs the worker gave up on, the dead letters (app/deadletters.py), and
-with `--requeue` queues their documents again from the stage they stopped at.
+with `--requeue` queues their documents again from the stage they stopped at. `jobs` shows the
+queue as it stands, the running jobs with their leases, and with `--document` where one
+document's indexing stands and what that means: the operator's look before a release and at a
+document a member says is stuck (deploying.md, "Runbooks").
 
 `usage` prints what an organisation used per day (app/usage.py): the model calls and tokens
 of its answers today, and whatever is metered next. `costs` is the operator's view across the
@@ -63,14 +66,23 @@ from app.audit import audit_event, prune_audit
 from app.auth import CREDENTIAL_HISTORY, prune_credentials
 from app.config import export_env_file, get_settings
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine, unbounded
-from app.deadletters import describe, failed_jobs, requeue
+from app.deadletters import NamedJob, describe, failed_jobs, named_jobs, requeue
 from app.entitlements import PLANS, Entitlements, entitlements_of
-from app.jobs import BULK, HISTORY, prune_finished, queue_index_by_id
+from app.jobs import (
+    ANSWER_QUESTION,
+    BULK,
+    HISTORY,
+    INDEX_DOCUMENT,
+    JOB_STATES,
+    QUEUE_BY_STATE,
+    prune_finished,
+    queue_index_by_id,
+)
 from app.logs import configure_logging
+from app.models import JOB_KINDS, STAGES, Document, Job, Organization
 from app.models import PLANS as PLAN_NAMES
-from app.models import Document, Organization
 from app.parsing import MIME_TYPES
-from app.postgres import concerns, database_report, describe_database
+from app.postgres import concerns, database_report, describe_database, span
 from app.ratelimit import prune_rate_limits
 from app.restore import after_restore, describe_restore
 from app.retention import prune_chats, purge_due_accounts, reapply_erasures
@@ -111,6 +123,8 @@ OLD_LAYOUT = ("files", "pages")
 UPLOAD_GRACE = timedelta(hours=1)
 # How many documents or projects one query checks for their rows during a sweep.
 CHECK_BATCH = 500
+# How many of a document's index jobs `jobs --document` shows, newest first.
+DOCUMENT_JOBS = 5
 # What a key belongs to: the document's prefix when it has one, else the project's. The match
 # is the owner's prefix, as `document_prefix` and `project_prefix` in app/storage.py build it.
 _OWNER = re.compile(r"orgs/\d+/projects/\d+/(?:documents/\d+/)?")
@@ -620,6 +634,158 @@ def plan_report(session: Session, slug: str, plan: str | None) -> list[str]:
     return lines
 
 
+def jobs_report(session: Session) -> list[str]:
+    """The lines the `jobs` command prints: each kind's jobs by state, how long the oldest due
+    one has waited for a worker, and each running job with what it is for, its attempt and its
+    lease, which says whether its worker still holds it."""
+    now = session.scalar(select(func.now()))
+    counts: dict[tuple[str, str], int] = {}
+    oldest: dict[str, float] = {}
+    for kind, state, count, waited in session.execute(QUEUE_BY_STATE):
+        counts[kind, state] = count
+        if state == "due":
+            oldest[kind] = float(waited)
+    if not counts:
+        return [f"Nothing is queued or running, and no job failed in the last {HISTORY.days} days."]
+    kinds = [kind for kind in JOB_KINDS if any(found == kind for found, _ in counts)]
+    rows = [("kind", *JOB_STATES)]
+    rows += [
+        (kind, *(f"{counts.get((kind, state), 0):,}" for state in JOB_STATES)) for kind in kinds
+    ]
+    lines = [f"The queue at {_at(now)}:", *_table(rows, left={0})]
+    lines += [
+        f"The oldest due {kind} job has waited {span(timedelta(seconds=oldest[kind]))} for a "
+        "worker."
+        for kind in kinds
+        if kind in oldest
+    ]
+    running = named_jobs(session, Job.status == "running")
+    if running:
+        lines.append("Running:")
+        rows = [("job", "kind", "attempt", "due", "lease", "about")]
+        rows += [
+            (
+                str(named.job.id),
+                named.job.kind,
+                f"{named.job.attempts} of {named.job.max_attempts}",
+                f"{span(now - named.job.run_at)} ago",
+                _lease(named.job, now),
+                _about(named),
+            )
+            for named in running
+        ]
+        lines += _table(rows, left={1, 2, 4, 5})
+        if any(named.job.lease_until < now for named in running):
+            lines.append(
+                "A lease that ran out is a worker that stopped or lost the database: the next "
+                "free thread of its lane takes the job over."
+            )
+    if any(state == "failed" for _, state in counts):
+        lines.append("`failed-jobs` lists the failed ones with why.")
+    return lines
+
+
+def document_report(session: Session, document_id: int) -> list[str]:
+    """The lines `jobs --document` prints: where the document stands, each stage with what its
+    members read of it, its index jobs newest first, and what the newest one means."""
+    document = session.get(Document, document_id)
+    if document is None:
+        raise RuntimeError(f"No document has the id {document_id}; it may have been deleted.")
+    now = session.scalar(select(func.now()))
+    project = document.project
+    ready = f"first ready {_at(document.ready_at)}" if document.ready_at else "not ready yet"
+    lines = [
+        f"Document {document.id}, {document.filename} in {project.organization.slug} / "
+        f"{project.name}, is {document.status}: uploaded {_at(document.created_at)}, {ready}."
+    ]
+    rows = [("stage", "status", "what its members read")]
+    for name in STAGES:
+        stage = document.stages.get(name, {})
+        rows.append((name, stage.get("status", "pending"), stage.get("detail", "")))
+    lines += _table(rows, left={0, 1, 2})
+    jobs = session.scalars(
+        select(Job)
+        .where(Job.kind == INDEX_DOCUMENT, Job.payload["document_id"].as_integer() == document.id)
+        .order_by(Job.id.desc())
+        .limit(DOCUMENT_JOBS)
+    ).all()
+    if jobs:
+        lines.append("Its index jobs, newest first:")
+        rows = [("job", "status", "attempt", "due", "lease or end")]
+        for job in jobs:
+            ended = f"ended {span(now - job.finished_at)} ago" if job.finished_at else ""
+            lease = _lease(job, now) if job.status == "running" else ended
+            due = _at(job.run_at)
+            rows.append(
+                (str(job.id), job.status, f"{job.attempts} of {job.max_attempts}", due, lease)
+            )
+        lines += _table(rows, left={1, 2, 3, 4})
+        if jobs[0].status == "failed" and jobs[0].last_error:
+            lines.append(f"  Why job {jobs[0].id} failed: {jobs[0].last_error}")
+    lines.append(_standing(document, jobs[0] if jobs else None, now))
+    return lines
+
+
+def _standing(document: Document, job: Job | None, now: datetime) -> str:
+    """What the newest index job says of the document, and what to do about it, if anything."""
+    if job is not None and job.status == "queued":
+        if job.run_at <= now:
+            return (
+                f"Its job has been due for {span(now - job.run_at)} and waits for a free indexer "
+                "thread: `jobs` shows the queue, and more workers or WORKER_CONCURRENCY shorten "
+                "it."
+            )
+        return (
+            f"Its job waits until {_at(job.run_at)}: a retry's backoff, or the day's spending "
+            "limit until midnight UTC, as its stage's detail says."
+        )
+    if job is not None and job.status == "running":
+        if job.lease_until >= now:
+            return (
+                f"Worker {job.worker_id} is running it; its run's line in that worker's log says "
+                'where the time went once it ends (deploying.md, "Traces").'
+            )
+        return (
+            f"Its lease ran out {span(now - job.lease_until)} ago: worker {job.worker_id} "
+            "stopped or lost the database, and the next free indexer thread takes the job over "
+            "from the stage it stopped at."
+        )
+    if job is not None and job.status == "failed":
+        return (
+            "The worker gave up on it, and its members see the failure; once the cause is "
+            "fixed, `failed-jobs --requeue` runs it again from the stage it stopped at."
+        )
+    if document.status in ("queued", "processing"):
+        return (
+            'No job is queued or running for it, which the app never leaves: "Index again" in '
+            "the library queues one."
+        )
+    return {
+        "ready": "It is ready.",
+        "failed": "A required stage failed for a reason a retry would not cure, which the stage "
+        'says; "Index again" in the library runs it again.',
+        "quarantined": "The malware scan flagged it: it is neither indexed nor served.",
+    }[document.status]
+
+
+def _lease(job: Job, now: datetime) -> str:
+    left = job.lease_until - now
+    if left >= timedelta(0):
+        return f"{span(left)} left"
+    return f"ran out {span(-left)} ago"
+
+
+def _about(named: NamedJob) -> str:
+    """What a running job is for, as "acme / Contracts / invoice.pdf", an answer by its id."""
+    if named.job.kind == ANSWER_QUESTION:
+        return f"{named.about} / answer {named.job.payload.get('message_id')}"
+    return named.about
+
+
+def _at(moment: datetime) -> str:
+    return f"{moment.astimezone(UTC):%Y-%m-%d %H:%M} UTC"
+
+
 def _limit(value: int | str | bool | None) -> str:
     if value is None:
         return "no limit"
@@ -861,6 +1027,23 @@ def main(argv: list[str] | None = None) -> None:
     plan.add_argument(
         "plan", nargs="?", choices=PLAN_NAMES, help="the plan to put the organisation on"
     )
+    jobs = commands.add_parser(
+        "jobs",
+        help="show what the queue holds now, or where one document's indexing stands",
+        description="Show the jobs of each kind by state (due, waiting for a retry or for "
+        "midnight UTC, running, and failed in the last "
+        f"{HISTORY.days} days), how long the oldest due one has waited for a worker, and each "
+        "running job with what it is for, its attempt and its lease, which says whether its "
+        "worker still holds it. With --document, one document instead: where it stands, each "
+        "stage with what its members read, its index jobs newest first, and what the newest "
+        "one means. It changes nothing.",
+    )
+    jobs.add_argument(
+        "--document",
+        type=int,
+        metavar="ID",
+        help="the document's id, as the log, the alerts and the library's address name it",
+    )
     commands.add_parser(
         "database",
         help="report on the database server: versions, timeouts, tables and vacuum",
@@ -1017,6 +1200,15 @@ def main(argv: list[str] | None = None) -> None:
             check_schema()
             with SessionLocal() as session:
                 for line in costs_report(session, args.days):
+                    print(line)
+        elif args.command == "jobs":
+            check_schema()
+            with SessionLocal() as session:
+                if args.document is None:
+                    lines = jobs_report(session)
+                else:
+                    lines = document_report(session, args.document)
+                for line in lines:
                     print(line)
         elif args.command == "database":
             check_schema()

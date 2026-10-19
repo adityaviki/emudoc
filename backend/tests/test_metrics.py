@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from prometheus_client import REGISTRY, CollectorRegistry, generate_latest
 from pydantic import ValidationError
 from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.messages import TextPart, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
@@ -25,17 +26,18 @@ from app.config import ROOT_DIR, get_settings, load_settings, parse_metrics_addr
 from app.db import SessionLocal, engine
 from app.embeddings import EmbeddingError
 from app.indexing.enrich import DocumentAnalysis
-from app.indexing.pipeline import process_document
-from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT
+from app.indexing.pipeline import process_document, reset_stages
+from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT, claim
 from app.llm import LLMError
 from app.main import create_app
 from app.metrics import MEASURE_SECONDS, Holdings, Lanes, MetricsRefused, Pool, export_metrics
 from app.models import STAGES, Chat, ChatMessage, Job, Project
 from app.postgres import Archive
 from app.worker import Worker, serve
-from tests.conftest import APP_HEADERS, FakeEmbedder, FakeScanner
+from tests.conftest import APP_HEADERS, FakeEmbedder, FakeScanner, FakeTurn
 from tests.test_api import create_project
 from tests.test_auth import signup
+from tests.test_chats import ask, new_chat
 from tests.test_embeddings import embedder, refuse
 from tests.test_jobs import wait_until
 from tests.test_llm import (
@@ -233,9 +235,11 @@ def test_a_request_is_counted_under_the_pattern_of_its_route(client, monkeypatch
             "emudoc_http_requests_total",
             {"method": "GET", "route": "/api/subprocessors", "status": "500"},
         ),
+        ("emudoc_http_requests_total", {"method": "GET", "route": "/api/health", "status": "200"}),
     )
     client.get(f"/api/projects/{project['id']}/documents")
     client.get("/api/no-such-thing")
+    client.get("/api/health")
 
     def boom(*args, **kwargs):
         raise RuntimeError("an error nobody planned for")
@@ -247,6 +251,11 @@ def test_a_request_is_counted_under_the_pattern_of_its_route(client, monkeypatch
     assert counted("emudoc_http_requests_total", method="GET", route=route, status="200") == 1
     assert counted("emudoc_http_request_seconds_count", method="GET", route=route) == 1
     assert counted("emudoc_http_requests_total", method="GET", route="other", status="404") == 1
+    # A probe under its own path, which the service level's rules leave out
+    # (deploy/prometheus/alerts.yml).
+    assert (
+        counted("emudoc_http_requests_total", method="GET", route="/api/health", status="200") == 1
+    )
     assert (
         counted(
             "emudoc_http_requests_total", method="GET", route="/api/subprocessors", status="500"
@@ -485,6 +494,70 @@ def test_a_worker_counts_its_jobs_and_shows_its_lanes(session, services, make_do
     # A stopped worker's threads have ended, its listener's with them.
     assert figures(lanes)[("emudoc_worker_threads", ("indexer",))] == 0
     assert figures(lanes)[("emudoc_worker_listening", ())] == 0
+
+
+def test_the_wait_for_an_answer_to_begin_is_measured_from_the_question(client, services, indexed):
+    counted = Counted(
+        ("emudoc_answer_first_text_seconds_count", {}),
+        ("emudoc_answer_first_text_seconds_bucket", {"le": "30.0"}),
+        ("emudoc_answer_first_text_seconds_bucket", {"le": "45.0"}),
+    )
+    services.llm.agent_turns = [
+        FakeTurn(ToolCallPart("search", {"query": "notice"}, "call_1")),
+        FakeTurn(TextPart("Ninety "), TextPart("days.")),
+    ]
+    chat = new_chat(client, indexed.project_id)
+    ask(client, chat["id"], "What is the notice period?")
+    # Asked 40 seconds ago, as a backlog would have it wait.
+    with SessionLocal() as session:
+        session.execute(text("UPDATE jobs SET run_at = now() - interval '40 seconds'"))
+        session.commit()
+    worker = Worker(services, concurrency=0, answer_concurrency=1)
+    worker._run(claim(worker.id, [ANSWER_QUESTION]))
+
+    # Once, at the first text, from the question: past the 30 seconds the objective allows.
+    assert counted("emudoc_answer_first_text_seconds_count") == 1
+    assert counted("emudoc_answer_first_text_seconds_bucket", le="30.0") == 0
+    assert counted("emudoc_answer_first_text_seconds_bucket", le="45.0") == 1
+
+
+def test_an_upload_is_measured_once_from_the_upload_to_ready(
+    session, services, make_document, sample_pdf
+):
+    counted = Counted(
+        ("emudoc_document_ready_seconds_count", {}),
+        ("emudoc_document_ready_seconds_bucket", {"le": "300.0"}),
+        ("emudoc_document_ready_seconds_bucket", {"le": "600.0"}),
+    )
+    document = make_document(sample_pdf)
+    session.execute(
+        text("UPDATE documents SET created_at = now() - interval '7 minutes' WHERE id = :id"),
+        {"id": document.id},
+    )
+    session.commit()
+    process_document(document.id, services)
+    session.refresh(document)
+    assert document.status == "ready" and document.ready_at is not None
+    assert counted("emudoc_document_ready_seconds_count") == 1
+    assert counted("emudoc_document_ready_seconds_bucket", le="300.0") == 0
+    assert counted("emudoc_document_ready_seconds_bucket", le="600.0") == 1
+
+    # Indexed again, as after "Index again" or a new embedding model: the upload was ready long
+    # since, and nothing more is measured.
+    first = document.ready_at
+    reset_stages(document)
+    session.commit()
+    process_document(document.id, services)
+    session.refresh(document)
+    assert document.status == "ready" and document.ready_at == first
+    assert counted("emudoc_document_ready_seconds_count") == 1
+
+    # A document that failed was never ready, and counts nothing.
+    unreadable = make_document(sample_pdf, "notes.xyz")
+    process_document(unreadable.id, services)
+    session.refresh(unreadable)
+    assert unreadable.status == "failed" and unreadable.ready_at is None
+    assert counted("emudoc_document_ready_seconds_count") == 1
 
 
 def test_a_worker_that_cannot_listen_says_so(services, monkeypatch):

@@ -23,6 +23,24 @@ Members:
 
 Operators:
 
+- Three service levels, each over 30 days: 99.5 % of the members' requests without a server
+  error, 95 % of answers begun within 30 seconds of the question, 95 % of uploads ready within
+  10 minutes, with a fourth, the app up, for an uptime check from outside (deploying.md,
+  "Service levels"). Two new metrics measure the waits, `emudoc_answer_first_text_seconds` and
+  `emudoc_document_ready_seconds` (once per document, by the new `documents.ready_at`), and six
+  new alerting rules in `deploy/prometheus/alerts.yml` (33 now) fire when an objective's budget
+  is spent too fast: `EmudocErrorBudgetFastBurn`, `EmudocAnswersLateFastBurn` and
+  `EmudocDocumentsLateFastBurn` as critical, their `SlowBurn` twins as warnings.
+- deploying.md says who hears which alert and how soon ("On call"), and what to do for what goes
+  wrong most often ("Runbooks"): a first look, server errors, slow answers, a stuck upload, a
+  provider down, switching models, changing the embedding model and what it costs, rotating
+  each key, restoring a backup, draining the workers, an organisation spending fast. "Every
+  setting" lists every variable the app reads, with its default and what production asks of it.
+- `python -m app.maintenance jobs` shows the queue as it stands: each kind's jobs due, waiting,
+  running and failed, how long the oldest due one has waited, and each running job with what it
+  is for, its attempt and whether its lease is current. `jobs --document <id>` shows where one
+  document stands, each stage with what its members read, its index jobs, and what the newest
+  one means and what to do.
 - `python -m app.maintenance costs` prints what each organisation's model use cost over the
   last 30 days (`--days`), costliest first: its plan, the plan's daily limit, its costliest day
   against that limit and the days it reached it, its answers, model calls and pages indexed;

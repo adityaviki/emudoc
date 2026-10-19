@@ -3,6 +3,7 @@ settings that only a development machine should have. Either stops the process w
 message, from uvicorn, alembic and the maintenance command alike."""
 
 import os
+import re
 import subprocess
 import sys
 from decimal import Decimal
@@ -23,6 +24,7 @@ from app.config import (
     load_settings,
 )
 from app.main import MODELS_UNAVAILABLE, create_app
+from app.network import MODEL_BASE_URLS
 
 A_DATABASE = "postgresql+psycopg://app:secret@db.internal:5432/emudoc"
 # The compose container's password on a server elsewhere: a copied development setup.
@@ -691,3 +693,97 @@ def test_the_interactive_api_docs_are_served_in_development_only(client, service
 
     app = create_app(services=services)
     assert not API_DOCS & paths_of(app)
+
+
+# The guide to every setting: deploying.md's "Every setting" and .env.example name each one the
+# app reads, so that a deployment's operator finds every variable in one place.
+
+GUIDE = ROOT_DIR / "deploying.md"
+# What the app's libraries read rather than its own code: the providers' keys (Pydantic AI's),
+# the bucket's credentials (boto3's), the trust store (OpenSSL's) and the proxy's address
+# (uvicorn's).
+READ_BY_THE_LIBRARIES = {
+    "ANTHROPIC_API_KEY",
+    "OPENROUTER_API_KEY",
+    "OPENAI_API_KEY",
+    "GOOGLE_CLOUD_PROJECT",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_ENDPOINT_URL",
+    "AWS_CONFIG_FILE",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "FORWARDED_ALLOW_IPS",
+}
+# How the app's own code reads a variable by its name.
+READ_BY_NAME = re.compile(r"""(?:environ\.get\(|environ\[|getenv\()\s*["']([A-Z][A-Z0-9_]*)["']""")
+
+
+def listed() -> dict[str, tuple[str, str]]:
+    """The variables the guide lists, each with its row's default and its production cell."""
+    section = GUIDE.read_text().split("\n## Every setting\n", 1)[1].split("\n## ", 1)[0]
+    rows: dict[str, tuple[str, str]] = {}
+    for line in section.splitlines():
+        if not line.startswith("| `"):
+            continue
+        names, default, production, _what = (cell.strip() for cell in line.strip("|").split("|"))
+        for name in re.findall(r"`([A-Z][A-Z0-9_]*)`", names):
+            rows[name] = (default, production)
+    return rows
+
+
+def shown(default: object) -> str | None:
+    """A default as the guide writes it, for the values a person would type."""
+    if isinstance(default, bool):
+        return "true" if default else "false"
+    if isinstance(default, int | Decimal):
+        return str(default)
+    return default if isinstance(default, str) and default else None
+
+
+def test_the_example_env_file_names_every_setting():
+    named = set(
+        re.findall(r"^#?\s*([A-Z][A-Z0-9_]*)=", (ROOT_DIR / ".env.example").read_text(), re.M)
+    )
+    assert {name.upper() for name in Settings.model_fields} <= named
+
+
+def test_the_guide_lists_every_setting_with_its_default():
+    rows = listed()
+    for name, field in Settings.model_fields.items():
+        assert name.upper() in rows, name
+        # The default directory is the checkout's own, wherever it is.
+        if name != "storage_url" and (value := shown(field.default)) is not None:
+            assert f"`{value}`" in rows[name.upper()][0], name
+
+
+def test_the_guide_lists_what_the_app_reads_besides_its_settings():
+    source = "\n".join(path.read_text() for path in (BACKEND_DIR / "app").rglob("*.py"))
+    read = set(READ_BY_NAME.findall(source)) | set(MODEL_BASE_URLS.values())
+    assert "GOOGLE_APPLICATION_CREDENTIALS" in read and "OLLAMA_BASE_URL" in read
+    assert read | READ_BY_THE_LIBRARIES <= listed().keys()
+
+
+def test_the_guide_says_what_production_requires(deployment):
+    complete = {
+        **deployment,
+        "agent_model": "anthropic:claude-sonnet-5-5",
+        "index_model": "anthropic:claude-haiku-5-5",
+    }
+    del complete["google_paid_tier"]
+    assert Settings(**complete).production_problems({}) == []
+    required = set()
+    for name in complete.keys() & Settings.model_fields.keys():
+        rest = {key: value for key, value in complete.items() if key != name}
+        try:
+            refused = Settings(**rest).production_problems({})
+        except ValidationError:
+            refused = True
+        if refused:
+            required.add(name.upper())
+    assert "DATABASE_URL" in required and "ENVIRONMENT" not in required
+    marked = {
+        name for name, (_, production) in listed().items() if production.startswith("required")
+    }
+    assert marked == required

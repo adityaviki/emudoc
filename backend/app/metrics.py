@@ -12,9 +12,10 @@ There are two kinds of figure:
   route's pattern), its database connections (`Pool`), the requests it sent to the models and
   the embeddings endpoint (`model_request`: how each ended, how long it took, how soon an
   answer's first event came, the tokens, the fallbacks), the stages and jobs a worker ran and
-  its threads (`Lanes`), the uploads it stored or refused, the requests a rate refused, and the
-  process's own CPU and memory (the library's). Each replica counts its own, and the scraper
-  adds them up.
+  its threads (`Lanes`), how long the members waited for an answer to begin and an upload to be
+  ready (the service levels' measures), the uploads it stored or refused, the requests a rate
+  refused, and the process's own CPU and memory (the library's). Each replica counts its own,
+  and the scraper adds them up.
 - What the database holds, the same whichever process reads it (`Holdings`): the documents by
   status, the queue by kind, the answers being written, the organisations and the bytes they
   keep by plan, and the day's spend; and how the server itself keeps up (app/postgres.py): the
@@ -56,7 +57,7 @@ from sqlalchemy import Engine, text
 from app.config import Settings, parse_metrics_address
 from app.db import SessionLocal, engine
 from app.errors import AppError, summary
-from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT
+from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT, JOB_STATES, QUEUE_BY_STATE
 from app.models import STAGES
 from app.postgres import archive, database_report
 from app.spending import day_of, spent_since
@@ -80,9 +81,6 @@ NO_ROUTE = "other"
 # The statuses a document's row holds, served even when no document has them, so that a
 # dashboard's series start at zero rather than appear with the first one.
 DOCUMENT_STATUSES = ("queued", "processing", "ready", "failed", "quarantined")
-# How a queued job stands: due (its run_at has come), waiting (a retry's backoff, or the day's
-# spending limit), running, or failed and kept for the operator (app/deadletters.py).
-JOB_STATES = ("due", "waiting", "running", "failed")
 # What a lane of the worker's threads runs (app/worker.py).
 INDEXER = "indexer"
 ANSWERER = "answerer"
@@ -200,6 +198,22 @@ JOB_RUNS = Counter(
     "crashed, its handler raised; abandoned after its lost attempts; lost, to another worker or "
     "to the database, for a later claim to run again; unsettled, its end not recorded.",
     ["kind", "outcome"],
+)
+# What the members waited for, as the service levels measure it (deploying.md, "Service
+# levels"): the buckets hold each objective's bound, 30 seconds and 10 minutes, so that the
+# share within it is a bucket's count over the whole.
+ANSWER_FIRST_TEXT = Histogram(
+    "emudoc_answer_first_text_seconds",
+    "How long a member waited from asking a question to the first text of its answer: the "
+    "job's wait for a worker and its run up to the first text. A run that starts an answer "
+    "over counts again, from the question.",
+    buckets=(1, 2, 5, 10, 15, 20, 30, 45, 60, 120, 300),
+)
+DOCUMENT_READY = Histogram(
+    "emudoc_document_ready_seconds",
+    "How long an upload took to be ready to search and ask about, from the upload to the end "
+    "of its first indexing, retries and waits included; a later run is not counted.",
+    buckets=(10, 30, 60, 120, 300, 600, 1200, 1800, 3600, 7200, 21600, 86400),
 )
 UPLOAD_BYTES = Histogram(
     "emudoc_upload_bytes",
@@ -405,14 +419,6 @@ _DOCUMENTS = text(
     "JOIN organizations o ON o.id = p.org_id GROUP BY o.plan, d.status"
 )
 _ORGANIZATIONS = text("SELECT plan, count(*) FROM organizations GROUP BY plan")
-# The failed jobs are the ones kept for the operator (`HISTORY` in app/jobs.py), and `done` is
-# left out: it only grows until the housekeeping prunes it.
-_JOBS = text(
-    "SELECT kind, CASE WHEN status = 'queued' AND run_at <= now() THEN 'due' "
-    "WHEN status = 'queued' THEN 'waiting' ELSE status END AS state, count(*) AS jobs, "
-    "extract(epoch FROM now() - min(run_at)) AS oldest "
-    "FROM jobs WHERE status IN ('queued', 'running', 'failed') GROUP BY 1, 2"
-)
 # Served by the partial index on the messages being written.
 _ANSWERING = text("SELECT count(*) FROM chat_messages WHERE status = 'streaming'")
 
@@ -534,7 +540,7 @@ class Holdings:
                 documents[status] = documents.get(status, 0) + count
                 stored[plan] = stored.get(plan, 0) + size
             organizations = dict(session.execute(_ORGANIZATIONS).all())
-            for kind, state, count, waited in session.execute(_JOBS):
+            for kind, state, count, waited in session.execute(QUEUE_BY_STATE):
                 jobs[kind, state] = count
                 if state == "due":
                     oldest[kind] = max(float(waited), 0.0)

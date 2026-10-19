@@ -7,7 +7,7 @@ import time
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import delete, select, update
@@ -30,7 +30,7 @@ from app.indexing.enrich import (
 from app.indexing.structure import SectionHint, build_outline
 from app.jobs import Lease, LeaseLost, renew
 from app.llm import LLM, LLMError
-from app.metrics import INDEX_RUNS, STAGE_RUNS, STAGE_SECONDS
+from app.metrics import DOCUMENT_READY, INDEX_RUNS, STAGE_RUNS, STAGE_SECONDS
 from app.models import STAGES, Block, Document, Fact, Passage, Section
 from app.parsing import IMAGE_TYPES, FileTooLarge, ParsedBlock, UnsupportedFile
 from app.parsing.images import open_image
@@ -157,8 +157,7 @@ def process_document(
         if not todo:
             # A job queued for a document that another job has since finished, such as a retry
             # that "Index again" overtook.
-            document.status = "ready"
-            _commit(session, lease)
+            _make_ready(session, document, lease)
             return []
         document.status = "processing"
         document.error = None
@@ -189,10 +188,25 @@ def process_document(
                 INDEX_RUNS.labels("failed").inc()
                 return failures
 
-        document.status = "ready"
-        _commit(session, lease)
+        _make_ready(session, document, lease)
         INDEX_RUNS.labels("ready").inc()
         return failures
+
+
+def _make_ready(session: Session, document: Document, lease: Lease | None) -> None:
+    """Make the document ready. The first time, which ends its upload's indexing however many
+    runs and retries that took, the time since the upload is what its members waited
+    (`DOCUMENT_READY`); a later run, after "Index again" or a new embedding model, measures
+    nothing."""
+    document.status = "ready"
+    first = document.ready_at is None
+    if first:
+        document.ready_at = datetime.now(UTC)
+    _commit(session, lease)
+    if first:
+        waited = (document.ready_at - document.created_at).total_seconds()
+        # The upload's time is the database's clock and this one the worker's.
+        DOCUMENT_READY.observe(max(waited, 0.0))
 
 
 def _quarantine(

@@ -40,8 +40,9 @@ _TAKE = text(
 
 
 @dataclass(frozen=True)
-class FailedJob:
-    """A job the worker gave up on, with the names of what it was about."""
+class NamedJob:
+    """A job with the names of what it is about: its organisation, its project and, for an
+    index job, its document. The operator's commands print them (`failed-jobs`, `jobs`)."""
 
     job: Job
     organization: str
@@ -54,21 +55,21 @@ class FailedJob:
         return " / ".join(part for part in (self.organization, self.project, self.document) if part)
 
 
-def failed_jobs(session: Session) -> list[FailedJob]:
+def failed_jobs(session: Session) -> list[NamedJob]:
     """Every failed job the queue still keeps, oldest first."""
-    return _load(session, Job.status == "failed")
+    return named_jobs(session, Job.status == "failed")
 
 
-def take_unreported(session: Session) -> list[FailedJob]:
+def take_unreported(session: Session) -> list[NamedJob]:
     """The failed jobs not reported yet, marked reported as of now in the caller's transaction;
     rolling it back leaves them for the next round."""
     ids = session.scalars(_TAKE).all()
-    return _load(session, Job.id.in_(ids)) if ids else []
+    return named_jobs(session, Job.id.in_(ids)) if ids else []
 
 
-def _load(session: Session, condition: ColumnElement[bool]) -> list[FailedJob]:
-    # The names come with the jobs: the document an index job is about is named in its
-    # payload, and may be gone by now.
+def named_jobs(session: Session, condition: ColumnElement[bool]) -> list[NamedJob]:
+    """The jobs that meet `condition`, with their names, in the order they finished, then by
+    id. The document an index job is about is named in its payload, and may be gone by now."""
     rows = session.execute(
         select(Job, Organization.slug, Project.name, Document.filename)
         .join(Organization, Organization.id == Job.org_id)
@@ -84,7 +85,7 @@ def _load(session: Session, condition: ColumnElement[bool]) -> list[FailedJob]:
         .order_by(Job.finished_at, Job.id)
     )
     return [
-        FailedJob(job, organization, project, _document_name(job, filename))
+        NamedJob(job, organization, project, _document_name(job, filename))
         for job, organization, project, filename in rows
     ]
 
@@ -95,14 +96,14 @@ def _document_name(job: Job, filename: str | None) -> str | None:
     return f"document {job.payload['document_id']} (deleted)"
 
 
-def describe(failure: FailedJob) -> str:
+def describe(failure: NamedJob) -> str:
     """One failure as two lines: when, which job and what it was about; then why."""
     job = failure.job
     when = job.finished_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
     return f"{when}  job {job.id} ({job.kind})  {failure.about}\n    {job.last_error}"
 
 
-def failed_jobs_email(failures: list[FailedJob]) -> tuple[str, str]:
+def failed_jobs_email(failures: list[NamedJob]) -> tuple[str, str]:
     """The digest: the subject says how many, the body says which and why, up to DIGEST_LIMIT,
     and names the command that lists them all and runs them again."""
     count = _count(len(failures), "job")
@@ -146,7 +147,7 @@ class Requeue:
     lines: list[str] = field(default_factory=list)
 
 
-def requeue(session: Session, failures: list[FailedJob]) -> Requeue:
+def requeue(session: Session, failures: list[NamedJob]) -> Requeue:
     """Queue each failed index job's document again from the stage it stopped at, as "Index
     again" does, and remove the failed jobs from the list.
 
