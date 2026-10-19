@@ -6,9 +6,11 @@ memory. A worker thread cannot be stopped, so `parse_within_limits` runs the par
 of its own and stops that: the parent kills it when it runs past the time limit, the child caps
 its own address space and CPU time with `resource` before it parses (the CPU limit stands even
 when the worker that waits for it is gone), and the parsers refuse a PDF with too many pages or
-a sheet with too many rows before they take it on. The child gets a scrubbed environment, so a
-parser that is made to read it finds no key in it. It is a bound on time and memory, not a
-security sandbox: the child runs as the same user with the same files and network.
+a sheet with too many rows before they take it on, and a file with more text than a document
+may hold before the child replies, so that the parent never holds it. The child gets a scrubbed
+environment, so a parser that is made to read it finds no key in it. It is a bound on time and
+memory, not a security sandbox: the child runs as the same user with the same files and
+network.
 
 The child is this module run as a command, `python -m app.parsing.limits`, started with the
 backend directory as its working directory so that it imports `app.parsing` and nothing else of
@@ -70,6 +72,7 @@ class ParseLimits:
     memory_mb: int = 2048  # the child's address space
     max_pages: int = 500  # of a PDF
     max_rows: int = 100_000  # of one sheet
+    max_chars: int = 20_000_000  # of the text of one document
 
 
 def parse_within_limits(
@@ -97,6 +100,7 @@ def parse_within_limits(
         f"--cpu-seconds={int(limits.timeout) + CPU_GRACE if limits.timeout else 0}",
         f"--max-pages={limits.max_pages}",
         f"--max-rows={limits.max_rows}",
+        f"--max-chars={limits.max_chars}",
     ]
     try:
         child = subprocess.Popen(
@@ -246,6 +250,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cpu-seconds", type=int, default=0, help="0 is unlimited")
     parser.add_argument("--max-pages", type=int, default=0, help="of a PDF; 0 is any number")
     parser.add_argument("--max-rows", type=int, default=0, help="of a sheet; 0 is any number")
+    parser.add_argument(
+        "--max-chars", type=int, default=0, help="of the file's text; 0 is any number"
+    )
     args = parser.parse_args(argv)
 
     # The parser's libraries are loaded before the limit applies, so the limit is what parsing
@@ -259,7 +266,11 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         parsed = parse_file(
-            args.path, args.filename, max_pages=args.max_pages, max_rows=args.max_rows
+            args.path,
+            args.filename,
+            max_pages=args.max_pages,
+            max_rows=args.max_rows,
+            max_chars=args.max_chars,
         )
         payload, code = asdict(parsed), 0
     except MemoryError:

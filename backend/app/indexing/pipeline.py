@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pgvector import Vector
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
@@ -22,6 +23,7 @@ from app.entitlements import check_pages
 from app.errors import AppError, shown, summary
 from app.indexing.enrich import (
     ExtractedFact,
+    Reading,
     analyze_document,
     infer_sections,
     normalize_fact_name,
@@ -52,6 +54,10 @@ REQUIRED_STAGES = ("scan", "parse", "structure")
 MAX_IMAGE_EDGE = 2576
 # A stage's detail while it waits to run again after the database went away under it.
 LOST_DATABASE = "The connection to the database was lost while this stage ran."
+# Passages embedded per call of the embedder, whose vectors are held as Python floats until
+# the call returns, and passages whose vectors are written per statement.
+EMBED_CHUNK = 512
+WRITE_CHUNK = 500
 MISSING_ORIGINAL = (
     "The uploaded file is missing from the storage. Delete this document and upload it again."
 )
@@ -554,6 +560,7 @@ def _parse_limits() -> ParseLimits:
         memory_mb=settings.parse_memory_mb,
         max_pages=settings.parse_max_pages,
         max_rows=settings.parse_max_rows,
+        max_chars=settings.parse_max_chars,
     )
 
 
@@ -692,7 +699,10 @@ def _enrich(session: Session, document: Document, services: Services, meter: Met
     ).all()
     usage = meter.calls(ENRICH)
     _done_reading(session)
-    analysis = analyze_document(services.llm, document, sections, blocks, usage)
+    # The day's spending limits are checked above, once for the stage: they hold the next unit
+    # of work, and the most a document's summaries and facts may take is bounded by this.
+    limit = get_settings().enrich_max_requests
+    analysis = analyze_document(services.llm, document, sections, blocks, usage, limit)
 
     profile = analysis.profile
     old_root = document.title or Path(document.filename).stem
@@ -712,10 +722,25 @@ def _enrich(session: Session, document: Document, services: Services, meter: Met
             )
 
     session.execute(delete(Fact).where(Fact.document_id == document.id))
-    facts = _fact_rows(session, document, analysis.facts, blocks)
+    facts = _fact_rows(session, document, analysis.facts, blocks, analysis.sampled)
     session.add_all(facts)
     summarized = sum(1 for section in sections if section.summary)
-    return f"{summarized} section summaries, {len(facts)} facts"
+    detail = f"{summarized} section summaries, {len(facts)} facts"
+    if analysis.reading is not None:
+        detail += _partly_read(analysis.reading, document.page_count)
+    return detail
+
+
+def _partly_read(reading: Reading, page_count: int | None) -> str:
+    """What the enrich stage's detail adds for a document longer than the model reads."""
+    if reading.page and page_count:
+        reach = f"pages 1 to {reading.page} of {page_count}"
+    else:
+        reach = f"the first {max(int(reading.share * 100), 1)} % of the document"
+    return (
+        f", from {reach}: the model reads no more of one document, and the rest is searched "
+        "without summaries or facts"
+    )
 
 
 _WHITESPACE = re.compile(r"\s+")
@@ -731,11 +756,19 @@ def _fact_rows(
     document: Document,
     extracted: list[ExtractedFact],
     blocks: Sequence[Block],
+    sampled: frozenset[int] = frozenset(),
 ) -> list[Fact]:
+    """The facts as rows, each linked to the block its quote is in and that block's passage;
+    none from a block in `sampled`, a table the model was shown in part (app/indexing/
+    enrich.py)."""
     by_ordinal = {block.ordinal: block for block in blocks}
     normalized = {block.ordinal: _normalize(block.text) for block in blocks}
-    passages = session.scalars(
-        select(Passage).where(Passage.document_id == document.id).order_by(Passage.ordinal)
+    # Where each passage is, and no more: a document's passages may be tens of thousands,
+    # each with its text, its text index and, run again, its vector.
+    passages = session.execute(
+        select(Passage.id, Passage.block_start, Passage.block_end)
+        .where(Passage.document_id == document.id)
+        .order_by(Passage.ordinal)
     ).all()
 
     rows: list[Fact] = []
@@ -745,7 +778,6 @@ def _fact_rows(
         value = clean_text(fact.value)
         if not name or not value or (name, value.lower()) in seen:
             continue
-        seen.add((name, value.lower()))
 
         # Trust the cited block only if the quote is really in it; otherwise look for the quote.
         quote = _normalize(fact.quote)
@@ -755,6 +787,9 @@ def _fact_rows(
             found = next((o for o, text in normalized.items() if quote in text), None)
             if found is not None:
                 block, verified = by_ordinal[found], True
+        if block is not None and block.ordinal in sampled:
+            continue
+        seen.add((name, value.lower()))
 
         passage = None
         if block is not None:
@@ -783,24 +818,43 @@ def _fact_rows(
 
 
 def _embed(session: Session, document: Document, services: Services, meter: Meter) -> str:
-    passages = session.scalars(
-        select(Passage).where(Passage.document_id == document.id).order_by(Passage.ordinal)
+    # What is embedded, and no more: a passage's text index and its old vector stay unread.
+    passages = session.execute(
+        select(Passage.id, Passage.context, Passage.text)
+        .where(Passage.document_id == document.id)
+        .order_by(Passage.ordinal)
     ).all()
     if not passages:
         return "no passages"
     _done_reading(session)
     # The tokens are counted batch by batch, as the endpoint bills them, and priced by
-    # MODEL_PRICES under EMBEDDING_MODEL like a model's (app/usage.py).
-    vectors = services.embedder.embed_documents(
-        [f"{passage.context}\n\n{passage.text}" for passage in passages],
-        meter.calls(EMBED),
-    )
+    # MODEL_PRICES under EMBEDDING_MODEL like a model's (app/usage.py). Each chunk's vectors
+    # come back as Python floats, about 25 KB a passage at 768 dimensions, and are kept as
+    # float32 from then on, 3 KB, which is what the column stores: tens of thousands held as
+    # floats took the worker past a gigabyte.
+    usage = meter.calls(EMBED)
+    vectors: list[Vector] = []
+    for start in range(0, len(passages), EMBED_CHUNK):
+        chunk = passages[start : start + EMBED_CHUNK]
+        texts = [f"{passage.context}\n\n{passage.text}" for passage in chunk]
+        vectors.extend(Vector(vector) for vector in services.embedder.embed_documents(texts, usage))
     # The texts are counted once the vectors are back: a request that failed embedded nothing
     # the document keeps, and the stage runs again.
-    meter.add(EMBED, "inputs", len(passages), model=services.embedder.model)
-    for passage, vector in zip(passages, vectors, strict=True):
-        passage.embedding = vector
-        passage.embedding_model = services.embedder.model
+    model = services.embedder.model
+    meter.add(EMBED, "inputs", len(passages), model=model)
+    # Written a statement of WRITE_CHUNK at a time, each vector as text only for its own.
+    for start in range(0, len(passages), WRITE_CHUNK):
+        session.execute(
+            update(Passage),
+            [
+                {"id": passage.id, "embedding": vector, "embedding_model": model}
+                for passage, vector in zip(
+                    passages[start : start + WRITE_CHUNK],
+                    vectors[start : start + WRITE_CHUNK],
+                    strict=True,
+                )
+            ],
+        )
     return f"{len(passages)} passages"
 
 

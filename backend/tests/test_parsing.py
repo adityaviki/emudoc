@@ -212,6 +212,37 @@ def test_a_sheet_with_too_many_rows_is_refused(sample_xlsx, sample_csv):
     assert str(caught.value).startswith("This file has more than 2 rows")
 
 
+def test_a_file_with_more_text_than_a_document_may_hold_is_refused(sample_pdf, sample_xlsx):
+    for path in (sample_pdf, sample_xlsx):
+        text = sum(len(block.text) for block in parse_file(path, path.name).blocks)
+        assert parse_file(path, path.name, max_chars=text).blocks
+        # The child refuses it before it replies, so the worker never holds the text.
+        with pytest.raises(ParseError) as caught:
+            parse_within_limits(path, path.name, ParseLimits(max_chars=text - 1))
+        assert str(caught.value) == (
+            f"This file holds more than {text - 1:,} characters of text, the most one document "
+            "can have. Split it and upload the parts."
+        )
+
+
+def test_a_sheet_stops_at_the_row_past_the_text_it_may_hold():
+    read = []
+
+    def rows():
+        for number in range(1000):
+            read.append(number)
+            yield [f"row {number}", "x" * 10]
+
+    with pytest.raises(FileTooLarge) as caught:
+        sheet._trim(rows(), 0, "This file", max_chars=100)
+    assert str(caught.value).startswith("This file holds more than 100 characters of text")
+    # Fifteen characters a row: the seventh is past the hundred, and the rest are never read.
+    assert len(read) == 7
+    # The sheets before it count, at the length of their tables.
+    with pytest.raises(FileTooLarge):
+        sheet._trim(iter([["a", "b"]]), 0, "This file", max_chars=100, held=99)
+
+
 def test_a_damaged_file_fails_with_the_parsers_error(tmp_path):
     path = tmp_path / "broken.pdf"
     path.write_bytes(b"%PDF-1.4 but nothing of a PDF follows")

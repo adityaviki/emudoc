@@ -625,6 +625,45 @@ pane copies the original to the temporary directory first, so the first look at 
 large PDF costs its download (2 s a page of a 62 MB scan, "Load"); the pages drawn ahead share
 one.
 
+## Large documents
+
+What indexing one document may cost is bounded by settings that are the same for every
+organisation, whatever its plan, each a refusal or a shortcut with a sentence the member reads:
+
+- **Its text.** Every stage after the parse pays for it: the worker holds it, the structure stage
+  cuts it into passages (one for every 1,200 to 2,000 characters), and each passage is written
+  with its text index and embedded. `PARSE_MAX_CHARS` (20,000,000) is the most one document may
+  hold, some 6,000 pages of prose or 140,000 rows of an eight-column order export. The parse
+  child refuses a file with more before it replies, so the worker never holds it, and a sheet
+  stops being read at the row that takes it past: "This file holds more than 20,000,000
+  characters of text, the most one document can have. Split it and upload the parts." Before
+  it, `PARSE_MAX_PAGES` (500) refuses a PDF by its pages and `PARSE_MAX_ROWS` (100,000) a sheet
+  by its rows.
+- **Its scans.** `OCR_MAX_PAGES` (100) is how many pages the model may read as scans, a request
+  each; a document with more is refused before a page is read.
+- **Its summaries and facts.** The enrich stage sends the model the document 40,000 characters a
+  request, and a request to roll them up. A table of more than 100 rows, one block or blocks that
+  repeat its header as a sheet's do, is shown in part: its header, its first 20 rows and its last
+  5. What the model makes of it is the summary of a sheet, which those give, and no fact is kept
+  from it, since a fact table with a few orders of thousands would answer a count wrong; its rows
+  are searched and read in answers all the same. A sheet of 90,000 rows is so one request, where
+  it was hundreds. `ENRICH_MAX_REQUESTS` (50, some 2 million characters, 500 to 700 pages of
+  prose) caps the requests: a longer document is read from its start for 49 and rolled up, the
+  sections after them have no summary, and its enrich stage says how far it went, as "312
+  section summaries, 1,840 facts, from pages 1 to 640 of 980: the model reads no more of one
+  document, and the rest is searched without summaries or facts" (or "the first 61 % of the
+  document" without pages). The day's spending limits are checked before the stage ("An
+  organisation is spending fast"), so this is the most one document spends past them.
+- **Its vectors.** The embed stage keeps each vector as the column stores it, 4-byte floats (3 KB
+  at 768 dimensions, where the endpoint's reply as Python floats is 25 KB), and writes them 500
+  a statement. Its time is the endpoint's and the database's: each vector written goes into the
+  HNSW index, 3 to 4 ms a passage here ("Load").
+
+Beyond these the worker's memory is the parse's, `PARSE_MEMORY_MB` for each of its
+`WORKER_CONCURRENCY` children at worst, and the text of the documents it indexes: a workbook of
+17.6 million characters (10,400 passages) took the worker to 280 MB beside its parse child's
+220 MB.
+
 ## The models
 
 `INDEX_MODEL` reads every document, to infer its sections, write summaries, pull out facts and
@@ -2312,13 +2351,22 @@ The large files, one at a time, with the model at once:
 - **The 300-page scan** was ready 103 s after its upload, 98 s of them in the parse: its pages
   drawn one after another for the model (89 s) and read (320 requests, 9 s). The 20 questions
   asked meanwhile began as soon as without it.
-- **The 50 MB workbook in seven sheets** was ready after 604 s: the parse 98 s, the structure
-  48 s, the summaries and facts 193 s in 3,126 requests (one for each 40,000 characters of
-  rows), the embeddings 264 s (about 52,000 passages in 1,620 requests, which took 26 s; the
-  rest is the database writing each vector into its index). The worker's processes held
-  2.6 GB.
+- **The 50 MB workbook in seven sheets** (625,000 rows, 88 million characters) was ready after
+  604 s: the parse 98 s, the structure 48 s, the summaries and facts 193 s in 3,126 requests
+  (one for each 40,000 characters of rows), the embeddings 264 s (about 52,000 passages in
+  1,620 requests, which took 26 s; the rest is the database writing each vector into its
+  index). The worker's processes held 2.6 GB. Bounded later that day ("Large documents"), it
+  is refused by `PARSE_MAX_CHARS` after 36 s, the worker's processes at 470 MB. With the limit
+  lifted (`--set PARSE_MAX_CHARS=100000000`) it is ready after 396 s: the parse 82 s, the
+  structure 32 s, the summaries and facts 31 s in one request (each sheet shown by its first
+  and last rows), the embeddings 251 s (25 s of requests); the worker held 590 MB and its
+  parse child 400 MB.
+- **A 10 MB workbook** (125,000 rows in two sheets, 17.6 million characters, 10,400 passages)
+  was ready after 95 s in 626 requests, the worker at 640 MB while it embedded; bounded, after
+  64 s in one request, the worker at 280 MB.
 - **The same orders in one sheet** were refused by `PARSE_MAX_ROWS` after 31 s, the worker's
-  processes at 1.55 GB.
+  processes at 1.55 GB, most of it what the workbook before had left the worker holding;
+  bounded, at 440 MB.
 
 The API's processes held 220 to 240 MB throughout, the worker's about 400 MB while the library
 was indexed.
@@ -2344,11 +2392,12 @@ was indexed.
 - **A long scan** is read one page after another, each drawn (0.3 s) and then sent to the
   model, so at a hosted model's 3 s a page a 300-page scan takes about 17 minutes by itself,
   past the objective whatever else waits. `OCR_MAX_PAGES` (100) holds one to about 6 minutes.
-- **A large workbook** within `PARSE_MAX_ROWS` a sheet is thousands of model requests and hours
-  of an indexer at a hosted model's pace, and the day's spending limits are checked before its
-  stage, not between those requests. Until the app bounds it, a deployment whose members
-  upload such exports lowers `PARSE_MAX_ROWS` and gives the worker the memory: 2.6 GB for this
-  one.
+- **A large workbook** was thousands of model requests and hours of an indexer at a hosted
+  model's pace; its sheets are now one request or a few, whatever their rows, and a workbook
+  past `PARSE_MAX_CHARS` is refused in the parse ("Large documents"). What one within it costs
+  is its passages: written, indexed and embedded, 3 to 4 ms each in the database and the
+  endpoint's time on top, a minute or two for one at the limit here, and longer with an
+  embeddings server on a few CPUs.
 - **Pages** are drawn two at a time by each API, about 0.3 s each for a page of this scan, so
   four asked at once wait about 0.6 s; from a bucket each page copies the whole original
   first, here 62 MB, which made it 2 s, and a member scrolling through the scan fetched 300
@@ -3209,11 +3258,13 @@ the roots' `settings` the others ("The settings").
 | `PARSE_MEMORY_MB` | `2048` | | The memory a parse may hold |
 | `PARSE_MAX_PAGES` | `500` | | The pages of a PDF |
 | `PARSE_MAX_ROWS` | `100000` | | The rows of a sheet |
+| `PARSE_MAX_CHARS` | `20000000` | | The characters of text one document may hold ("Large documents") |
 | `RENDER_PROCESSES` | `2` | | The pages a process draws at once, each in a child of its own ("Drawing pages") |
 | `RENDER_TIMEOUT` | `30` | | Seconds a page may take to draw; 0 for no limit |
 | `RENDER_MEMORY_MB` | `1024` | | The memory a drawing child may hold; 0 for no limit |
 | `PRERENDER_PAGES` | `3` | | A PDF's first pages drawn once it is parsed; 0 for none |
 | `OCR_MAX_PAGES` | `100` | | The pages of one document read as scans |
+| `ENRICH_MAX_REQUESTS` | `50` | | The requests one document's summaries and facts may take; 0 for no limit |
 
 ### The models
 

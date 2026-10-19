@@ -11,6 +11,13 @@ its day, in the same commit.
 
 Members:
 
+- A large spreadsheet is ready far sooner: the AI model reads a long table by its header, its
+  first rows and its last ones, so a sheet of 90,000 rows is one request where it was hundreds.
+  Such a table gives no facts, since a few rows of thousands would answer a count wrong, and
+  every row is searched and read in answers as before.
+- A file with more than 20 million characters of text is refused at once with a sentence that
+  says to split it, and a document too long for the model to read whole is summarised from its
+  start, its indexing saying which pages the summaries and facts cover.
 - When many members read answers at once, the answers no longer all wait five seconds before
   they begin, and an answer's text no longer stops and picks up again.
 - A PDF's first pages show at once when you open it, and the pages you scroll to, or a
@@ -31,6 +38,12 @@ Members:
 
 Operators:
 
+- What indexing one document costs is bounded: `PARSE_MAX_CHARS` (20,000,000) refuses a file
+  with more text in the parse child, before the worker holds any of it, `ENRICH_MAX_REQUESTS`
+  (50) caps the requests one document's summaries and facts take, a table of more than 100
+  rows is shown to the model in part, and the embed stage keeps its vectors as 4-byte floats
+  and writes them 500 at a time. deploying.md's new "Large documents" says what bounds what,
+  and "Load" has the workbooks' new figures.
 - `python -m loadtest` in `backend/` is the load test: the API and a worker in production's
   shape on one machine, against a stand-in model, with a member who uploads 3,000 documents,
   searches them, asks 20 questions at once and uploads a 300-page scan and 50 MB workbooks. It

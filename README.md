@@ -109,7 +109,8 @@ stages wait the same way. A question that was queued before a limit was reached 
 sentence as its error. With `ALERT_EMAIL` set, the worker mails a warning once a day when a
 day's spending reaches 80 % of a limit. The limits count nothing without `MODEL_PRICES`, and
 they hold the next piece of work rather than the ones running, so a day can run past a limit
-by what was in flight. The brake for a bill that cannot wait for midnight is
+by what was in flight: a document's summaries and facts by `ENRICH_MAX_REQUESTS` requests at
+most. The brake for a bill that cannot wait for midnight is
 `DISABLED_PROVIDERS`: at the next restart it switches a provider's models off, and the app
 runs as it does without a key, saying why. Set a budget at each provider as well (Google Cloud
 billing budgets for the Gemini key, the Anthropic console's spend limits, OpenRouter's credit
@@ -400,17 +401,26 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   once. Neither removes anything while the database holds no documents at all, since the
   storage is then more likely another deployment's than all orphans; the message says what to
   check.
-- `PARSE_TIMEOUT`, `PARSE_MEMORY_MB`, `PARSE_MAX_PAGES` and `PARSE_MAX_ROWS` bound the parsing
-  of an upload: 300 seconds, 2048 MB of address space, 500 pages of a PDF and 100,000 filled rows
-  on one sheet by default; `0` removes a limit. The parser runs in a child process of the worker
+- `PARSE_TIMEOUT`, `PARSE_MEMORY_MB`, `PARSE_MAX_PAGES`, `PARSE_MAX_ROWS` and
+  `PARSE_MAX_CHARS` bound the parsing of an upload: 300 seconds, 2048 MB of address space, 500
+  pages of a PDF, 100,000 filled rows on one sheet and 20,000,000 characters of text in one
+  document by default; `0` removes a limit. The parser runs in a child process of the worker
   that is killed at the time limit and caps its own memory, so a file that is too big fails with
   a message naming the limit, is not retried, and leaves the worker and the other uploads
-  untouched. `WORKER_CONCURRENCY` parses run at once, each with its own memory on top of the
-  worker's. An image of more than 50 megapixels is refused the same way, by OCR and by the
-  thumbnail alike, from its header and before a pixel of it is decoded. `OCR_MAX_PAGES` (100)
-  is how many pages of one document the model may read as scans, each a model call: a
-  document with more fails before a page is read, with a message that says to split it; `0`
-  removes the limit.
+  untouched; a file with more text is refused before the worker holds any of it, since every
+  later stage pays for the text (its passages, about one per 1,200 to 2,000 characters, are
+  written, indexed and embedded). `WORKER_CONCURRENCY` parses run at once, each with its own
+  memory on top of the worker's. An image of more than 50 megapixels is refused the same way,
+  by OCR and by the thumbnail alike, from its header and before a pixel of it is decoded.
+  `OCR_MAX_PAGES` (100) is how many pages of one document the model may read as scans, each a
+  model call: a document with more fails before a page is read, with a message that says to
+  split it; `0` removes the limit. `ENRICH_MAX_REQUESTS` (50) is how many requests one
+  document's summaries and facts may take, one for each 40,000 characters and one to roll them
+  up: a longer document is summarised from its start as far as they reach, and its enrich
+  stage says how far; the rest is searched all the same. A table of more than 100 rows, such as
+  a sheet's, is shown to the model by its header, its first 20 rows and its last 5, and gives
+  no facts, so that a sheet of 90,000 rows is one request rather than hundreds; deploying.md's
+  "Large documents" has the whole of it.
 - `RENDER_PROCESSES`, `RENDER_TIMEOUT` and `RENDER_MEMORY_MB` bound the drawing of a PDF's
   pages as images, for the document pane, the thumbnails and OCR: the API and the worker each
   draw in child processes of their own, 2 pages at once by default, each page within 30

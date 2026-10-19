@@ -13,8 +13,21 @@ from app.llm import LLM
 from app.models import Block, Document, Section
 from app.usage import ModelUsage
 
-# Text per request. Sections are kept whole unless one alone is larger than this.
+# Text per request. Sections are kept whole unless one alone is larger than this, and a block
+# larger than this is shown in pieces of it.
 WINDOW_CHARS = 40_000
+# A table of more rows than this, as one block or as blocks that repeat its header (a sheet's,
+# or one running on over a PDF's pages), is shown to the model in part: its header, its first
+# SAMPLE_FIRST rows and its last SAMPLE_LAST. What the model makes of a sheet of orders is a
+# summary, which a few of its rows give as well as all of them, and the rows are searched and
+# read in answers all the same; sent whole, a sheet of 90,000 rows took hundreds of requests.
+# A shorter table is shown whole: an invoice's lines and a price list are facts.
+WHOLE_TABLE_ROWS = 100
+SAMPLE_FIRST = 20
+SAMPLE_LAST = 5
+# The roll-up of a long document shows its opening as the windows show it, this much at most.
+OPENING_ITEMS = 30
+OPENING_CHARS = 10_000
 # Beyond this the block listing for section inference gets too large to be worth it.
 MAX_BLOCKS_FOR_INFERENCE = 4000
 PREVIEW_CHARS = 160
@@ -66,11 +79,26 @@ class InferredSections(BaseModel):
     sections: list[InferredSection]
 
 
+@dataclass(frozen=True)
+class Reading:
+    """How far the model read a document that ENRICH_MAX_REQUESTS stopped short of its end."""
+
+    # The last page it read, for a document with pages.
+    page: int | None
+    # The share of the document's text up to the last block it read.
+    share: float
+
+
 @dataclass
 class Analysis:
     profile: DocumentProfile
     summaries: dict[int, str]  # section id -> summary
     facts: list[ExtractedFact]
+    # The blocks of the tables shown in part, which no fact may come from: their rows are a
+    # few of many, and a fact table holding a few orders of thousands answers a count wrong.
+    sampled: frozenset[int] = frozenset()
+    # None when the model read the whole document.
+    reading: Reading | None = None
 
 
 PROFILE_INSTRUCTIONS = """\
@@ -92,7 +120,8 @@ FACT_INSTRUCTIONS = """\
 identifiers (invoice, contract, order and account numbers), dates (issue, due, effective, \
 expiry, signature), amounts (totals, taxes, fees, limits, rates) and terms (payment terms, \
 notice periods, durations, governing law). Take only what the text states, and at most \
-about 40 facts, the most important first. For each fact:
+about 40 facts, the most important first. Take no facts from a table shown in part. For each \
+fact:
   - name: snake_case. Prefer these names when they fit: document_number, issue_date, \
 due_date, effective_date, expiry_date, signature_date, party, vendor_name, customer_name, \
 total_amount, subtotal_amount, tax_amount, payment_terms, notice_period, term_length, \
@@ -145,28 +174,57 @@ def analyze_document(
     sections: Sequence[Section],
     blocks: Sequence[Block],
     usage: ModelUsage | None = None,
+    max_requests: int = 0,
 ) -> Analysis:
-    """Summaries, profile and facts for the document, in as many requests as its size takes;
-    each is added to `usage` as it is answered, so a run that fails at one window has still
-    counted the ones before."""
+    """Summaries, profile and facts for the document, in as many requests as its size takes
+    and `max_requests` allows (0: any number); each is added to `usage` as it is answered, so
+    a run that fails at one window has still counted the ones before.
+
+    A document longer than the requests allow is read from its start for as many windows as
+    leave one request for the roll-up, and `Analysis.reading` says how far that went: the
+    sections after it have no summary, and its facts are those of the part read."""
     windows = _windows(sections, blocks)
     summaries: dict[int, str] = {}
     facts: list[ExtractedFact] = []
     section_ids = {section.id for section in sections}
+    sampled = frozenset(
+        ordinal
+        for window in windows
+        for _, items in window
+        for item in items
+        if item.rows
+        for ordinal in range(item.first.ordinal, item.last.ordinal + 1)
+    )
 
-    if len(windows) == 1:
+    if len(windows) == 1 or max_requests == 1:
+        # The whole document in one request, or as much of it as one request holds.
+        whole = len(windows) == 1
+        if whole:
+            ask, scope = "Return these fields for the document above.", "in the document"
+        else:
+            ask = (
+                "This is the opening part of a longer document, and all of it that is read. "
+                "Return these fields for the document as far as this part shows them."
+            )
+            scope = "in this part"
         prompt = (
-            f"{_render(document, windows[0], whole=True)}\n\n"
-            "Return these fields for the document above.\n"
+            f"{_render(document, windows[0], whole=whole)}\n\n"
+            f"{ask}\n"
             f"{PROFILE_INSTRUCTIONS}\n"
-            f"{SECTION_INSTRUCTIONS.format(scope='in the document')}\n"
+            f"{SECTION_INSTRUCTIONS.format(scope=scope)}\n"
             f"{FACT_INSTRUCTIONS}"
         )
         result = llm.structured(prompt, DocumentAnalysis, usage)
         _collect(result.sections, section_ids, summaries)
-        return Analysis(_profile(result), summaries, result.facts)
+        reading = None if whole else _reading(windows[:1], blocks)
+        return Analysis(_profile(result), summaries, result.facts, sampled, reading)
 
-    for window in windows:
+    # Every window and the roll-up, or as many windows as leave the roll-up its request.
+    if max_requests and len(windows) >= max_requests:
+        read = windows[: max_requests - 1]
+    else:
+        read = windows
+    for window in read:
         prompt = (
             f"{_render(document, window, whole=False)}\n\n"
             "This is one part of a longer document. Return these fields for this part.\n"
@@ -177,16 +235,16 @@ def analyze_document(
         _collect(result.sections, section_ids, summaries)
         facts.extend(result.facts)
 
-    # Roll up: the profile, and any section whose text was split across parts.
-    missing = [section for section in sections if section.id not in summaries]
-    opening = "\n".join(
-        _block_line(block) for block in sorted(blocks, key=lambda b: b.ordinal)[:30]
-    )
+    # Roll up: the profile, and any section read whose summary none of its parts gave, such
+    # as a heading with only subsections beneath it.
+    seen = {section.id for window in read for section, _ in window}
+    unread = section_ids - seen
+    missing = [section for section in sections if section.id in seen - summaries.keys()]
     wanted = ", ".join(f"[S{section.id}]" for section in missing) or "none, return an empty list"
     prompt = (
         f"{_document_tag(document)}\n"
-        f"<outline>\n{_outline(sections, summaries)}\n</outline>\n"
-        f"<opening>\n{opening}\n</opening>\n"
+        f"<outline>\n{_outline(sections, summaries, unread)}\n</outline>\n"
+        f"<opening>\n{_opening(read)}\n</opening>\n"
         "</document>\n\n"
         "Above is the outline of a long document, with a one-sentence summary of each "
         "section already read, and the document's opening lines. Return these fields.\n"
@@ -195,8 +253,10 @@ def analyze_document(
         f"written from the summaries of the sections beneath it: {wanted}."
     )
     result = llm.structured(prompt, ProfileWithSections, usage)
-    _collect(result.sections, section_ids, summaries)
-    return Analysis(_profile(result), summaries, facts)
+    # Only the sections asked for: one not read has nothing to be summarised from but its title.
+    _collect(result.sections, {section.id for section in missing}, summaries)
+    reading = _reading(read, blocks) if len(read) < len(windows) else None
+    return Analysis(_profile(result), summaries, facts, sampled, reading)
 
 
 def parse_iso_date(value: str | None) -> date | None:
@@ -225,11 +285,26 @@ def _collect(items: list[SectionSummary], valid: set[int], into: dict[int, str])
             into[item.section] = item.summary.strip()
 
 
-_Window = list[tuple[Section, list[Block]]]
+@dataclass(frozen=True)
+class _Item:
+    """What the model is shown of the blocks from `first` to `last`: one block whole, a piece
+    of one too long for a request (`piece` of `pieces`), or a long table in part (`rows` is
+    how many it has in all)."""
+
+    first: Block
+    last: Block
+    text: str
+    rows: int = 0
+    piece: int = 0
+    pieces: int = 0
+
+
+_Window = list[tuple[Section, list[_Item]]]
 
 
 def _windows(sections: Sequence[Section], blocks: Sequence[Block]) -> list[_Window]:
-    """Group sections, each with its own blocks, into requests of bounded size."""
+    """Group sections, each with what is shown of its own blocks, into requests of bounded
+    size."""
     by_ordinal = {block.ordinal: block for block in blocks}
     ordered = sorted(sections, key=lambda section: section.ordinal)
     windows: list[_Window] = []
@@ -242,8 +317,8 @@ def _windows(sections: Sequence[Section], blocks: Sequence[Block]) -> list[_Wind
             ordered[position + 1].block_start if position + 1 < len(ordered) else section.block_end
         )
         own = [by_ordinal[o] for o in range(section.block_start, end) if o in by_ordinal]
-        for part in _split_by_size(own):
-            part_size = sum(len(block.text) for block in part)
+        for part in _split_by_size(_condensed(own)):
+            part_size = sum(len(item.text) for item in part)
             if current and size + part_size > WINDOW_CHARS:
                 windows.append(current)
                 current, size = [], 0
@@ -255,19 +330,105 @@ def _windows(sections: Sequence[Section], blocks: Sequence[Block]) -> list[_Wind
     return windows
 
 
-def _split_by_size(blocks: list[Block]) -> list[list[Block]]:
-    """Split one section's blocks only when the section alone exceeds a window."""
-    parts: list[list[Block]] = []
-    part: list[Block] = []
+def _split_by_size(items: list[_Item]) -> list[list[_Item]]:
+    """Split one section's items only when the section alone exceeds a window."""
+    parts: list[list[_Item]] = []
+    part: list[_Item] = []
     size = 0
-    for block in blocks:
-        if part and size + len(block.text) > WINDOW_CHARS:
+    for item in items:
+        if part and size + len(item.text) > WINDOW_CHARS:
             parts.append(part)
             part, size = [], 0
-        part.append(block)
-        size += len(block.text)
+        part.append(item)
+        size += len(item.text)
     parts.append(part)
     return parts
+
+
+def _condensed(blocks: Sequence[Block]) -> list[_Item]:
+    """What the model is shown of a section's own blocks, in order: each block whole, but a
+    long table in part and a block longer than a window in pieces."""
+    items: list[_Item] = []
+    position = 0
+    while position < len(blocks):
+        block = blocks[position]
+        if block.kind != "table":
+            items.extend(_pieces(block))
+            position += 1
+            continue
+        # The blocks that go on with this table: a sheet's repeat its header (sheet.py).
+        header = _header(block)
+        end = position + 1
+        while end < len(blocks) and blocks[end].kind == "table" and _header(blocks[end]) == header:
+            end += 1
+        run = blocks[position:end]
+        rows = sum(_row_count(block) for block in run)
+        if rows > WHOLE_TABLE_ROWS:
+            items.append(_Item(run[0], run[-1], _sample(run), rows=rows))
+        else:
+            items.extend(_Item(block, block, block.text) for block in run)
+        position = end
+    return items
+
+
+def _pieces(block: Block) -> list[_Item]:
+    """The block whole, or in pieces of a window at most, cut at a space where there is one."""
+    text = block.text
+    if len(text) <= WINDOW_CHARS:
+        return [_Item(block, block, text)]
+    parts: list[str] = []
+    while text:
+        cut = len(text) if len(text) <= WINDOW_CHARS else text.rfind(" ", 0, WINDOW_CHARS)
+        cut = cut if cut > 0 else WINDOW_CHARS
+        parts.append(text[:cut])
+        text = text[cut:].lstrip()
+    return [
+        _Item(block, block, part, piece=number, pieces=len(parts))
+        for number, part in enumerate(parts, 1)
+    ]
+
+
+def _header(block: Block) -> str:
+    end = block.text.find("\n")
+    return block.text if end < 0 else block.text[:end]
+
+
+def _ruled(block: Block) -> bool:
+    """Whether the table's second line is the rule under its header, as a Markdown table has."""
+    start = block.text.find("\n") + 1
+    if not start:
+        return False
+    end = block.text.find("\n", start)
+    line = block.text[start:] if end < 0 else block.text[start:end]
+    return "-" in line and not line.strip("|:- ")
+
+
+def _head_lines(block: Block) -> int:
+    return 2 if _ruled(block) else 1
+
+
+def _row_count(block: Block) -> int:
+    return block.text.count("\n") + 1 - _head_lines(block)
+
+
+def _sample(run: Sequence[Block]) -> str:
+    """A long table as the model is shown it: its header, its first and last rows, and a row
+    of ellipses where the others are."""
+    first: list[str] = []
+    for block in run:
+        first.extend(block.text.split("\n")[_head_lines(block) :][: SAMPLE_FIRST - len(first)])
+        if len(first) == SAMPLE_FIRST:
+            break
+    last: list[str] = []
+    for block in reversed(run):
+        rows = block.text.split("\n")[_head_lines(block) :]
+        last[:0] = rows[max(len(rows) - (SAMPLE_LAST - len(last)), 0) :]
+        if len(last) == SAMPLE_LAST:
+            break
+    head = run[0].text.split("\n")[: _head_lines(run[0])]
+    columns = max(head[0].count("|") - 1, 1)
+    gap = "| " + " | ".join(["…"] * columns) + " |"
+    return "\n".join([*head, *first, gap, *last])
 
 
 def _document_tag(document: Document, part: bool = False) -> str:
@@ -277,23 +438,66 @@ def _document_tag(document: Document, part: bool = False) -> str:
     )
 
 
-def _block_line(block: Block) -> str:
-    page = f" (p.{block.page})" if block.page else ""
-    return f"[B{block.ordinal}]{page} {block.text}"
+def _item_line(item: _Item) -> str:
+    page = f" (p.{item.first.page})" if item.first.page else ""
+    marker = f"[B{item.first.ordinal}]{page}"
+    if item.rows:
+        blocks = (
+            f" in blocks B{item.first.ordinal} to B{item.last.ordinal}"
+            if item.last is not item.first
+            else ""
+        )
+        return (
+            f"{marker} A table of {item.rows:,} rows{blocks}, shown in part: its header, its "
+            f"first {SAMPLE_FIRST} rows and its last {SAMPLE_LAST}.\n{item.text}"
+        )
+    if item.pieces:
+        return f"{marker} (part {item.piece} of {item.pieces}) {item.text}"
+    return f"{marker} {item.text}"
 
 
 def _render(document: Document, window: _Window, whole: bool) -> str:
     lines = [_document_tag(document, part=not whole)]
-    for section, blocks in window:
+    for section, items in window:
         lines.append(f"\n## [S{section.id}] {section.path}")
-        lines.extend(_block_line(block) for block in blocks)
+        lines.extend(_item_line(item) for item in items)
     lines.append("</document>")
     return "\n".join(lines)
 
 
-def _outline(sections: Sequence[Section], summaries: dict[int, str]) -> str:
+def _outline(sections: Sequence[Section], summaries: dict[int, str], unread: set[int]) -> str:
     lines = []
     for section in sorted(sections, key=lambda s: s.ordinal):
-        summary = summaries.get(section.id, "(no summary yet)")
+        summary = summaries.get(
+            section.id, "(not read)" if section.id in unread else "(no summary yet)"
+        )
         lines.append(f"{'  ' * (section.level - 1)}[S{section.id}] {section.title}: {summary}")
     return "\n".join(lines)
+
+
+def _opening(windows: Sequence[_Window]) -> str:
+    """The document's first lines as the windows showed them, OPENING_ITEMS and OPENING_CHARS
+    at most but never none: a sheet's first blocks are thousands of rows."""
+    lines: list[str] = []
+    size = 0
+    for window in windows:
+        for _, items in window:
+            for item in items:
+                line = _item_line(item)
+                if lines and (len(lines) == OPENING_ITEMS or size + len(line) > OPENING_CHARS):
+                    return "\n".join(lines)
+                lines.append(line)
+                size += len(line)
+    return "\n".join(lines)
+
+
+def _reading(read: Sequence[_Window], blocks: Sequence[Block]) -> Reading:
+    """How far the windows read reach into the document: the last block any of them shows."""
+    last = max(
+        (item.last.ordinal for window in read for _, items in window for item in items),
+        default=-1,
+    )
+    total = sum(len(block.text) for block in blocks)
+    within = sum(len(block.text) for block in blocks if block.ordinal <= last)
+    page = max((b.page for b in blocks if b.ordinal <= last and b.page), default=None)
+    return Reading(page=page, share=within / total if total else 1.0)

@@ -228,14 +228,17 @@ class Settings(BaseSettings):
     page_image_days: int = Field(default=30, ge=0)
     # The parse stage runs the parsers on an upload in a child process of their own
     # (app/parsing/limits.py), so that a file that takes too long or too much memory stops that
-    # process and not the worker: the seconds it may run, the memory it may hold, and the pages
-    # of a PDF and the rows of one sheet it takes on. Zero removes a limit. These are the
-    # ceiling for every organisation; a cap that differs by plan is an entitlement, read per
-    # account.
+    # process and not the worker: the seconds it may run, the memory it may hold, the pages of
+    # a PDF and the rows of one sheet it takes on, and the characters of text one document may
+    # hold. The text is what every later stage pays for, the worker holding it, its passages
+    # written, indexed and embedded (a passage is some 1,200 to 2,000 characters), so a file
+    # over it is refused before the child replies. Zero removes a limit. These are the ceiling
+    # for every organisation; a cap that differs by plan is an entitlement, read per account.
     parse_timeout: int = Field(default=300, ge=0)
     parse_memory_mb: int = Field(default=2048, ge=0)
     parse_max_pages: int = Field(default=500, ge=0)
     parse_max_rows: int = Field(default=100_000, ge=0)
+    parse_max_chars: int = Field(default=20_000_000, ge=0)
     # A PDF's pages are drawn as images (for the document pane, the thumbnails and OCR) by
     # child processes each process keeps (app/rendering.py), since pdfium draws one page at a
     # time in a process: how many pages a process draws at once, the seconds a page may take
@@ -251,6 +254,13 @@ class Settings(BaseSettings):
     # with a message that says to split it, before a page is read (app/indexing/pipeline.py).
     # Zero removes the limit.
     ocr_max_pages: int = Field(default=100, ge=0)
+    # The requests to the model one document's summaries and facts may take (app/indexing/
+    # enrich.py, a request for each 40,000 characters and one to roll them up): a longer
+    # document is summarised from its start as far as they reach, and its enrich stage says
+    # how far, rather than refused, since everything is searched without them. The day's
+    # spending limits are checked before the stage, so this is the most a document can spend
+    # past them. Zero removes the limit.
+    enrich_max_requests: int = Field(default=50, ge=0)
 
     # The model behind structure inference, summaries, facts, OCR and the agent, as
     # provider:model. Each provider reads its own key from the environment (see .env.example).

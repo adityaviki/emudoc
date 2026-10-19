@@ -50,9 +50,11 @@ SIZING = {
     "PARSE_MEMORY_MB": "2048",
     "PARSE_MAX_PAGES": "500",
     "PARSE_MAX_ROWS": "100000",
+    "PARSE_MAX_CHARS": "20000000",
     "RENDER_TIMEOUT": "30",
     "RENDER_MEMORY_MB": "1024",
     "OCR_MAX_PAGES": "100",
+    "ENRICH_MAX_REQUESTS": "50",
 }
 # What the test is not about, out of its way: the rates a minute per member, which one member
 # asking for twenty would meet first. The report says so beside the figures.

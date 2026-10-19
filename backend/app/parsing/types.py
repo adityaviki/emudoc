@@ -13,6 +13,14 @@ class FileTooLarge(Exception):
     and what to do."""
 
 
+def too_much_text(max_chars: int) -> str:
+    """Why a file over PARSE_MAX_CHARS is refused, in the words its uploader reads."""
+    return (
+        f"This file holds more than {max_chars:,} characters of text, the most one document "
+        "can have. Split it and upload the parts."
+    )
+
+
 class UnreadableFile(Exception):
     """The file is the type its name says but holds nothing the parsers can open: it is locked
     with a password, or has no pages; the message says which and what to do."""

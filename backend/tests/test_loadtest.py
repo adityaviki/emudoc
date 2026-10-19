@@ -55,8 +55,11 @@ def test_the_standin_reads_a_document_as_enrich_sends_it():
         "- Supplier: Northwind Fasteners Ltd",
         "Payment is due within 30 days of the invoice date. By transfer.",
     ]
-    blocks = [SimpleNamespace(ordinal=n, page=1, text=text) for n, text in enumerate(texts)]
-    prompt = enrich._render(document, [(section, blocks)], whole=True)
+    blocks = [
+        SimpleNamespace(ordinal=n, page=1, kind="paragraph", text=text)
+        for n, text in enumerate(texts)
+    ]
+    prompt = enrich._render(document, [(section, enrich._condensed(blocks))], whole=True)
 
     analysis = asked(DocumentAnalysis, prompt)
 
@@ -74,6 +77,29 @@ def test_the_standin_reads_a_document_as_enrich_sends_it():
     ]
     # Each quote is its block, which the enrich stage takes as verified.
     assert [fact.quote for fact in analysis.facts] == texts[1:4]
+
+
+def test_the_standin_summarises_a_long_table_shown_in_part_and_takes_no_facts_from_it():
+    document = SimpleNamespace(filename="orders.xlsx", page_count=None)
+    section = SimpleNamespace(id=3, path="orders › Orders 1")
+    header = "| Order | Total amount |\n| --- | --- |"
+    blocks = [
+        SimpleNamespace(
+            ordinal=n,
+            page=None,
+            kind="table",
+            text="\n".join([header, *(f"| ORD-{n}-{row} | EUR {row}.00 |" for row in range(200))]),
+        )
+        for n in range(1, 4)
+    ]
+    prompt = enrich._render(document, [(section, enrich._condensed(blocks))], whole=True)
+
+    analysis = asked(DocumentAnalysis, prompt)
+
+    assert [(s.section, s.summary.split(",")[0]) for s in analysis.sections] == [
+        (3, "A table of 600 rows in blocks B1 to B3")
+    ]
+    assert analysis.facts == []
 
 
 def test_the_standin_leaves_the_sections_of_a_document_without_headings_where_they_are():
