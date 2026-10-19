@@ -34,6 +34,11 @@ adds to it as it adds the rows, in the same transaction, so the two never drift 
 unit, which is what a quota, a usage page or an invoice reads. It is a query over the events,
 which is enough until their number says otherwise; a stored table would then go behind the
 same function. The `usage` command (app/maintenance.py) prints it.
+
+`organization_costs` and `model_costs` are the platform's side of the same rows: what each
+organisation's work cost over a span of days, costliest first, with the days that make it up,
+and what each kind of work cost by the model that did it. The `costs` command prints them for
+the operator; an internal admin page would read the same functions.
 """
 
 from collections import Counter
@@ -72,6 +77,54 @@ _DAILY = text(
     WHERE org_id = :org_id AND occurred_at >= :since AND occurred_at < :until
     GROUP BY day, kind, unit
     ORDER BY day, kind, unit
+    """
+)
+# Postgres sums a bigint as a numeric, which Python reads as a Decimal; the casts keep the
+# figures the ints they count. An answer's rows name its message, so the answers are the
+# messages counted once each, however many runs, days and models they took; the pages are those
+# the first parse of each upload counted.
+_BY_ORGANIZATION = text(
+    """
+    SELECT org_id, sum(cost_micros)::bigint AS cost_micros,
+           coalesce(sum(quantity) FILTER (WHERE unit = 'calls'), 0)::bigint AS calls,
+           coalesce(sum(quantity) FILTER (WHERE unit = 'input_tokens'), 0)::bigint
+               AS input_tokens,
+           coalesce(sum(quantity) FILTER (WHERE unit = 'output_tokens'), 0)::bigint
+               AS output_tokens,
+           count(DISTINCT ref_id) FILTER (WHERE kind = 'answer') AS answers,
+           coalesce(sum(quantity) FILTER (WHERE kind = 'upload' AND unit = 'pages'), 0)::bigint
+               AS pages
+    FROM usage_events
+    WHERE occurred_at >= :since AND occurred_at < :until
+    GROUP BY org_id
+    """
+)
+_DAILY_COSTS = text(
+    """
+    SELECT org_id, (occurred_at AT TIME ZONE 'UTC')::date AS day, sum(cost_micros)::bigint
+    FROM usage_events
+    WHERE occurred_at >= :since AND occurred_at < :until AND cost_micros IS NOT NULL
+    GROUP BY org_id, day
+    """
+)
+_BY_MODEL = text(
+    """
+    SELECT kind, model, sum(cost_micros)::bigint AS cost_micros,
+           coalesce(sum(quantity) FILTER (WHERE unit = 'calls'), 0)::bigint AS calls,
+           coalesce(sum(quantity) FILTER (WHERE unit = 'input_tokens'), 0)::bigint
+               AS input_tokens,
+           coalesce(sum(quantity) FILTER (WHERE unit = 'output_tokens'), 0)::bigint
+               AS output_tokens,
+           coalesce(
+               sum(quantity) FILTER (
+                   WHERE unit IN ('input_tokens', 'output_tokens') AND cost_micros IS NULL
+               ),
+               0
+           )::bigint AS unpriced_tokens
+    FROM usage_events
+    WHERE occurred_at >= :since AND occurred_at < :until AND model IS NOT NULL
+    GROUP BY kind, model
+    ORDER BY sum(cost_micros) DESC NULLS LAST, calls DESC, kind, model
     """
 )
 
@@ -330,7 +383,103 @@ class DailyUsage:
 def daily(session: Session, org_id: int, since: date, until: date) -> list[DailyUsage]:
     """The organisation's usage per day in UTC, from `since` to `until` inclusive, by kind
     and unit, in that order."""
-    start = datetime.combine(since, time.min, UTC)
-    end = datetime.combine(until + timedelta(days=1), time.min, UTC)
-    rows = session.execute(_DAILY, {"org_id": org_id, "since": start, "until": end})
+    rows = session.execute(_DAILY, {"org_id": org_id, **_span(since, until)})
     return [DailyUsage(*row) for row in rows]
+
+
+@dataclass(frozen=True)
+class OrganizationCost:
+    """What one organisation's work came to over a span of days in UTC, or every
+    organisation's together (`summed`)."""
+
+    # None for every organisation's together.
+    org_id: int | None
+    # None while no row of the span has a cost.
+    cost_micros: int | None
+    calls: int
+    input_tokens: int
+    output_tokens: int
+    # The answers that called a model, and the pages the uploads brought in.
+    answers: int
+    pages: int
+    # The known cost of each day of the span that has one.
+    days: dict[date, int] = field(default_factory=dict)
+
+    @property
+    def top_day(self) -> int | None:
+        """The known cost of the costliest day; None while no day has one."""
+        return max(self.days.values(), default=None)
+
+    def days_at(self, cap: int) -> int:
+        """How many days spent `cap` or more: the days a daily limit of `cap` was reached."""
+        return sum(1 for spent in self.days.values() if spent >= cap)
+
+
+@dataclass(frozen=True)
+class ModelCost:
+    """What one kind of work cost by one model over a span of days in UTC."""
+
+    kind: str
+    model: str
+    # None while no row has a cost.
+    cost_micros: int | None
+    calls: int
+    input_tokens: int
+    output_tokens: int
+    # The tokens recorded without a price, which no cost counts.
+    unpriced_tokens: int
+
+
+def organization_costs(session: Session, since: date, until: date) -> list[OrganizationCost]:
+    """Every organisation that used anything from `since` to `until` inclusive, in UTC, with
+    what it came to: the costliest first, then the busiest, so that the organisations whose
+    models have no price still come in order of their calls."""
+    span = _span(since, until)
+    days: dict[int, dict[date, int]] = {}
+    for org_id, day, cost in session.execute(_DAILY_COSTS, span):
+        days.setdefault(org_id, {})[day] = cost
+    costs = [
+        OrganizationCost(*row, days=days.get(row.org_id, {}))
+        for row in session.execute(_BY_ORGANIZATION, span)
+    ]
+    unknown = -1
+    return sorted(
+        costs,
+        key=lambda cost: (
+            -(unknown if cost.cost_micros is None else cost.cost_micros),
+            -cost.calls,
+            cost.org_id,
+        ),
+    )
+
+
+def summed(costs: Iterable[OrganizationCost]) -> OrganizationCost:
+    """The organisations' figures added up, day by day: the platform's."""
+    costs = list(costs)
+    days: Counter[date] = Counter()
+    for cost in costs:
+        days.update(cost.days)
+    return OrganizationCost(
+        org_id=None,
+        cost_micros=_total(cost.cost_micros for cost in costs),
+        calls=sum(cost.calls for cost in costs),
+        input_tokens=sum(cost.input_tokens for cost in costs),
+        output_tokens=sum(cost.output_tokens for cost in costs),
+        answers=sum(cost.answers for cost in costs),
+        pages=sum(cost.pages for cost in costs),
+        days=dict(days),
+    )
+
+
+def model_costs(session: Session, since: date, until: date) -> list[ModelCost]:
+    """What each kind of work cost by each model that did it, from `since` to `until`
+    inclusive, in UTC, the costliest first."""
+    return [ModelCost(*row) for row in session.execute(_BY_MODEL, _span(since, until))]
+
+
+def _span(since: date, until: date) -> dict[str, datetime]:
+    """The query parameters for the days from `since` to `until` inclusive, in UTC."""
+    return {
+        "since": datetime.combine(since, time.min, UTC),
+        "until": datetime.combine(until + timedelta(days=1), time.min, UTC),
+    }

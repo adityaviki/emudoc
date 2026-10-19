@@ -33,7 +33,11 @@ that point, which makes it the check of the restore drill (deploying.md, "The dr
 with `--requeue` queues their documents again from the stage they stopped at.
 
 `usage` prints what an organisation used per day (app/usage.py): the model calls and tokens
-of its answers today, and whatever is metered next.
+of its answers today, and whatever is metered next. `costs` is the operator's view across the
+organisations: what each one's work cost the platform over a span of days, costliest first,
+against its plan's daily limit, then the platform's total against DAILY_SPEND_CAP and the cost
+by kind of work and model. It reads the usage rows, since the metrics carry no label per
+organisation (app/metrics.py), and prints organisations by slug and name, never an address.
 
 `models` asks every model the settings name, fallbacks included, what the app asks of it
 (app/trial.py), and exits 1 when one does not answer as the app needs: the start only builds
@@ -45,12 +49,13 @@ import logging
 import re
 import shutil
 import sys
+from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field, fields
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import Connection, select, text
+from sqlalchemy import Connection, func, select, text
 from sqlalchemy.orm import Session
 
 from app.answers import EVENT_HISTORY, prune_events
@@ -59,7 +64,7 @@ from app.auth import CREDENTIAL_HISTORY, prune_credentials
 from app.config import export_env_file, get_settings
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine, unbounded
 from app.deadletters import describe, failed_jobs, requeue
-from app.entitlements import PLANS, Entitlements
+from app.entitlements import PLANS, Entitlements, entitlements_of
 from app.jobs import BULK, HISTORY, prune_finished, queue_index_by_id
 from app.logs import configure_logging
 from app.models import PLANS as PLAN_NAMES
@@ -80,7 +85,15 @@ from app.storage import (
     storage_from_settings,
 )
 from app.trial import describe_trials, try_models
-from app.usage import DailyUsage, daily, money
+from app.usage import (
+    DailyUsage,
+    OrganizationCost,
+    daily,
+    model_costs,
+    money,
+    organization_costs,
+    summed,
+)
 
 # By its name rather than `__name__`, which is "__main__" when the module runs as a command.
 log = logging.getLogger("app.maintenance")
@@ -492,6 +505,90 @@ def usage_report(session: Session, slug: str, days: int) -> list[str]:
     return [f"Usage of {organization.name} ({slug}) {span}:", *map(_usage_line, rows)]
 
 
+def costs_report(session: Session, days: int) -> list[str]:
+    """The lines the `costs` command prints for the last `days` days up to today, in UTC:
+    every organisation that used anything, costliest first, with its plan's daily limit, its
+    costliest day against it and the days it reached it; the platform's line, held to
+    DAILY_SPEND_CAP; the cost by kind of work and model; and the models whose tokens were
+    recorded without a price, which no cost counts."""
+    settings = get_settings()
+    today = datetime.now(UTC).date()
+    since = today - timedelta(days=days - 1)
+    span = f"from {since} to {today} (UTC)"
+    costs = organization_costs(session, since, today)
+    if not costs:
+        return [f"No organisation used anything {span}."]
+    organizations = {
+        organization.id: organization
+        for organization in session.scalars(
+            select(Organization).where(Organization.id.in_([cost.org_id for cost in costs]))
+        )
+    }
+    rows = [
+        (
+            "organisation",
+            "plan",
+            "cost",
+            "limit",
+            "top day",
+            "at limit",
+            "answers",
+            "calls",
+            "pages",
+            "",
+        )
+    ]
+    for cost in costs:
+        organization = organizations[cost.org_id]
+        cap = entitlements_of(organization).daily_spend_micros
+        rows.append(_cost_row(organization.slug, organization.plan, cost, cap, organization.name))
+    cap = settings.daily_spend_cap_micros or None
+    rows.append(_cost_row("platform", "", summed(costs), cap, _count(len(costs), "organisation")))
+    lines = [
+        f"Model costs per organisation {span}, in {settings.price_currency}, costliest first:",
+        *_table(rows, left={0, 1, 9}),
+    ]
+    if idle := session.scalar(select(func.count()).select_from(Organization)) - len(costs):
+        lines.append(f"{_count(idle, 'other organisation')} used nothing.")
+    lines += [
+        "The top day is the costliest, with its share of the daily limit: the plan's, or the",
+        "platform's DAILY_SPEND_CAP. At limit counts the days that reached it.",
+    ]
+    models = model_costs(session, since, today)
+    if models:
+        rows = [("kind", "model", "cost", "calls", "tokens in", "tokens out")]
+        for spent in models:
+            rows.append(
+                (
+                    spent.kind,
+                    spent.model,
+                    _known(spent.cost_micros, spent.input_tokens + spent.output_tokens),
+                    f"{spent.calls:,}",
+                    f"{spent.input_tokens:,}",
+                    f"{spent.output_tokens:,}",
+                )
+            )
+        lines += ["", "By kind of work and model:", *_table(rows, left={0, 1})]
+    unpriced: Counter[str] = Counter()
+    kinds: dict[str, list[str]] = {}
+    for spent in models:
+        if spent.unpriced_tokens:
+            unpriced[spent.model] += spent.unpriced_tokens
+            kinds.setdefault(spent.model, []).append(spent.kind)
+    if unpriced:
+        lines += [
+            "",
+            "These models' tokens were recorded without a price, so no cost above counts them;",
+            "MODEL_PRICES prices a model per million tokens in and out from its next row on:",
+        ]
+        rows = [
+            (model, _count(tokens, "token"), f"({', '.join(kinds[model])})")
+            for model, tokens in unpriced.most_common()
+        ]
+        lines += _table(rows, left={0, 2})
+    return lines
+
+
 def plan_report(session: Session, slug: str, plan: str | None) -> list[str]:
     """The lines the `plan` command prints for the organisation `slug`: its plan and what the
     plan allows (app/entitlements.py), after putting it on `plan` when one is given. The
@@ -543,8 +640,58 @@ def _usage_line(row: DailyUsage) -> str:
     return f"  {row.day}  {row.kind:<16}{row.unit:<16}{row.quantity:>12,}{cost}"
 
 
+def _cost_row(
+    who: str, plan: str, cost: OrganizationCost, cap: int | None, name: str
+) -> tuple[str, ...]:
+    """One line of the `costs` table: an organisation's, or the platform's."""
+    tokens = cost.input_tokens + cost.output_tokens
+    top = _known(cost.top_day, tokens)
+    if cost.top_day is not None and cap:
+        top += f" ({cost.top_day * 100 // cap} %)"
+    return (
+        who,
+        plan,
+        _known(cost.cost_micros, tokens),
+        "none" if cap is None else _amount(cap),
+        top,
+        "" if cap is None else f"{cost.days_at(cap):,}",
+        f"{cost.answers:,}",
+        f"{cost.calls:,}",
+        f"{cost.pages:,}",
+        name,
+    )
+
+
+def _known(micros: int | None, tokens: int) -> str:
+    """A cost as the `costs` command shows it: unpriced when tokens were recorded without a
+    price, and nothing when there were no tokens to price."""
+    if micros is not None:
+        return _amount(micros)
+    return "unpriced" if tokens else _amount(0)
+
+
+def _amount(micros: int) -> str:
+    # Four places, as the `usage` command prints a cost: a cheap model's answer costs a tenth
+    # of a cent.
+    return f"{micros / 1_000_000:,.4f}"
+
+
+def _table(rows: list[tuple[str, ...]], left: set[int]) -> list[str]:
+    """The rows as lines of columns two spaces apart: the columns in `left` read left to right,
+    the others, numbers, line up on the right."""
+    widths = [max(len(row[column]) for row in rows) for column in range(len(rows[0]))]
+    return [
+        "  "
+        + "  ".join(
+            cell.ljust(width) if column in left else cell.rjust(width)
+            for column, (cell, width) in enumerate(zip(row, widths, strict=True))
+        ).rstrip()
+        for row in rows
+    ]
+
+
 def _count(number: int, noun: str) -> str:
-    return f"{number} {noun}{'' if number == 1 else 's'}"
+    return f"{number:,} {noun}{'' if number == 1 else 's'}"
 
 
 def _mb(size: int) -> float:
@@ -688,6 +835,19 @@ def main(argv: list[str] | None = None) -> None:
     )
     usage.add_argument("organization", help="the organisation's slug")
     usage.add_argument(
+        "--days", type=int, default=30, help="how many days back from today; 30 by default"
+    )
+    costs = commands.add_parser(
+        "costs",
+        help="print what each organisation's model use cost, costliest first",
+        description="Print what each organisation's model use cost the platform per day, in "
+        "UTC, over the last days up to today, costliest first: its plan, the plan's daily "
+        "limit, its costliest day against that limit and the days it reached it, its answers, "
+        "model calls and pages indexed; then the platform's total against DAILY_SPEND_CAP, the "
+        "cost by kind of work and model, and the models whose tokens were recorded without a "
+        "price in MODEL_PRICES. `usage <slug>` breaks one organisation down by day.",
+    )
+    costs.add_argument(
         "--days", type=int, default=30, help="how many days back from today; 30 by default"
     )
     plan = commands.add_parser(
@@ -850,6 +1010,13 @@ def main(argv: list[str] | None = None) -> None:
             check_schema()
             with SessionLocal() as session:
                 for line in usage_report(session, args.organization, args.days):
+                    print(line)
+        elif args.command == "costs":
+            if args.days < 1:
+                parser.error("--days must be at least 1")
+            check_schema()
+            with SessionLocal() as session:
+                for line in costs_report(session, args.days):
                     print(line)
         elif args.command == "database":
             check_schema()

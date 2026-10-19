@@ -2,10 +2,12 @@
 organisation's usage whatever ends the run, an upload and a render are the member's, the rows
 outlive the project and the user and go with the organisation, the answer and the document
 show what they used with its cost by the configured prices, and the daily rollup groups the
-rows by day in UTC, which the `usage` command prints."""
+rows by day in UTC, which the `usage` command prints; the `costs` command sums every
+organisation's rows, costliest first, against its plan's daily limit."""
 
 import threading
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from PIL import Image
@@ -33,10 +35,15 @@ from app.usage import (
     RENDER,
     UPLOAD,
     DailyUsage,
+    ModelCost,
+    OrganizationCost,
     add,
     cost_of,
     daily,
+    model_costs,
+    organization_costs,
     record,
+    summed,
 )
 from app.worker import HANDLERS
 from tests.conftest import FakeEmbedder, FakeTurn
@@ -661,3 +668,218 @@ def test_the_usage_command_prints_the_rollup(session, account, capsys):
     assert str(stopped.value) == "No organisation has the slug 'nobody'."
     with pytest.raises(SystemExit):
         main(["usage", "local", "--days", "0"])
+
+
+PRICED = "google:priced"
+UNPRICED = "google:unpriced"
+
+
+def charge(
+    session,
+    org_id: int,
+    kind: str,
+    measures: dict[str, int],
+    when: datetime,
+    *,
+    model: str | None = None,
+    ref: tuple[str, int] | None = None,
+    cost: str | None = None,
+) -> None:
+    """Record what an organisation used at `when`, costing its input tokens `cost` of currency
+    by hand when one is given."""
+    rows = record(
+        session,
+        org_id=org_id,
+        project_id=None,
+        user_id=None,
+        kind=kind,
+        measures=measures,
+        model=model,
+        ref=ref,
+        occurred_at=when,
+    )
+    if cost is not None:
+        (tokens,) = (row for row in rows if row.unit == "input_tokens")
+        tokens.cost_micros = int(Decimal(cost) * 1_000_000)
+
+
+def test_the_costs_of_every_organisation_add_up_costliest_first(
+    session, account, make_account, monkeypatch
+):
+    # A token in costs a millionth and a token out two, so a cost reads as its tokens.
+    monkeypatch.setattr(get_settings(), "model_prices", f"{PRICED}=1/2")
+    local = account.organization.id
+    globex = make_account("ann@globex.example").organization.id
+    initech = make_account("bob@initech.example").organization.id
+    hooli = make_account("cy@hooli.example").organization.id
+
+    def at(day: int, hour: int, minute: int = 0) -> datetime:
+        return datetime(2026, 10, day, hour, minute, tzinfo=UTC)
+
+    # An answer whose run was lost before midnight and started over after it: one answer,
+    # charged on two days.
+    tokens = {"calls": 1, "input_tokens": 1000, "output_tokens": 100}
+    charge(session, local, ANSWER, tokens, at(10, 23, 30), model=PRICED, ref=(CHAT_MESSAGE, 1))
+    tokens = {"calls": 2, "input_tokens": 2000, "output_tokens": 200}
+    charge(session, local, ANSWER, tokens, at(11, 0, 10), model=PRICED, ref=(CHAT_MESSAGE, 1))
+    # Another, which a model without a price answered.
+    tokens = {"calls": 1, "input_tokens": 500}
+    charge(session, local, ANSWER, tokens, at(11, 9), model=UNPRICED, ref=(CHAT_MESSAGE, 2))
+    # A scanned upload: its pages, the model that read them, and the embeddings endpoint.
+    charge(session, globex, UPLOAD, {"bytes": 4096, "pages": 3}, at(11, 8), ref=(DOCUMENT, 7))
+    tokens = {"calls": 3, "input_tokens": 9000, "output_tokens": 300}
+    charge(session, globex, OCR, tokens, at(11, 8), model=PRICED, ref=(DOCUMENT, 7))
+    tokens = {"inputs": 4, "input_tokens": 40}
+    charge(session, globex, EMBED, tokens, at(11, 8), model="nomic-embed-text", ref=(DOCUMENT, 7))
+    tokens = {"calls": 5, "input_tokens": 50}
+    charge(session, initech, ANSWER, tokens, at(10, 9), model=UNPRICED, ref=(CHAT_MESSAGE, 3))
+    # The last minute before the span.
+    tokens = {"calls": 9, "input_tokens": 9}
+    charge(session, hooli, ANSWER, tokens, at(9, 23, 59), model=PRICED, ref=(CHAT_MESSAGE, 4))
+    session.commit()
+
+    oct10, oct11 = date(2026, 10, 10), date(2026, 10, 11)
+    costs = organization_costs(session, oct10, oct11)
+    assert costs == [
+        OrganizationCost(
+            globex,
+            cost_micros=9600,
+            calls=3,
+            input_tokens=9040,
+            output_tokens=300,
+            answers=0,
+            pages=3,
+            days={oct11: 9600},
+        ),
+        OrganizationCost(
+            local,
+            cost_micros=3600,
+            calls=4,
+            input_tokens=3500,
+            output_tokens=300,
+            answers=2,
+            pages=0,
+            days={oct10: 1200, oct11: 2400},
+        ),
+        # Nothing it used has a price, so it comes last, however much it used.
+        OrganizationCost(
+            initech,
+            cost_micros=None,
+            calls=5,
+            input_tokens=50,
+            output_tokens=0,
+            answers=1,
+            pages=0,
+        ),
+    ]
+    assert all(isinstance(cost.calls, int) for cost in costs)
+    assert (costs[1].top_day, costs[1].days_at(2400), costs[1].days_at(1000)) == (2400, 1, 2)
+    assert (costs[2].top_day, costs[2].days_at(1)) == (None, 0)
+    assert summed(costs) == OrganizationCost(
+        None,
+        cost_micros=13200,
+        calls=12,
+        input_tokens=12590,
+        output_tokens=600,
+        answers=3,
+        pages=3,
+        days={oct10: 1200, oct11: 12000},
+    )
+
+    # The pages and bytes name no model, so they are no model's cost.
+    assert model_costs(session, oct10, oct11) == [
+        ModelCost(
+            OCR, PRICED, 9600, calls=3, input_tokens=9000, output_tokens=300, unpriced_tokens=0
+        ),
+        ModelCost(
+            ANSWER, PRICED, 3600, calls=3, input_tokens=3000, output_tokens=300, unpriced_tokens=0
+        ),
+        ModelCost(
+            ANSWER, UNPRICED, None, calls=6, input_tokens=550, output_tokens=0, unpriced_tokens=550
+        ),
+        ModelCost(
+            EMBED,
+            "nomic-embed-text",
+            None,
+            calls=0,
+            input_tokens=40,
+            output_tokens=0,
+            unpriced_tokens=40,
+        ),
+    ]
+    assert organization_costs(session, date(2026, 10, 12), date(2026, 10, 31)) == []
+
+
+def test_the_costs_command_holds_each_organisation_to_its_plans_daily_limit(
+    session, account, make_account, monkeypatch, capsys
+):
+    monkeypatch.setattr(get_settings(), "daily_spend_cap", Decimal("2"))
+    local = account.organization.id
+    globex = make_account("ann@globex.example").organization.id
+    initech = make_account("bob@initech.example").organization.id
+    # An organisation that used nothing.
+    make_account("cy@hooli.example")
+    now = datetime.now(UTC)
+    yesterday = now - timedelta(days=1)
+
+    # The free plan's limit is 1.00 a day: Globex went past it yesterday.
+    tokens = {"calls": 3, "input_tokens": 1000}
+    charge(session, globex, OCR, tokens, yesterday, model=PRICED, ref=(DOCUMENT, 1), cost="1.20")
+    charge(session, globex, UPLOAD, {"bytes": 2048, "pages": 4}, yesterday, ref=(DOCUMENT, 1))
+    tokens = {"calls": 1, "input_tokens": 100}
+    charge(session, globex, ANSWER, tokens, now, model=PRICED, ref=(CHAT_MESSAGE, 1), cost="0.40")
+    # The enterprise plan has no limit.
+    tokens = {"calls": 2, "input_tokens": 50}
+    charge(session, local, ANSWER, tokens, now, model=PRICED, ref=(CHAT_MESSAGE, 2), cost="0.05")
+    charge(session, local, RENDER, {"pages": 2}, now, ref=(DOCUMENT, 2))
+    tokens = {"calls": 1, "input_tokens": 30}
+    charge(session, initech, ANSWER, tokens, now, model=UNPRICED, ref=(CHAT_MESSAGE, 3))
+    session.commit()
+
+    main(["costs", "--days", "2"])
+    lines = capsys.readouterr().out.splitlines()
+    today = now.date()
+    assert lines[0] == (
+        f"Model costs per organisation from {today - timedelta(days=1)} to {today} (UTC), in "
+        "USD, costliest first:"
+    )
+    assert lines[1:] == [
+        "  organisation  plan            cost   limit         top day  at limit  answers  calls"
+        "  pages",
+        "  globex        free          1.6000  1.0000  1.2000 (120 %)         1        1      4"
+        "      4  Globex",
+        "  local         enterprise    0.0500    none          0.0500                  1      2"
+        "      0  Local",
+        "  initech       free        unpriced  1.0000        unpriced         0        1      1"
+        "      0  Initech",
+        # The platform's line holds its days to DAILY_SPEND_CAP.
+        "  platform                    1.6500  2.0000   1.2000 (60 %)         0        3      7"
+        "      4  3 organisations",
+        "1 other organisation used nothing.",
+        "The top day is the costliest, with its share of the daily limit: the plan's, or the",
+        "platform's DAILY_SPEND_CAP. At limit counts the days that reached it.",
+        "",
+        "By kind of work and model:",
+        "  kind    model                cost  calls  tokens in  tokens out",
+        "  ocr     google:priced      1.2000      3      1,000           0",
+        "  answer  google:priced      0.4500      3        150           0",
+        "  answer  google:unpriced  unpriced      1         30           0",
+        "",
+        "These models' tokens were recorded without a price, so no cost above counts them;",
+        "MODEL_PRICES prices a model per million tokens in and out from its next row on:",
+        "  google:unpriced  30 tokens  (answer)",
+    ]
+
+    # Only today: Globex is within its limit.
+    main(["costs", "--days", "1"])
+    lines = capsys.readouterr().out.splitlines()
+    assert " ".join(lines[2].split()) == "globex free 0.4000 1.0000 0.4000 (40 %) 0 1 1 0 Globex"
+
+    session.execute(UsageEvent.__table__.delete())
+    session.commit()
+    main(["costs"])
+    assert capsys.readouterr().out == (
+        f"No organisation used anything from {today - timedelta(days=29)} to {today} (UTC).\n"
+    )
+    with pytest.raises(SystemExit):
+        main(["costs", "--days", "0"])

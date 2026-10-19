@@ -85,7 +85,9 @@ endpoint says they took, and the pages rendered for the viewer, each with the or
 document they were for. Each is counted at the end of the run that made it, so an answer that
 was stopped, a scan that failed at its tenth page and a stage a worker lost are counted for
 the calls they made. `uv run python -m app.maintenance usage <slug>` (in `backend/`) prints an
-organisation's use per day in UTC, by kind and unit, over the last 30 days or `--days`.
+organisation's use per day in UTC, by kind and unit, over the last 30 days or `--days`, and
+`costs` what every organisation's model use cost over the same span, costliest first, against
+its plan's daily limit, with the platform's total and the cost by kind of work and model.
 An answer shows what it used under its text (the model, its calls and tokens, and the
 cost), and a document's header shows what bringing it in and indexing it used, with the
 breakdown by stage on hover; the figures are kept on the message and the document as the

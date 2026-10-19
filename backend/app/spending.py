@@ -28,9 +28,10 @@ that cannot wait for midnight is DISABLED_PROVIDERS (app/llm.py).
 The warning: when a day's spending reaches ALERT_SHARE of a limit, the worker's alerter thread
 (app/worker.py) mails the operator at ALERT_EMAIL, once that day for each organisation and
 once for the platform, in the same round as the failed jobs (`alert_spending`); a
-`spend_alerts` row says it was sent. The usage command (app/maintenance.py) prints the day's
-cost; the providers' consoles have the bill itself, and a budget set there is the last line
-(the README says where).
+`spend_alerts` row says it was sent. The costs command (app/maintenance.py) prints the day's
+cost of every organisation, and the usage command one organisation's by kind; the providers'
+consoles have the bill itself, and a budget set there is the last line (the README says
+where).
 """
 
 import logging
@@ -52,6 +53,7 @@ from app.usage import money
 log = logging.getLogger(__name__)
 
 USAGE_COMMAND = "uv run python -m app.maintenance usage <slug>"
+COSTS_COMMAND = "uv run python -m app.maintenance costs --days 1"
 # The share of a limit at which the operator is warned: far enough from it to act, near enough
 # that a quiet day never warns.
 ALERT_SHARE = Decimal("0.8")
@@ -216,9 +218,10 @@ def spending_email(near: list[NearLimit]) -> tuple[str, str]:
         "At its limit, an organisation's questions are refused with the plan's message and its "
         "indexing waits for midnight UTC; at the platform's, every question is refused and every "
         "indexing stage that needs a model waits. Both reset at midnight UTC.\n\n"
-        f"`{USAGE_COMMAND}` in the backend directory prints an organisation's use per day; the "
-        "providers' consoles have the bill itself. To stop the spending at once, set "
-        "DISABLED_PROVIDERS and restart the app.\n"
+        f"In the backend directory, `{COSTS_COMMAND}` prints what each organisation spent today, "
+        f"costliest first, and `{USAGE_COMMAND}` one organisation's use per day; the providers' "
+        "consoles have the bill itself. To stop the spending at once, set DISABLED_PROVIDERS and "
+        "restart the app.\n"
     )
     return subject, body
 

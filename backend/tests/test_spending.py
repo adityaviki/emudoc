@@ -295,6 +295,7 @@ def test_the_operator_is_warned_once_a_day_as_spending_nears_a_limit(
     assert "has reached 80 % of a daily limit:\n\n" in body
     assert "  Globex (globex): USD 8.50 of the Pro plan's USD 10.00 (85 %)\n" in body
     assert "set DISABLED_PROVIDERS and restart the app" in body
+    assert "`uv run python -m app.maintenance costs --days 1` prints what each organisation" in body
 
     # Once a day, however much more is spent.
     spend(session, globex.id, "3.00")

@@ -23,6 +23,12 @@ Members:
 
 Operators:
 
+- `python -m app.maintenance costs` prints what each organisation's model use cost over the
+  last 30 days (`--days`), costliest first: its plan, the plan's daily limit, its costliest day
+  against that limit and the days it reached it, its answers, model calls and pages indexed;
+  then the platform's total against `DAILY_SPEND_CAP`, the cost by kind of work and model, and
+  the models whose tokens were recorded without a price (deploying.md, "What each organisation
+  costs"). The spending warning names `costs --days 1`.
 - Each run of a job ends with one line in the worker's log that says where its time went: its
   wait for a worker, each stage, each request to a model or the embeddings endpoint (the
   model, how it ended, its first event, the tokens), each tool call, the writes of an answer's

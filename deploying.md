@@ -1804,7 +1804,8 @@ publishes: the metrics say how large the deployment is and which models it pays 
 compose file publishes nothing of it, and the image does not `EXPOSE` it, so `docker run -P`
 leaves it alone too. No label names an organisation, a user, a document or anything a member
 typed: a series per organisation would grow with every sign-up, and one organisation's figures
-are its usage, `python -m app.maintenance usage <slug>`. A label holds the app's own words: a
+are its usage, `python -m app.maintenance usage <slug>`, every organisation's side by side
+`costs` ("What each organisation costs", below). A label holds the app's own words: a
 model's configured name, a kind of work, a stage, a job's kind, a plan, a status, a route's
 pattern (`/api/projects/{project_id}/documents`, never the path with its ids).
 
@@ -1895,6 +1896,49 @@ its run's line of the log ("Traces").
 The image runs one uvicorn process per container, which the metrics take for granted: with
 uvicorn's `--workers`, each process would count apart behind one port, and the scraper would
 read whichever answered.
+
+### What each organisation costs
+
+Per organisation, the figures are the usage rows the app records as it works, not the metrics:
+`python -m app.maintenance costs`, run as the operator's other commands are ("The image"),
+prints what each organisation's model use cost over the last 30 days, or `--days`, up to today
+in UTC, costliest first, against its plan's daily spending limit:
+
+```text
+Model costs per organisation from 2026-10-13 to 2026-10-19 (UTC), in USD, costliest first:
+  organisation  plan    cost    limit       top day  at limit  answers  calls  pages
+  northwind     team  1.7698  50.0000  0.2865 (0 %)         0      380  3,695  2,400  Northwind Traders
+  acme          pro   0.3043  10.0000  0.0844 (0 %)         0      141    510    200  Acme Logistics
+  globex        free  0.1143   1.0000  0.0843 (8 %)         0       30    243    150  Globex
+  initech       free  0.0053   1.0000  0.0025 (0 %)         0        4     11      0  Initech
+  platform            2.1937  25.0000  0.3522 (1 %)         0      555  4,459  2,750  4 organisations
+2 other organisations used nothing.
+The top day is the costliest, with its share of the daily limit: the plan's, or the
+platform's DAILY_SPEND_CAP. At limit counts the days that reached it.
+
+By kind of work and model:
+  kind    model                             cost  calls  tokens in  tokens out
+  ocr     google:gemini-3.5-flash-lite    1.1730  2,550  4,590,000   1,785,000
+  answer  google:gemini-3.5-flash-lite    0.7885  1,642  6,732,200     288,080
+  enrich  google:gemini-3.5-flash-lite    0.1858    258  1,548,000      77,400
+  answer  anthropic:claude-haiku-5-5      0.0465      9     36,000       2,100
+  embed   nomic-embed-text              unpriced      0  3,850,000           0
+
+These models' tokens were recorded without a price, so no cost above counts them;
+MODEL_PRICES prices a model per million tokens in and out from its next row on:
+  nomic-embed-text  3,850,000 tokens  (embed)
+```
+
+A day that reached its limit is one on which the organisation's questions were refused and
+its indexing waited for midnight UTC; the answers are those that called a model, counted once
+however many runs they took, and the pages those its uploads brought in. A cost is what the
+rows were priced at when they were recorded (`MODEL_PRICES`), so a price added later counts
+from then on, and "unpriced" means tokens without one: expected of an embeddings server of the
+deployment's own, as above, which no provider bills, and a gap in the spending limits for a
+model a provider bills. `usage <slug>` breaks one organisation down by day, kind and unit.
+The command reads the database and changes nothing; an organisation is named by its slug and
+name, never a member's address. `costs --days 1` is today's, which the spending warning
+("What the worker mails") names.
 
 ## Alerts
 
