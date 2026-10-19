@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""The env files of a release on the AWS instance (deploy/aws/host/release), from the SSM
-parameters under the environment's path, which `aws ssm get-parameters-by-path --recursive
---with-decryption` writes to this script's input:
+"""The env files of a release on the AWS instance (deploy/aws/host/release), and the
+journal's period, from the SSM parameters under the environment's path, which `aws ssm
+get-parameters-by-path --recursive --with-decryption` writes to this script's input:
 
   settings/NAME   what the OpenTofu module writes (deploy/aws/modules/environment/settings.tf)
   secrets/NAME    what the operator puts there by hand: the models' keys, the OAuth secrets
 
-It writes four files into --out, each readable by root alone and each in the form its reader
+It writes five files into --out, each readable by root alone and each in the form its reader
 takes, since Compose, `docker run` and systemd quote values each their own way. The paths in
 them name --home, where the release moves them once it succeeded:
 
@@ -19,6 +19,9 @@ them name --home, where the release moves them once it succeeded:
                   without the models' and sign-in providers' keys, which it does not use, and
                   with the storage reader's credentials in place of the app's
   drill.env       the drill's own settings (a systemd EnvironmentFile)
+  journald.conf   how long the journal keeps the containers' logs and the host's own,
+                  SERVER_LOG_DAYS, which the privacy policy names (a drop-in of journald's,
+                  which the release installs)
 
 Python 3.9, the instance's own; nothing outside the standard library.
 """
@@ -34,6 +37,9 @@ from urllib.parse import urlsplit, urlunsplit
 NAME = re.compile(r"[A-Z][A-Z0-9_]*")
 # Settings the dry run does not use, kept from its container.
 UNUSED_BY_THE_DRILL = re.compile(r".*(_API_KEY|_SECRET)")
+# The fewest days the journal can be held to: it deletes a file, a day of lines, at the rotation
+# after the file's first line is two days short of the period (`journald`).
+FEWEST_LOG_DAYS = 3
 # Where the containers find their credentials and the database's authority
 # (deploy/aws/compose.yml); the drill's container mounts the reader's.
 CREDENTIALS = "/run/emudoc/aws"
@@ -97,6 +103,28 @@ def with_host(url: str, host: str) -> str:
     return urlunsplit(parts._replace(netloc=f"{userinfo}{at}{host}{port}"))
 
 
+def journald(days: str) -> str:
+    """journald's settings for SERVER_LOG_DAYS. MaxRetentionSec deletes a file the journal has
+    rotated away from, at a rotation, once the file's first line is older than it (the time in
+    the file's name), and with MaxFileSec a file takes a day of lines and rotations come a day
+    apart. So two days short of SERVER_LOG_DAYS deletes every line a day before the period
+    ends at the latest, and three days short at the earliest: the newest of a file go with its
+    first. Checked on Amazon Linux 2023's journald with minutes for days."""
+    if not days.isdigit() or int(days) < FEWEST_LOG_DAYS:
+        raise Refused(
+            f"SERVER_LOG_DAYS is {days!r}, and the journal needs a whole number of days from "
+            f"{FEWEST_LOG_DAYS}: set server_log_days in the OpenTofu root and apply it."
+        )
+    return (
+        "# Written by each release from SERVER_LOG_DAYS, which the privacy policy names\n"
+        "# (deploy/aws/host/settings).\n"
+        "[Journal]\n"
+        "Storage=persistent\n"
+        "MaxFileSec=1day\n"
+        f"MaxRetentionSec={int(days) - 2}day\n"
+    )
+
+
 def write(directory: str, name: str, content: str) -> None:
     """Replaces the file at once, readable by its owner alone, so that nothing reads half."""
     handle, path = tempfile.mkstemp(dir=directory, prefix=f".{name}.")
@@ -115,7 +143,7 @@ def files(
 ) -> "dict[str, str]":
     """Each file's content by its name, for the files kept in `home`; `alerting` is what
     Alertmanager is told of the environment (deploy/aws/compose.yml)."""
-    for needed in ("APP_URL", "DATABASE_URL"):
+    for needed in ("APP_URL", "DATABASE_URL", "SERVER_LOG_DAYS"):
         if needed not in settings:
             raise Refused(f"{needed} is not among the settings; apply the OpenTofu root again.")
     domain = urlsplit(settings["APP_URL"]).hostname or ""
@@ -166,6 +194,7 @@ def files(
         "compose.env": "".join(compose_line(n, v) for n, v in compose.items()),
         "drill-app.env": "".join(docker_line(n, v) for n, v in sorted(drill_app.items())),
         "drill.env": "".join(systemd_line(n, v) for n, v in drill.items()),
+        "journald.conf": journald(settings["SERVER_LOG_DAYS"]),
     }
 
 

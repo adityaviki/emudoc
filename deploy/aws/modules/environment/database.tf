@@ -34,6 +34,21 @@ resource "aws_db_parameter_group" "main" {
     value = "300000"
   }
 
+  # Postgres's own log is among the server logs the privacy policy names (SERVER_LOG_DAYS) and
+  # promises hold no email address. An error's DETAIL repeats the key or row it refused ("Key
+  # (email)=(…) already exists"), so the log keeps an error's first line and its statement
+  # alone, whose values the app binds as $1. RDS deletes a file of the log, an hour's lines,
+  # once it is older than its period in minutes (7 days at most): a day short of the policy's.
+  parameter {
+    name  = "log_error_verbosity"
+    value = "terse"
+  }
+
+  parameter {
+    name  = "rds.log_retention_period"
+    value = tostring(min(var.server_log_days - 1, 7) * 1440)
+  }
+
   tags = { Name = local.name }
 }
 

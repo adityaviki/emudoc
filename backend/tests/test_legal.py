@@ -38,12 +38,13 @@ DEVELOPMENT = {
     "operator_email": "",
     "backup_days": None,
     "access_log_days": None,
+    "server_log_days": None,
     "session_days": 30,
     "sentry_dsn": "",
 }
 DIRECTORY = LocalStorage(Path("unused"))
 # The SHA-256 of terms.md and privacy.md as the edition TERMS_VERSION names was settled.
-SETTLED = "5a2e3a3843b29951418eeb59aa06acbc448d719680267f1c510e671b0be3d597"
+SETTLED = "783e02431c1a19755842ec5388f52d6138caa417f37c469c3f1ef7560801b936"
 OLDER = "2026-01-01"
 
 
@@ -165,6 +166,11 @@ def test_the_privacy_policy_says_what_the_settings_do():
     assert "until they expire (BACKUP_DAYS is not set)" in text
     assert "this deployment keeps none" in policy(backup_days=0)
     assert "kept for 35 days" in policy(backup_days=35)
+    # The server logs, with their client addresses, for the operator's period.
+    assert "- **Server logs**, as long as the servers keep them (SERVER_LOG_DAYS is not" in text
+    kept = policy(server_log_days=14)
+    assert "an hour.\n- **Server logs**, 14 days.\n- **Usage records**" in kept
+    assert "- **Server logs**, 1 day." in policy(server_log_days=1)
 
     # The cookies, by the names the code sets them under.
     assert "`emudoc_session`, which keeps you\nsigned in for up to 7 days" in policy(session_days=7)

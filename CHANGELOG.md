@@ -18,9 +18,18 @@ Members:
 - Where the deployment keeps records of connections, the privacy policy says what they hold
   (your IP address, and for the page images and downloads your browser fetches from the file
   storage, your browser and a download's file name) and how long they are kept.
+- The privacy policy says how long the server logs, with your requests' IP addresses, are
+  kept.
 
 Operators:
 
+- Production refuses to start without `SERVER_LOG_DAYS`, the days the deployment keeps its
+  server logs (the app's, the proxy's and the database's), which the privacy policy now names;
+  have whatever collects them delete older lines, as journald's `MaxRetentionSec` does
+  (deploying.md, "How long they are kept"). On AWS the module writes it from `server_log_days`
+  (30, `shared/`): every container logs to the instance's journal, which each release holds to
+  the period, and RDS keeps Postgres's log a day short of it (7 days at most) without an error's
+  DETAIL, which could repeat an email address. Apply both environments, then release.
 - On AWS the account root keeps a CloudTrail trail of every region (`account/trail.tf`): a key
   and a bucket of its own, signed files kept `trail_days` (365), and every request for the
   state bucket's objects. Each environment keeps the documents bucket's access logs and the

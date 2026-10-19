@@ -151,6 +151,7 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "OPERATOR_NAME",
         "OPERATOR_EMAIL",
         "BACKUP_DAYS",
+        "SERVER_LOG_DAYS",
         "DATABASE_POOLER",
         "DATABASE_LISTEN_URL",
         "SSL_CERT_FILE",
@@ -178,6 +179,7 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "operator_name": "Emudoc GmbH, Example Street 1, 10115 Berlin, Germany",
         "operator_email": "privacy@emudoc.example.com",
         "backup_days": 35,
+        "server_log_days": 30,
     }
 
 
@@ -200,6 +202,7 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         "operator_name",
         "operator_email",
         "backup_days",
+        "server_log_days",
     ):
         del deployment[name]
     deployment["database_url"] = WITH_THE_DEVELOPMENT_PASSWORD
@@ -222,6 +225,7 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         "OPERATOR_NAME",
         "OPERATOR_EMAIL",
         "BACKUP_DAYS",
+        "SERVER_LOG_DAYS",
     ):
         assert variable in message
     # Each line says what to do; none repeats the database's address or password.
@@ -243,6 +247,7 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         ({"operator_name": ""}, "OPERATOR_NAME"),
         ({"operator_email": ""}, "OPERATOR_EMAIL"),
         ({"backup_days": None}, "BACKUP_DAYS"),
+        ({"server_log_days": None}, "SERVER_LOG_DAYS"),
     ],
 )
 def test_each_development_setting_is_refused_on_its_own(deployment, change, variable):
@@ -592,6 +597,7 @@ def test_development_runs_with_everything_production_refuses(deployment):
     )
     del deployment["storage_url"]
     del deployment["backup_days"]
+    del deployment["server_log_days"]
     assert load_settings(**deployment).production_problems() == []
 
 

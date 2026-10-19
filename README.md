@@ -307,7 +307,7 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   set in the environment. Production also refuses to start, listing what to change, when the
   settings are development's: the `docker compose` database's password, `LOCAL_ACCOUNT=true`,
   no `STORAGE_URL`, no `APP_URL`, no `SMTP_URL`, no `SCANNER_URL`, no `EMBEDDING_BASE_URL`, no
-  `HOSTING_PROVIDER`, no `OPERATOR_NAME`, `OPERATOR_EMAIL` or `BACKUP_DAYS`, a
+  `HOSTING_PROVIDER`, no `OPERATOR_NAME`, `OPERATOR_EMAIL`, `BACKUP_DAYS` or `SERVER_LOG_DAYS`, a
   `google:` model without `GOOGLE_PAID_TIER`, a `DAILY_SPEND_CAP` without `MODEL_PRICES`, no
   key for the model, an embeddings endpoint that turns its requests down, with `DATA_REGION` a
   model, a bucket or an embeddings endpoint outside
@@ -332,6 +332,11 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   browsers fetch page images and downloads from. Set, the privacy policy names them and the
   period; unset, it names none. The AWS deployment sets it and expires the logs by it
   (`deploying.md`, "The account's records").
+- `SERVER_LOG_DAYS` says how long the deployment keeps its server logs: the app's own, with
+  each request's client address, the reverse proxy's access log and the database server's log.
+  The privacy policy names the period, and production refuses to start without it. The app
+  cannot delete what collects its log, so the deployment keeps to it (journald's
+  `MaxRetentionSec`, a collector's retention); the AWS deployment does (`deploying.md`, "Logs").
 - `DATA_REGION` is the region the deployment keeps its documents in: `eu` (the European Union)
   or `us` (the United States), empty for none. The backend holds to it what it can choose (an
   `openrouter:` model is reached at the region's own address, an `anthropic:` model is told to

@@ -37,6 +37,11 @@ output "access_log_days" {
   value       = 30
 }
 
+output "server_log_days" {
+  description = "SERVER_LOG_DAYS, which the privacy policy names: how long the instance's journal keeps the containers' logs and RDS Postgres's (deploying.md, \"Logs\")."
+  value       = 30
+}
+
 output "data_region" {
   description = "DATA_REGION: eu, us, or empty for no promise (deploying.md, \"Keeping the data in one region\")."
   value       = ""

@@ -133,8 +133,14 @@ run "staging" {
       "rds.force_ssl"                     = "1"
       statement_timeout                   = "30000"
       idle_in_transaction_session_timeout = "300000"
+      log_error_verbosity                 = "terse"
+      "rds.log_retention_period"          = "10080"
     }
-    error_message = "The server requires TLS and holds deploying.md's timeouts."
+    error_message = "The server requires TLS, holds deploying.md's timeouts, logs no error's DETAIL and keeps its log 7 days at most, within SERVER_LOG_DAYS."
+  }
+  assert {
+    condition     = aws_ssm_parameter.setting["SERVER_LOG_DAYS"].value == "30"
+    error_message = "The app is told how long the server logs are kept, for its privacy policy."
   }
   assert {
     condition = (
@@ -486,8 +492,8 @@ run "staging" {
   assert {
     condition = toset(keys(aws_ssm_parameter.setting)) == toset([
       "APP_URL", "STORAGE_URL", "AWS_DEFAULT_REGION", "SCANNER_URL", "EMBEDDING_BASE_URL",
-      "HOSTING_PROVIDER", "BACKUP_DAYS", "ACCESS_LOG_DAYS", "SENTRY_ENVIRONMENT", "OPERATOR_NAME",
-      "OPERATOR_EMAIL", "AGENT_MODEL", "INDEX_MODEL",
+      "HOSTING_PROVIDER", "BACKUP_DAYS", "ACCESS_LOG_DAYS", "SERVER_LOG_DAYS", "SENTRY_ENVIRONMENT",
+      "OPERATOR_NAME", "OPERATOR_EMAIL", "AGENT_MODEL", "INDEX_MODEL",
     ])
     error_message = "Staging's settings are the module's and the root's, and no others."
   }
@@ -542,6 +548,7 @@ run "production" {
     database_multi_az = true
     backup_days       = 14
     access_log_days   = 14
+    server_log_days   = 5
     data_region       = "eu"
     alert_email       = "operator@example.com"
     restore_drill     = false
@@ -562,6 +569,13 @@ run "production" {
       && aws_ssm_parameter.setting["ACCESS_LOG_DAYS"].value == "14"
     )
     error_message = "The logs follow access_log_days."
+  }
+  assert {
+    condition = (
+      [for parameter in aws_db_parameter_group.main.parameter : parameter.value if parameter.name == "rds.log_retention_period"] == ["5760"]
+      && aws_ssm_parameter.setting["SERVER_LOG_DAYS"].value == "5"
+    )
+    error_message = "Postgres's log goes a day before server_log_days."
   }
   assert {
     condition     = aws_ssm_parameter.setting["DATA_REGION"].value == "eu" && aws_ssm_parameter.setting["MAIL_FROM"].value == "Emudoc <no-reply@mail.example.com>"
@@ -636,6 +650,14 @@ run "access_logs_gone_too_soon_for_the_rule" {
     access_log_days = 2
   }
   expect_failures = [var.access_log_days]
+}
+
+run "server_logs_gone_too_soon_for_the_journal" {
+  command = plan
+  variables {
+    server_log_days = 2
+  }
+  expect_failures = [var.server_log_days]
 }
 
 run "a_key_among_the_settings" {

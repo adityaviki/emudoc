@@ -45,9 +45,13 @@ on one machine; this is what changes for a deployment. The processes below run f
   bucket and the embeddings to it, and every server and database must be in it too: "Keeping
   the data in one region", below.
 - **The operator's word** for the terms of service and the privacy policy: `OPERATOR_NAME`,
-  `OPERATOR_EMAIL` and `BACKUP_DAYS`: "Terms of service and privacy policy", below.
+  `OPERATOR_EMAIL`, `BACKUP_DAYS` and `SERVER_LOG_DAYS`: "Terms of service and privacy policy",
+  below.
 - **Backups** of the database and of the files, encrypted and kept for `BACKUP_DAYS`, which
   restore to the same point: "Backups", below.
+- **Logs kept for `SERVER_LOG_DAYS`** and no longer: the app's, the proxy's and the database's,
+  by whatever collects them (journald deletes by age, Docker's own drivers do not): "How long
+  they are kept", below.
 - **A scraper for the metrics**, if the deployment keeps them: Prometheus or anything that reads
   its format, asking the API and every worker on a port of their own, with Alertmanager for the
   rules in `deploy/prometheus` and a dead man's switch for its watchdog: "Metrics" and
@@ -61,10 +65,10 @@ The settings arrive through the process environment or a secret manager, never a
 `ENVIRONMENT=production` makes the app copy nothing from one, and makes it refuse to start with
 development's conveniences (the compose database's password, `LOCAL_ACCOUNT=true`, no
 `STORAGE_URL`, `APP_URL`, `SMTP_URL`, `SCANNER_URL`, `EMBEDDING_BASE_URL`, `HOSTING_PROVIDER`,
-`OPERATOR_NAME`, `OPERATOR_EMAIL` or `BACKUP_DAYS`, no `AGENT_MODEL` or `INDEX_MODEL` or one
-its provider moves, a free-tier Gemini key, no key for a model or its fallback, an embeddings
-endpoint that turns its requests down, with
-`DATA_REGION` anything outside the region, and a connection that would carry the documents
+`OPERATOR_NAME`, `OPERATOR_EMAIL`, `BACKUP_DAYS` or `SERVER_LOG_DAYS`, no `AGENT_MODEL` or
+`INDEX_MODEL` or one its provider moves, a free-tier Gemini key, no key for a model or its
+fallback, an embeddings endpoint that turns its requests down, with `DATA_REGION` anything
+outside the region, and a connection that would carry the documents
 unencrypted off the deployment's own network), naming each.
 `.env.example` documents every setting; the README's "Configuration" says what the ones that
 matter do.
@@ -1112,8 +1116,9 @@ learn from what it is sent (a `google:` model without `GOOGLE_PAID_TIER` is said
 Google's free tier, and a hosted embeddings endpoint is promised nothing unless it is OpenAI's,
 Azure OpenAI's or Vertex AI's), and how long a deleted
 account stays in the backups (`BACKUP_DAYS`, the days the deployment keeps its database and
-bucket backups, 0 for none; the app makes none itself, 1.4). Production refuses to start
-without the three. Where the infrastructure keeps records of connections that hold members'
+bucket backups, 0 for none; the app makes none itself, 1.4), and how long the server logs are
+kept (`SERVER_LOG_DAYS`, "How long they are kept" under "Logs"). Production refuses to start
+without the four. Where the infrastructure keeps records of connections that hold members'
 addresses (a bucket's access logs, a network's flow logs), `ACCESS_LOG_DAYS` says how long, and
 the policy names them with it; unset, it names none. The AWS module sets it ("The account's
 records"). The texts are a starting point: have counsel read them for the operator's
@@ -1605,6 +1610,57 @@ front needs the same; most log the query unless told not to. On AWS, the documen
 the network keep records of their own, with members' addresses ("The account's records"). The parse child prints the same
 traceback as the app when a parser crashes, which the worker logs.
 
+### How long they are kept
+
+The server logs are what the API, the worker and the release step write (uvicorn's access log
+among it, with each request's client address), the proxy's access log, and the database
+server's own log. The privacy policy names them and the days they are kept, `SERVER_LOG_DAYS`,
+which production refuses to start without. The app keeps nothing of its log itself, so the
+period is the deployment's to hold to: whatever collects the lines deletes those older than
+it. Docker's `json-file` and `local` drivers rotate by size alone, so a quiet machine keeps
+months of them; journald deletes by age, and Docker writes to it with `{"log-driver":
+"journald"}` in `/etc/docker/daemon.json` (or `logging: {driver: journald}` on each service of
+the compose file), after which `docker compose logs` reads it as before:
+
+```ini
+# /etc/systemd/journald.conf.d/emudoc.conf, for SERVER_LOG_DAYS=30; then
+# systemctl restart systemd-journald
+[Journal]
+Storage=persistent
+MaxFileSec=1day
+MaxRetentionSec=28day
+```
+
+journald deletes a file only once it has moved on to the next (`MaxFileSec`, a day here), and
+only at such a move, when the file's first line is older than `MaxRetentionSec`. The moves come
+a day apart, so the oldest line of a file goes a day at most after it passed `MaxRetentionSec`,
+which two days short keeps a day within the period, and the newest go with it: each line is
+kept from three days to one day short of the period (27 to 29 days for 30). A collector that
+sends the lines elsewhere (Loki, CloudWatch Logs, a hosted service) is held to the same period
+by its own retention; a company that runs it receives the members' addresses, and the
+subprocessor list, which is read from the settings, cannot name it.
+
+The proxy's log goes the same way when the proxy writes it to standard error in a container,
+as `deploy/aws/compose.yml`'s Caddy does; nginx's file under logrotate keeps the period with
+`daily` and `rotate` two short of it. Postgres's own log holds an error's DETAIL by default,
+which repeats the key or the row it refused ("Key (email)=(…) already exists" on `users`),
+though the policy says the server logs hold no email address: `log_error_verbosity = terse`
+keeps the error's first line and its statement, whose values the app binds as `$1`. A
+Postgres in a container logs to standard error, into the journal; one that writes its own
+files keeps less than a week with `log_filename = 'postgresql-%a.log'`, `log_rotation_age =
+1d` and `log_truncate_on_rotation = on` (for a period of 7 days or more); a managed one has a
+retention of its own, such as RDS's `rds.log_retention_period`.
+
+On AWS the module does all of it. Every container logs to the instance's journal
+(`deploy/aws/compose.yml`, each service, so that it comes with each release), which keeps
+`server_log_days` (30, in `shared/`, written as `SERVER_LOG_DAYS`) by the settings above: each
+release writes them (`host/settings`) and applies them when they changed (`host/release`), so
+the host's own units' lines (the watch, the drill, the release) are held to it too. `sudo
+emudoc-compose logs` and `journalctl CONTAINER_NAME=emudoc-deploy-api-1` (or `-t` with a
+container's name) read them. RDS deletes Postgres's log a day short of `server_log_days`, at
+most 7 days, the longest it keeps, and logs terse errors (`database.tf`). Prometheus keeps its
+metrics 15 days and Alertmanager its silences, neither with a member's data.
+
 ## Error tracking
 
 The log has every error. With `SENTRY_DSN` set, the API and the worker also report each error
@@ -2000,7 +2056,9 @@ The directories:
   policy promises the backups end within those days. `DATABASE_URL` asks for `verify-full`
   against RDS's own authority, which no public bundle holds: each release fetches the region's
   bundle from `truststore.pki.rds.amazonaws.com` into `/etc/emudoc/rds-ca.pem`, which the
-  containers mount, and keeps the copy it has when the trust store cannot be reached.
+  containers mount, and keeps the copy it has when the trust store cannot be reached. Its own log
+  keeps an error's first line and statement alone (`log_error_verbosity = terse`) for a day
+  short of `server_log_days`, 7 days at most ("How long they are kept").
 - **The bucket**: versioned, with one rule over every key that removes an earlier version two
   days before `BACKUP_DAYS` run out ("The files", above), encrypted (SSE-S3), never public, and
   refusing any request without TLS.
@@ -2013,7 +2071,9 @@ The directories:
   take by itself (`dnf` stays at the release the image was made from). Replace it every month,
   beside the drill, with `tofu apply -replace=module.emudoc.aws_instance.app`: a few minutes
   of downtime, a new certificate from Let's Encrypt, and the embedding model's weights
-  downloaded again, the same file by its SHA-256.
+  downloaded again, the same file by its SHA-256. Every container logs to its journal, which
+  deletes the lines past `server_log_days`, the host's own units' with them ("How long they are
+  kept"); a replaced instance takes its logs with it.
 - **Credentials**: the instance metadata service answers the host alone (IMDSv2, one hop), so
   no container holds the instance's role, which reads the settings, pulls the image and runs
   the drill. ClamAV, which opens hostile files, and llama.cpp's server hold no credentials at
@@ -2130,9 +2190,10 @@ places, or a value with a line break, stops it. A fresh checkout's plan refuses 
 `OPERATOR_EMAIL`, `AGENT_MODEL` and `INDEX_MODEL` left empty in `shared/main.tf`, which
 production cannot start without; an empty value there is a setting left unset. Keys never go
 into the roots: the plan refuses a name that ends like one, and `SENTRY_DSN`, which carries the
-tracker's key. The module writes `SENTRY_ENVIRONMENT`, the environment's name, itself, and
-`ALERT_EMAIL` from `alert_email`. A changed setting reaches the containers with the next
-release (the same tag again does).
+tracker's key. The module writes `SENTRY_ENVIRONMENT`, the environment's name, itself,
+`ALERT_EMAIL` from `alert_email`, and `SERVER_LOG_DAYS` from `server_log_days`, by which the
+release sets the journal's period too ("How long they are kept"). A changed setting reaches
+the containers with the next release (the same tag again does).
 
 ### Setting it up
 
@@ -2344,10 +2405,13 @@ repository's policy among them.
     with it fails, the worker's log says "Deleted account", and the bucket or directory holds
     its record under `erasures/users/`.
 12. Signed out, `/terms` and `/privacy` name `OPERATOR_NAME` and `OPERATOR_EMAIL`, and the
-    privacy policy says `BACKUP_DAYS`, the region and whether uploads are scanned as the
-    deployment has them. Sign up a throwaway account: the box must be ticked, and the account
-    page says when the terms were accepted. Any `/api` response carries `Cache-Control:
-    no-store`, and signing out answers with `Clear-Site-Data: "cache"`.
+    privacy policy says `BACKUP_DAYS`, `SERVER_LOG_DAYS`, the region and whether uploads are
+    scanned as the deployment has them, and whatever collects the logs deletes them by
+    `SERVER_LOG_DAYS` ("How long they are kept": on AWS, `sudo journalctl -q -o short-iso |
+    head -n 1` on an instance that has run that long shows a line no older). Sign up a
+    throwaway account: the box must be ticked, and the account page says when the terms were
+    accepted. Any `/api` response carries `Cache-Control: no-store`, and signing out answers
+    with `Clear-Site-Data: "cache"`.
 13. The API's and the worker's logs say at start how long the bucket keeps a deleted file,
     within `BACKUP_DAYS`, and `pgbackrest --stanza=emudoc info` says `status: ok` and `cipher:
     aes-256-cbc` with a full backup from the last week and WAL archived up to the last minutes.

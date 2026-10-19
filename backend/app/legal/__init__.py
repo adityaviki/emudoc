@@ -6,9 +6,9 @@ the deployment is read from the settings and the app's own constants rather than
 them, as the subprocessor list is (app/subprocessors.py): where the documents are kept, how
 long each thing is kept on each plan, which cookies there are, whether a model provider may
 learn from what it is sent, whether uploads are scanned. Who runs the deployment and how long
-its backups are kept are the operator's word, OPERATOR_NAME, OPERATOR_EMAIL and BACKUP_DAYS,
-which production requires; the texts themselves are a starting point that the operator's own
-counsel reviews before launch.
+its backups and server logs are kept are the operator's word, OPERATOR_NAME, OPERATOR_EMAIL,
+BACKUP_DAYS and SERVER_LOG_DAYS, which production requires; the texts themselves are a starting
+point that the operator's own counsel reviews before launch.
 
 TERMS_VERSION names the edition of both documents. A user accepts it at sign-up, or on the
 page the app shows before anything else when they have not (an account made through Google or
@@ -112,6 +112,7 @@ def privacy_policy(
         credential_days=str(CREDENTIAL_HISTORY.days),
         deletion_days=str(DELETION_GRACE.days),
         backups=_backups(settings.backup_days),
+        server_logs=_server_logs(settings.server_log_days),
         session_cookie=SESSION_COOKIE,
         session_days=str(settings.session_days),
         oauth_cookie=OAUTH_COOKIE,
@@ -187,6 +188,12 @@ def _trains_on_nothing(name: str, environ: Mapping[str, str]) -> bool:
 def _embeds_on_such_terms(url: str) -> bool:
     host = host_of(url)
     return on_own_network(host) or NO_TRAINING_EMBEDDINGS.fullmatch(host) is not None
+
+
+def _server_logs(days: int | None) -> str:
+    if days is None:
+        return "as long as the servers keep them (SERVER_LOG_DAYS is not set)."
+    return f"{days} {'day' if days == 1 else 'days'}."
 
 
 def _connection_records(days: int | None, storage: Storage) -> str:

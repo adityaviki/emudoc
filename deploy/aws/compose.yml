@@ -7,6 +7,18 @@
 #
 # emudoc-compose on the instance is that command without its last words.
 
+# Every container logs to the host's journal, which deletes each line before it is
+# SERVER_LOG_DAYS old, the period the privacy policy names (host/settings writes the journal's
+# settings, host/release applies them): Docker's own drivers rotate by size alone, so a quiet
+# instance would keep months of Caddy's access log, every visitor's address in it.
+# `emudoc-compose logs` reads it as before, and so does `journalctl
+# CONTAINER_NAME=emudoc-deploy-api-1`. A service of either file without it would log where the
+# daemon says (cloud-config.yaml); test_deploy.py refuses one.
+x-logging: &logging
+  driver: journald
+  options:
+    tag: "{{.Name}}"
+
 # The app's containers reach the bucket with the app role's credentials, which the host renews
 # every quarter of an hour into a directory of its own (deploy/aws/host/credentials): boto3
 # runs `cat` for them whenever the ones it holds near their end. The instance's own
@@ -19,11 +31,18 @@ x-aws: &aws
   volumes:
     - /run/emudoc/aws/app:/run/aws:ro
     - /etc/emudoc/rds-ca.pem:/etc/emudoc/rds-ca.pem:ro
+  logging: *logging
 
 services:
   migrate: *aws
   api: *aws
   worker: *aws
+  clamav:
+    logging: *logging
+  embedding-model:
+    logging: *logging
+  embeddings:
+    logging: *logging
 
   # On the host's network, so that it answers on 80 and 443 and reaches the API where a proxy
   # on the machine would, 127.0.0.1:8000, whose requests come from the gateway that
@@ -44,6 +63,7 @@ services:
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE]
     security_opt: [no-new-privileges:true]
+    logging: *logging
     restart: unless-stopped
 
   # The alerting rules of deploy/prometheus over the metrics of every API and worker, found by
@@ -70,6 +90,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 1m
+    logging: *logging
     restart: unless-stopped
 
   # What Prometheus fires, to the alerts topic, and its watchdog to the heartbeat topic
@@ -113,6 +134,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+    logging: *logging
     restart: unless-stopped
 
 volumes:

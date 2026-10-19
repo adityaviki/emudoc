@@ -315,6 +315,13 @@ class Settings(BaseSettings):
     # set; unset says the deployment keeps none. The AWS module writes it beside the bucket
     # rule that holds to it (deploying.md, "The account's records").
     access_log_days: int | None = Field(default=None, ge=1)
+    # How many days the deployment keeps its server logs: the app's own lines (uvicorn's access
+    # log among them, with each request's client address), the reverse proxy's access log and
+    # the database server's log. The privacy policy names this period beside the logs; the app
+    # cannot hold its log to it, since what collects standard error keeps it, so it is the
+    # operator's word, and production refuses it unset as for BACKUP_DAYS. The AWS module writes
+    # it and the instance's journal deletes by it (deploying.md, "Logs").
+    server_log_days: int | None = Field(default=None, ge=1)
     # The region the deployment keeps its documents in, and everything read from them, as a
     # code of REGIONS: eu or us (app/residency.py). Set, the app holds to the region what it
     # can choose itself (Claude's US-only inference, OpenRouter's regional address), checks
@@ -527,7 +534,14 @@ class Settings(BaseSettings):
             )
         return value
 
-    @field_validator("run_worker", "backup_days", "access_log_days", "log_format", mode="before")
+    @field_validator(
+        "run_worker",
+        "backup_days",
+        "access_log_days",
+        "server_log_days",
+        "log_format",
+        mode="before",
+    )
     @classmethod
     def _blank_means_unset(cls, value: object) -> object:
         # A blank `RUN_WORKER=` line leaves the choice to the environment, like no line at all.
@@ -732,6 +746,13 @@ class Settings(BaseSettings):
                 "BACKUP_DAYS is not set, so the privacy policy at /privacy cannot say how long "
                 "a deleted account stays in the backups; set it to the days the deployment "
                 "keeps backups of its database and bucket, or 0 for none."
+            )
+        if self.server_log_days is None:
+            problems.append(
+                "SERVER_LOG_DAYS is not set, so the privacy policy at /privacy cannot say how "
+                "long the server logs, which hold every request's IP address, are kept; set it "
+                "to the days the deployment keeps the app's, the proxy's and the database's "
+                'logs, and have them deleted after it (deploying.md, "Logs").'
             )
         if self.daily_spend_cap and not self.model_prices:
             problems.append(

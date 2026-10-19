@@ -32,6 +32,7 @@ WRITTEN = {
     "HOSTING_PROVIDER": "Amazon Web Services, eu-central-1",
     "BACKUP_DAYS": "35",
     "ACCESS_LOG_DAYS": "30",
+    "SERVER_LOG_DAYS": "30",
     "SENTRY_ENVIRONMENT": "staging",
     "DATABASE_URL": DATABASE_URL,
 }
@@ -225,8 +226,43 @@ def test_the_drill_gets_production_settings_without_the_keys(tmp_path):
     assert problems(settings | {"DATABASE_URL": copy}) == []
 
 
+def test_the_journal_keeps_no_line_past_the_period_the_policy_names(tmp_path):
+    # A file a day, deleted at the first rotation after its first line is two days short of
+    # SERVER_LOG_DAYS; rotations come a day apart, so no line outlives the period less a day
+    # (host/settings).
+    assert write_env_files(tmp_path, WRITTEN | OPERATOR, SECRETS).returncode == 0
+    journal = (tmp_path / "journald.conf").read_text().splitlines()
+    assert [line for line in journal if not line.startswith("#")] == [
+        "[Journal]",
+        "Storage=persistent",
+        "MaxFileSec=1day",
+        "MaxRetentionSec=28day",
+    ]
+
+
+@pytest.mark.parametrize("days", ["2", "7.5", "", None])
+def test_the_host_refuses_a_period_the_journal_cannot_hold_to(tmp_path, days):
+    settings = WRITTEN | OPERATOR | {"SERVER_LOG_DAYS": days}
+    run = write_env_files(tmp_path, {k: v for k, v in settings.items() if v is not None}, SECRETS)
+    assert run.returncode == 1
+    assert "SERVER_LOG_DAYS" in run.stderr and "Traceback" not in run.stderr
+    assert not list(tmp_path.iterdir())
+
+
 def aws_compose() -> dict:
     return yaml.safe_load((AWS / "compose.yml").read_text())
+
+
+def test_every_container_logs_to_the_journal():
+    # The journal holds its lines to SERVER_LOG_DAYS; the daemon's driver of the cloud-config
+    # rotates by size alone. A service added to either file is named here too.
+    base = yaml.safe_load((AWS.parent / "compose.yml").read_text())["services"]
+    services = aws_compose()["services"]
+    assert base.keys() <= services.keys()
+    for name, service in services.items():
+        assert service.get("logging") == {"driver": "journald", "options": {"tag": "{{.Name}}"}}, (
+            name
+        )
 
 
 def seconds(duration: str) -> int:

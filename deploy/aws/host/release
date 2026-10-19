@@ -6,11 +6,11 @@
 #
 #   release TAG
 #
-# The settings into /etc/emudoc (deploy/aws/host/settings), the containers' credentials and
-# the database's authority, then deploy/compose.yml with deploy/aws/compose.yml over it: the
-# migrations first, the API and the worker once they ran, Caddy in front, Prometheus and
-# Alertmanager beside them. A migration that fails ends the release before anything running is
-# replaced.
+# The settings into /etc/emudoc (deploy/aws/host/settings), the journal's period, the
+# containers' credentials and the database's authority, then deploy/compose.yml with
+# deploy/aws/compose.yml over it: the migrations first, the API and the worker once they ran,
+# Caddy in front, Prometheus and Alertmanager beside them. A migration that fails ends the
+# release before anything running is replaced.
 
 set -euo pipefail
 # shellcheck source=/dev/null
@@ -64,6 +64,15 @@ else
   echo "RDS's certificate bundle could not be fetched, and without it the app cannot check" \
     "the database's certificate." >&2
   exit 1
+fi
+
+# How long the journal keeps the containers' logs and the host's own (SERVER_LOG_DAYS, which
+# the privacy policy names), read by journald at its start; its restart keeps the services'
+# streams, and Docker's lines wait in the socket meanwhile.
+journald=/etc/systemd/journald.conf.d/emudoc.conf
+if ! cmp -s /etc/emudoc/next/journald.conf "$journald"; then
+  install -D -m 0644 /etc/emudoc/next/journald.conf "$journald"
+  systemctl restart systemd-journald.service
 fi
 
 # The host's scripts and units, as this release has them.

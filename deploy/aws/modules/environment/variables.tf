@@ -105,6 +105,17 @@ variable "access_log_days" {
   }
 }
 
+variable "server_log_days" {
+  description = "SERVER_LOG_DAYS: how long the instance's journal keeps the containers' logs (the app's, with each request's client address, and Caddy's access log) and RDS keeps Postgres's, which the privacy policy names."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.server_log_days >= 3 && floor(var.server_log_days) == var.server_log_days
+    error_message = "server_log_days is a whole number from 3: the journal deletes a day's file of logs at the rotation after its first line is two days short of it."
+  }
+}
+
 variable "data_region" {
   description = "DATA_REGION: eu, us, or empty for no promise. The app checks the bucket and the models against it at start; the region the provider is configured for must be in it."
   type        = string

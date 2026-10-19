@@ -74,6 +74,7 @@ $region
   ($audit_retention).
 - **Sessions and links**, until $credential_days days after they expired or were ended.
 - **Abuse protection counts**, an hour.
+- **Server logs**, $server_logs
 - **Usage records**, as long as the organisation exists.
 - **Your account**, until you delete it. It goes $deletion_days days after you ask, with every
   organisation of which you are the only member; in an organisation with other members, the
