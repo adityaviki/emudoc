@@ -531,8 +531,18 @@ In production the API, the worker and the migrations write one JSON object a lin
 error (`LOG_FORMAT`, text in development): the time in UTC, the level, the logger, the message,
 and the ids of what the line was logged about, the request's id with the user, organisation
 and project it acts on, or the job's id and kind with its document or answer. uvicorn's own
-lines, its access log included, come out the same way, without the probes that succeeded.
-Every response carries its request's id in `X-Request-ID`, the proxy's when it sent one.
+lines, its access log included, come out the same way, without the probes that succeeded, and
+an access line says how long the request took to begin its response. Every response carries
+its request's id in `X-Request-ID`, the proxy's when it sent one.
+
+Every request starts a trace (`trace_id` on its lines), which the jobs it queues carry, so an
+upload's request and its documents' indexing, or a question and its answer, are found in the
+log by one id (`backend/app/tracing.py`). Each run of a job ends with one line that says where
+its time went: how long it waited for a worker, each stage, each request to a model or the
+embeddings endpoint with its model, outcome, first event and tokens, each tool call, the writes
+of an answer's events, and when its first text was written. The spans name the app's own words,
+never what was searched for or answered; there is no tracing service, on purpose. `deploying.md`
+("Traces") shows a line and how to find the slowest answers.
 
 With `SENTRY_DSN` set, the API and the worker report each error nobody planned for to Sentry,
 or to GlitchTip or a Sentry of your own (`backend/app/tracking.py`), with what the log would

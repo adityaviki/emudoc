@@ -17,6 +17,7 @@ from app.db import BUSY
 from app.jobs import ANSWER_QUESTION, LIVE
 from app.llm import MODEL_UNAVAILABLE, LLMUnavailable
 from app.models import ChatEvent, Job
+from app.tracing import TRACE_ID
 from tests.conftest import MISSING_KEY, FakeTurn
 
 
@@ -109,7 +110,12 @@ def test_asking_saves_the_question_and_queues_its_answer(client, session, indexe
 
     # The job that writes the answer went in with the question, ahead of any upload.
     (job,) = session.scalars(select(Job).where(Job.kind == ANSWER_QUESTION)).all()
-    assert job.payload == {"message_id": empty["id"]}
+    # Under the trace of the request that asked, which the worker logs the answer's lines by.
+    trace = job.payload.get("trace_id")
+    assert TRACE_ID.fullmatch(trace) and job.payload == {
+        "message_id": empty["id"],
+        "trace_id": trace,
+    }
     assert job.status == "queued" and job.priority == LIVE
     assert job.org_id == indexed.project.org_id and job.project_id == indexed.project_id
 

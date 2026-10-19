@@ -1537,26 +1537,30 @@ where Docker and systemd collect it. In production each line is one JSON object
 ```json
 {"time": "2026-10-18T09:30:00.123Z", "level": "WARNING", "logger": "app.search",
  "message": "A search in project 7 matched keywords only: …",
- "request_id": "0f8fad5b-d9cb-469f-a165-70867728950e", "org_id": 2, "user_id": 4,
- "project_id": 7}
+ "request_id": "0f8fad5b-d9cb-469f-a165-70867728950e",
+ "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736", "org_id": 2, "user_id": 4, "project_id": 7}
 ```
 
 shown here on four lines. `time` is UTC, and the ids say what the line was logged about, as
 far as that was known when it was written; an id not known is left out:
 
-- **A request's** `request_id`, and once the session was read its `user_id` and `org_id`, and
-  once the project was found in that organisation its `project_id` (and a document's
-  `document_id`). The id is the proxy's `X-Request-ID` when it sends a well-formed one (letters,
-  digits and `-_.:`, 8 to 128 of them), which both examples above do, so the proxy's access
-  log and the app's lines name the same request (Caddy's `uuid` field, nginx's last); without
-  one the app makes its own. Every response carries it back in `X-Request-ID`, for a member to
-  quote.
-- **A job's** `job_id` and `job_kind`, its `org_id` and `project_id`, and the `document_id` it
-  indexes or the `message_id` of the answer it writes, with the asking member's `user_id`.
+- **A request's** `request_id` and `trace_id`, and once the session was read its `user_id` and
+  `org_id`, and once the project was found in that organisation its `project_id` (and a
+  document's `document_id`, a question's or a followed answer's `message_id`). The id is the
+  proxy's `X-Request-ID` when it sends a well-formed one (letters, digits and `-_.:`, 8 to 128
+  of them), which both examples above do, so the proxy's access log and the app's lines name
+  the same request (Caddy's `uuid` field, nginx's last); without one the app makes its own.
+  Every response carries it back in `X-Request-ID`, for a member to quote. The trace is the
+  app's own, and the jobs the request queues carry it ("Traces", below).
+- **A job's** `job_id` and `job_kind`, its `org_id` and `project_id`, the `document_id` it
+  indexes or the `message_id` of the answer it writes, with the asking member's `user_id`, and
+  the `trace_id` of the request that queued it.
 - **Neither**, for the start, the housekeeping and the alerts, which are the process's own.
 
 uvicorn's lines go the same way, its access log included, whose lines add `method`, `path`
-(the query's values hidden, below), `status` and `client`; a uvicorn `--log-config` changes
+(the query's values hidden, below), `status`, `client` and `seconds`, from the request's
+arrival to its response's start (uvicorn writes the line as the response begins, so an
+answer's event stream counts until its first byte); a uvicorn `--log-config` changes
 nothing, the app sets uvicorn's loggers up itself. The probes that succeed, `/api/livez` and
 `/api/health` answering below 400, are left out of the access log, since an orchestrator asks
 them every few seconds; a 503 from `/api/health` stays. There is no level to set: the app logs
@@ -1609,6 +1613,76 @@ addresses, queries included. The examples above give each one without the query:
 front needs the same; most log the query unless told not to. On AWS, the documents bucket and
 the network keep records of their own, with members' addresses ("The account's records"). The parse child prints the same
 traceback as the app when a parser crashes, which the worker logs.
+
+### Traces
+
+A slow answer, or a document that took long to be ready, is read from the log: there is no
+tracing service to run (`backend/app/tracing.py`). Every request starts a trace, `trace_id` (32
+hex digits), which each of its lines names and each job it queues carries in its payload; the
+worker logs the job's lines under it, and the retry a run queues as well. So one id finds an
+upload's request and each of its documents' indexing, or a question's request and its answer's
+runs (`message_id` finds those two as well). A job queued outside a request, by a maintenance
+command or the housekeeping, starts a trace when it runs. The trace never comes from a header:
+a client cannot put its request in another's trace.
+
+Each run of a job ends with one line at INFO that says where its time went, here on several:
+
+```json
+{"time": "…", "level": "INFO", "logger": "app.worker",
+ "message": "Job 812 (answer_question) ran 48.2 s (done), 0.3 s after it was due: 3 agent turns 40.1 s, 2 tool calls 6.2 s, 2 embeddings requests 5.8 s, 37 writes 0.4 s; the first text 42.0 s in.",
+ "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736", "job_id": 812, "job_kind": "answer_question",
+ "org_id": 2, "user_id": 4, "project_id": 7, "message_id": 4711,
+ "timing": {"outcome": "done", "seconds": 48.214, "waited": 0.312, "first_text": 42.005,
+  "totals": {"agent": {"count": 3, "seconds": 40.104, "slowest": 30.288}, "tool": …, "embed": …,
+             "write": {"count": 37, "seconds": 0.402, "slowest": 0.051}},
+  "spans": [
+   {"kind": "agent", "at": 0.021, "seconds": 4.917, "model": "anthropic:claude-sonnet-5-5",
+    "outcome": "ok", "first_event": 1.302, "input_tokens": 5120, "output_tokens": 61},
+   {"kind": "tool", "at": 4.961, "seconds": 5.904, "tool": "search", "outcome": "ok"},
+   {"kind": "embed", "at": 4.963, "seconds": 5.801, "model": "nomic-embed-text", "outcome": "ok"},
+   …]}}
+```
+
+- `waited` is from the moment the job was due to its claim (the backlog,
+  `emudoc_job_wait_seconds`), `seconds` the run, and `first_text` how far into the run an
+  answer's first text was written: what the member waited for it is `waited` and that.
+- `spans` are the run's parts, each from `at` seconds into the run for `seconds`: the stages
+  (`stage`, with its `outcome` as `emudoc_stage_runs` names them); the requests to the models
+  and the embeddings endpoint, by the work (`agent`, a turn of an answer from its request to
+  its stream's end, with `first_event`; `index`, an indexing request, the provider's own
+  retries included; `embed`), each with the configured `model`, its `outcome` as
+  `emudoc_model_requests` names them, and the tokens the provider counted; and the agent's
+  tool calls (`tool`, `ok` or `error`). A span inside another lies within it in time: the
+  embeddings request above is the search's, which waited on it for all but a tenth of a second.
+- `totals` counts every span of each kind, with the slowest. The writes of an answer's events
+  (`write`, a commit each, so a slow database shows there) are counted and not listed, and a run
+  of more than 50 spans, a scan's pages, lists its 50 slowest and says how many it left out
+  (`unlisted`).
+- The line's `outcome` is the job's, as `emudoc_job_runs` names them. A run that was taken over
+  (`lost`) logs its own line, and the next run of the job another with the same trace.
+
+A span holds the app's own words: a model's configured name, a stage, a tool among the agent's
+own (one the model made up is `unknown`), how it ended, tokens and seconds; never what was
+searched for, read or answered. The slowest answers of the last hour, then one's whole way,
+with `jq` (on the AWS instance `sudo dnf install jq` if it is missing; `sudo emudoc-compose`
+there is `docker compose -f deploy/compose.yml` on one machine), the lines that are not JSON
+skipped:
+
+```bash
+sudo emudoc-compose logs --no-log-prefix --since 1h worker | jq -R 'fromjson? // empty' \
+  | jq -s 'map(select(.job_kind == "answer_question" and .timing))
+           | sort_by(-.timing.seconds) | .[:10][] | {message_id, trace_id, message}'
+sudo emudoc-compose logs --no-log-prefix --since 1d api worker | jq -R 'fromjson? // empty' \
+  | jq -c 'select(.trace_id == "4bf92f3577b34da6a3ce929d0e0e4736")'
+```
+
+There is no OpenTelemetry exporter, on purpose. The log is kept for `SERVER_LOG_DAYS` and the
+privacy policy names it, while spans sent elsewhere would be one more store of the members' ids
+to hold to that period, or one more company to list; and a global tracer provider would turn
+on FastAPI's and Anthropic's SDK's own spans, which record each request's path and query
+("Metrics"). A collector that makes spans of log lines can take these: `trace_id` has the shape
+of a W3C trace's, and `at` and `seconds` place each span. Whatever keeps them is held to the
+log's period ("How long they are kept"), and a company that runs it receives the members' ids.
 
 ### How long they are kept
 
@@ -1681,11 +1755,11 @@ which rebuilds every event from what it may keep): the exception's kind and fram
 lines of code around each, its message only when the app wrote it (as in the log, above), the
 line it was logged with, the route's pattern and the request's address with its query's
 parameter names but not their values, the release, and the ids of what the request or job was
-about as tags (`request_id`, `user_id`, `org_id`, `project_id`, `job_id`, `document_id`, …).
-It holds no frame's variables (a stage's hold the document's text), no request body, cookie or
-header, none of the log lines before it, and no email address; the SDK's own integrations are
-off, its AI integrations above all, which would record prompts and replies, and so are its
-traces, sessions and log forwarding.
+about as tags (`request_id`, `trace_id`, `user_id`, `org_id`, `project_id`, `job_id`,
+`document_id`, …). It holds no frame's variables (a stage's hold the document's text), no
+request body, cookie or header, none of the log lines before it, and no email address; the
+SDK's own integrations are off, its AI integrations above all, which would record prompts
+and replies, and so are its traces, sessions and log forwarding.
 
 An error the page renders into replaces the page with a sentence and a Reload button, and is
 reported to the app (`POST /api/page-errors`, `RATE_PAGE_ERRORS` a minute per client address),
@@ -1814,6 +1888,9 @@ sum by (model) (increase(emudoc_model_fallbacks_total[15m]))
 histogram_quantile(0.95, sum by (le) (rate(emudoc_model_first_event_seconds_bucket[5m])))
 emudoc_db_connections{state="in_use"} / ignoring (state) emudoc_db_connections_limit
 ```
+
+The metrics say that some answers were slow; which ones, and where each one's time went, is in
+its run's line of the log ("Traces").
 
 The image runs one uvicorn process per container, which the metrics take for granted: with
 uvicorn's `--workers`, each process would count apart behind one port, and the scraper would
@@ -2481,3 +2558,8 @@ repository's policy among them.
     no one needs (`aws ec2 create-security-group --group-name emudoc-alarm-check --description
     'An alarm check'`, then `aws ec2 delete-security-group --group-name emudoc-alarm-check`)
     brings `emudoc-account-security-groups` to `account_alert_email` within minutes.
+22. Ask a question: the worker's log has its run's line, "Job … (answer_question) ran … s
+    (done)", whose `timing` lists the model's turns with the configured model and the tool
+    calls by name, and the second recipe of "Traces" with its `trace_id` finds the API's lines
+    of the question too, the access line of its `POST` with its `seconds`. Neither holds the
+    question's words or the answer's.

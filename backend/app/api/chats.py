@@ -41,6 +41,7 @@ from app.audit import audit
 from app.config import get_settings
 from app.db import SessionLocal
 from app.entitlements import check_question
+from app.logs import about
 from app.models import Chat, ChatMessage
 from app.ratelimit import QUESTIONS
 from app.schemas import AskOut, ChatDetail, ChatMessageOut, ChatOut, ChatPatch, QuestionIn
@@ -175,6 +176,8 @@ def ask(
         chat.title = _title(question)
     chat.updated_at = func.now()
     asked, answer = start_answer(session, chat, question)
+    # The request's lines name the answer its job writes, as the job's lines do.
+    about(message_id=answer.id)
     session.commit()
     return AskOut(question=asked, answer=answer)
 
@@ -218,6 +221,7 @@ def _message_in(chat: Chat, message_id: int, session: Session) -> ChatMessage:
     )
     if message is None or message.role != "assistant":
         raise HTTPException(404, "Answer not found")
+    about(message_id=message.id)
     return message
 
 

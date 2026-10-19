@@ -46,6 +46,7 @@ from app.logs import about
 from app.metrics import POOL_TIMEOUTS
 from app.models import Chat, ChatMessage, Job, Project
 from app.spending import check_platform_spend, check_spend
+from app.tracing import FIRST_TEXT, WRITE, mark, span
 from app.usage import ANSWER, CHAT_MESSAGE, ModelUsage, record
 
 log = logging.getLogger(__name__)
@@ -250,13 +251,18 @@ class _Writer:
 
     def _append(self, event: dict[str, Any]) -> None:
         params = {"id": self.message_id, "seq": self.seq, "event": event}
-        if self._session.execute(_APPEND, params).rowcount == 0:
-            self._session.rollback()
-            raise _Settled
-        if self._lease is not None and not renew(self._session, self._lease):
-            self._session.rollback()
-            raise LeaseLost(self._lease)
-        self._session.commit()
+        # Each write is a span of the run's trace, counted rather than listed: a slow database
+        # shows in their total. The first text written is when a member sees the answer begin.
+        with span(WRITE, listed=False):
+            if self._session.execute(_APPEND, params).rowcount == 0:
+                self._session.rollback()
+                raise _Settled
+            if self._lease is not None and not renew(self._session, self._lease):
+                self._session.rollback()
+                raise LeaseLost(self._lease)
+            self._session.commit()
+        if event["type"] == "text":
+            mark(FIRST_TEXT)
         self.seq += 1
         self._flushed_at = time.monotonic()
 

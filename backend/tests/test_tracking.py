@@ -20,6 +20,7 @@ from app.errors import WITHHELD, AppError
 from app.indexing.pipeline import process_document
 from app.jobs import INDEX_DOCUMENT, claim
 from app.storage import StorageError
+from app.tracing import TRACE_ID
 from app.tracking import BAD_DSN, reported, start_tracking
 from app.version import VERSION
 from app.worker import HANDLERS, Handler, Worker
@@ -132,6 +133,8 @@ def test_the_tracker_is_told_what_the_log_would_show(
         "query_string": "q=…",
     }
     assert event["transaction"] == "/api/status"
+    # The request's trace, by which its lines and its jobs' are found in the log.
+    assert TRACE_ID.fullmatch(event["tags"].pop("trace_id"))
     assert event["tags"] == {
         "request_id": response.headers["X-Request-ID"],
         "user_id": str(member["id"]),
@@ -196,6 +199,7 @@ def test_a_failed_job_is_reported_with_what_it_was_for(
         "formatted": f"Job {job.id} ({INDEX_DOCUMENT}) failed",
     }
     assert event["exception"]["values"][0]["value"] == WITHHELD
+    assert TRACE_ID.fullmatch(event["tags"].pop("trace_id"))
     assert event["tags"] == {
         "job_id": str(job.id),
         "job_kind": INDEX_DOCUMENT,
@@ -266,6 +270,7 @@ def test_the_page_reports_an_error_it_rendered_into(client, caplog, tracker):
     assert error["stacktrace"]["frames"][-1]["abs_path"] == (
         "http://testserver/assets/index-B2x9kQ.js"
     )
+    assert TRACE_ID.fullmatch(event["tags"].pop("trace_id"))
     assert event["tags"] == {"request_id": reference, "page": REPORT["path"]}
 
 

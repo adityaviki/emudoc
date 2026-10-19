@@ -23,6 +23,14 @@ Members:
 
 Operators:
 
+- Each run of a job ends with one line in the worker's log that says where its time went: its
+  wait for a worker, each stage, each request to a model or the embeddings endpoint (the
+  model, how it ended, its first event, the tokens), each tool call, the writes of an answer's
+  events and when its first text was written (deploying.md, "Traces"). Every request starts a
+  trace, `trace_id`, which its lines and the lines of every job it queued name, so one id finds
+  a question and its answer, or an upload and its documents' indexing. uvicorn's access lines
+  say how long each request took to begin its response (`seconds`), and the lines of a
+  question's request and of following an answer name its `message_id`.
 - Production refuses to start without `SERVER_LOG_DAYS`, the days the deployment keeps its
   server logs (the app's, the proxy's and the database's), which the privacy policy now names;
   have whatever collects them delete older lines, as journald's `MaxRetentionSec` does

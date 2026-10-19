@@ -40,6 +40,7 @@ from app.parsing.types import clean_text
 from app.scanning import NOT_SCANNED, UNSCANNED, Scanner, quarantine_message
 from app.spending import check_platform_spend, check_spend, day_of
 from app.storage import Storage
+from app.tracing import STAGE, note
 from app.usage import DOCUMENT, EMBED, ENRICH, INFER_SECTIONS, OCR, UPLOAD, Meter
 
 log = logging.getLogger(__name__)
@@ -326,6 +327,7 @@ def _run_stage(
         STAGE_RUNS.labels(name, outcome).inc()
         if outcome != "skipped":
             STAGE_SECONDS.labels(name).observe(time.monotonic() - started)
+        note(STAGE, started, stage=name, outcome=outcome)
         _charge(session, meter, document_id)
 
 

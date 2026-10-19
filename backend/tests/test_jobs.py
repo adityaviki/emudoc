@@ -46,6 +46,7 @@ from app.llm import LLMError
 from app.main import create_app
 from app.maintenance import housekeeping
 from app.models import Block, Document, Job, Project, Section
+from app.tracing import TRACE_ID
 from app.worker import HANDLERS, MAX_RETRIES, Handler, Worker, serve
 from tests.test_pipeline import rows, stage_statuses
 
@@ -96,9 +97,12 @@ def test_uploads_and_reprocesses_queue_index_jobs(client, session, sample_pdf, s
     ids = [document["id"] for document in uploaded]
 
     queued = all_jobs(session)
+    # The jobs of one request, queued under its trace (app/tracing.py).
+    (trace,) = {job.payload.get("trace_id") for job in queued}
+    assert TRACE_ID.fullmatch(trace)
     assert [(job.kind, job.payload) for job in queued] == [
-        ("index_document", {"document_id": ids[0]}),
-        ("index_document", {"document_id": ids[1]}),
+        ("index_document", {"document_id": ids[0], "trace_id": trace}),
+        ("index_document", {"document_id": ids[1], "trace_id": trace}),
     ]
     assert {(job.org_id, job.project_id, job.status, job.priority) for job in queued} == {
         (1, project["id"], "queued", 0)
@@ -113,7 +117,11 @@ def test_uploads_and_reprocesses_queue_index_jobs(client, session, sample_pdf, s
     # replaces an upload's keeps the upload's place in the queue.
     assert client.post(f"/api/documents/{ids[0]}/reprocess").status_code == 202
     kept, replaced = all_jobs(session)
-    assert (replaced.payload, replaced.priority) == ({"document_id": ids[0]}, 0)
+    assert (replaced.payload["document_id"], replaced.priority) == (ids[0], 0)
+    # The reprocess's own trace, not the upload's.
+    assert (
+        TRACE_ID.fullmatch(replaced.payload["trace_id"]) and replaced.payload["trace_id"] != trace
+    )
     assert replaced.id > second and kept.id == second
     assert client.post(f"/api/projects/{project['id']}/reprocess").json() == {"queued": 2}
     assert {(job.payload["document_id"], job.priority) for job in all_jobs(session)} == {
@@ -818,7 +826,7 @@ def test_a_passing_failure_queues_the_stage_again_with_a_growing_backoff(
     assert client.post(f"/api/documents/{document.id}/reprocess").status_code == 202
     assert [job.status for job in all_jobs(session)] == ["running", "running", "queued"]
     manual = all_jobs(session)[-1]
-    assert manual.payload == {"document_id": document.id}
+    assert manual.payload["document_id"] == document.id and "retry" not in manual.payload
     assert manual.run_at <= datetime.now(UTC)
     session.refresh(document)
     assert document.status == "queued"

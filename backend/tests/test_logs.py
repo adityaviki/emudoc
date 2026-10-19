@@ -39,6 +39,7 @@ from app.logs import (
     without_query_values,
 )
 from app.models import Folder, Project
+from app.tracing import TRACE_ID
 from app.worker import HANDLERS, Handler, Worker
 from tests.conftest import FakeEmbedder
 from tests.test_api import create_project
@@ -377,6 +378,8 @@ def test_a_requests_lines_name_its_id_the_member_and_the_project(
     assert response.headers["X-Request-ID"] == request_id
     (line,) = [line for line in logged() if line["logger"] == "app.search"]
     line.pop("time")
+    # A trace of the request's own, which the jobs it queues would carry (app/tracing.py).
+    assert TRACE_ID.fullmatch(line.pop("trace_id"))
     assert line == {
         "level": "WARNING",
         "logger": "app.search",
@@ -425,12 +428,19 @@ def test_a_jobs_lines_name_the_job_and_what_it_is_for(
         "project_id": document.project_id,
         "document_id": document.id,
     }
-    started, failed = logged()
+    started, failed, ran = logged()
     assert started["message"] == "Indexing" and failed["logger"] == "app.worker"
     assert {name: started.get(name) for name in about} == about
-    # The worker's own line about the job, its traceback without the message, too.
+    # The worker's own line about the job, its traceback without the message, too, and the
+    # line that times the run, all under the trace the run started, as the job was queued
+    # outside a request.
     assert {name: failed.get(name) for name in about} == about
     assert f"ValueError: {WITHHELD}" in failed["exception"]
+    assert {name: ran.get(name) for name in about} == about
+    assert ran["message"].startswith(f"Job {job.id} (index_document) ran ")
+    assert ran["timing"]["outcome"] == "crashed"
+    assert TRACE_ID.fullmatch(started["trace_id"])
+    assert started["trace_id"] == failed["trace_id"] == ran["trace_id"]
     # The thread runs its next job, or none, about nothing of this one.
     assert current_context() == {}
 

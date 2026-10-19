@@ -22,10 +22,12 @@ and its own sentences; what could still slip in comes from outside them, and is 
 The API and the worker write one JSON object a line in production (LOG_FORMAT, `JsonFormatter`),
 for a collector to search, and each line carries what it was logged about: the request's id,
 the account's user and organisation and the project once they are known, or the job's id, kind
-and what it is for (`Context`). A request gets its id from `RequestIds`, a job from
-`logging_about` in the worker, and what either is about is noted where it is found (`about`).
-uvicorn's own lines, its access log among them, go through the same handler, without the
-probes that succeeded (`ProbesLeftOut`), which an orchestrator sends every few seconds.
+and what it is for, and the trace either belongs to (`Context`, app/tracing.py). A request gets
+its ids from `RequestIds`, a job from `logging_about` in the worker, and what either is about
+is noted where it is found (`about`). uvicorn's own lines, its access log among them, go
+through the same handler, without the probes that succeeded (`ProbesLeftOut`), which an
+orchestrator sends every few seconds; an access line also says how long the request took
+until its response began.
 
 uvicorn sets up its loggers before it imports the app, so `configure_logging`, called when
 app/main.py is imported, finds its handlers there; the worker, the maintenance commands and
@@ -36,6 +38,7 @@ import json
 import logging
 import re
 import sys
+import time
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -49,6 +52,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.errors import described
+from app.tracing import Timing, new_trace
 
 LogFormat = Literal["text", "json"]
 FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -78,13 +82,15 @@ class Context:
 
     One is made for each request (`RequestIds`) and each job the worker runs (`logging_about`),
     and filled in as what it is about is found (`about`): the account once the session is read,
-    the project once it is found in the account's organisation. The context variable holds the
+    the project once it is found in the account's organisation. `trace_id` is the trace a
+    request starts and the jobs it queues carry (app/tracing.py). The context variable holds the
     one object, not a copy of its fields, so a dependency that runs in a thread of the pool
     fills it in for the lines logged after it, in another thread or on the event loop alike:
     each of them reaches the same object through its copy of the variable.
     """
 
     request_id: str | None = None
+    trace_id: str | None = None
     job_id: int | None = None
     job_kind: str | None = None
     org_id: int | None = None
@@ -96,6 +102,8 @@ class Context:
 
 CONTEXT_FIELDS = tuple(field.name for field in fields(Context))
 _current: ContextVar[Context | None] = ContextVar("log_context", default=None)
+# When the current request began, as `time.time()`, for its access line's `seconds`.
+_began: ContextVar[float | None] = ContextVar("request_began", default=None)
 
 
 def about(**found: int | str | None) -> None:
@@ -125,12 +133,13 @@ def current_context() -> dict[str, int | str]:
 
 
 class RequestIds:
-    """Give every request an id, log what it does under it, and send the id back.
+    """Give every request an id and a trace, log what it does under them, and send the id back.
 
     The id is the proxy's when it sent a well-formed X-Request-ID (deploying.md, "Logs"), so
     that its access log and the app's lines name the same one, and a new one otherwise. The
     response carries it in X-Request-ID, for a member to quote and the operator to find the
-    lines by.
+    lines by. The trace is always new: the jobs the request queues carry it (app/tracing.py),
+    and a client's word is not taken for which work its request belongs to.
 
     The context stays set for the rest of the request's task: uvicorn runs each request in a
     task with a context of its own, which goes with it, and writes the access line of a request
@@ -145,7 +154,8 @@ class RequestIds:
             await self.app(scope, receive, send)
             return
         request_id = _request_id(scope)
-        _current.set(Context(request_id=request_id))
+        _current.set(Context(request_id=request_id, trace_id=new_trace()))
+        _began.set(time.time())
 
         async def send_with_id(message: Message) -> None:
             if message["type"] == "http.response.start":
@@ -219,8 +229,11 @@ class JsonFormatter(logging.Formatter):
     line is about (`Context`), and the traceback of an exception, without its messages.
 
     A line of uvicorn's access log also gives the request's parts as fields of their own, its
-    query's values already hidden. Nothing else of a record is written, since a library's
-    `extra` fields could hold anything.
+    query's values already hidden, and the seconds from the request's start to its response's
+    (uvicorn logs the line as the response begins). A worker's line about a job's run gives
+    its `timing` (app/tracing.py). Nothing else of a record is written, since a library's
+    `extra` fields could hold anything: `timing` only when it is a `Timing`, which only the app
+    makes.
     """
 
     def format(self, record: logging.LogRecord) -> str:
@@ -235,6 +248,8 @@ class JsonFormatter(logging.Formatter):
         }
         if record.name == "uvicorn.access":
             line.update(_request_line(record))
+        if isinstance(timing := record.__dict__.get("timing"), Timing):
+            line["timing"] = timing
         if record.exc_info and record.exc_info[1] is not None:
             # As WithheldMessages rendered it, or so, should this handler lack the filter.
             line["exception"] = record.exc_text or described(record.exc_info[1])
@@ -250,7 +265,10 @@ def _request_line(record: logging.LogRecord) -> dict[str, object]:
     if not (isinstance(args, tuple) and len(args) >= 5):
         return {}
     client, method, path, _, status = args[:5]
-    return {"method": method, "path": path, "status": status, "client": client}
+    line = {"method": method, "path": path, "status": status, "client": client}
+    if (began := _began.get()) is not None:
+        line["seconds"] = round(max(record.created - began, 0.0), 3)
+    return line
 
 
 def bare_url(url: str) -> str:

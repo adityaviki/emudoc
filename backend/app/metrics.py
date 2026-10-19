@@ -33,7 +33,8 @@ rate limit's scope.
 The library is prometheus_client rather than OpenTelemetry's SDK on purpose: a global meter or
 tracer provider is read by more than the app (FastAPI's telemetry turns itself on for one, and
 Anthropic's SDK opens a span per request with the global tracer's), so the app sets none, and
-nothing begins to record what it sends. The registry is the library's own, one per process:
+nothing begins to record what it sends; for the same reason a job's trace is a line of the log
+(app/tracing.py). The registry is the library's own, one per process:
 the image runs one uvicorn process per container, and uvicorn's --workers would need the
 library's multiprocess mode, which this does not set up.
 """
@@ -59,6 +60,7 @@ from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT
 from app.models import STAGES
 from app.postgres import archive, database_report
 from app.spending import day_of, spent_since
+from app.tracing import note
 
 if TYPE_CHECKING:
     from app.worker import Worker
@@ -240,22 +242,25 @@ _start_at_zero()
 
 
 class ModelRequest:
-    """One request to a model or the embeddings endpoint as `model_request` measures it."""
+    """One request to a model or the embeddings endpoint as `model_request` measures it, for
+    the metrics and as a span of the job's run that sent it, if one is timed (app/tracing.py)."""
 
     def __init__(self, model: str, role: str):
         self.model = model
         self.role = role
         self._started = time.monotonic()
-        self._first_event = False
+        self._first_event: float | None = None
+        self._tokens: tuple[int | None, int | None] = (None, None)
 
     def first_event(self) -> None:
         """Note that the model sent its first event, once a turn."""
-        if not self._first_event:
-            self._first_event = True
-            MODEL_FIRST_EVENT.labels(self.model).observe(time.monotonic() - self._started)
+        if self._first_event is None:
+            self._first_event = time.monotonic() - self._started
+            MODEL_FIRST_EVENT.labels(self.model).observe(self._first_event)
 
     def used(self, input_tokens: int | None, output_tokens: int | None = None) -> None:
         """Count the tokens the provider said the request took."""
+        self._tokens = (input_tokens, output_tokens)
         for direction, tokens in (("input", input_tokens), ("output", output_tokens)):
             if tokens:
                 MODEL_TOKENS.labels(self.model, self.role, direction).inc(tokens)
@@ -263,6 +268,16 @@ class ModelRequest:
     def end(self, outcome: str) -> None:
         MODEL_REQUESTS.labels(self.model, self.role, outcome).inc()
         MODEL_SECONDS.labels(self.model, self.role).observe(time.monotonic() - self._started)
+        input_tokens, output_tokens = self._tokens
+        note(
+            self.role,
+            self._started,
+            model=self.model,
+            outcome=outcome,
+            first_event=None if self._first_event is None else round(self._first_event, 3),
+            input_tokens=input_tokens or None,
+            output_tokens=output_tokens or None,
+        )
 
 
 @contextmanager

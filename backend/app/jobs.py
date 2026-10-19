@@ -35,6 +35,9 @@ the transaction of every commit it makes, and a renewal that finds the job no lo
 worker's ends the run with `LeaseLost` before anything of that stage is written. The same test
 stops a run whose job a stopping worker handed back to the queue.
 
+A job queued while a request or another job runs carries that work's trace in its payload
+(`trace_id`, app/tracing.py), so that the worker logs it under the same trace.
+
 Queuing a job also sends a NOTIFY on CHANNEL, delivered when the transaction commits, and the
 worker listens for it (`listen`) on a connection of its own: a question is picked up the moment
 the API commits it rather than at the worker's next poll, which is what makes answers as jobs
@@ -56,6 +59,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import SessionLocal
 from app.entitlements import share_weights
+from app.logs import current_context
 from app.models import JOB_KINDS, Document, Job
 
 log = logging.getLogger(__name__)
@@ -212,14 +216,15 @@ def enqueue(
     priority: int = 0,
     run_at: datetime | None = None,
 ) -> Job:
-    """Add a job to the caller's session; it is queued when the caller commits."""
+    """Add a job to the caller's session; it is queued when the caller commits, under the
+    current trace."""
     if kind not in JOB_KINDS:
         raise ValueError(f"{kind!r} is not a job kind; add it to JOB_KINDS in app/models.py")
     job = Job(
         org_id=org_id,
         project_id=project_id,
         kind=kind,
-        payload=payload or {},
+        payload={**_traced(), **(payload or {})},
         priority=priority,
         max_attempts=MAX_ATTEMPTS,
     )
@@ -269,10 +274,16 @@ def _queue_params(
     return {
         "ids": document_ids,
         "priority": priority,
-        "extra": {"retry": retry} if retry else {},
+        "extra": {**_traced(), **({"retry": retry} if retry else {})},
         "max_attempts": MAX_ATTEMPTS,
         "run_at": run_at,
     }
+
+
+def _traced() -> dict[str, str]:
+    """The payload's part that names the trace the job is queued under, if any."""
+    trace = current_context().get("trace_id")
+    return {"trace_id": trace} if isinstance(trace, str) else {}
 
 
 def claim(worker_id: str, kinds: list[str]) -> Job | None:

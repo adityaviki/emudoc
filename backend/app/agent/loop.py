@@ -30,6 +30,7 @@ from app.errors import shown
 from app.indexing.pipeline import Services
 from app.llm import LLMError
 from app.models import Project
+from app.tracing import TOOL, UNKNOWN_TOOL, span
 from app.usage import ModelUsage
 
 log = logging.getLogger(__name__)
@@ -182,9 +183,12 @@ def run_agent(
                 "input": arguments,
             }
             known = set(sources)
-            with SessionLocal() as session:
+            # Timed for the run's trace by its name among the tools, never the model's word.
+            tool = call.tool_name if call.tool_name in TOOLS else UNKNOWN_TOOL
+            with span(TOOL, tool=tool) as traced, SessionLocal() as session:
                 context = ToolContext(session, services.embedder, project_id, sources=sources)
                 output, is_error = _run_tool(context, call.tool_name, arguments)
+                traced["outcome"] = "error" if is_error else "ok"
             new_sources = [source for key, source in sources.items() if key not in known]
             if new_sources:
                 yield {"type": "sources", "sources": new_sources}

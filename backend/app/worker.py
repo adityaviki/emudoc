@@ -34,6 +34,10 @@ reason that will not pass on its own (the file, the key, the model's reply) is n
 that the day's spending limit put off (app/spending.py) is queued again for midnight UTC, when
 the limit resets, and that wait counts as no retry.
 
+Every run of a job is timed, its stages, model requests and tool calls among it, and ends with
+one line in the log that says where its time went, under the trace of the request that queued
+it (app/tracing.py).
+
 A job the worker could not complete ends `failed`, with `last_error` saying why: lost to a
 dying process `max_attempts` times, a handler that raised, or a stage that kept failing through
 every retry. Those are the dead letters (app/deadletters.py): the alerter thread mails the new
@@ -105,6 +109,7 @@ from app.scanning import ScanError, alert_quarantines
 from app.spending import alert_spending, when
 from app.startup import prepare
 from app.storage import StorageError
+from app.tracing import describe, timed, trace_of
 from app.tracking import start_tracking
 from app.watch import watch
 
@@ -450,27 +455,31 @@ class Worker:
                 if not self._stop.is_set():
                     self._wake.clear()
                 continue
-            # From when it was due: a retry's backoff is no wait for a worker.
-            JOB_WAIT.labels(job.kind).observe(
-                max((datetime.now(UTC) - job.run_at).total_seconds(), 0.0)
-            )
             self._run(job)
 
     def _run(self, job: Job) -> None:
-        started = time.monotonic()
-        # Every line the run logs, the handler's and the settling's, names the job and what
-        # it is for.
-        with logging_about(
-            job_id=job.id,
-            job_kind=job.kind,
-            org_id=job.org_id,
-            project_id=job.project_id,
-            document_id=job.payload.get("document_id"),
-            message_id=job.payload.get("message_id"),
+        # From when it was due: a retry's backoff is no wait for a worker.
+        waited = max((datetime.now(UTC) - job.run_at).total_seconds(), 0.0)
+        JOB_WAIT.labels(job.kind).observe(waited)
+        # Every line the run logs, the handler's and the settling's, names the job, what it is
+        # for and the trace it was queued under, and the run's spans are timed for its last.
+        with (
+            logging_about(
+                trace_id=trace_of(job.payload),
+                job_id=job.id,
+                job_kind=job.kind,
+                org_id=job.org_id,
+                project_id=job.project_id,
+                document_id=job.payload.get("document_id"),
+                message_id=job.payload.get("message_id"),
+            ),
+            timed(waited) as timeline,
         ):
             outcome = self._settle(job)
+            timing = timeline.timing(outcome)
+            log.info("%s", describe(job.id, job.kind, timing), extra={"timing": timing})
         JOB_RUNS.labels(job.kind, outcome).inc()
-        JOB_SECONDS.labels(job.kind).observe(time.monotonic() - started)
+        JOB_SECONDS.labels(job.kind).observe(timing["seconds"])
 
     def _settle(self, job: Job) -> str:
         """Run the job and record how it ended; returns that, as the metrics call it
