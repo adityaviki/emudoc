@@ -7,6 +7,32 @@ full SHA is the image's tag, the version `/api/health` reports and the user menu
 they change. A commit that changes what a member or an operator sees adds its line here, under
 its day, in the same commit.
 
+## 2026-10-20
+
+Members:
+
+- In a large project, search finds more of the passages closest in meaning to what you typed:
+  in one of 30,000 documents, 93 % of the ten closest where it found 83 %. It also stays as
+  quick when many other projects share the deployment, where a large project's searches could
+  slow to a third of their speed.
+
+Operators:
+
+- Every search plans itself for its project (`plan_cache_mode = force_custom_plan`, `SET
+  LOCAL`): psycopg prepares a statement on its fifth run on a connection, and Postgres may then
+  keep one plan for every project, which in a database of many projects sorts a large
+  project's passages by distance, 470 to 540 ms for 75,000 where the search took 150 to 250.
+  The vector index is searched at `hnsw.ef_search` 200 where pgvector's default is 40: in a
+  project of 93,000 passages its candidates held 93 % of the 10 nearest where they held 83 %,
+  for about 5 ms more (deploying.md, "The database"). Nothing to set.
+- The load test's search phase ranks 100 searches' passages by the vector index at
+  `hnsw.ef_search` 40, 100, 200 and 400, and through the index whatever the planner would
+  choose, against the nearest by exact distance, then searches a project of `--small-documents`
+  (30) beside the library likewise; `--set EMBEDDING_BASE_URL=http://127.0.0.1:11434/v1 --set
+  EMBEDDING_MODEL=nomic-embed-text` measures a real model's vectors. deploying.md's "Load" has
+  the figures at 30,000 documents: a search 199 ms, `ilike` over the facts and the documents'
+  names about 95 ms, which needs no trigram index yet.
+
 ## 2026-10-19
 
 Members:

@@ -333,6 +333,15 @@ older one and says what to run: `ALTER EXTENSION vector UPDATE;` as the database
 the server has a newer one installed (a managed database after a minor version upgrade), or
 an upgrade of the server's pgvector when it has not. Development warns and searches without.
 
+**A search is planned for its project**: Postgres sorts a project of up to a few percent of
+the table's passages by their exact distance from the question, and walks the vector index
+for a larger one, keeping `hnsw.ef_search` passages in view as it does (200, where pgvector's
+default of 40 left out one in six of the 10 nearest in a project of 93,000; "Load"). Every
+search sets `plan_cache_mode = force_custom_plan` for itself: psycopg prepares a statement on
+its fifth run on a connection, and Postgres then keeps one plan for every project once it
+looks no dearer, which in a table of many projects is the small project's sort, three times
+slower for a large one and slower as it grows. None of this needs the operator.
+
 **ICU**: the library lists a folder's files in an order the database keeps an index in, by
 an ICU collation the migrations make, `natural_order` (numbers in a name compared as numbers,
 case and accents set aside). The server must be built with ICU, as the official images, RDS
@@ -418,8 +427,8 @@ DATABASE_LISTEN_URL=postgresql+psycopg://emudoc:…@db.internal:5432/emudoc?sslm
   much longer before an answer starts.
 
 The rest works through either mode: every advisory lock the app takes is the transaction's
-(migrations, housekeeping, `after-restore`, the alerts), and the one setting it changes,
-search's `hnsw.iterative_scan`, is `SET LOCAL`. The release step and the maintenance commands
+(migrations, housekeeping, `after-restore`, the alerts), and the settings it changes, search's
+`plan_cache_mode`, `hnsw.ef_search` and `hnsw.iterative_scan`, are `SET LOCAL`. The release step and the maintenance commands
 may go through the pooler too. `DATABASE_LISTEN_URL` is held to the same rules as
 `DATABASE_URL` in production: its own password, and its certificate checked off the own
 network. `docker compose --profile pgbouncer up -d --wait` runs pgbouncer in transaction mode
@@ -2319,7 +2328,11 @@ plan and with the rates a minute lifted (one member asks for what twenty would):
    indexed;
 2. **search**: searches it 300 times one at a time and 300 times eight at a time, and asks
    for facts, and runs the agent's `list_documents`, by a word and by a piece of one, which
-   only `ilike` finds;
+   only `ilike` finds; then ranks the passages for 100 of the searches as the search's vector
+   ranking does, at `hnsw.ef_search` 40 (pgvector's default), 100, 200 and 400 and once through
+   the vector index whatever the planner would choose, against the nearest by exact
+   distance; then uploads a project of 30 other documents beside the library
+   (`--small-documents`), searches it 100 times, and ranks its passages likewise;
 3. **chats**: asks 20 questions at once in 20 chats, five times, following each answer as the
    page does, first with the stand-in answering at once, then at a hosted model's pace
    (`--first-token`, 1 s before each turn, and `--words-per-second`, 40);
@@ -2431,6 +2444,57 @@ The scan at a hosted model's pace, 3 s an indexing request (`--phases large --sh
 Of the rest, 62 s are its summaries and facts, 20 requests one after another, which the pages
 read at once leave as they were.
 
+At ten times the size, on 2026-10-20: 30,000 documents in one project (93,141 passages,
+151,193 facts, a database of 1.1 GB; `--phases library,search --documents 30000 --set
+WORKER_CONCURRENCY=8 --set DB_POOL_SIZE=22`, indexed in 38 minutes, 780 a minute), with the
+vectors of a real model, Ollama's `nomic-embed-text` on the same machine (`--set
+EMBEDDING_BASE_URL=http://127.0.0.1:11434/v1 --set EMBEDDING_MODEL=nomic-embed-text`), whose
+vectors are the embeddings server's: the stand-in's vectors of words crowd together and tie as
+no model's do, and made the vector index look worse than it is.
+
+| What the member waited | n | p50 | p95 |
+| --- | --- | --- | --- |
+| A search in the 30,000 documents, one at a time | 300 | 199 ms | 267 ms |
+| The same, eight at a time | 300 | 245 ms | 366 ms |
+| Facts by a word, or by a piece of one (151,193 facts) | 100 each | 92–94 ms | 133–137 ms |
+| The agent's `list_documents` by a word, or by a piece of one | 100 each | 93 ms | 98–99 ms |
+| A search in a project of 30 documents (99 passages) beside them | 100 | 19 ms | 21 ms |
+
+The searches ran at `hnsw.ef_search` 100; 200, the setting since, adds 2 to 4 ms. Most of a
+search's time is its keyword ranking, which fetches and ranks every passage that holds any
+word of the question: "penalty late deliveries" matched 42,279, which took 236 of the
+search's 241 ms, and the vector ranking 2.
+
+The vector ranking's 40 candidates for 100 of the searches, against the 40 nearest passages
+by exact distance:
+
+| `hnsw.ef_search` | The 10 nearest found | The 40 nearest found | Searches that missed the nearest | p50 | p95 |
+| --- | --- | --- | --- | --- | --- |
+| 40, pgvector's default | 83 % | 82 % | 11 | 3 ms | 4 ms |
+| 100 | 88 % | 88 % | 7 | 4 ms | 6 ms |
+| 200 | 93 % | 92 % | 3 | 6 ms | 10 ms |
+| 400 | 95 % | 95 % | 2 | 11 ms | 16 ms |
+| Every passage's distance, sorted | 100 % | 100 % | 0 | 148 ms | 153 ms |
+
+Two more samples of 100 found the 10 nearest at 83 and 89 % at 40, 92 and 94 % at 100, 93 and
+95 % at 200, and 97 and 98 % at 400. What the index found instead was near: at 40 its 40th
+candidate was a median 0.0007 farther from the question than the exact 40th, where the 40
+nearest spread over 0.034.
+
+In the project of 30 documents the planner sorted its 99 passages by distance (1 ms) and
+found all 40 nearest. Made to walk the vector index instead, it found 11 candidates at fewest
+of the 40, and 45 % of the nearest, in 105 ms: `hnsw.max_scan_tuples` (20,000) ends the walk
+long before a project of 0.1 % of the table fills its 40. The planner walks the index only for
+a project of a few percent of the table: as passages were moved into the small project, it
+sorted them at 2,000 (2.2 %) and walked the index at 4,000 (4.3 %), where 40 candidates take a
+walk of about 1,000 passages.
+
+With the library's passages spread over 602 projects (18,000 of them moved into 600 projects
+of 30), one connection's searches of the large project went over to the one plan Postgres
+keeps for every project after the fifth, which sorts the whole project by distance (495 ms
+for its 75,141 passages): they took 470 to 540 ms where they had taken 150 to 250. Planned
+each for its project, as every search is now ("The database"), they stayed at 100 to 215 ms.
+
 ### What the figures mean
 
 - **Answers** run in a worker's `ANSWER_CONCURRENCY` threads (8), one an answer from its
@@ -2482,9 +2546,18 @@ read at once leave as they were.
   as long as from a directory; when it copied the original for every page, a page took 2 s and
   a member scrolling through the scan fetched 300 copies. A page kept from before comes from
   the storage in 25 ms, from the bucket in about 50 (the redirect and the bucket's answer).
-- **Search** is quick at this size: the full-text and vector search under 100 ms eight at a
-  time, and `ilike` over 3,000 documents' titles, file names and summaries and 15,210 facts
-  under 50 ms.
+- **Search** is quick at 3,000 documents: the full-text and vector search under 100 ms eight at
+  a time, and `ilike` over their titles, file names and summaries and 15,210 facts under
+  50 ms. At 30,000 in one project a search took 199 ms (267 ms at p95), most of it the keyword
+  ranking, which grows with the passages that hold any word of the question; the vector
+  ranking took a few milliseconds. `ilike` grew to about 95 ms (140 ms at p95) over 151,193
+  facts and the documents' names and summaries: a trigram index would take it to a few
+  milliseconds, and every fact written would pay for it, so there is none yet. Look again when
+  a project nears 100,000 documents or the facts route's p95 passes 300 ms. At pgvector's
+  default the vector index left out one in six of the 10 nearest passages; `hnsw.ef_search`
+  200 leaves out one in fourteen for about 5 ms more. A small project is sorted by exact
+  distance and loses nothing, and each search is planned for its project, without which a
+  table of many projects sorted a large one whole.
 
 ## On call
 

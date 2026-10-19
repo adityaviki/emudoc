@@ -30,6 +30,10 @@ from loadtest.report import Report, say
 PHASES = ("library", "search", "chats", "paced", "large")
 STAGES = ("scan", "parse", "structure", "enrich", "embed")
 SETTLED = ("ready", "failed", "quarantined")
+# The candidates a search for a page of ten asks the vector ranking for (`hybrid_search`), and
+# the `hnsw.ef_search` values they are found at, pgvector's default first.
+CANDIDATES = 40
+EF_SEARCH = (40, 100, 200, 400)
 
 
 async def bounded(limit: int, work: Iterable[Callable[[], Awaitable]]) -> list:
@@ -189,6 +193,19 @@ class Run:
                 f"The agent's list_documents, {label} (ilike)",
                 self._listed(project, terms),
             )
+        queries = [self.world.query() for _ in range(args.searches // 3)]
+        self._candidates(project, "the library", queries)
+        # Another organisation's documents of the same kinds, from a seed of their own: the
+        # library's own files would put each of their passages beside its twin in the index.
+        say(f"Search: a project of {args.small_documents} documents beside the library")
+        paths = corpus.library(self.deployment.directory / "small", args.small_documents, seed=2)
+        small = await self._library("small", "A small project", paths)
+        url = f"/api/projects/{small}/search"
+        times = await bounded(
+            1, (lambda q=q: self.member.timed_get(url, q=q, limit=10) for q in queries)
+        )
+        report.add("search", f"Search in a project of {len(paths)} documents beside it", times)
+        self._candidates(small, "the small project", queries, analyze=True)
 
     def _listed(self, project_id: int, terms: list[str]) -> list[float]:
         """The seconds the agent's list_documents tool takes for each of `terms`, run in this
@@ -206,6 +223,100 @@ class Run:
                 )  # type: ignore[arg-type]
                 times.append(time.perf_counter() - began)
         return times
+
+    def _candidates(
+        self, project_id: int, label: str, queries: list[str], analyze: bool = False
+    ) -> None:
+        """The vector ranking's candidates for each of `queries`, run in this process as
+        `hybrid_search` runs it, against the project's nearest passages by exact distance: the
+        time, and how many of the 10 and the 40 nearest they hold, at pgvector's `ef_search` and
+        above it; then the same through the vector index whatever the planner would choose,
+        which is what a project the planner takes it for gets. `analyze` first gives the
+        planner the project's share of the table, as autovacuum would in time."""
+        os.environ.update(self.deployment.settings())
+        from sqlalchemy import text
+
+        from app.config import get_settings
+        from app.db import SessionLocal
+        from app.embeddings import Embedder
+        from app.search import _VECTOR_CTE
+
+        statement = _VECTOR_CTE.format(doc_filter="")
+        # An expression the project's btree cannot serve, so the vector index is the only way.
+        indexed = statement.replace("p.project_id = :project_id", "p.project_id + 0 = :project_id")
+        assert indexed != statement, "the vector ranking no longer filters by project as it did"
+        embedder = Embedder(get_settings())
+        vectors = [
+            "[" + ",".join(f"{value:.7g}" for value in embedder.embed_query(query)) + "]"
+            for query in queries
+        ]
+        if analyze:
+            with SessionLocal() as session:
+                session.execute(text("ANALYZE passages"))
+                session.commit()
+
+        def ranked(sql: str, vector: str, *settings: str) -> tuple[list[float], float, bool]:
+            """The candidates' distances from the query, nearest first, the seconds the
+            ranking took, and whether its plan scanned the vector index."""
+            params = {"project_id": project_id, "qvec": vector, "candidates": CANDIDATES}
+            with SessionLocal() as session:
+                # Each case planned with its own settings, never with a plan a connection kept
+                # from a case before (`hybrid_search` plans each search likewise).
+                for setting in ("plan_cache_mode = force_custom_plan", *settings):
+                    session.execute(text(f"SET LOCAL {setting}"))
+                plan = session.execute(text(f"EXPLAIN (FORMAT JSON) {sql}"), params).scalar()
+                began = time.perf_counter()
+                ids = session.execute(text(sql), params).scalars().all()
+                took = time.perf_counter() - began
+                distances = session.scalars(
+                    text(
+                        "SELECT embedding <=> CAST(:qvec AS vector) FROM passages"
+                        " WHERE id = ANY(:ids) ORDER BY 1"
+                    ),
+                    {"qvec": vector, "ids": list(ids)},
+                ).all()
+                session.rollback()
+            return list(distances), took, "ix_passages_embedding" in json.dumps(plan)
+
+        exact = [ranked(statement, vector, "enable_indexscan = off") for vector in vectors]
+        self.report.add(
+            "search", f"Vector candidates in {label}, by exact distance", (t for _, t, _ in exact)
+        )
+        found = []
+        iterative = "hnsw.iterative_scan = 'relaxed_order'"
+        cases = [(f"ef_search {ef}", statement, (f"hnsw.ef_search = {ef}",)) for ef in EF_SEARCH]
+        cases.append(
+            (
+                f"through the index, ef_search {EF_SEARCH[0]}",
+                indexed,
+                ("enable_seqscan = off", "enable_bitmapscan = off"),
+            )
+        )
+        for case, sql, extra in cases:
+            runs = [ranked(sql, vector, iterative, *extra) for vector in vectors]
+            self.report.add(
+                "search", f"Vector candidates in {label}, {case}", (t for _, t, _ in runs)
+            )
+            pairs = [(c, t) for (c, _, _), (t, _, _) in zip(runs, exact, strict=True)]
+            # The 10 nearest are what a page of ten draws on; the candidates are all fused.
+            ten = [_share_found(c, t, 10) for c, t in pairs]
+            every = [_share_found(c, t, CANDIDATES) for c, t in pairs]
+            found.append(
+                f"{case}: the 10 nearest {sum(ten) / len(ten):.1%} found on average "
+                f"({min(ten):.0%} at worst), the {CANDIDATES} nearest "
+                f"{sum(every) / len(every):.1%} ({min(every):.0%}), the nearest missed by "
+                f"{sum(_share_found(c, t, 1) < 1 for c, t in pairs)}, "
+                f"{min(len(c) for c, _ in pairs)} candidates at fewest, the index scanned for "
+                f"{sum(used for _, _, used in runs)}"
+            )
+        ((passages,),) = self.deployment.query(
+            "SELECT count(*) FROM passages WHERE project_id = %s", project_id
+        )
+        ((table,),) = self.deployment.query("SELECT count(*) FROM passages")
+        self.report.note(
+            f"Vector candidates in {label} ({passages:,} of the table's {table:,} passages, "
+            f"{len(vectors)} searches): " + "; ".join(found)
+        )
 
     async def chats_phase(self) -> None:
         args, project = self.args, self.library
@@ -376,6 +487,15 @@ class Run:
             self.report.add("large", f"A page of the scan, {label}", times)
 
 
+def _share_found(candidates: list[float], truth: list[float], n: int) -> float:
+    """The share of the `n` nearest passages by exact distance (`truth`, nearest first) that
+    `candidates` found, by their distances: passages at the same distance are as near as each
+    other (the stand-in's vectors of words tie often), so a candidate no farther than the n-th
+    is one of them."""
+    n = min(n, len(truth))
+    return min(1.0, sum(d <= truth[n - 1] + 1e-6 for d in candidates) / n) if n else 1.0
+
+
 def _sum_delta(before, after, name: str, **labels: str) -> float:
     def total(samples) -> float:
         return sum(
@@ -479,6 +599,12 @@ def arguments(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=8,
         help="searches at once in the second round (%(default)s)",
+    )
+    parser.add_argument(
+        "--small-documents",
+        type=int,
+        default=30,
+        help="the project searched beside the library's (%(default)s)",
     )
     parser.add_argument("--chats", type=int, default=20, help="questions at once (%(default)s)")
     parser.add_argument("--rounds", type=int, default=5, help="rounds of them (%(default)s)")

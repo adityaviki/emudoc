@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.config import get_settings
 from app.indexing.pipeline import process_document
@@ -58,6 +58,22 @@ def test_results_never_cross_projects(
     there = search(session, services, policy, "flights receipts termination")
     assert here.hits and {hit.document_id for hit in here.hits} == {indexed.id}
     assert there.hits and {hit.document_id for hit in there.hits} == {policy.id}
+
+
+def test_each_search_is_planned_for_its_project(session, services, indexed):
+    # psycopg prepares a statement it has run five times on a connection, and Postgres may
+    # then keep one plan for every project, made for none of them: a search of a large
+    # project would sort all its passages, one of a small project scan the vector index for
+    # candidates that run short. Behind a pooler nothing is prepared, and nothing is held.
+    for _ in range(15):
+        assert search(session, services, indexed, "termination notice").hits
+    held = session.scalar(
+        text(
+            "SELECT coalesce(sum(generic_plans), 0) FROM pg_prepared_statements"
+            " WHERE statement LIKE '%WITH langs AS%'"
+        )
+    )
+    assert held == 0
 
 
 def test_document_filter(session, services, make_document, indexed, sample_docx):

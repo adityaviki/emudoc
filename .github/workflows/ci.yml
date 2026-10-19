@@ -161,8 +161,8 @@ jobs:
       - name: Load test, small
         run: >-
           uv --directory backend run --locked python -m loadtest --dir "$RUNNER_TEMP/load"
-          --documents 40 --batch 10 --searches 20 --chats 4 --rounds 1 --first-token 0.2
-          --paced-documents 6 --index-seconds 0.2 --scan-pages 4 --sheet-mb 1
+          --documents 40 --batch 10 --searches 20 --small-documents 4 --chats 4 --rounds 1
+          --first-token 0.2 --paced-documents 6 --index-seconds 0.2 --scan-pages 4 --sheet-mb 1
       - name: Report
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

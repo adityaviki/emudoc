@@ -12,6 +12,7 @@ from app.indexing.enrich import DocumentAnalysis, InferredSections
 from app.llm import OCR_PROMPT, OcrPage
 from app.parsing import parse_file
 from loadtest import corpus
+from loadtest.__main__ import _share_found
 from loadtest.report import Report, rank
 
 _spec = importlib.util.spec_from_file_location("standin", ROOT_DIR / "frontend/e2e/standin.py")
@@ -132,3 +133,15 @@ def test_a_percentile_is_a_wait_a_member_had():
     report = Report()
     report.add("search", "Search", [0.2, None, 1.5])
     assert report.markdown().splitlines()[2] == "| search | Search | 2 | 200 ms | 1.50 s | 1.50 s |"
+
+
+def test_a_candidate_as_near_as_the_nearest_counts_as_one_of_them():
+    exact = [0.1, 0.2, 0.2, 0.3]
+
+    # Another passage at the 2nd's distance is as near as the 3rd it stands in for.
+    assert _share_found([0.1, 0.2, 0.2], exact, 3) == 1.0
+    assert _share_found([0.1, 0.25, 0.3], exact, 3) == 1 / 3
+    assert _share_found([0.15, 0.2], exact, 1) == 0.0
+    # A project of fewer passages than asked for is measured by what it has.
+    assert _share_found([0.1, 0.2, 0.2, 0.3], exact, 10) == 1.0
+    assert _share_found([], [], 10) == 1.0

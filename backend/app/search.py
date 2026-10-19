@@ -17,6 +17,9 @@ log = logging.getLogger(__name__)
 
 # Reciprocal rank fusion constant: the usual value, which damps the gap between top ranks.
 RRF_K = 60
+# How many of the nearest vectors the HNSW index keeps in view as it searches its graph
+# (`hnsw.ef_search`): more finds more of the truly nearest passages, and takes longer.
+EF_SEARCH = 200
 # Private-use characters wrap the matched words in a headline; they cannot occur in documents.
 HIT_START, HIT_STOP = "", ""
 
@@ -129,8 +132,20 @@ def hybrid_search(
         "k": RRF_K,
         "document_ids": document_ids or [],
     }
+    # Plan every search for its own project. psycopg prepares a statement it has run five times
+    # on a connection, and Postgres may then keep one plan for every project, made for a
+    # project of the average size: in a table of many projects, that is a sort of the whole
+    # project by distance, which made a search of a 75,000-passage project three times slower
+    # (deploying.md, "Load"). The planner's own choice takes the vector index only for a
+    # project of a few percent of the table, where its candidates never run short.
+    session.execute(text("SET LOCAL plan_cache_mode = force_custom_plan"))
     if vector:
         params["qvec"] = "[" + ",".join(f"{value:.7g}" for value in vector) + "]"
+        # At pgvector's default of 40, the vector index's candidates held 83 to 89 % of the 10
+        # passages nearest the question in a project of 93,000, and missed the nearest in one
+        # search of ten; at 200 they held 93 to 95 % and missed it in three of a hundred, for
+        # 3 to 6 ms more in a search that took 200 (deploying.md, "Load").
+        session.execute(text(f"SET LOCAL hnsw.ef_search = {EF_SEARCH}"))
         if _iterative_scan_supported():
             # Keep scanning the vector index until enough rows pass the project filter.
             session.execute(text("SET LOCAL hnsw.iterative_scan = 'relaxed_order'"))
