@@ -330,6 +330,8 @@ def create_app(
             yield
         if app.state.worker:
             app.state.worker.stop()
+        # The copies kept for drawing pages, which no exit handler would remove (Storage.close).
+        app.state.services.storage.close()
         if exporter is not None:
             exporter.close()
         app.state.http.close()

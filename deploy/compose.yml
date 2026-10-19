@@ -39,8 +39,9 @@ x-app: &app
   env_file: ${EMUDOC_ENV:-/etc/emudoc/emudoc.env}
   # Nothing in the image is written to. Uploads pass through /tmp, and a worker copies an
   # original there to scan, parse and render it, so the tmpfs holds as much as the API takes in
-  # at once (MAX_UPLOAD_REQUEST_MB and MAX_UPLOAD_MB again, per concurrent upload) and a worker
-  # works on (MAX_UPLOAD_MB per WORKER_CONCURRENCY, 1.6 GB at the defaults). It counts as the
+  # at once (MAX_UPLOAD_REQUEST_MB and MAX_UPLOAD_MB again, per concurrent upload, and from a
+  # bucket the RENDER_CACHE_MB of originals it keeps for drawing pages) and a worker works on
+  # (MAX_UPLOAD_MB per WORKER_CONCURRENCY, 1.6 GB at the defaults). It counts as the
   # container's memory.
   read_only: true
   tmpfs:

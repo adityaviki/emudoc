@@ -244,10 +244,13 @@ class Settings(BaseSettings):
     # time in a process: how many pages a process draws at once, the seconds a page may take
     # and the memory a child may hold (zero removes either limit). And how many of a PDF's first
     # pages are drawn ahead once it is parsed, so that opening it shows them at once; zero
-    # draws every page when it is first looked at.
+    # draws every page when it is first looked at. From a bucket a page is drawn from a copy of
+    # the original in the temporary directory, which a process keeps a few minutes for the
+    # next pages, up to this many megabytes of copies (zero keeps none past its page).
     render_processes: int = Field(default=2, ge=1)
     render_timeout: int = Field(default=30, ge=0)
     render_memory_mb: int = Field(default=1024, ge=0)
+    render_cache_mb: int = Field(default=256, ge=0)
     prerender_pages: int = Field(default=3, ge=0)
     # The pages of one document the model may read as scans: each costs a model call, and
     # PARSE_MAX_PAGES alone would let a scanned book cost hundreds. A document over it fails

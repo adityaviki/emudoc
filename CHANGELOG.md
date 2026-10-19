@@ -11,6 +11,9 @@ its day, in the same commit.
 
 Members:
 
+- The pages of a long PDF show sooner as you scroll where the files are kept in cloud storage:
+  the file is fetched once for the pages that follow rather than once a page, so a page of a
+  62 MB scan is drawn in under a second where it took two.
 - A large upload is ready far sooner: sixteen documents are indexed at once where two were, so
   3,000 documents uploaded together are ready to search and ask about in about ten minutes at a
   hosted model's pace, where they took over an hour.
@@ -41,6 +44,13 @@ Members:
 
 Operators:
 
+- From a bucket, the API keeps its copy of an original for the pages and thumbnails it draws
+  next: five minutes after the last page drawn from it, up to the new `RENDER_CACHE_MB` (256)
+  of copies in the temporary directory, the least recently used going first, and requests that
+  come while it is being copied wait for that copy. Size the API's `/tmp` tmpfs for it beside
+  the uploads (deploying.md, "The image" and "Drawing pages"); a directory storage needs none of
+  it. A page of the load test's 62 MB scan from the compose bucket is drawn in 0.68 s at the
+  50th percentile, where it took 2.06 s ("Load").
 - `WORKER_CONCURRENCY` is 16 by default, where it was 2, and the new `PARSE_CONCURRENCY` (2) is
   how many of those indexers parse a file at once, each in a child of up to `PARSE_MEMORY_MB`;
   the others wait their turn, so an indexer waiting on the model no longer brings a parse's

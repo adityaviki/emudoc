@@ -5,8 +5,13 @@ the few boto3 calls it makes, since the suite makes no network calls.
 """
 
 import os
+import tempfile
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -18,6 +23,7 @@ from app.config import Settings, get_settings
 from app.indexing.pipeline import Services, process_document, reset_stages
 from app.main import STORAGE_DOWN, create_app
 from app.storage import (
+    KEPT_SECONDS,
     SANDBOX,
     URL_LIFETIME,
     LocalStorage,
@@ -96,6 +102,172 @@ def test_localize_gives_a_file_the_parsers_can_open(storage):
     with pytest.raises(FileNotFoundError):
         with storage.localize(f"{DOCUMENT}missing.pdf"):
             pass
+
+
+ORIGINAL = f"{DOCUMENT}original.pdf"
+
+
+@pytest.fixture
+def copies(tmp_path, monkeypatch) -> Path:
+    """The temporary directory, empty, where a bucket's copies are made, so that a test sees
+    which are kept."""
+    directory = tmp_path / "tmp"
+    directory.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(directory))
+    return directory
+
+
+def keeping(keep: int = 1 << 20) -> S3Storage:
+    """A bucket whose `kept` holds on to `keep` bytes of copies, with the original in it."""
+    storage = S3Storage(FakeS3Client("bucket"), "bucket", "emudoc", keep=keep)
+    storage.put(ORIGINAL, b"%PDF-1.4 original", "application/pdf")
+    return storage
+
+
+def downloads(storage: S3Storage) -> int:
+    return storage.client.calls.count("get_object")
+
+
+def test_kept_gives_a_file_as_localize_does(storage):
+    storage.put(ORIGINAL, b"%PDF-1.4 original", "application/pdf")
+    with storage.kept(ORIGINAL) as path:
+        assert path.suffix == ".pdf"
+        assert path.read_bytes() == b"%PDF-1.4 original"
+    with pytest.raises(FileNotFoundError):
+        with storage.kept(f"{DOCUMENT}missing.pdf"):
+            pass
+
+
+def test_a_bucket_keeps_its_copy_for_the_pages_drawn_after_it(copies):
+    storage = keeping()
+    with storage.kept(ORIGINAL) as path:
+        pass
+    with storage.kept(ORIGINAL) as again:
+        assert again == path
+    assert downloads(storage) == 1
+    assert list(copies.iterdir()) == [path]
+
+    # The parse stage's copy is its own, and goes with its block.
+    with storage.localize(ORIGINAL) as parsed:
+        assert parsed != path
+    assert list(copies.iterdir()) == [path]
+    assert downloads(storage) == 2
+
+
+def test_readers_at_once_wait_for_one_copy(copies, monkeypatch):
+    storage = keeping()
+    released = threading.Event()
+    get_object = storage.client.get_object
+
+    def slow(**request):
+        released.wait(5)
+        return get_object(**request)
+
+    monkeypatch.setattr(storage.client, "get_object", slow)
+
+    def read() -> tuple[Path, bytes]:
+        with storage.kept(ORIGINAL) as path:
+            return path, path.read_bytes()
+
+    def readers() -> int:
+        copy = storage.copies._copies.get(ORIGINAL)
+        return copy.readers if copy else 0
+
+    with ThreadPoolExecutor(4) as pool:
+        reads = [pool.submit(read) for _ in range(4)]
+        # Four pages asked for at once: the first reader copies, the others wait for it.
+        deadline = time.monotonic() + 5
+        while readers() < 4 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        released.set()
+        results = {future.result(5) for future in reads}
+    assert len(results) == 1 and results.pop()[1] == b"%PDF-1.4 original"
+    assert downloads(storage) == 1
+
+
+def test_the_copies_kept_fit_the_bound_the_least_recently_read_going_first(copies):
+    storage = keeping(keep=40)
+    first, second, third = (f"{document_prefix(1, 2, n)}original.pdf" for n in (10, 20, 30))
+    for key in (first, second, third):
+        storage.put(key, b"0123456789" * 2)
+    with storage.kept(first) as kept_first:
+        pass
+    with storage.kept(second):
+        pass
+    with storage.kept(first):
+        pass
+    # 60 bytes would pass the bound of 40: the second, read longest ago, goes.
+    with storage.kept(third) as kept_third:
+        pass
+    assert sorted(copies.iterdir()) == sorted([kept_first, kept_third])
+
+
+def test_a_copy_being_read_is_never_taken_away(copies):
+    storage = keeping(keep=0)
+    with storage.kept(ORIGINAL) as path:
+        # Past the bound by itself, and shared by a second reader.
+        with storage.kept(ORIGINAL) as shared:
+            assert shared == path
+        assert path.is_file()
+        # Deleted meanwhile: the drawing reads on, the next reader finds nothing.
+        storage.delete([ORIGINAL])
+        assert path.read_bytes() == b"%PDF-1.4 original"
+        with pytest.raises(FileNotFoundError):
+            with storage.kept(ORIGINAL):
+                pass
+    assert list(copies.iterdir()) == []
+    assert downloads(storage) == 2
+
+
+def test_a_copy_goes_minutes_after_its_last_reader(copies, monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr("app.storage.time", SimpleNamespace(monotonic=lambda: now[0]))
+    storage = keeping()
+    with storage.kept(ORIGINAL) as path:
+        pass
+    # Each reader starts its time over.
+    for _ in range(3):
+        now[0] += KEPT_SECONDS - 1
+        with storage.kept(ORIGINAL) as again:
+            assert again == path
+    now[0] += KEPT_SECONDS
+    with storage.kept(ORIGINAL) as fresh:
+        assert fresh != path
+    assert list(copies.iterdir()) == [fresh]
+    assert downloads(storage) == 2
+
+
+def test_a_process_asked_nothing_more_keeps_no_copy(copies, monkeypatch):
+    monkeypatch.setattr("app.storage.KEPT_SECONDS", 0.2)
+    storage = keeping()
+    with storage.kept(ORIGINAL):
+        pass
+    deadline = time.monotonic() + 5
+    while list(copies.iterdir()) and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert list(copies.iterdir()) == []
+
+
+def test_a_delete_takes_the_copies_of_what_it_deleted(copies):
+    storage = keeping()
+    neighbour = f"{document_prefix(1, 2, 30)}original.pdf"
+    storage.put(neighbour, b"%PDF-1.4 neighbour", "application/pdf")
+    with storage.kept(ORIGINAL), storage.kept(neighbour) as kept_neighbour:
+        pass
+    storage.discard(DOCUMENT)
+    assert list(copies.iterdir()) == [kept_neighbour]
+
+
+def test_a_copy_that_could_not_be_made_is_tried_again(copies):
+    storage = keeping()
+    storage.client.outage = EndpointConnectionError(endpoint_url="https://s3.example")
+    with pytest.raises(StorageError):
+        with storage.kept(ORIGINAL):
+            pass
+    assert list(copies.iterdir()) == []
+    storage.client.outage = None
+    with storage.kept(ORIGINAL) as path:
+        assert path.read_bytes() == b"%PDF-1.4 original"
 
 
 def test_a_prefix_lists_and_deletes_exactly_what_is_under_it(storage):
@@ -407,7 +579,7 @@ def test_storage_from_settings_reads_the_url(tmp_path):
 def bucket_client(session, mailer):
     """The API over a bucket: the same app, with the storage behind it swapped."""
     s3 = FakeS3Client("bucket")
-    services = Services(FakeLLM(), FakeEmbedder(), S3Storage(s3, "bucket", "emudoc"))
+    services = Services(FakeLLM(), FakeEmbedder(), S3Storage(s3, "bucket", "emudoc", keep=1 << 20))
     app = create_app(services=services, mailer=mailer)
     with TestClient(app, headers=APP_HEADERS, follow_redirects=False) as client:
         client.s3 = s3
@@ -456,6 +628,41 @@ def test_the_app_works_over_a_bucket(bucket_client, sample_pdf, sample_docx, sam
     assert not of(policy) and of(document)
     assert client.delete(f"/api/projects/{project['id']}").status_code == 204
     assert client.s3.objects == {}
+
+
+def test_the_pages_of_a_pdf_in_a_bucket_are_drawn_from_one_download(
+    bucket_client, sample_pdf, copies
+):
+    client = bucket_client
+    project = create_project(client)
+    document = upload(client, project["id"], sample_pdf)["documents"][0]
+    process_document(document["id"], client.services)
+    client.s3.calls.clear()
+
+    pages = f"/api/documents/{document['id']}"
+    for path in ("pages/1.png", "pages/2.png", "thumbnail.png"):
+        assert client.get(f"{pages}/{path}").status_code == 307
+    assert client.s3.calls.count("get_object") == 1
+    assert [path.suffix for path in copies.iterdir()] == [".pdf"]
+
+    # Deleting the document takes this process's copy with it.
+    assert client.delete(pages).status_code == 204
+    assert list(copies.iterdir()) == []
+
+
+def test_an_api_that_stops_leaves_no_copy_behind(session, mailer, sample_pdf, copies):
+    # uvicorn ends the process by the signal it stopped for, which runs no exit handler, so the
+    # lifespan removes the copies itself.
+    s3 = FakeS3Client("bucket")
+    services = Services(FakeLLM(), FakeEmbedder(), S3Storage(s3, "bucket", "emudoc", keep=1 << 20))
+    app = create_app(services=services, mailer=mailer)
+    with TestClient(app, headers=APP_HEADERS, follow_redirects=False) as client:
+        project = create_project(client)
+        document = upload(client, project["id"], sample_pdf)["documents"][0]
+        process_document(document["id"], services)
+        assert client.get(f"/api/documents/{document['id']}/pages/1.png").status_code == 307
+        assert len(list(copies.iterdir())) == 1
+    assert list(copies.iterdir()) == []
 
 
 def test_a_bucket_that_fails_mid_upload_leaves_no_row(

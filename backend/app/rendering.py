@@ -18,9 +18,10 @@ or memory, crashed or answered what it should not is killed, and a fresh one dra
 one that drew RENDERS_PER_CHILD pages is retired, so that what a long run leaves behind in one
 does not grow.
 
-A page is drawn from a local file (`Storage.localize`); the child is sent its path, never the
-document's name. The metrics and the run's spans name what a page was drawn for and how it
-ended, never the document.
+A page is drawn from a local file (`Storage.localize`, or `Storage.kept` for the pages and
+thumbnails the API draws, whose copy of a bucket's original serves the next pages too); the
+child is sent its path, never the document's name. The metrics and the run's spans name what a
+page was drawn for and how it ended, never the document.
 """
 
 import atexit

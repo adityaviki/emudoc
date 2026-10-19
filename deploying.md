@@ -119,8 +119,10 @@ themselves. A container needs:
 - **A read-only filesystem with a tmpfs at `/tmp`.** Nothing in the image is written to, but
   every upload passes through the temporary directory, and a worker copies an original there
   to scan, parse and render it: size it for what the API takes in at once
-  (`MAX_UPLOAD_REQUEST_MB`, and `MAX_UPLOAD_MB` again, per upload at a time) and for what a
-  worker works on (`MAX_UPLOAD_MB` per `WORKER_CONCURRENCY`, 1.6 GB at the defaults). A tmpfs
+  (`MAX_UPLOAD_REQUEST_MB`, and `MAX_UPLOAD_MB` again, per upload at a time) with, from a
+  bucket, the originals it keeps for drawing pages (`RENDER_CACHE_MB`, "Drawing pages"), and
+  for what a worker works on (`MAX_UPLOAD_MB` per `WORKER_CONCURRENCY`, 1.6 GB at the
+  defaults). A tmpfs
   counts as the container's memory and keeps the documents in the clear ("Encryption", below).
   A process that cannot write a temporary file refuses to start: "No temporary directory can be
   written in …".
@@ -620,10 +622,19 @@ the uploads waiting to be indexed, so that opening the document shows them from 
 once; the others are drawn the first time a member looks at them. Each page drawn is kept for
 `PAGE_IMAGE_DAYS` and counts as `render` usage: the member's when the pane asked for it, the
 organisation's with no member when it was drawn ahead. A page that cannot be drawn ahead is
-left for the pane, and the job ends done rather than failed. From a bucket, a page drawn for the
-pane copies the original to the temporary directory first, so the first look at a page of a
-large PDF costs its download (2 s a page of a 62 MB scan, "Load"); the pages drawn ahead share
-one.
+left for the pane, and the job ends done rather than failed.
+
+From a bucket, a page is drawn from a copy of the original in the temporary directory. The
+pages drawn ahead share one, and the API keeps its copy for the pages and the thumbnails it
+draws next: five minutes after the last page drawn from it, up to `RENDER_CACHE_MB` of copies
+(256), the least recently used going first, and a request that comes while the copy is being
+made waits for it rather than make another. So a member scrolling through a long PDF waits for
+one download of it, not one a page (from the compose bucket a page of a 62 MB scan took 2 s
+before, "Load"). A copy being drawn from is never removed, so an API holds at most
+`RENDER_CACHE_MB` or its `RENDER_PROCESSES` originals in use, whichever is more; a document
+deleted through it loses its copy at once, and another API's copy goes within the five minutes,
+unread, since every request reads the document first; an API that stops removes its copies. A
+directory needs none of this: the pages are drawn from its file.
 
 ## Large documents
 
@@ -2343,12 +2354,14 @@ beside the app and the files in a directory, at the defaults (`WORKER_CONCURRENC
 | An upload of 3,000 documents to each one ready, the model at once | 3,000 | 83 s | 136 s |
 | 200 documents to each one ready, at 3 s an indexing request | 200 | 22 s | 39 s |
 | A page of the scan drawn, four asked at once | 300 | 602 ms | 629 ms |
-| The same, from a bucket (the compose bucket, on the loopback address) | 300 | 2.06 s | 2.11 s |
+| The same, from a bucket (the compose bucket, on the loopback address) | 300 | 675 ms | 730 ms |
 | A page of the scan kept from before | 300 | 26 ms | 32 ms |
+| The same, from the bucket | 300 | 52 ms | 63 ms |
 
 The row with `ANSWER_CONCURRENCY` 20 is a run earlier that day (with `DB_POOL_SIZE` 22, the pool
-the worker then needed), the bucket's a run of the large phase with `--storage s3`; neither
-answers nor pages changed since.
+the worker then needed), the bucket's a run of the large phase with `--storage s3` (`--phases
+large --sheet-mb 0`) once the API kept its copy of the original for the next pages; before it
+copied the original for every page, and a page from the bucket took 2.06 s (p95 2.11 s).
 
 Indexing at a hosted model's pace, 3 s an indexing request, by the worker's indexers (the paced
 phase with `--paced-documents`, `--set WORKER_CONCURRENCY=…` and the pool that needs; the row
@@ -2431,9 +2444,11 @@ was indexed.
   endpoint's time on top, a minute or two for one at the limit here, and longer with an
   embeddings server on a few CPUs.
 - **Pages** are drawn two at a time by each API, about 0.3 s each for a page of this scan, so
-  four asked at once wait about 0.6 s; from a bucket each page copies the whole original
-  first, here 62 MB, which made it 2 s, and a member scrolling through the scan fetched 300
-  copies. A page kept from before comes from the storage in 25 ms.
+  four asked at once wait about 0.6 s. From a bucket the API copies the original, here 62 MB,
+  once for the pages that follow (`RENDER_CACHE_MB`, "Drawing pages"), so a page waits about
+  as long as from a directory; when it copied the original for every page, a page took 2 s and
+  a member scrolling through the scan fetched 300 copies. A page kept from before comes from
+  the storage in 25 ms, from the bucket in about 50 (the redirect and the bucket's answer).
 - **Search** is quick at this size: the full-text and vector search under 100 ms eight at a
   time, and `ilike` over 3,000 documents' titles, file names and summaries and 15,210 facts
   under 50 ms.
@@ -3297,6 +3312,7 @@ the roots' `settings` the others ("The settings").
 | `RENDER_PROCESSES` | `2` | | The pages a process draws at once, each in a child of its own ("Drawing pages") |
 | `RENDER_TIMEOUT` | `30` | | Seconds a page may take to draw; 0 for no limit |
 | `RENDER_MEMORY_MB` | `1024` | | The memory a drawing child may hold; 0 for no limit |
+| `RENDER_CACHE_MB` | `256` | | The copies of a bucket's originals an API keeps a few minutes for the next pages it draws; 0 for none ("Drawing pages") |
 | `PRERENDER_PAGES` | `3` | | A PDF's first pages drawn once it is parsed; 0 for none |
 | `OCR_MAX_PAGES` | `100` | | The pages of one document read as scans |
 | `ENRICH_MAX_REQUESTS` | `50` | | The requests one document's summaries and facts may take; 0 for no limit |

@@ -20,7 +20,11 @@ left behind when the storage failed after the rows were gone: a prefix whose doc
 project has no row is removed, once it is old enough not to be an upload still in flight.
 
 The parsers open files by path, so `localize` gives the parse stage a local copy of an object
-for as long as it needs one; the local storage hands out the file itself. Serving goes through
+for as long as it needs one; the local storage hands out the file itself. A reader that comes
+back for the same object soon, the document pane asking for a PDF's pages one request after
+another, takes it through `kept` instead, which a bucket answers from a copy it keeps a few
+minutes (`KeptCopies`), so that a member scrolling through a scan downloads it once rather than
+once a page. Serving goes through
 `response`, after the route has checked who asks: the local storage sends the file, a bucket
 redirects to a URL signed for a few minutes, so a large original never streams through the app
 and the bucket itself is never public. Either way the file is not a page of the app: it comes as
@@ -46,8 +50,12 @@ import os
 import re
 import shutil
 import tempfile
+import threading
+import time
+import weakref
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Iterator
+from collections import OrderedDict
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -83,6 +91,10 @@ SANDBOX = "sandbox"
 
 # What a browser may keep of a file the app hands out, or of the redirect to one: nothing.
 NOT_KEPT = {"Cache-Control": "no-store"}
+# How long a bucket's copy stays on this machine after its last reader (`kept`): a member
+# scrolling through a PDF asks for its next pages within seconds, and one who comes back later
+# waits for one download again.
+KEPT_SECONDS = 5 * 60
 
 
 class StorageError(AppError):
@@ -195,6 +207,19 @@ class Storage(ABC):
     def localize(self, key: str) -> AbstractContextManager[Path]:
         """The object as a file on this machine for the duration of the block, for the parsers
         and renderers, which open files by path; `FileNotFoundError` when there is none."""
+
+    def kept(self, key: str) -> AbstractContextManager[Path]:
+        """`localize` for a reader that may come back for the same object soon, as the pages
+        of a PDF are drawn one request after another: a storage that copies the object keeps
+        the copy a while for the next one. Other readers may have the same file at once, so
+        the block only reads it."""
+        return self.localize(key)
+
+    @abstractmethod
+    def close(self) -> None:
+        """Remove what the storage keeps on this machine for `kept`, as the process stops. The
+        API's lifespan does it: uvicorn ends the process by the signal it stopped for, which
+        runs no exit handler, so the copies would stay in the temporary directory."""
 
     @abstractmethod
     def presigned_url(
@@ -371,6 +396,10 @@ class LocalStorage(Storage):
         if not path.is_file():
             raise FileNotFoundError(key)
         yield path
+
+    def close(self) -> None:
+        # The files handed out are the storage's own, and none is copied.
+        pass
 
     def presigned_url(
         self,
@@ -575,14 +604,185 @@ def _expiry(rule: dict[str, Any], key: str) -> int | None:
     return days if key.startswith(prefix) else None
 
 
-class S3Storage(Storage):
-    """An S3-compatible bucket, reached through boto3, with every key under one prefix."""
+@dataclass(eq=False)
+class _Copy:
+    """One object copied to this machine for `KeptCopies`, and who reads it."""
 
-    def __init__(self, client: S3Client, bucket: str, prefix: str = ""):
+    key: str
+    # Set once the copy is made, or could not be: a reader who came while it was being made
+    # waits for it.
+    made: threading.Event = field(default_factory=threading.Event)
+    # None until it is made, and for good when it could not be.
+    path: Path | None = None
+    size: int = 0
+    readers: int = 0
+    # When its last reader was done with it, by `time.monotonic`.
+    idle_since: float = 0.0
+    # Taken out of the keeping, the object deleted: the file goes with its last reader.
+    dropped: bool = False
+
+
+class KeptCopies:
+    """The copies of a bucket's objects a process keeps for the readers that come back for
+    them (`Storage.kept`): at most `limit` bytes, each for KEPT_SECONDS after its last reader,
+    the least recently read going first when the bound is reached.
+
+    A copy being read is never removed, so the copies in use may pass the bound by themselves:
+    an API reads at most RENDER_PROCESSES originals at once, as many as it copied before
+    anything was kept. A reader who asks for an object while it is being copied waits for that
+    copy rather than start another, since the document pane asks for four pages at once. A
+    delete through the storage removes the copies of what it deleted (`forget`), and the API
+    removes them all as it stops (`clear`, from `Storage.close`).
+    """
+
+    def __init__(self, download: Callable[[str], Path], limit: int):
+        self._download = download
+        self._limit = limit
+        self._lock = threading.Lock()
+        # The least recently read first.
+        self._copies: OrderedDict[str, _Copy] = OrderedDict()
+        self._timer: threading.Timer | None = None
+        # For a keeper dropped, or a process that ends without stopping it; given the copies
+        # rather than the keeper, which it would otherwise keep alive.
+        weakref.finalize(self, _remove_all, self._copies)
+
+    @contextmanager
+    def localize(self, key: str) -> Iterator[Path]:
+        copy, path = self._take(key)
+        try:
+            yield path
+        finally:
+            self._give_back(copy)
+
+    def forget(self, keys: Iterable[str]) -> None:
+        """Remove the copies of these objects, which the storage no longer holds as they were;
+        one being read goes when its last reader is done, and the next reader copies anew."""
+        removed = []
+        with self._lock:
+            for key in keys:
+                copy = self._copies.pop(key, None)
+                if copy is None:
+                    continue
+                copy.dropped = True
+                if copy.readers == 0 and copy.path is not None:
+                    removed.append(copy.path)
+        _remove(removed)
+
+    def clear(self) -> None:
+        """Remove every copy, one being read as its last reader is done."""
+        with self._lock:
+            if self._timer is not None:
+                self._timer.cancel()
+                self._timer = None
+            keys = list(self._copies)
+        self.forget(keys)
+
+    def _take(self, key: str) -> tuple[_Copy, Path]:
+        while True:
+            with self._lock:
+                removed = self._tidy()
+                copy = self._copies.get(key)
+                making = copy is None
+                if copy is None:
+                    copy = self._copies[key] = _Copy(key)
+                else:
+                    self._copies.move_to_end(key)
+                copy.readers += 1
+            _remove(removed)
+            if making:
+                return copy, self._make(copy)
+            copy.made.wait()
+            if copy.path is not None:
+                return copy, copy.path
+            # The reader who made it met an error; this one asks the storage again and meets
+            # the error itself if the storage still fails.
+
+    def _make(self, copy: _Copy) -> Path:
+        try:
+            path = self._download(copy.key)
+            size = path.stat().st_size
+        except BaseException:
+            with self._lock:
+                if self._copies.get(copy.key) is copy:
+                    del self._copies[copy.key]
+            copy.made.set()
+            raise
+        with self._lock:
+            copy.path, copy.size = path, size
+            removed = self._tidy()
+        copy.made.set()
+        _remove(removed)
+        return path
+
+    def _give_back(self, copy: _Copy) -> None:
+        with self._lock:
+            copy.readers -= 1
+            copy.idle_since = time.monotonic()
+            removed = self._tidy()
+            if copy.dropped and copy.readers == 0 and copy.path is not None:
+                removed.append(copy.path)
+            self._arm()
+        _remove(removed)
+
+    def _tidy(self) -> list[Path]:
+        """Take out, under the lock, the copies nobody reads that were kept past their time,
+        then the least recently read of the others until what is kept fits the bound; returns
+        their files, to be removed outside it."""
+        now = time.monotonic()
+        held = sum(copy.size for copy in self._copies.values())
+        removed = []
+        for copy in [copy for copy in self._copies.values() if copy.readers == 0]:
+            if held > self._limit or now - copy.idle_since >= KEPT_SECONDS:
+                del self._copies[copy.key]
+                held -= copy.size
+                if copy.path is not None:
+                    removed.append(copy.path)
+        return removed
+
+    def _arm(self) -> None:
+        """Look again, under the lock, when the next copy nobody reads is past its time, so
+        that a process nobody asks anything of keeps no copy longer."""
+        if self._timer is not None:
+            return
+        idle = [copy.idle_since for copy in self._copies.values() if copy.readers == 0]
+        if not idle:
+            return
+        self._timer = threading.Timer(
+            max(0.0, min(idle) + KEPT_SECONDS - time.monotonic()), self._expire
+        )
+        self._timer.daemon = True
+        self._timer.start()
+
+    def _expire(self) -> None:
+        with self._lock:
+            self._timer = None
+            removed = self._tidy()
+            self._arm()
+        _remove(removed)
+
+
+def _remove(paths: Iterable[Path]) -> None:
+    for path in paths:
+        path.unlink(missing_ok=True)
+
+
+def _remove_all(copies: dict[str, _Copy]) -> None:
+    _remove(copy.path for copy in list(copies.values()) if copy.path is not None)
+
+
+class S3Storage(Storage):
+    """An S3-compatible bucket, reached through boto3, with every key under one prefix.
+
+    `keep` is the bytes of copies `kept` holds on to for the readers that come back for them
+    (RENDER_CACHE_MB); 0 keeps none past its readers.
+    """
+
+    def __init__(self, client: S3Client, bucket: str, prefix: str = "", keep: int = 0):
         self.client = client
         self.bucket = bucket
         prefix = prefix.strip("/")
         self.prefix = f"{prefix}/" if prefix else ""
+        self.copies = KeptCopies(self._download, keep)
 
     def _key(self, key: str) -> str:
         return self.prefix + key
@@ -602,6 +802,7 @@ class S3Storage(Storage):
 
     def put(self, key: str, source: Path | bytes, content_type: str | None = None) -> None:
         extra = {"ContentType": content_type} if content_type else {}
+        self.copies.forget([key])
         try:
             if isinstance(source, bytes):
                 self.client.put_object(Bucket=self.bucket, Key=self._key(key), Body=source, **extra)
@@ -643,20 +844,34 @@ class S3Storage(Storage):
 
     @contextmanager
     def localize(self, key: str) -> Iterator[Path]:
+        path = self._download(key)
+        try:
+            yield path
+        finally:
+            path.unlink(missing_ok=True)
+
+    def kept(self, key: str) -> AbstractContextManager[Path]:
+        return self.copies.localize(key)
+
+    def close(self) -> None:
+        self.copies.clear()
+
+    def _download(self, key: str) -> Path:
+        """A copy of the object in the temporary directory, which the caller removes."""
         body = self._body(key)
         # The copy keeps the extension: the parsers pick their format from the file name too.
         handle, name = tempfile.mkstemp(prefix="emudoc-", suffix=Path(key).suffix)
         path = Path(name)
         try:
-            try:
-                with os.fdopen(handle, "wb") as out:
-                    shutil.copyfileobj(body, out)
-            except (ClientError, BotoCoreError) as error:
+            with os.fdopen(handle, "wb") as out:
+                shutil.copyfileobj(body, out)
+        except BaseException as error:
+            path.unlink(missing_ok=True)
+            if isinstance(error, (ClientError, BotoCoreError)):
                 # The connection dropped partway through the object.
                 raise _unreadable(error) from error
-            yield path
-        finally:
-            path.unlink(missing_ok=True)
+            raise
+        return path
 
     def presigned_url(
         self,
@@ -867,6 +1082,7 @@ class S3Storage(Storage):
 
     def delete(self, keys: Iterable[str]) -> None:
         for batch in batched(keys, DELETE_BATCH, strict=False):
+            self.copies.forget(batch)
             try:
                 answer = self.client.delete_objects(
                     Bucket=self.bucket,
@@ -904,7 +1120,9 @@ def storage_from_settings(settings: Settings) -> Storage:
     # Signature version 4 is what every current service accepts; boto3 would otherwise sign
     # requests to a bucket in the default region the old way, which some services refuse.
     client = boto3.client("s3", config=Config(signature_version="s3v4"))
-    return S3Storage(client, parts.netloc, unquote(parts.path))
+    return S3Storage(
+        client, parts.netloc, unquote(parts.path), keep=settings.render_cache_mb * 1024 * 1024
+    )
 
 
 def report_encryption(storage: Storage) -> None:

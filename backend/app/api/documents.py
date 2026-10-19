@@ -595,12 +595,14 @@ async def _drawn(request: Request, session: Session, draw: Callable[[], None]) -
 
 
 def _draw_page(storage: Storage, document: Document, page: int, key: str) -> None:
-    with storage.localize(document.storage_key) as original:
+    # Kept, since the next page asked for is most likely of the same document: from a bucket
+    # each page would otherwise download the whole original again.
+    with storage.kept(document.storage_key) as original:
         storage.put(key, renderer().render(original, page, purpose=FOR_PANE), "image/png")
 
 
 def _draw_thumbnail(storage: Storage, document: Document) -> None:
-    with storage.localize(document.storage_key) as original:
+    with storage.kept(document.storage_key) as original:
         if document.mime_type == "application/pdf":
             image = renderer().render(
                 original, 1, purpose=FOR_THUMBNAIL, scale=None, edge=THUMBNAIL_SIZE

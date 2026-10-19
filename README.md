@@ -429,7 +429,9 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   side; `0` removes the time or the memory limit. A page past a limit is not drawn and says
   why (a scanned one fails the document's indexing, naming the page), and its process is
   replaced. `PRERENDER_PAGES` (3) is how many of a PDF's first pages the worker draws once the
-  PDF is parsed, so that opening it shows them at once; `0` draws none ahead.
+  PDF is parsed, so that opening it shows them at once; `0` draws none ahead. From a bucket a
+  page is drawn from a copy of the original in the temporary directory, which the API keeps
+  five minutes for the next pages, up to `RENDER_CACHE_MB` (256) of copies; `0` keeps none.
 - `AGENT_MODEL` and `INDEX_MODEL` name the AI models as `provider:model`. Both default to
   `google:gemini-3.5-flash-lite`, Google's model for new projects (since September 2026 Google
   serves Gemini 2.5 only to accounts that used it before). Indexing is the high-volume side and
