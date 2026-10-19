@@ -3,14 +3,15 @@ import hashlib
 import io
 import json
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from functools import partial
 from pathlib import Path
 from typing import BinaryIO
 
+from anyio import to_thread
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
-from PIL import Image, ImageOps, UnidentifiedImageError
-from pypdfium2 import PdfiumError
+from PIL import ImageOps, UnidentifiedImageError
 from sqlalchemy import func, literal_column, select, tuple_
 from sqlalchemy.exc import IntegrityError
 
@@ -38,9 +39,9 @@ from app.metrics import UPLOAD_BYTES, UPLOAD_REJECTIONS
 from app.models import STAGES, Block, Document, Fact, Project, Section
 from app.parsing import IMAGE_TYPES, MIME_TYPES, SUPPORTED_EXTENSIONS, FileTooLarge
 from app.parsing.images import open_image
-from app.parsing.pdf import render_page, render_thumbnail
 from app.parsing.signatures import wrong_type
 from app.ratelimit import UPLOADS
+from app.rendering import FOR_PANE, FOR_THUMBNAIL, RenderError, renderer
 from app.restore import place_taken
 from app.scanning import scan_passed
 from app.schemas import (
@@ -54,7 +55,7 @@ from app.schemas import (
     SectionOut,
     UploadResult,
 )
-from app.storage import StorageError, original_key
+from app.storage import Storage, StorageError, original_key
 from app.usage import DOCUMENT, RENDER, UPLOAD, record
 from app.version import VERSION
 
@@ -528,15 +529,17 @@ def download_file(
 
 
 @router.get("/documents/{document_id}/pages/{page}.png")
-def page_image(
+async def page_image(
     document: DocumentDep,
     page: int,
+    request: Request,
     services: ServicesDep,
     session: SessionDep,
     account: AccountDep,
 ) -> Response:
-    """A rendered PDF page, for showing where on the page a passage sits. Pages are rendered
-    the first time they are asked for and kept beside the original for PAGE_IMAGE_DAYS."""
+    """A rendered PDF page, for showing where on the page a passage sits. A PDF's first pages
+    are drawn once it is parsed (PRERENDER_PAGES, app/rendering.py), any other the first time
+    it is asked for, and each is kept beside the original for PAGE_IMAGE_DAYS."""
     if document.mime_type != "application/pdf":
         raise HTTPException(404, "Only PDF documents have page images")
     if not 1 <= page <= (document.page_count or 0):
@@ -544,38 +547,73 @@ def page_image(
     _scanned(document)
     storage = services.storage
     key = document.page_image_key(page)
-    if not storage.exists(key):
-        try:
-            with storage.localize(document.storage_key) as original:
-                storage.put(key, render_page(original, page), "image/png")
-        except FileNotFoundError:
-            raise HTTPException(404, MISSING_FILE) from None
-        _charge_render(session, account, document)
+    if not await to_thread.run_sync(storage.exists, key):
+        await _drawn(request, partial(_draw_page, storage, document, page, key))
+        await to_thread.run_sync(_charge_render, session, account, document)
     return storage.response(key, media_type="image/png")
 
 
 @router.get("/documents/{document_id}/thumbnail.png")
-def thumbnail(
-    document: DocumentDep, services: ServicesDep, session: SessionDep, account: AccountDep
+async def thumbnail(
+    document: DocumentDep,
+    request: Request,
+    services: ServicesDep,
+    session: SessionDep,
+    account: AccountDep,
 ) -> Response:
     """A small picture of the document for the library: a PDF's first page, or the image itself."""
     if document.mime_type != "application/pdf" and document.mime_type not in IMAGE_TYPES.values():
         raise HTTPException(404, "Only PDF and image documents have thumbnails")
     _scanned(document)
     storage = services.storage
-    if not storage.exists(document.thumbnail_key):
-        try:
-            with storage.localize(document.storage_key) as original:
-                image = _thumbnail_of(original, document.mime_type)
-        except FileNotFoundError:
-            raise HTTPException(404, MISSING_FILE) from None
-        except (PdfiumError, UnidentifiedImageError, OSError, IndexError, FileTooLarge) as error:
-            raise HTTPException(404, "The file could not be rendered") from error
-        buffer = io.BytesIO()
-        image.save(buffer, format="PNG", optimize=True)
-        storage.put(document.thumbnail_key, buffer.getvalue(), "image/png")
-        _charge_render(session, account, document)
+    if not await to_thread.run_sync(storage.exists, document.thumbnail_key):
+        await _drawn(request, partial(_draw_thumbnail, storage, document))
+        await to_thread.run_sync(_charge_render, session, account, document)
     return storage.response(document.thumbnail_key, media_type="image/png")
+
+
+async def _drawn(request: Request, draw: Callable[[], None]) -> None:
+    """Run `draw`, which draws an image and keeps it, in one of the threads the API keeps for
+    drawing (`app.state.drawing`, RENDER_PROCESSES of them), so that the requests waiting for a
+    page hold none of the threads every other route runs in."""
+    try:
+        await to_thread.run_sync(draw, limiter=request.app.state.drawing)
+    except FileNotFoundError:
+        raise HTTPException(404, MISSING_FILE) from None
+    except RenderError as error:
+        if error.transient:
+            raise HTTPException(503, str(error), headers={"Retry-After": "5"}) from error
+        raise HTTPException(404, str(error)) from error
+
+
+def _draw_page(storage: Storage, document: Document, page: int, key: str) -> None:
+    with storage.localize(document.storage_key) as original:
+        storage.put(key, renderer().render(original, page, purpose=FOR_PANE), "image/png")
+
+
+def _draw_thumbnail(storage: Storage, document: Document) -> None:
+    with storage.localize(document.storage_key) as original:
+        if document.mime_type == "application/pdf":
+            image = renderer().render(
+                original, 1, purpose=FOR_THUMBNAIL, scale=None, edge=THUMBNAIL_SIZE
+            )
+        else:
+            image = _image_thumbnail(original)
+    storage.put(document.thumbnail_key, image, "image/png")
+
+
+def _image_thumbnail(path: Path) -> bytes:
+    try:
+        with open_image(path) as original:
+            image = ImageOps.exif_transpose(original)
+            image.thumbnail((THUMBNAIL_SIZE, THUMBNAIL_SIZE))
+            if image.mode == "CMYK":
+                image = image.convert("RGB")
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG", optimize=True)
+    except (UnidentifiedImageError, OSError, IndexError, FileTooLarge) as error:
+        raise HTTPException(404, "The file could not be rendered") from error
+    return buffer.getvalue()
 
 
 def _charge_render(session: SessionDep, account: Account, document: Document) -> None:
@@ -591,15 +629,6 @@ def _charge_render(session: SessionDep, account: Account, document: Document) ->
         ref=(DOCUMENT, document.id),
     )
     session.commit()
-
-
-def _thumbnail_of(path: Path, mime_type: str) -> Image.Image:
-    if mime_type == "application/pdf":
-        return render_thumbnail(path, THUMBNAIL_SIZE)
-    with open_image(path) as original:
-        image = ImageOps.exif_transpose(original)
-        image.thumbnail((THUMBNAIL_SIZE, THUMBNAIL_SIZE))
-        return image.convert("RGB") if image.mode == "CMYK" else image
 
 
 @router.get("/documents/{document_id}/outline", response_model=list[SectionOut])

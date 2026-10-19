@@ -2,6 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 
 import httpx
+from anyio import CapacityLimiter
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
@@ -304,6 +305,9 @@ def create_app(
         app.state.policy = content_security_policy(app.state.services.storage)
         app.state.mailer = mailer or mailer_from_settings(settings)
         app.state.http = http or httpx.Client(timeout=10)
+        # The threads the page images and thumbnails are drawn in, one per render process
+        # (app/rendering.py): a request beyond them waits without holding a thread of its own.
+        app.state.drawing = CapacityLimiter(settings.render_processes)
         # The worker is the API's own in development and a process of its own in production
         # (RUN_WORKER); without it, an upload waits for a worker elsewhere.
         app.state.worker = None

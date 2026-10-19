@@ -6,9 +6,10 @@ It is its own process, `python -m app.worker`, so that a deployment scales it ap
 API: the API replicas serve requests while as many workers as the backlog needs index documents
 and answer questions. A worker starts like the API does (app/startup.py) and claims the kinds
 of job it has a handler for (`HANDLERS`), in two lanes: WORKER_CONCURRENCY indexer threads for
-the documents, and ANSWER_CONCURRENCY answerer threads for the questions (app/answers.py), so
-that a backlog of parses never holds an answer up and the other way round. The listener thread
-wakes them all when a job is queued anywhere, so a question is taken the moment it is asked.
+the documents (and for a PDF's first pages, drawn ahead once it is parsed, app/rendering.py),
+and ANSWER_CONCURRENCY answerer threads for the questions (app/answers.py), so that a backlog
+of parses never holds an answer up and the other way round. The listener thread wakes them all
+when a job is queued anywhere, so a question is taken the moment it is asked.
 In development the API process runs the same threads itself, so that one `uvicorn` does
 everything (RUN_WORKER in app/config.py).
 
@@ -82,6 +83,7 @@ from app.jobs import (
     ANSWER_QUESTION,
     INDEX_DOCUMENT,
     LEASE,
+    RENDER_PAGES,
     Lease,
     LeaseLost,
     claim,
@@ -105,6 +107,7 @@ from app.metrics import (
     lane_of,
 )
 from app.models import Document, Job
+from app.rendering import draw_ahead
 from app.scanning import ScanError, alert_quarantines
 from app.spending import alert_spending, when
 from app.startup import prepare
@@ -275,12 +278,23 @@ def _fail_document(document_id: int, error: str) -> None:
         session.commit()
 
 
+def _run_render(job: Job, services: Services) -> str | None:
+    draw_ahead(job.payload["document_id"], job.payload["pages"], services.storage)
+    return None
+
+
+def _abandon_render(job: Job, services: Services) -> None:
+    # The pages are drawn when the document pane asks for them; nobody waits on this job.
+    pass
+
+
 # The kinds this worker runs. A kind in JOB_KINDS that is missing here is left in the queue for
 # a worker that has it. The answers have a lane of threads to themselves; every other kind
 # shares the indexers.
 HANDLERS: dict[str, Handler] = {
     INDEX_DOCUMENT: Handler(_run_index, _abandon_index),
     ANSWER_QUESTION: Handler(run_answer, abandon_answer),
+    RENDER_PAGES: Handler(_run_render, _abandon_render),
 }
 
 

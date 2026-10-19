@@ -11,6 +11,9 @@ its day, in the same commit.
 
 Members:
 
+- A PDF's first pages show at once when you open it, and the pages you scroll to, or a
+  citation opens, are drawn several at a time, so one long scan no longer holds up everybody's
+  pages.
 - A document whose indexing failed, and an answer that failed, say what it means for you ("The
   AI model is unavailable just now.", a document "found by its words alone" until semantic
   search takes it) and how it goes on, and no longer name the model, a service's address or
@@ -26,6 +29,14 @@ Members:
 
 Operators:
 
+- PDF pages are drawn in child processes the API and the worker keep for it,
+  `RENDER_PROCESSES` (2) at a time each, where one lock let a process draw a single page at a
+  time; each page within `RENDER_TIMEOUT` (30 s), `RENDER_MEMORY_MB` (1024) and 2,576 pixels on
+  its longer side, so a crafted page can no longer take the API's memory. A page past a limit is
+  not drawn and says why; a scanned one fails its document's indexing. Once a PDF is parsed, a
+  `render_pages` job draws its first `PRERENDER_PAGES` (3) pages, charged as `render` usage to
+  the organisation. `emudoc_renders_total` and `emudoc_render_seconds` count them by purpose and
+  outcome (deploying.md, "Drawing pages").
 - `GET /api/projects/{id}/documents` lists one folder (`folder_id`, the root without it) a page
   at a time (`after`, `limit`, at most 500; `{documents, next_after}`), in the library's order,
   and answers 304 to an `If-None-Match` that names the page, which is what the library sends

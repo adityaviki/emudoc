@@ -57,7 +57,7 @@ from sqlalchemy import Engine, text
 from app.config import Settings, parse_metrics_address
 from app.db import SessionLocal, engine
 from app.errors import AppError, summary
-from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT, JOB_STATES, QUEUE_BY_STATE
+from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT, JOB_STATES, QUEUE_BY_STATE, RENDER_PAGES
 from app.models import STAGES
 from app.postgres import archive, database_report
 from app.spending import day_of, spent_since
@@ -81,6 +81,8 @@ NO_ROUTE = "other"
 # The statuses a document's row holds, served even when no document has them, so that a
 # dashboard's series start at zero rather than appear with the first one.
 DOCUMENT_STATUSES = ("queued", "processing", "ready", "failed", "quarantined")
+# The kinds of job the worker runs (HANDLERS in app/worker.py), whose series start at zero.
+JOBS = (INDEX_DOCUMENT, ANSWER_QUESTION, RENDER_PAGES)
 # What a lane of the worker's threads runs (app/worker.py).
 INDEXER = "indexer"
 ANSWERER = "answerer"
@@ -233,6 +235,21 @@ RATE_LIMITED = Counter(
     "Requests refused for a rate (the RATE_* settings), by the limit's scope.",
     ["scope"],
 )
+# Started at zero by app/rendering.py, which knows the purposes and outcomes.
+RENDERS = Counter(
+    "emudoc_renders",
+    "PDF pages drawn as images, by what for (pane, the document pane's; thumbnail; ocr; "
+    "ahead, a first page drawn once the PDF was parsed) and how each ended: drawn, refused (a "
+    "page that cannot be drawn), timeout (past RENDER_TIMEOUT), out_of_memory (past "
+    "RENDER_MEMORY_MB), crashed or unstarted (no process could draw it).",
+    ["purpose", "outcome"],
+)
+RENDER_SECONDS = Histogram(
+    "emudoc_render_seconds",
+    "How long drawing a page took, however it ended, the wait for a free render process included.",
+    ["purpose"],
+    buckets=(0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60),
+)
 
 
 def _start_at_zero() -> None:
@@ -243,7 +260,7 @@ def _start_at_zero() -> None:
             STAGE_RUNS.labels(stage, outcome)
     for outcome in INDEX_OUTCOMES:
         INDEX_RUNS.labels(outcome)
-    for kind in (INDEX_DOCUMENT, ANSWER_QUESTION):
+    for kind in JOBS:
         JOB_WAIT.labels(kind)
         JOB_SECONDS.labels(kind)
         for outcome in JOB_OUTCOMES:
@@ -531,10 +548,8 @@ class Holdings:
         families = self._families()
         documents = dict.fromkeys(DOCUMENT_STATUSES, 0)
         stored: dict[str, int] = {}
-        jobs = {
-            (kind, state): 0 for kind in (INDEX_DOCUMENT, ANSWER_QUESTION) for state in JOB_STATES
-        }
-        oldest = dict.fromkeys((INDEX_DOCUMENT, ANSWER_QUESTION), 0.0)
+        jobs = {(kind, state): 0 for kind in JOBS for state in JOB_STATES}
+        oldest = dict.fromkeys(JOBS, 0.0)
         with SessionLocal() as session:
             for plan, status, count, size in session.execute(_DOCUMENTS):
                 documents[status] = documents.get(status, 0) + count

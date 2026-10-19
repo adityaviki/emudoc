@@ -704,7 +704,8 @@ class Job(Base):
     )
     kind: Mapped[str] = mapped_column(String(40))
     # What the job is about, by the kind's convention: {"document_id": 7} for index_document,
-    # with the trace it was queued under (`trace_id`, app/tracing.py).
+    # {"document_id": 7, "pages": [1, 2, 3]} for render_pages, with the trace it was queued
+    # under (`trace_id`, app/tracing.py).
     payload: Mapped[dict] = mapped_column(JSONB)
     # queued | running | done | failed
     status: Mapped[str] = mapped_column(String(20), default="queued", server_default="queued")

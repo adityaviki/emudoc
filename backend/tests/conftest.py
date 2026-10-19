@@ -107,6 +107,9 @@ os.environ["METRICS_ADDRESS"] = ""
 # The app under test starts no worker threads of its own: tests run the pipeline directly, or
 # build a `Worker` by hand (tests/test_jobs.py) and stop it.
 os.environ["RUN_WORKER"] = "false"
+# A parsed PDF queues no drawing of its first pages, so that the jobs a test finds are the ones
+# it is about; tests/test_rendering.py turns it on.
+os.environ["PRERENDER_PAGES"] = "0"
 
 from alembic import command  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

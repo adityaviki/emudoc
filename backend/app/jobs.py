@@ -66,6 +66,7 @@ log = logging.getLogger(__name__)
 
 INDEX_DOCUMENT = "index_document"
 ANSWER_QUESTION = "answer_question"
+RENDER_PAGES = "render_pages"
 # Lower runs first. An answer is work a user is watching for; an upload is work a user is
 # waiting for; a reprocess of a whole project, or of everything after a model change, is bulk
 # work that should not hold either up.

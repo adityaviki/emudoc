@@ -10,7 +10,8 @@ recorded by `answer` in app/answers.py), what an upload brought in (`upload`: it
 the request in app/api/documents.py, and its pages, by the first parse), the model calls of
 the indexing stages (`ocr` with the pages it read, `infer_sections`, `enrich`), the texts
 embedded (`embed`, with the tokens the endpoint says they took) and the pages rendered for the
-viewer (`render`, app/api/documents.py).
+viewer (`render`: the member's by app/api/documents.py, the organisation's for a PDF's first
+pages drawn ahead by app/rendering.py).
 
 The code that spent something records it, from what it counted, when its work ends however it
 ends: a stop, a lost lease or a crash ends an answer's run too, and the calls it made were

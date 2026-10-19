@@ -1,14 +1,12 @@
 """PDF parsing with pdfplumber: lines grouped into blocks, headings found by font."""
 
 import re
-import threading
 from bisect import bisect_left, bisect_right
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import pdfplumber
-import pypdfium2 as pdfium
 from pdfminer.pdfdocument import PDFEncryptionError, PDFPasswordIncorrect
 from pdfplumber.utils.exceptions import PdfminerException
 
@@ -43,9 +41,6 @@ UNKNOWN_PROTECTION = (
     "that."
 )
 NO_PAGES = "This PDF has no pages. Export it again from the program that made it and upload that."
-
-# pdfium is not thread-safe and the workers render pages concurrently.
-_pdfium_lock = threading.Lock()
 
 
 @dataclass
@@ -194,32 +189,6 @@ def _open(path: Path) -> pdfplumber.PDF:
         if isinstance(cause, PDFEncryptionError):
             raise UnreadableFile(UNKNOWN_PROTECTION) from error
         raise
-
-
-def render_page(path: Path, page_number: int, scale: float = 2.0) -> bytes:
-    """Render one page (1-based) to PNG bytes."""
-    import io
-
-    image = _render(path, page_number, lambda width, height: scale)
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG", optimize=True)
-    return buffer.getvalue()
-
-
-def render_thumbnail(path: Path, max_size: int):
-    """The first page as a PIL image, scaled so its longer side is `max_size` pixels."""
-    return _render(path, 1, lambda width, height: max_size / max(width, height, 1.0))
-
-
-def _render(path: Path, page_number: int, scale_for):
-    """Render one page; `scale_for` picks the scale from the page's size in points."""
-    with _pdfium_lock:
-        pdf = pdfium.PdfDocument(str(path))
-        try:
-            page = pdf[page_number - 1]
-            return page.render(scale=scale_for(*page.get_size())).to_pil()
-        finally:
-            pdf.close()
 
 
 def _metadata_title(value: object) -> str | None:

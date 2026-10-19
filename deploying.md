@@ -593,6 +593,37 @@ replaces every row of `passages`, so rebuild the vector index and vacuum after i
 above), and embedding every passage again takes hours on a CPU and costs every token again
 on a hosted endpoint.
 
+## Drawing pages
+
+The document pane shows a PDF's pages as images, the library's thumbnail of a PDF is its first
+page, and a scanned page is drawn before the model reads it. pdfium draws one page at a time in
+a process (it is not thread-safe, even with a document in each thread), so the API and the
+worker each keep `RENDER_PROCESSES` child processes for it (`python -m app.parsing.render`, 2 by
+default), started when the first page is asked for and kept for the next: that many pages are
+drawn at once, a page of text in about 50 ms. A request waiting for its page holds none of the
+API's threads, so a member scrolling through a long PDF slows no other request.
+
+Each child keeps within limits, since it reads files anyone with an account can upload:
+`RENDER_MEMORY_MB` of address space (1024), `RENDER_TIMEOUT` seconds a page (30), and no page
+drawn larger than 2,576 pixels on its longer side, whatever size the PDF gives it (a page of
+200 inches a side would otherwise take gigabytes). A page past a limit is not drawn: the pane
+shows none for it (a 404 whose detail says why), a scanned page fails the document's indexing
+with a sentence that names the page, the log says "A render process was stopped: …", and a
+fresh child draws the next page; a child is also replaced after 200 pages. A child holds about
+50 MB while it waits, so size a container's memory for `RENDER_PROCESSES` children at
+`RENDER_MEMORY_MB` at worst, beside the parse's (`PARSE_MEMORY_MB` per `WORKER_CONCURRENCY`).
+`emudoc_renders_total` counts the pages by what they were drawn for and how each ended
+("Metrics").
+
+Once a PDF is parsed, a `render_pages` job draws its first `PRERENDER_PAGES` pages (3), ahead of
+the uploads waiting to be indexed, so that opening the document shows them from the storage at
+once; the others are drawn the first time a member looks at them. Each page drawn is kept for
+`PAGE_IMAGE_DAYS` and counts as `render` usage: the member's when the pane asked for it, the
+organisation's with no member when it was drawn ahead. A page that cannot be drawn ahead is
+left for the pane, and the job ends done rather than failed. From a bucket, a page drawn for the
+pane copies the original to the temporary directory first, so the first look at a page of a
+large PDF costs its download; the pages drawn ahead share one.
+
 ## The models
 
 `INDEX_MODEL` reads every document, to infer its sections, write summaries, pull out facts and
@@ -1844,6 +1875,7 @@ across the instances, `sum without (instance)`):
 | `emudoc_worker_listening` | 1 while a worker hears of queued jobs as they are queued, 0 while it polls for them: behind a pooler in transaction mode without `DATABASE_LISTEN_URL`, or while its listener's lost connection waits to be made again |
 | `emudoc_upload_bytes`, `emudoc_upload_rejections_total` | The sizes of the files the API stored, and the files it refused by `reason`: `too_many` (a whole request), `plan`, `unsupported`, `empty`, `too_large`, `wrong_type`, `duplicate` |
 | `emudoc_rate_limited_total` | Requests refused for a rate, by the limit's `scope` ("Rates") |
+| `emudoc_renders_total`, `emudoc_render_seconds` | PDF pages drawn as images, by `purpose` (`pane`, `thumbnail`, `ocr`, `ahead`) and `outcome`: `drawn`, `refused` (a page that cannot be drawn), `timeout` (`RENDER_TIMEOUT`), `out_of_memory` (`RENDER_MEMORY_MB`), `crashed` or `unstarted` (no process could draw it); the seconds include the wait for a free process ("Drawing pages") |
 | `process_*`, `python_*` | The process's CPU, memory and open files, and Python's collector |
 
 What the database holds, which only a worker serves, reading it when asked, at most once every
@@ -1889,8 +1921,8 @@ docker run -d --name prometheus --network emudoc-deploy_default -p 127.0.0.1:909
 also loads the alerting rules beside it and sends what fires to an Alertmanager: "Alerts",
 below. The
 counters whose labels are known in advance start at zero: every stage with every outcome, every
-job's kind with every outcome, the upload refusals and the rate limits, so that `increase` sees
-the first failure after a start. A model's outcomes appear with their first request, since the
+job's kind with every outcome, the upload refusals, the rate limits and the renders, so that
+`increase` sees the first failure after a start. A model's outcomes appear with their first request, since the
 statuses a provider answers are not known beforehand.
 
 A few of the questions it answers:
@@ -3054,6 +3086,10 @@ the roots' `settings` the others ("The settings").
 | `PARSE_MEMORY_MB` | `2048` | | The memory a parse may hold |
 | `PARSE_MAX_PAGES` | `500` | | The pages of a PDF |
 | `PARSE_MAX_ROWS` | `100000` | | The rows of a sheet |
+| `RENDER_PROCESSES` | `2` | | The pages a process draws at once, each in a child of its own ("Drawing pages") |
+| `RENDER_TIMEOUT` | `30` | | Seconds a page may take to draw; 0 for no limit |
+| `RENDER_MEMORY_MB` | `1024` | | The memory a drawing child may hold; 0 for no limit |
+| `PRERENDER_PAGES` | `3` | | A PDF's first pages drawn once it is parsed; 0 for none |
 | `OCR_MAX_PAGES` | `100` | | The pages of one document read as scans |
 
 ### The models

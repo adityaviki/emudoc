@@ -49,6 +49,8 @@ TRACE_ID = re.compile(r"[0-9a-f]{32}")
 STAGE = "stage"
 TOOL = "tool"
 WRITE = "write"
+# A PDF page drawn as an image (app/rendering.py): for OCR, or drawn ahead.
+RENDER = "render"
 # A tool name the model sent that is not one of the agent's tools: the name is the model's
 # words, which a document can steer, so the span names it by this instead.
 UNKNOWN_TOOL = "unknown"
@@ -63,6 +65,7 @@ LISTED = 50
 NOUNS = {
     STAGE: ("stage", "stages"),
     "agent": ("agent turn", "agent turns"),
+    RENDER: ("page drawn", "pages drawn"),
     "index": ("indexing request", "indexing requests"),
     TOOL: ("tool call", "tool calls"),
     "embed": ("embeddings request", "embeddings requests"),

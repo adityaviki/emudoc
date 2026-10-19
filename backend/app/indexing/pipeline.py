@@ -28,15 +28,15 @@ from app.indexing.enrich import (
     parse_iso_date,
 )
 from app.indexing.structure import SectionHint, build_outline
-from app.jobs import Lease, LeaseLost, renew
+from app.jobs import LIVE, RENDER_PAGES, Lease, LeaseLost, enqueue, renew
 from app.llm import LLM, LLMError
 from app.metrics import DOCUMENT_READY, INDEX_RUNS, STAGE_RUNS, STAGE_SECONDS
 from app.models import STAGES, Block, Document, Fact, Passage, Section
 from app.parsing import IMAGE_TYPES, FileTooLarge, ParsedBlock, UnsupportedFile
 from app.parsing.images import open_image
 from app.parsing.limits import ParseLimits, parse_within_limits
-from app.parsing.pdf import render_page
 from app.parsing.types import clean_text
+from app.rendering import FOR_OCR, RenderError, renderer
 from app.scanning import NOT_SCANNED, UNSCANNED, Scanner, quarantine_message
 from app.spending import check_platform_spend, check_spend, day_of
 from app.storage import Storage
@@ -498,7 +498,29 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
     document.page_count = parsed.page_count
     document.page_sizes = [[round(w, 2), round(h, 2)] for w, h in parsed.page_sizes]
     document.title = parsed.title
+    _queue_drawing_ahead(session, document)
     return f"{len(blocks)} blocks{note}"
+
+
+def _queue_drawing_ahead(session: Session, document: Document) -> None:
+    """Queue the drawing of a PDF's first PRERENDER_PAGES pages, with the stage's commit, so
+    that opening the document shows them from the storage at once (app/rendering.py).
+
+    The job goes before the uploads waiting to be indexed: it is a few pages, done in moments
+    by the next indexer that is free, and worth something only if done before anybody opens
+    the document. One queued by a parse run again finds the pages kept and draws nothing.
+    """
+    pages = min(get_settings().prerender_pages, document.page_count or 0)
+    if document.mime_type != "application/pdf" or not pages:
+        return
+    enqueue(
+        session,
+        RENDER_PAGES,
+        org_id=document.project.org_id,
+        project_id=document.project_id,
+        payload={"document_id": document.id, "pages": list(range(1, pages + 1))},
+        priority=LIVE,
+    )
 
 
 def _spending_limit(session: Session, document: Document) -> str | None:
@@ -553,7 +575,14 @@ def _with_ocr(
     usage = meter.calls(OCR)
     for page in ocr_pages:
         if suffix == ".pdf":
-            image, media_type = render_page(path, page), "image/png"
+            try:
+                image = renderer().render(path, page, purpose=FOR_OCR, edge=MAX_IMAGE_EDGE)
+            except RenderError as error:
+                raise PipelineError(
+                    f"Page {page} could not be drawn to read it as a scan. {error}",
+                    transient=error.transient,
+                ) from error
+            media_type = "image/png"
         else:
             image, media_type = _prepare_image(path, IMAGE_TYPES[suffix])
         for found in llm.ocr_page(image, media_type, usage):

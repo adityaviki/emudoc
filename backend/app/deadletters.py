@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from app.audit import audit_event
 from app.db import SessionLocal
 from app.indexing.pipeline import reset_stages
-from app.jobs import INDEX_DOCUMENT, queue_index
+from app.jobs import INDEX_DOCUMENT, RENDER_PAGES, queue_index
 from app.mail import Mailer
 from app.models import STAGES, Document, Job, Organization, Project
 
@@ -29,6 +29,8 @@ FAILED_JOBS_COMMAND = "uv run python -m app.maintenance failed-jobs"
 # How many failures one digest lists in full. One backlog of bad files is hundreds of them,
 # and the mail is the alert, not the listing: the command has the rest.
 DIGEST_LIMIT = 50
+# The kinds of job whose payload names a document, `{"document_id": 7, …}`.
+ABOUT_A_DOCUMENT = (INDEX_DOCUMENT, RENDER_PAGES)
 
 # The failures not yet reported, stamped in the same statement that selects them: two workers
 # reporting at once cannot both take a row, since the second one waits on the row lock and
@@ -42,7 +44,8 @@ _TAKE = text(
 @dataclass(frozen=True)
 class NamedJob:
     """A job with the names of what it is about: its organisation, its project and, for an
-    index job, its document. The operator's commands print them (`failed-jobs`, `jobs`)."""
+    index or a drawing job, its document. The operator's commands print them (`failed-jobs`,
+    `jobs`)."""
 
     job: Job
     organization: str
@@ -69,7 +72,8 @@ def take_unreported(session: Session) -> list[NamedJob]:
 
 def named_jobs(session: Session, condition: ColumnElement[bool]) -> list[NamedJob]:
     """The jobs that meet `condition`, with their names, in the order they finished, then by
-    id. The document an index job is about is named in its payload, and may be gone by now."""
+    id. The document an index or a drawing job is about is named in its payload, and may be gone
+    by now."""
     rows = session.execute(
         select(Job, Organization.slug, Project.name, Document.filename)
         .join(Organization, Organization.id == Job.org_id)
@@ -77,7 +81,7 @@ def named_jobs(session: Session, condition: ColumnElement[bool]) -> list[NamedJo
         .outerjoin(
             Document,
             and_(
-                Job.kind == INDEX_DOCUMENT,
+                Job.kind.in_(ABOUT_A_DOCUMENT),
                 Document.id == Job.payload["document_id"].as_integer(),
             ),
         )
@@ -91,7 +95,7 @@ def named_jobs(session: Session, condition: ColumnElement[bool]) -> list[NamedJo
 
 
 def _document_name(job: Job, filename: str | None) -> str | None:
-    if filename is not None or job.kind != INDEX_DOCUMENT:
+    if filename is not None or job.kind not in ABOUT_A_DOCUMENT:
         return filename
     return f"document {job.payload['document_id']} (deleted)"
 

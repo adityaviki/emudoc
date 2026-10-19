@@ -388,9 +388,10 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   `uv run python -m app.maintenance relocate-files` once in `backend/` with the app stopped (the
   backend logs a reminder while they are there), or `docker compose down -v` and upload again.
 - `PAGE_IMAGE_DAYS` is how long a rendered page image or thumbnail is kept after it was
-  rendered (30 by default). Pages are rendered from the original the first time they are asked
-  for and kept beside it; every few hours the backend removes the ones older than this, and a
-  page asked for again is rendered again, so nothing is lost. `0` keeps them for good.
+  rendered (30 by default). A PDF's first pages are rendered once it is parsed, the others the
+  first time they are asked for, and each is kept beside the original; every few hours the
+  backend removes the ones older than this, and a page asked for again is rendered again, so
+  nothing is lost. `0` keeps them for good.
   `uv run python -m app.maintenance sweep-page-images` (in `backend/`) runs the sweep at once,
   say after lowering the setting. The same walk removes what a failed delete left behind: the
   files of documents and projects that no longer exist in the database (files under an hour
@@ -410,6 +411,14 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   is how many pages of one document the model may read as scans, each a model call: a
   document with more fails before a page is read, with a message that says to split it; `0`
   removes the limit.
+- `RENDER_PROCESSES`, `RENDER_TIMEOUT` and `RENDER_MEMORY_MB` bound the drawing of a PDF's
+  pages as images, for the document pane, the thumbnails and OCR: the API and the worker each
+  draw in child processes of their own, 2 pages at once by default, each page within 30
+  seconds and each process within 1024 MB, and no page larger than 2,576 pixels on its longer
+  side; `0` removes the time or the memory limit. A page past a limit is not drawn and says
+  why (a scanned one fails the document's indexing, naming the page), and its process is
+  replaced. `PRERENDER_PAGES` (3) is how many of a PDF's first pages the worker draws once the
+  PDF is parsed, so that opening it shows them at once; `0` draws none ahead.
 - `AGENT_MODEL` and `INDEX_MODEL` name the AI models as `provider:model`. Both default to
   `google:gemini-3.5-flash-lite`, Google's model for new projects (since September 2026 Google
   serves Gemini 2.5 only to accounts that used it before). Indexing is the high-volume side and

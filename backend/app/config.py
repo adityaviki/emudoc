@@ -236,6 +236,16 @@ class Settings(BaseSettings):
     parse_memory_mb: int = Field(default=2048, ge=0)
     parse_max_pages: int = Field(default=500, ge=0)
     parse_max_rows: int = Field(default=100_000, ge=0)
+    # A PDF's pages are drawn as images (for the document pane, the thumbnails and OCR) by
+    # child processes each process keeps (app/rendering.py), since pdfium draws one page at a
+    # time in a process: how many pages a process draws at once, the seconds a page may take
+    # and the memory a child may hold (zero removes either limit). And how many of a PDF's first
+    # pages are drawn ahead once it is parsed, so that opening it shows them at once; zero
+    # draws every page when it is first looked at.
+    render_processes: int = Field(default=2, ge=1)
+    render_timeout: int = Field(default=30, ge=0)
+    render_memory_mb: int = Field(default=1024, ge=0)
+    prerender_pages: int = Field(default=3, ge=0)
     # The pages of one document the model may read as scans: each costs a model call, and
     # PARSE_MAX_PAGES alone would let a scanned book cost hundreds. A document over it fails
     # with a message that says to split it, before a page is read (app/indexing/pipeline.py).
