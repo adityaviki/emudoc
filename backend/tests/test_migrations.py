@@ -19,7 +19,7 @@ from app.config import get_settings
 from app.db import MIGRATION_LOCK, UPGRADE_COMMAND, Base, alembic_config, check_schema, engine
 from app.indexing.pipeline import process_document
 from app.main import create_app
-from app.models import Project
+from app.models import NATURAL_ORDER, Document, Project
 from tests.conftest import STORAGE_ROOT, FakeTurn, build_schema, drop_schema
 from tests.test_chats import answered, new_chat
 
@@ -57,6 +57,18 @@ def test_migrations_and_models_agree():
         differences = compare_metadata(context, Base.metadata)
     assert differences == []
     assert current_revision() is not None
+
+
+def test_file_names_are_in_the_collation_the_model_names():
+    # Alembic compares no collations, so the comparison above would not see these two differ.
+    with engine.connect() as connection:
+        collation = connection.scalar(
+            text(
+                "SELECT collation_name FROM information_schema.columns "
+                "WHERE table_name = 'documents' AND column_name = 'filename'"
+            )
+        )
+    assert collation == Document.__table__.c.filename.type.collation == NATURAL_ORDER
 
 
 def test_downgrade_removes_every_table(rebuilt_afterwards):
@@ -239,6 +251,11 @@ def test_database_made_before_migrations_cannot_be_upgraded(rebuilt_afterwards):
     drop_schema()
     with engine.begin() as connection:
         connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        connection.execute(
+            text(
+                f"CREATE COLLATION {NATURAL_ORDER} (provider = icu, locale = 'und-u-kn-ks-level1')"
+            )
+        )
         Base.metadata.create_all(connection)
 
     with pytest.raises(CommandError, match="docker compose down -v"):

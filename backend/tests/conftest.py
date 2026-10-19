@@ -140,7 +140,7 @@ from app.jobs import queue_index  # noqa: E402
 from app.legal import TERMS_VERSION  # noqa: E402
 from app.llm import LLMUnavailable, OcrBlock, OcrPage  # noqa: E402
 from app.main import create_app  # noqa: E402
-from app.models import Document, Membership, Organization, Project, User  # noqa: E402
+from app.models import NATURAL_ORDER, Document, Membership, Organization, Project, User  # noqa: E402
 from app.parsing import MIME_TYPES  # noqa: E402
 from app.scanning import ScanError  # noqa: E402
 from app.storage import original_key, storage_from_settings  # noqa: E402
@@ -669,6 +669,8 @@ def drop_schema() -> None:
     with engine.begin() as connection:
         Base.metadata.drop_all(connection)
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
+        # A migration makes the collation, and no table takes it with it.
+        connection.execute(text(f"DROP COLLATION IF EXISTS {NATURAL_ORDER}"))
 
 
 def build_schema() -> None:

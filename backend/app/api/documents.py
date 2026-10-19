@@ -1,14 +1,17 @@
+import base64
 import hashlib
 import io
+import json
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import BinaryIO
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pypdfium2 import PdfiumError
-from sqlalchemy import func, select
+from sqlalchemy import func, literal_column, select, tuple_
 from sqlalchemy.exc import IntegrityError
 
 from app.accounts import Account
@@ -43,6 +46,7 @@ from app.scanning import scan_passed
 from app.schemas import (
     DocumentContent,
     DocumentOut,
+    DocumentPage,
     DocumentPatch,
     FactOut,
     PassageOut,
@@ -52,6 +56,7 @@ from app.schemas import (
 )
 from app.storage import StorageError, original_key
 from app.usage import DOCUMENT, RENDER, UPLOAD, record
+from app.version import VERSION
 
 router = APIRouter(tags=["documents"])
 
@@ -73,13 +78,90 @@ DUPLICATE_CONSTRAINT = "documents_project_id_sha256_key"
 LOST_RACE = (
     "Another upload of this file finished first. Upload it again if it is not in the project."
 )
+# How many documents a page of a folder holds unless the request asks for another number.
+PAGE_SIZE = 100
+MAX_PAGE_SIZE = 500
+BAD_CURSOR = "This page of the folder cannot be found. List the folder again from its start."
+# The transaction that wrote a row, which every change to it moves (`_page_tag`).
+ROW_VERSION = literal_column("documents.xmin::text")
 
 
-@router.get("/projects/{project_id}/documents", response_model=list[DocumentOut])
-def list_documents(project: ProjectDep, session: SessionDep):
-    return session.scalars(
-        select(Document).where(Document.project_id == project.id).order_by(Document.id.desc())
-    ).all()
+@router.get("/projects/{project_id}/documents", response_model=DocumentPage)
+def list_documents(
+    project: ProjectDep,
+    session: SessionDep,
+    request: Request,
+    response: Response,
+    folder_id: int | None = None,
+    after: str | None = None,
+    limit: int = Query(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+):
+    """A page of the documents directly in a folder (the root when no folder is given), in
+    the library's order, past the one `after` names when it is given.
+
+    The page carries an ETag of exactly what it shows, and a request whose If-None-Match names
+    it is answered 304 without a body: the library asks again every moment while a document in
+    the folder is being indexed, and most of those moments change nothing on its page.
+    """
+    folder = resolve_folder(session, project, folder_id)
+    query = select(Document.id, ROW_VERSION).where(
+        Document.project_id == project.id,
+        Document.folder_id == folder.id if folder else Document.folder_id.is_(None),
+    )
+    if after is not None:
+        query = query.where(tuple_(Document.filename, Document.id) > tuple_(*_cursor(after)))
+    query = query.order_by(Document.filename, Document.id).limit(limit + 1)
+    # The versions alone first: when they are the ones the client holds, nothing more is read
+    # or serialised. A page that is sent carries the tag of its own rows, read with them.
+    tag = _page_tag(session.execute(query).all(), limit)
+    if tag in _tags_held(request):
+        return Response(status_code=304, headers={"ETag": tag})
+    rows = session.execute(query.with_only_columns(Document, ROW_VERSION)).all()
+    response.headers["ETag"] = _page_tag(
+        [(document.id, version) for document, version in rows], limit
+    )
+    documents = [document for document, _ in rows[:limit]]
+    return DocumentPage(
+        documents=documents,
+        next_after=_cursor_of(documents[-1]) if len(rows) > limit else None,
+    )
+
+
+def _page_tag(rows: Sequence[tuple[int, str]], limit: int) -> str:
+    """The ETag of a page: the version of each row on it and whether more follow. A row's
+    version is its `xmin`, the transaction that wrote it, which every change to it moves,
+    an ORM update or a raw one alike; a timestamp of the change would not do, since a
+    transaction that began earlier can commit later with an older one. The release is in it
+    too, since a new one may serve the same rows otherwise."""
+    shown = ",".join(f"{document_id}:{version}" for document_id, version in rows[:limit])
+    more = "more" if len(rows) > limit else "last"
+    return f'"{hashlib.sha256(f"{VERSION}|{shown}|{more}".encode()).hexdigest()[:32]}"'
+
+
+def _tags_held(request: Request) -> set[str]:
+    """The ETags an If-None-Match names, weak or strong alike: a proxy that compresses the
+    response may weaken the tag on the way, and the comparison for this header is weak."""
+    header = request.headers.get("if-none-match", "")
+    return {tag.strip().removeprefix("W/") for tag in header.split(",") if tag.strip()}
+
+
+def _cursor_of(document: Document) -> str:
+    """Where the next page starts: after this document's name and id, as `after` takes it. It
+    carries the name rather than the id alone, so that it still holds once the document is
+    renamed, moved or deleted."""
+    encoded = json.dumps([document.filename, document.id]).encode()
+    return base64.urlsafe_b64encode(encoded).decode().rstrip("=")
+
+
+def _cursor(after: str) -> tuple[str, int]:
+    """The name and id an `after` carries; anything else is refused rather than guessed at."""
+    try:
+        name, document_id = json.loads(base64.urlsafe_b64decode(after + "=" * (-len(after) % 4)))
+    except (ValueError, TypeError):
+        raise HTTPException(422, BAD_CURSOR) from None
+    if not isinstance(name, str) or not isinstance(document_id, int) or not 0 < document_id < 2**31:
+        raise HTTPException(422, BAD_CURSOR)
+    return name, document_id
 
 
 @router.post(

@@ -23,8 +23,22 @@ from app.storage import project_prefix
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
-def _out(project: Project, document_count: int) -> ProjectOut:
-    return ProjectOut.model_validate(project).model_copy(update={"document_count": document_count})
+# The documents a project holds, and those whose enrich stage was skipped for want of a model.
+_COUNTS = (
+    func.count(Document.id),
+    func.count(Document.id).filter(Document.stages["enrich"]["status"].astext == "skipped"),
+)
+
+
+def _out(project: Project, document_count: int, unenriched_count: int = 0) -> ProjectOut:
+    return ProjectOut.model_validate(project).model_copy(
+        update={"document_count": document_count, "unenriched_count": unenriched_count}
+    )
+
+
+def _counted(session: SessionDep, project: Project) -> ProjectOut:
+    counts = session.execute(select(*_COUNTS).where(Document.project_id == project.id)).one()
+    return _out(project, *counts)
 
 
 def _document_count(session: SessionDep, project: Project) -> int:
@@ -39,13 +53,13 @@ def _document_count(session: SessionDep, project: Project) -> int:
 @router.get("", response_model=list[ProjectOut])
 def list_projects(session: SessionDep, account: AccountDep):
     rows = session.execute(
-        select(Project, func.count(Document.id))
+        select(Project, *_COUNTS)
         .outerjoin(Document, Document.project_id == Project.id)
         .where(Project.org_id == account.organization.id)
         .group_by(Project.id)
         .order_by(Project.created_at.desc(), Project.id.desc())
     ).all()
-    return [_out(project, count) for project, count in rows]
+    return [_out(project, *counts) for project, *counts in rows]
 
 
 @router.post("", response_model=ProjectOut, status_code=201)
@@ -64,7 +78,7 @@ def create_project(body: ProjectIn, session: SessionDep, account: EditorDep):
 
 @router.get("/{project_id}", response_model=ProjectOut)
 def get_project(project: ProjectDep, session: SessionDep):
-    return _out(project, _document_count(session, project))
+    return _counted(session, project)
 
 
 @router.patch("/{project_id}", response_model=ProjectOut)
@@ -72,7 +86,7 @@ def update_project(project: EditableProjectDep, body: ProjectIn, session: Sessio
     project.name = body.name.strip()
     project.description = body.description.strip()
     session.commit()
-    return _out(project, _document_count(session, project))
+    return _counted(session, project)
 
 
 @router.delete("/{project_id}", status_code=204)

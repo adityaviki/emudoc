@@ -18,6 +18,7 @@ from app.legal import TERMS_VERSION
 from app.mail import MailError
 from app.oidc import Handshake
 from tests.conftest import APP_HEADERS
+from tests.test_api import listed
 
 PASSWORD = "correct horse battery"
 NEW_PASSWORD = "staple of a new life"
@@ -337,7 +338,7 @@ def test_a_change_needs_the_header_the_app_sends(client, signed_in_only):
         assert refused.status_code == 403, refused.text
         assert refused.json()["detail"] == CROSS_SITE
     assert [p["name"] for p in client.get("/api/projects").json()] == ["Audit"]
-    assert client.get(f"/api/projects/{project['id']}/documents").json() == []
+    assert listed(client, project["id"]) == []
     assert me(elsewhere).status_code == 200
     # The header is the proof, whatever its value.
     elsewhere.headers[SAME_APP_HEADER] = "XMLHttpRequest"

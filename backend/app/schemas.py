@@ -19,6 +19,9 @@ class ProjectOut(_FromORM):
     description: str
     created_at: dt.datetime
     document_count: int = 0
+    # The documents whose enrich stage was skipped for want of a model: what the library
+    # offers to run the model on once there is one.
+    unenriched_count: int = 0
 
 
 class FolderIn(BaseModel):
@@ -39,6 +42,9 @@ class FolderOut(_FromORM):
     parent_id: int | None
     name: str
     created_at: dt.datetime
+    # The documents directly in the folder, not in its subfolders: the library lists them a
+    # page at a time, so the count is what says whether the folder has anything to open.
+    document_count: int = 0
 
 
 class UsageOut(BaseModel):
@@ -88,6 +94,15 @@ class DocumentOut(_FromORM):
     # By kind: `upload` (bytes, pages), `ocr`, `infer_sections`, `enrich`, `embed`, `render`.
     usage: dict[str, UsageOut]
     created_at: dt.datetime
+
+
+class DocumentPage(BaseModel):
+    """A page of the documents directly in one folder, in the library's order (by name, the
+    `natural_order` collation in app/models.py)."""
+
+    documents: list[DocumentOut]
+    # What to pass as `after` for the next page; None on the last one.
+    next_after: str | None
 
 
 class RejectedFile(BaseModel):

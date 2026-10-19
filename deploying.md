@@ -331,6 +331,20 @@ older one and says what to run: `ALTER EXTENSION vector UPDATE;` as the database
 the server has a newer one installed (a managed database after a minor version upgrade), or
 an upgrade of the server's pgvector when it has not. Development warns and searches without.
 
+**ICU**: the library lists a folder's files in an order the database keeps an index in, by
+an ICU collation the migrations make, `natural_order` (numbers in a name compared as numbers,
+case and accents set aside). The server must be built with ICU, as the official images, RDS
+and the other managed databases are. Postgres records the ICU version a collation was made
+with, and an upgrade of the server or its operating system may bring another, after which the
+index (`ix_documents_listing`) may hold names in the old order and a page of the library skip
+or repeat files. The start, `python -m app.maintenance database` and the watch say so then;
+as the database's owner:
+
+```sql
+REINDEX INDEX CONCURRENTLY ix_documents_listing;
+ALTER COLLATION natural_order REFRESH VERSION;
+```
+
 **High availability**: a managed database's standby (Multi-AZ) or the deployment's own
 (Patroni, or a streaming replica promoted by hand) takes over under the same address, or, with
 two hosts in the URL, `?host=db-a,db-b&target_session_attrs=read-write` finds the one that
@@ -461,8 +475,9 @@ Nothing to look at.
 
 It exits with 1, and says what to do, when a table has 10,000 dead rows or more and they are
 over a fifth of it, when a transaction has been open for over an hour (vacuum keeps every row
-replaced since it began, in every table), when pgvector is older than 0.8, and in production
-when the role has no timeouts. Run it from a timer that mails on failure, as for the drill, or
+replaced since it began, in every table), when pgvector is older than 0.8, when a collation
+was made with another ICU than the server has ("ICU", above), and in production when the role
+has no timeouts. Run it from a timer that mails on failure, as for the drill, or
 take the same numbers from `pg_stat_user_tables` (`n_dead_tup`, `last_autovacuum`) and
 `pg_stat_activity` (`xact_start`) into the monitoring, where a managed database's own metrics
 have them too.
@@ -1968,7 +1983,7 @@ listing what goes on meanwhile, whichever worker looked; what is raised and not 
 | `AGENT_MODEL` (or `INDEX_MODEL`) fails over to its fallback | The fallback answered a request of the role's in the last hour (the usage events name the model that answered) | The worker's `app.llm` line: "was not found, or is served no longer" is a retired model, "was rejected" a key revoked or out of credit ("The models") |
 | The embeddings endpoint, the malware scanner or the storage does not answer | Asked as the start asks them, at each round | Their sentence says what failed |
 | The database fails to archive its log, or its archive falls behind | The archiver's last attempt failed, or finished segments of the write-ahead log have waited past the 5-minute recovery point (`pg_stat_archiver`; a server that archives nothing has neither) | `pgbackrest --stanza=emudoc check`, the server's log ("Backups") |
-| The database needs looking at | What `python -m app.maintenance database` flags, every table looked at: pgvector before 0.8, production's role without timeouts, a table autovacuum is behind on, a transaction open over an hour | "The database", "Vacuum" |
+| The database needs looking at | What `python -m app.maintenance database` flags, every table looked at: pgvector before 0.8, production's role without timeouts, a collation made with another ICU, a table autovacuum is behind on, a transaction open over an hour | "The database", "Vacuum" |
 
 A check that cannot run (the log says "The watch could not check …") keeps the alerts it raised:
 a concern that cannot be seen is not over. The worker cannot report itself gone, nor an API

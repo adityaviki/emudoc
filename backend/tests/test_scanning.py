@@ -32,7 +32,7 @@ from app.scanning import (
 )
 from app.worker import MAX_RETRIES, Worker
 from tests.conftest import EICAR, EICAR_NAME, SCANNER_DOWN, FakeMailer
-from tests.test_api import create_project, upload
+from tests.test_api import create_project, listed, upload
 from tests.test_deadletters import OPERATOR
 from tests.test_jobs import INDEX, run_index, wait_until
 from tests.test_pipeline import rows, stage_statuses
@@ -282,10 +282,7 @@ def test_a_flagged_upload_is_quarantined_and_nothing_of_it_is_served(
     assert client.get(f"/api/documents/{flagged['id']}/pages/1.png").status_code == 404
     assert client.get(f"/api/documents/{flagged['id']}/content").json()["blocks"] == []
     assert client.get(f"/api/documents/{flagged['id']}/outline").json() == []
-    statuses = {
-        d["filename"]: d["status"]
-        for d in client.get(f"/api/projects/{project['id']}/documents").json()
-    }
+    statuses = {d["filename"]: d["status"] for d in listed(client, project["id"])}
     assert statuses == {"msa.pdf": "ready", "bad.pdf": "quarantined"}
 
     # Running the project's documents again leaves it alone, and the job that scanned it is

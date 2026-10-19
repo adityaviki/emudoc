@@ -24,10 +24,21 @@ __all__ = ["folder_paths", "resolve_folder", "router", "subtree_ids"]
 
 @router.get("/projects/{project_id}/folders", response_model=list[FolderOut])
 def list_folders(project: ProjectDep, session: SessionDep):
-    """Every folder of the project, flat; the client builds the tree from parent_id."""
-    return session.scalars(
-        select(Folder).where(Folder.project_id == project.id).order_by(Folder.name, Folder.id)
+    """Every folder of the project, flat, with how many documents each holds itself; the
+    client builds the tree from parent_id."""
+    held = (
+        select(Document.folder_id, func.count().label("documents"))
+        .where(Document.project_id == project.id, Document.folder_id.is_not(None))
+        .group_by(Document.folder_id)
+        .subquery()
+    )
+    rows = session.execute(
+        select(Folder, held.c.documents)
+        .outerjoin(held, held.c.folder_id == Folder.id)
+        .where(Folder.project_id == project.id)
+        .order_by(Folder.name, Folder.id)
     ).all()
+    return [_out(folder, count or 0) for folder, count in rows]
 
 
 @router.post("/projects/{project_id}/folders", response_model=FolderOut, status_code=201)
@@ -56,7 +67,10 @@ def update_folder(folder: EditableFolderDep, body: FolderPatch, session: Session
     folder.parent_id = parent_id
     folder.name = name
     session.commit()
-    return folder
+    count = session.scalar(
+        select(func.count()).select_from(Document).where(Document.folder_id == folder.id)
+    )
+    return _out(folder, count or 0)
 
 
 @router.delete("/folders/{folder_id}", status_code=204)
@@ -83,6 +97,10 @@ def delete_folder(
     session.delete(folder)
     session.commit()
     services.storage.discard(*(document.storage_prefix for document in documents))
+
+
+def _out(folder: Folder, document_count: int) -> FolderOut:
+    return FolderOut.model_validate(folder).model_copy(update={"document_count": document_count})
 
 
 def clean_name(name: str) -> str:

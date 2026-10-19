@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api, isPlanLimit } from '../api.ts'
 import type { Document, Folder, UploadResult } from '../api.ts'
+import { documentKey, editListings, listingsKey, restore, snapshotListings } from './listing.ts'
 import { useWorkspace } from './state.ts'
 
 export interface MoveItems {
@@ -22,7 +23,10 @@ export function useLibraryMutations() {
   const [planLimit, setPlanLimit] = useState<string | null>(null)
   const [rejected, setRejected] = useState<UploadResult['rejected']>([])
 
-  const documentsKey = ['documents', projectId]
+  // Every folder's listing: a document may be on a page of any of them.
+  const documentsKey = [...listingsKey(projectId)]
+  // Every open document; a deleted folder's are found gone by asking.
+  const openKey = ['document']
   const foldersKey = ['folders', projectId]
   const projectKey = ['project', projectId]
   const fail = (error: Error) => setNotice(error.message)
@@ -35,8 +39,15 @@ export function useLibraryMutations() {
   }
   const editFolders = (change: (folders: Folder[]) => Folder[]) =>
     queryClient.setQueryData<Folder[]>(foldersKey, (folders) => folders && change(folders))
-  const editDocuments = (change: (documents: Document[]) => Document[]) =>
-    queryClient.setQueryData<Document[]>(documentsKey, (documents) => documents && change(documents))
+  /** Change the documents wherever they are held: the listings, and each one open by itself. */
+  const editDocuments = (ids: number[], change: (document: Document) => Document | null) => {
+    editListings(queryClient, projectId, (documents) =>
+      documents.flatMap((document) => (ids.includes(document.id) ? (change(document) ?? []) : [document])),
+    )
+    for (const id of ids) {
+      queryClient.setQueryData<Document>(documentKey(id), (document) => (document && change(document)) ?? document)
+    }
+  }
 
   const createFolder = useMutation({
     mutationFn: ({ name, parentId }: { name: string; parentId: number | null }) =>
@@ -63,15 +74,17 @@ export function useLibraryMutations() {
   const renameDocument = useMutation({
     mutationFn: ({ id, filename }: { id: number; filename: string }) => api.updateDocument(id, { filename }),
     onMutate: async ({ id, filename }) => {
-      const previous = await snapshot<Document[]>(documentsKey)
-      editDocuments((documents) => documents.map((d) => (d.id === id ? { ...d, filename } : d)))
-      return { previous }
+      const previous = await snapshotListings(queryClient, projectId)
+      const open = await snapshot<Document>([...documentKey(id)])
+      editDocuments([id], (document) => ({ ...document, filename }))
+      return { previous, open }
     },
-    onError: (error, _variables, context) => {
-      queryClient.setQueryData(documentsKey, context?.previous)
+    onError: (error, { id }, context) => {
+      restore(queryClient, context?.previous)
+      queryClient.setQueryData(documentKey(id), context?.open)
       fail(error)
     },
-    onSettled: () => invalidate(documentsKey),
+    onSettled: (_data, _error, { id }) => invalidate(documentsKey, [...documentKey(id)]),
   })
 
   const moveItems = useMutation({
@@ -83,44 +96,46 @@ export function useLibraryMutations() {
     onMutate: async ({ folderIds, documentIds, targetId }) => {
       const previous = {
         folders: await snapshot<Folder[]>(foldersKey),
-        documents: await snapshot<Document[]>(documentsKey),
+        documents: await snapshotListings(queryClient, projectId),
       }
       editFolders((folders) =>
         folders.map((folder) => (folderIds.includes(folder.id) ? { ...folder, parent_id: targetId } : folder)),
       )
-      editDocuments((documents) =>
-        documents.map((d) => (documentIds.includes(d.id) ? { ...d, folder_id: targetId } : d)),
-      )
+      // Gone from the folder they were in at once; the target's listing shows them in its order
+      // when it is fetched again.
+      editListings(queryClient, projectId, (documents) => documents.filter((d) => !documentIds.includes(d.id)))
       return { previous }
     },
     onError: (error, _variables, context) => {
       queryClient.setQueryData(foldersKey, context?.previous.folders)
-      queryClient.setQueryData(documentsKey, context?.previous.documents)
+      restore(queryClient, context?.previous.documents)
       fail(error)
     },
-    onSettled: () => invalidate(foldersKey, documentsKey),
+    onSettled: () => invalidate(foldersKey, documentsKey, openKey),
   })
 
   const deleteFolder = useMutation({
+    // `documentIds` are the ones the library holds; the tabs of the others close when their
+    // documents are asked for again and found gone.
     mutationFn: ({ id }: { id: number; documentIds: number[] }) => api.deleteFolder(id),
     onMutate: ({ documentIds }) => workspace.closeTabs(documentIds),
     onError: fail,
-    onSettled: () => invalidate(foldersKey, documentsKey, projectKey),
+    onSettled: () => invalidate(foldersKey, documentsKey, projectKey, openKey),
   })
 
   const deleteDocuments = useMutation({
     mutationFn: (ids: number[]) => Promise.all(ids.map((id) => api.deleteDocument(id))),
     onMutate: async (ids) => {
-      const previous = await snapshot<Document[]>(documentsKey)
-      editDocuments((documents) => documents.filter((d) => !ids.includes(d.id)))
+      const previous = await snapshotListings(queryClient, projectId)
+      editDocuments(ids, () => null)
       workspace.closeTabs(ids)
       return { previous }
     },
     onError: (error, _variables, context) => {
-      queryClient.setQueryData(documentsKey, context?.previous)
+      restore(queryClient, context?.previous)
       fail(error)
     },
-    onSettled: () => invalidate(documentsKey, projectKey),
+    onSettled: () => invalidate(documentsKey, foldersKey, projectKey),
   })
 
   const upload = useMutation({
@@ -128,19 +143,19 @@ export function useLibraryMutations() {
       api.upload(projectId, files, folderId),
     onSuccess: (result) => setRejected(result.rejected),
     onError: (error) => (isPlanLimit(error) ? setPlanLimit(error.message) : fail(error)),
-    onSettled: () => invalidate(documentsKey, projectKey),
+    onSettled: () => invalidate(documentsKey, foldersKey, projectKey),
   })
 
   const reprocess = useMutation({
     mutationFn: (id: number) => api.reprocessDocument(id, 'parse'),
     onError: fail,
-    onSettled: () => invalidate(documentsKey),
+    onSettled: (_data, _error, id) => invalidate(documentsKey, [...documentKey(id)]),
   })
 
   const enrichAll = useMutation({
     mutationFn: () => api.reprocessProject(projectId, 'enrich'),
     onError: fail,
-    onSettled: () => invalidate(documentsKey),
+    onSettled: () => invalidate(documentsKey, openKey, projectKey),
   })
 
   return {

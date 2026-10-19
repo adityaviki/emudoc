@@ -32,7 +32,7 @@ from app.storage import (
     storage_from_settings,
 )
 from tests.conftest import APP_HEADERS, FakeEmbedder, FakeLLM, FakeS3Client
-from tests.test_api import create_project, upload
+from tests.test_api import create_project, listed, upload
 from tests.test_folders import make_folder, upload_into
 
 DOCUMENT = document_prefix(1, 2, 3)
@@ -474,7 +474,7 @@ def test_a_bucket_that_fails_mid_upload_leaves_no_row(
     # The member is told to try again; what failed, and the bucket's name, are the operator's.
     assert response.status_code == 503 and response.json()["detail"] == STORAGE_DOWN
     assert "could not be stored in the bucket (NoSuchBucket" in caplog.text
-    assert client.get(f"/api/projects/{project['id']}/documents").json() == []
+    assert listed(client, project["id"]) == []
 
 
 def test_the_app_refuses_to_start_without_its_bucket(session, mailer):

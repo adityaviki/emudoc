@@ -20,8 +20,21 @@ Members:
   storage, your browser and a download's file name) and how long they are kept.
 - The privacy policy says how long the server logs, with your requests' IP addresses, are
   kept.
+- The library shows a folder's files a hundred at a time, with "Show more files" after them,
+  so a project of thousands of documents opens as quickly as one of ten. Files are sorted with
+  the numbers in their names compared as numbers ("invoice 2" before "invoice 10"), as before.
 
 Operators:
+
+- `GET /api/projects/{id}/documents` lists one folder (`folder_id`, the root without it) a page
+  at a time (`after`, `limit`, at most 500; `{documents, next_after}`), in the library's order,
+  and answers 304 to an `If-None-Match` that names the page, which is what the library sends
+  while a document indexes, every 1.5 s, where it fetched every document of the project. Folders
+  carry their `document_count`, a project its `unenriched_count`. The migration makes an ICU
+  collation, `natural_order`, for `documents.filename`, with an index in it: a database server
+  without ICU cannot take it (RDS and the compose image have it). After an upgrade that brings
+  another ICU, `python -m app.maintenance database`, the start and the watch name the index to
+  rebuild (deploying.md, "The database").
 
 - On AWS, what cannot wait has a topic of its own for a pager, `emudoc-<environment>-pages`
   (`tofu output pages`): Prometheus's critical alerts, in a few words an SMS can carry, a

@@ -1,13 +1,16 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { UseQueryResult } from '@tanstack/react-query'
 import { FileText, Library as LibraryIcon, MessageSquare } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { api } from '../api.ts'
+import type { Document } from '../api.ts'
 import { Loading, Notice, Segmented } from '../components/ui.tsx'
-import { useDocuments, useFolderTree, useFolders, useLocalStorage } from '../hooks.ts'
+import { useFolderTree, useFolders, useLocalStorage } from '../hooks.ts'
 import { ChatPane } from '../workspace/ChatPane.tsx'
 import { DocumentTab } from '../workspace/DocumentTab.tsx'
 import { Library } from '../workspace/Library.tsx'
+import { documentQuery, isGone } from '../workspace/listing.ts'
 import { SplitPanes } from '../workspace/SplitPane.tsx'
 import type { Pane as SplitPane } from '../workspace/SplitPane.tsx'
 import { TabStrip } from '../workspace/TabStrip.tsx'
@@ -38,8 +41,8 @@ export function Workspace() {
 
 function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
   const projectId = url.projectId
+  const queryClient = useQueryClient()
   const project = useQuery({ queryKey: ['project', projectId], queryFn: () => api.project(projectId) })
-  const documents = useDocuments(projectId)
   const folders = useFolders(projectId)
   const tree = useFolderTree(folders.data)
   const [tabs, setTabs] = useLocalStorage(tabsStorageKey(projectId), EMPTY_TABS, isTabsStore)
@@ -64,15 +67,24 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
     })
   }, [activeDocumentId, activeFocus, setTabs])
 
+  // Each tab's document is asked for by itself; the library holds only the pages it shows.
+  const tabDocuments = useQueries({
+    queries: tabs.open.map((tab) => documentQuery(queryClient, projectId, tab.id)),
+    combine: tabsCame,
+  })
+  const openDocuments = useMemo(
+    () => new Map(tabDocuments.documents.map((document) => [document.id, document])),
+    [tabDocuments.documents],
+  )
+
   // Tabs whose documents are gone (deleted here or elsewhere) are closed.
-  const known = documents.data
+  const goneIds = tabs.open.filter((_, index) => tabDocuments.gone[index]).map((tab) => tab.id).join()
   useEffect(() => {
-    if (!known) return
-    const ids = new Set(known.map((document) => document.id))
-    if (tabs.open.every((tab) => ids.has(tab.id))) return
-    setTabs((store) => ({ v: 1, open: store.open.filter((tab) => ids.has(tab.id)) }))
-    if (activeDocumentId != null && !ids.has(activeDocumentId)) go({ document: null }, { replace: true })
-  }, [known, tabs.open, activeDocumentId, setTabs, go])
+    if (!goneIds) return
+    const closing = new Set(goneIds.split(',').map(Number))
+    setTabs((store) => ({ v: 1, open: store.open.filter((tab) => !closing.has(tab.id)) }))
+    if (activeDocumentId != null && closing.has(activeDocumentId)) go({ document: null }, { replace: true })
+  }, [goneIds, activeDocumentId, setTabs, go])
 
   const goToFolder = useCallback<WorkspaceState['goToFolder']>(
     (folderId, options) => go({ library: { folderId, q: '' } }, options),
@@ -84,8 +96,7 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
     if (!project.data) return null
     return {
       project: project.data,
-      documents: documents.data ?? [],
-      documentsLoaded: documents.isSuccess,
+      openDocuments,
       folders: folders.data ?? [],
       tree,
       url,
@@ -124,7 +135,7 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
       setMobilePane,
       draggingFiles,
     }
-  }, [project.data, documents.data, documents.isSuccess, folders.data, tree, url, openTabs, activeDocumentId, mobilePane, draggingFiles, go, goToFolder, setTabs])
+  }, [project.data, openDocuments, folders.data, tree, url, openTabs, activeDocumentId, mobilePane, draggingFiles, go, goToFolder, setTabs])
 
   if (project.isPending) return <Loading />
   if (project.isError || !workspace) {
@@ -146,7 +157,7 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
   // Beside a document the library is a sidebar; alone with the agent it is the main view.
   const panes: SplitPane[] = [
     { key: 'library', node: <Library />, share: hasDocument ? 25 : 55, min: 240 },
-    ...(hasDocument ? [{ key: 'document', node: <DocumentPane />, share: 45, min: 360 }] : []),
+    ...(hasDocument ? [{ key: 'document', node: <DocumentPane documentId={activeDocumentId} />, share: 45, min: 360 }] : []),
     { key: 'chat', node: <ChatPane />, share: hasDocument ? 30 : 45, min: 320 },
   ]
 
@@ -172,26 +183,37 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
   )
 }
 
+/**
+ * The tabs' documents that have come, and for each tab whether its document is gone. Plain
+ * arrays, which the queries' combined result keeps as they were while nothing in them changes.
+ */
+function tabsCame(results: UseQueryResult<Document>[]) {
+  return {
+    documents: results.flatMap((result) => (result.data ? [result.data] : [])),
+    gone: results.map((result) => isGone(result.error)),
+  }
+}
+
 /** The middle pane: the tab strip with the active document below it. */
-function DocumentPane() {
+function DocumentPane({ documentId }: { documentId: number }) {
   const workspace = useWorkspace()
-  const { activeDocumentId, url } = workspace
-  const document = activeDocumentId == null ? null : workspace.documents.find((d) => d.id === activeDocumentId)
+  const queryClient = useQueryClient()
+  const document = useQuery(documentQuery(queryClient, workspace.project.id, documentId))
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-page">
       <TabStrip />
       <div className="min-h-0 flex-1">
-        {document ? (
+        {document.data ? (
           <DocumentTab
-            key={document.id}
-            document={document}
-            focus={url.document?.focus ?? null}
+            key={document.data.id}
+            document={document.data}
+            focus={workspace.url.document?.focus ?? null}
             onClearFocus={workspace.clearFocus}
           />
-        ) : workspace.documentsLoaded ? (
+        ) : document.isError ? (
           <div className="p-4">
-            <Notice tone="bad">This document no longer exists.</Notice>
+            <Notice tone="bad">{isGone(document.error) ? 'This document no longer exists.' : document.error.message}</Notice>
           </div>
         ) : (
           <Loading />

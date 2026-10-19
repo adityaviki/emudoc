@@ -33,6 +33,8 @@ export interface Project {
   description: string
   created_at: string
   document_count: number
+  /** The documents whose enrich stage was skipped for want of a model. */
+  unenriched_count: number
 }
 
 export interface Folder {
@@ -41,6 +43,8 @@ export interface Folder {
   parent_id: number | null
   name: string
   created_at: string
+  /** The documents directly in the folder, not in its subfolders. */
+  document_count: number
 }
 
 export interface Document {
@@ -62,6 +66,13 @@ export interface Document {
   summary: string | null
   usage: Partial<Record<UsageKind, Usage>>
   created_at: string
+}
+
+/** A page of the documents directly in one folder, in the library's order (by name). */
+export interface DocumentPage {
+  documents: Document[]
+  /** What to pass as `after` for the next page; null on the last one. */
+  next_after: string | null
 }
 
 export interface UploadResult {
@@ -577,7 +588,28 @@ export const api = {
     request<Folder>(`/folders/${id}`, json('PATCH', body)),
   deleteFolder: (id: number) => request<void>(`/folders/${id}`, { method: 'DELETE' }),
 
-  documents: (projectId: number) => request<Document[]>(`/projects/${projectId}/documents`),
+  /**
+   * A page of a folder's documents (the root's for null) past `after`, with the ETag that
+   * names it; null when `held`, the tag of the page the caller has, still names it.
+   */
+  documentPage: async (
+    projectId: number,
+    folderId: number | null,
+    after: string | null,
+    held: string | null = null,
+    signal?: AbortSignal,
+  ): Promise<(DocumentPage & { etag: string | null }) | null> => {
+    const params = new URLSearchParams()
+    if (folderId != null) params.set('folder_id', String(folderId))
+    if (after != null) params.set('after', after)
+    const query = params.size ? `?${params}` : ''
+    const headers: Record<string, string> = held ? { 'If-None-Match': held } : {}
+    const response = await send(`/projects/${projectId}/documents${query}`, { headers, signal })
+    if (response.status === 304) return null
+    if (!response.ok) throw new ApiError(response.status, await detailOf(response, response.statusText))
+    const page: DocumentPage = await response.json()
+    return { ...page, etag: response.headers.get('ETag') }
+  },
   upload: (projectId: number, files: File[], folderId: number | null) => {
     const form = new FormData()
     for (const file of files) form.append('files', file)

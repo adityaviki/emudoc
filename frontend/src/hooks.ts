@@ -1,16 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useCallback, useMemo, useState } from 'react'
-import { api, isIndexing } from './api.ts'
-import type { Document, Folder } from './api.ts'
-
-/** A project's documents, polled while any of them is still being indexed. */
-export function useDocuments(projectId: number) {
-  return useQuery({
-    queryKey: ['documents', projectId],
-    queryFn: () => api.documents(projectId),
-    refetchInterval: (query) => (query.state.data?.some(isIndexing) ? 1500 : false),
-  })
-}
+import { api } from './api.ts'
+import type { Folder } from './api.ts'
 
 /**
  * Which optional services are usable, for the status line and the panes that depend on them.
@@ -84,13 +75,6 @@ export function useFolderTree(folders: Folder[] | undefined): FolderTree {
       },
     }
   }, [folders])
-}
-
-/** The documents directly inside a folder, by name. */
-export function documentsIn(documents: Document[] | undefined, folderId: number | null): Document[] {
-  return (documents ?? [])
-    .filter((document) => document.folder_id === folderId)
-    .sort((a, b) => byName({ name: a.filename }, { name: b.filename }))
 }
 
 /**

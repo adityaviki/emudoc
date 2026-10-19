@@ -33,8 +33,8 @@ export type Pane = 'library' | 'document' | 'chat'
 
 export interface Workspace {
   project: Project
-  documents: Document[]
-  documentsLoaded: boolean
+  /** The documents of the open tabs that have come, by id. */
+  openDocuments: Map<number, Document>
   folders: Folder[]
   tree: FolderTree
   url: WorkspaceUrl

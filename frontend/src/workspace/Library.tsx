@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronRight,
   ChevronsDownUp,
@@ -29,9 +29,11 @@ import type { MenuItem } from '../components/Menu.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, Chip, EmptyState, IconButton, Loading, Notice, Spinner } from '../components/ui.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
-import { documentsIn, useFolders, useLocalStorage, useStatus } from '../hooks.ts'
+import { useFolders, useLocalStorage, useStatus } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
 import { fileKind, originalFileItem } from './files.ts'
+import { growing, hasMore, listed, showMore, useListings } from './listing.ts'
+import type { Listing } from './listing.ts'
 import { useLibraryMutations } from './mutations.ts'
 import type { LibraryMutations } from './mutations.ts'
 import { useWorkspace } from './state.ts'
@@ -47,6 +49,20 @@ interface Entry {
   item: Item
   depth: number
 }
+
+/**
+ * The line after a folder's files that is not one: while its first page comes, when it has
+ * more to show, or when it could not be listed.
+ */
+interface Gap {
+  gap: 'loading' | 'more' | 'failed'
+  folderId: number | null
+  depth: number
+}
+
+type Line = Entry | Gap
+
+const isEntry = (line: Line): line is Entry => 'item' in line
 
 // Internal drags carry the selected items under this type; drags from the desktop carry Files.
 const ITEMS_TYPE = 'application/x-emudoc-items'
@@ -95,7 +111,7 @@ export function Library() {
   }
 
   // Documents indexed before a model was configured can catch up in one go.
-  const waitingForModel = workspace.documents.filter((d) => d.stages.enrich?.status === 'skipped')
+  const waitingForModel = project.unenriched_count
 
   return (
     <div
@@ -172,11 +188,11 @@ export function Library() {
             </div>
           </Notice>
         )}
-        {health.data?.llm.available && waitingForModel.length > 0 && !query && (
+        {health.data?.llm.available && waitingForModel > 0 && !query && (
           <Notice tone="info">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span>
-                {waitingForModel.length} document{waitingForModel.length === 1 ? ' has' : 's have'} no summaries or
+                {waitingForModel} document{waitingForModel === 1 ? ' has' : 's have'} no summaries or
                 facts yet.
               </span>
               <Button
@@ -385,15 +401,21 @@ function Listing({
   onPickFiles,
 }: ListingProps) {
   const workspace = useWorkspace()
-  const { tree, documents } = workspace
-  const [openFolders, setOpenFolders] = useLocalStorage<number[]>(treeKey(workspace.project.id), [], isIdList)
+  const queryClient = useQueryClient()
+  const { tree, project } = workspace
+  const [openFolders, setOpenFolders] = useLocalStorage<number[]>(treeKey(project.id), [], isIdList)
   const openSet = new Set(openFolders)
-  const entries = treeEntries(tree, documents, folderId, openSet)
+  // Each folder the tree shows open is listed by itself, a page at a time.
+  const listedFolders = foldersShown(tree, folderId, openSet)
+  const listingResults = useListings(project.id, listedFolders)
+  const listings = new Map(listedFolders.map((id, index) => [id, listingResults[index]]))
+  const lines = treeLines(tree, listings, folderId, openSet)
+  const entries = lines.filter(isEntry)
   const items = entries.map((entry) => entry.item)
   const keys = items.map(itemKey)
   useEffect(() => {
-    for (const document of documents) documentsParent.set(document.id, document.folder_id)
-  }, [documents])
+    for (const item of items) if (item.kind === 'file') documentsParent.set(item.document.id, item.document.folder_id)
+  }, [items])
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [anchor, setAnchor] = useState<string | null>(null)
@@ -465,19 +487,18 @@ function Listing({
     if (!targets.length) return
     const folders = targets.filter((item) => item.kind === 'folder')
     const files = targets.filter((item) => item.kind === 'file')
-    const inFolders = folders.flatMap((item) =>
-      item.kind === 'folder' ? documents.filter((d) => d.folder_id != null && tree.subtree(item.folder.id).has(d.folder_id)) : [],
-    )
+    const inFolders = folders.reduce((count, item) => count + (item.kind === 'folder' ? filesBelow(tree, item.folder.id) : 0), 0)
     const message =
       targets.length === 1 && folders.length === 1
-        ? `Delete "${itemName(targets[0])}" and everything in it (${inFolders.length} file${inFolders.length === 1 ? '' : 's'})?`
+        ? `Delete "${itemName(targets[0])}" and everything in it (${inFolders} file${inFolders === 1 ? '' : 's'})?`
         : targets.length === 1
           ? `Delete "${itemName(targets[0])}"?`
           : `Delete ${targets.length} items?`
     if (!window.confirm(message)) return
     for (const item of folders) {
       if (item.kind === 'folder') {
-        const ids = documents.filter((d) => d.folder_id != null && tree.subtree(item.folder.id).has(d.folder_id)).map((d) => d.id)
+        const below = tree.subtree(item.folder.id)
+        const ids = items.flatMap((i) => (i.kind === 'file' && i.document.folder_id != null && below.has(i.document.folder_id) ? [i.document.id] : []))
         mutations.deleteFolder.mutate({ id: item.folder.id, documentIds: ids })
       }
     }
@@ -539,7 +560,7 @@ function Listing({
       label: 'Expand all',
       icon: ChevronsUpDown,
       // Every folder below this one that has subfolders or files of its own.
-      onSelect: () => setOpenFolders((current) => [...new Set([...current, ...expandable(tree, documents, folderId)])]),
+      onSelect: () => setOpenFolders((current) => [...new Set([...current, ...expandable(tree, folderId)])]),
     },
     {
       label: 'Collapse all',
@@ -693,7 +714,7 @@ function Listing({
     }
   }
 
-  const empty = items.length === 0 && !creating
+  const empty = lines.length === 0 && !creating
   return (
     <div
       ref={list}
@@ -729,7 +750,20 @@ function Listing({
           onCancel={() => onCreatingChange(false)}
         />
       )}
-      {entries.map(({ item, depth }) => {
+      {lines.map((line) => {
+        if (!isEntry(line)) {
+          const listing = listings.get(line.folderId)?.data
+          return (
+            <GapRow
+              key={`gap:${line.folderId ?? 'root'}`}
+              gap={line}
+              busy={growing(listing)}
+              onMore={() => showMore(queryClient, project.id, line.folderId)}
+              onRetry={() => listings.get(line.folderId)?.refetch()}
+            />
+          )
+        }
+        const { item, depth } = line
         const key = itemKey(item)
         return (
           <Row
@@ -765,9 +799,7 @@ function Listing({
             }}
             onDrop={item.kind === 'folder' ? (event) => onFolderDrop(event, item.folder) : undefined}
             folderCount={
-              item.kind === 'folder'
-                ? (tree.children.get(item.folder.id)?.length ?? 0) + documentsIn(documents, item.folder.id).length
-                : undefined
+              item.kind === 'folder' ? (tree.children.get(item.folder.id)?.length ?? 0) + item.folder.document_count : undefined
             }
           />
         )
@@ -777,25 +809,57 @@ function Listing({
   )
 }
 
-/** The items under a folder as the tree shows them: each open folder followed by its contents. */
-function treeEntries(tree: FolderTree, documents: Document[], rootId: number | null, open: Set<number>): Entry[] {
-  const entries: Entry[] = []
+interface ListingResult {
+  data: Listing | undefined
+  isPending: boolean
+  isError: boolean
+}
+
+/** The folders whose files the tree shows: the shown one, and each open one below it with files of its own. */
+function foldersShown(tree: FolderTree, rootId: number | null, open: Set<number>): (number | null)[] {
+  const shown: (number | null)[] = [rootId]
+  const visit = (folderId: number | null) => {
+    for (const folder of tree.children.get(folderId) ?? []) {
+      if (!open.has(folder.id)) continue
+      if (folder.document_count > 0) shown.push(folder.id)
+      visit(folder.id)
+    }
+  }
+  visit(rootId)
+  return shown
+}
+
+/**
+ * The lines under a folder as the tree shows them: each open folder followed by its contents,
+ * the subfolders by name and then the files in the order the server lists them.
+ */
+function treeLines(tree: FolderTree, listings: Map<number | null, ListingResult>, rootId: number | null, open: Set<number>): Line[] {
+  const lines: Line[] = []
   const visit = (folderId: number | null, depth: number) => {
     for (const folder of tree.children.get(folderId) ?? []) {
-      entries.push({ item: { kind: 'folder', folder }, depth })
+      lines.push({ item: { kind: 'folder', folder }, depth })
       if (open.has(folder.id)) visit(folder.id, depth + 1)
     }
-    for (const document of documentsIn(documents, folderId)) entries.push({ item: { kind: 'file', document }, depth })
+    const listing = listings.get(folderId)
+    if (!listing) return
+    for (const document of listed(listing.data)) lines.push({ item: { kind: 'file', document }, depth })
+    if (listing.isPending) lines.push({ gap: 'loading', folderId, depth })
+    else if (listing.isError && !listing.data) lines.push({ gap: 'failed', folderId, depth })
+    else if (hasMore(listing.data)) lines.push({ gap: 'more', folderId, depth })
   }
   visit(rootId, 0)
-  return entries
+  return lines
+}
+
+/** How many files a folder and the folders below it hold. */
+function filesBelow(tree: FolderTree, folderId: number): number {
+  return [...tree.subtree(folderId)].reduce((count, id) => count + (tree.byId.get(id)?.document_count ?? 0), 0)
 }
 
 /** The folders below this one that have anything in them to show when opened. */
-function expandable(tree: FolderTree, documents: Document[], rootId: number | null): number[] {
-  const filled = new Set(documents.flatMap((document) => (document.folder_id == null ? [] : [document.folder_id])))
+function expandable(tree: FolderTree, rootId: number | null): number[] {
   return [...tree.byId.values()]
-    .filter((folder) => folder.id !== rootId && (tree.children.has(folder.id) || filled.has(folder.id)))
+    .filter((folder) => folder.id !== rootId && (tree.children.has(folder.id) || folder.document_count > 0))
     .filter((folder) => rootId == null || tree.pathTo(folder.parent_id).some((above) => above.id === rootId))
     .map((folder) => folder.id)
 }
@@ -927,6 +991,48 @@ function Row(props: RowProps) {
         </span>
       )}
       <span className="ml-1 flex">{menuButton}</span>
+    </div>
+  )
+}
+
+interface GapRowProps {
+  gap: Gap
+  busy: boolean
+  onMore: () => void
+  onRetry: () => void
+}
+
+/** The line at the end of a folder's files: a spinner while they come, the way to the next page, or to try again. */
+function GapRow({ gap, busy, onMore, onRetry }: GapRowProps) {
+  const button = 'rounded px-1.5 py-0.5 text-accent transition hover:bg-accent-soft disabled:text-muted'
+  return (
+    <div className="flex h-7 items-center pl-1.5 text-[13px] text-muted">
+      {Array.from({ length: gap.depth }, (_, level) => (
+        <span
+          key={level}
+          aria-hidden
+          className="relative w-4 shrink-0 self-stretch before:absolute before:inset-y-0 before:left-1/2 before:border-l before:border-line"
+        />
+      ))}
+      <span className="w-4 shrink-0" />
+      <span className="ml-1 flex items-center gap-2">
+        {gap.gap === 'loading' ? (
+          <>
+            <Spinner /> Loading files…
+          </>
+        ) : gap.gap === 'failed' ? (
+          <>
+            These files could not be listed.
+            <button type="button" className={button} onClick={onRetry}>
+              Try again
+            </button>
+          </>
+        ) : (
+          <button type="button" className={button} onClick={onMore} disabled={busy}>
+            {busy ? 'Loading more files…' : 'Show more files'}
+          </button>
+        )}
+      </span>
     </div>
   )
 }

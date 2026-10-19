@@ -56,6 +56,12 @@ USAGE_UNITS = ("calls", "input_tokens", "output_tokens", "pages", "bytes", "inpu
 # What an organisation is entitled to (app/entitlements.py), from the plan with the least to
 # the one with no limits. A new organisation starts on the first.
 PLANS = ("free", "pro", "team", "enterprise")
+# The order the library lists a folder's files in, which the database keeps an index in: by
+# name, with the numbers in a name compared as numbers ("invoice 2" before "invoice 10") and
+# case and accents set aside, as the page sorts the folders. An ICU collation, made by the
+# migration that put it on `documents.filename` (deterministic: names equal but for case
+# still have an order, so a page boundary between them is exact).
+NATURAL_ORDER = "natural_order"
 # What the audit log records (app/audit.py): its members' sign-ins and what they did to their
 # accounts, what was done to the organisation's documents and the sharing of its chats, and
 # what the operator and the app did to it on their own.
@@ -372,17 +378,21 @@ class Folder(Base):
 
 class Document(Base):
     __tablename__ = "documents"
-    __table_args__ = (UniqueConstraint("project_id", "sha256"),)
+    __table_args__ = (
+        UniqueConstraint("project_id", "sha256"),
+        # A page of a folder's files in the library's order (`list_documents` in
+        # app/api/documents.py), the root's being those whose folder is null; the leading
+        # column serves every lookup by project as well.
+        Index("ix_documents_listing", "project_id", "folder_id", "filename", "id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    project_id: Mapped[int] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), index=True
-    )
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
     # Deleting a folder deletes the documents in it, as a file manager would.
     folder_id: Mapped[int | None] = mapped_column(
         ForeignKey("folders.id", ondelete="CASCADE"), index=True
     )
-    filename: Mapped[str] = mapped_column(String(500))
+    filename: Mapped[str] = mapped_column(String(500, collation=NATURAL_ORDER))
     mime_type: Mapped[str] = mapped_column(String(200))
     size_bytes: Mapped[int] = mapped_column(BigInteger)
     sha256: Mapped[str] = mapped_column(String(64))

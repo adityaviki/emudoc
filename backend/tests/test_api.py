@@ -31,6 +31,16 @@ def upload(client, project_id, *paths):
     return response.json()
 
 
+def listed(client, project_id, folder_id=None):
+    """The first page of the documents directly in a folder, the root's by default."""
+    response = client.get(
+        f"/api/projects/{project_id}/documents",
+        params={} if folder_id is None else {"folder_id": folder_id},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["documents"]
+
+
 def test_project_crud(client):
     project = create_project(client)
     assert project["name"] == "Contracts" and project["document_count"] == 0
@@ -140,7 +150,7 @@ def test_a_locked_or_pageless_file_says_why_it_cannot_be_read(client, services, 
         "empty.pdf": [("parse", False)],
     }
 
-    documents = client.get(f"/api/projects/{project['id']}/documents").json()
+    documents = listed(client, project["id"])
     assert {d["filename"]: (d["status"], d["error"]) for d in documents} == {
         "locked.pdf": (
             "failed",
@@ -196,7 +206,7 @@ def test_an_upload_of_too_many_files_or_bytes_is_refused_whole(
         )
     }
     # Nothing of a refused request was stored or queued.
-    assert client.get(f"/api/projects/{project['id']}/documents").json() == []
+    assert listed(client, project["id"]) == []
     assert session.scalar(select(func.count()).select_from(Job)) == 0
 
     # One of them goes in as before.
@@ -226,8 +236,8 @@ def test_a_simultaneous_upload_of_the_same_bytes_is_rejected_not_a_crash(
     assert result["rejected"] == [
         {"filename": "msa.pdf", "reason": "Already in this project as 'scan.pdf'."}
     ]
-    listed = client.get(f"/api/projects/{project['id']}/documents").json()
-    assert [d["filename"] for d in listed] == ["policy.docx", "scan.pdf"]
+    names = [d["filename"] for d in listed(client, project["id"])]
+    assert names == ["policy.docx", "scan.pdf"]
 
 
 def test_document_views_after_indexing(client, services, sample_pdf):
@@ -401,7 +411,7 @@ def test_reprocess_and_delete(client, services, sample_pdf):
     assert client.get(f"/api/documents/{document_id}").status_code == 404
     # The original and the pages rendered for it go together.
     assert list(services.storage.list(prefix)) == []
-    assert client.get(f"/api/projects/{project['id']}/documents").json() == []
+    assert listed(client, project["id"]) == []
 
 
 def storage_key(document_id) -> str:

@@ -14,7 +14,7 @@ how the server's archiving of its write-ahead log stands, which the backups rest
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from sqlalchemy import Connection, text
@@ -52,8 +52,13 @@ _SERVER = text(
     "(SELECT default_version FROM pg_available_extensions WHERE name = 'vector') AS offered, "
     "current_setting('statement_timeout') AS statement_timeout, "
     "current_setting('idle_in_transaction_session_timeout') "
-    "AS idle_in_transaction_session_timeout"
+    "AS idle_in_transaction_session_timeout, "
+    "ARRAY(SELECT collname FROM pg_collation WHERE collnamespace = current_schema()::regnamespace "
+    "AND collversion <> pg_collation_actual_version(oid) ORDER BY collname) AS stale_collations"
 )
+# The index each of the schema's own collations sorts, which a new version of ICU may leave out
+# of order (`natural_order` in app/models.py).
+COLLATED_INDEXES = {"natural_order": "ix_documents_listing"}
 _TABLES = text(
     "SELECT relname AS name, n_live_tup AS rows, n_dead_tup AS dead, "
     "pg_table_size(relid) AS size, pg_indexes_size(relid) AS index_size, "
@@ -96,6 +101,8 @@ class Server:
     offered: str | None
     # Each of `TIMEOUTS` as the role's session starts with it: "0" is none.
     timeouts: dict[str, str]
+    # The schema's collations made with another version of ICU than the server has now.
+    stale_collations: list[str] = field(default_factory=list)
 
     @property
     def iterative_scans(self) -> bool:
@@ -170,6 +177,7 @@ def server(connection: Connection) -> Server:
         vector=row["vector"],
         offered=row["offered"],
         timeouts={name: row[name] for name in TIMEOUTS},
+        stale_collations=row["stale_collations"],
     )
 
 
@@ -226,6 +234,19 @@ def vector_problem(found: Server) -> str | None:
     )
 
 
+def collation_problem(name: str) -> str:
+    """What to do about a collation whose ICU moved under it: until its index is rebuilt, the
+    index may hold names out of the order the collation now compares them in, and a page of
+    the library that starts after a name may skip or repeat files."""
+    index = COLLATED_INDEXES.get(name, "every index that sorts by it")
+    return (
+        f"The collation {name} was made with another version of ICU than the database server "
+        f"has now, so {index} may hold names out of order; as the database's owner, run "
+        f"`REINDEX INDEX CONCURRENTLY {index};` and then `ALTER COLLATION {name} REFRESH "
+        'VERSION;` (deploying.md, "The database").'
+    )
+
+
 def timeouts_problem(found: Server) -> str | None:
     """What the role lacks of the timeouts deploying.md gives it, with the statements that set
     them; None when it has both."""
@@ -278,6 +299,8 @@ def check_database(settings: Settings) -> None:
     )
     if production and (problem := timeouts_problem(found)):
         log.warning(problem)
+    for name in found.stale_collations:
+        log.warning(collation_problem(name))
 
 
 def database_report(connection: Connection, limit: int | None = TABLES_SHOWN) -> Report:
@@ -300,14 +323,16 @@ def concerns(report: Report, settings: Settings) -> list[str]:
 
 
 def findings(report: Report, settings: Settings) -> dict[str, str]:
-    """`concerns` by what each is about (`pgvector`, `timeouts`, `dead_rows:<table>`,
-    `long_transaction`), so that the watch (app/watch.py) tells a concern that goes on from a
-    new one while its figures move."""
+    """`concerns` by what each is about (`pgvector`, `timeouts`, `collation:<name>`,
+    `dead_rows:<table>`, `long_transaction`), so that the watch (app/watch.py) tells a concern
+    that goes on from a new one while its figures move."""
     found = {}
     if problem := vector_problem(report.server):
         found["pgvector"] = problem
     if settings.environment == "production" and (problem := timeouts_problem(report.server)):
         found["timeouts"] = problem
+    for name in report.server.stale_collations:
+        found[f"collation:{name}"] = collation_problem(name)
     for table in report.tables:
         if table.behind:
             share = table.dead / (table.rows + table.dead)

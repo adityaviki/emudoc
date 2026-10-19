@@ -48,7 +48,7 @@ export function TabStrip() {
       className="no-scrollbar flex shrink-0 items-stretch overflow-x-auto border-b border-line bg-surface"
     >
       {openTabs.map((tab) => {
-        const document = workspace.documents.find((d) => d.id === tab.id)
+        const document = workspace.openDocuments.get(tab.id)
         const selected = tab.id === activeDocumentId
         const kind = document ? fileKind(document) : null
         const Icon = kind?.icon ?? FileText

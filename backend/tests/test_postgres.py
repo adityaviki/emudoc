@@ -43,6 +43,7 @@ from app.postgres import (
     TableState,
     archive,
     check_database,
+    collation_problem,
     concerns,
     database_report,
     describe_database,
@@ -407,6 +408,30 @@ def test_the_report_names_a_table_vacuum_is_behind_on_and_a_long_transaction(ses
     assert (
         concerns(Report(report.server, [small], None, None, report.taken_at), get_settings()) == []
     )
+
+
+def test_a_collation_whose_icu_moved_is_named_with_the_index_to_rebuild(
+    session, monkeypatch, caplog
+):
+    with engine.connect() as connection:
+        report = database_report(connection)
+    # The server's own ICU made the schema's collation.
+    assert report.server.stale_collations == []
+
+    # After an upgrade that brings another ICU, the library's index may be out of order.
+    moved = replace(report.server, stale_collations=["natural_order"])
+    stale = Report(moved, [], None, None, report.taken_at)
+    assert list(findings(stale, get_settings())) == ["collation:natural_order"]
+    assert concerns(stale, get_settings()) == [
+        "The collation natural_order was made with another version of ICU than the database "
+        "server has now, so ix_documents_listing may hold names out of order; as the database's "
+        "owner, run `REINDEX INDEX CONCURRENTLY ix_documents_listing;` and then `ALTER "
+        'COLLATION natural_order REFRESH VERSION;` (deploying.md, "The database").'
+    ]
+    # Every start says so too.
+    monkeypatch.setattr(postgres, "server", lambda connection: moved)
+    check_database(get_settings())
+    assert collation_problem("natural_order") in caplog.text
 
 
 def test_a_server_that_archives_nothing_has_no_archive_to_report(session):
