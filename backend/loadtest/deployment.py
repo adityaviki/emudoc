@@ -56,6 +56,7 @@ SIZING = {
     "RENDER_MEMORY_MB": "1024",
     "RENDER_CACHE_MB": "256",
     "OCR_MAX_PAGES": "100",
+    "OCR_CONCURRENCY": "4",
     "ENRICH_MAX_REQUESTS": "50",
 }
 # What the test is not about, out of its way: the rates a minute per member, which one member

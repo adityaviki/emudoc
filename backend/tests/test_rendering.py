@@ -38,7 +38,7 @@ from app.worker import HANDLERS, Worker
 from tests.test_api import create_project, upload
 from tests.test_jobs import wait_until
 from tests.test_metrics import Counted
-from tests.test_usage import scanned_pdf
+from tests.test_pipeline import scanned_pdf
 
 
 @pytest.fixture(autouse=True)

@@ -28,8 +28,7 @@ from tests.conftest import FakeMailer, FakeTurn
 from tests.test_api import create_project
 from tests.test_chats import answered, ask, follow, new_chat
 from tests.test_jobs import all_jobs, wait_until
-from tests.test_pipeline import stage_statuses
-from tests.test_usage import scanned_pdf
+from tests.test_pipeline import scanned_pdf, stage_statuses
 
 # Ten tokens in cost one unit of currency: a FakeTurn and a FakeLLM.structured call (10 in, 5
 # out) each cost 1.50, so a plan's USD 1.00 a day is spent by one of them.

@@ -5,12 +5,14 @@ import logging
 import re
 import threading
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from contextvars import copy_context
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from queue import SimpleQueue
 
 from pgvector import Vector
 from sqlalchemy import delete, select, update
@@ -33,7 +35,7 @@ from app.indexing.enrich import (
 )
 from app.indexing.structure import SectionHint, build_outline
 from app.jobs import LIVE, RENDER_PAGES, Lease, LeaseLost, enqueue, renew
-from app.llm import LLM, LLMError
+from app.llm import LLM, LLMError, OcrBlock
 from app.metrics import DOCUMENT_READY, INDEX_RUNS, PARSES, STAGE_RUNS, STAGE_SECONDS
 from app.models import STAGES, Block, Document, Fact, Passage, Section
 from app.parsing import IMAGE_TYPES, FileTooLarge, ParsedBlock, UnsupportedFile
@@ -45,7 +47,7 @@ from app.scanning import NOT_SCANNED, UNSCANNED, Scanner, quarantine_message
 from app.spending import check_platform_spend, check_spend, day_of
 from app.storage import Storage
 from app.tracing import PARSE, STAGE, note
-from app.usage import DOCUMENT, EMBED, ENRICH, INFER_SECTIONS, OCR, UPLOAD, Meter
+from app.usage import DOCUMENT, EMBED, ENRICH, INFER_SECTIONS, OCR, UPLOAD, Meter, ModelUsage
 
 log = logging.getLogger(__name__)
 
@@ -624,15 +626,23 @@ def _with_ocr(
     llm: LLM,
     meter: Meter,
 ) -> list[ParsedBlock]:
-    """Transcribe the pages that have no text layer and merge them in page order. Each page
-    read is counted as it is answered, so a scan that fails at its tenth page is charged for
-    nine."""
+    """Transcribe the pages that have no text layer and merge them in page order.
+
+    OCR_CONCURRENCY pages are read at once (`_side_by_side`), each drawn by one of the
+    renderer's children and then sent to the model, so that a scan takes its requests' time
+    shared among them rather than one after another. Each page read is counted as it is
+    answered, whatever became of the others. A page that fails starts no more: the pages in
+    flight are let end, and are counted, and the failure of the first in page order is raised,
+    so a scan that fails at its tenth page is charged for nine and for those after it that
+    were being read meanwhile.
+    """
     suffix = Path(filename).suffix.lower()
     by_page: dict[int, list[ParsedBlock]] = defaultdict(list)
     for block in blocks:
         by_page[block.page or 1].append(block)
-    usage = meter.calls(OCR)
-    for page in ocr_pages:
+
+    def read(page: int) -> tuple[list[OcrBlock], ModelUsage]:
+        usage = ModelUsage()
         if suffix == ".pdf":
             try:
                 image = renderer().render(path, page, purpose=FOR_OCR, edge=MAX_IMAGE_EDGE)
@@ -644,13 +654,62 @@ def _with_ocr(
             media_type = "image/png"
         else:
             image, media_type = _prepare_image(path, IMAGE_TYPES[suffix])
-        for found in llm.ocr_page(image, media_type, usage):
+        return llm.ocr_page(image, media_type, usage), usage
+
+    failures: dict[int, BaseException] = {}
+    for page, outcome in _side_by_side(read, ocr_pages, get_settings().ocr_concurrency):
+        if isinstance(outcome, BaseException):
+            failures[page] = outcome
+            continue
+        transcribed, usage = outcome
+        meter.calls(OCR).include(usage)
+        meter.add(OCR, "pages", 1)
+        for found in transcribed:
             text = clean_text(found.text)
             if text:
                 level = (found.level or 1) if found.kind == "heading" else None
                 by_page[page].append(ParsedBlock(found.kind, text, level=level, page=page))
-        meter.add(OCR, "pages", 1)
+    if failures:
+        raise failures[min(failures)]
     return [block for page in sorted(by_page) for block in by_page[page]]
+
+
+def _side_by_side[T](
+    work: Callable[[int], T], pages: Sequence[int], at_once: int
+) -> Iterator[tuple[int, T | BaseException]]:
+    """Run `work` on each page, `at_once` at a time, each on a thread of its own started in
+    page order as an earlier one ends, and yield each page with what `work` returned or raised
+    as it ends. Once one has raised no more are started, and those running are waited for.
+
+    The threads are daemons, as the worker's are, so that a process that stops does not wait
+    out a model's request; and each runs in a copy of the indexer's context, so that its lines
+    name the job and its spans are the run's (app/logs.py, app/tracing.py).
+    """
+    ended: SimpleQueue[tuple[int, T | BaseException]] = SimpleQueue()
+
+    def run(page: int) -> None:
+        try:
+            ended.put((page, work(page)))
+        except BaseException as error:
+            ended.put((page, error))
+
+    waiting = deque(pages)
+    running = 0
+    failed = False
+    while True:
+        while waiting and running < at_once and not failed:
+            page = waiting.popleft()
+            thread = threading.Thread(
+                target=copy_context().run, args=(run, page), name=f"ocr-{page}", daemon=True
+            )
+            thread.start()
+            running += 1
+        if not running:
+            return
+        page, outcome = ended.get()
+        running -= 1
+        failed = failed or isinstance(outcome, BaseException)
+        yield page, outcome
 
 
 def _prepare_image(path: Path, media_type: str) -> tuple[bytes, str]:

@@ -17,19 +17,21 @@ from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
 import app.api.chats as chats
 import app.tracing as tracing
 from app.agent.loop import run_agent
-from app.config import get_settings
+from app.config import INDEX, get_settings
 from app.indexing.pipeline import Services
 from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT, claim
 from app.logs import JsonFormatter, RequestIds
 from app.models import STAGES
+from app.rendering import FOR_OCR
 from app.tracing import TRACE_ID, describe, mark, note, timed, trace_of
 from app.worker import Worker
 from tests.test_api import create_project
 from tests.test_chats import ask, new_chat
 from tests.test_embeddings import embedder
 from tests.test_jobs import RATE_LIMITED, all_jobs
-from tests.test_llm import SCRIPTED, scripted_llm
+from tests.test_llm import SCRIPTED, Script, scripted_llm, text_reply
 from tests.test_logs import access_record, logged  # noqa: F401 (a fixture)
+from tests.test_pipeline import scanned_pdf
 
 QUESTION = "What does the termination clause say about ninety days?"
 SEARCHED = "termination ninety days"
@@ -206,6 +208,49 @@ def test_an_upload_and_its_documents_indexing_share_a_trace_timed_by_stage(
         r"\d+\.\d s\.",
         line["message"],
     )
+
+
+def test_a_scans_pages_read_side_by_side_are_spans_of_its_run(
+    client,
+    session,
+    services,
+    tmp_path,
+    monkeypatch,
+    logged,  # noqa: F811
+):
+    monkeypatch.setattr(get_settings(), "ocr_concurrency", 3)
+    page = {"blocks": [{"kind": "paragraph", "level": None, "text": "Total due: EUR 500"}]}
+    script = Script(*(text_reply(page) for _ in range(3)))
+    monkeypatch.setattr(services.llm, "ocr_page", scripted_llm(FunctionModel(script)).ocr_page)
+    project = create_project(client)
+    with scanned_pdf(tmp_path / "scan.pdf", 3).open("rb") as scan:
+        response = client.post(
+            f"/api/projects/{project['id']}/documents", files=[("files", ("scan.pdf", scan))]
+        )
+    assert response.status_code == 201
+    worker = Worker(services, concurrency=1)
+    job = claim(worker.id, [INDEX_DOCUMENT])
+    worker._run(job)
+
+    line = ran(logged())
+    timing = line["timing"]
+    assert timing["outcome"] == "done"
+    # Each page was drawn and read on a thread of its own, and is timed in the run all the
+    # same, within its parse stage.
+    (parse_stage,) = [span for span in timing["spans"] if span.get("stage") == "parse"]
+    pages = [span for span in timing["spans"] if span["kind"] in (tracing.RENDER, INDEX)]
+    assert (
+        sorted(
+            (span["kind"], span.get("purpose") or span.get("model"), span["outcome"])
+            for span in pages
+        )
+        == [(INDEX, SCRIPTED, "ok")] * 3 + [(tracing.RENDER, FOR_OCR, "drawn")] * 3
+    )
+    for span in pages:
+        assert parse_stage["at"] <= span["at"]
+        ended = span["at"] + span["seconds"]
+        assert ended <= parse_stage["at"] + parse_stage["seconds"] + 0.002
+    assert "3 pages drawn" in line["message"] and "3 indexing requests" in line["message"]
 
 
 def test_a_job_queued_outside_a_request_starts_a_trace_that_its_retry_carries(

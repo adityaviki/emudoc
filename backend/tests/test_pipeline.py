@@ -6,6 +6,7 @@ import time
 import pytest
 from PIL import Image
 from prometheus_client import REGISTRY
+from pydantic_ai.usage import RequestUsage
 from sqlalchemy import select
 
 from app.config import get_settings
@@ -13,7 +14,7 @@ from app.embeddings import EmbeddingError
 from app.indexing import enrich, pipeline
 from app.indexing.enrich import ExtractedFact
 from app.indexing.pipeline import STAGE_CRASHED, StageFailure, process_document, reset_stages
-from app.llm import MODEL_UNAVAILABLE, LLMError
+from app.llm import MODEL_UNAVAILABLE, LLMError, OcrBlock
 from app.models import Block, Fact, Passage, Section
 from app.parsing import images
 from app.scanning import UNSCANNED
@@ -29,6 +30,30 @@ def rows(session, model, document):
 
 def stage_statuses(document):
     return {name: stage["status"] for name, stage in document.stages.items()}
+
+
+def scanned_pdf(path, pages: int):
+    """A PDF of `pages` pages that are pictures and nothing else, as a scanner makes them."""
+    images = [Image.new("RGB", (400, 300), "white") for _ in range(pages)]
+    images[0].save(path, save_all=True, append_images=images[1:])
+    return path
+
+
+class NamedPages:
+    """Stands in for the renderer: a page of a scan is drawn as its number, so that a model's
+    stand-in can tell which page it was sent, since the pages of `scanned_pdf` are alike."""
+
+    def render(self, path, page: int, **_) -> bytes:
+        return f"page {page}".encode()
+
+
+def named_pages(monkeypatch) -> None:
+    monkeypatch.setattr(pipeline, "renderer", NamedPages)
+
+
+def page_of(image: bytes) -> int:
+    """The page a `NamedPages` drawing is of."""
+    return int(image.decode().removeprefix("page "))
 
 
 def test_full_pipeline_builds_all_three_indexes(session, indexed):
@@ -248,6 +273,93 @@ def test_scanned_image_is_read_by_ocr(session, services, make_document, tmp_path
         ("heading", "Scanned Invoice", 1),
         ("paragraph", "Total due: EUR 500", 1),
     ]
+
+
+def test_a_scans_pages_are_read_several_at_a_time_and_kept_in_page_order(
+    session, services, make_document, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(get_settings(), "ocr_concurrency", 3)
+    named_pages(monkeypatch)
+    document = make_document(scanned_pdf(tmp_path / "scan.pdf", 7))
+    changed = threading.Condition()
+    reading: set[int] = set()
+    most = 0
+    answered: list[int] = []
+
+    def ocr_page(image, media_type, usage=None):
+        nonlocal most
+        page = page_of(image)
+        with changed:
+            reading.add(page)
+            most = max(most, len(reading))
+            changed.notify_all()
+            # The first three are answered only once all three were asked, the last first: a
+            # page is held up by none before it, and is merged in its place all the same.
+            if page <= 3:
+                assert changed.wait_for(lambda: most == 3, timeout=10)
+                assert changed.wait_for(lambda: page == 3 or page + 1 in answered, timeout=10)
+            reading.discard(page)
+            answered.append(page)
+            changed.notify_all()
+        usage.add(get_settings().index_model, RequestUsage(input_tokens=10, output_tokens=5))
+        return [OcrBlock(kind="paragraph", level=None, text=f"The text of page {page}.")]
+
+    monkeypatch.setattr(services.llm, "ocr_page", ocr_page)
+    assert process_document(document.id, services) == []
+    session.refresh(document)
+
+    assert document.status == "ready"
+    assert [(block.text, block.page) for block in rows(session, Block, document)] == [
+        (f"The text of page {page}.", page) for page in range(1, 8)
+    ]
+    assert most == 3
+    assert sorted(answered) == list(range(1, 8))
+    assert answered.index(3) < answered.index(2) < answered.index(1)
+    # Every page is on the bill, each counted as it was answered.
+    ocr = document.usage["ocr"]
+    assert (ocr["pages"], ocr["calls"], ocr["input_tokens"]) == (7, 7, 70)
+
+
+def test_a_page_that_fails_starts_no_more_and_the_first_failed_in_page_order_is_told(
+    session, services, make_document, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(get_settings(), "ocr_concurrency", 3)
+    named_pages(monkeypatch)
+    document = make_document(scanned_pdf(tmp_path / "scan.pdf", 6))
+    changed = threading.Condition()
+    asked: list[int] = []
+    ended: list[int] = []
+    unreadable = LLMError("The model's reply to page 2 could not be read.", transient=False)
+
+    def ocr_page(image, media_type, usage=None):
+        page = page_of(image)
+        with changed:
+            asked.append(page)
+            changed.notify_all()
+            # Once the three are asked, page 3 fails, then page 2, and page 1 is answered.
+            assert changed.wait_for(lambda: len(asked) >= 3, timeout=10)
+            assert changed.wait_for(lambda: page == 3 or page + 1 in ended, timeout=10)
+            ended.append(page)
+            changed.notify_all()
+        if page == 3:
+            raise LLMError("The rate limit for the model was reached.", transient=True)
+        if page == 2:
+            raise unreadable
+        usage.add(get_settings().index_model, RequestUsage(input_tokens=10, output_tokens=5))
+        return [OcrBlock(kind="paragraph", level=None, text=f"The text of page {page}.")]
+
+    monkeypatch.setattr(services.llm, "ocr_page", ocr_page)
+    (failure,) = process_document(document.id, services)
+
+    # The member reads why the first page that failed did, though a later one failed first;
+    # and no page was started once one had failed.
+    assert (failure.stage, failure.message, failure.transient) == ("parse", str(unreadable), False)
+    assert sorted(asked) == [1, 2, 3]
+    session.refresh(document)
+    assert document.status == "failed" and document.error == str(unreadable)
+    # The page answered meanwhile is on the bill all the same.
+    ocr = document.usage["ocr"]
+    assert (ocr["pages"], ocr["calls"]) == (1, 1)
 
 
 def test_scanned_image_without_a_model_fails_with_a_reason(

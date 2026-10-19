@@ -10,7 +10,6 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from PIL import Image
 from pydantic_ai.messages import TextPart, ToolCallPart
 from sqlalchemy import func, select
 
@@ -51,6 +50,7 @@ from tests.test_answers import Held
 from tests.test_api import create_project, upload
 from tests.test_chats import answered, ask, new_chat
 from tests.test_jobs import lose
+from tests.test_pipeline import named_pages, page_of, scanned_pdf
 
 
 def rows_of(session, ref: tuple[str, int]) -> list[UsageEvent]:
@@ -114,13 +114,6 @@ def passages_of(session, document_id: int, embedded: bool = False) -> int:
     if embedded:
         query = query.where(Passage.embedding.is_not(None))
     return session.scalar(query)
-
-
-def scanned_pdf(path, pages: int):
-    """A PDF of `pages` pages that are pictures and nothing else, as a scanner makes them."""
-    images = [Image.new("RGB", (400, 300), "white") for _ in range(pages)]
-    images[0].save(path, save_all=True, append_images=images[1:])
-    return path
 
 
 def test_an_answer_records_its_model_calls_and_tokens(client, session, services, account, indexed):
@@ -364,26 +357,26 @@ def test_a_scan_is_charged_per_page_read_even_when_the_stage_fails_half_way(
     session, services, make_document, tmp_path, monkeypatch
 ):
     document = make_document(scanned_pdf(tmp_path / "scan.pdf", 2))
-    answer_page = services.llm.structured
+    named_pages(monkeypatch)
+    read_page = services.llm.ocr_page
 
-    def second_page_fails(content, schema, usage=None):
-        if len(services.llm.calls) == 1:
-            services.llm.calls.append((schema.__name__, content))
+    def second_page_fails(image, media_type, usage=None):
+        if page_of(image) == 2:
             raise LLMError("The rate limit for the model was reached.", transient=True)
-        return answer_page(content, schema, usage)
+        return read_page(image, media_type, usage)
 
-    monkeypatch.setattr(services.llm, "structured", second_page_fails)
+    monkeypatch.setattr(services.llm, "ocr_page", second_page_fails)
     failures = process_document(document.id, services)
     assert [(failure.stage, failure.transient) for failure in failures] == [("parse", True)]
 
-    # The page the model read before the stage failed is on the bill, as the model's call;
+    # The page the model read while the other failed is on the bill, as the model's call;
     # the upload's pages are not known until a parse succeeds.
     rows = rows_of(session, (DOCUMENT, document.id))
     assert spent(rows) == [*model_calls(OCR, 1), (OCR, "pages", 1)]
     assert {row.model for row in rows} == {get_settings().index_model}
 
     # The retry reads both pages and is charged for both, and the upload is now two pages.
-    monkeypatch.setattr(services.llm, "structured", answer_page)
+    monkeypatch.setattr(services.llm, "ocr_page", read_page)
     assert process_document(document.id, services) == []
     rows = rows_of(session, (DOCUMENT, document.id))
     assert spent(rows, OCR, UPLOAD) == [

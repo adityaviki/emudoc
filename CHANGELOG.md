@@ -11,6 +11,9 @@ its day, in the same commit.
 
 Members:
 
+- A long scan is ready far sooner: four of its pages are read at once where they were read one
+  after another, so a scan of 100 pages, the most one document may have read by default, is
+  ready in about two minutes at a hosted model's pace, where it took about six.
 - The pages of a long PDF show sooner as you scroll where the files are kept in cloud storage:
   the file is fetched once for the pages that follow rather than once a page, so a page of a
   62 MB scan is drawn in under a second where it took two.
@@ -44,6 +47,13 @@ Members:
 
 Operators:
 
+- The new `OCR_CONCURRENCY` (4) is how many pages of one scan are read at once, each drawn and
+  then sent to the model as an earlier one is answered: the load test's 300-page scan at 3 s a
+  request was ready after 317 s, where one page at a time took 1,068 s, the worker at 120 MB
+  more. Each indexer reading a scan sends that many requests at once, which the provider's rate
+  limit counts; lower it when `EmudocModelRateLimited` fires while scans are read (deploying.md,
+  "Large documents"). The load test's `--large-index-seconds` gives the large files a model's
+  pace.
 - From a bucket, the API keeps its copy of an original for the pages and thumbnails it draws
   next: five minutes after the last page drawn from it, up to the new `RENDER_CACHE_MB` (256)
   of copies in the temporary directory, the least recently used going first, and requests that

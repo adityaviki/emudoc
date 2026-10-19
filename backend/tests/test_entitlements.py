@@ -21,7 +21,8 @@ from app.usage import DOCUMENT, UPLOAD, record
 from tests.test_api import create_project, upload
 from tests.test_auth import me, signup
 from tests.test_chats import new_chat
-from tests.test_usage import rows_of, scanned_pdf
+from tests.test_pipeline import scanned_pdf
+from tests.test_usage import rows_of
 
 ONE_PROJECT = (
     "The Free plan allows 1 project, and this organisation has 1. "

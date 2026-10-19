@@ -415,7 +415,8 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   by OCR and by the thumbnail alike, from its header and before a pixel of it is decoded.
   `OCR_MAX_PAGES` (100) is how many pages of one document the model may read as scans, each a
   model call: a document with more fails before a page is read, with a message that says to
-  split it; `0` removes the limit. `ENRICH_MAX_REQUESTS` (50) is how many requests one
+  split it; `0` removes the limit. `OCR_CONCURRENCY` (4) of a scan's pages are read at once,
+  each drawn and sent to the model as an earlier one is answered. `ENRICH_MAX_REQUESTS` (50) is how many requests one
   document's summaries and facts may take, one for each 40,000 characters and one to roll them
   up: a longer document is summarised from its start as far as they reach, and its enrich
   stage says how far; the rest is searched all the same. A table of more than 100 rows, such as

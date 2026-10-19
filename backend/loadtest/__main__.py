@@ -261,6 +261,18 @@ class Run:
             report.fault(f"Answers ({label}) did not all end done: {statuses}")
 
     async def large_phase(self) -> None:
+        """The large files one at a time, read by a model that takes `--large-index-seconds` a
+        request: a scan's pages are each a request, so its time is the model's."""
+        args = self.args
+        if args.large_index_seconds:
+            self.deployment.start_standin(index_seconds=args.large_index_seconds)
+        try:
+            await self._large_files()
+        finally:
+            if args.large_index_seconds:
+                self.deployment.start_standin()
+
+    async def _large_files(self) -> None:
         args = self.args
         directory = self.deployment.directory / "large"
         directory.mkdir(exist_ok=True)
@@ -490,6 +502,12 @@ def arguments(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--scan-pages", type=int, default=300, help="the scan's pages (%(default)s)"
+    )
+    parser.add_argument(
+        "--large-index-seconds",
+        type=float,
+        default=0.0,
+        help="the large files' seconds an indexing request, a scan's page each (%(default)s)",
     )
     parser.add_argument(
         "--sheet-mb", type=int, default=50, help="the workbooks' size (%(default)s; 0: none)"

@@ -651,7 +651,17 @@ organisation, whatever its plan, each a refusal or a shortcut with a sentence th
   it, `PARSE_MAX_PAGES` (500) refuses a PDF by its pages and `PARSE_MAX_ROWS` (100,000) a sheet
   by its rows.
 - **Its scans.** `OCR_MAX_PAGES` (100) is how many pages the model may read as scans, a request
-  each; a document with more is refused before a page is read.
+  each; a document with more is refused before a page is read. `OCR_CONCURRENCY` (4) of them are
+  read at once, in page order: each page is drawn by one of the worker's `RENDER_PROCESSES`
+  children and sent to the model, and the next is started as one is answered, so a scan takes
+  about a quarter of the time it took one page after another ("Load"). Each indexer reading a
+  scan sends that many requests at once, so a worker whose 16 indexers all read scans sends 64,
+  more than a provider's lowest tiers take: lower `OCR_CONCURRENCY` when
+  `EmudocModelRateLimited` fires while scans are read, since a page the provider still refuses
+  after its client's own retries, and no fallback reads, fails the stage, which the worker runs
+  again from its first page. A page in flight holds its image, a few megabytes. A page that
+  fails starts no more: those being read end and are counted, and the document says why the
+  first of them in page order failed.
 - **Its summaries and facts.** The enrich stage sends the model the document 40,000 characters a
   request, and a request to roll them up. A table of more than 100 rows, one block or blocks that
   repeat its header as a sheet's do, is shown in part: its header, its first 20 rows and its last
@@ -1758,7 +1768,8 @@ Each run of a job ends with one line at INFO that says where its time went, here
 - `totals` counts every span of each kind, with the slowest. The writes of an answer's events
   (`write`, a commit each, so a slow database shows there) are counted and not listed, and a run
   of more than 50 spans, a scan's pages, lists its 50 slowest and says how many it left out
-  (`unlisted`).
+  (`unlisted`). A scan's pages are read `OCR_CONCURRENCY` at once, so their `render` and
+  `index` spans overlap, and their totals come to more than the parse stage that holds them.
 - The line's `outcome` is the job's, as `emudoc_job_runs` names them. A run that was taken over
   (`lost`) logs its own line, and the next run of the job another with the same trace.
 
@@ -2316,7 +2327,8 @@ plan and with the rates a minute lifted (one member asks for what twenty would):
    request taking `--index-seconds` (3);
 5. **large**: uploads a 300-page scan (62 MB) and asks the 20 questions while it is read, a
    50 MB workbook of seven sheets of 90,000 order rows, and the same orders in one sheet, then
-   opens each page of the scan, four at a time as a member scrolls, twice.
+   opens each page of the scan, four at a time as a member scrolls, twice; each indexing
+   request, a page of the scan each, takes `--large-index-seconds` (0, at once).
 
 It prints a table of what the member waited, at the 50th and 95th percentiles and the longest,
 and notes of what the app did meanwhile: documents indexed a minute, each stage's average, the
@@ -2382,7 +2394,10 @@ The large files, one at a time, with the model at once:
 
 - **The 300-page scan** was ready 101 s after its upload, 96 s of them in the parse: its pages
   drawn one after another for the model (about 89 s) and read (320 requests, about 9 s). The
-  20 questions asked meanwhile began as soon as without it.
+  20 questions asked meanwhile began as soon as without it. Read four pages at a time
+  (`OCR_CONCURRENCY`, a run of the large phase alone), it was ready after 51 s, 46 s of them in
+  the parse, its pages drawn two at a time by the worker's `RENDER_PROCESSES` children, which
+  are then the narrow part; the worker held 469 MB.
 - **The 50 MB workbook in seven sheets** (625,000 rows, 88 million characters) was ready after
   604 s: the parse 98 s, the structure 48 s, the summaries and facts 193 s in 3,126 requests
   (one for each 40,000 characters of rows), the embeddings 264 s (about 52,000 passages in
@@ -2403,6 +2418,18 @@ The large files, one at a time, with the model at once:
 
 The API's processes held 210 to 225 MB throughout, the worker's about 420 MB while the library
 was indexed.
+
+The scan at a hosted model's pace, 3 s an indexing request (`--phases large --sheet-mb 0
+--large-index-seconds 3`), by the pages read at once (`--set OCR_CONCURRENCY=…`):
+
+| `OCR_CONCURRENCY` | Ready | The parse | The worker held |
+| --- | --- | --- | --- |
+| 1 | 1,068 s | 1,004 s | 466 MB |
+| 4 | 317 s | 252 s | 587 MB |
+| 8 | 192 s | 128 s | 654 MB |
+
+Of the rest, 62 s are its summaries and facts, 20 requests one after another, which the pages
+read at once leave as they were.
 
 ### What the figures mean
 
@@ -2434,9 +2461,15 @@ was indexed.
   provider's lowest tiers take (`EmudocModelRateLimited`, then lower `WORKER_CONCURRENCY`). A
   member who uploads thousands at once is served by more indexers, or another worker, with the
   pool and the provider's limits to match.
-- **A long scan** is read one page after another, each drawn (0.3 s) and then sent to the
-  model, so at a hosted model's 3 s a page a 300-page scan takes about 17 minutes by itself,
-  past the objective whatever else waits. `OCR_MAX_PAGES` (100) holds one to about 6 minutes.
+- **A long scan** is read `OCR_CONCURRENCY` pages at a time (4), each drawn (0.3 s) and then
+  sent to the model: at a hosted model's 3 s a page the 300-page scan was ready in 5.3 minutes,
+  where one page after another took 17.8, past the objective by itself. Eight at a time took
+  3.2 minutes, but every page in flight is a request the provider's rate limit counts: 16
+  indexers reading scans 4 pages at a time are 64 requests at once, about 1,300 a minute at
+  3 s, beyond a provider's lower tiers, so such a deployment lowers it rather than raise it.
+  The pages in flight cost the worker 120 MB at 4 and 190 MB at 8, their images and the
+  requests that carry them. `OCR_MAX_PAGES` (100) holds one scan to about 2 minutes, and its
+  summaries and facts, one request after another, are now a fifth of its time.
 - **A large workbook** was thousands of model requests and hours of an indexer at a hosted
   model's pace; its sheets are now one request or a few, whatever their rows, and a workbook
   past `PARSE_MAX_CHARS` is refused in the parse ("Large documents"). What one within it costs
@@ -3315,6 +3348,7 @@ the roots' `settings` the others ("The settings").
 | `RENDER_CACHE_MB` | `256` | | The copies of a bucket's originals an API keeps a few minutes for the next pages it draws; 0 for none ("Drawing pages") |
 | `PRERENDER_PAGES` | `3` | | A PDF's first pages drawn once it is parsed; 0 for none |
 | `OCR_MAX_PAGES` | `100` | | The pages of one document read as scans |
+| `OCR_CONCURRENCY` | `4` | | The pages of one scan read at once, a model request each ("Large documents") |
 | `ENRICH_MAX_REQUESTS` | `50` | | The requests one document's summaries and facts may take; 0 for no limit |
 
 ### The models

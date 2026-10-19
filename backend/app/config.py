@@ -257,6 +257,12 @@ class Settings(BaseSettings):
     # with a message that says to split it, before a page is read (app/indexing/pipeline.py).
     # Zero removes the limit.
     ocr_max_pages: int = Field(default=100, ge=0)
+    # The pages of one scan read at once: each drawn by one of the worker's render children,
+    # then sent to the model, the next started as one is answered. A hosted model takes
+    # seconds a page, so one at a time made a long scan the slowest thing a worker did; each
+    # indexer reading a scan sends this many requests at once, which the provider's rate
+    # limit counts (deploying.md, "Large documents").
+    ocr_concurrency: int = Field(default=4, ge=1)
     # The requests to the model one document's summaries and facts may take (app/indexing/
     # enrich.py, a request for each 40,000 characters and one to roll them up): a longer
     # document is summarised from its start as far as they reach, and its enrich stage says

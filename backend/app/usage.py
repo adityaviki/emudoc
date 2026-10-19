@@ -174,6 +174,16 @@ class ModelUsage:
         alone, as an embeddings endpoint reports them for texts that are no model call."""
         self.models.setdefault(model, Calls()).add(usage)
 
+    def include(self, other: "ModelUsage") -> None:
+        """Count the calls `other` counted, model by model: a scan's pages are read on threads
+        of their own, each into a `ModelUsage` of its own, since the counts are not safe to
+        add to from several threads at once (app/indexing/pipeline.py)."""
+        for model, spent in other.models.items():
+            mine = self.models.setdefault(model, Calls())
+            mine.calls += spent.calls
+            mine.input_tokens += spent.input_tokens
+            mine.output_tokens += spent.output_tokens
+
     @property
     def calls(self) -> int:
         return sum(spent.calls for spent in self.models.values())
