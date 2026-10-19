@@ -38,6 +38,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: critical
+              process: worker
             exp_annotations:
               summary: No worker has answered for 5 minutes.
               description: Nothing is indexed and no question is answered until one runs.
@@ -69,6 +70,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: critical
+              process: api
             exp_annotations:
               summary: No API has answered for 5 minutes.
               description: The members cannot reach the app; the proxy answers 502.
@@ -492,3 +494,16 @@ tests:
             exp_annotations:
               summary: A transaction has been open for 1h 1m 40s.
               description: "Vacuum keeps every row deleted or replaced since it began: find it in pg_stat_activity and end it with pg_terminate_backend if nothing should run that long."
+
+  # The watchdog fires from the first evaluation, whatever the app serves.
+  - interval: 1m
+    input_series: []
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: EmudocWatchdog
+        exp_alerts:
+          - exp_labels:
+              severity: none
+            exp_annotations:
+              summary: Prometheus evaluates the alerting rules, and its Alertmanager hears them.
+              description: This alert always fires; its silence is the alarm.

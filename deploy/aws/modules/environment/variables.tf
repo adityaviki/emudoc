@@ -166,7 +166,7 @@ variable "mail" {
 }
 
 variable "alert_email" {
-  description = "Where the instance reports a failed restore drill, credentials refresh or start and a container in trouble (an SNS subscription the address must confirm), and the app its own reports (ALERT_EMAIL, sent through the mail relay). Empty reports to the topic alone, and the app to nobody."
+  description = "Where the alerts topic sends what the instance reports (a failed restore drill, credentials refresh or start, a container in trouble), what Prometheus's rules fire and CloudWatch's alarms (the alerts silent, the instance's status checks), as an SNS subscription the address must confirm; and where the app mails its own reports (ALERT_EMAIL, sent through the mail relay). Empty reports to the topic alone, and the app to nobody."
   type        = string
   default     = ""
 }

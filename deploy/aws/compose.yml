@@ -1,5 +1,6 @@
-# What deploy/compose.yml needs on the AWS instance (deploying.md, "On AWS"), laid over it by
-# the host's release (deploy/aws/host/release), which runs from the image this file came in:
+# What deploy/compose.yml needs on the AWS instance (deploying.md, "On AWS"), and Prometheus
+# and Alertmanager beside it ("Alerts"), laid over it by the host's release
+# (deploy/aws/host/release), which runs from the image this file came in:
 #
 #   docker compose --env-file /etc/emudoc/compose.env \
 #     -f deploy/compose.yml -f deploy/aws/compose.yml up -d --wait
@@ -45,6 +46,77 @@ services:
     security_opt: [no-new-privileges:true]
     restart: unless-stopped
 
+  # The alerting rules of deploy/prometheus over the metrics of every API and worker, found by
+  # the services' names on this network. It holds no credentials. Its page answers on the host's
+  # loopback alone, for Session Manager's port forwarding: the metrics never leave the instance.
+  prometheus:
+    image: prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=2GB
+    ports:
+      - 127.0.0.1:9090:9090
+    volumes:
+      - ./prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:9090/-/ready]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 1m
+    restart: unless-stopped
+
+  # What Prometheus fires, to the alerts topic, and its watchdog to the heartbeat topic
+  # (aws/alertmanager.yml), with the Alertmanager role's credentials. Alertmanager reads no
+  # variable, so the environment's name and the topics are written over the words in @ of its
+  # configuration at each start. Its page, for silences, answers on the host's loopback alone.
+  alertmanager:
+    image: prom/alertmanager:v0.34.1@sha256:e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a
+    entrypoint:
+      - /bin/sh
+      - -euc
+      - >-
+        sed -e "s|@ENVIRONMENT@|$$EMUDOC_ENVIRONMENT|g" -e "s|@ALERTS@|$$EMUDOC_ALERTS|g"
+        -e "s|@HEARTBEAT@|$$EMUDOC_HEARTBEAT|g" /etc/alertmanager/alertmanager.yml
+        >/tmp/alertmanager.yml;
+        exec /bin/alertmanager --config.file=/tmp/alertmanager.yml --storage.path=/alertmanager
+        --cluster.listen-address=
+    environment:
+      AWS_CONFIG_FILE: /run/aws/config
+      AWS_EC2_METADATA_DISABLED: "true"
+      EMUDOC_ENVIRONMENT: ${EMUDOC_ENVIRONMENT:?set EMUDOC_ENVIRONMENT to the environment's name}
+      EMUDOC_ALERTS: ${EMUDOC_ALERTS:?set EMUDOC_ALERTS to the alerts topic's ARN}
+      EMUDOC_HEARTBEAT: ${EMUDOC_HEARTBEAT:?set EMUDOC_HEARTBEAT to the heartbeat topic's ARN}
+    # The credentials' group (host/credentials); it runs as nobody.
+    group_add: ["10001"]
+    ports:
+      - 127.0.0.1:9093:9093
+    volumes:
+      - ./aws/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - /run/emudoc/aws/alertmanager:/run/aws:ro
+      # The silences, and what was sent, so that a restart repeats nothing.
+      - alertmanager-data:/alertmanager
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:9093/-/ready]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
 volumes:
   caddy-data:
   caddy-config:
+  prometheus-data:
+  alertmanager-data:

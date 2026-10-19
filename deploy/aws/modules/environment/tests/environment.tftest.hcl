@@ -90,6 +90,14 @@ run "staging" {
     values = { arn = "arn:aws:iam::123456789012:role/emudoc-staging-storage-reader" }
   }
   override_resource {
+    target = aws_iam_role.alertmanager
+    values = { arn = "arn:aws:iam::123456789012:role/emudoc-staging-alertmanager" }
+  }
+  override_resource {
+    target = aws_sns_topic.heartbeat
+    values = { arn = "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-heartbeat" }
+  }
+  override_resource {
     target = aws_instance.app
     values = { arn = "arn:aws:ec2:eu-central-1:123456789012:instance/i-0123456789abcdef0" }
   }
@@ -173,6 +181,8 @@ run "staging" {
         "EMUDOC_REPOSITORY=123456789012.dkr.ecr.eu-central-1.amazonaws.com/emudoc",
         "EMUDOC_PARAMETERS=/emudoc/staging",
         "EMUDOC_APP_ROLE=arn:aws:iam::123456789012:role/emudoc-staging-app",
+        "EMUDOC_ALERTMANAGER_ROLE=arn:aws:iam::123456789012:role/emudoc-staging-alertmanager",
+        "EMUDOC_HEARTBEAT=arn:aws:sns:eu-central-1:123456789012:emudoc-staging-heartbeat",
         "RDS_SOURCE=emudoc-staging",
         "EMUDOC_DRILL=yes",
       ] : strcontains(local.cloud_config, "      ${line}\n")
@@ -351,6 +361,93 @@ run "staging" {
       "arn:aws:ssm:eu-central-1:123456789012:parameter/emudoc/staging/*",
     ]
     error_message = "The instance reads its own environment's parameters only."
+  }
+
+  # The alerts: both topics under the environment's key, which CloudWatch's alarms may use and
+  # the publishers only through SNS; Alertmanager's credentials publish and do nothing else.
+  assert {
+    condition = (
+      aws_sns_topic.alerts.kms_master_key_id == aws_kms_key.alerts.arn
+      && aws_sns_topic.heartbeat.kms_master_key_id == aws_kms_key.alerts.arn
+      && aws_kms_key.alerts.enable_key_rotation
+      && length(aws_sns_topic_subscription.alerts) == 0
+    )
+    error_message = "The alerts and the heartbeat are encrypted with a key of the environment's own, which turns."
+  }
+  assert {
+    condition = {
+      for statement in local.alerts_key_policy.Statement : statement.Sid => statement
+      if statement.Sid != "TheAccountDecides"
+      } == {
+      PublishersThroughSns = {
+        Sid       = "PublishersThroughSns"
+        Effect    = "Allow"
+        Principal = { AWS = ["arn:aws:iam::123456789012:role/emudoc-staging-instance", "arn:aws:iam::123456789012:role/emudoc-staging-alertmanager"] }
+        Action    = ["kms:GenerateDataKey*", "kms:Decrypt"]
+        Resource  = "*"
+        Condition = { StringEquals = { "kms:ViaService" = "sns.eu-central-1.amazonaws.com" } }
+      }
+      CloudWatchAlarms = {
+        Sid       = "CloudWatchAlarms"
+        Effect    = "Allow"
+        Principal = { Service = "cloudwatch.amazonaws.com" }
+        Action    = ["kms:GenerateDataKey*", "kms:Decrypt"]
+        Resource  = "*"
+      }
+    }
+    error_message = "The host and Alertmanager use the key through SNS alone, and CloudWatch's alarms may publish with it."
+  }
+  assert {
+    condition = local.alertmanager_policy.Statement == [{
+      Effect   = "Allow"
+      Action   = "sns:Publish"
+      Resource = ["arn:aws:sns:eu-central-1:123456789012:emudoc-alerts", "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-heartbeat"]
+    }] && jsondecode(aws_iam_role.alertmanager.assume_role_policy).Statement[0].Principal.AWS == "arn:aws:iam::123456789012:role/emudoc-staging-instance"
+    error_message = "Alertmanager's credentials publish to the two topics and nothing else, and only the host takes them on."
+  }
+  assert {
+    condition = one([
+      for statement in local.instance_policy.Statement : statement.Resource
+      if statement.Sid == "HandOutTheContainersCredentials"
+      ]) == [
+      "arn:aws:iam::123456789012:role/emudoc-staging-app",
+      "arn:aws:iam::123456789012:role/emudoc-staging-storage-reader",
+      "arn:aws:iam::123456789012:role/emudoc-staging-alertmanager",
+    ]
+    error_message = "The host renews the app's, the reader's and Alertmanager's credentials."
+  }
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.silent.namespace == "AWS/SNS"
+      && aws_cloudwatch_metric_alarm.silent.metric_name == "NumberOfMessagesPublished"
+      && aws_cloudwatch_metric_alarm.silent.dimensions["TopicName"] == "emudoc-staging-heartbeat"
+      && aws_cloudwatch_metric_alarm.silent.statistic == "Sum"
+      && aws_cloudwatch_metric_alarm.silent.comparison_operator == "LessThanThreshold"
+      && aws_cloudwatch_metric_alarm.silent.threshold == 1
+      && aws_cloudwatch_metric_alarm.silent.period * aws_cloudwatch_metric_alarm.silent.evaluation_periods == 900
+      && aws_cloudwatch_metric_alarm.silent.datapoints_to_alarm == aws_cloudwatch_metric_alarm.silent.evaluation_periods
+      && aws_cloudwatch_metric_alarm.silent.treat_missing_data == "breaching"
+    )
+    error_message = "A quarter of an hour without a heartbeat, a topic that hears nothing included, is an alarm."
+  }
+  assert {
+    condition = alltrue([
+      for alarm in [aws_cloudwatch_metric_alarm.silent, aws_cloudwatch_metric_alarm.system, aws_cloudwatch_metric_alarm.instance] :
+      contains(alarm.alarm_actions, "arn:aws:sns:eu-central-1:123456789012:emudoc-alerts")
+      && alarm.ok_actions == toset(["arn:aws:sns:eu-central-1:123456789012:emudoc-alerts"])
+    ])
+    error_message = "Each alarm reaches the alerts topic when it begins and when it is over."
+  }
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.system.metric_name == "StatusCheckFailed_System"
+      && aws_cloudwatch_metric_alarm.system.dimensions["InstanceId"] == aws_instance.app.id
+      && contains(aws_cloudwatch_metric_alarm.system.alarm_actions, "arn:aws:automate:eu-central-1:ec2:recover")
+      && aws_cloudwatch_metric_alarm.instance.metric_name == "StatusCheckFailed_Instance"
+      && aws_cloudwatch_metric_alarm.instance.dimensions["InstanceId"] == aws_instance.app.id
+      && contains(aws_cloudwatch_metric_alarm.instance.alarm_actions, "arn:aws:automate:eu-central-1:ec2:reboot")
+    )
+    error_message = "A failed system check moves the instance to other hardware, a failed instance check reboots it."
   }
 
   # CI's role: a workflow on main of the repository alone, which may release and nothing more.

@@ -50,7 +50,8 @@ on one machine; this is what changes for a deployment. The processes below run f
   restore to the same point: "Backups", below.
 - **A scraper for the metrics**, if the deployment keeps them: Prometheus or anything that reads
   its format, asking the API and every worker on a port of their own, with Alertmanager for the
-  rules in `deploy/prometheus`: "Metrics" and "Alerts", below.
+  rules in `deploy/prometheus` and a dead man's switch for its watchdog: "Metrics" and
+  "Alerts", below. On AWS the instance runs both.
 - **An address for the alerts**, `ALERT_EMAIL`, where the worker reports what it gave up on and
   what it sees go wrong, through the same relay: "Alerts", below.
 
@@ -1716,7 +1717,8 @@ value.
 | `emudoc_wal_archived_total`, `emudoc_wal_archive_failures_total`, `emudoc_wal_last_archived_seconds`, `emudoc_wal_segments_pending` | The server's archiving of its write-ahead log ("Backups"): the segments archived and the attempts that failed, how long ago the last went, and the finished segments waiting; none of them from a server that archives nothing (`archive_mode` off) or is in recovery |
 
 A Prometheus on the compose file's network finds every replica by the services' names, and
-keeps which kind of process each is as `process`, with `deploy/prometheus/prometheus.yml`:
+keeps which kind of process each is as `process`, with `deploy/prometheus/prometheus.yml` (on
+AWS the instance runs it so: "Alerts"):
 
 ```yaml
 scrape_configs:
@@ -1765,7 +1767,9 @@ read whichever answered.
 
 Three watchers, since none of them sees everything: the worker, which sees the database and
 what it reaches and mails `ALERT_EMAIL`; rules on the metrics, which see every process from
-outside and need a scraper; and on AWS the host, which sees the containers.
+outside and need a scraper; and on AWS the host, which sees the containers. On AWS the
+instance runs the scraper with the rules, and CloudWatch watches the instance from outside and
+hears when the rules fall silent ("On AWS", below).
 
 ### What the worker mails
 
@@ -1795,12 +1799,13 @@ question or an address.
 
 ### Rules on the metrics
 
-`deploy/prometheus/alerts.yml` holds 26 Prometheus alerting rules over the metrics ("Metrics",
+`deploy/prometheus/alerts.yml` holds 27 Prometheus alerting rules over the metrics ("Metrics",
 above), each tested against the series that should and should not fire it
 (`deploy/prometheus/alerts.test.yml`, `promtool test rules`, in CI). They expect the scrape
 configuration of `prometheus.yml` beside them: job `emudoc`, and `process` `api` or `worker`.
-`critical` is a member waiting now or a backup losing changes, `warning` is for the working day.
-The thresholds are a start; tune them, and their tests, to the deployment.
+`critical` is a member waiting now or a backup losing changes, `warning` is for the working day,
+and `none` the watchdog's. The thresholds are a start; tune them, and their tests, to the
+deployment.
 
 | Group | Rules |
 | --- | --- |
@@ -1809,6 +1814,7 @@ The thresholds are a start; tune them, and their tests, to the deployment.
 | The models | `EmudocModelsDown` (no model of a role answered in 15 minutes, its fallback included), `EmudocEmbeddingsDown`, `EmudocModelRefused` (401, 402, 403 or 404), `EmudocModelFallingBack`, `EmudocModelRateLimited` (10 refusals for the rate in 15 minutes), `EmudocModelErrors` (a fifth of the requests failing on the provider's side) |
 | Capacity | `EmudocPoolSaturated` (90 % of a process's connections in use for 10 minutes), `EmudocPoolTimeouts` (members answered "busy"), `EmudocStorageGrowing` (10 GiB of new originals in a day), `EmudocSpendNearCap` (80 % of `DAILY_SPEND_CAP`), `EmudocSpendCapReached` |
 | The database | `EmudocWalArchiveFailing`, `EmudocWalArchiveBehind`, `EmudocVacuumBehind` (10,000 dead rows and a fifth of a table, for an hour), `EmudocLongTransaction` (over an hour) |
+| The watchdog | `EmudocWatchdog`, which always fires: its silence is the alarm |
 
 Some of them say what the worker mails too, from the other side: the mail works without a
 scraper, the rules without a worker. An Alertmanager under the name `alertmanager` on the same
@@ -1821,9 +1827,20 @@ route:
   group_by: [alertname]
   repeat_interval: 4h
   routes:
+    # Every two minutes or so to the dead man's switch, and to nobody else.
+    - matchers: ['alertname="EmudocWatchdog"']
+      receiver: deadman
+      group_wait: 0s
+      group_interval: 1m
+      repeat_interval: 2m
     - matchers: ['severity="critical"']
       receiver: operator
       repeat_interval: 1h
+# A process that does not answer, said once: "No API has answered" covers the API's address.
+inhibit_rules:
+  - source_matchers: ['alertname=~"EmudocNoApi|EmudocNoWorker"']
+    target_matchers: ['alertname="EmudocProcessDown"']
+    equal: [process]
 receivers:
   - name: operator
     email_configs:
@@ -1832,19 +1849,25 @@ receivers:
         smarthost: smtp.example.com:587
         auth_username: alerts@emudoc.example.com
         auth_password_file: /etc/alertmanager/smtp-password
+  - name: deadman
+    webhook_configs:
+      - url_file: /etc/alertmanager/deadman-url
 ```
 
 ```bash
 docker run -d --name alertmanager --network emudoc-deploy_default \
   -v "$PWD/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
-  -v "$PWD/smtp-password:/etc/alertmanager/smtp-password:ro" prom/alertmanager:v0.34.1
+  -v "$PWD/smtp-password:/etc/alertmanager/smtp-password:ro" \
+  -v "$PWD/deadman-url:/etc/alertmanager/deadman-url:ro" prom/alertmanager:v0.34.1
 ```
 
 (the rules checked with Prometheus 3.15 against a running API and worker: every rule evaluated
 without an error, and a stopped API put `EmudocProcessDown` and `EmudocNoApi` pending; the
 configuration with `amtool check-config` of Alertmanager 0.34.1). Alertmanager alone is quiet
-when Prometheus is down: a dead man's switch (a rule that always fires, sent to a service that
-calls when it stops hearing it) is the deployment's choice.
+when Prometheus is down, and nothing on the machine reports the machine gone: the watchdog,
+`EmudocWatchdog`, is for a dead man's switch, a service that calls when it stops hearing it
+(a monitoring service's heartbeat check takes the webhook), whose address `deadman-url`
+holds. On AWS the alarms of CloudWatch are that service ("On AWS", below).
 
 ### The host's and the timers'
 
@@ -1856,6 +1879,55 @@ two looks in a row, and again when every container is well; a release holds the 
 The drill and the credentials' renewal report their own failure (`OnFailure=`, "The drill on
 AWS"). On one machine, a timer the deployment runs for its drill ("The drill") mails its
 failure the same way, and a container's trouble is the rules' `EmudocProcessDown`.
+
+### On AWS
+
+The instance runs the rules itself. `deploy/aws/compose.yml` adds Prometheus 3.15 with
+`deploy/prometheus` as the release's image carries it, so that a release brings its rules, and
+Alertmanager 0.34 with `deploy/aws/alertmanager.yml`, which sends what fires to the alerts
+topic: a message per rule, with its sentences and what to do, again every 4 hours (critical,
+every hour) while it lasts, and once more when it is over. Both run read-only and keep only
+their own data, in a volume of the instance's disk: Prometheus 15 days of samples, 2 GB at
+most, and Alertmanager its silences; both are gone with a replaced instance. Alertmanager
+publishes with a role of its own (`emudoc-<environment>-alertmanager`), which may publish to
+the environment's two topics and do nothing else: the host renews an hour of it every quarter
+of an hour into `/run/emudoc/aws/alertmanager`, as it does the app's, and Alertmanager reads
+the file again for every message. Prometheus holds no credentials. Neither page leaves the
+instance: Prometheus answers on its loopback at 9090 and Alertmanager at 9093, which Session
+Manager forwards:
+
+```bash
+aws ssm start-session --target <instance> --document-name AWS-StartPortForwardingSession \
+  --parameters portNumber=9090,localPortNumber=9090     # then http://localhost:9090/alerts
+# On the instance: hold a rule back for the length of a piece of work.
+sudo emudoc-compose exec alertmanager amtool --alertmanager.url=http://127.0.0.1:9093 \
+  silence add --duration 2h --comment 'Reindexing' alertname=EmudocDocumentsWaiting
+```
+
+Rules on an instance cannot report the instance gone, so CloudWatch watches it from outside
+(`deploy/aws/modules/environment/alerts.tf`), with three alarms that publish to the same topic
+when they begin and when they are over:
+
+| Alarm | When | What happens |
+| --- | --- | --- |
+| `emudoc-<environment>-alerts-silent` | No message on the heartbeat topic for three five-minute periods in a row. Alertmanager sends the watchdog there every two to three minutes, and nobody subscribes to it: the instance, its Docker, Prometheus or Alertmanager stopped, or Alertmanager's credentials were not renewed. A topic that heard nothing is in alarm too, so a new environment's is until its first release | Its description names where to look: `aws ec2 describe-instance-status`, then on the instance `sudo emudoc-compose ps prometheus alertmanager` and `systemctl status emudoc-credentials` |
+| `emudoc-<environment>-instance-system` | AWS's system status check fails for 2 minutes: the hardware or AWS's network under the instance | EC2 recovers the instance onto other hardware, with its id, address and disk, and Docker starts the containers again |
+| `emudoc-<environment>-instance-status` | The instance's own check fails for 3 minutes: out of memory, a kernel that hangs, a broken disk | EC2 reboots it, and its start runs the recorded release (`emudoc-boot`); `aws ec2 get-console-output --latest` says why |
+
+CloudWatch publishes only to a topic whose key lets it, so both topics are encrypted with a key
+of the environment's own (`alias/emudoc-<environment>-alerts`), which the instance's role and
+Alertmanager's may use through SNS alone and CloudWatch to encrypt its messages. The key costs
+a dollar a month (each of its first two yearly rotations adds one), the alarms ten cents each,
+and the heartbeat's 15,000 messages a month are within SNS's free million.
+
+Some things are said twice, on purpose. A container that stops is the host's watch's ("api:
+exited with status 1", after ten minutes, with the commands to look) and the rules' ("No API
+has answered", after five): the watch publishes with the instance's own role and sees
+Prometheus and Alertmanager themselves, so it says what they cannot, and the rules see a
+process that runs for Docker but does not answer. Within the rules, Alertmanager holds
+`EmudocProcessDown` back while `EmudocNoApi` or `EmudocNoWorker` says it of the same process.
+A failed instance is its status alarm's, and the silence's once it lasts a quarter of an hour:
+the first says why, the second that nothing on the instance reports meanwhile.
 
 ## Rates
 
@@ -1884,6 +1956,7 @@ image: every release runs on staging first.
                                        ├─▶ RDS Postgres 17 (private subnets, TLS checked)
                                        └─▶ S3 bucket (versioned, encrypted)
   SSM /emudoc/<environment>/settings, /secrets, /release ─▶ each release on the instance
+  SNS alerts ◀─ the host's watch, Prometheus's rules by Alertmanager, CloudWatch's alarms
 ```
 
 The directories:
@@ -1956,12 +2029,14 @@ The directories:
 - **DNS**: with `dns_zone_id`, the domain's record and the DKIM records are made in Route 53;
   otherwise `tofu output dns_records` lists them for the DNS kept elsewhere. Caddy asks Let's
   Encrypt for the certificate once the name leads to the instance.
-- **Alerts**: an SNS topic the instance reports a failed drill, a failed credentials renewal
-  (the containers lose the bucket within the hour), a failed start or a container in trouble
-  to (`emudoc-watch.timer`, "Alerts"), naming the unit or the services and the instance, never a
-  log line. `alert_email` subscribes an address, which must confirm it, and is the app's
-  `ALERT_EMAIL` too, where the worker mails what it gave up on and what its watch sees, through
-  the mail relay.
+- **Alerts**: an SNS topic, under a key of the environment's own, that the instance reports a
+  failed drill, a failed credentials renewal (the containers lose the bucket within the hour),
+  a failed start or a container in trouble to (`emudoc-watch.timer`), that Alertmanager on the
+  instance sends what Prometheus's rules fire to, and that CloudWatch's alarms on the alerts'
+  heartbeat and the instance's status checks publish to ("Alerts", "On AWS"); it names units,
+  rules and the instance, never a log line. `alert_email` subscribes an address, which must
+  confirm it, and is the app's `ALERT_EMAIL` too, where the worker mails what it gave up on and
+  what its watch sees, through the mail relay.
 - **Records**: the documents bucket's access logs and the network's flow logs in a logs
   bucket of the environment's own, kept `access_log_days`, and Database Insights on the
   database ("The account's records").
@@ -2041,7 +2116,9 @@ release (the same tag again does).
 3. Put the keys into the secrets path as above: each model's provider and each fallback's, the
    OAuth clients' secrets, and `SMTP_URL` without `mail`.
 4. Make the DNS records if the zone is not in Route 53, ask SES for production access, and
-   confirm the alerts' subscription.
+   confirm the alerts' subscription. Its first message is the alarm
+   `emudoc-<environment>-alerts-silent`, which stays in alarm until the first release starts
+   Alertmanager, and is over a few minutes after it.
 5. Give CI the roles (the repository variables of "Releases from CI"), then run CI on `main`
    (Actions, CI, Run workflow, or the next push): it pushes the image and releases it on
    staging.
@@ -2075,7 +2152,10 @@ On the instance, `sudo emudoc-compose` is Compose with the running release's fil
 settings: `ps`, `logs --since 1h worker`, `run --rm --no-deps worker python -m
 app.maintenance models`. `/etc/emudoc` holds `host.env` (what the module told the instance),
 the env files and RDS's authority; the units are `emudoc-boot`, `emudoc-credentials` and its
-timer, `emudoc-restore-drill` and its timer, and `emudoc-alert@`.
+timer, `emudoc-restore-drill` and its timer, `emudoc-watch` and its timer, and
+`emudoc-alert@`. A release that needs what an older instance was not given (`host.env` is
+written at the first start alone) says which and stops before it changes anything: apply the
+root, which replaces the instance, then release again.
 
 ### Releases from CI
 
@@ -2157,17 +2237,22 @@ tag and delete only copies called `emudoc-drill-…` that carry `purpose=restore
   batch of 32 passages 120 seconds. Two vCPUs are slow for long passages; embed stages that keep
   failing on time call for a larger instance or a hosted endpoint ("The embeddings
   endpoint").
-- A scraper for the metrics (the containers serve them on 9464 of the compose network) and the
-  rules on them ("Alerts": the worker's mail and the host's watch cover part of them), an alarm
-  on the instance's own status checks, a CDN or firewall in front, IPv6, the bucket's
-  replication to a second region, and alarms on the trail's events (the root user signing in,
-  a change to IAM), which would send it to CloudWatch Logs as well.
+- The metrics' history: Prometheus keeps 15 days on the instance's disk, for the rules and a
+  look on the day, and loses them with a replaced instance; dashboards over months need a
+  Prometheus elsewhere (Amazon Managed Service for Prometheus takes `remote_write`).
+- A CDN or firewall in front, IPv6, the bucket's replication to a second region, and alarms on
+  the trail's events (the root user signing in, a change to IAM), which would send it to
+  CloudWatch Logs as well.
 
 It was checked without an AWS account: the module and the account root by `tofu test` against
 a mocked provider and by `validate`, the instance's part on Docker 25 (Amazon Linux's) with
 Compose 5.5.1, fakes for the AWS CLI and systemd, a TLS Postgres under an RDS name and MinIO
-with the module's policies as session policies, and `push-image.sh` and `release.sh` with a
-fake AWS CLI, a registry of their own and a health check that answered each version. The first
+with the module's policies as session policies, `push-image.sh` and `release.sh` with a
+fake AWS CLI, a registry of their own and a health check that answered each version, and
+Prometheus and Alertmanager from `deploy/aws/compose.yml` against a fake SNS (the watchdog on
+the heartbeat topic every three minutes, `EmudocNoApi` and `EmudocNoWorker` on the alerts
+topic and `EmudocProcessDown` held back, each request signed with the credentials of the file
+the host renews, read again once renewed). The first
 `apply` and release on a real account are the check of the rest, GitHub's sign-in and the
 repository's policy among them.
 
@@ -2286,8 +2371,14 @@ repository's policy among them.
     `app.watch` saying it "could not check" something. Stop the scanner (`docker compose -f
     deploy/compose.yml stop clamav`): within the quarter of an hour the address gets "Emudoc
     alert: the malware scanner does not answer", and after `start clamav` and the next round
-    "Emudoc alert over: …". With a scraper, its rules page lists the 26 rules of
-    `deploy/prometheus/alerts.yml` without an error and none firing; with the API stopped,
-    `EmudocProcessDown` fires after 5 minutes. On AWS, `systemctl list-timers emudoc-watch.timer`
-    shows the next look, and stopping a container for ten minutes (`sudo emudoc-compose stop
-    clamav`) reaches the alerts topic, and its start again "the containers are well again".
+    "Emudoc alert over: …". With a scraper, its rules page lists the 27 rules of
+    `deploy/prometheus/alerts.yml` without an error and none firing but `EmudocWatchdog`, which
+    the dead man's switch hears; with the API stopped, `EmudocNoApi` fires after 5 minutes. On
+    AWS, Prometheus's page through Session Manager ("Alerts", "On AWS") shows the same, and
+    CloudWatch shows the alarm `emudoc-<environment>-alerts-silent` OK.
+    `systemctl list-timers emudoc-watch.timer` shows the next look, and stopping a container for
+    ten minutes (`sudo emudoc-compose stop clamav`) reaches the alerts topic, and its start
+    again "the containers are well again". Stopping Alertmanager for twenty minutes (`sudo
+    emudoc-compose stop alertmanager`) brings the watch's message and CloudWatch's alarm, and
+    its start the alarm's OK; `sudo emudoc-compose stop api` brings "Emudoc staging:
+    EmudocNoApi" after five minutes, and no `EmudocProcessDown`.

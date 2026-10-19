@@ -13,20 +13,23 @@ locals {
   # What the host's scripts read, from the boot onwards; plain words only, since it is both a
   # shell file and a systemd EnvironmentFile.
   host_env = {
-    EMUDOC_ENVIRONMENT  = var.environment
-    EMUDOC_REPOSITORY   = data.aws_ecr_repository.app.repository_url
-    EMUDOC_PARAMETERS   = local.parameters
-    EMUDOC_APP_ROLE     = aws_iam_role.app.arn
-    EMUDOC_READER_ROLE  = aws_iam_role.reader.arn
-    EMUDOC_ALERTS       = aws_sns_topic.alerts.arn
-    EMUDOC_DRILL        = var.restore_drill ? "yes" : "no"
-    AWS_REGION          = local.region
-    AWS_DEFAULT_REGION  = local.region
-    RDS_SOURCE          = aws_db_instance.main.identifier
-    RDS_SUBNET_GROUP    = aws_db_subnet_group.main.name
-    RDS_SECURITY_GROUPS = aws_security_group.database.id
-    RDS_PARAMETER_GROUP = aws_db_parameter_group.main.name
-    RDS_INSTANCE_CLASS  = var.drill_instance_class != "" ? var.drill_instance_class : var.database_class
+    EMUDOC_ENVIRONMENT = var.environment
+    EMUDOC_REPOSITORY  = data.aws_ecr_repository.app.repository_url
+    EMUDOC_PARAMETERS  = local.parameters
+    EMUDOC_APP_ROLE    = aws_iam_role.app.arn
+    EMUDOC_READER_ROLE = aws_iam_role.reader.arn
+    EMUDOC_ALERTS      = aws_sns_topic.alerts.arn
+    # Alertmanager's (deploy/aws/compose.yml, deploy/aws/alertmanager.yml).
+    EMUDOC_ALERTMANAGER_ROLE = aws_iam_role.alertmanager.arn
+    EMUDOC_HEARTBEAT         = aws_sns_topic.heartbeat.arn
+    EMUDOC_DRILL             = var.restore_drill ? "yes" : "no"
+    AWS_REGION               = local.region
+    AWS_DEFAULT_REGION       = local.region
+    RDS_SOURCE               = aws_db_instance.main.identifier
+    RDS_SUBNET_GROUP         = aws_db_subnet_group.main.name
+    RDS_SECURITY_GROUPS      = aws_security_group.database.id
+    RDS_PARAMETER_GROUP      = aws_db_parameter_group.main.name
+    RDS_INSTANCE_CLASS       = var.drill_instance_class != "" ? var.drill_instance_class : var.database_class
   }
 
   cloud_config = templatefile("${path.module}/cloud-config.yaml", {

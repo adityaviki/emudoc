@@ -12,7 +12,9 @@ them name --home, where the release moves them once it succeeded:
 
   emudoc.env      the app's settings, for Compose's env_file (deploy/compose.yml)
   compose.env     what Compose puts into the files themselves: the image, the domain, the
-                  embedding model's weights (`docker compose --env-file`)
+                  embedding model's weights, and the environment's name and alerts topics,
+                  which Alertmanager writes into its configuration (`docker compose
+                  --env-file`)
   drill-app.env   the app's settings for the restore drill's dry run (`docker run --env-file`),
                   without the models' and sign-in providers' keys, which it does not use, and
                   with the storage reader's credentials in place of the app's
@@ -108,8 +110,11 @@ def write(directory: str, name: str, content: str) -> None:
         raise
 
 
-def files(settings: "dict[str, str]", image: str, home: str) -> "dict[str, str]":
-    """Each file's content by its name, for the files kept in `home`."""
+def files(
+    settings: "dict[str, str]", image: str, home: str, alerting: "dict[str, str]"
+) -> "dict[str, str]":
+    """Each file's content by its name, for the files kept in `home`; `alerting` is what
+    Alertmanager is told of the environment (deploy/aws/compose.yml)."""
     for needed in ("APP_URL", "DATABASE_URL"):
         if needed not in settings:
             raise Refused(f"{needed} is not among the settings; apply the OpenTofu root again.")
@@ -123,6 +128,7 @@ def files(settings: "dict[str, str]", image: str, home: str) -> "dict[str, str]"
         "EMUDOC_IMAGE": image,
         "EMUDOC_ENV": os.path.join(home, "emudoc.env"),
         "EMUDOC_DOMAIN": domain,
+        **alerting,
     }
     # The weights deploy/compose.yml downloads and serves; unset, its own default.
     for name in ("EMBEDDING_WEIGHTS_URL", "EMBEDDING_WEIGHTS_SHA256"):
@@ -167,13 +173,21 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--path", required=True, help="the environment's SSM path")
     parser.add_argument("--image", required=True, help="the image the release runs")
+    parser.add_argument("--environment", required=True, help="the environment's name")
+    parser.add_argument("--alerts", required=True, help="the alerts topic's ARN")
+    parser.add_argument("--heartbeat", required=True, help="the heartbeat topic's ARN")
     parser.add_argument("--out", required=True, help="the directory the files go into")
     parser.add_argument("--home", help="the directory they are kept in; --out unless given")
     args = parser.parse_args()
     try:
         settings, secrets = read_parameters(json.load(sys.stdin), args.path.rstrip("/"))
         home = args.home or args.out
-        for name, content in files(settings, args.image, home).items():
+        alerting = {
+            "EMUDOC_ENVIRONMENT": args.environment,
+            "EMUDOC_ALERTS": args.alerts,
+            "EMUDOC_HEARTBEAT": args.heartbeat,
+        }
+        for name, content in files(settings, args.image, home, alerting).items():
             write(args.out, name, content)
     except Refused as refusal:
         print(refusal, file=sys.stderr)

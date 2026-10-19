@@ -1,5 +1,6 @@
 # What `trivy image` reports of the images the deployment runs beside the app, ClamAV's,
-# llama.cpp's and Caddy's (deploy/compose.yml, deploy/aws/compose.yml), that was looked at and
+# llama.cpp's, Caddy's, Prometheus's and Alertmanager's (deploy/compose.yml,
+# deploy/aws/compose.yml), that was looked at and
 # accepted until their projects release the fix (Audit, "Images beside the app"). Only those
 # projects can fix them, so each entry names the file in the image it was found in (`paths`, as
 # trivy prints the target: a binary has no leading slash), which keeps it from accepting the
@@ -31,3 +32,38 @@ vulnerabilities:
     statement: >-
       Caddy offers Encrypted Client Hello only with its `ech` global option, which
       deploy/aws/Caddyfile does not set, so the server never decodes the extension.
+
+  # Prometheus 3.15.0 was built with Go 1.27.1 and Alertmanager 0.34.1 with Go 1.26.8, both with
+  # golang.org/x/net 0.58.0: the same three that Go 1.26.9, 1.27.2 and x/net 0.60.0 fixed. Their
+  # servers answer the compose network and the instance's loopback alone (deploy/aws/compose.yml),
+  # neither speaks TLS, and promtool and amtool are run by hand and by CI on the repository's own
+  # files, never as servers.
+  - id: CVE-2026-78669
+    paths: &prometheus [bin/prometheus, bin/promtool, bin/alertmanager, bin/amtool]
+    expired_at: 2026-11-18
+    statement: >-
+      A peer that floods HTTP/2 SETTINGS frames keeps the process busy: only the containers on
+      the instance and its root reach Prometheus and Alertmanager, and the peers they reach are
+      the app's own metrics ports and AWS's SNS.
+
+  - id: CVE-2026-78667
+    paths: *prometheus
+    expired_at: 2026-11-18
+    statement: >-
+      A Range header reaches the slow code through their web pages alone, which nobody outside
+      the instance reaches.
+
+  - id: CVE-2026-97031
+    paths: *prometheus
+    expired_at: 2026-11-18
+    statement: >-
+      Encrypted Client Hello is decoded by a TLS server, and neither serves TLS
+      (no --web.config.file).
+
+  # gRPC-Go 1.83.1 in Alertmanager 0.34.1; 1.83.2 fixed it.
+  - id: CVE-2026-84445
+    paths: [bin/alertmanager, bin/amtool]
+    expired_at: 2026-11-18
+    statement: >-
+      A malformed request reaches a gRPC server, and Alertmanager serves none: gRPC is linked for
+      the tracing exporter's client, which its configuration does not turn on.

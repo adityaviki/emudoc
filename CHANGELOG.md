@@ -33,6 +33,18 @@ Operators:
   of document … failed: …` for a failure nothing runs again, the model's own failures) and in
   the job's `last_error` once the worker gives up. Development still shows it to whoever uses
   the app, and rows written before keep what they said.
+- On AWS the instance runs Prometheus with the alerting rules and Alertmanager, which sends what
+  fires to the environment's alerts topic with a role of its own, and its watchdog to a
+  heartbeat topic every few minutes. CloudWatch reports the heartbeat's silence (the instance,
+  its Docker, Prometheus or Alertmanager gone) and the instance's failed status checks, which
+  it recovers or reboots. Both topics are encrypted with a key of the environment's own. The
+  pages of Prometheus and Alertmanager answer on the instance's loopback, through Session
+  Manager. Apply both environments before releasing this commit: it replaces their instances,
+  and a release on an instance from before stops and says so (deploying.md, "Alerts", "On
+  AWS").
+- A new alerting rule, `EmudocWatchdog`, always fires, for a dead man's switch, and
+  `EmudocNoApi` and `EmudocNoWorker` carry the `process` they miss, so that an Alertmanager can
+  hold back `EmudocProcessDown` meanwhile (deploying.md, "Rules on the metrics").
 
 ## 2026-10-18
 

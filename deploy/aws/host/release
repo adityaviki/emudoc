@@ -8,8 +8,9 @@
 #
 # The settings into /etc/emudoc (deploy/aws/host/settings), the containers' credentials and
 # the database's authority, then deploy/compose.yml with deploy/aws/compose.yml over it: the
-# migrations first, the API and the worker once they ran, Caddy in front. A migration that
-# fails ends the release before anything running is replaced.
+# migrations first, the API and the worker once they ran, Caddy in front, Prometheus and
+# Alertmanager beside them. A migration that fails ends the release before anything running is
+# replaced.
 
 set -euo pipefail
 # shellcheck source=/dev/null
@@ -20,6 +21,16 @@ deploy=$(cd "$(dirname "$0")/../.." && pwd)
 host=$deploy/aws/host
 image=$EMUDOC_REPOSITORY:$tag
 umask 077
+
+# What this release needs of the host's settings, which only the instance's first start writes:
+# an instance made before the module gave them is replaced by applying the root.
+for name in EMUDOC_ALERTMANAGER_ROLE EMUDOC_HEARTBEAT; do
+  if [[ -z ${!name:-} ]]; then
+    echo "$name is not in /etc/emudoc/host.env: apply the environment's OpenTofu root, which" \
+      "replaces the instance, then release again." >&2
+    exit 1
+  fi
+done
 
 # One release at a time; the host's watch (host/watch) does not look while one runs, since the
 # containers it replaces would be reported in trouble.
@@ -37,6 +48,7 @@ rm -rf /etc/emudoc/next
 install -d -m 0700 /etc/emudoc/next
 aws ssm get-parameters-by-path --path "$EMUDOC_PARAMETERS" --recursive --with-decryption \
   --output json | python3 "$host/settings" --path "$EMUDOC_PARAMETERS" --image "$image" \
+  --environment "$EMUDOC_ENVIRONMENT" --alerts "$EMUDOC_ALERTS" --heartbeat "$EMUDOC_HEARTBEAT" \
   --out /etc/emudoc/next --home /etc/emudoc
 
 # RDS's authority for the region, which signs the database's certificate. An old copy serves

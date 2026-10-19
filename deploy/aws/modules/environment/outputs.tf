@@ -34,7 +34,7 @@ output "parameters" {
 }
 
 output "alerts" {
-  description = "The SNS topic the instance reports failures to."
+  description = "The SNS topic the instance, Alertmanager and CloudWatch's alarms report to."
   value       = aws_sns_topic.alerts.arn
 }
 

@@ -10,6 +10,7 @@ import subprocess
 import sys
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from app.config import ROOT_DIR, Settings
@@ -48,6 +49,13 @@ OPERATOR = {
 SECRETS = {
     "SMTP_URL": "smtp://AKIAEXAMPLE:BAx%2Fy%2Bz%3D@email-smtp.eu-central-1.amazonaws.com:587",
     "ANTHROPIC_API_KEY": "sk-ant-example",
+}
+# What the release tells Compose of the environment for Alertmanager (host/release, from the
+# host's settings that the module writes into the cloud-config).
+ALERTING = {
+    "EMUDOC_ENVIRONMENT": "staging",
+    "EMUDOC_ALERTS": "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-alerts",
+    "EMUDOC_HEARTBEAT": "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-heartbeat",
 }
 # Written for the app's sake, not production's checks: boto3 signs for the bucket's region, the
 # error tracker files the reports by the environment's name, and the privacy policy names how
@@ -120,6 +128,12 @@ def write_env_files(tmp_path, values, secrets) -> subprocess.CompletedProcess:
             "/emudoc/staging",
             "--image",
             "registry.example/emudoc:3f2c1ab",
+            "--environment",
+            ALERTING["EMUDOC_ENVIRONMENT"],
+            "--alerts",
+            ALERTING["EMUDOC_ALERTS"],
+            "--heartbeat",
+            ALERTING["EMUDOC_HEARTBEAT"],
             "--out",
             tmp_path,
             "--home",
@@ -156,11 +170,15 @@ def test_the_host_writes_each_value_as_it_is(tmp_path):
     run = write_env_files(tmp_path, WRITTEN | operator, SECRETS)
     assert run.returncode == 0, run.stderr
     assert compose_values((tmp_path / "emudoc.env").read_text()) == WRITTEN | operator | SECRETS
-    assert compose_values((tmp_path / "compose.env").read_text()) == {
-        "EMUDOC_IMAGE": "registry.example/emudoc:3f2c1ab",
-        "EMUDOC_ENV": "/etc/emudoc/emudoc.env",
-        "EMUDOC_DOMAIN": "staging.emudoc.example.com",
-    }
+    assert (
+        compose_values((tmp_path / "compose.env").read_text())
+        == {
+            "EMUDOC_IMAGE": "registry.example/emudoc:3f2c1ab",
+            "EMUDOC_ENV": "/etc/emudoc/emudoc.env",
+            "EMUDOC_DOMAIN": "staging.emudoc.example.com",
+        }
+        | ALERTING
+    )
     assert all(path.stat().st_mode & 0o777 == 0o600 for path in tmp_path.iterdir())
 
 
@@ -181,6 +199,7 @@ def test_other_embedding_weights_reach_compose(tmp_path):
             "EMUDOC_ENV": "/etc/emudoc/emudoc.env",
             "EMUDOC_DOMAIN": "staging.emudoc.example.com",
         }
+        | ALERTING
         | weights
     )
 
@@ -204,6 +223,72 @@ def test_the_drill_gets_production_settings_without_the_keys(tmp_path):
     )
     settings = {k: v for k, v in drill_app.items() if not k.startswith("AWS_")}
     assert problems(settings | {"DATABASE_URL": copy}) == []
+
+
+def aws_compose() -> dict:
+    return yaml.safe_load((AWS / "compose.yml").read_text())
+
+
+def seconds(duration: str) -> int:
+    """A duration as Alertmanager writes them here: minutes or seconds."""
+    number, unit = re.fullmatch(r"(\d+)([sm])", duration).groups()
+    return int(number) * (60 if unit == "m" else 1)
+
+
+def test_alertmanager_is_told_every_word_of_its_configuration(tmp_path):
+    # The container writes each @WORD@ over with a variable of its environment, which Compose
+    # takes from compose.env, which the release writes; a word left over would reach SNS as it
+    # stands, and the topic would refuse it.
+    service = aws_compose()["services"]["alertmanager"]
+    script = service["entrypoint"][-1]
+    replaced = dict(re.findall(r"s\|@([A-Z]+)@\|\$\$([A-Z_]+)\|g", script))
+    configuration = (AWS / "alertmanager.yml").read_text()
+    assert set(re.findall(r"@([A-Z]+)@", configuration)) == replaced.keys()
+    for variable in replaced.values():
+        assert service["environment"][variable].startswith(f"${{{variable}:?")
+    assert write_env_files(tmp_path, WRITTEN | OPERATOR, SECRETS).returncode == 0
+    compose = compose_values((tmp_path / "compose.env").read_text())
+    assert set(replaced.values()) <= compose.keys()
+
+
+def test_the_watchdog_reaches_the_heartbeat_before_cloudwatch_misses_it():
+    rules = yaml.safe_load((ROOT_DIR / "deploy" / "prometheus" / "alerts.yml").read_text())
+    by_name = {rule["alert"]: rule for group in rules["groups"] for rule in group["rules"]}
+    assert by_name["EmudocWatchdog"]["expr"] == "vector(1)"
+    configuration = yaml.safe_load((AWS / "alertmanager.yml").read_text())
+    heartbeat = configuration["route"]["routes"][0]
+    assert heartbeat["matchers"] == ['alertname="EmudocWatchdog"']
+    assert heartbeat["receiver"] == "heartbeat"
+    # A message at least once in every period CloudWatch counts (alerts.tf), however Alertmanager
+    # rounds its repeat to the group's interval.
+    period = int(re.search(r"heartbeat_period\s+=\s+(\d+)", (MODULE / "alerts.tf").read_text())[1])
+    every = seconds(heartbeat["repeat_interval"]) + seconds(heartbeat["group_interval"])
+    assert every < period
+    # The inhibition names rules that carry the label it matches on.
+    (inhibit,) = configuration["inhibit_rules"]
+    sources = re.fullmatch(r'alertname=~"(.+)"', inhibit["source_matchers"][0])[1].split("|")
+    assert all(by_name[name]["labels"]["process"] for name in sources)
+
+
+def test_the_image_carries_every_file_the_instance_mounts_from_it():
+    # A release runs the compose files from the deploy directory the image carries
+    # (host/release); a file .dockerignore leaves out would be an empty directory Docker makes.
+    allowed = [
+        line[1:].rstrip("/")
+        for line in (ROOT_DIR / ".dockerignore").read_text().splitlines()
+        if line.startswith("!")
+    ]
+    mounted = {
+        volume.split(":")[0]
+        for service in aws_compose()["services"].values()
+        for volume in service.get("volumes", [])
+        if volume.startswith("./")
+    }
+    assert mounted
+    for source in mounted:
+        path = f"deploy/{source.removeprefix('./')}"
+        assert (ROOT_DIR / path).exists(), path
+        assert any(path == each or path.startswith(f"{each}/") for each in allowed), path
 
 
 def test_the_host_refuses_a_setting_set_twice(tmp_path):

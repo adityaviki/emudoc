@@ -28,8 +28,6 @@ env:
   SHELLCHECK: koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
   ACTIONLINT: rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
   TRIVY: aquasec/trivy:0.73.0@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c
-  # For its promtool, which checks the alerting rules (deploy/prometheus).
-  PROMETHEUS: prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
   # Also the pre-commit hook's (.githooks/pre-commit), which reads it from here.
   GITLEAKS: ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 
@@ -306,15 +304,25 @@ jobs:
       - name: Workflows
         run: docker run --rm -v "$PWD:/repo" -w /repo "$ACTIONLINT" -color
       # The Prometheus configuration and the alerting rules it loads, each rule against the
-      # series that should and should not fire it (alerts.test.yml).
+      # series that should and should not fire it (alerts.test.yml), and the AWS instance's
+      # Alertmanager configuration, by the promtool and amtool of the images the instance runs
+      # (deploy/aws/compose.yml), so that what Dependabot moves there is what checks them.
       - name: Alerting rules
         run: |
+          image() {
+            sed -nE "s|^ +image: (prom/$1:[^ ]+@sha256:[0-9a-f]{64})$|\1|p" deploy/aws/compose.yml
+          }
+          prometheus=$(image prometheus) alertmanager=$(image alertmanager)
+          : "${prometheus:?deploy/aws/compose.yml names no Prometheus}"
+          : "${alertmanager:?deploy/aws/compose.yml names no Alertmanager}"
           promtool() {
             docker run --rm -v "$PWD/deploy/prometheus:/p:ro" -w /p --entrypoint promtool \
-              "$PROMETHEUS" "$@"
+              "$prometheus" "$@"
           }
           promtool check config prometheus.yml
           promtool test rules alerts.test.yml
+          docker run --rm -v "$PWD/deploy/aws:/a:ro" -w /a --entrypoint amtool "$alertmanager" \
+            check-config alertmanager.yml
       # uv, pnpm, Node and Python at the Dockerfile's versions wherever else they are named.
       - name: Tool versions
         run: .github/scripts/check-versions.sh

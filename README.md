@@ -548,7 +548,9 @@ their bytes by plan, the day's spend, and how the database server keeps up (dead
 oldest transaction, the archiving of its log) (`backend/app/metrics.py`). No label names an
 organisation, a user or anything a member typed. `deploying.md` ("Metrics") lists them, with a
 Prometheus to scrape them; `deploy/prometheus/alerts.yml` holds alerting rules over them,
-tested with promtool ("Alerts").
+tested with promtool ("Alerts"), and a watchdog for a dead man's switch. On AWS the instance
+runs Prometheus and Alertmanager with them, sending to the environment's alerts topic, and
+CloudWatch reports the instance's failed status checks and the alerts falling silent.
 
 Each organisation keeps an audit log (`backend/app/audit.py`): its members' sign-ins (and
 failed ones for their accounts), password, two-factor and session changes, exports and
@@ -723,7 +725,9 @@ deploy/
   aws/          staging and production on AWS in OpenTofu: account/ once per account,
                 modules/environment/ an environment, shared/ the settings both take, the two
                 roots, push-image.sh and release.sh, which CI runs, and what the image carries
-                for the instance (compose.yml over the one above, Caddyfile, host/)
+                for the instance (compose.yml over the one above, Caddyfile,
+                alertmanager.yml, host/)
+  prometheus/   the scrape configuration and the alerting rules, with their promtool tests
 Dockerfile      the one image for every process; .dockerignore names what goes into it
 .github/        CI: the checks of every push and pull request and staging's releases
                 (workflows/ci.yml), a release by hand (workflows/release.yml), the daily

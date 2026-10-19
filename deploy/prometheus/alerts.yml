@@ -5,7 +5,8 @@
 #
 #   promtool test rules deploy/prometheus/alerts.test.yml
 #
-# critical is a member waiting now or a backup losing changes; warning is for the working day.
+# critical is a member waiting now or a backup losing changes; warning is for the working day;
+# none is the watchdog's, which always fires and says that the way to the operator works.
 # The figures a worker reads from the database are served by every worker alike, so the rules
 # take one of them (`max without (instance, process)`); what a process counts is its own.
 # The thresholds are a start: tune them to the deployment, in the tests too.
@@ -22,11 +23,14 @@ groups:
           summary: "The {{ $labels.process }} at {{ $labels.instance }} has not answered for 5 minutes."
           description: "Its health check and its log say why; a worker that stopped exits to be restarted."
 
+      # `process` names what is missing, so that an Alertmanager need not say again that the
+      # one worker or API at an address does not answer (deploy/aws/alertmanager.yml).
       - alert: EmudocNoWorker
         expr: absent(up{job="emudoc", process="worker"} == 1)
         for: 5m
         labels:
           severity: critical
+          process: worker
         annotations:
           summary: "No worker has answered for 5 minutes."
           description: "Nothing is indexed and no question is answered until one runs."
@@ -36,6 +40,7 @@ groups:
         for: 5m
         labels:
           severity: critical
+          process: api
         annotations:
           summary: "No API has answered for 5 minutes."
           description: "The members cannot reach the app; the proxy answers 502."
@@ -261,3 +266,17 @@ groups:
         annotations:
           summary: "A transaction has been open for {{ $value | humanizeDuration }}."
           description: "Vacuum keeps every row deleted or replaced since it began: find it in pg_stat_activity and end it with pg_terminate_backend if nothing should run that long."
+
+  # A dead man's switch: an alert that always fires, so that its silence says the rules are no
+  # longer evaluated or no longer reach the operator. An Alertmanager sends it to a service that
+  # calls when it stops hearing it (on AWS the heartbeat topic, whose silence CloudWatch
+  # reports: deploy/aws/alertmanager.yml) and to nobody else.
+  - name: emudoc-watchdog
+    rules:
+      - alert: EmudocWatchdog
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          summary: "Prometheus evaluates the alerting rules, and its Alertmanager hears them."
+          description: "This alert always fires; its silence is the alarm."

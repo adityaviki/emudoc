@@ -1,9 +1,10 @@
-# Three roles. The instance's role is the host's alone: the instance metadata service answers
-# no container (one hop, instance.tf), so ClamAV, which opens hostile files, and llama.cpp's
-# server hold no credentials at all. The app's containers get the app role's instead, which
-# reaches the bucket and nothing else, through a credentials file the host renews
+# Four roles. The instance's role is the host's alone: the instance metadata service answers
+# no container (one hop, instance.tf), so ClamAV, which opens hostile files, llama.cpp's server
+# and Prometheus hold no credentials at all. The app's containers get the app role's instead,
+# which reaches the bucket and nothing else, through a credentials file the host renews
 # (deploy/aws/host/credentials). The drill's dry run gets the reader's, which can only list
-# the bucket. The policies are written out rather than built by aws_iam_policy_document, so
+# the bucket, and Alertmanager a role of its own, which can only publish to the alerts topics
+# (alerts.tf). The policies are written out rather than built by aws_iam_policy_document, so
 # that the tests read them.
 
 data "aws_ecr_repository" "app" {
@@ -64,7 +65,7 @@ locals {
         Sid      = "HandOutTheContainersCredentials"
         Effect   = "Allow"
         Action   = "sts:AssumeRole"
-        Resource = [aws_iam_role.app.arn, aws_iam_role.reader.arn]
+        Resource = [aws_iam_role.app.arn, aws_iam_role.reader.arn, aws_iam_role.alertmanager.arn]
       },
       {
         Sid      = "Alert"
@@ -159,6 +160,16 @@ locals {
       Resource = aws_s3_bucket.documents.arn
     }]
   }
+
+  # What fires, and the watchdog that says the way there works (deploy/aws/alertmanager.yml).
+  alertmanager_policy = {
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "sns:Publish"
+      Resource = [aws_sns_topic.alerts.arn, aws_sns_topic.heartbeat.arn]
+    }]
+  }
 }
 
 resource "aws_iam_role_policy" "instance" {
@@ -189,4 +200,16 @@ resource "aws_iam_role_policy" "reader" {
   name   = "documents-read"
   role   = aws_iam_role.reader.id
   policy = jsonencode(local.reader_policy)
+}
+
+resource "aws_iam_role" "alertmanager" {
+  name                 = "${local.name}-alertmanager"
+  assume_role_policy   = jsonencode(local.host_trust)
+  max_session_duration = 3600
+}
+
+resource "aws_iam_role_policy" "alertmanager" {
+  name   = "alerts"
+  role   = aws_iam_role.alertmanager.id
+  policy = jsonencode(local.alertmanager_policy)
 }
