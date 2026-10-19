@@ -98,6 +98,10 @@ run "staging" {
     values = { arn = "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-heartbeat" }
   }
   override_resource {
+    target = aws_sns_topic.pages
+    values = { arn = "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-pages" }
+  }
+  override_resource {
     target = aws_instance.app
     values = { arn = "arn:aws:ec2:eu-central-1:123456789012:instance/i-0123456789abcdef0" }
   }
@@ -189,6 +193,7 @@ run "staging" {
         "EMUDOC_APP_ROLE=arn:aws:iam::123456789012:role/emudoc-staging-app",
         "EMUDOC_ALERTMANAGER_ROLE=arn:aws:iam::123456789012:role/emudoc-staging-alertmanager",
         "EMUDOC_HEARTBEAT=arn:aws:sns:eu-central-1:123456789012:emudoc-staging-heartbeat",
+        "EMUDOC_PAGES=arn:aws:sns:eu-central-1:123456789012:emudoc-staging-pages",
         "RDS_SOURCE=emudoc-staging",
         "EMUDOC_DRILL=yes",
       ] : strcontains(local.cloud_config, "      ${line}\n")
@@ -369,16 +374,21 @@ run "staging" {
     error_message = "The instance reads its own environment's parameters only."
   }
 
-  # The alerts: both topics under the environment's key, which CloudWatch's alarms may use and
-  # the publishers only through SNS; Alertmanager's credentials publish and do nothing else.
+  # The alerts: the three topics under the environment's key, which CloudWatch's alarms may use
+  # and the publishers only through SNS; Alertmanager's credentials publish and do nothing else.
   assert {
     condition = (
       aws_sns_topic.alerts.kms_master_key_id == aws_kms_key.alerts.arn
+      && aws_sns_topic.pages.kms_master_key_id == aws_kms_key.alerts.arn
       && aws_sns_topic.heartbeat.kms_master_key_id == aws_kms_key.alerts.arn
       && aws_kms_key.alerts.enable_key_rotation
       && length(aws_sns_topic_subscription.alerts) == 0
     )
-    error_message = "The alerts and the heartbeat are encrypted with a key of the environment's own, which turns."
+    error_message = "The alerts, the pages and the heartbeat are encrypted with a key of the environment's own, which turns."
+  }
+  assert {
+    condition     = aws_sns_topic.pages.name == "emudoc-staging-pages" && output.pages == "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-pages"
+    error_message = "The pages topic is the operator's to subscribe a pager to, by the root's output."
   }
   assert {
     condition = {
@@ -405,11 +415,25 @@ run "staging" {
   }
   assert {
     condition = local.alertmanager_policy.Statement == [{
-      Effect   = "Allow"
-      Action   = "sns:Publish"
-      Resource = ["arn:aws:sns:eu-central-1:123456789012:emudoc-alerts", "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-heartbeat"]
+      Effect = "Allow"
+      Action = "sns:Publish"
+      Resource = [
+        "arn:aws:sns:eu-central-1:123456789012:emudoc-alerts",
+        "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-pages",
+        "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-heartbeat",
+      ]
     }] && jsondecode(aws_iam_role.alertmanager.assume_role_policy).Statement[0].Principal.AWS == "arn:aws:iam::123456789012:role/emudoc-staging-instance"
-    error_message = "Alertmanager's credentials publish to the two topics and nothing else, and only the host takes them on."
+    error_message = "Alertmanager's credentials publish to the three topics and nothing else, and only the host takes them on."
+  }
+  assert {
+    condition = one([
+      for statement in local.instance_policy.Statement : statement.Resource
+      if statement.Sid == "Alert"
+      ]) == [
+      "arn:aws:sns:eu-central-1:123456789012:emudoc-alerts",
+      "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-pages",
+    ]
+    error_message = "The host reports to the alerts and pages topics, and sends no heartbeat of its own."
   }
   assert {
     condition = one([
@@ -440,9 +464,13 @@ run "staging" {
     condition = alltrue([
       for alarm in [aws_cloudwatch_metric_alarm.silent, aws_cloudwatch_metric_alarm.system, aws_cloudwatch_metric_alarm.instance] :
       contains(alarm.alarm_actions, "arn:aws:sns:eu-central-1:123456789012:emudoc-alerts")
-      && alarm.ok_actions == toset(["arn:aws:sns:eu-central-1:123456789012:emudoc-alerts"])
+      && contains(alarm.alarm_actions, "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-pages")
+      && alarm.ok_actions == toset([
+        "arn:aws:sns:eu-central-1:123456789012:emudoc-alerts",
+        "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-pages",
+      ])
     ])
-    error_message = "Each alarm reaches the alerts topic when it begins and when it is over."
+    error_message = "Each alarm reaches the alerts topic and the pager when it begins and when it is over: none can wait."
   }
   assert {
     condition = (

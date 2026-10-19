@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """The host's watch on the AWS instance (deploying.md, "Alerts"), run every five minutes by
 emudoc-watch.timer: whether each service of the running release has its container running and
-healthy, reported to the environment's alerts topic when that changes.
+healthy, reported when that changes to the environment's alerts topic, and to its pages topic,
+since members wait meanwhile.
 
 The app's own watch runs in its worker (backend/app/watch.py), which cannot report a worker that
 stopped or an API that does not answer, and Docker restarts a container that exits but never one
@@ -13,8 +14,8 @@ begins and when none is left. What was seen and reported is kept in /run/emudoc/
 restart of the instance empties. A release holds /run/emudoc/release.lock, and the watch does
 not look meanwhile.
 
-The topic's message names services and their states, never a log line, which may name a
-document.
+The topics' messages name services and their states, never a log line, which may name a
+document; the page's is short, since an SMS carries it without the subject.
 
 Python 3.9, the instance's own; nothing outside the standard library.
 """
@@ -99,23 +100,24 @@ def instance() -> str:
         return "<instance>"
 
 
-def publish(subject: str, message: str) -> None:
-    subprocess.run(
-        [
-            "aws",
-            "sns",
-            "publish",
-            "--topic-arn",
-            os.environ["EMUDOC_ALERTS"],
-            "--subject",
-            subject,
-            "--message",
-            message,
-        ],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        timeout=60,
-    )
+def publish(subject: str, message: str, page: str) -> None:
+    for topic, text in (("EMUDOC_ALERTS", message), ("EMUDOC_PAGES", page)):
+        subprocess.run(
+            [
+                "aws",
+                "sns",
+                "publish",
+                "--topic-arn",
+                os.environ[topic],
+                "--subject",
+                subject,
+                "--message",
+                text,
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            timeout=60,
+        )
 
 
 def listing(found: dict) -> str:
@@ -167,6 +169,9 @@ def main() -> int:
             f"fails. Look with aws ssm start-session --target {target}, then sudo "
             "emudoc-compose ps, and sudo emudoc-compose logs --since 1h SERVICE; sudo "
             "emudoc-compose restart SERVICE starts one again.",
+            f"Emudoc {environment}, for five minutes and more: "
+            f"{'; '.join(f'{service}: {what}' for service, what in sorted(lasting.items()))}. "
+            "The alerts topic says where to look.",
         )
         reported = lasting
     elif reported and not found:
@@ -174,6 +179,7 @@ def main() -> int:
             f"Emudoc {environment}: the containers are well again",
             f"On the instance {instance()} at {now}, every container runs and is healthy "
             f"again. It was:\n\n{listing(reported)}",
+            f"Emudoc {environment}: every container runs and is healthy again.",
         )
         reported = {}
     else:

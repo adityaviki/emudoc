@@ -2053,9 +2053,10 @@ holds. On AWS the alarms of CloudWatch are that service ("On AWS", below).
 
 Docker starts again a container that exits, never one whose health check fails, and the
 compose file's checks only mark it. On AWS the host looks every five minutes
-(`emudoc-watch.timer`, `deploy/aws/host/watch`) and reports to the alerts topic a container
-that is missing, stopped, restarting or unhealthy, or a one-shot that failed, once it was so at
-two looks in a row, and again when every container is well; a release holds the watch off.
+(`emudoc-watch.timer`, `deploy/aws/host/watch`) and reports to the alerts topic, and to the
+pages topic ("On call"), a container that is missing, stopped, restarting or unhealthy, or a
+one-shot that failed, once it was so at two looks in a row, and again when every container is
+well; a release holds the watch off.
 The drill and the credentials' renewal report their own failure (`OnFailure=`, "The drill on
 AWS"). On one machine, a timer the deployment runs for its drill ("The drill") mails its
 failure the same way, and a container's trouble is the rules' `EmudocProcessDown`.
@@ -2066,11 +2067,12 @@ The instance runs the rules itself. `deploy/aws/compose.yml` adds Prometheus 3.1
 `deploy/prometheus` as the release's image carries it, so that a release brings its rules, and
 Alertmanager 0.34 with `deploy/aws/alertmanager.yml`, which sends what fires to the alerts
 topic: a message per rule, with its sentences and what to do, again every 4 hours (critical,
-every hour) while it lasts, and once more when it is over. Both run read-only and keep only
+every hour) while it lasts, and once more when it is over; a `critical` one goes to the pages
+topic as well, in a few words ("On call"). Both run read-only and keep only
 their own data, in a volume of the instance's disk: Prometheus 15 days of samples, 2 GB at
 most, and Alertmanager its silences; both are gone with a replaced instance. Alertmanager
 publishes with a role of its own (`emudoc-<environment>-alertmanager`), which may publish to
-the environment's two topics and do nothing else: the host renews an hour of it every quarter
+the environment's three topics and do nothing else: the host renews an hour of it every quarter
 of an hour into `/run/emudoc/aws/alertmanager`, as it does the app's, and Alertmanager reads
 the file again for every message. Prometheus holds no credentials. Neither page leaves the
 instance: Prometheus answers on its loopback at 9090 and Alertmanager at 9093, which Session
@@ -2085,8 +2087,8 @@ sudo emudoc-compose exec alertmanager amtool --alertmanager.url=http://127.0.0.1
 ```
 
 Rules on an instance cannot report the instance gone, so CloudWatch watches it from outside
-(`deploy/aws/modules/environment/alerts.tf`), with three alarms that publish to the same topic
-when they begin and when they are over:
+(`deploy/aws/modules/environment/alerts.tf`), with three alarms that publish to the alerts
+topic and the pages topic when they begin and when they are over:
 
 | Alarm | When | What happens |
 | --- | --- | --- |
@@ -2094,11 +2096,12 @@ when they begin and when they are over:
 | `emudoc-<environment>-instance-system` | AWS's system status check fails for 2 minutes: the hardware or AWS's network under the instance | EC2 recovers the instance onto other hardware, with its id, address and disk, and Docker starts the containers again |
 | `emudoc-<environment>-instance-status` | The instance's own check fails for 3 minutes: out of memory, a kernel that hangs, a broken disk | EC2 reboots it, and its start runs the recorded release (`emudoc-boot`); `aws ec2 get-console-output --latest` says why |
 
-CloudWatch publishes only to a topic whose key lets it, so both topics are encrypted with a key
-of the environment's own (`alias/emudoc-<environment>-alerts`), which the instance's role and
-Alertmanager's may use through SNS alone and CloudWatch to encrypt its messages. The key costs
-a dollar a month (each of its first two yearly rotations adds one), the alarms ten cents each,
-and the heartbeat's 15,000 messages a month are within SNS's free million.
+CloudWatch publishes only to a topic whose key lets it, so the three topics (alerts, pages and
+the heartbeat) are encrypted with a key of the environment's own
+(`alias/emudoc-<environment>-alerts`), which the instance's role and Alertmanager's may use
+through SNS alone and CloudWatch to encrypt its messages. The key costs a dollar a month (each
+of its first two yearly rotations adds one), the alarms ten cents each, and the heartbeat's
+15,000 messages a month are within SNS's free million; an SMS is SNS's price for its country.
 
 Some things are said twice, on purpose. A container that stops is the host's watch's ("api:
 exited with status 1", after ten minutes, with the commands to look) and the rules' ("No API
@@ -2193,9 +2196,9 @@ the rules and, on AWS, CloudWatch back up:
 | From | What | To |
 | --- | --- | --- |
 | The worker | The jobs it gave up on, quarantines, spending at 80 % of a limit, its watch's alerts ("What the worker mails") | `ALERT_EMAIL`, through the app's mail relay |
-| Prometheus's rules | `critical` alerts every hour while they last, `warning` ones every 4 hours, and each once more when it is over | Alertmanager's receiver; on AWS the alerts topic |
-| The watchdog | Its silence | The dead man's switch; on AWS the alarm `emudoc-<environment>-alerts-silent`, on the alerts topic |
-| The host, on AWS | A container in trouble, a failed drill or renewal of the credentials, the instance's status checks | The alerts topic |
+| Prometheus's rules | `critical` alerts every hour while they last, `warning` ones every 4 hours, and each once more when it is over | Alertmanager's receiver; on AWS the alerts topic, and the pages topic for `critical` |
+| The watchdog | Its silence | The dead man's switch; on AWS the alarm `emudoc-<environment>-alerts-silent`, on the alerts topic and the pages topic |
+| The host, on AWS | A container in trouble, a failed drill or renewal of the credentials, the instance's status checks | The alerts topic; a container in trouble and the status checks the pages topic too |
 | The account, on AWS | The trail's alarms (`root`, `iam`, `keys` and the others of "The account's records") | `account_alert_email` |
 | The uptime service | `/api/health` missed from outside | Its own notifications |
 | GitHub | A scheduled workflow that failed: Audit's scans, the Models workflow's requests | Whoever last changed the schedule |
@@ -2203,8 +2206,8 @@ the rules and, on AWS, CloudWatch back up:
 
 How soon:
 
-- **`critical`**, the uptime service and the instance's alarms: a member waits now, or a backup
-  is losing changes. The person on call acts within 30 minutes, day or night, starting from "A
+- **`critical`**, the uptime service and on AWS the pages topic (the instance's alarms and a
+  container in trouble besides the rules): a member waits now, or a backup is losing changes. The person on call acts within 30 minutes, day or night, starting from "A
   first look" below, and the paging service calls a second when the first has not answered in
   15.
 - **`warning`**, the worker's mails and the account's alarms: within the working day. An
@@ -2213,13 +2216,33 @@ How soon:
 - **A member's report**: answered within a working day, with what was found.
 
 On one machine, the Alertmanager of "Rules on the metrics" gives `critical` a receiver of its
-own, a paging service's webhook or its `pagerduty_configs`, and the mail the rest. On AWS the
-alerts topic carries both severities alike, each message beginning with its severity and its
-subject naming the rule, so a pager subscribed to the topic (an SMS number, or a paging
-service's SNS integration: `aws sns subscribe --topic-arn <alerts> --protocol https
---notification-endpoint <its url>`) is sent the warnings too: the paging service's own rules can
-hold back the messages that begin with `warning`. A subscription's filter policy could not,
-since CloudWatch's alarm messages carry no attribute to filter on.
+own, a paging service's webhook or its `pagerduty_configs`, and the mail the rest. On AWS what
+cannot wait goes to a second topic beside the alerts topic, `emudoc-<environment>-pages`:
+Prometheus's `critical` alerts, a container in trouble (the host's watch) and CloudWatch's three
+alarms, each when it begins and when it is over. Its messages are a few words, since an SMS
+carries no subject: the environment, and each rule's summary or the containers in trouble; the
+alerts topic's message says where to look. A failed unit (the drill, a renewal of the
+credentials, a start) stays on the alerts topic: none has a member waiting yet, and what a
+failed renewal or start leads to, Alertmanager's silence, pages. The module subscribes nobody
+to the pages topic, since a paging service's address carries its key, which the repository, the
+plan and the state would hold: subscribe the pager by hand, once per environment.
+
+```bash
+pages=$(tofu -chdir=deploy/aws/production output -raw pages)
+# A paging service's SNS integration, which confirms the subscription itself:
+aws sns subscribe --topic-arn "$pages" --protocol https --notification-endpoint '<its url>'
+# Or a phone, by SMS (E.164, with its country code):
+aws sns subscribe --topic-arn "$pages" --protocol sms --notification-endpoint '+<number>'
+aws sns list-subscriptions-by-topic --topic-arn "$pages"   # none PendingConfirmation
+```
+
+SNS sends an SMS only to verified numbers until the account leaves SNS's SMS sandbox, and to
+some countries (the United States among them) only from an origination number registered first;
+a paging service's integration needs neither, and calls the second person when the first does
+not answer, which an SMS cannot. Each page's subject names the rule or alarm, and an
+Alertmanager page's ends "is over" when it is over, which the paging service's rules can close
+the incident by. A page repeats every hour while its rule fires: a silence ("On AWS" under
+"Alerts") holds the repeats back once someone is on it.
 
 Every alert says where to look; the runbooks below say what to do for those that need more than
 a sentence. Each incident that called someone gets a short record: when it began and ended, what
@@ -2475,6 +2498,7 @@ image: every release runs on staging first.
                                        └─▶ S3 bucket (versioned, encrypted)
   SSM /emudoc/<environment>/settings, /secrets, /release ─▶ each release on the instance
   SNS alerts ◀─ the host's watch, Prometheus's rules by Alertmanager, CloudWatch's alarms
+  SNS pages  ◀─ the same, what cannot wait alone (critical rules, containers, the alarms)
 ```
 
 The directories:
@@ -2560,7 +2584,9 @@ The directories:
   heartbeat and the instance's status checks publish to ("Alerts", "On AWS"); it names units,
   rules and the instance, never a log line. `alert_email` subscribes an address, which must
   confirm it, and is the app's `ALERT_EMAIL` too, where the worker mails what it gave up on and
-  what its watch sees, through the mail relay.
+  what its watch sees, through the mail relay. A second topic, the pages, hears what cannot
+  wait (the critical rules, a container in trouble, the alarms) for a pager the operator
+  subscribes by hand ("On call").
 - **Records**: the documents bucket's access logs and the network's flow logs in a logs
   bucket of the environment's own, kept `access_log_days`, and Database Insights on the
   database ("The account's records").
@@ -2673,7 +2699,8 @@ the containers with the next release (the same tag again does).
 4. Make the DNS records if the zone is not in Route 53, ask SES for production access, and
    confirm the alerts' subscription. Its first message is the alarm
    `emudoc-<environment>-alerts-silent`, which stays in alarm until the first release starts
-   Alertmanager, and is over a few minutes after it.
+   Alertmanager, and is over a few minutes after it. Subscribe the pager to the pages topic
+   ("On call"); it hears the same alarm.
 5. Give CI the roles (the repository variables of "Releases from CI"), then run CI on `main`
    (Actions, CI, Run workflow, or the next push): it pushes the image and releases it on
    staging.
@@ -2933,11 +2960,11 @@ repository's policy among them.
     AWS, Prometheus's page through Session Manager ("Alerts", "On AWS") shows the same, and
     CloudWatch shows the alarm `emudoc-<environment>-alerts-silent` OK.
     `systemctl list-timers emudoc-watch.timer` shows the next look, and stopping a container for
-    ten minutes (`sudo emudoc-compose stop clamav`) reaches the alerts topic, and its start
-    again "the containers are well again". Stopping Alertmanager for twenty minutes (`sudo
+    ten minutes (`sudo emudoc-compose stop clamav`) reaches the alerts topic and the pager, and
+    its start again "the containers are well again". Stopping Alertmanager for twenty minutes (`sudo
     emudoc-compose stop alertmanager`) brings the watch's message and CloudWatch's alarm, and
     its start the alarm's OK; `sudo emudoc-compose stop api` brings "Emudoc staging:
-    EmudocNoApi" after five minutes, and no `EmudocProcessDown`.
+    EmudocNoApi" after five minutes, to the pager too, and no `EmudocProcessDown`.
 21. On AWS, CloudWatch lists the account's ten `emudoc-account-…` alarms, none in alarm, and the
     log group `emudoc-trail` receives the trail's events. Making and deleting a security group
     no one needs (`aws ec2 create-security-group --group-name emudoc-alarm-check --description
@@ -3093,6 +3120,6 @@ and the like), named on its models' pages.
 The compose files read a few of their own: `EMUDOC_IMAGE` (the image to run) and `EMUDOC_ENV`
 (the settings' file, `/etc/emudoc/emudoc.env` by default) in `deploy/compose.yml`, with
 `EMBEDDING_WEIGHTS_URL` and `EMBEDDING_WEIGHTS_SHA256` for the embeddings server's weights;
-`EMUDOC_DOMAIN`, `EMUDOC_ENVIRONMENT`, `EMUDOC_ALERTS` and `EMUDOC_HEARTBEAT` in
-`deploy/aws/compose.yml`, which each release writes. The drill's `DRILL_*` and `RDS_*` are in
+`EMUDOC_DOMAIN`, `EMUDOC_ENVIRONMENT`, `EMUDOC_ALERTS`, `EMUDOC_PAGES` and `EMUDOC_HEARTBEAT`
+in `deploy/aws/compose.yml`, which each release writes. The drill's `DRILL_*` and `RDS_*` are in
 its scripts' headers ("The drill").

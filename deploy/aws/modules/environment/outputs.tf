@@ -38,6 +38,11 @@ output "alerts" {
   value       = aws_sns_topic.alerts.arn
 }
 
+output "pages" {
+  description = "The SNS topic of what cannot wait, which a pager is subscribed to by hand (deploying.md, \"On call\")."
+  value       = aws_sns_topic.pages.arn
+}
+
 output "dns_records" {
   description = "The records the domain and the mail need, for a DNS outside Route 53; with dns_zone_id they are made here."
   value       = local.dns_records

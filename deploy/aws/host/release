@@ -24,7 +24,7 @@ umask 077
 
 # What this release needs of the host's settings, which only the instance's first start writes:
 # an instance made before the module gave them is replaced by applying the root.
-for name in EMUDOC_ALERTMANAGER_ROLE EMUDOC_HEARTBEAT; do
+for name in EMUDOC_ALERTMANAGER_ROLE EMUDOC_HEARTBEAT EMUDOC_PAGES; do
   if [[ -z ${!name:-} ]]; then
     echo "$name is not in /etc/emudoc/host.env: apply the environment's OpenTofu root, which" \
       "replaces the instance, then release again." >&2
@@ -48,8 +48,8 @@ rm -rf /etc/emudoc/next
 install -d -m 0700 /etc/emudoc/next
 aws ssm get-parameters-by-path --path "$EMUDOC_PARAMETERS" --recursive --with-decryption \
   --output json | python3 "$host/settings" --path "$EMUDOC_PARAMETERS" --image "$image" \
-  --environment "$EMUDOC_ENVIRONMENT" --alerts "$EMUDOC_ALERTS" --heartbeat "$EMUDOC_HEARTBEAT" \
-  --out /etc/emudoc/next --home /etc/emudoc
+  --environment "$EMUDOC_ENVIRONMENT" --alerts "$EMUDOC_ALERTS" --pages "$EMUDOC_PAGES" \
+  --heartbeat "$EMUDOC_HEARTBEAT" --out /etc/emudoc/next --home /etc/emudoc
 
 # RDS's authority for the region, which signs the database's certificate. An old copy serves
 # while the trust store cannot be reached: RDS announces a new authority years ahead.

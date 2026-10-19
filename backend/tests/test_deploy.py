@@ -56,6 +56,7 @@ SECRETS = {
 ALERTING = {
     "EMUDOC_ENVIRONMENT": "staging",
     "EMUDOC_ALERTS": "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-alerts",
+    "EMUDOC_PAGES": "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-pages",
     "EMUDOC_HEARTBEAT": "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-heartbeat",
 }
 # Written for the app's sake, not production's checks: boto3 signs for the bucket's region, the
@@ -133,6 +134,8 @@ def write_env_files(tmp_path, values, secrets) -> subprocess.CompletedProcess:
             ALERTING["EMUDOC_ENVIRONMENT"],
             "--alerts",
             ALERTING["EMUDOC_ALERTS"],
+            "--pages",
+            ALERTING["EMUDOC_PAGES"],
             "--heartbeat",
             ALERTING["EMUDOC_HEARTBEAT"],
             "--out",
@@ -306,6 +309,23 @@ def test_the_watchdog_reaches_the_heartbeat_before_cloudwatch_misses_it():
     assert all(by_name[name]["labels"]["process"] for name in sources)
 
 
+def test_what_is_critical_pages_and_reaches_the_alerts_topic_too():
+    # Where each label set goes is amtool's to say (CI's "Alerting rules"): this holds the order
+    # it rests on, the page first and going on.
+    configuration = yaml.safe_load((AWS / "alertmanager.yml").read_text())
+    critical = [
+        (route["receiver"], route.get("continue", False))
+        for route in configuration["route"]["routes"]
+        if route["matchers"] == ['severity="critical"']
+    ]
+    assert critical == [("pages", True), ("alerts", False)]
+    receivers = {receiver["name"]: receiver for receiver in configuration["receivers"]}
+    (page,) = receivers["pages"]["sns_configs"]
+    assert page["topic_arn"] == "@PAGES@"
+    # An SMS carries no subject, so the message says which environment pages.
+    assert page["message"].startswith("Emudoc @ENVIRONMENT@{{")
+
+
 def test_the_image_carries_every_file_the_instance_mounts_from_it():
     # A release runs the compose files from the deploy directory the image carries
     # (host/release); a file .dockerignore leaves out would be an empty directory Docker makes.
@@ -374,7 +394,8 @@ def test_the_host_reports_containers_in_trouble_once_they_last(tmp_path):
         "EMUDOC_CURRENT": str(tmp_path / "current"),
         # Nothing listens there, so the instance's id is not waited for.
         "EMUDOC_METADATA": "http://127.0.0.1:9",
-        "EMUDOC_ALERTS": "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-alerts",
+        "EMUDOC_ALERTS": ALERTING["EMUDOC_ALERTS"],
+        "EMUDOC_PAGES": ALERTING["EMUDOC_PAGES"],
         "EMUDOC_ENVIRONMENT": "staging",
     }
 
@@ -403,10 +424,20 @@ def test_the_host_reports_containers_in_trouble_once_they_last(tmp_path):
     )
     assert published() == []
     look(stuck)
-    (message,) = published()
+    # The whole of it to the alerts topic; a page short enough for an SMS, which shows no subject.
+    message, page = published()
+    assert f"--topic-arn\n{ALERTING['EMUDOC_ALERTS']}\n" in message
     assert "--subject\nEmudoc staging: clamav, migrate, worker in trouble\n" in message
     assert "  worker: unhealthy\n" in message
+    assert f"--topic-arn\n{ALERTING['EMUDOC_PAGES']}\n" in page
+    assert page.endswith(
+        "--message\nEmudoc staging, for five minutes and more: clamav: has no container; "
+        "migrate: exited with status 1; worker: unhealthy. The alerts topic says where to look.\n"
+    )
     look(stuck)
-    assert len(published()) == 1
+    assert len(published()) == 2
     look(ok)
-    assert "--subject\nEmudoc staging: the containers are well again\n" in published()[-1]
+    message, page = published()[-2:]
+    assert "--subject\nEmudoc staging: the containers are well again\n" in message
+    assert f"--topic-arn\n{ALERTING['EMUDOC_PAGES']}\n" in page
+    assert page.endswith("--message\nEmudoc staging: every container runs and is healthy again.\n")

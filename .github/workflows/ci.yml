@@ -305,7 +305,8 @@ jobs:
         run: docker run --rm -v "$PWD:/repo" -w /repo "$ACTIONLINT" -color
       # The Prometheus configuration and the alerting rules it loads, each rule against the
       # series that should and should not fire it (alerts.test.yml), and the AWS instance's
-      # Alertmanager configuration, by the promtool and amtool of the images the instance runs
+      # Alertmanager configuration with where it sends each severity (a critical alert pages and
+      # reaches the alerts topic), by the promtool and amtool of the images the instance runs
       # (deploy/aws/compose.yml), so that what Dependabot moves there is what checks them.
       - name: Alerting rules
         run: |
@@ -321,8 +322,21 @@ jobs:
           }
           promtool check config prometheus.yml
           promtool test rules alerts.test.yml
-          docker run --rm -v "$PWD/deploy/aws:/a:ro" -w /a --entrypoint amtool "$alertmanager" \
-            check-config alertmanager.yml
+          amtool() {
+            docker run --rm -v "$PWD/deploy/aws:/a:ro" -w /a --entrypoint amtool "$alertmanager" \
+              "$@"
+          }
+          amtool check-config alertmanager.yml
+          # The receivers a label set reaches, in order; amtool exits 1 on others.
+          routes() {
+            local receivers=$1
+            shift
+            amtool config routes test --config.file alertmanager.yml \
+              --verify.receivers="$receivers" "$@"
+          }
+          routes pages,alerts severity=critical alertname=EmudocNoApi
+          routes alerts severity=warning alertname=EmudocVacuumBehind
+          routes heartbeat severity=none alertname=EmudocWatchdog
       # uv, pnpm, Node and Python at the Dockerfile's versions wherever else they are named.
       - name: Tool versions
         run: .github/scripts/check-versions.sh

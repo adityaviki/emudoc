@@ -10,6 +10,13 @@
 # - outside it, CloudWatch: the heartbeat's silence, which is the instance, its Docker,
 #   Prometheus, Alertmanager or their credentials gone, and the instance's own status checks.
 #
+# Everything reaches the alerts topic. What cannot wait, a member waiting now or nothing on the
+# instance able to say so, reaches the pages topic as well, for a pager the operator subscribes
+# by hand (deploying.md, "On call"): Prometheus's critical rules, a container in trouble, and the
+# three alarms. A unit that failed (the drill, a renewal of the credentials, the boot) is for the
+# working day: the renewal has an hour's margin, and what a failed renewal or boot leads to is
+# the silence's alarm, which pages.
+#
 # The messages name units, services, rules and the instance, never a log line, which may name a
 # document. The app mails its own reports to the same address (ALERT_EMAIL, settings.tf).
 
@@ -77,6 +84,14 @@ resource "aws_sns_topic_subscription" "alerts" {
   endpoint  = var.alert_email
 }
 
+# Nobody is subscribed here by the module: a paging service's address carries its key, which the
+# repository, the plan and the state would hold, so the operator subscribes it, or a phone
+# number, with the AWS CLI (deploying.md, "On call").
+resource "aws_sns_topic" "pages" {
+  name              = "${local.name}-pages"
+  kms_master_key_id = aws_kms_key.alerts.arn
+}
+
 # Nobody subscribes: what CloudWatch counts of it is the proof that an alert would arrive.
 resource "aws_sns_topic" "heartbeat" {
   name              = "${local.name}-heartbeat"
@@ -100,8 +115,8 @@ resource "aws_cloudwatch_metric_alarm" "silent" {
   threshold           = 1
   treat_missing_data  = "breaching"
 
-  alarm_actions = [aws_sns_topic.alerts.arn]
-  ok_actions    = [aws_sns_topic.alerts.arn]
+  alarm_actions = [aws_sns_topic.alerts.arn, aws_sns_topic.pages.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn, aws_sns_topic.pages.arn]
 }
 
 # The hardware or AWS's network under the instance: EC2 moves the instance to other hardware,
@@ -119,8 +134,8 @@ resource "aws_cloudwatch_metric_alarm" "system" {
   comparison_operator = "GreaterThanOrEqualToThreshold"
   threshold           = 1
 
-  alarm_actions = ["arn:${local.partition}:automate:${local.region}:ec2:recover", aws_sns_topic.alerts.arn]
-  ok_actions    = [aws_sns_topic.alerts.arn]
+  alarm_actions = ["arn:${local.partition}:automate:${local.region}:ec2:recover", aws_sns_topic.alerts.arn, aws_sns_topic.pages.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn, aws_sns_topic.pages.arn]
 }
 
 # The instance's own system: out of memory, a kernel that hangs, a disk it cannot mount. A
@@ -138,6 +153,6 @@ resource "aws_cloudwatch_metric_alarm" "instance" {
   comparison_operator = "GreaterThanOrEqualToThreshold"
   threshold           = 1
 
-  alarm_actions = ["arn:${local.partition}:automate:${local.region}:ec2:reboot", aws_sns_topic.alerts.arn]
-  ok_actions    = [aws_sns_topic.alerts.arn]
+  alarm_actions = ["arn:${local.partition}:automate:${local.region}:ec2:reboot", aws_sns_topic.alerts.arn, aws_sns_topic.pages.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn, aws_sns_topic.pages.arn]
 }

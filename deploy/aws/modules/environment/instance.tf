@@ -19,6 +19,7 @@ locals {
     EMUDOC_APP_ROLE    = aws_iam_role.app.arn
     EMUDOC_READER_ROLE = aws_iam_role.reader.arn
     EMUDOC_ALERTS      = aws_sns_topic.alerts.arn
+    EMUDOC_PAGES       = aws_sns_topic.pages.arn
     # Alertmanager's (deploy/aws/compose.yml, deploy/aws/alertmanager.yml).
     EMUDOC_ALERTMANAGER_ROLE = aws_iam_role.alertmanager.arn
     EMUDOC_HEARTBEAT         = aws_sns_topic.heartbeat.arn

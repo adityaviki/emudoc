@@ -93,10 +93,11 @@ services:
     logging: *logging
     restart: unless-stopped
 
-  # What Prometheus fires, to the alerts topic, and its watchdog to the heartbeat topic
-  # (aws/alertmanager.yml), with the Alertmanager role's credentials. Alertmanager reads no
-  # variable, so the environment's name and the topics are written over the words in @ of its
-  # configuration at each start. Its page, for silences, answers on the host's loopback alone.
+  # What Prometheus fires, to the alerts topic and the critical part to the pages topic too, and
+  # its watchdog to the heartbeat topic (aws/alertmanager.yml), with the Alertmanager role's
+  # credentials. Alertmanager reads no variable, so the environment's name and the topics are
+  # written over the words in @ of its configuration at each start. Its web page, for silences,
+  # answers on the host's loopback alone.
   alertmanager:
     image: prom/alertmanager:v0.34.1@sha256:e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a
     entrypoint:
@@ -104,8 +105,8 @@ services:
       - -euc
       - >-
         sed -e "s|@ENVIRONMENT@|$$EMUDOC_ENVIRONMENT|g" -e "s|@ALERTS@|$$EMUDOC_ALERTS|g"
-        -e "s|@HEARTBEAT@|$$EMUDOC_HEARTBEAT|g" /etc/alertmanager/alertmanager.yml
-        >/tmp/alertmanager.yml;
+        -e "s|@PAGES@|$$EMUDOC_PAGES|g" -e "s|@HEARTBEAT@|$$EMUDOC_HEARTBEAT|g"
+        /etc/alertmanager/alertmanager.yml >/tmp/alertmanager.yml;
         exec /bin/alertmanager --config.file=/tmp/alertmanager.yml --storage.path=/alertmanager
         --cluster.listen-address=
     environment:
@@ -113,6 +114,7 @@ services:
       AWS_EC2_METADATA_DISABLED: "true"
       EMUDOC_ENVIRONMENT: ${EMUDOC_ENVIRONMENT:?set EMUDOC_ENVIRONMENT to the environment's name}
       EMUDOC_ALERTS: ${EMUDOC_ALERTS:?set EMUDOC_ALERTS to the alerts topic's ARN}
+      EMUDOC_PAGES: ${EMUDOC_PAGES:?set EMUDOC_PAGES to the pages topic's ARN}
       EMUDOC_HEARTBEAT: ${EMUDOC_HEARTBEAT:?set EMUDOC_HEARTBEAT to the heartbeat topic's ARN}
     # The credentials' group (host/credentials); it runs as nobody.
     group_add: ["10001"]

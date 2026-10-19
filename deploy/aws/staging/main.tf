@@ -109,3 +109,7 @@ output "parameters" {
 output "release_role" {
   value = module.emudoc.release_role
 }
+
+output "pages" {
+  value = module.emudoc.pages
+}

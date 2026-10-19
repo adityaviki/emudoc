@@ -23,6 +23,14 @@ Members:
 
 Operators:
 
+- On AWS, what cannot wait has a topic of its own for a pager, `emudoc-<environment>-pages`
+  (`tofu output pages`): Prometheus's critical alerts, in a few words an SMS can carry, a
+  container in trouble, and CloudWatch's three alarms, each when it begins and when it is over,
+  while the alerts topic keeps hearing everything. Subscribe the pager by hand, a paging
+  service's SNS integration or a phone (deploying.md, "On call"); the module subscribes nobody,
+  since the service's address carries its key. The instance's host settings gain
+  `EMUDOC_PAGES`, so apply both roots, which replaces each instance, before the next release,
+  which stops on an instance without it.
 - Three service levels, each over 30 days: 99.5 % of the members' requests without a server
   error, 95 % of answers begun within 30 seconds of the question, 95 % of uploads ready within
   10 minutes, with a fourth, the app up, for an uptime check from outside (deploying.md,

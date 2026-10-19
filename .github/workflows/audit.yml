@@ -157,6 +157,7 @@ jobs:
           EMUDOC_DOMAIN: example.org
           EMUDOC_ENVIRONMENT: audit
           EMUDOC_ALERTS: arn:aws:sns:eu-central-1:123456789012:alerts
+          EMUDOC_PAGES: arn:aws:sns:eu-central-1:123456789012:pages
           EMUDOC_HEARTBEAT: arn:aws:sns:eu-central-1:123456789012:heartbeat
         run: |
           images=$(

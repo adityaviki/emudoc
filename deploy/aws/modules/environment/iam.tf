@@ -71,7 +71,7 @@ locals {
         Sid      = "Alert"
         Effect   = "Allow"
         Action   = "sns:Publish"
-        Resource = aws_sns_topic.alerts.arn
+        Resource = [aws_sns_topic.alerts.arn, aws_sns_topic.pages.arn]
       },
       # The restore drill (deploy/rds-drill.sh): a copy of this environment's database alone,
       # which it may tag and delete, and nothing else of RDS's.
@@ -161,13 +161,14 @@ locals {
     }]
   }
 
-  # What fires, and the watchdog that says the way there works (deploy/aws/alertmanager.yml).
+  # What fires, the critical part of it again as pages, and the watchdog that says the way there
+  # works (deploy/aws/alertmanager.yml).
   alertmanager_policy = {
     Version = "2012-10-17"
     Statement = [{
       Effect   = "Allow"
       Action   = "sns:Publish"
-      Resource = [aws_sns_topic.alerts.arn, aws_sns_topic.heartbeat.arn]
+      Resource = [aws_sns_topic.alerts.arn, aws_sns_topic.pages.arn, aws_sns_topic.heartbeat.arn]
     }]
   }
 }

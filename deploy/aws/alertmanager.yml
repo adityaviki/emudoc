@@ -1,12 +1,14 @@
 # Alertmanager on the AWS instance (deploy/aws/compose.yml; deploying.md, "Alerts"): what the
-# rules of deploy/prometheus fire goes to the environment's alerts topic, and the watchdog,
-# which always fires, goes every two minutes to the heartbeat topic, whose silence CloudWatch
-# reports (deploy/aws/modules/environment/alerts.tf). It publishes with the Alertmanager role's
+# rules of deploy/prometheus fire goes to the environment's alerts topic, what is critical to
+# the pages topic as well, for the pager, and the watchdog, which always fires, goes every two
+# minutes to the heartbeat topic, whose silence CloudWatch reports
+# (deploy/aws/modules/environment/alerts.tf). It publishes with the Alertmanager role's
 # credentials, which the host renews (deploy/aws/host/credentials). Alertmanager reads no
 # variable, so its container writes the environment's name and the topics over the words in @
 # at each start, from compose.env (deploy/aws/host/settings).
 #
 #   amtool check-config deploy/aws/alertmanager.yml
+#   amtool config routes test --config.file deploy/aws/alertmanager.yml severity=critical
 
 route:
   receiver: alerts
@@ -20,6 +22,11 @@ route:
       group_wait: 0s
       group_interval: 1m
       repeat_interval: 2m
+    # A critical alert pages, and goes on to the alerts topic with the rest.
+    - matchers: ['severity="critical"']
+      receiver: pages
+      repeat_interval: 1h
+      continue: true
     - matchers: ['severity="critical"']
       receiver: alerts
       repeat_interval: 1h
@@ -45,6 +52,18 @@ receivers:
           {{ range .Alerts.Resolved }}  {{ .Annotations.summary }}
           {{ end }}
           {{ end }}From Prometheus's rules on the instance (deploy/prometheus/alerts.yml). Its alerts page is http://localhost:9090/alerts after aws ssm start-session --target INSTANCE --document-name AWS-StartPortForwardingSession --parameters portNumber=9090,localPortNumber=9090, INSTANCE being tofu output instance_id.
+
+  # An SMS carries the message without the subject, in parts of 160 characters: the environment
+  # and each rule's summary, what to do being the alerts topic's.
+  - name: pages
+    sns_configs:
+      - topic_arn: "@PAGES@"
+        subject: 'Emudoc @ENVIRONMENT@: {{ .CommonLabels.alertname }}{{ if eq .Status "resolved" }} is over{{ end }}'
+        message: |-
+          Emudoc @ENVIRONMENT@{{ range .Alerts.Firing }}
+          critical: {{ .Annotations.summary }}{{ end }}{{ range .Alerts.Resolved }}
+          over: {{ .Annotations.summary }}{{ end }}{{ if .Alerts.Firing }}
+          The alerts topic says where to look.{{ end }}
 
   - name: heartbeat
     sns_configs:

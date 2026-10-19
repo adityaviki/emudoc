@@ -204,6 +204,7 @@ def main() -> int:
     parser.add_argument("--image", required=True, help="the image the release runs")
     parser.add_argument("--environment", required=True, help="the environment's name")
     parser.add_argument("--alerts", required=True, help="the alerts topic's ARN")
+    parser.add_argument("--pages", required=True, help="the pages topic's ARN")
     parser.add_argument("--heartbeat", required=True, help="the heartbeat topic's ARN")
     parser.add_argument("--out", required=True, help="the directory the files go into")
     parser.add_argument("--home", help="the directory they are kept in; --out unless given")
@@ -214,6 +215,7 @@ def main() -> int:
         alerting = {
             "EMUDOC_ENVIRONMENT": args.environment,
             "EMUDOC_ALERTS": args.alerts,
+            "EMUDOC_PAGES": args.pages,
             "EMUDOC_HEARTBEAT": args.heartbeat,
         }
         for name, content in files(settings, args.image, home, alerting).items():
