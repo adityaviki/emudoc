@@ -183,6 +183,13 @@ def test_an_upload_and_its_documents_indexing_share_a_trace_timed_by_stage(
     assert [(span["stage"], span["outcome"]) for span in stages] == [
         (stage, "done") for stage in STAGES
     ]
+    # The parse child ran within the parse stage, after its wait for one of the worker's
+    # parses, which nothing else held.
+    (parse_stage,) = [span for span in stages if span["stage"] == "parse"]
+    (parse,) = [span for span in timing["spans"] if span["kind"] == "parse"]
+    assert parse["outcome"] == "ok" and 0 <= parse["waited"] < 0.1
+    assert parse_stage["at"] <= parse["at"]
+    assert parse["at"] + parse["seconds"] <= parse_stage["at"] + parse_stage["seconds"] + 0.002
     # The embeddings requests were sent within the embed stage.
     (embed_stage,) = [span for span in stages if span["stage"] == "embed"]
     requests = [span for span in timing["spans"] if span["kind"] == "embed"]
@@ -195,7 +202,8 @@ def test_an_upload_and_its_documents_indexing_share_a_trace_timed_by_stage(
         assert ended <= embed_stage["at"] + embed_stage["seconds"] + 0.002
     assert re.fullmatch(
         rf"Job {job.id} \(index_document\) ran \d+\.\d s \(done\), \d+\.\d s after it was "
-        rf"due: 5 stages \d+\.\d s, {len(requests)} embeddings requests? \d+\.\d s\.",
+        rf"due: 5 stages \d+\.\d s, 1 parse \d+\.\d s, {len(requests)} embeddings requests? "
+        r"\d+\.\d s\.",
         line["message"],
     )
 

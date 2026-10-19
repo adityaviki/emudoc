@@ -8,8 +8,11 @@ and answer questions. A worker starts like the API does (app/startup.py) and cla
 of job it has a handler for (`HANDLERS`), in two lanes: WORKER_CONCURRENCY indexer threads for
 the documents (and for a PDF's first pages, drawn ahead once it is parsed, app/rendering.py),
 and ANSWER_CONCURRENCY answerer threads for the questions (app/answers.py), so that a backlog
-of parses never holds an answer up and the other way round. The listener thread wakes them all
-when a job is queued anywhere, so a question is taken the moment it is asked.
+of parses never holds an answer up and the other way round. An indexer spends most of a
+document waiting on the model, so they are many, and only PARSE_CONCURRENCY of them run a
+parse, the part that takes memory, at once (`ParseSlots` in app/indexing/pipeline.py). The
+listener thread wakes them all when a job is queued anywhere, so a question is taken the moment
+it is asked.
 In development the API process runs the same threads itself, so that one `uvicorn` does
 everything (RUN_WORKER in app/config.py).
 

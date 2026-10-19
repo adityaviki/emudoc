@@ -51,6 +51,9 @@ TOOL = "tool"
 WRITE = "write"
 # A PDF page drawn as an image (app/rendering.py): for OCR, or drawn ahead.
 RENDER = "render"
+# A file parsed in a child process, the wait for one of the worker's parses included
+# (app/indexing/pipeline.py).
+PARSE = "parse"
 # A tool name the model sent that is not one of the agent's tools: the name is the model's
 # words, which a document can steer, so the span names it by this instead.
 UNKNOWN_TOOL = "unknown"
@@ -64,6 +67,7 @@ LISTED = 50
 # before what they wait on (a search waits on an embeddings request).
 NOUNS = {
     STAGE: ("stage", "stages"),
+    PARSE: ("parse", "parses"),
     "agent": ("agent turn", "agent turns"),
     RENDER: ("page drawn", "pages drawn"),
     "index": ("indexing request", "indexing requests"),

@@ -240,15 +240,16 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
 - `RUN_WORKER` is whether the process runs the background worker as well. Unset, it does in
   development and does not in production, where the worker is `uv run python -m app.worker`,
   a process of its own ("Run it" above).
-- `WORKER_CONCURRENCY` and `ANSWER_CONCURRENCY` are the worker's threads: 2 documents indexed
+- `WORKER_CONCURRENCY` and `ANSWER_CONCURRENCY` are the worker's threads: 16 documents indexed
   at once and 8 questions answered at once, in lanes of their own, so a backlog of uploads
-  never holds an answer up. An answer's thread is idle while the model thinks, so the answers
-  cost memory and a database connection each more than anything else.
+  never holds an answer up. Both wait on the model most of the time, so a thread costs a
+  database connection more than memory. `PARSE_CONCURRENCY` (2) of the indexers parse a file
+  at once, each in a child process with memory of its own, and the others wait their turn.
 - `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` and `DB_POOL_TIMEOUT` size the database connections a
-  process holds: 5 kept open, up to 10 more while all of those are in use, and 5 seconds a
+  process holds: 10 kept open, up to 20 more while all of those are in use, and 5 seconds a
   request waits for one before it is refused with 503 and asked to try again. An API replica
   needs about one per request in flight; a worker needs one per document and per answer it
-  runs at once (an answer holds one only while a tool runs) plus three for its helper
+  runs at once (an answer holds one only while a tool runs) plus four for its helper
   threads, and refuses to start with a pool that cannot hold them; its listener holds one more
   outside the pool. The sum over every replica must stay under the database's
   `max_connections` (100 for Postgres), or a connection pooler goes in between: one in
@@ -409,7 +410,7 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   a message naming the limit, is not retried, and leaves the worker and the other uploads
   untouched; a file with more text is refused before the worker holds any of it, since every
   later stage pays for the text (its passages, about one per 1,200 to 2,000 characters, are
-  written, indexed and embedded). `WORKER_CONCURRENCY` parses run at once, each with its own
+  written, indexed and embedded). `PARSE_CONCURRENCY` parses run at once, each with its own
   memory on top of the worker's. An image of more than 50 megapixels is refused the same way,
   by OCR and by the thumbnail alike, from its header and before a pixel of it is decoded.
   `OCR_MAX_PAGES` (100) is how many pages of one document the model may read as scans, each a

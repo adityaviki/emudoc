@@ -19,6 +19,10 @@ subverted child could use against the parent) and its exit code says how it ende
 turns each ending into a `ParseError` whose message names the limit and what to do. OCR stays in
 the parent: the child reports the pages without a text layer and the parent sends them to the
 model, which is not picklable and is faked in tests.
+
+How many children a worker runs at once is the caller's (`slot`, PARSE_CONCURRENCY in the
+pipeline), held from the child's start to its end, so that the memory they take is bounded by
+the parses and not by the threads that call this.
 """
 
 import argparse
@@ -30,6 +34,8 @@ import resource
 import signal
 import subprocess
 import sys
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -76,9 +82,14 @@ class ParseLimits:
 
 
 def parse_within_limits(
-    path: Path, filename: str, limits: ParseLimits, document_id: int | None = None
+    path: Path,
+    filename: str,
+    limits: ParseLimits,
+    document_id: int | None = None,
+    slot: Callable[[], AbstractContextManager[object]] = nullcontext,
 ) -> ParsedDocument:
-    """Parse the file in a child process that stays within `limits`.
+    """Parse the file in a child process that stays within `limits`, started once `slot()`
+    is entered and ended before it is left.
 
     Raises `UnsupportedFile` for an extension nothing parses and `ParseError` when the child was
     stopped, refused the file or failed; the parse itself is `parse_file`. The log names the
@@ -102,6 +113,13 @@ def parse_within_limits(
         f"--max-rows={limits.max_rows}",
         f"--max-chars={limits.max_chars}",
     ]
+    with slot():
+        code, out, err = _run(command, _named(suffix, document_id), limits)
+    return _outcome(_named(suffix, document_id), code, out, err, limits)
+
+
+def _run(command: list[str], file: str, limits: ParseLimits) -> tuple[int, bytes, bytes]:
+    """Run the child to its end, killed at the time limit: its exit code and output."""
     try:
         child = subprocess.Popen(
             command,
@@ -122,7 +140,7 @@ def parse_within_limits(
         except subprocess.TimeoutExpired:
             child.kill()
             out, err = child.communicate()
-            _log_failure(_named(suffix, document_id), child.returncode, err)
+            _log_failure(file, child.returncode, err)
             raise ParseError(
                 f"Parsing did not finish within {_duration(limits.timeout)} and was stopped. "
                 "Split the file into smaller parts and upload those."
@@ -131,7 +149,7 @@ def parse_within_limits(
         if child.poll() is None:
             child.kill()
             child.wait()
-    return _outcome(_named(suffix, document_id), child.returncode, out, err, limits)
+    return child.returncode, out, err
 
 
 def _named(suffix: str, document_id: int | None) -> str:

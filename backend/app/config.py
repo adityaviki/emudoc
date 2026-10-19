@@ -367,10 +367,15 @@ class Settings(BaseSettings):
     fts_language: str = "english"
     # The threads a worker runs: this many index documents, and ANSWER_CONCURRENCY answer
     # questions (app/worker.py), in lanes of their own so that neither holds the other up.
-    # An answer's thread is idle while the model thinks, so the answers cost memory and a
-    # connection each more than anything else; raise them together with the pool.
-    worker_concurrency: int = 2
+    # Both spend most of their time waiting on a model, so a thread costs a database
+    # connection more than memory or CPU; raise them together with the pool. Of the indexers,
+    # PARSE_CONCURRENCY run a parse at once, each in a child that may hold PARSE_MEMORY_MB
+    # (app/parsing/limits.py), and the others wait for one to end: the memory a worker needs
+    # is its parses', so the indexers that wait on a model can outnumber them (deploying.md,
+    # "Load", for the figures these defaults are chosen by).
+    worker_concurrency: int = 16
     answer_concurrency: int = Field(default=8, ge=0)
+    parse_concurrency: int = Field(default=2, ge=1)
     # The connections this process keeps to the database: DB_POOL_SIZE kept open, and up to
     # DB_MAX_OVERFLOW more opened while all of those are in use and closed as they come back.
     # A session holds one from its first statement to its next commit or rollback, so an API
@@ -380,8 +385,8 @@ class Settings(BaseSettings):
     # under the database's max_connections (100 for Postgres). When every connection is in
     # use, a request waits DB_POOL_TIMEOUT seconds for one and is then refused with 503 and a
     # sentence that says to try again (app/main.py), rather than hanging.
-    db_pool_size: int = Field(default=5, ge=1)
-    db_max_overflow: int = Field(default=10, ge=0)
+    db_pool_size: int = Field(default=10, ge=1)
+    db_max_overflow: int = Field(default=20, ge=0)
     db_pool_timeout: int = Field(default=5, ge=1)
     # The questions one organisation may have waiting for or receiving an answer at once. The
     # worker answers ANSWER_CONCURRENCY of them at a time, shared between the organisations

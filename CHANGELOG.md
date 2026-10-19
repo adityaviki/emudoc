@@ -11,6 +11,9 @@ its day, in the same commit.
 
 Members:
 
+- A large upload is ready far sooner: sixteen documents are indexed at once where two were, so
+  3,000 documents uploaded together are ready to search and ask about in about ten minutes at a
+  hosted model's pace, where they took over an hour.
 - A large spreadsheet is ready far sooner: the AI model reads a long table by its header, its
   first rows and its last ones, so a sheet of 90,000 rows is one request where it was hundreds.
   Such a table gives no facts, since a few rows of thousands would answer a count wrong, and
@@ -38,6 +41,17 @@ Members:
 
 Operators:
 
+- `WORKER_CONCURRENCY` is 16 by default, where it was 2, and the new `PARSE_CONCURRENCY` (2) is
+  how many of those indexers parse a file at once, each in a child of up to `PARSE_MEMORY_MB`;
+  the others wait their turn, so an indexer waiting on the model no longer brings a parse's
+  memory with it. `DB_POOL_SIZE` is 10 and `DB_MAX_OVERFLOW` 20 (they were 5 and 10), since the
+  worker needs 28 connections at the new defaults: a deployment that set the pool or the
+  concurrency by hand checks the sum (a worker refuses a pool too small for its threads) and
+  sums its replicas against the database's `max_connections`. `emudoc_parses{state}` counts the
+  parses running and the indexers waiting for one, and an index run's line has a `parse` span
+  with the seconds it `waited`. deploying.md's "Load" has the figures: at 3 s an indexing
+  request, 37 documents a minute with 2 indexers, 145 with 8, 289 with 16 and 554 with 32, the
+  worker's memory the same throughout.
 - What indexing one document costs is bounded: `PARSE_MAX_CHARS` (20,000,000) refuses a file
   with more text in the parse child, before the worker holds any of it, `ENRICH_MAX_REQUESTS`
   (50) caps the requests one document's summaries and facts take, a table of more than 100

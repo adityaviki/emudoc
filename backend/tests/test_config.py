@@ -568,16 +568,19 @@ def test_a_process_that_runs_the_worker_needs_a_pool_for_its_threads(deployment)
     # housekeeper, alerter and the metrics' reading take one now and then; a pool that cannot
     # hold them all would fail jobs for a reason the operator set, so the settings are refused
     # with the arithmetic.
-    deployment.update(run_worker=True, worker_concurrency=5, answer_concurrency=8)
+    deployment.update(run_worker=True, worker_concurrency=19, answer_concurrency=8)
     with pytest.raises(
-        ValueError, match="WORKER_CONCURRENCY is 5 and ANSWER_CONCURRENCY is 8"
+        ValueError, match="WORKER_CONCURRENCY is 19 and ANSWER_CONCURRENCY is 8"
     ) as error:
         load_settings(**deployment)
-    assert "need 17 database connections" in str(error.value)
-    assert "DB_POOL_SIZE + DB_MAX_OVERFLOW allows 15" in str(error.value)
-    assert load_settings(**deployment, db_max_overflow=12).worker_concurrency == 5
-    deployment["worker_concurrency"] = 3
-    assert load_settings(**deployment).db_pool_size == 5
+    assert "need 31 database connections" in str(error.value)
+    assert "DB_POOL_SIZE + DB_MAX_OVERFLOW allows 30" in str(error.value)
+    assert load_settings(**deployment, db_max_overflow=21).worker_concurrency == 19
+    # The defaults hold the default threads.
+    del deployment["worker_concurrency"], deployment["answer_concurrency"]
+    settings = load_settings(**deployment)
+    assert (settings.worker_concurrency, settings.answer_concurrency) == (16, 8)
+    assert (settings.db_pool_size, settings.db_max_overflow) == (10, 20)
     # An API replica that runs no worker has no indexing threads to hold connections.
     deployment.update(run_worker=False, worker_concurrency=50)
     assert load_settings(**deployment).run_worker is False

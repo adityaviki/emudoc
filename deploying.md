@@ -120,10 +120,10 @@ themselves. A container needs:
   every upload passes through the temporary directory, and a worker copies an original there
   to scan, parse and render it: size it for what the API takes in at once
   (`MAX_UPLOAD_REQUEST_MB`, and `MAX_UPLOAD_MB` again, per upload at a time) and for what a
-  worker works on (`MAX_UPLOAD_MB` per `WORKER_CONCURRENCY`). A tmpfs counts as the
-  container's memory and keeps the documents in the clear ("Encryption", below). A process that
-  cannot write a temporary file refuses to start: "No temporary directory can be written in
-  …".
+  worker works on (`MAX_UPLOAD_MB` per `WORKER_CONCURRENCY`, 1.6 GB at the defaults). A tmpfs
+  counts as the container's memory and keeps the documents in the clear ("Encryption", below).
+  A process that cannot write a temporary file refuses to start: "No temporary directory can be
+  written in …".
 - **A volume for a directory storage**: `STORAGE_URL=file:///var/lib/emudoc`, one volume shared
   by the API and every worker. A named volume takes the directory's owner and mode (10001,
   `0750`) from the image; a directory of the host's needs `chown 10001:10001`. A bucket needs
@@ -385,7 +385,7 @@ keeps its transaction while each file goes to the storage. Set the limits on the
 
 ### A pooler
 
-Each process holds up to `DB_POOL_SIZE` + `DB_MAX_OVERFLOW` connections (15 by default), and a
+Each process holds up to `DB_POOL_SIZE` + `DB_MAX_OVERFLOW` connections (30 by default), and a
 database takes about 100 (`max_connections`; a managed one sets it from its memory). When the
 replicas need more, a pooler between them and the database lets many client connections share
 a few server ones: pgbouncer, or the provider's (RDS Proxy, Azure's built-in pgbouncer, Cloud
@@ -611,7 +611,7 @@ shows none for it (a 404 whose detail says why), a scanned page fails the docume
 with a sentence that names the page, the log says "A render process was stopped: …", and a
 fresh child draws the next page; a child is also replaced after 200 pages. A child holds about
 50 MB while it waits, so size a container's memory for `RENDER_PROCESSES` children at
-`RENDER_MEMORY_MB` at worst, beside the parse's (`PARSE_MEMORY_MB` per `WORKER_CONCURRENCY`).
+`RENDER_MEMORY_MB` at worst, beside the parse's (`PARSE_MEMORY_MB` per `PARSE_CONCURRENCY`).
 `emudoc_renders_total` counts the pages by what they were drawn for and how each ended
 ("Metrics").
 
@@ -660,9 +660,11 @@ organisation, whatever its plan, each a refusal or a shortcut with a sentence th
   HNSW index, 3 to 4 ms a passage here ("Load").
 
 Beyond these the worker's memory is the parse's, `PARSE_MEMORY_MB` for each of its
-`WORKER_CONCURRENCY` children at worst, and the text of the documents it indexes: a workbook of
-17.6 million characters (10,400 passages) took the worker to 280 MB beside its parse child's
-220 MB.
+`PARSE_CONCURRENCY` children at worst, and the text of the documents its `WORKER_CONCURRENCY`
+indexers hold: a workbook of 17.6 million characters (10,400 passages) took the worker to
+280 MB beside its parse child's 220 MB. The indexers past `PARSE_CONCURRENCY` wait for a parse
+to end (`emudoc_parses{state="waiting"}`, and `waited` in the run's `parse` span), so raising
+`WORKER_CONCURRENCY` adds threads that wait on the model, not parses.
 
 ## The models
 
@@ -1738,8 +1740,10 @@ Each run of a job ends with one line at INFO that says where its time went, here
   its stream's end, with `first_event`; `index`, an indexing request, the provider's own
   retries included; `embed`), each with the configured `model`, its `outcome` as
   `emudoc_model_requests` names them, and the tokens the provider counted; and the agent's
-  tool calls (`tool`, `ok` or `error`). A span inside another lies within it in time: the
-  embeddings request above is the search's, which waited on it for all but a tenth of a second.
+  tool calls (`tool`, `ok` or `error`); and a document's parse (`parse`, its child process,
+  with `waited`, the seconds it waited for one of the worker's `PARSE_CONCURRENCY` parses, and
+  `ok` or `failed`). A span inside another lies within it in time: the embeddings request above
+  is the search's, which waited on it for all but a tenth of a second.
 - `totals` counts every span of each kind, with the slowest. The writes of an answer's events
   (`write`, a commit each, so a slow database shows there) are counted and not listed, and a run
   of more than 50 spans, a scan's pages, lists its 50 slowest and says how many it left out
@@ -1912,6 +1916,7 @@ across the instances, `sum without (instance)`):
 | `emudoc_answer_first_text_seconds` | How long a member waited from the question to its answer's first words: the job's wait and its run up to its first text, once a run ("Service levels") |
 | `emudoc_document_ready_seconds` | How long an upload took to be ready, from the upload to the end of its first indexing, retries and waits included, once a document ("Service levels") |
 | `emudoc_worker_threads{lane}`, `emudoc_worker_busy{lane}` | A worker's job threads alive and running a job, by `lane` (`indexer`, `answerer`) |
+| `emudoc_parses{state}` | A worker's parses `running`, each a child process (`PARSE_CONCURRENCY` at most), and indexers `waiting` for one to end ("Large documents") |
 | `emudoc_worker_listening` | 1 while a worker hears of queued jobs as they are queued, 0 while it polls for them: behind a pooler in transaction mode without `DATABASE_LISTEN_URL`, or while its listener's lost connection waits to be made again |
 | `emudoc_upload_bytes`, `emudoc_upload_rejections_total` | The sizes of the files the API stored, and the files it refused by `reason`: `too_many` (a whole request), `plan`, `unsupported`, `empty`, `too_large`, `wrong_type`, `duplicate` |
 | `emudoc_rate_limited_total` | Requests refused for a rate, by the limit's `scope` ("Rates") |
@@ -2305,10 +2310,10 @@ plan and with the rates a minute lifted (one member asks for what twenty would):
 It prints a table of what the member waited, at the 50th and 95th percentiles and the longest,
 and notes of what the app did meanwhile: documents indexed a minute, each stage's average, the
 indexing requests, and the most memory the API's and the worker's processes held with their
-children; `--out` keeps the figures as JSON. A run takes about 35 minutes and needs the compose
+children; `--out` keeps the figures as JSON. A run takes about 12 minutes and needs the compose
 database, and the compose bucket with `--storage s3` (`docker compose --profile s3 up -d
---wait`); the large files are made once and kept in its directory (`--dir`, by default
-`$TMPDIR/emudoc-load`). Every setting a figure depends on is set in
+--wait`); the large files are made once, which takes longer, and kept in its directory
+(`--dir`, by default `$TMPDIR/emudoc-load`). Every setting a figure depends on is set in
 `backend/loadtest/deployment.py`, so `.env` changes none, and `--set NAME=VALUE` runs it with
 one changed, `--set ANSWER_CONCURRENCY=20` say; `--phases` picks some. It exits 1 when its own
 work went wrong (a library document not ready, an answer not done), since such figures are not
@@ -2318,45 +2323,60 @@ figures mean nothing.
 ### The figures
 
 On 2026-10-19, on one machine (16 × AMD Ryzen 7 7435HS, 23 GB) with the compose Postgres 17
-beside the app and the files in a directory, at the defaults (`WORKER_CONCURRENCY` 2,
-`ANSWER_CONCURRENCY` 8, `DB_POOL_SIZE` 5 and `DB_MAX_OVERFLOW` 10, `RENDER_PROCESSES` 2) with
-`OCR_MAX_PAGES` raised to the scan's 300 pages:
+beside the app and the files in a directory, at the defaults (`WORKER_CONCURRENCY` 16,
+`PARSE_CONCURRENCY` 2, `ANSWER_CONCURRENCY` 8, `DB_POOL_SIZE` 10 and `DB_MAX_OVERFLOW` 20,
+`RENDER_PROCESSES` 2) with `OCR_MAX_PAGES` raised to the scan's 300 pages:
 
 | What the member waited | n | p50 | p95 |
 | --- | --- | --- | --- |
-| An upload of 50 files | 60 | 1.33 s | 1.66 s |
-| A search in the 3,000 documents (9,300 passages), one at a time | 300 | 69 ms | 77 ms |
-| The same, eight at a time | 300 | 76 ms | 93 ms |
-| The same, while the 3,000 were indexed | 681 | 33 ms | 48 ms |
-| Facts by a word, or by a piece of one (15,210 facts) | 100 | 39 ms | 44 ms |
-| The agent's `list_documents` by a word, or by a piece of one | 100 | 22 ms | 27 ms |
-| A question asked, 20 at once | 100 | 174 ms | 295 ms |
-| The question to the answer's first event, the step "Searching…", 20 at once | 100 | 519 ms | 858 ms |
-| The question to its first words, 20 at once, the model at once | 100 | 650 ms | 951 ms |
-| The same, at the hosted model's pace | 100 | 4.46 s | 6.66 s |
+| An upload of 50 files | 60 | 1.54 s | 2.49 s |
+| A search in the 3,000 documents (9,300 passages), one at a time | 300 | 71 ms | 79 ms |
+| The same, eight at a time | 300 | 76 ms | 90 ms |
+| The same, while the 3,000 were indexed | 254 | 42 ms | 59 ms |
+| Facts by a word, or by a piece of one (15,210 facts) | 100 | 39 ms | 43 ms |
+| The agent's `list_documents` by a word, or by a piece of one | 100 | 24 ms | 26 ms |
+| A question asked, 20 at once | 100 | 227 ms | 406 ms |
+| The question to the answer's first event, the step "Searching…", 20 at once | 100 | 635 ms | 964 ms |
+| The question to its first words, 20 at once, the model at once | 100 | 783 ms | 1.08 s |
+| The same, at the hosted model's pace | 100 | 4.58 s | 6.79 s |
 | The same, with `ANSWER_CONCURRENCY` 20 | 100 | 2.76 s | 2.90 s |
-| An upload of 3,000 documents to each one ready, the model at once | 3,000 | 195 s | 355 s |
-| 200 documents to each one ready, at 3 s an indexing request | 200 | 163 s | 309 s |
-| The same, with `WORKER_CONCURRENCY` 8 | 200 | 43 s | 77 s |
-| A page of the scan drawn, four asked at once | 300 | 600 ms | 632 ms |
+| An upload of 3,000 documents to each one ready, the model at once | 3,000 | 83 s | 136 s |
+| 200 documents to each one ready, at 3 s an indexing request | 200 | 22 s | 39 s |
+| A page of the scan drawn, four asked at once | 300 | 602 ms | 629 ms |
 | The same, from a bucket (the compose bucket, on the loopback address) | 300 | 2.06 s | 2.11 s |
-| A page of the scan kept from before | 300 | 25 ms | 29 ms |
+| A page of the scan kept from before | 300 | 26 ms | 32 ms |
 
-The rows with `ANSWER_CONCURRENCY` 20 and `WORKER_CONCURRENCY` 8 are one run with both, and
-with `DB_POOL_SIZE` 22, the pool the worker then needs; the bucket's row is a run of the large
-phase with `--storage s3`.
+The row with `ANSWER_CONCURRENCY` 20 is a run earlier that day (with `DB_POOL_SIZE` 22, the pool
+the worker then needed), the bucket's a run of the large phase with `--storage s3`; neither
+answers nor pages changed since.
+
+Indexing at a hosted model's pace, 3 s an indexing request, by the worker's indexers (the paced
+phase with `--paced-documents`, `--set WORKER_CONCURRENCY=…` and the pool that needs; the row
+of 2 is the day's earlier run, before the parses had a limit of their own):
+
+| `WORKER_CONCURRENCY` | Documents | Indexed a minute | Ready, p50 | p95 | The worker held |
+| --- | --- | --- | --- | --- | --- |
+| 2 | 200 | 37 | 163 s | 309 s | – |
+| 8 | 600 | 145 | 124 s | 231 s | 414 MB |
+| 16 | 1,200 | 289 | 121 s | 224 s | 414 MB |
+| 32 | 1,200 | 554 | 60 s | 109 s | 437 MB |
+
+With the model at once, `PARSE_CONCURRENCY` 4 indexed the 3,000 documents no sooner than 2
+(959 a minute against 952, ready at p95 139 s against 136 s), the worker at 491 MB against
+418 MB.
 
 The large files, one at a time, with the model at once:
 
-- **The 300-page scan** was ready 103 s after its upload, 98 s of them in the parse: its pages
-  drawn one after another for the model (89 s) and read (320 requests, 9 s). The 20 questions
-  asked meanwhile began as soon as without it.
+- **The 300-page scan** was ready 101 s after its upload, 96 s of them in the parse: its pages
+  drawn one after another for the model (about 89 s) and read (320 requests, about 9 s). The
+  20 questions asked meanwhile began as soon as without it.
 - **The 50 MB workbook in seven sheets** (625,000 rows, 88 million characters) was ready after
   604 s: the parse 98 s, the structure 48 s, the summaries and facts 193 s in 3,126 requests
   (one for each 40,000 characters of rows), the embeddings 264 s (about 52,000 passages in
   1,620 requests, which took 26 s; the rest is the database writing each vector into its
   index). The worker's processes held 2.6 GB. Bounded later that day ("Large documents"), it
-  is refused by `PARSE_MAX_CHARS` after 36 s, the worker's processes at 470 MB. With the limit
+  is refused by `PARSE_MAX_CHARS` after 36 s, the worker's processes at 470 MB (580 MB at 16
+  indexers). With the limit
   lifted (`--set PARSE_MAX_CHARS=100000000`) it is ready after 396 s: the parse 82 s, the
   structure 32 s, the summaries and facts 31 s in one request (each sheet shown by its first
   and last rows), the embeddings 251 s (25 s of requests); the worker held 590 MB and its
@@ -2366,9 +2386,9 @@ The large files, one at a time, with the model at once:
   64 s in one request, the worker at 280 MB.
 - **The same orders in one sheet** were refused by `PARSE_MAX_ROWS` after 31 s, the worker's
   processes at 1.55 GB, most of it what the workbook before had left the worker holding;
-  bounded, at 440 MB.
+  bounded, at 440 MB (550 MB at 16 indexers).
 
-The API's processes held 220 to 240 MB throughout, the worker's about 400 MB while the library
+The API's processes held 210 to 225 MB throughout, the worker's about 420 MB while the library
 was indexed.
 
 ### What the figures mean
@@ -2381,14 +2401,26 @@ was indexed.
   as it waits on the model, but the pool must grow with it (the worker refuses fewer than
   `WORKER_CONCURRENCY` + `ANSWER_CONCURRENCY` + 4 connections). The API follows each answer
   by looking at the table every 0.1 s, a connection for each look: 20 members reading answers
-  are 200 short queries a second, and the API's 15 connections carried them.
-- **Uploads** are indexed by a worker's `WORKER_CONCURRENCY` threads (2). A small document
-  takes an indexer about 0.27 s of the app's own time, so two index about 440 a minute, and
-  each request to a model adds the model's time: at 3 s a request two index 37 a minute, so an
-  upload of about 370 documents is the most that is ready within the 10 minutes of the objective
-  ("Service levels"), and one of 3,000 takes 80 minutes. Eight indexers did 142 a minute. An
-  indexer waiting on a model costs little, but each may run a parse of up to `PARSE_MEMORY_MB`
-  (2 GB) at once, so the worker's memory bounds how many; size it for both before raising it.
+  are 200 short queries a second, and the API's 15 connections carried them (30 now).
+- **Uploads** are indexed by a worker's `WORKER_CONCURRENCY` threads (16). A small document
+  takes an indexer a fraction of a second of the app's own time, and each request to a model
+  adds the model's, during which the indexer holds no database connection and next to no
+  memory: at 3 s a request the documents indexed a minute grew with the indexers, 37 with 2,
+  145 with 8, 289 with 16 and 554 with 32, and the worker's memory did not. So at the defaults
+  an upload of about 2,800 documents is ready within the 10 minutes of the objective ("Service
+  levels") at that pace, where 2 indexers, the default until then, readied about 370 within
+  them and took 80 minutes over 3,000.
+  Only `PARSE_CONCURRENCY` (2) of them parse at once, the part that takes memory, each in a
+  child of up to `PARSE_MEMORY_MB`, and the others wait their turn: with the model at once the
+  parses were the narrow part (the parse stage took 0.42 s on average, over half of it
+  waiting), but
+  four of them readied the 3,000 no sooner, since the uploads and the database set the pace
+  there, and held 70 MB more. More indexers cost a database connection each (the worker
+  refuses fewer than `WORKER_CONCURRENCY` + `ANSWER_CONCURRENCY` + 4, 28 at the defaults) and
+  the provider's rate: 16 at 3 s are about 320 indexing requests a minute, more than a
+  provider's lowest tiers take (`EmudocModelRateLimited`, then lower `WORKER_CONCURRENCY`). A
+  member who uploads thousands at once is served by more indexers, or another worker, with the
+  pool and the provider's limits to match.
 - **A long scan** is read one page after another, each drawn (0.3 s) and then sent to the
   model, so at a hosted model's 3 s a page a 300-page scan takes about 17 minutes by itself,
   past the objective whatever else waits. `OCR_MAX_PAGES` (100) holds one to about 6 minutes.
@@ -2544,7 +2576,7 @@ about it.
 1. `maintenance jobs --document <id>` says where it stands, each stage with what its members
    read, its index jobs, and what the newest one means:
    - due and waiting for a free indexer thread: a backlog, which more workers or
-     `WORKER_CONCURRENCY` shorten;
+     `WORKER_CONCURRENCY` shorten ("Load");
    - waiting until a moment: a retry's backoff after a provider or a service failed, or the
      day's spending limit until midnight UTC, as the stage's detail says;
    - running under a worker's lease, which its run's line in that worker's log explains once it
@@ -2559,7 +2591,10 @@ about it.
 3. Slow for everyone: `sum by (stage) (rate(emudoc_stage_seconds_sum[1h])) / sum by (stage)
    (rate(emudoc_stage_seconds_count[1h]))` says which stage grew. Each scanned page is a model
    request; embedding on the instance's CPUs is the slow part of a long document, for which a
-   larger instance or a hosted endpoint is the cure ("The embeddings endpoint").
+   larger instance or a hosted endpoint is the cure ("The embeddings endpoint"). A parse stage
+   that grew while `emudoc_parses{state="waiting"}` stays above zero is the indexers queuing
+   for the `PARSE_CONCURRENCY` parses (each run's `parse` span says how long it `waited`):
+   raise it if the worker's memory has room for as many more children, or add a worker.
 
 ### A model provider is down
 
@@ -3234,8 +3269,8 @@ the roots' `settings` the others ("The settings").
 | `DATABASE_URL` | none: every process stops without it | required | The database, with `sslmode=verify-full` off the own network ("The database", "Encryption") |
 | `DATABASE_POOLER` | none | | `transaction` behind a pooler in transaction mode ("A pooler") |
 | `DATABASE_LISTEN_URL` | none | needed behind such a pooler | Where the worker listens for queued jobs |
-| `DB_POOL_SIZE` | `5` | | Connections each process keeps open |
-| `DB_MAX_OVERFLOW` | `10` | | Connections beyond them while those are in use |
+| `DB_POOL_SIZE` | `10` | | Connections each process keeps open |
+| `DB_MAX_OVERFLOW` | `20` | | Connections beyond them while those are in use |
 | `DB_POOL_TIMEOUT` | `5` | | Seconds a request waits for a connection before its 503 |
 | `SSL_CERT_FILE`, `SSL_CERT_DIR` | Debian's bundle in the image | needed for `sslrootcert=system` outside the image | Where OpenSSL finds the authorities ("Encryption") |
 | `PGSSLROOTCERT` | none | | libpq's default for `sslrootcert` |
@@ -3308,8 +3343,9 @@ and the like), named on its models' pages.
 
 | Variable | Default | In production | What |
 | --- | --- | --- | --- |
-| `WORKER_CONCURRENCY` | `2` | | Documents a worker indexes at once |
+| `WORKER_CONCURRENCY` | `16` | | Documents a worker indexes at once |
 | `ANSWER_CONCURRENCY` | `8` | | Questions a worker answers at once |
+| `PARSE_CONCURRENCY` | `2` | | Files a worker parses at once, each in a child process ("Large documents") |
 | `MAX_ANSWERS` | `20` | | Answers one organisation may have in flight |
 | `MAX_QUESTION_CHARS` | `20000` | | The longest question |
 | `RATE_UPLOADS` | `20` | | Upload requests a minute, per member ("Rates") |

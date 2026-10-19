@@ -1,8 +1,11 @@
 import datetime as dt
 import json
+import threading
+import time
 
 import pytest
 from PIL import Image
+from prometheus_client import REGISTRY
 from sqlalchemy import select
 
 from app.config import get_settings
@@ -529,6 +532,43 @@ def test_passages_are_embedded_and_written_a_chunk_at_a_time(
         expected = services.embedder._vector(f"{passage.context}\n\n{passage.text}")
         assert passage.embedding_model == "fake-embedder"
         assert list(passage.embedding) == pytest.approx(expected, abs=1e-6)
+
+
+def test_the_indexers_run_no_more_parses_at_once_than_parse_concurrency(monkeypatch):
+    # An indexer waiting on a model costs a thread, and a parse up to PARSE_MEMORY_MB, so a
+    # worker runs more indexers than parses: those past PARSE_CONCURRENCY wait for a parse to
+    # end, and the metrics show them waiting.
+    monkeypatch.setattr(get_settings(), "parse_concurrency", 2)
+    slots = pipeline.ParseSlots()
+    lock, inside, most = threading.Lock(), [0], [0]
+    parsed = threading.Event()
+
+    def parse() -> None:
+        with slots.held():
+            with lock:
+                inside[0] += 1
+                most[0] = max(most[0], inside[0])
+            parsed.wait(10)
+            with lock:
+                inside[0] -= 1
+
+    def parses() -> tuple[float | None, ...]:
+        return tuple(
+            REGISTRY.get_sample_value("emudoc_parses", {"state": state})
+            for state in ("running", "waiting")
+        )
+
+    indexers = [threading.Thread(target=parse) for _ in range(5)]
+    for indexer in indexers:
+        indexer.start()
+    deadline = time.monotonic() + 5
+    while parses() != (2, 3) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert parses() == (2, 3)
+    parsed.set()
+    for indexer in indexers:
+        indexer.join(10)
+    assert most[0] == 2 and parses() == (0, 0)
 
 
 def test_a_file_over_a_parse_limit_fails_and_is_not_retried(

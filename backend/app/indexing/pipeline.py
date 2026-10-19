@@ -3,9 +3,11 @@
 import io
 import logging
 import re
+import threading
 import time
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,7 +34,7 @@ from app.indexing.enrich import (
 from app.indexing.structure import SectionHint, build_outline
 from app.jobs import LIVE, RENDER_PAGES, Lease, LeaseLost, enqueue, renew
 from app.llm import LLM, LLMError
-from app.metrics import DOCUMENT_READY, INDEX_RUNS, STAGE_RUNS, STAGE_SECONDS
+from app.metrics import DOCUMENT_READY, INDEX_RUNS, PARSES, STAGE_RUNS, STAGE_SECONDS
 from app.models import STAGES, Block, Document, Fact, Passage, Section
 from app.parsing import IMAGE_TYPES, FileTooLarge, ParsedBlock, UnsupportedFile
 from app.parsing.images import open_image
@@ -42,7 +44,7 @@ from app.rendering import FOR_OCR, RenderError, renderer
 from app.scanning import NOT_SCANNED, UNSCANNED, Scanner, quarantine_message
 from app.spending import check_platform_spend, check_spend, day_of
 from app.storage import Storage
-from app.tracing import STAGE, note
+from app.tracing import PARSE, STAGE, note
 from app.usage import DOCUMENT, EMBED, ENRICH, INFER_SECTIONS, OCR, UPLOAD, Meter
 
 log = logging.getLogger(__name__)
@@ -67,6 +69,54 @@ STAGE_CRASHED = (
     'Emudoc ran into an error of its own at this stage, which it recorded. Use "Index again" '
     "to try once more."
 )
+
+
+class ParseSlots:
+    """The parses a process runs at once, PARSE_CONCURRENCY, read at each parse.
+
+    A parse is a child process that may hold PARSE_MEMORY_MB, and the indexers that start them
+    (WORKER_CONCURRENCY) spend most of a document waiting on a model, which costs no memory:
+    so the worker's memory bounds its parses, not its indexers, and an indexer whose turn has
+    not come waits here. Meanwhile it holds the copy of the original it will parse, but no
+    database connection, since the stage has read nothing yet; and no parse waits on a model,
+    since the slot is let go when the child ends, before any scan is read.
+    """
+
+    def __init__(self) -> None:
+        self._changed = threading.Condition()
+        self._running = 0
+        self._waiting = 0
+
+    @contextmanager
+    def held(self) -> Iterator[None]:
+        """Hold one of the parses for the block, once one is free, and note the block as a
+        span of the run being timed, with the seconds it waited for its turn."""
+        began = time.monotonic()
+        with self._changed:
+            self._waiting += 1
+            self._show()
+            self._changed.wait_for(lambda: self._running < get_settings().parse_concurrency)
+            self._waiting -= 1
+            self._running += 1
+            self._show()
+        waited = time.monotonic() - began
+        outcome = "failed"
+        try:
+            yield
+            outcome = "ok"
+        finally:
+            with self._changed:
+                self._running -= 1
+                self._show()
+                self._changed.notify()
+            note(PARSE, began, waited=round(waited, 3), outcome=outcome)
+
+    def _show(self) -> None:
+        PARSES.labels("running").set(self._running)
+        PARSES.labels("waiting").set(self._waiting)
+
+
+PARSING = ParseSlots()
 
 
 @dataclass
@@ -449,7 +499,9 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
     # The parsers and the page renderer open files by path, so a remote original is copied to
     # this machine for the stage; the local storage hands out the file itself.
     with services.storage.localize(document.storage_key) as path:
-        parsed = parse_within_limits(path, document.filename, _parse_limits(), document.id)
+        parsed = parse_within_limits(
+            path, document.filename, _parse_limits(), document.id, slot=PARSING.held
+        )
         # The pages are a measure of the upload, counted when the first parse learns how many
         # there are; a parse run again for "Index again" brings nothing new in. The plan's
         # month is checked before a scan is read, since reading it costs model calls.

@@ -11,11 +11,11 @@ There are two kinds of figure:
 - What a process did, counted as it does it: the requests it answered (`HttpMetrics`, by the
   route's pattern), its database connections (`Pool`), the requests it sent to the models and
   the embeddings endpoint (`model_request`: how each ended, how long it took, how soon an
-  answer's first event came, the tokens, the fallbacks), the stages and jobs a worker ran and
-  its threads (`Lanes`), how long the members waited for an answer to begin and an upload to be
-  ready (the service levels' measures), the uploads it stored or refused, the requests a rate
-  refused, and the process's own CPU and memory (the library's). Each replica counts its own,
-  and the scraper adds them up.
+  answer's first event came, the tokens, the fallbacks), the stages and jobs a worker ran, its
+  threads (`Lanes`) and its parses, how long the members waited for an answer to begin and an
+  upload to be ready (the service levels' measures), the uploads it stored or refused, the
+  requests a rate refused, and the process's own CPU and memory (the library's). Each replica
+  counts its own, and the scraper adds them up.
 - What the database holds, the same whichever process reads it (`Holdings`): the documents by
   status, the queue by kind, the answers being written, the organisations and the bytes they
   keep by plan, and the day's spend; and how the server itself keeps up (app/postgres.py): the
@@ -49,7 +49,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from wsgiref.simple_server import WSGIServer
 
-from prometheus_client import REGISTRY, Counter, Histogram, start_http_server
+from prometheus_client import REGISTRY, Counter, Gauge, Histogram, start_http_server
 from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily, Metric
 from prometheus_client.registry import Collector
 from sqlalchemy import Engine, text
@@ -102,6 +102,7 @@ STAGE_OUTCOMES = (
     "lease_lost",
 )
 INDEX_OUTCOMES = ("ready", "failed", "quarantined")
+PARSE_STATES = ("running", "waiting")
 JOB_OUTCOMES = ("done", "failed", "crashed", "abandoned", "lost", "unsettled")
 UPLOAD_REFUSALS = (
     "too_many",
@@ -250,6 +251,13 @@ RENDER_SECONDS = Histogram(
     ["purpose"],
     buckets=(0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60),
 )
+# Set by app/indexing/pipeline.py (`ParseSlots`) as its parses start and end.
+PARSES = Gauge(
+    "emudoc_parses",
+    "The worker's parses by state: running, each in a child process of its own, and waiting "
+    "for one of the PARSE_CONCURRENCY running to end.",
+    ["state"],
+)
 
 
 def _start_at_zero() -> None:
@@ -267,6 +275,8 @@ def _start_at_zero() -> None:
             JOB_RUNS.labels(kind, outcome)
     for reason in UPLOAD_REFUSALS:
         UPLOAD_REJECTIONS.labels(reason)
+    for state in PARSE_STATES:
+        PARSES.labels(state)
 
 
 _start_at_zero()

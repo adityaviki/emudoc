@@ -35,10 +35,11 @@ BUCKET = {
 # The defaults the figures are of, named so that .env moves none of them; `--set` changes one
 # for a run, and the report lists what was changed.
 SIZING = {
-    "WORKER_CONCURRENCY": "2",
+    "WORKER_CONCURRENCY": "16",
     "ANSWER_CONCURRENCY": "8",
-    "DB_POOL_SIZE": "5",
-    "DB_MAX_OVERFLOW": "10",
+    "PARSE_CONCURRENCY": "2",
+    "DB_POOL_SIZE": "10",
+    "DB_MAX_OVERFLOW": "20",
     "DB_POOL_TIMEOUT": "5",
     "RENDER_PROCESSES": "2",
     "PRERENDER_PAGES": "3",

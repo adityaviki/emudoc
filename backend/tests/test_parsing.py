@@ -1,6 +1,7 @@
 import signal
 import subprocess
 import zipfile
+from contextlib import contextmanager
 
 import pytest
 from pdfplumber.utils.exceptions import PdfminerException
@@ -160,6 +161,38 @@ def test_a_parse_that_runs_too_long_is_killed(sample_pdf, monkeypatch):
     # Killed and reaped: nothing is left running or waiting to be waited for.
     [child] = children
     assert child.returncode == -signal.SIGKILL
+
+
+def test_the_callers_slot_is_held_from_the_childs_start_to_its_end(
+    sample_pdf, tmp_path, monkeypatch
+):
+    # The caller bounds how many children run at once (PARSE_CONCURRENCY in the pipeline), so
+    # its slot is held while one runs, one killed at the time limit too, and not for a file
+    # that starts none.
+    children, held = [], []
+    start = subprocess.Popen
+
+    def watched(*args, **kwargs):
+        assert held[-1] == "entered"
+        children.append(child := start(*args, **kwargs))
+        return child
+
+    @contextmanager
+    def slot():
+        held.append("entered")
+        try:
+            yield
+        finally:
+            assert children[-1].returncode is not None
+            held.append("left")
+
+    monkeypatch.setattr(limits.subprocess, "Popen", watched)
+    assert parse_within_limits(sample_pdf, "msa.pdf", ParseLimits(), slot=slot).page_count == 2
+    with pytest.raises(ParseError, match="did not finish"):
+        parse_within_limits(sample_pdf, "msa.pdf", ParseLimits(timeout=0.01), slot=slot)
+    assert held == ["entered", "left"] * 2 and len(children) == 2
+    assert parse_within_limits(tmp_path / "scan.png", "scan.png", ParseLimits(), slot=slot)
+    assert len(held) == 4
 
 
 def test_a_parse_that_needs_too_much_memory_is_stopped(sample_pdf):
