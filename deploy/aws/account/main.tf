@@ -2,9 +2,9 @@
 # state is kept in, the key OpenTofu encrypts that state with, the image repository the
 # environments pull from, the way GitHub's workflows on main sign in to push to it, which
 # nothing else may (deploying.md, "Releases from CI"), and the account's own record of every
-# call to AWS (trail.tf, deploying.md "The account's records"). Its own state holds no secret
-# and stays in this directory (terraform.tfstate, kept out of git), or moves into the bucket
-# with `tofu init -migrate-state` once the bucket exists.
+# call to AWS with alarms on it (trail.tf, alarms.tf; deploying.md "The account's records").
+# Its own state holds no secret and stays in this directory (terraform.tfstate, kept out of
+# git), or moves into the bucket with `tofu init -migrate-state` once the bucket exists.
 #
 #   tofu -chdir=deploy/aws/account init
 #   tofu -chdir=deploy/aws/account apply

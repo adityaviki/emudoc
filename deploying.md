@@ -1967,12 +1967,14 @@ The directories:
   SMTP key), the image repository, `emudoc` in ECR, whose tags are immutable and scanned as
   they are pushed, and GitHub's sign-in with the role CI pushes with, the one role the
   repository takes images from ("Releases from CI"), and the account's trail, CloudTrail in
-  every region into a bucket of its own ("The account's records"). Its own state holds no
+  every region into a bucket of its own, with alarms on its events ("The account's records").
+  Its own state holds no
   secret and stays where it is applied; its tests are `tofu test` there.
 - `modules/environment/`, an environment, with its tests (`tofu test` there, against a mocked
   AWS: what each resource is made with, and the inputs it refuses).
 - `shared/`, the settings both environments take: the operator, the models and their prices,
-  `BACKUP_DAYS` and `DATA_REGION`, and the GitHub repository CI runs in. Staging names the
+  `BACKUP_DAYS` and `DATA_REGION`, and the GitHub repository CI runs in, which the account root
+  reads with the address its alarms go to. Staging names the
   models production does, which is what pinning them is for.
 - `staging/` and `production/`, the two roots. They differ in the domain, the sizes (a
   `t3a.large` and a `db.t4g.small` without a standby against a `t3a.xlarge` and a
@@ -2055,7 +2057,8 @@ Three records of what reaches the deployment, beside the app's own log ("Logs"):
   management events costs nothing, and the state bucket's data events are a handful per `tofu
   plan`. The console's event history shows the last 90 days of management events without the
   files; Athena queries the files. The trail holds what the operators, CI and the instances
-  did, and nothing of a member's, whose requests reach no API it records.
+  did, and nothing of a member's, whose requests reach no API it records. It goes to CloudWatch
+  Logs as well, for the alarms on it (below).
 - **The access logs and the flow logs** (`modules/environment/logs.tf`), in each environment's
   logs bucket (`emudoc-<environment>-logs-<account>`, the `logs` output): S3's server access
   logs of the documents bucket under `access/`, grouped by the day of the request, a line per
@@ -2082,6 +2085,34 @@ Without AWS, `ACCESS_LOG_DAYS` is how long the host's own records of connections
 firewall's log, a provider's flow logs, a bucket's access logs), and unset, the privacy policy
 names none.
 
+The account root watches its trail (`account/alarms.tf`), after the monitoring section of CIS's
+AWS Foundations Benchmark: CloudTrail sends every event to the log group `emudoc-trail` too
+(kept `trail_log_days`, 30, and encrypted with the trail's key, which CloudWatch Logs may use
+for that group alone), with a role that may write the account's streams there and nothing
+else, and a metric filter per kind of event counts it into an alarm that publishes to the
+account's own topic, `emudoc-account-alarms` (the `alarms` output; under a key of its own that
+CloudWatch may use; `shared/`'s `account_alert_email` subscribes an address):
+
+| Alarm (`emudoc-account-…`) | Sets off at |
+| --- | --- |
+| `root` | Any call of the root user's |
+| `console-without-mfa` | An IAM user's sign-in to the console without a second factor |
+| `console-failures` | 3 failed sign-ins to the console in 5 minutes |
+| `refused` | 10 calls AWS refused for want of permission in 5 minutes |
+| `iam` | A change to a policy, a role's trust, a user, a login profile or an access key |
+| `trail` | A trail made, changed, stopped or deleted |
+| `keys` | A key turned off, set to be deleted, or given another policy |
+| `buckets` | A bucket's policy, ACL, public access, CORS, versioning, encryption, lifecycle or replication changed |
+| `security-groups`, `network` | A security group, network ACL, gateway, route, VPC or peering made, changed or deleted |
+
+Each counts events, not a state, so it says nothing when it is over. A change the operators made
+themselves sets off its alarm too, which is the point: a `tofu apply` that changes a policy is
+followed by an `iam` message within minutes, and one nobody applied is the one to look into.
+The message names the kind of event; who made it, from where and what it was are in the
+console's event history, or in CloudWatch Logs Insights over `emudoc-trail` with the alarm's
+metric filter as the query. CloudWatch Logs charges for what it takes in, a few cents a month
+for an account of this size, and each alarm ten cents.
+
 ### The settings
 
 The app's settings are SSM parameters under `/emudoc/<environment>/`: what the module knows from
@@ -2105,8 +2136,9 @@ release (the same tag again does).
 
 ### Setting it up
 
-1. Once per account: `tofu -chdir=deploy/aws/account init`, then `apply`, with credentials of
-   the account's administrator. Keeping staging and production in accounts of their own isolates
+1. Once per account: fill in `shared/main.tf`'s `account_alert_email`, then
+   `tofu -chdir=deploy/aws/account init` and `apply`, with credentials of the account's
+   administrator, and confirm the subscription. Keeping staging and production in accounts of their own isolates
    them further; the module is the same, and the account root runs in each, but CI pushes to
    one repository and the second account's instance would need leave to pull from it, which
    the module does not give.
@@ -2240,9 +2272,7 @@ tag and delete only copies called `emudoc-drill-…` that carry `purpose=restore
 - The metrics' history: Prometheus keeps 15 days on the instance's disk, for the rules and a
   look on the day, and loses them with a replaced instance; dashboards over months need a
   Prometheus elsewhere (Amazon Managed Service for Prometheus takes `remote_write`).
-- A CDN or firewall in front, IPv6, the bucket's replication to a second region, and alarms on
-  the trail's events (the root user signing in, a change to IAM), which would send it to
-  CloudWatch Logs as well.
+- A CDN or firewall in front, IPv6, and the bucket's replication to a second region.
 
 It was checked without an AWS account: the module and the account root by `tofu test` against
 a mocked provider and by `validate`, the instance's part on Docker 25 (Amazon Linux's) with
@@ -2382,3 +2412,8 @@ repository's policy among them.
     emudoc-compose stop alertmanager`) brings the watch's message and CloudWatch's alarm, and
     its start the alarm's OK; `sudo emudoc-compose stop api` brings "Emudoc staging:
     EmudocNoApi" after five minutes, and no `EmudocProcessDown`.
+21. On AWS, CloudWatch lists the account's ten `emudoc-account-…` alarms, none in alarm, and the
+    log group `emudoc-trail` receives the trail's events. Making and deleting a security group
+    no one needs (`aws ec2 create-security-group --group-name emudoc-alarm-check --description
+    'An alarm check'`, then `aws ec2 delete-security-group --group-name emudoc-alarm-check`)
+    brings `emudoc-account-security-groups` to `account_alert_email` within minutes.

@@ -65,14 +65,6 @@ misconfigurations:
       validate-logs` through the digest files that chain them; versions would not keep one
       from an administrator, who may delete those too.
 
-  - id: AWS-0162
-    paths: [deploy/aws/account/trail.tf]
-    statement: >-
-      The trail is kept, signed, in its bucket and read there (Athena, or the console's event
-      history of the last 90 days). Sending it to CloudWatch Logs as well, at a cost per GB, is
-      for alarms on its events (the root user signing in, a change to IAM), which come with
-      1.7's scraper and alarms on AWS.
-
   - id: AWS-0078
     paths: [deploy/aws/modules/environment/database.tf]
     statement: >-

@@ -42,6 +42,12 @@ Operators:
   Manager. Apply both environments before releasing this commit: it replaces their instances,
   and a release on an instance from before stops and says so (deploying.md, "Alerts", "On
   AWS").
+- On AWS the account root sends the trail to CloudWatch Logs as well, and alarms on what
+  should not happen unannounced, after CIS's benchmark: the root user at work, a console
+  sign-in without a second factor, bursts of failed sign-ins and refused calls, and changes to
+  IAM, the trail, keys, buckets' policies, security groups and the network. They go to a topic
+  of the account's own, which `shared/`'s new `account_alert_email` subscribes. Fill it in and
+  apply the account root (deploying.md, "The account's records").
 - A new alerting rule, `EmudocWatchdog`, always fires, for a dead man's switch, and
   `EmudocNoApi` and `EmudocNoWorker` carry the `process` they miss, so that an Alertmanager can
   hold back `EmudocProcessDown` meanwhile (deploying.md, "Rules on the metrics").

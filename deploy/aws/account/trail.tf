@@ -6,7 +6,8 @@
 # worth knowing about. The documents buckets' requests are each environment's access logs
 # instead (modules/environment/logs.tf), since a data event costs per request and every page a
 # member opens is one. What the trail holds is the operators', CI's and the hosts' doing: no
-# member's request reaches an API it records.
+# member's request reaches an API it records. CloudWatch Logs takes a copy for the alarms on its
+# events (alarms.tf).
 
 variable "trail_days" {
   description = "How many days the trail's files are kept."
@@ -30,7 +31,8 @@ locals {
   trail_arn = "arn:${local.partition}:cloudtrail:${var.region}:${local.account}:trail/${local.trail_name}"
 
   # The account's administrators decide who reads the trail through IAM, as for every other
-  # key; CloudTrail may only encrypt with it, and only for this trail.
+  # key; CloudTrail may only encrypt with it, and only for this trail, and CloudWatch Logs only
+  # for the trail's log group.
   trail_key_policy = {
     Version = "2012-10-17"
     Statement = [
@@ -59,6 +61,14 @@ locals {
         Action    = "kms:DescribeKey"
         Resource  = "*"
         Condition = { StringEquals = { "aws:SourceArn" = local.trail_arn } }
+      },
+      {
+        Sid       = "TheLogGroupEncrypts"
+        Effect    = "Allow"
+        Principal = { Service = "logs.${var.region}.amazonaws.com" }
+        Action    = ["kms:Encrypt*", "kms:Decrypt*", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:Describe*"]
+        Resource  = "*"
+        Condition = { ArnEquals = { "kms:EncryptionContext:aws:logs:arn" = local.trail_log_group_arn } }
       },
     ]
   }
@@ -174,6 +184,8 @@ resource "aws_cloudtrail" "account" {
   is_multi_region_trail         = true
   include_global_service_events = true
   enable_log_file_validation    = true
+  cloud_watch_logs_group_arn    = "${aws_cloudwatch_log_group.trail.arn}:*"
+  cloud_watch_logs_role_arn     = aws_iam_role.trail_logs.arn
 
   advanced_event_selector {
     name = "Every call to the APIs"
@@ -203,8 +215,8 @@ resource "aws_cloudtrail" "account" {
     }
   }
 
-  # CloudTrail checks at once that it may write to the bucket.
-  depends_on = [aws_s3_bucket_policy.trail]
+  # CloudTrail checks at once that it may write to the bucket and the log group.
+  depends_on = [aws_s3_bucket_policy.trail, aws_iam_role_policy.trail_logs]
 }
 
 output "trail_bucket" {

@@ -1,7 +1,7 @@
 # The settings staging and production share, so that staging runs what production will: the
 # operator's word, the models and their prices, the backups' window, how long the access logs
 # are kept and the region, and the repository whose CI releases them, which the account root
-# reads as well. Each root adds what is its own (its spending cap, its alert address) with
+# reads as well, with the address its alarms go to. Each root adds what is its own (its spending cap, its alert address) with
 # merge(); keys and secrets go into each environment's secrets path by hand, never here
 # (deploying.md, "On AWS"). An empty value is no setting; the plan refuses OPERATOR_NAME,
 # OPERATOR_EMAIL, AGENT_MODEL and INDEX_MODEL empty.
@@ -45,4 +45,9 @@ output "data_region" {
 output "github_repository" {
   description = "The GitHub repository, as owner/name, whose workflows on main push the images and release them (deploying.md, \"Releases from CI\"); empty for no role that trusts GitHub."
   value       = "emudocai/emudoc"
+}
+
+output "account_alert_email" {
+  description = "Where the account root's alarms on its trail go (deploying.md, \"The account's records\"), as an SNS subscription the address must confirm; empty sends them to the topic alone. Each environment's alerts go to its root's alert_email."
+  value       = ""
 }
