@@ -11,6 +11,8 @@ its day, in the same commit.
 
 Members:
 
+- When many members read answers at once, the answers no longer all wait five seconds before
+  they begin, and an answer's text no longer stops and picks up again.
 - A PDF's first pages show at once when you open it, and the pages you scroll to, or a
   citation opens, are drawn several at a time, so one long scan no longer holds up everybody's
   pages.
@@ -29,6 +31,18 @@ Members:
 
 Operators:
 
+- `python -m loadtest` in `backend/` is the load test: the API and a worker in production's
+  shape on one machine, against a stand-in model, with a member who uploads 3,000 documents,
+  searches them, asks 20 questions at once and uploads a 300-page scan and 50 MB workbooks. It
+  prints what the member waited at the 50th and 95th percentiles; deploying.md's new "Load"
+  has the figures of 2026-10-19 and what they mean for `WORKER_CONCURRENCY`,
+  `ANSWER_CONCURRENCY`, long scans, large workbooks and pages drawn from a bucket. CI runs it
+  at a size that takes a minute.
+- An answer's event stream, and a page waiting to be drawn, give their request's database
+  connection back before they wait. Each stream held one for the answer's length and needed a
+  second for each look at the answer, so 20 members following answers took the API's 15: every
+  answer waited `DB_POOL_TIMEOUT` and some streams ended with "Following answer … stopped:
+  every database connection is in use".
 - PDF pages are drawn in child processes the API and the worker keep for it,
   `RENDER_PROCESSES` (2) at a time each, where one lock let a process draw a single page at a
   time; each page within `RENDER_TIMEOUT` (30 s), `RENDER_MEMORY_MB` (1024) and 2,576 pixels on

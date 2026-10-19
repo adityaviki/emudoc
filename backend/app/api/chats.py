@@ -187,10 +187,18 @@ def events(chat: ChatDep, message_id: int, request: Request, session: SessionDep
     """Follow an answer as server-sent events, from the start or from the `Last-Event-ID` the
     client saw last. The stream ends with an `end` event once the answer is finished, stopped
     or failed, and without one when the connection drops, which the client takes as a cue to
-    follow again."""
-    message = _message_in(chat, message_id, session)
+    follow again.
+
+    The stream looks at the table with a session of its own each time, so the request's gives
+    its connection back before the stream begins, not when it ends: an answer is followed for
+    as long as it is written, and twenty members following answers would otherwise hold twenty
+    connections and wait for more at each look (the load test, deploying.md "Load"). It has
+    only read, so the commit writes nothing.
+    """
+    followed = _message_in(chat, message_id, session).id
+    session.commit()
     return StreamingResponse(
-        _follow(message.id, _last_seen(request), request.app.state.stop),
+        _follow(followed, _last_seen(request), request.app.state.stop),
         media_type="text/event-stream",
         headers=SSE_HEADERS,
     )

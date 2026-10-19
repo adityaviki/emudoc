@@ -622,7 +622,8 @@ once; the others are drawn the first time a member looks at them. Each page draw
 organisation's with no member when it was drawn ahead. A page that cannot be drawn ahead is
 left for the pane, and the job ends done rather than failed. From a bucket, a page drawn for the
 pane copies the original to the temporary directory first, so the first look at a page of a
-large PDF costs its download; the pages drawn ahead share one.
+large PDF costs its download (2 s a page of a 62 MB scan, "Load"); the pages drawn ahead share
+one.
 
 ## The models
 
@@ -2233,6 +2234,128 @@ hour is no burn:
 
 A budget spent before its 30 days are over is the sign to put the work that makes the app
 answer, begin or index sooner ahead of the next feature, until the figures are back within it.
+
+## Load
+
+What one machine carries, as the load test measures it: `python -m loadtest` in `backend/`
+(`backend/loadtest/`). It starts the app in production's shape, the API as the image's command
+and the worker as a process of its own, each serving its metrics, against a database of its own
+on the compose server (`emudoc_load`, made afresh) and a stand-in for the models and the
+embeddings endpoint (`frontend/e2e/standin.py --fill`, which answers an indexing request with
+what the request holds: a scanned page's text made up from its picture, a document's title,
+kind, summary, section summaries and the facts its "Name: value" lines state), so that a run
+costs nothing and its figures are the app's own time. Then one member, on the `enterprise`
+plan and with the rates a minute lifted (one member asks for what twenty would):
+
+1. **library**: uploads 3,000 documents of the sample set's kinds (invoices, delivery notes,
+   contracts, price lists, emails and supplier reviews, as Markdown, PDF and Word), 50 a
+   request and two requests at once, and searches the project twice a second while it is
+   indexed;
+2. **search**: searches it 300 times one at a time and 300 times eight at a time, and asks
+   for facts, and runs the agent's `list_documents`, by a word and by a piece of one, which
+   only `ilike` finds;
+3. **chats**: asks 20 questions at once in 20 chats, five times, following each answer as the
+   page does, first with the stand-in answering at once, then at a hosted model's pace
+   (`--first-token`, 1 s before each turn, and `--words-per-second`, 40);
+4. **paced**: uploads 200 of the documents into a project of their own with each indexing
+   request taking `--index-seconds` (3);
+5. **large**: uploads a 300-page scan (62 MB) and asks the 20 questions while it is read, a
+   50 MB workbook of seven sheets of 90,000 order rows, and the same orders in one sheet, then
+   opens each page of the scan, four at a time as a member scrolls, twice.
+
+It prints a table of what the member waited, at the 50th and 95th percentiles and the longest,
+and notes of what the app did meanwhile: documents indexed a minute, each stage's average, the
+indexing requests, and the most memory the API's and the worker's processes held with their
+children; `--out` keeps the figures as JSON. A run takes about 35 minutes and needs the compose
+database, and the compose bucket with `--storage s3` (`docker compose --profile s3 up -d
+--wait`); the large files are made once and kept in its directory (`--dir`, by default
+`$TMPDIR/emudoc-load`). Every setting a figure depends on is set in
+`backend/loadtest/deployment.py`, so `.env` changes none, and `--set NAME=VALUE` runs it with
+one changed, `--set ANSWER_CONCURRENCY=20` say; `--phases` picks some. It exits 1 when its own
+work went wrong (a library document not ready, an answer not done), since such figures are not
+of that work. CI runs it at a size that takes a minute, for the harness's sake: a runner's
+figures mean nothing.
+
+### The figures
+
+On 2026-10-19, on one machine (16 × AMD Ryzen 7 7435HS, 23 GB) with the compose Postgres 17
+beside the app and the files in a directory, at the defaults (`WORKER_CONCURRENCY` 2,
+`ANSWER_CONCURRENCY` 8, `DB_POOL_SIZE` 5 and `DB_MAX_OVERFLOW` 10, `RENDER_PROCESSES` 2) with
+`OCR_MAX_PAGES` raised to the scan's 300 pages:
+
+| What the member waited | n | p50 | p95 |
+| --- | --- | --- | --- |
+| An upload of 50 files | 60 | 1.33 s | 1.66 s |
+| A search in the 3,000 documents (9,300 passages), one at a time | 300 | 69 ms | 77 ms |
+| The same, eight at a time | 300 | 76 ms | 93 ms |
+| The same, while the 3,000 were indexed | 681 | 33 ms | 48 ms |
+| Facts by a word, or by a piece of one (15,210 facts) | 100 | 39 ms | 44 ms |
+| The agent's `list_documents` by a word, or by a piece of one | 100 | 22 ms | 27 ms |
+| A question asked, 20 at once | 100 | 174 ms | 295 ms |
+| The question to the answer's first event, the step "Searching…", 20 at once | 100 | 519 ms | 858 ms |
+| The question to its first words, 20 at once, the model at once | 100 | 650 ms | 951 ms |
+| The same, at the hosted model's pace | 100 | 4.46 s | 6.66 s |
+| The same, with `ANSWER_CONCURRENCY` 20 | 100 | 2.76 s | 2.90 s |
+| An upload of 3,000 documents to each one ready, the model at once | 3,000 | 195 s | 355 s |
+| 200 documents to each one ready, at 3 s an indexing request | 200 | 163 s | 309 s |
+| The same, with `WORKER_CONCURRENCY` 8 | 200 | 43 s | 77 s |
+| A page of the scan drawn, four asked at once | 300 | 600 ms | 632 ms |
+| The same, from a bucket (the compose bucket, on the loopback address) | 300 | 2.06 s | 2.11 s |
+| A page of the scan kept from before | 300 | 25 ms | 29 ms |
+
+The rows with `ANSWER_CONCURRENCY` 20 and `WORKER_CONCURRENCY` 8 are one run with both, and
+with `DB_POOL_SIZE` 22, the pool the worker then needs; the bucket's row is a run of the large
+phase with `--storage s3`.
+
+The large files, one at a time, with the model at once:
+
+- **The 300-page scan** was ready 103 s after its upload, 98 s of them in the parse: its pages
+  drawn one after another for the model (89 s) and read (320 requests, 9 s). The 20 questions
+  asked meanwhile began as soon as without it.
+- **The 50 MB workbook in seven sheets** was ready after 604 s: the parse 98 s, the structure
+  48 s, the summaries and facts 193 s in 3,126 requests (one for each 40,000 characters of
+  rows), the embeddings 264 s (about 52,000 passages in 1,620 requests, which took 26 s; the
+  rest is the database writing each vector into its index). The worker's processes held
+  2.6 GB.
+- **The same orders in one sheet** were refused by `PARSE_MAX_ROWS` after 31 s, the worker's
+  processes at 1.55 GB.
+
+The API's processes held 220 to 240 MB throughout, the worker's about 400 MB while the library
+was indexed.
+
+### What the figures mean
+
+- **Answers** run in a worker's `ANSWER_CONCURRENCY` threads (8), one an answer from its
+  question to its end, and at a hosted model's pace an answer takes about 2.5 s of a thread:
+  the 20 questions were answered in three rounds, and the last began about 4 s after the first.
+  Twenty threads answered all 20 at once. A worker whose `emudoc_worker_busy{lane="answerer"}`
+  stands at `ANSWER_CONCURRENCY` wants more threads or another worker; a thread costs little,
+  as it waits on the model, but the pool must grow with it (the worker refuses fewer than
+  `WORKER_CONCURRENCY` + `ANSWER_CONCURRENCY` + 4 connections). The API follows each answer
+  by looking at the table every 0.1 s, a connection for each look: 20 members reading answers
+  are 200 short queries a second, and the API's 15 connections carried them.
+- **Uploads** are indexed by a worker's `WORKER_CONCURRENCY` threads (2). A small document
+  takes an indexer about 0.27 s of the app's own time, so two index about 440 a minute, and
+  each request to a model adds the model's time: at 3 s a request two index 37 a minute, so an
+  upload of about 370 documents is the most that is ready within the 10 minutes of the objective
+  ("Service levels"), and one of 3,000 takes 80 minutes. Eight indexers did 142 a minute. An
+  indexer waiting on a model costs little, but each may run a parse of up to `PARSE_MEMORY_MB`
+  (2 GB) at once, so the worker's memory bounds how many; size it for both before raising it.
+- **A long scan** is read one page after another, each drawn (0.3 s) and then sent to the
+  model, so at a hosted model's 3 s a page a 300-page scan takes about 17 minutes by itself,
+  past the objective whatever else waits. `OCR_MAX_PAGES` (100) holds one to about 6 minutes.
+- **A large workbook** within `PARSE_MAX_ROWS` a sheet is thousands of model requests and hours
+  of an indexer at a hosted model's pace, and the day's spending limits are checked before its
+  stage, not between those requests. Until the app bounds it, a deployment whose members
+  upload such exports lowers `PARSE_MAX_ROWS` and gives the worker the memory: 2.6 GB for this
+  one.
+- **Pages** are drawn two at a time by each API, about 0.3 s each for a page of this scan, so
+  four asked at once wait about 0.6 s; from a bucket each page copies the whole original
+  first, here 62 MB, which made it 2 s, and a member scrolling through the scan fetched 300
+  copies. A page kept from before comes from the storage in 25 ms.
+- **Search** is quick at this size: the full-text and vector search under 100 ms eight at a
+  time, and `ilike` over 3,000 documents' titles, file names and summaries and 15,210 facts
+  under 50 ms.
 
 ## On call
 

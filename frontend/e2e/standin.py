@@ -14,15 +14,24 @@ the passages. It answers as a model would that does the least the app asks:
 - an embedding is the text's words hashed into EMBEDDING_DIM dimensions, so a passage and a
   question that share words are near each other.
 
+The load test (backend/loadtest) asks for more, with options the end-to-end test leaves off:
+`--fill` answers an indexing request as a model that read it would (a scanned page gets text
+made up from its picture, a document its title, kind, date, summary, section summaries and the
+facts its "Name: value" lines state), so that the indexes it searches are as full as a real
+model's; `--first-token` and `--words-per-second` make an agent turn take a hosted model's time,
+and `--index-seconds` an indexing request.
+
 Standard library only, so any Python 3 runs it:
 
-    python3 e2e/standin.py --port 18001 [--dim 768]
+    python3 e2e/standin.py --port 18001 [--dim 768] [--fill] [--first-token 1]
+        [--words-per-second 40] [--index-seconds 0]
 """
 
 import argparse
 import hashlib
 import json
 import math
+import random
 import re
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -31,6 +40,26 @@ from typing import Any
 WORD = re.compile(r"\w+")
 CITED = re.compile(r"^(\[P\d+\]) .*\n(.+)", re.MULTILINE)
 SENTENCE = re.compile(r"(.+?[.!?])(\s|$)")
+
+# What --fill reads in an indexing request (app/indexing/enrich.py writes them): a section's
+# marker, a block's line, and a block that states a field.
+MARKER = re.compile(r"^## \[S(\d+)\].*$", re.MULTILINE)
+BLOCK_LINE = re.compile(r"^\[B(\d+)\](?: \(p\.\d+\))? (.+)$", re.MULTILINE)
+FIELD = re.compile(r"^(?:[-*] )?([A-Z][A-Za-z ]{1,40}): (\S.{0,160})$")
+ISO_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+MONEY = re.compile(r"^(EUR|USD|GBP) ([\d,]+(?:\.\d+)?)$")
+NUMBER = re.compile(r"^[\d,]+(?:\.\d+)?$")
+KINDS = ("delivery note", "price list", "invoice", "agreement", "contract", "review", "email")
+# The words of a scanned page's made-up text: the stand-in cannot read a picture.
+SCAN_WORDS = (
+    "pallet carton crate delivered received signed checked damaged missing short late early "
+    "warehouse dock bay driver carrier route depot order batch lot serial invoice note copy "
+    "bolts nuts washers brackets hinges rivets screws anchors fittings valves seals gaskets "
+    "steel zinc brass nylon stainless galvanised coated threaded hex flange countersunk "
+    "quantity weight volume count unit box bag roll drum tray kilogram metre litre piece "
+    "inspection remark condition agreed rejected returned credited replaced held quarantine "
+    "monday tuesday wednesday thursday friday morning afternoon shift supervisor clerk"
+).split()
 
 
 def instance(schema: dict[str, Any], defs: dict[str, Any]) -> Any:
@@ -59,6 +88,88 @@ def instance(schema: dict[str, Any], defs: dict[str, Any]) -> Any:
     if kind == "boolean":
         return False
     return None
+
+
+def filled(schema: dict[str, Any], defs: dict[str, Any], messages: list[dict[str, Any]]) -> Any:
+    """What a model that read an indexing request returns (--fill): a scanned page's text, made
+    up from a seed its picture gives, or what a document's blocks state."""
+    reply = instance(schema, defs)
+    properties = schema.get("properties", {})
+    if "blocks" in properties:
+        seed = hashlib.sha256(json.dumps(messages).encode()).hexdigest()
+        return {"blocks": transcription(random.Random(seed))}
+    prompt = "\n".join(text_of(m.get("content")) for m in messages if m.get("role") == "user")
+    blocks = {int(number): text for number, text in BLOCK_LINE.findall(prompt)}
+    texts = list(blocks.values())
+    if "title" in properties:
+        opening = " ".join(texts[:3]).lower()
+        found = ISO_DATE.search(prompt)
+        reply["title"] = texts[0][:120] if texts else ""
+        reply["doc_type"] = next((kind for kind in KINDS if kind in opening), "document")
+        reply["doc_date"] = found.group(0) if found else None
+        reply["summary"] = " ".join(first_sentence(text) for text in texts[1:4])
+    if "sections" in properties and "InferredSection" not in defs:
+        reply["sections"] = section_summaries(prompt)
+    if "facts" in properties:
+        reply["facts"] = facts_of(blocks)
+    return reply
+
+
+def transcription(rng: random.Random) -> list[dict[str, Any]]:
+    """A scanned page's blocks as a model would transcribe them: a heading, a reference and a
+    few paragraphs, about as many words as a printed page holds."""
+    number = rng.randrange(10_000, 100_000)
+    blocks = [
+        {"kind": "heading", "level": 1, "text": f"Delivery record {number}"},
+        {"kind": "list_item", "level": None, "text": f"Reference: DR-{number}"},
+    ]
+    for _ in range(rng.randint(4, 6)):
+        sentences = [
+            " ".join(rng.choice(SCAN_WORDS) for _ in range(rng.randint(8, 16))).capitalize() + "."
+            for _ in range(rng.randint(4, 7))
+        ]
+        blocks.append({"kind": "paragraph", "level": None, "text": " ".join(sentences)})
+    return blocks
+
+
+def first_sentence(text: str) -> str:
+    found = SENTENCE.match(text.strip())
+    return " ".join((found.group(1) if found else text).split()[:30])
+
+
+def section_summaries(prompt: str) -> list[dict[str, Any]]:
+    """A summary of each section marked in the request: its first block's first sentence."""
+    parts = MARKER.split(prompt)
+    summaries = []
+    for number, body in zip(parts[1::2], parts[2::2], strict=True):
+        lines = BLOCK_LINE.findall(body)
+        if lines:
+            summaries.append({"section": int(number), "summary": first_sentence(lines[0][1])})
+    return summaries
+
+
+def facts_of(blocks: dict[int, str]) -> list[dict[str, Any]]:
+    """A fact for each block that states a field ("Total amount: EUR 1,250.00"), at most the
+    40 the app asks for."""
+    facts: list[dict[str, Any]] = []
+    for number, text in blocks.items():
+        found = FIELD.match(text)
+        if not found:
+            continue
+        label, value = found.groups()
+        fact = {"type": "text", "number": None, "date": None, "currency": None}
+        if money := MONEY.match(value):
+            amount = float(money.group(2).replace(",", ""))
+            fact.update(type="money", number=amount, currency=money.group(1))
+        elif ISO_DATE.fullmatch(value):
+            fact.update(type="date", date=value)
+        elif NUMBER.match(value):
+            fact.update(type="number", number=float(value.replace(",", "")))
+        name = label.lower().replace(" ", "_")
+        facts.append({**fact, "name": name, "value": value, "block": number, "quote": text})
+        if len(facts) == 40:
+            break
+    return facts
 
 
 def embedding(text: str, dim: int) -> list[float]:
@@ -96,6 +207,12 @@ def agent_turn(messages: list[dict[str, Any]]) -> dict[str, Any]:
 
 class Handler(BaseHTTPRequestHandler):
     dim = 768
+    fill = False
+    # Seconds before an agent turn's first part, and the words a second its text streams at
+    # (0: at once), as a hosted model takes; seconds an indexing request takes.
+    first_token = 0.0
+    words_per_second = 0.0
+    index_seconds = 0.0
     protocol_version = "HTTP/1.1"
 
     def log_message(self, format: str, *args: Any) -> None:
@@ -132,9 +249,17 @@ class Handler(BaseHTTPRequestHandler):
         format_ = body.get("response_format") or {}
         if format_.get("type") == "json_schema":
             schema = format_["json_schema"]["schema"]
-            reply: dict[str, Any] = {"text": json.dumps(instance(schema, schema.get("$defs", {})))}
+            defs = schema.get("$defs", {})
+            made = (
+                filled(schema, defs, body.get("messages", []))
+                if self.fill
+                else instance(schema, defs)
+            )
+            reply: dict[str, Any] = {"text": json.dumps(made)}
+            time.sleep(self.index_seconds)
         elif body.get("tools"):
             reply = agent_turn(body.get("messages", []))
+            time.sleep(self.first_token)
         else:
             reply = {"text": "OK."}
         if body.get("stream"):
@@ -189,6 +314,8 @@ class Handler(BaseHTTPRequestHandler):
         for chunk in chunks:
             self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
             self.wfile.flush()
+            if self.words_per_second and chunk["choices"] and "content" in chunk["choices"][0]:
+                time.sleep(1 / self.words_per_second)
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
         self.close_connection = True
@@ -220,8 +347,24 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=18001)
     parser.add_argument("--dim", type=int, default=768, help="EMBEDDING_DIM of the app")
+    parser.add_argument(
+        "--fill", action="store_true", help="answer indexing requests with what they hold"
+    )
+    parser.add_argument(
+        "--first-token", type=float, default=0.0, help="seconds before an agent turn begins"
+    )
+    parser.add_argument(
+        "--words-per-second", type=float, default=0.0, help="an answer's pace (0: at once)"
+    )
+    parser.add_argument(
+        "--index-seconds", type=float, default=0.0, help="seconds an indexing request takes"
+    )
     args = parser.parse_args()
     Handler.dim = args.dim
+    Handler.fill = args.fill
+    Handler.first_token = args.first_token
+    Handler.words_per_second = args.words_per_second
+    Handler.index_seconds = args.index_seconds
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
 
 

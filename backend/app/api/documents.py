@@ -14,6 +14,7 @@ from fastapi.responses import Response
 from PIL import ImageOps, UnidentifiedImageError
 from sqlalchemy import func, literal_column, select, tuple_
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.accounts import Account
 from app.api.deps import (
@@ -548,7 +549,7 @@ async def page_image(
     storage = services.storage
     key = document.page_image_key(page)
     if not await to_thread.run_sync(storage.exists, key):
-        await _drawn(request, partial(_draw_page, storage, document, page, key))
+        await _drawn(request, session, partial(_draw_page, storage, document, page, key))
         await to_thread.run_sync(_charge_render, session, account, document)
     return storage.response(key, media_type="image/png")
 
@@ -567,15 +568,22 @@ async def thumbnail(
     _scanned(document)
     storage = services.storage
     if not await to_thread.run_sync(storage.exists, document.thumbnail_key):
-        await _drawn(request, partial(_draw_thumbnail, storage, document))
+        await _drawn(request, session, partial(_draw_thumbnail, storage, document))
         await to_thread.run_sync(_charge_render, session, account, document)
     return storage.response(document.thumbnail_key, media_type="image/png")
 
 
-async def _drawn(request: Request, draw: Callable[[], None]) -> None:
+async def _drawn(request: Request, session: Session, draw: Callable[[], None]) -> None:
     """Run `draw`, which draws an image and keeps it, in one of the threads the API keeps for
     drawing (`app.state.drawing`, RENDER_PROCESSES of them), so that the requests waiting for a
-    page hold none of the threads every other route runs in."""
+    page hold none of the threads every other route runs in.
+
+    The request's session gives its connection back first: a member scrolling through a long
+    scan asks for more pages than are drawn at once, and each request waiting for its turn held
+    a connection. It has only read, so the commit writes nothing, and what it read stays loaded
+    for the charge after the drawing, which takes a connection again.
+    """
+    await to_thread.run_sync(session.commit)
     try:
         await to_thread.run_sync(draw, limiter=request.app.state.drawing)
     except FileNotFoundError:

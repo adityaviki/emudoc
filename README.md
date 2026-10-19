@@ -644,6 +644,12 @@ against a stand-in for the model and the embeddings endpoint (`frontend/e2e/stan
 answers the same way every run and needs no key. Chromium comes once with `pnpm exec
 playwright install chromium`.
 
+`cd backend && uv run python -m loadtest` is the load test: the API and a worker as production
+runs them, against the same stand-in, and a member who uploads 3,000 documents, searches them,
+asks 20 questions at once and uploads a 300-page scan and 50 MB workbooks. It prints what the
+member waited at the 50th and 95th percentiles; the operator's guide (`deploying.md`, "Load")
+has the last run's figures and what they mean for a deployment.
+
 `tofu test` in `deploy/aws/modules/environment` and `deploy/aws/account` checks the AWS
 configuration against a mocked provider; the backend suite checks that what it writes is what
 production asks for.
@@ -651,7 +657,7 @@ production asks for.
 CI (`.github/workflows/ci.yml`, GitHub Actions) runs all of it on every push to `main` and
 every pull request: the backend's lint, format and suite, once against Postgres and once
 through pgbouncer in transaction mode; the frontend's lint, unit tests and build; the browser
-test; the image, built and then
+test, and the load test at a size that takes a minute; the image, built and then
 started by `.github/scripts/check-image.sh` (the migrations, the API and a worker, read-only,
 against the development database); the deployment's embeddings server, started from the
 compose file by `.github/scripts/check-embeddings.sh` and asked for the vectors in

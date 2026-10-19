@@ -1,6 +1,7 @@
 """The connection pool: sized by the settings, exhausted with a 503 that says to try again
 rather than a traceback after a half-minute hang, and handed back by an answer while the model
-thinks, so that the answers in flight are not what fills it."""
+thinks, by a member following an answer and by a page waiting to be drawn, so that the answers
+in flight and the pages scrolled to are not what fills it."""
 
 import time
 
@@ -10,12 +11,16 @@ from sqlalchemy import select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 
+import app.api.documents as documents
 from app.answers import answer, start_answer
 from app.api.deps import RETRY_AFTER
 from app.config import get_settings
 from app.db import BUSY, SessionLocal, engine, make_engine
+from app.indexing.pipeline import process_document
 from app.models import Chat, ChatEvent, ChatMessage
 from tests.conftest import FakeTurn
+from tests.test_api import create_project, upload
+from tests.test_chats import follow
 
 
 def small_pool(size: int, overflow: int, timeout: int) -> Engine:
@@ -114,3 +119,53 @@ def test_an_answer_holds_no_connection_while_the_model_thinks(session, services,
     assert [message.role for message in saved] == ["user", "assistant"]
     assert saved[1].content == "90 days." and saved[1].error is None
     assert saved[1].status == "done"
+
+
+def test_a_member_following_an_answer_holds_no_connection_while_it_is_written(
+    client, session, services, account, indexed
+):
+    # The stream looks at the table with a session of its own each time (`_poll` in
+    # app/api/chats.py). The request's own session gives its connection back before the
+    # stream begins: twenty members following answers held twenty for the answers' length,
+    # and each look waited for a twenty-first, so every answer waited DB_POOL_TIMEOUT and some
+    # streams ended without their end (the load test, deploying.md "Load").
+    services.llm.agent_turns = [FakeTurn(TextPart("90 days."))]
+    chat = Chat(project_id=indexed.project_id, user_id=account.user.id, title="Notice")
+    session.add(chat)
+    session.flush()
+    _, reply = start_answer(session, chat, "Notice period?")
+    session.commit()
+    answer(reply.id, services)
+
+    small = small_pool(size=1, overflow=0, timeout=1)
+    SessionLocal.configure(bind=small)
+    try:
+        started = time.monotonic()
+        events = follow(client, chat.id, reply.id)
+        took = time.monotonic() - started
+    finally:
+        SessionLocal.configure(bind=engine)
+        small.dispose()
+    assert [event["type"] for event in events][-2:] == ["done", "end"]
+    assert took < 1
+
+
+def test_a_page_holds_no_connection_while_it_waits_to_be_drawn(
+    client, session, services, sample_pdf, monkeypatch
+):
+    # Pages are drawn RENDER_PROCESSES at a time, and a member scrolling through a long scan
+    # asks for more: each request waiting for its turn held a connection.
+    project = create_project(client)
+    document = upload(client, project["id"], sample_pdf)["documents"][0]
+    process_document(document["id"], services)
+    session.commit()
+    held: list[int] = []
+    draw_page = documents._draw_page
+
+    def watched(*args) -> None:
+        held.append(engine.pool.checkedout())
+        draw_page(*args)
+
+    monkeypatch.setattr(documents, "_draw_page", watched)
+    assert client.get(f"/api/documents/{document['id']}/pages/2.png").status_code == 200
+    assert held == [0]
