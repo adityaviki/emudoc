@@ -5,15 +5,16 @@ import threading
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 
 import app.watch as watch_module
 import app.worker as worker_module
 from app.config import get_settings
 from app.db import SessionLocal, engine
-from app.jobs import ANSWER_QUESTION
-from app.mail import MailError
+from app.jobs import ANSWER_QUESTION, SEND_EMAIL
+from app.mail import Content, MailError, Message
 from app.models import Chat, ChatMessage, Job, Project, UsageEvent, WatchAlert
+from app.postbox import post
 from app.postgres import Archive
 from app.scanning import ScanError
 from app.spending import ALERT_LOCK
@@ -110,6 +111,35 @@ def test_a_question_waits_less_than_a_document_before_it_counts(session, service
     assert watch(services, mailer, OPERATOR) == 1
     assert mailer.sent[0][1] == "Emudoc alert: questions wait for a worker"
     assert "raise ANSWER_CONCURRENCY" in mailer.sent[0][2]
+
+
+def test_mail_that_waits_for_a_worker_is_written(session, services):
+    post(session, "ada@example.com", Content("Reset your password", ("Hi,",)))
+    session.commit()
+    (job,) = session.scalars(select(Job).where(Job.kind == SEND_EMAIL)).all()
+    reports = Reports()
+    backdate(session, job.id, timedelta(minutes=4))
+    assert watch(services, reports, OPERATOR) == 0
+    backdate(session, job.id, timedelta(minutes=6))
+    assert watch(services, reports, OPERATOR) == 1
+    (report,) = reports.messages
+    assert report.subject == "Emudoc alert: emails wait for a worker"
+    assert (
+        "- The oldest email waiting to be sent has waited 6 min for a worker, with 1 due in all, "
+        "and the sign-up, sign-in and reset links among them with it"
+    ) in report.text
+    # The report goes at once, not through the queue it reports on.
+    assert session.scalar(select(func.count()).select_from(Job)) == 1
+
+
+class Reports:
+    """The operator's mailer, kept apart from the queue `FakeMailer` delivers."""
+
+    def __init__(self):
+        self.messages: list[Message] = []
+
+    def send(self, message: Message) -> None:
+        self.messages.append(message)
 
 
 def test_failing_indexing_is_written_but_not_a_member_s_few_broken_files(
@@ -336,7 +366,7 @@ def test_a_relay_that_is_down_leaves_the_alert_for_the_next_round(session, servi
     services.embedder.fail = True
 
     class Down(FakeMailer):
-        def send(self, to, subject, body):
+        def send(self, message):
             raise MailError("The mail relay could not be reached.")
 
     with pytest.raises(MailError):

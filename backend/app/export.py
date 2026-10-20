@@ -18,11 +18,13 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.bounces import address_hash
 from app.models import (
     AuditEvent,
     Browser,
     Chat,
     Identity,
+    MailSuppression,
     Membership,
     Organization,
     Project,
@@ -41,19 +43,21 @@ from app.schemas import (
     ExportedMembership,
     ExportedMessage,
     ExportedSession,
+    ExportedSpared,
     ExportedUsage,
 )
 
 ABOUT = (
-    "What Emudoc keeps about you: your account and the edition of the terms you accepted, how "
-    "you sign in, the organisations you belong to and the private projects you were chosen to "
-    "see, the browsers and devices you signed in from "
-    "in the last month and when each browser you signed in with did so first and last, the "
-    "chats you started with every question and answer, the usage counted to you, and what the "
-    "audit logs of your organisations recorded you doing. Answers cite passages of documents "
-    "as [P<number>]. The documents themselves are not in this file: they belong to the "
-    "organisation that holds them. Your password and recovery codes are kept only as hashes, "
-    "and they and your authenticator secret are left out."
+    "What Emudoc keeps about you: your account and the edition of the terms you accepted, "
+    "whether you are mailed notices and whether the mail provider said not to write to your "
+    "address, how you sign in, the organisations you belong to and the private projects you "
+    "were chosen to see, the browsers and devices you signed in from in the last month and "
+    "when each browser you signed in with did so first and last, the chats you started with "
+    "every question and answer, the usage counted to you, and what the audit logs of your "
+    "organisations recorded you doing. Answers cite passages of documents as [P<number>]. "
+    "The documents themselves are not in this file: they belong to the organisation that holds "
+    "them. Your password and recovery codes are kept only as hashes, and they and your "
+    "authenticator secret are left out."
 )
 
 
@@ -118,6 +122,12 @@ def account_export(session: Session, user: User) -> AccountExport:
                 ExportedIdentity(provider=row.provider, email=row.email, linked_at=row.created_at)
                 for row in identities
             ],
+            notices_by_email=user.notices_by_email,
+            mail_spared=(
+                ExportedSpared(reason=spared.reason, recorded_at=spared.recorded_at)
+                if (spared := session.get(MailSuppression, address_hash(user.email)))
+                else None
+            ),
         ),
         organizations=[
             ExportedMembership(

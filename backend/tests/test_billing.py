@@ -667,8 +667,8 @@ def test_a_failed_payment_keeps_the_plan_for_the_grace_period_then_the_plan_is_f
     assert ("payment_failed", {"attempt": 1}) in actions(session, ada.organization.id)
 
     # Within the grace period the housekeeper leaves it; past it, the plan is Free.
-    assert end_grace_periods(mailer) == 0
-    assert end_grace_periods(mailer, now=until + timedelta(minutes=1)) == 1
+    assert end_grace_periods() == 0
+    assert end_grace_periods(now=until + timedelta(minutes=1)) == 1
     held = organization(session, ada.organization.id)
     assert (held.plan, held.seats) == ("free", None)
     assert actions(session, ada.organization.id)[-2:] == [
@@ -683,7 +683,7 @@ def test_a_failed_payment_keeps_the_plan_for_the_grace_period_then_the_plan_is_f
         "Those older are kept as the Team plan kept them until "
         f"{day(held.retention_held_until)}, and deleted then." in mailer.sent[-1][2]
     )
-    assert end_grace_periods(mailer, now=until + timedelta(days=1)) == 0
+    assert end_grace_periods(now=until + timedelta(days=1)) == 0
 
     # Paid at last, the subscription is active again, and so is its plan.
     stripe.subscriptions[bought["id"]]["status"] = "active"

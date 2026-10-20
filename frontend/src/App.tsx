@@ -10,6 +10,7 @@ import { TermsPending } from './account/TermsPending.tsx'
 import { LoginPage } from './account/LoginPage.tsx'
 import { ForgotPasswordPage, ResetPasswordPage } from './account/PasswordPages.tsx'
 import { FinishSignupPage, SignupPage } from './account/SignupPage.tsx'
+import { UnsubscribePage } from './account/UnsubscribePage.tsx'
 import { UserMenu } from './account/UserMenu.tsx'
 import { VerifyPage } from './account/VerifyPage.tsx'
 import { AuthLayout } from './account/shared.tsx'
@@ -100,6 +101,7 @@ function App() {
           <Route path="verify" element={<VerifyPage />} />
           <Route path="confirm-email" element={<ConfirmEmailPage />} />
           <Route path="invitation" element={<InvitationPage />} />
+          <Route path="unsubscribe" element={<UnsubscribePage />} />
           <Route path="subprocessors" element={<SubprocessorsPage />} />
           <Route path="terms" element={<LegalPage document="terms" />} />
           <Route path="privacy" element={<LegalPage document="privacy" />} />

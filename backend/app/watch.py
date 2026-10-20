@@ -32,8 +32,8 @@ from app.config import AGENT, INDEX, Settings, get_settings
 from app.db import SessionLocal
 from app.errors import AppError, summary
 from app.indexing.pipeline import Services
-from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT
-from app.mail import Mailer
+from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT, SEND_EMAIL
+from app.mail import Mailer, Message
 from app.models import WatchAlert
 from app.postgres import archive, database_report, findings, span
 from app.spending import ALERT_LOCK
@@ -42,8 +42,13 @@ from app.usage import ANSWER, ENRICH, INFER_SECTIONS, OCR
 log = logging.getLogger(__name__)
 
 # How long the oldest due job of each kind may wait for a worker before the operator hears of
-# it: a question is a member waiting at the screen; a document, one who uploaded a batch.
-BACKLOG = {ANSWER_QUESTION: timedelta(minutes=5), INDEX_DOCUMENT: timedelta(hours=1)}
+# it: a question is a member waiting at the screen, and so is an email with a link; a document,
+# one who uploaded a batch.
+BACKLOG = {
+    ANSWER_QUESTION: timedelta(minutes=5),
+    INDEX_DOCUMENT: timedelta(hours=1),
+    SEND_EMAIL: timedelta(minutes=5),
+}
 # The span the rates are measured over: the documents and answers that settled in it, and the
 # requests a fallback answered. A concern is over once a whole span has passed without it.
 WINDOW = timedelta(hours=1)
@@ -87,6 +92,16 @@ def backlog(services: Services, settings: Settings) -> dict[str, Concern]:
     found = {}
     for kind, due, waited in rows:
         if waited <= BACKLOG[kind]:
+            continue
+        if kind == SEND_EMAIL:
+            # One thread a worker, which a relay that hangs holds; no setting adds more.
+            found[f"backlog:{kind}"] = Concern(
+                "emails wait for a worker",
+                f"The oldest email waiting to be sent has waited {span(waited)} for a worker, "
+                f"with {due} due in all, and the sign-up, sign-in and reset links among them "
+                "with it: the workers' mail threads are stuck on the relay, or no worker is "
+                "claiming. Look at the workers' logs.",
+            )
             continue
         if kind == ANSWER_QUESTION:
             what, threads, setting = "questions wait for a worker", "answerer", "ANSWER_CONCURRENCY"
@@ -365,7 +380,7 @@ def watch(services: Services, mailer: Mailer, to: str) -> int:
         still = [alert for key, alert in raised.items() if key in found]
         subject, body = watch_email(list(begun.values()), over, still, now)
         _record(session, begun, over)
-        mailer.send(to, subject, body)
+        mailer.send(Message(to, subject, body))
         session.commit()
     log.info("The watch reported %s begun and %s over", len(begun), len(over))
     return len(begun) + len(over)

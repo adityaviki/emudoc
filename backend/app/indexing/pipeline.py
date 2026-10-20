@@ -36,6 +36,7 @@ from app.indexing.enrich import (
 from app.indexing.structure import SectionHint, build_outline
 from app.jobs import LIVE, RENDER_PAGES, Lease, LeaseLost, enqueue, renew
 from app.llm import LLM, LLMError, OcrBlock
+from app.mail import Mailer
 from app.metrics import DOCUMENT_READY, INDEX_RUNS, PARSES, STAGE_RUNS, STAGE_SECONDS
 from app.models import STAGES, Block, Document, Fact, Passage, Section
 from app.parsing import IMAGE_TYPES, FileTooLarge, ParsedBlock, UnsupportedFile
@@ -128,6 +129,9 @@ class Services:
     storage: Storage
     # None when SCANNER_URL names no daemon: the scan stage is skipped and says so.
     scanner: Scanner | None = None
+    # What the worker's mail lane sends the posted mail through (app/postbox.py), and the
+    # worker's own reports; None in a process built for something else, which sends none.
+    mailer: Mailer | None = None
 
 
 class PipelineError(AppError):

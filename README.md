@@ -536,8 +536,8 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   has resized the column and queued every document to be embedded again.
 - Sign-in: `LOCAL_ACCOUNT=true` lets a request without a session act as a local owner account,
   for development on one machine (off by default); `APP_URL` is the address the links in emails
-  point at; `SMTP_URL` sends the verification and reset emails over TLS to a relay whose
-  certificate the machine trusts (without it they go to the log);
+  point at; `SMTP_URL` sends the emails over TLS to a relay whose certificate the machine
+  trusts, or `RESEND_API_KEY` through Resend's API (without either they go to the log);
   `GOOGLE_OAUTH_CLIENT_ID` and `MICROSOFT_OAUTH_CLIENT_ID` with their secrets offer sign-in with
   those providers.
 
@@ -556,8 +556,12 @@ address through a link sent there, which the old address is told of once it is o
 the password, turns on a code from an authenticator app at sign-in (shown as a QR code to scan,
 with recovery codes for a lost phone; its secret is kept encrypted with `ENCRYPTION_KEYS`, which
 the database never holds, so a copy of it makes no codes), lists the browsers and devices that are signed in and
-signs any of them out; a forgotten password is reset through a link sent by email, which signs
-the account out everywhere. Google and Microsoft accounts sign in through
+signs any of them out, and turns off the notices, the mail a member may do without, which each
+notice's own link and a mail program's "Unsubscribe" turn off too; a forgotten password is reset
+through a link sent by email, which signs the account out everywhere. The worker sends the
+mail, a plain text and an HTML part each, from a queue: a relay that is down gets a message again
+for half an hour, and an address the mail provider says bounced for good or was marked as spam
+is sent no notices for a year (deploying.md, "Mail"). Google and Microsoft accounts sign in through
 OpenID Connect and are linked to an existing account only when both sides have verified the
 address. A visitor without a session is sent to `/login` and returns to the page they wanted.
 A session the server stops accepting drops everything the tab had fetched, so whoever signs in
@@ -880,7 +884,9 @@ backend/app/
   keyring.py    the keys of ENCRYPTION_KEYS and the cipher the database's secrets are kept in
   encrypted.py  the columns kept encrypted, the start's check and the encrypt-secrets command
   oidc.py       sign-in with Google and Microsoft
-  mail.py       the emails the app sends
+  mail.py       the emails the app sends, and the mailers: SMTP, Resend, the log
+  postbox.py    mail posted through the queue, the worker's sending, and the notices
+  bounces.py    what the mail provider says bounced: Resend's webhook, SES's queue
   maintenance.py
                 the embedding checks at start, the housekeeping and the operator commands
   restore.py    what the app sets right after its database is restored to an earlier point

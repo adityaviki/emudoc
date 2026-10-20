@@ -121,10 +121,11 @@ locals {
 
   # What app/storage.py asks of the bucket, and no more: the objects, their versions (a
   # restore removes the delete markers newer than its moment), and the bucket's versioning,
-  # lifecycle, encryption and region, which the app reads at start.
+  # lifecycle, encryption and region, which the app reads at start; with mail, the queue of
+  # SES's events.
   app_policy = {
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat([
       {
         Effect = "Allow"
         Action = [
@@ -142,7 +143,14 @@ locals {
         Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:DeleteObjectVersion"]
         Resource = "${aws_s3_bucket.documents.arn}/*"
       },
-    ]
+      ], var.mail == null ? [] : [
+      # SES's news of the mail it could not deliver (backend/app/bounces.py), read and removed.
+      {
+        Effect   = "Allow"
+        Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage"]
+        Resource = aws_sqs_queue.mail_events[0].arn
+      },
+    ])
   }
 
   # The four permissions deploying.md's "The drill" names for the dry run, which reads the live

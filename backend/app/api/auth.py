@@ -36,14 +36,13 @@ appeared in a data breach (app/passwords.py).
 
 import datetime as dt
 import math
-from contextlib import suppress
 from dataclasses import replace
 from typing import NamedTuple
 from urllib.parse import quote, urlencode
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -64,7 +63,6 @@ from app.api.deps import (
     AnyAccountDep,
     HttpDep,
     LiveAccountDep,
-    MailerDep,
     SessionDep,
     UsableAccountDep,
     limited,
@@ -80,6 +78,7 @@ from app.billing import (
     subscription_refusal,
     trial_days,
 )
+from app.bounces import forget
 from app.config import get_settings
 from app.entitlements import (
     agreed_with,
@@ -93,8 +92,6 @@ from app.export import account_export
 from app.invitations import find_invitation, is_open, joinable
 from app.legal import TERMS_VERSION, terms_due
 from app.mail import (
-    Mailer,
-    MailError,
     account_deletion_email,
     account_exists_email,
     address_taken_email,
@@ -118,6 +115,7 @@ from app.oidc import (
     providers,
 )
 from app.passwords import BREACHED, breached
+from app.postbox import post
 from app.ratelimit import (
     ADDRESSES,
     FAILED_SIGN_INS,
@@ -293,30 +291,24 @@ def options():
 
 
 @router.post("/signup", status_code=202)
-def signup(
-    body: SignupIn,
-    request: Request,
-    session: SessionDep,
-    mailer: MailerDep,
-    background: BackgroundTasks,
-):
+def signup(body: SignupIn, request: Request, session: SessionDep):
     """Start an account: mail the address the link that makes it (`finish_signup`). The answer
-    is the same whether the address has an account or not, and the mail goes out after it, as
-    `forgot_password`'s does: an address with an account is told that someone tried, with the
-    way to sign in, so that nobody learns from the app who uses it."""
+    is the same whether the address has an account or not, and so is the work behind it, a mail
+    posted either way: an address with an account is told that someone tried, with the way to
+    sign in, so that nobody learns from the app who uses it."""
     email = body.email.strip().lower()
     user = session.scalar(select(User).where(User.email == email))
     guesser = _guesser(session, request, user, email)
     refuse_past(session, (ADDRESSES, by_address(request)), (SIGN_INS, guesser.key))
     if user is None:
         token = auth.issue_link_token(session, None, "sign_up", email, auth.VERIFY_LINK_TTL)
-        session.commit()
-        subject, text = sign_up_email(mailed_link(request, SIGNUP_PAGE, token))
+        content = sign_up_email(mailed_link(request, SIGNUP_PAGE, token))
     else:
-        subject, text = account_exists_email(
+        content = account_exists_email(
             user.name, f"{app_url(request)}{LOGIN_PAGE}", f"{app_url(request)}{FORGOT_PAGE}"
         )
-    background.add_task(send_quietly, mailer, email, subject, text)
+    post(session, email, content)
+    session.commit()
 
 
 @router.post("/signup/link", response_model=SignupLinkOut)
@@ -489,14 +481,7 @@ def sign_up_invited(
 
 
 @router.post("/login", response_model=LoginOut)
-def login(
-    body: LoginIn,
-    request: Request,
-    response: Response,
-    session: SessionDep,
-    mailer: MailerDep,
-    background: BackgroundTasks,
-):
+def login(body: LoginIn, request: Request, response: Response, session: SessionDep):
     """Check the password and start a session; with two-factor on, the code must follow."""
     email = body.email.strip().lower()
     user = session.scalar(select(User).where(User.email == email))
@@ -510,8 +495,8 @@ def login(
         # An address with no account is a stranger's and leaves no row (app/audit.py).
         if user is not None:
             audit_sign_in(session, user, request, "sign_in_failed", {"reason": "password"})
-        _failed(session, request, user, guesser, mailer, background)
-        return _refusal(401, SIGN_IN_FAILED)
+        _failed(session, request, user, guesser)
+        raise HTTPException(401, SIGN_IN_FAILED)
     if auth.needs_rehash(user.password_hash):
         user.password_hash = auth.hash_password(body.password)
     _, token = auth.start_session(session, user, request, needs_mfa=user.mfa_enabled)
@@ -528,14 +513,7 @@ def login(
 
 
 @router.post("/mfa/verify", response_model=MeOut)
-def verify_mfa(
-    body: CodeIn,
-    request: Request,
-    response: Response,
-    session: SessionDep,
-    mailer: MailerDep,
-    background: BackgroundTasks,
-):
+def verify_mfa(body: CodeIn, request: Request, response: Response, session: SessionDep):
     """Finish a sign-in that waits for the authenticator code, or a recovery code."""
     token = request.cookies.get(auth.SESSION_COOKIE)
     user_session = auth.find_session(session, token) if token else None
@@ -553,8 +531,8 @@ def verify_mfa(
         factor = "recovery_code"
     else:
         audit_sign_in(session, user, request, "sign_in_failed", {"reason": "code"})
-        _failed(session, request, user, guesser, mailer, background)
-        return _refusal(401, CODE_INVALID if auth.totp_readable(user) else CODE_UNCHECKABLE)
+        _failed(session, request, user, guesser)
+        raise HTTPException(401, CODE_INVALID if auth.totp_readable(user) else CODE_UNCHECKABLE)
     auth.complete_mfa(user_session)
     browser = auth.remember_browser(session, user, request)
     account = account_for_user(session, user, user_session)
@@ -603,8 +581,8 @@ def accept_terms(body: TermsIn, account: LiveAccountDep, request: Request, sessi
 
 @router.patch("/profile", response_model=MeOut)
 def update_profile(body: ProfileIn, account: AccountDep, request: Request, session: SessionDep):
-    """Change the user's name or time zone. The audit log records which changed, never to
-    what, since its rows outlive the account (app/audit.py)."""
+    """Change the user's name, time zone or whether they are mailed notices. The audit log
+    records which changed, never to what, since its rows outlive the account (app/audit.py)."""
     user = account.user
     changed = []
     if body.name is not None and body.name.strip() != user.name:
@@ -615,6 +593,12 @@ def update_profile(body: ProfileIn, account: AccountDep, request: Request, sessi
             raise HTTPException(400, UNKNOWN_ZONE)
         user.time_zone = body.time_zone
         changed.append("time_zone")
+    if body.notices_by_email is not None and body.notices_by_email != user.notices_by_email:
+        user.notices_by_email = body.notices_by_email
+        changed.append("notices_by_email")
+        if body.notices_by_email:
+            # Asked for by the address's own user, who reads what it receives.
+            forget(session, user.email)
     if changed:
         audit(session, account, request, "profile_changed", detail={"changed": changed})
         session.commit()
@@ -623,16 +607,11 @@ def update_profile(body: ProfileIn, account: AccountDep, request: Request, sessi
 
 @router.post("/email", status_code=202, dependencies=[Depends(limited(SIGN_INS))])
 def request_email_change(
-    body: EmailChangeIn,
-    account: AccountDep,
-    request: Request,
-    session: SessionDep,
-    mailer: MailerDep,
-    background: BackgroundTasks,
+    body: EmailChangeIn, account: AccountDep, request: Request, session: SessionDep
 ):
     """Send the link that moves the account to a new address, once the password confirms it.
-    The mail goes out after the answer, as `forgot_password`'s does, so that an address with an
-    account, which is told so instead of getting the link, answers alike."""
+    An address with an account is told so instead of getting the link, by a mail posted all the
+    same, so that it answers alike."""
     user = account.user
     if account.session_id is None:
         raise HTTPException(409, LOCAL_ADDRESS)
@@ -645,22 +624,16 @@ def request_email_change(
     holder = session.scalar(select(User).where(User.email == email))
     if holder is None:
         token = auth.issue_link_token(session, user, "change_email", email, auth.VERIFY_LINK_TTL)
-        subject, text = email_change_email(user.name, mailed_link(request, EMAIL_PAGE, token))
+        content = email_change_email(user.name, mailed_link(request, EMAIL_PAGE, token))
     else:
-        subject, text = address_taken_email(holder.name, f"{app_url(request)}{LOGIN_PAGE}")
+        content = address_taken_email(holder.name, f"{app_url(request)}{LOGIN_PAGE}")
+    post(session, email, content)
     audit(session, account, request, "email_change_requested")
     session.commit()
-    background.add_task(send_quietly, mailer, email, subject, text)
 
 
 @router.post("/email/confirm", status_code=204)
-def confirm_email_change(
-    body: LinkTokenIn,
-    request: Request,
-    session: SessionDep,
-    mailer: MailerDep,
-    background: BackgroundTasks,
-):
+def confirm_email_change(body: LinkTokenIn, request: Request, session: SessionDep):
     """Make the address a change-of-address link was sent to the account's, confirmed, since
     opening the link proves it is the requester's. Works without being signed in."""
     link = auth.redeem_link_token(session, body.token, "change_email")
@@ -681,9 +654,8 @@ def confirm_email_change(
     # no longer the account's, and a second change waiting would undo this one.
     auth.void_link_tokens(session, user.id)
     audit_sign_in(session, user, request, "email_changed")
+    post(session, old, email_changed_email(user.name, get_settings().operator_email or NO_CONTACT))
     session.commit()
-    subject, text = email_changed_email(user.name, get_settings().operator_email or NO_CONTACT)
-    background.add_task(send_quietly, mailer, old, subject, text)
 
 
 # Email verification
@@ -702,27 +674,20 @@ def verify_email(body: LinkTokenIn, session: SessionDep):
 
 
 @router.post("/verify/resend", status_code=202, dependencies=[Depends(limited(SIGN_INS))])
-def resend_verification(
-    account: AccountDep, request: Request, session: SessionDep, mailer: MailerDep
-):
+def resend_verification(account: AccountDep, request: Request, session: SessionDep):
     if account.user.email_verified_at is None:
-        _send_verification(session, account.user, request, mailer)
+        _send_verification(session, account.user, request)
+        session.commit()
 
 
 # Passwords
 
 
 @router.post("/password/forgot", status_code=202)
-def forgot_password(
-    body: EmailIn,
-    request: Request,
-    session: SessionDep,
-    mailer: MailerDep,
-    background: BackgroundTasks,
-):
+def forgot_password(body: EmailIn, request: Request, session: SessionDep):
     """Send a reset link. Always accepted, so the reply does not say whether the address exists:
-    the mail goes out after the reply, so neither the relay's time nor its failure (which the
-    mailer logs) tells an address with an account from one without."""
+    the mail is posted to the queue (app/postbox.py), so neither the relay's time nor its
+    failure tells an address with an account from one without."""
     email = body.email.strip().lower()
     user = session.scalar(select(User).where(User.email == email))
     guesser = _guesser(session, request, user, email)
@@ -731,9 +696,12 @@ def forgot_password(
         return
     token = auth.issue_link_token(session, user, "reset_password", user.email, auth.RESET_LINK_TTL)
     audit_sign_in(session, user, request, "password_reset_requested")
+    post(
+        session,
+        user.email,
+        password_reset_email(user.name, mailed_link(request, RESET_PAGE, token)),
+    )
     session.commit()
-    subject, text = password_reset_email(user.name, mailed_link(request, RESET_PAGE, token))
-    background.add_task(send_quietly, mailer, user.email, subject, text)
 
 
 @router.post("/password/reset", status_code=204)
@@ -853,7 +821,6 @@ def delete_account(
     account: LiveAccountDep,
     request: Request,
     session: SessionDep,
-    mailer: MailerDep,
 ):
     """Set the account to be deleted once the grace period is over, sign it out everywhere
     else, and tell its address. The password confirms it, or the address typed out for an
@@ -874,16 +841,16 @@ def delete_account(
         "account_deletion_requested",
         detail={"due_at": user.deletion_due_at.isoformat()},
     )
-    session.commit()
-    subject, text = account_deletion_email(
-        user.name,
-        day(user.deletion_due_at, zone_of(user.time_zone)),
-        f"{app_url(request)}{LOGIN_PAGE}",
+    post(
+        session,
+        user.email,
+        account_deletion_email(
+            user.name,
+            day(user.deletion_due_at, zone_of(user.time_zone)),
+            f"{app_url(request)}{LOGIN_PAGE}",
+        ),
     )
-    # The deletion is set either way, and the next sign-in shows it; a relay that is down
-    # is logged by the mailer.
-    with suppress(MailError):
-        mailer.send(user.email, subject, text)
+    session.commit()
     return me_out(session, account)
 
 
@@ -1009,7 +976,6 @@ def oauth_callback(
     request: Request,
     session: SessionDep,
     http: HttpDep,
-    mailer: MailerDep,
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
@@ -1025,7 +991,7 @@ def oauth_callback(
         )
     try:
         claims = finish(found, code, _redirect_uri(request, found), handshake, http)
-        user, joined = _user_for_claims(session, found, claims, request, mailer, handshake)
+        user, joined = _user_for_claims(session, found, claims, request, handshake)
     except (OidcError, SignInRefused) as refusal:
         session.rollback()
         return _back_to_login(request, error=str(refusal))
@@ -1050,7 +1016,6 @@ def _user_for_claims(
     provider: Provider,
     claims: Claims,
     request: Request,
-    mailer: Mailer,
     handshake: Handshake,
 ) -> tuple[User, bool]:
     """The user behind the provider's subject, linking or creating an account the first time,
@@ -1099,7 +1064,7 @@ def _user_for_claims(
         audit(session, account, request, "sign_up", detail={"method": provider.name})
         user = account.user
         if not claims.email_verified:
-            _send_verification(session, user, request, mailer)
+            _send_verification(session, user, request)
     elif not (claims.email_verified and user.email_verified_at is not None):
         raise SignInRefused(
             "An account with this email already exists. Sign in the way you did before; "
@@ -1147,6 +1112,7 @@ def me_out(session: Session, account: Account) -> MeOut:
         email=user.email,
         name=user.name,
         time_zone=user.time_zone,
+        notices_by_email=user.notices_by_email,
         email_verified=user.email_verified_at is not None,
         mfa_enabled=user.mfa_enabled,
         identities=sorted(identity.provider for identity in user.identities),
@@ -1284,35 +1250,26 @@ def _failed(
     request: Request,
     user: User | None,
     guesser: Guesser,
-    mailer: Mailer,
-    background: BackgroundTasks,
 ) -> None:
     """Count a sign-in's wrong password or code for its guesser, and commit it with whatever
     the route recorded. The failure that uses up the hour pauses that guesser's sign-ins, which
-    the audit log records; when they are the new browsers', the account's owner is told, after
-    the reply, as `forgot_password` mails, so that nothing in the answer differs from an
-    address without an account."""
+    the audit log records; when they are the new browsers', the account's owner is told by a
+    mail posted with the count, as `forgot_password` posts its own, so that nothing in the
+    answer differs from an address without an account."""
     count = tally(session, FAILED_SIGN_INS, guesser.key)
     allowed = get_settings().rate_failed_sign_ins
     if user is not None and count == allowed:
         browsers = "known_browser" if guesser.known else "new_browsers"
         audit_sign_in(session, user, request, "sign_in_paused", {"from": browsers})
         if not guesser.known:
-            subject, text = sign_ins_paused_email(
+            content = sign_ins_paused_email(
                 user.name,
                 allowed,
                 _clock(window_end(FAILED_SIGN_INS), user),
                 f"{app_url(request)}{FORGOT_PAGE}",
             )
-            background.add_task(send_quietly, mailer, user.email, subject, text)
+            post(session, user.email, content)
     session.commit()
-
-
-def _refusal(status: int, detail: str) -> JSONResponse:
-    """A refusal returned, in the form FastAPI answers an HTTPException with, rather than
-    raised: a route's background tasks run only after a response it returns, and `_failed` may
-    have queued a mail."""
-    return JSONResponse({"detail": detail}, status_code=status)
 
 
 def _wrong(session: Session, account: Account, request: Request) -> None:
@@ -1414,20 +1371,9 @@ def mailed_link(request: Request, page: str, token: str) -> str:
     return f"{app_url(request)}{page}#token={quote(token)}"
 
 
-def _send_verification(session: Session, user: User, request: Request, mailer: Mailer) -> None:
+def _send_verification(session: Session, user: User, request: Request) -> None:
+    """Post the link that confirms the user's address, in the caller's transaction."""
     token = auth.issue_link_token(session, user, "verify_email", user.email, auth.VERIFY_LINK_TTL)
-    session.commit()
-    subject, text = verification_email(user.name, mailed_link(request, VERIFY_PAGE, token))
-    _send(mailer, user.email, subject, text)
-
-
-def send_quietly(mailer: Mailer, to: str, subject: str, text: str) -> None:
-    with suppress(MailError):
-        mailer.send(to, subject, text)
-
-
-def _send(mailer: Mailer, to: str, subject: str, text: str) -> None:
-    try:
-        mailer.send(to, subject, text)
-    except MailError as error:
-        raise HTTPException(503, f"{error} Try again in a few minutes.") from error
+    post(
+        session, user.email, verification_email(user.name, mailed_link(request, VERIFY_PAGE, token))
+    )

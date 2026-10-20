@@ -1,5 +1,6 @@
-// The account page: who you are and your address, the terms you accepted, how you sign in,
-// where you are signed in, a copy of your data, and deleting the account.
+// The account page: who you are and your address, whether you are mailed notices, the terms you
+// accepted, how you sign in, where you are signed in, a copy of your data, and deleting the
+// account.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Copy, Download, LogOut, X } from 'lucide-react'
@@ -20,6 +21,7 @@ import { ME_KEY, setSignedIn, useMe, useSignOut } from '../auth.ts'
 import {
   Button,
   ButtonLink,
+  Checkbox,
   Chip,
   IconButton,
   InputField,
@@ -189,7 +191,43 @@ function EmailSection({ me }: { me: Me }) {
           <Button onClick={() => setChanging(true)}>Change email address…</Button>
         )}
       </div>
+      <NoticesSwitch key={String(me.notices_by_email)} me={me} />
     </Section>
+  )
+}
+
+// The mail a member may do without; what the account, an invitation or billing needs said is
+// sent whatever this says. Turning it on also writes again to an address that bounced. The box
+// shows the choice at once, and goes back if it is not saved; keyed by the saved value, so that
+// a change from elsewhere (a notice's link, another tab) shows once the account is read again.
+function NoticesSwitch({ me }: { me: Me }) {
+  const queryClient = useQueryClient()
+  const [on, setOn] = useState(me.notices_by_email)
+  const save = useMutation({
+    mutationFn: (value: boolean) => auth.updateProfile({ notices_by_email: value }),
+    onSuccess: (account) => setSignedIn(queryClient, account),
+    onError: () => setOn(me.notices_by_email),
+  })
+  return (
+    <div className="mt-5 border-t border-line pt-4">
+      <Checkbox
+        label="Email me notices about my work in Emudoc"
+        checked={on}
+        disabled={save.isPending}
+        onChange={(event) => {
+          setOn(event.target.checked)
+          save.mutate(event.target.checked)
+        }}
+      />
+      <p className="mt-1 pl-6.5 text-xs text-muted">
+        Each notice has a link to stop them. Email about your account, invitations and billing is sent either way.
+      </p>
+      {save.isError && (
+        <div className="mt-2">
+          <Notice tone="bad">{save.error.message}</Notice>
+        </div>
+      )}
+    </div>
   )
 }
 

@@ -11,6 +11,15 @@ its day, in the same commit.
 
 Members:
 
+- The emails Emudoc sends come with an HTML part in Emudoc's colours beside the plain text, the
+  link a button with its address under it to copy. A link asked for while the mail server is
+  down arrives once it is back, tried again for half an hour, instead of not at all. The account
+  page's Email address section has a switch for notices, the mail about your work that you may
+  do without (none is sent yet); each notice will carry a link that stops them, which a mail
+  program's own "Unsubscribe" uses too, and mail about your account, invitations and billing is
+  sent either way. The privacy policy and the data export say whether you want notices, and
+  whether the mail provider said your address bounces.
+
 - An owner changes or cancels the subscription from the organisation page: choosing another
   plan, other seats or Free shows first what it would mean (the figures that change, what the
   organisation would hold past the plan and so be read-only, which chats and audit log entries
@@ -152,6 +161,25 @@ Members:
   slow to a third of their speed.
 
 Operators:
+
+- The worker sends the mail now, in a lane of one thread of its own (the pool counts it: 16 +
+  8 + 1 + 4 of 30 at the defaults, one more with `MAIL_EVENTS_QUEUE`): a request posts a
+  `send_email` job, its message encrypted with `ENCRYPTION_KEYS` and taken out once sent, and a
+  relay that says "later" gets it again after 2, 4, 8 and 16 minutes, then the job fails like
+  any given up. The mailed links reach the worker's log in development and in the load test,
+  not the API's. A migration lets a job be no organisation's, adds `mail_suppressions` and
+  `users.notices_by_email`. `RESEND_API_KEY` sends through Resend's API instead of `SMTP_URL`
+  (production takes one of the two), with each message's key as its `Idempotency-Key`. What
+  bounced for good or was complained of reaches the app from Resend's webhook,
+  `/api/mail/events` signed with `RESEND_WEBHOOK_SECRET`, or from SES through EventBridge and
+  the SQS queue `MAIL_EVENTS_QUEUE` the worker reads every minute, and the address is sent no
+  notices for a year (deploying.md, "Mail"). On AWS the `mail` domain gains its envelope domain
+  `bounce.<domain>` (MX and SPF), a `_dmarc` record (`mail.dmarc_policy`, `quarantine` by
+  default, `""` for none; `mail.dmarc_reports`), a configuration set that sends over TLS alone
+  and publishes bounces and complaints, the EventBridge rule, the queue and the app role's
+  right to read it: `tofu apply`, then add the records `dns_records` lists where the DNS is not
+  Route 53. New metrics `emudoc_mail_sent_total` and `emudoc_mail_events_total`, a `mailer` lane,
+  and the rules `EmudocMailWaiting` (critical), `EmudocMailRefused` and `EmudocMailBounces`.
 
 - The organisation page opens Stripe's customer portal on one step, a cancellation
   (`subscription_cancel`) or a confirmed change of plan (`subscription_update_confirm`): the

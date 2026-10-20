@@ -23,6 +23,7 @@ DEVELOPMENT = {
     "agent_fallback_model": "",
     "embedding_base_url": "http://127.0.0.1:11434/v1",
     "smtp_url": "",
+    "resend_api_key": "",
     "hosting_provider": "",
     "data_region": "",
     "google_oauth_client_id": "",
@@ -93,6 +94,19 @@ def test_a_deployment_lists_every_company_it_sends_data_to_in_order():
     assert purposes["Microsoft"] == "Signs in the members who choose to sign in with Microsoft."
     # The relay's password is in its URL; the list names the company, never the URL.
     assert all("secret" not in str(entry) for entry in entries)
+
+
+def test_the_mail_is_listed_by_whichever_sends_it():
+    # Resend's API in place of a relay is Resend, whose key is no part of the list.
+    settings = configured(resend_api_key="re_123456")
+    (mail,) = [entry for entry in subprocessors(settings, DIRECTORY, {}) if entry.name == "Resend"]
+    assert mail.purpose.startswith("Sends the emails: the links that make an account")
+    assert mail.purpose.endswith("and says which addresses bounce.")
+    assert "re_123456" not in str(mail)
+    # SES's relay is Amazon's; one on the deployment's own network is nobody's.
+    ses = configured(smtp_url="smtp://user:secret@email-smtp.eu-central-1.amazonaws.com:587")
+    assert "Amazon Web Services" in listed(ses)
+    assert "mail" not in " ".join(listed(configured(smtp_url="smtp://mail:25")))
 
 
 def test_a_fallback_s_company_is_listed_as_standing_in():

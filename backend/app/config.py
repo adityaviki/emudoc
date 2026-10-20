@@ -33,8 +33,12 @@ DEVELOPMENT_PASSWORD = "emudoc"
 # The threads a worker runs besides its indexing and answering threads that take a connection
 # from the pool now and then: the heartbeat, the housekeeper and the alerter (app/worker.py),
 # and the metrics' server reading the database (app/metrics.py). The listener holds a
-# connection of its own outside the pool.
+# connection of its own outside the pool. With MAIL_EVENTS_QUEUE, one more reads SES's news of
+# mail that bounced (app/bounces.py).
 WORKER_HELPER_THREADS = 4
+# The worker's threads that send the mail the app posted (app/postbox.py), a lane of their own
+# so that neither a backlog of documents nor one of questions holds a sign-up link up.
+MAIL_THREADS = 1
 METRICS_ADDRESS_FORM = (
     "METRICS_ADDRESS is a host and port, such as 127.0.0.1:9464, 0.0.0.0:9464 in a container or "
     "[::]:9464, or empty for no metrics"
@@ -562,11 +566,19 @@ class Settings(BaseSettings):
     # holds, until the payment is made. Zero moves it at the first failure.
     billing_grace_days: int = Field(default=14, ge=0)
 
-    # Verification and password-reset mail. Empty SMTP_URL writes the messages to the log,
-    # which is enough to click the links in development. Otherwise smtp://user:pass@host:587
-    # (STARTTLS) or smtps://user:pass@host:465 (TLS).
+    # The mail the app sends (deploying.md, "Mail"): through Resend's API with RESEND_API_KEY
+    # (re_…), else through the SMTP relay SMTP_URL names, smtp://user:pass@host:587 (STARTTLS)
+    # or smtps://user:pass@host:465 (TLS). With neither, the messages are written to the log,
+    # which is enough to click the links in development.
     smtp_url: str = ""
+    resend_api_key: str = ""
     mail_from: str = "Emudoc <no-reply@localhost>"
+    # Where the provider says which mail bounced for good or was marked as spam, so that the
+    # app sends those addresses no notices: Resend's webhook, {APP_URL}/api/mail/events, signed
+    # with RESEND_WEBHOOK_SECRET (whsec_…); or the SQS queue that SES's events reach through
+    # EventBridge, which the worker reads (the AWS module makes it and writes its URL here).
+    resend_webhook_secret: str = ""
+    mail_events_queue: str = ""
     # Where the jobs the worker gave up on are reported (app/deadletters.py), through the
     # mailer above, as one digest every quarter of an hour. Empty sends nothing: the failures
     # wait, listed by the failed-jobs command, until an address is set.
@@ -666,7 +678,13 @@ class Settings(BaseSettings):
             )
         return self
 
-    @field_validator("stripe_secret_key", "stripe_webhook_secret", mode="before")
+    @field_validator(
+        "stripe_secret_key",
+        "stripe_webhook_secret",
+        "resend_api_key",
+        "resend_webhook_secret",
+        mode="before",
+    )
     @classmethod
     def _trimmed_secret(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
@@ -769,7 +787,13 @@ class Settings(BaseSettings):
         # An indexing or answering thread that found every connection in use would fail its
         # job for a reason the operator set, so a pool too small for the threads this process
         # runs is refused before it runs any.
-        needed = self.worker_concurrency + self.answer_concurrency + WORKER_HELPER_THREADS
+        needed = (
+            self.worker_concurrency
+            + self.answer_concurrency
+            + MAIL_THREADS
+            + WORKER_HELPER_THREADS
+            + (1 if self.mail_events_queue else 0)
+        )
         allowed = self.db_pool_size + self.db_max_overflow
         if self.run_worker and allowed < needed:
             raise ValueError(
@@ -870,10 +894,11 @@ class Settings(BaseSettings):
                 "https://emudoc.example.com, so that the links in emails and the OAuth "
                 "redirect do not depend on what a proxy says."
             )
-        if not self.smtp_url:
+        if not (self.smtp_url or self.resend_api_key):
             problems.append(
                 "SMTP_URL is not set, so verification and password-reset links would be "
-                "written to the log; name an SMTP relay."
+                "written to the log; name an SMTP relay, or set RESEND_API_KEY to send through "
+                "Resend."
             )
         if not self.encryption_keys:
             problems.append(
@@ -914,6 +939,12 @@ class Settings(BaseSettings):
             "PWNED_PASSWORDS_URL",
             self.pwned_passwords_url,
             "the start of the hash of every new password",
+        ):
+            problems.append(problem)
+        if problem := plain_http_problem(
+            "MAIL_EVENTS_QUEUE",
+            self.mail_events_queue,
+            "the worker's requests for the addresses whose mail bounced",
         ):
             problems.append(problem)
         unset = [
@@ -987,6 +1018,25 @@ class Settings(BaseSettings):
                 "so what it answers would count nothing against the cap; add its price."
             )
         problems += self._billing_problems()
+        problems += self._mail_problems()
+        return problems
+
+    def _mail_problems(self) -> list[str]:
+        """What stops the mail settings from meaning one thing: two ways to send, or a key or a
+        secret of another kind. Neither is quoted."""
+        problems = []
+        if self.smtp_url and self.resend_api_key:
+            problems.append(
+                "SMTP_URL and RESEND_API_KEY are both set, but the mail goes one way; remove "
+                "the one not meant."
+            )
+        if self.resend_api_key and not self.resend_api_key.startswith("re_"):
+            problems.append("RESEND_API_KEY is not a Resend API key, which starts re_.")
+        if self.resend_webhook_secret and not self.resend_webhook_secret.startswith("whsec_"):
+            problems.append(
+                "RESEND_WEBHOOK_SECRET is not a Resend webhook's signing secret, which starts "
+                "whsec_."
+            )
         return problems
 
     def _billing_problems(self) -> list[str]:

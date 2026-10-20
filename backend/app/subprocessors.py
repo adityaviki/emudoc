@@ -23,6 +23,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from app.config import AGENT, INDEX, Settings, model_provider
+from app.mail import RESEND_API
 from app.network import MODEL_BASE_URLS, host_of, on_own_network
 from app.oidc import providers
 from app.residency import Place, bucket_place, endpoint_place, model_place, tracker_place
@@ -164,14 +165,16 @@ def subprocessors(
                 _where(endpoint_place(settings.embedding_base_url, region)),
             )
         )
-    if settings.smtp_url and (name := _company(settings.smtp_url)):
+    relay = RESEND_API if settings.resend_api_key else settings.smtp_url
+    if relay and (name := _company(relay)):
         found.append(
             Subprocessor(
                 name,
-                "Sends the emails that verify an address and reset a password, and the "
-                "operator's alerts.",
-                "Members' names and email addresses, and in the alerts the names of "
-                "organisations, projects and files.",
+                "Sends the emails: the links that make an account, confirm an address, reset a "
+                "password or join an organisation, what billing tells an organisation's owners, "
+                "the notices, and the operator's alerts; and says which addresses bounce.",
+                "Members' names and email addresses, the names of their organisations, and in "
+                "the alerts the names of organisations, projects and files.",
             )
         )
     if settings.sentry_dsn and (name := _company(settings.sentry_dsn)):

@@ -174,6 +174,9 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "STRIPE_WEBHOOK_SECRET",
         "STRIPE_PRICES",
         "STRIPE_PACKS",
+        "RESEND_API_KEY",
+        "RESEND_WEBHOOK_SECRET",
+        "MAIL_EVENTS_QUEUE",
     ):
         monkeypatch.delenv(name, raising=False)
     return {
@@ -396,6 +399,30 @@ def test_production_bills_only_with_the_key_the_webhook_and_something_to_sell(de
     assert load_settings(**development).production_problems() == []
 
 
+def test_production_mails_one_way_with_keys_of_their_kind(deployment):
+    # Resend in place of a relay is a way to send; both is two, and the second would be
+    # silently left out.
+    del deployment["smtp_url"]
+    resend = load_settings(**deployment, resend_api_key="re_" + "x" * 20)
+    assert resend.production_problems() == []
+    for change, said in (
+        (
+            {"smtp_url": "smtp://mailer:secret@smtp.example.com:587", "resend_api_key": "re_x"},
+            ("SMTP_URL and RESEND_API_KEY are both set, but the mail goes one way"),
+        ),
+        ({"resend_api_key": "pk_" + "y" * 20}, "RESEND_API_KEY is not a Resend API key"),
+        (
+            {"resend_api_key": "re_x", "resend_webhook_secret": "sk_" + "z" * 20},
+            "RESEND_WEBHOOK_SECRET is not a Resend webhook's signing secret",
+        ),
+    ):
+        with pytest.raises(SystemExit) as stop:
+            load_settings(**deployment, **change)
+        assert said in stop.value.code
+        # Neither is quoted.
+        assert "y" * 20 not in stop.value.code and "z" * 20 not in stop.value.code
+
+
 def test_production_runs_without_a_scanner_only_when_told_to(deployment):
     # Unscanned uploads reach every member of a project, so leaving the scanner out is a
     # choice to state, not a default to fall into; development scans nothing by default.
@@ -525,19 +552,20 @@ def test_a_fallback_is_another_model():
 def test_production_sends_nothing_off_its_own_network_unencrypted(
     deployment, monkeypatch, tmp_path
 ):
-    # A managed database, a scanner on another host, a hosted embeddings endpoint and a copy of
-    # the breached passwords' list elsewhere are each reached across networks nobody in the
-    # deployment controls.
+    # A managed database, a scanner on another host, a hosted embeddings endpoint, a copy of
+    # the breached passwords' list and a queue of the mail's bounces elsewhere are each reached
+    # across networks nobody in the deployment controls.
     deployment.update(
         database_url="postgresql+psycopg://app:secret@db.example.com:5432/emudoc",
         scanner_url="clamd://clamav.example.com:3310",
         embedding_base_url="http://embeddings.example.com/v1",
         pwned_passwords_url="http://pwned.example.com",
+        mail_events_queue="http://sqs.example.com/123456789012/mail-events",
     )
     with pytest.raises(SystemExit) as stop:
         load_settings(**deployment)
     lines = stop.value.code.splitlines()[1:]
-    assert len(lines) == 4
+    assert len(lines) == 5
     assert "DATABASE_URL connects to db.example.com without sslmode=verify-full" in lines[0]
     assert "SCANNER_URL streams every upload to the ClamAV daemon at clamav.example.com" in lines[1]
     assert (
@@ -546,6 +574,10 @@ def test_production_sends_nothing_off_its_own_network_unencrypted(
     assert (
         "PWNED_PASSWORDS_URL sends the start of the hash of every new password to "
         "pwned.example.com over plain HTTP" in lines[3]
+    )
+    assert (
+        "MAIL_EVENTS_QUEUE sends the worker's requests for the addresses whose mail bounced to "
+        "sqs.example.com over plain HTTP" in lines[4]
     )
     assert "secret" not in stop.value.code
 
@@ -559,6 +591,7 @@ def test_production_sends_nothing_off_its_own_network_unencrypted(
         scanner_url="clamd://clamav:3310",
         embedding_base_url="https://embeddings.example.com/v1",
         pwned_passwords_url="http://pwned:8080",
+        mail_events_queue="https://sqs.eu-central-1.amazonaws.com/123456789012/mail-events",
     )
     assert load_settings(**deployment).production_problems() == []
 
@@ -675,22 +708,27 @@ def test_a_deployment_logs_json_and_development_text(deployment, monkeypatch):
         load_settings(**deployment)
 
 
+QUEUE = "https://sqs.eu-central-1.amazonaws.com/123456789012/emudoc-production-mail-events"
+
+
 def test_a_process_that_runs_the_worker_needs_a_pool_for_its_threads(deployment):
-    # Each indexing and answering thread holds a connection while it works, and the heartbeat,
-    # housekeeper, alerter and the metrics' reading take one now and then; a pool that cannot
-    # hold them all would fail jobs for a reason the operator set, so the settings are refused
-    # with the arithmetic.
-    deployment.update(run_worker=True, worker_concurrency=19, answer_concurrency=8)
+    # Each indexing, answering and mail thread holds a connection while it works, and the
+    # heartbeat, housekeeper, alerter and the metrics' reading take one now and then, and with
+    # SES's queue its reader; a pool that cannot hold them all would fail jobs for a reason the
+    # operator set, so the settings are refused with the arithmetic.
+    deployment.update(run_worker=True, worker_concurrency=18, answer_concurrency=8)
     with pytest.raises(
-        ValueError, match="WORKER_CONCURRENCY is 19 and ANSWER_CONCURRENCY is 8"
+        ValueError, match="WORKER_CONCURRENCY is 18 and ANSWER_CONCURRENCY is 8"
     ) as error:
         load_settings(**deployment)
     assert "need 31 database connections" in str(error.value)
     assert "DB_POOL_SIZE + DB_MAX_OVERFLOW allows 30" in str(error.value)
-    assert load_settings(**deployment, db_max_overflow=21).worker_concurrency == 19
-    # The defaults hold the default threads.
+    assert load_settings(**deployment, db_max_overflow=21).worker_concurrency == 18
+    with pytest.raises(ValueError, match="need 32 database connections"):
+        load_settings(**deployment, db_max_overflow=21, mail_events_queue=QUEUE)
+    # The defaults hold the default threads, the queue's reader too.
     del deployment["worker_concurrency"], deployment["answer_concurrency"]
-    settings = load_settings(**deployment)
+    settings = load_settings(**deployment, mail_events_queue=QUEUE)
     assert (settings.worker_concurrency, settings.answer_concurrency) == (16, 8)
     assert (settings.db_pool_size, settings.db_max_overflow) == (10, 20)
     # An API replica that runs no worker has no indexing threads to hold connections.

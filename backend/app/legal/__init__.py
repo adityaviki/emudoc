@@ -28,6 +28,7 @@ from string import Template
 
 from app.accounts import Account
 from app.auth import BROWSER_COOKIE, BROWSER_KNOWN_FOR, CREDENTIAL_HISTORY, SESSION_COOKIE
+from app.bounces import SUPPRESSED_FOR
 from app.config import REGIONS, Settings, model_provider, parse_scanner_url
 from app.entitlements import CHARS_PER_PAGE, PLANS, Entitlements
 from app.network import MODEL_BASE_URLS, host_of, on_own_network
@@ -152,6 +153,7 @@ def privacy_policy(
                 _connection_records(settings.access_log_days, storage),
                 _error_reports(settings.sentry_dsn),
                 _billing_records(settings),
+                _undeliverable(settings),
             )
             if bullet
         ),
@@ -162,6 +164,10 @@ def privacy_policy(
                 "- **Billing records**, as long as the organisation exists; the payment "
                 "provider keeps the invoices as long as the law on accounts requires."
                 if settings.stripe_secret_key
+                else "",
+                f"- **Addresses mail could not be delivered to**, {SUPPRESSED_FOR.days} days, "
+                "or until the address's own user turns notices on again."
+                if _hears_of_bounces(settings)
                 else "",
             )
             if bullet
@@ -330,6 +336,22 @@ def _billing_records(settings: Settings) -> str:
         "payment details, the billing address and VAT id, and the invoices, with the email "
         "address of the owner who bought it; we never see a card's number. We need them to "
         "bill the organisation under its contract with us."
+    )
+
+
+def _hears_of_bounces(settings: Settings) -> bool:
+    """Whether the mail provider tells the deployment which addresses to spare (app/bounces.py)."""
+    return bool(settings.resend_webhook_secret or settings.mail_events_queue)
+
+
+def _undeliverable(settings: Settings) -> str:
+    """What is kept of an address the mail provider said not to write to, where it says so."""
+    if not _hears_of_bounces(settings):
+        return ""
+    return (
+        "- **Mail that could not be delivered**: when our email provider tells us that mail to "
+        "an address bounced for good or that its reader marked it as spam, the address (as a "
+        "hash only) and which of the two, so that we send it no notices."
     )
 
 

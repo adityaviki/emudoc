@@ -32,7 +32,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings, parse_scanner_url
 from app.db import SessionLocal
 from app.errors import AppError
-from app.mail import Mailer
+from app.mail import Mailer, Message
 from app.models import Document, Organization, Project, UsageEvent, User
 from app.usage import DOCUMENT, UPLOAD
 
@@ -311,6 +311,6 @@ def alert_quarantines(mailer: Mailer, to: str) -> int:
         if not quarantines:
             return 0
         subject, body = quarantines_email(quarantines)
-        mailer.send(to, subject, body)
+        mailer.send(Message(to, subject, body))
         session.commit()
     return len(quarantines)

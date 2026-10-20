@@ -22,6 +22,7 @@ from app.api import (
     documents,
     folders,
     invitations,
+    mail,
     organizations,
     projects,
     query,
@@ -370,8 +371,11 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.services = prepare(settings, services)
+        # What the worker sends the posted mail and its reports through, when it runs here.
+        app.state.services.mailer = (
+            mailer or app.state.services.mailer or mailer_from_settings(settings)
+        )
         app.state.policy = content_security_policy(app.state.services.storage)
-        app.state.mailer = mailer or mailer_from_settings(settings)
         app.state.http = http or httpx.Client(timeout=10)
         # The threads the page images and thumbnails are drawn in, one per render process
         # (app/rendering.py): a request beyond them waits without holding a thread of its own.
@@ -383,7 +387,7 @@ def create_app(
             app.state.worker = Worker(
                 app.state.services,
                 settings.worker_concurrency,
-                app.state.mailer,
+                app.state.services.mailer,
                 answer_concurrency=settings.answer_concurrency,
             )
         # The metrics' own server (METRICS_ADDRESS), with the worker's figures when the worker
@@ -443,9 +447,11 @@ def create_app(
         billing.router,
     ):
         app.include_router(router, prefix="/api", dependencies=[Depends(refuse_cross_site)])
-    # Stripe's events carry no header of the app's: their signature proves where they came from
-    # (app/api/billing.py).
+    # Stripe's and Resend's events carry no header of the app's: their signature proves where
+    # they came from (app/api/billing.py, app/api/mail.py); nor does a mail program's one-click
+    # unsubscribe, whose token says whose notices stop.
     app.include_router(billing.events, prefix="/api")
+    app.include_router(mail.events, prefix="/api")
 
     if FRONTEND_DIST.is_dir():
         # Serve the built frontend; unknown paths fall back to index.html for client routing.

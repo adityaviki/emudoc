@@ -561,6 +561,8 @@ export interface Me {
   name: string
   /** The IANA zone the mail Emudoc sends the user is dated in, '' for UTC until they choose one. */
   time_zone: string
+  /** Whether the user is mailed notices, the mail they may do without. */
+  notices_by_email: boolean
   email_verified: boolean
   mfa_enabled: boolean
   /** Providers the account can sign in through, such as "google". */
@@ -858,8 +860,15 @@ export const auth = {
   verifyMfa: (code: string) => request<Me>('/auth/mfa/verify', json('POST', { code })),
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
 
-  /** A field left out stays as it is. */
-  updateProfile: (body: { name?: string; time_zone?: string }) => request<Me>('/auth/profile', json('PATCH', body)),
+  /** A field left out stays as it is; turning notices on writes again to an address that bounced. */
+  updateProfile: (body: { name?: string; time_zone?: string; notices_by_email?: boolean }) =>
+    request<Me>('/auth/profile', json('PATCH', body)),
+  /**
+   * Stops the notices of the user a notice's link was made for, signed in or not: the token in
+   * the link says whose. Mirrors `unsubscribe` in backend/app/api/mail.py.
+   */
+  unsubscribe: (token: string) =>
+    request<void>(`/mail/unsubscribe?${new URLSearchParams({ token })}`, { method: 'POST' }),
   /**
    * Mails the link that makes `email` the account's, confirmed by the password, or by the current
    * address for an account without one. Answers alike whether or not the address has an account.

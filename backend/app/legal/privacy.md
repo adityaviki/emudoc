@@ -17,7 +17,7 @@ organisation uploaded a document about you, ask the organisation first; we help 
 ## What we keep, and why
 
 - **Your account**: your email address, your name, the time zone our email to you is dated in,
-  your password (as a hash only, from which it cannot be read back), whether you confirmed your
+  whether you want notices by email, your password (as a hash only, from which it cannot be read back), whether you confirmed your
   address, the Google or Microsoft account you sign in with, and with two-factor sign-in your
   authenticator's secret (encrypted) and the hashes of your recovery codes, and which version
   of these terms you accepted and when. We need them to give you an account, under our
@@ -56,7 +56,9 @@ We send you email only about your account: to confirm your address or a new one,
 address when it was replaced or when another account asked to take it, to reset your password,
 to tell you when sign-ins to it were paused after many wrong passwords, and to confirm that you
 asked for your account to be deleted; and to an address a member of an organisation invited,
-the invitation.$billing_mail We send no marketing, show no advertising, sell no personal data
+the invitation.$billing_mail Besides, we may send you notices about your work in the service,
+which you can turn off on your account page or with the link at the foot of each. We send no
+marketing, show no advertising, sell no personal data
 and build no profile of you.
 
 ## Who receives it

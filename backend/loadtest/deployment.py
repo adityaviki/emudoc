@@ -118,6 +118,9 @@ class Deployment:
             "DATA_REGION": "",
             "SCANNER_URL": "off",
             "SMTP_URL": "",
+            "RESEND_API_KEY": "",
+            "RESEND_WEBHOOK_SECRET": "",
+            "MAIL_EVENTS_QUEUE": "",
             "PWNED_PASSWORDS_URL": "",
             "MODEL_PRICES": "",
             "DAILY_SPEND_CAP": "0",
@@ -220,12 +223,13 @@ class Deployment:
         )
 
     def link_mailed_to(self, address: str, seconds: float = 10) -> str:
-        """The first link of the newest message to `address` in the API's log, once it is there:
-        the run has no mail relay, so the app's log mailer writes each message to the log."""
+        """The first link of the newest message to `address` in the worker's log, once it is
+        there: the run has no mail relay, so the log mailer of the worker's mail lane writes
+        each message to the log."""
         deadline = time.monotonic() + seconds
         while True:
             found = None
-            for line in (self.directory / "api.log").read_text().splitlines():
+            for line in (self.directory / "worker.log").read_text().splitlines():
                 try:
                     message = json.loads(line).get("message", "")
                 except (ValueError, AttributeError):
@@ -237,7 +241,7 @@ class Deployment:
             if found is not None:
                 return found
             if time.monotonic() > deadline:
-                sys.exit(f"No message to {address} in the API's log within {seconds:g} seconds.")
+                sys.exit(f"No message to {address} in the worker's log within {seconds:g} seconds.")
             time.sleep(0.1)
 
     def stop(self) -> None:

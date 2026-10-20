@@ -57,7 +57,14 @@ from sqlalchemy import Engine, text
 from app.config import Settings, parse_metrics_address
 from app.db import SessionLocal, engine
 from app.errors import AppError, summary
-from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT, JOB_STATES, QUEUE_BY_STATE, RENDER_PAGES
+from app.jobs import (
+    ANSWER_QUESTION,
+    INDEX_DOCUMENT,
+    JOB_STATES,
+    QUEUE_BY_STATE,
+    RENDER_PAGES,
+    SEND_EMAIL,
+)
 from app.models import STAGES
 from app.postgres import archive, database_report
 from app.spending import day_of, spent_since
@@ -82,10 +89,12 @@ NO_ROUTE = "other"
 # dashboard's series start at zero rather than appear with the first one.
 DOCUMENT_STATUSES = ("queued", "processing", "ready", "failed", "quarantined")
 # The kinds of job the worker runs (HANDLERS in app/worker.py), whose series start at zero.
-JOBS = (INDEX_DOCUMENT, ANSWER_QUESTION, RENDER_PAGES)
+JOBS = (INDEX_DOCUMENT, ANSWER_QUESTION, RENDER_PAGES, SEND_EMAIL)
 # What a lane of the worker's threads runs (app/worker.py).
 INDEXER = "indexer"
 ANSWERER = "answerer"
+MAILER = "mailer"
+LANES = (INDEXER, ANSWERER, MAILER)
 # How a stage, a document's run and a job may end, and why an upload may refuse a file: the
 # counters start at zero under each, since `increase` and `rate` cannot see a series' first
 # count, and an alert on the first failure after a start would otherwise miss it. A model's
@@ -104,6 +113,10 @@ STAGE_OUTCOMES = (
 INDEX_OUTCOMES = ("ready", "failed", "quarantined")
 PARSE_STATES = ("running", "waiting")
 JOB_OUTCOMES = ("done", "failed", "crashed", "abandoned", "lost", "unsettled")
+# How a message's try ended (app/postbox.py), and what a provider said of a delivered one
+# (app/bounces.py).
+MAIL_OUTCOMES = ("sent", "retried", "failed")
+MAIL_EVENT_KINDS = ("bounce", "complaint")
 UPLOAD_REFUSALS = (
     "too_many",
     "plan",
@@ -231,6 +244,19 @@ UPLOAD_REJECTIONS = Counter(
     "duplicate.",
     ["reason"],
 )
+MAIL_SENT = Counter(
+    "emudoc_mail_sent",
+    "Tries of the mail the app posted, by how each ended: sent, handed to the relay or the "
+    "provider; retried, refused for now and queued again; failed, refused for good or for the "
+    "last time. The operator's own reports are not counted.",
+    ["outcome"],
+)
+MAIL_EVENTS = Counter(
+    "emudoc_mail_events",
+    "Addresses the mail provider said not to write to, by why: bounce, mail to it bounced for "
+    "good; complaint, its reader marked a message as spam.",
+    ["kind"],
+)
 RATE_LIMITED = Counter(
     "emudoc_rate_limited",
     "Requests refused for a rate (the RATE_* settings), by the limit's scope.",
@@ -277,6 +303,10 @@ def _start_at_zero() -> None:
         UPLOAD_REJECTIONS.labels(reason)
     for state in PARSE_STATES:
         PARSES.labels(state)
+    for outcome in MAIL_OUTCOMES:
+        MAIL_SENT.labels(outcome)
+    for kind in MAIL_EVENT_KINDS:
+        MAIL_EVENTS.labels(kind)
 
 
 _start_at_zero()
@@ -408,7 +438,7 @@ class Pool:
 
 
 class Lanes:
-    """A worker's job threads by lane (indexer, answerer): those alive, and those running a
+    """A worker's job threads by lane (indexer, answerer, mailer): those alive, and those running a
     job now; and whether it hears of queued jobs as they are queued. A worker whose thread
     ended exits to be restarted (app/worker.py), so the live workers are the processes that
     answer, and the busy share says whether they keep up."""
@@ -419,7 +449,7 @@ class Lanes:
     def collect(self) -> Iterable[Metric]:
         threads = GaugeMetricFamily(
             "emudoc_worker_threads",
-            "The worker's job threads that are alive, by lane (indexer, answerer).",
+            "The worker's job threads that are alive, by lane (indexer, answerer, mailer).",
             labels=["lane"],
         )
         busy = GaugeMetricFamily(
@@ -663,4 +693,6 @@ def export_metrics(settings: Settings, worker: "Worker | None" = None) -> Export
 
 def lane_of(kind: str) -> str:
     """The lane of the worker's threads that runs a job of `kind` (app/worker.py)."""
+    if kind == SEND_EMAIL:
+        return MAILER
     return ANSWERER if kind == ANSWER_QUESTION else INDEXER

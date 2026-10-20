@@ -45,7 +45,6 @@ plan once it comes, are mailed to the owners with the same account of what they 
 import logging
 import uuid
 from collections.abc import Iterator, Mapping
-from contextlib import suppress
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta, tzinfo
 
@@ -73,9 +72,9 @@ from app.entitlements import (
     seats_of,
 )
 from app.mail import (
-    Mailer,
-    MailError,
+    Message,
     cancellation_email,
+    compose,
     payment_failed_email,
     plan_lapsed_email,
     plan_lowered_email,
@@ -84,6 +83,7 @@ from app.mail import (
 from app.models import PLANS as PLAN_NAMES
 from app.models import BillingEvent, Membership, Organization, User
 from app.payments import Stripe
+from app.postbox import post
 from app.retention import (
     RETENTION_HELD,
     Held,
@@ -244,15 +244,6 @@ class Change:
     kept: Kept
     held: Held | None
     at: datetime | None
-
-
-@dataclass(frozen=True)
-class Mail:
-    """A message billing sends once its transaction committed."""
-
-    to: str
-    subject: str
-    body: str
 
 
 class BillingRefused(Exception):
@@ -726,11 +717,13 @@ def plan_change(
     )
 
 
-def finish_portal(session: Session, stripe: Stripe, account: Account, app_url: str) -> list[Mail]:
+def finish_portal(
+    session: Session, stripe: Stripe, account: Account, app_url: str
+) -> list[Message]:
     """Put the organisation on what its subscription is as Stripe holds it, once an owner is
-    back from the portal, rather than wait for Stripe's event, which says the same; returns the
+    back from the portal, rather than wait for Stripe's event, which says the same; posts the
     mail for what this found first (a cancellation, a lower plan), which the event then does
-    not send again. The caller sends it."""
+    not post again, and returns it."""
     org_id = account.organization.id
     subscription_id = account.organization.stripe_subscription_id
     session.commit()
@@ -740,6 +733,7 @@ def finish_portal(session: Session, stripe: Stripe, account: Account, app_url: s
     organization = _held(session, org_id)
     applied = apply_subscription(session, organization, subscription)
     mails = _news(session, organization, applied, app_url)
+    _post(session, organization.id, mails)
     session.commit()
     return mails
 
@@ -924,11 +918,12 @@ def _held(session: Session, org_id: int) -> Organization:
 # Stripe's events
 
 
-def handle_event(session: Session, stripe: Stripe, event: Mapping, app_url: str) -> list[Mail]:
-    """Act on a Stripe event once, and return the mail to send once it is committed. An event
-    of a kind not acted on, one seen before, and one about a customer that is no organisation's
-    change nothing. Stripe is asked for the subscription an event names before anything is held,
-    and a PaymentsError leaves everything as it was, for Stripe to deliver the event again."""
+def handle_event(session: Session, stripe: Stripe, event: Mapping, app_url: str) -> list[Message]:
+    """Act on a Stripe event once, posting the mail it calls for in the same transaction, and return
+    that mail. An event of a kind not acted on, one seen before, and one about a customer that
+    is no organisation's change nothing. Stripe is asked for the subscription an event names
+    before anything is held, and a PaymentsError leaves everything as it was, for Stripe to
+    deliver the event again."""
     kind = event.get("type")
     if kind not in EVENTS:
         return []
@@ -954,7 +949,7 @@ def handle_event(session: Session, stripe: Stripe, event: Mapping, app_url: str)
         session.rollback()
         return []
     organization = _held(session, org_id)
-    mails: list[Mail] = []
+    mails: list[Message] = []
     if pack:
         record_pack(session, organization, found)
     elif subscription is not None:
@@ -964,6 +959,7 @@ def handle_event(session: Session, stripe: Stripe, event: Mapping, app_url: str)
             mails += _trial_mail(session, organization, app_url)
     else:
         mails += _payment_failed(session, organization, found, app_url)
+    _post(session, organization.id, mails)
     session.commit()
     return mails
 
@@ -1001,7 +997,7 @@ def _first_time(session: Session, event: Mapping) -> bool:
 
 def _payment_failed(
     session: Session, organization: Organization, invoice: Mapping, app_url: str
-) -> list[Mail]:
+) -> list[Message]:
     """A payment of the organisation's subscription failed: the grace period starts, if it has
     not, and the owners are told how to pay before it ends; once it is over, the organisation
     is on Free, and they are told that."""
@@ -1025,9 +1021,9 @@ def _payment_failed(
     pay = invoice.get("hosted_invoice_url")
     pay = pay if isinstance(pay, str) and pay.startswith("https://") else None
     return [
-        Mail(
+        compose(
             email,
-            *payment_failed_email(
+            payment_failed_email(
                 name,
                 organization.name,
                 plan,
@@ -1040,12 +1036,12 @@ def _payment_failed(
     ]
 
 
-def _trial_mail(session: Session, organization: Organization, app_url: str) -> list[Mail]:
+def _trial_mail(session: Session, organization: Organization, app_url: str) -> list[Message]:
     ends = organization.trial_ends_at
     return [
-        Mail(
+        compose(
             email,
-            *trial_ending_email(
+            trial_ending_email(
                 name,
                 organization.name,
                 organization.plan.capitalize(),
@@ -1060,7 +1056,7 @@ def _trial_mail(session: Session, organization: Organization, app_url: str) -> l
 
 def _news(
     session: Session, organization: Organization, applied: Applied, app_url: str
-) -> list[Mail]:
+) -> list[Message]:
     """The mail what a subscription did calls for, to the owners: a plan lost for want of a
     payment, a lower plan where it leaves the organisation read-only or keeps chats or audit
     rows for less time, a cancellation. An organisation whose terms are agreed gets none,
@@ -1079,12 +1075,12 @@ def _news(
 
 def _lapsed_mail(
     session: Session, organization: Organization, was_plan: str, app_url: str
-) -> list[Mail]:
+) -> list[Message]:
     over, kept, until = _lowering(session, organization)
     return [
-        Mail(
+        compose(
             email,
-            *plan_lapsed_email(
+            plan_lapsed_email(
                 name,
                 organization.name,
                 was_plan.capitalize(),
@@ -1100,12 +1096,12 @@ def _lapsed_mail(
 
 def _lowered_mail(
     session: Session, organization: Organization, applied: Applied, app_url: str
-) -> list[Mail]:
+) -> list[Message]:
     over, kept, until = _lowering(session, organization)
     return [
-        Mail(
+        compose(
             email,
-            *plan_lowered_email(
+            plan_lowered_email(
                 name,
                 organization.name,
                 applied.was_plan.capitalize(),
@@ -1140,15 +1136,15 @@ def _words(excesses: list[Excess]) -> str | None:
     return listed([excess.words for excess in excesses]) if excesses else None
 
 
-def _cancelled_mail(session: Session, organization: Organization, app_url: str) -> list[Mail]:
+def _cancelled_mail(session: Session, organization: Organization, app_url: str) -> list[Message]:
     change = plan_change(session, organization, FREE)
     over = _words(change.over)
     kept = shortened(change.held.kept, change.kept) if change.held else None
     until = change.held.until if change.held else None
     return [
-        Mail(
+        compose(
             email,
-            *cancellation_email(
+            cancellation_email(
                 name,
                 organization.name,
                 organization.plan.capitalize(),
@@ -1174,18 +1170,17 @@ def _owners(session: Session, org_id: int) -> Iterator[tuple[str, str, tzinfo]]:
         yield user.email, user.name, zone_of(user.time_zone)
 
 
-def send_mail(mailer: Mailer, mails: list[Mail]) -> None:
-    """Send billing's mail, each message on its own: one the relay refuses is logged by the
-    mailer and the others still go."""
+def _post(session: Session, org_id: int, mails: list[Message]) -> None:
+    """Queue billing's mail in the transaction that acted, so that it is sent once with what it
+    says (app/postbox.py)."""
     for mail in mails:
-        with suppress(MailError):
-            mailer.send(mail.to, mail.subject, mail.body)
+        post(session, mail.to, mail, org_id)
 
 
 # The housekeeper's
 
 
-def end_grace_periods(mailer: Mailer | None, now: datetime | None = None) -> int:
+def end_grace_periods(now: datetime | None = None) -> int:
     """Move to the Free plan every organisation whose payment has failed for longer than
     BILLING_GRACE_DAYS, each in a transaction of its own, and tell its owners; returns how many.
     Stripe goes on trying, and once the payment is made, its event puts the plan back."""
@@ -1212,11 +1207,10 @@ def end_grace_periods(mailer: Mailer | None, now: datetime | None = None) -> int
             was_plan = organization.plan
             change_plan(session, organization, FREE, because="grace_ended")
             mails = _lapsed_mail(session, organization, was_plan, settings.app_url.rstrip("/"))
+            _post(session, organization.id, mails)
             session.commit()
         moved += 1
         log.info("Organisation %s moved to the Free plan: its payment failed", organization.id)
-        if mailer is not None:
-            send_mail(mailer, mails)
 
 
 def prune_billing_events(connection: Connection) -> int:

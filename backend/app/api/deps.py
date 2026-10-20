@@ -58,7 +58,6 @@ from app.entitlements import PlanRefused, read_only
 from app.indexing.pipeline import Services
 from app.legal import terms_due, terms_pending
 from app.logs import about
-from app.mail import Mailer
 from app.models import Chat, Document, Folder, Passage, Project, User
 from app.ratelimit import Key, Limit, by_user, hit
 from app.retention import deletion_pending
@@ -107,10 +106,6 @@ def get_worker(request: Request) -> Worker | None:
     return request.app.state.worker
 
 
-def get_mailer(request: Request) -> Mailer:
-    return request.app.state.mailer
-
-
 def get_http(request: Request) -> httpx.Client:
     """The client for calls the app makes to other services, such as the OAuth providers."""
     return request.app.state.http
@@ -118,8 +113,21 @@ def get_http(request: Request) -> httpx.Client:
 
 ServicesDep = Annotated[Services, Depends(get_services)]
 WorkerDep = Annotated[Worker | None, Depends(get_worker)]
-MailerDep = Annotated[Mailer, Depends(get_mailer)]
 HttpDep = Annotated[httpx.Client, Depends(get_http)]
+
+
+async def body_within(request: Request, limit: int, too_large: str) -> bytes:
+    """A webhook's body as it came, which its signature is over, refused with 413 and
+    `too_large` past `limit` bytes, whatever the request says its length is."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdecimal() and int(declared) > limit:
+        raise HTTPException(413, too_large)
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > limit:
+            raise HTTPException(413, too_large)
+    return bytes(body)
 
 
 async def refuse_cross_site(request: Request) -> None:

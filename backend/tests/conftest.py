@@ -107,6 +107,10 @@ os.environ["METRICS_ADDRESS"] = ""
 # New passwords are checked against no breach list, which would be a request to Have I Been
 # Pwned; tests/test_passwords.py points the check at `FakePwnedPasswords`.
 os.environ["PWNED_PASSWORDS_URL"] = ""
+# Mail goes to the fakes, whatever `.env` says: no relay, no Resend, no queue of SES's events;
+# tests/test_mail.py and tests/test_bounces.py set them against fakes of their own.
+os.environ["SMTP_URL"] = os.environ["RESEND_API_KEY"] = ""
+os.environ["RESEND_WEBHOOK_SECRET"] = os.environ["MAIL_EVENTS_QUEUE"] = ""
 # Nothing is sold, whatever `.env` says; tests/test_billing.py turns billing on against
 # `FakeStripe`.
 os.environ["STRIPE_SECRET_KEY"] = os.environ["STRIPE_WEBHOOK_SECRET"] = ""
@@ -149,12 +153,14 @@ from app.indexing.enrich import (  # noqa: E402
     WindowAnalysis,
 )
 from app.indexing.pipeline import Services, process_document  # noqa: E402
-from app.jobs import queue_index  # noqa: E402
+from app.jobs import SEND_EMAIL, claim, finish, queue_index  # noqa: E402
 from app.legal import TERMS_VERSION  # noqa: E402
 from app.llm import LLMUnavailable, OcrBlock, OcrPage  # noqa: E402
+from app.mail import Message  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models import NATURAL_ORDER, Document, Membership, Organization, Project, User  # noqa: E402
 from app.parsing import MIME_TYPES  # noqa: E402
+from app.postbox import deliver  # noqa: E402
 from app.scanning import ScanError  # noqa: E402
 from app.storage import original_key, storage_from_settings  # noqa: E402
 
@@ -598,13 +604,53 @@ class FakeS3Client:
 
 
 class FakeMailer:
-    """Keeps the messages the app sends, so a test can follow the link in one."""
+    """Keeps the messages the app sends, so a test can follow the link in one.
+
+    The mail the app posts through the queue (app/postbox.py) is delivered through it, by the
+    worker's own handler, when a test reads `sent` or `messages`: the suite runs no worker, so
+    until then a member's message waits in the queue as it would for the mail lane. A due one is
+    delivered; one queued again for later is not. `sent` holds each message's address, subject
+    and text, `messages` the whole `Message`."""
+
+    WORKER = "test-mailer"
 
     def __init__(self):
-        self.sent: list[tuple[str, str, str]] = []
+        self._sent: list[tuple[str, str, str]] = []
+        self._messages: list[Message] = []
 
-    def send(self, to: str, subject: str, body: str) -> None:
-        self.sent.append((to, subject, body))
+    def send(self, message: Message) -> None:
+        self._sent.append((message.to, message.subject, message.text))
+        self._messages.append(message)
+
+    @property
+    def sent(self) -> list[tuple[str, str, str]]:
+        self.deliver()
+        return self._sent
+
+    @property
+    def messages(self) -> list[Message]:
+        self.deliver()
+        return self._messages
+
+    def deliver(self) -> int:
+        """Send what the queue holds that is due, as the mail lane would, and keep it in the
+        order it was posted, which the claim's order between organisations need not be; returns
+        how many were tried."""
+        tried: list[tuple[int, int]] = []
+        while (job := claim(self.WORKER, [SEND_EMAIL])) is not None:
+            before = len(self._sent)
+            reason = deliver(job, self)
+            finish(job, self.WORKER, "failed" if reason else "done", reason)
+            tried.append((job.id, before))
+        if tried:
+            first = tried[0][1]
+            ends = [start for _, start in tried[1:]] + [len(self._sent)]
+            batches = sorted(
+                (job_id, start, end) for (job_id, start), end in zip(tried, ends, strict=True)
+            )
+            self._sent[first:] = [entry for _, a, b in batches for entry in self._sent[a:b]]
+            self._messages[first:] = [entry for _, a, b in batches for entry in self._messages[a:b]]
+        return len(tried)
 
     def link(self, index: int = -1) -> str:
         """The first link in a message's body, the last message by default."""
@@ -877,11 +923,12 @@ def session():
     with SessionLocal() as session_:
         # The platform's spending warnings belong to no organisation, so they are named too,
         # and so are the request counts of the rate limits, which the test client's one
-        # address would otherwise carry from test to test, and the watch's alerts.
+        # address would otherwise carry from test to test, the watch's alerts and the addresses
+        # the mail provider said to spare. The jobs go with the organisations they reference.
         session_.execute(
             text(
                 "TRUNCATE projects, organizations, users, spend_alerts, rate_limits, "
-                "watch_alerts, billing_events RESTART IDENTITY CASCADE"
+                "watch_alerts, billing_events, mail_suppressions RESTART IDENTITY CASCADE"
             )
         )
         session_.commit()

@@ -119,6 +119,42 @@ groups:
           summary: "The worker gave up on {{ $labels.kind }} jobs in the last 30 minutes."
           description: "python -m app.maintenance failed-jobs lists them with why; --requeue runs them again once the cause is fixed."
 
+  # The mail: links a person waits on at the screen, a relay that keeps saying "later", and the
+  # share of addresses the provider says bounce, which SES pauses an account over.
+  - name: emudoc-mail
+    rules:
+      - alert: EmudocMailWaiting
+        expr: max without (instance, process) (emudoc_job_oldest_due_seconds{kind="send_email"}) > 300
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The oldest email has waited {{ $value | humanizeDuration }} to be sent."
+          description: "Sign-up, sign-in and reset links wait with it. The mail lane is stuck or no worker claims: the worker's log says which."
+
+      - alert: EmudocMailRefused
+        expr: |
+          sum(increase(emudoc_mail_sent_total{outcome="retried"}[30m])) >= 3
+          unless
+          sum(increase(emudoc_mail_sent_total{outcome="sent"}[30m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "The mail relay has refused every email of the last 30 minutes, for now."
+          description: 'Each is tried again for half an hour, then given up. The worker''s log says what the relay answered (deploying.md, "Mail").'
+
+      - alert: EmudocMailBounces
+        expr: |
+          sum(increase(emudoc_mail_events_total[1d])) >= 5
+          and
+          sum(increase(emudoc_mail_events_total[1d]))
+            / sum(increase(emudoc_mail_sent_total{outcome="sent"}[1d])) > 0.03
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 3 in 100 emails sent in the last day bounced or were marked as spam."
+          description: 'SES reviews an account once 5 in 100 bounce and may pause it at 10: look for addresses typed wrong at sign-up or invited by mistake (deploying.md, "Mail").'
+
   - name: emudoc-models
     rules:
       - alert: EmudocModelsDown

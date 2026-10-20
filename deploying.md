@@ -36,9 +36,11 @@ on one machine; this is what changes for a deployment. The processes below run f
 - **An embeddings endpoint** in `EMBEDDING_BASE_URL`, which turns every passage and every
   search into a vector for search by meaning: llama.cpp's server beside the app, as the
   compose file runs it, or a hosted one: "The embeddings endpoint", below.
-- **An SMTP relay** in `SMTP_URL` for the sign-in links. A new account with a password is made
-  from the link its sign-up mails, so a relay that is down takes no new members but those of
-  Google and Microsoft; the form answers as usual, and the API's log names the failure.
+- **A mail relay** for the sign-in links: an SMTP relay in `SMTP_URL` (SES's on AWS), or Resend
+  through its API with `RESEND_API_KEY`, with the sending domain's SPF, DKIM and DMARC records
+  in its DNS, and the provider's news of what bounced reaching the app: "Mail", below. The
+  workers send the mail, so a relay that is down holds the links back while they try again
+  for half an hour; the form answers as usual, and the worker's log names the failure.
 - **The model providers** named by `INDEX_MODEL` and `AGENT_MODEL`, and by their fallbacks,
   each on terms that forbid training on what it is sent, each model named by its version and
   tried with `python -m app.maintenance models`: "The models" and "What leaves the deployment",
@@ -1325,6 +1327,135 @@ to them without undue delay. The app sets only the two cookies the policy names,
 for it to work, and loads nothing from other sites, so it shows no cookie banner; anything that
 adds an analytics or tracking cookie needs one, and a line in the policy.
 
+## Mail
+
+What the app mails, and to whom:
+
+- **What an account needs said**, sent whatever its member chose: the link that makes an
+  account and, to an address that has one already, the way back into it; the link that
+  confirms an address or a new one, and to the address left the news that it was; the reset
+  link; that sign-ins from new browsers were paused; that the account is set to be deleted;
+  an invitation; and to an organisation's owners what its subscription needs of them
+  ("Billing").
+- **Notices**, the mail a member may do without, about their work in the app rather than their
+  account. Each member has them on until they turn them off on the account page, or with the
+  link at the foot of every notice, and a mail program's own "Unsubscribe" turns them off in
+  one click: a notice carries `List-Unsubscribe` and `List-Unsubscribe-Post:
+  List-Unsubscribe=One-Click` (RFC 8058), whose address `/api/mail/unsubscribe` takes the
+  token in it, the member's id encrypted with `ENCRYPTION_KEYS`, as a mail program posts it,
+  without a session. A notice is not sent to an address the provider said to spare (below).
+- **The operator's reports** to `ALERT_EMAIL` ("What the worker mails").
+
+Every message has a plain text and an HTML part, both made from the same template, in one
+layout of the brand's colours; the only links in the HTML are the app's own, and the names a
+member typed (an inviter's, an organisation's) stay text there, however much they look like an
+address. A subject is the app's own sentence, which the log may repeat; names are in the body
+alone.
+
+### How it is sent
+
+The request that calls for a message posts it to the queue, in the transaction of the change it
+is about (`backend/app/postbox.py`): a `send_email` job, which a thread of the worker's own,
+the mail lane, sends as it is queued, so that neither a backlog of documents nor one of
+questions holds a link up, and no request waits on the relay. The mail lane is one thread per
+worker (`MAIL_THREADS` in `backend/app/config.py`), counted in the pool the worker needs. Without a worker no mail goes
+out: `EmudocNoWorker` and `EmudocMailWaiting` say so, and the queue keeps it.
+
+A relay that says "later" (out of reach, a 4xx answer of SMTP's, Resend's 429 or 5xx) gets the
+message again after 2, 4, 8 and 16 minutes; one that refuses it for good (a 5xx of SMTP's,
+another of Resend's 4xx, a certificate this machine does not trust), or for the fifth time,
+ends the job failed, which the operator hears of with the other jobs given up
+(`EmudocJobsGivenUp`, the worker's digest, `python -m app.maintenance failed-jobs`, which names
+it by its subject). Whoever waited for a link asks for another. The operator's reports skip
+the queue, since the queue may be what they report on, and go through the relay at once.
+
+A queued message with a link holds the link's token, which the database otherwise keeps only
+as a hash, and a reset link signs in. So the job keeps the message encrypted with
+`ENCRYPTION_KEYS` for the message's own key, and gives it up once it is sent or given up: a
+finished job keeps the subject alone, for the operator, until the finished jobs are pruned
+after a month. A key rotated meanwhile changes nothing, since the earlier key stays in the
+list ("The encryption keys"); a message whose key is gone is given up and says so.
+
+A worker that dies after handing a message over and before it recorded that, sends it again
+once its lease runs out. Through Resend that is once: the message's key goes as its
+`Idempotency-Key`, which Resend holds for a day. Through SMTP the member may get it twice.
+
+### The providers
+
+- **SMTP**: any relay, `smtp://user:password@host:587` (STARTTLS) or `smtps://…:465` (TLS), its
+  certificate checked against this machine's authorities and for the relay's name. On AWS the
+  module makes SES's, with credentials that may send from the domain and do nothing else.
+- **Resend**: `RESEND_API_KEY` (an API key with sending access, `re_…`) sends through
+  `https://api.resend.com/emails`, from `MAIL_FROM`, whose domain is added and verified in
+  Resend's dashboard first. Resend is then on the subprocessor list.
+- **Neither**: the log mailer writes each message, links and all, to the worker's log
+  (development's, where the API runs the worker). Production refuses to start so.
+
+Production refuses `SMTP_URL` and `RESEND_API_KEY` both set, a key that is not Resend's or a
+webhook secret that is not one, quoting neither.
+
+### The domain: SPF, DKIM and DMARC
+
+A receiving server believes a message from `MAIL_FROM`'s domain when it can check it, and a
+provider that is not believed lands in spam. Three records in the domain's DNS say so:
+
+- **DKIM**: each message is signed with a key the DNS publishes, so that a receiver can check
+  the domain sent it and nothing changed it.
+- **SPF**: which servers may send for the envelope's domain (the Return-Path, where bounces go),
+  a subdomain of the sending domain so that it aligns with the From domain.
+- **DMARC**, `_dmarc.<domain>`: asks receivers to hold the domain's mail to SPF or DKIM aligned
+  with the From domain, what to do with a message that fails (`p=none`, `quarantine` or
+  `reject`), and where to send reports of it (`rua=mailto:…`).
+
+On AWS the module makes all three for the `mail` domain: Easy DKIM's three CNAMEs, the envelope
+from `bounce.<domain>`, whose MX is SES's feedback address and whose TXT is `v=spf1
+include:amazonses.com ~all`, and `_dmarc.<domain>` with `v=DMARC1; p=quarantine`, the policy
+from `mail.dmarc_policy` and the reports' address from `mail.dmarc_reports`; `dmarc_policy = ""`
+makes none, for a zone that has its own already. With `dns_zone_id` they are made in Route 53,
+and otherwise `tofu output dns_records` lists them. Until the MX is found SES sends from its own
+envelope domain, and DMARC rests on DKIM alone. With Resend, its dashboard lists the domain's
+DKIM record and the SPF and MX of its envelope domain; the `_dmarc` record is the
+deployment's to add. Elsewhere, the relay's documentation says what to publish.
+
+Check it by mailing a mailbox the deployment does not run (a reset link to an account of
+one's own is enough) and reading the received message's `Authentication-Results` header:
+`spf=pass`, `dkim=pass` and `dmarc=pass`, each for the sending domain. `dig TXT
+_dmarc.<domain>` shows the policy.
+
+### Bounces and complaints
+
+A message to an address that does not exist bounces; a reader who marks one as spam
+complains. A provider that keeps sending to such addresses is not believed for long: SES
+reviews an account once 5 in 100 of its messages bounce, or 1 in 1,000 is complained of, and
+may pause it at 10 in 100 bounced or 5 in 1,000 complained of. The provider says which addresses, and the app keeps each, as the
+SHA-256 of the address and whether it bounced or complained (`mail_suppressions`,
+`backend/app/bounces.py`), for a year, and sends it no notices meanwhile; a bounce the provider
+calls transient (a full mailbox, a server that kept answering "later") is not kept. The mail an
+account needs is still posted: the provider keeps a list of its own and drops what goes to an
+address on it, and the app's list is for what the app chooses to send. A member who turns
+notices on again on the account page has their address written to again. The privacy policy
+names the list and its year where a provider reports to the deployment.
+
+- **SES**: the configuration set publishes its bounces and complaints to EventBridge, whose rule
+  takes this environment's (by the configuration set, since the account's bus is both
+  environments') into an SQS queue; the worker reads it every minute with the app role's
+  credentials (`sqs:ReceiveMessage`, `sqs:DeleteMessage` on the queue, nothing else), from
+  `MAIL_EVENTS_QUEUE`, which the module writes. A message the queue holds that is not an SES
+  event is dropped with a warning. SES itself drops what goes to an address on the account's
+  list; `aws sesv2 delete-suppressed-destination --email-address <address>` takes one off it
+  once it works again.
+- **Resend**: a webhook at `{APP_URL}/api/mail/events` in Resend's dashboard with the events
+  `email.bounced` and `email.complained` (any other is taken and does nothing), its signing
+  secret (`whsec_…`) in `RESEND_WEBHOOK_SECRET`. A request it did not sign, with that secret,
+  within five minutes, is refused with 400 and a warning in the log; without the secret the
+  route answers 404.
+- **Another SMTP relay** says nothing to the app: the bounces go to the envelope's address, and
+  every notice is sent.
+
+`emudoc_mail_sent_total` and `emudoc_mail_events_total` count what was sent and what the
+provider said ("Metrics"), and three rules watch them: `EmudocMailWaiting`, `EmudocMailRefused`
+and `EmudocMailBounces` ("Rules on the metrics").
+
 ## Billing
 
 With `STRIPE_SECRET_KEY` set the app sells its Pro and Team plans through Stripe
@@ -2142,11 +2273,13 @@ across the instances, `sum without (instance)`):
 | `emudoc_job_runs_total`, `emudoc_job_seconds`, `emudoc_job_wait_seconds` | Jobs a worker ran, by `kind` and `outcome` (`done`, `failed`, `crashed`, `abandoned`, `lost`, `unsettled`), how long each ran, and how long each waited for a worker once it was due |
 | `emudoc_answer_first_text_seconds` | How long a member waited from the question to its answer's first words: the job's wait and its run up to its first text, once a run ("Service levels") |
 | `emudoc_document_ready_seconds` | How long an upload took to be ready, from the upload to the end of its first indexing, retries and waits included, once a document ("Service levels") |
-| `emudoc_worker_threads{lane}`, `emudoc_worker_busy{lane}` | A worker's job threads alive and running a job, by `lane` (`indexer`, `answerer`) |
+| `emudoc_worker_threads{lane}`, `emudoc_worker_busy{lane}` | A worker's job threads alive and running a job, by `lane` (`indexer`, `answerer`, `mailer`) |
 | `emudoc_parses{state}` | A worker's parses `running`, each a child process (`PARSE_CONCURRENCY` at most), and indexers `waiting` for one to end ("Large documents") |
 | `emudoc_worker_listening` | 1 while a worker hears of queued jobs as they are queued, 0 while it polls for them: behind a pooler in transaction mode without `DATABASE_LISTEN_URL`, or while its listener's lost connection waits to be made again |
 | `emudoc_upload_bytes`, `emudoc_upload_rejections_total` | The sizes of the files the API stored, and the files it refused by `reason`: `too_many` (a whole request), `plan`, `unsupported`, `empty`, `too_large`, `wrong_type`, `duplicate` |
 | `emudoc_rate_limited_total` | Requests refused for a rate, by the limit's `scope` ("Rates") |
+| `emudoc_mail_sent_total` | Tries of the mail the app posted, by `outcome`: `sent`, `retried` (refused for now and queued again), `failed` (refused for good, or for the last time); the operator's own reports are not counted ("Mail") |
+| `emudoc_mail_events_total` | Addresses the mail provider said not to write to, by `kind`: `bounce`, `complaint`; counted by the API for Resend's, by the worker for SES's ("Mail") |
 | `emudoc_renders_total`, `emudoc_render_seconds` | PDF pages drawn as images, by `purpose` (`pane`, `thumbnail`, `ocr`, `ahead`) and `outcome`: `drawn`, `refused` (a page that cannot be drawn), `timeout` (`RENDER_TIMEOUT`), `out_of_memory` (`RENDER_MEMORY_MB`), `crashed` or `unstarted` (no process could draw it); the seconds include the wait for a free process ("Drawing pages") |
 | `process_*`, `python_*` | The process's CPU, memory and open files, and Python's collector |
 
@@ -2284,7 +2417,7 @@ listing what goes on meanwhile, whichever worker looked; what is raised and not 
 
 | Alert | When | Where to look |
 | --- | --- | --- |
-| Questions, or documents, wait for a worker | The oldest due question has waited 5 minutes, the oldest due document an hour | The workers' logs; more workers, or `ANSWER_CONCURRENCY`, `WORKER_CONCURRENCY` |
+| Questions, documents or emails wait for a worker | The oldest due question or email has waited 5 minutes, the oldest due document an hour | The workers' logs; more workers, or `ANSWER_CONCURRENCY`, `WORKER_CONCURRENCY`; for mail, a relay that hangs ("Mail") |
 | Indexing fails | Of the documents whose indexing ended in the last hour, 5 and half or more have a stage that failed, by stage; one waiting for a retry is not counted until it settles, and a summary or a vector that failed counts though the document is ready | Each document's stages; the worker's log; `python -m app.maintenance models` |
 | Answers fail | Of the answers written in the last hour, 5 and a quarter or more failed | The worker's log, `app.llm` and `app.answers`; `models`; a spending limit, which mails its own warning |
 | `AGENT_MODEL` (or `INDEX_MODEL`) fails over to its fallback | The fallback answered a request of the role's in the last hour (the usage events name the model that answered) | The worker's `app.llm` line: "was not found, or is served no longer" is a retired model, "was rejected" a key revoked or out of credit ("The models") |
@@ -2300,7 +2433,7 @@ question or an address.
 
 ### Rules on the metrics
 
-`deploy/prometheus/alerts.yml` holds 33 Prometheus alerting rules over the metrics ("Metrics",
+`deploy/prometheus/alerts.yml` holds 36 Prometheus alerting rules over the metrics ("Metrics",
 above), each tested against the series that should and should not fire it
 (`deploy/prometheus/alerts.test.yml`, `promtool test rules`, in CI). They expect the scrape
 configuration of `prometheus.yml` beside them: job `emudoc`, and `process` `api` or `worker`.
@@ -2312,6 +2445,7 @@ deployment.
 | --- | --- |
 | The processes | `EmudocProcessDown` (a target unanswered for 5 minutes), `EmudocNoWorker`, `EmudocNoApi`, `EmudocRestarting` (a process started twice again in half an hour: a worker exits when a thread ended), `EmudocWorkerNotListening` (polling for 10 minutes) |
 | The work | `EmudocQuestionsWaiting` (the oldest due question over a minute, for 5), `EmudocDocumentsWaiting` (the oldest due document over half an hour, for 15), `EmudocNoDatabaseFigures` (no worker serves them: none runs, or its readings fail), `EmudocStageFailing` (a stage failed or crashed in most of its runs of the last hour, 5 at least), `EmudocStageCrashing`, `EmudocJobsGivenUp` |
+| The mail | `EmudocMailWaiting` (the oldest due email over 5 minutes, for 5: links wait with it), `EmudocMailRefused` (the relay refused every email of half an hour, for now), `EmudocMailBounces` (over 3 in 100 of a day's mail bounced or complained of, 5 at least) |
 | The models | `EmudocModelsDown` (no model of a role answered in 15 minutes, its fallback included), `EmudocEmbeddingsDown`, `EmudocModelRefused` (401, 402, 403 or 404), `EmudocModelFallingBack`, `EmudocModelRateLimited` (10 refusals for the rate in 15 minutes), `EmudocModelErrors` (a fifth of the requests failing on the provider's side) |
 | Capacity | `EmudocPoolSaturated` (90 % of a process's connections in use for 10 minutes), `EmudocPoolTimeouts` (members answered "busy"), `EmudocStorageGrowing` (10 GiB of new originals in a day), `EmudocSpendNearCap` (80 % of `DAILY_SPEND_CAP`), `EmudocSpendCapReached` |
 | The database | `EmudocWalArchiveFailing`, `EmudocWalArchiveBehind`, `EmudocVacuumBehind` (10,000 dead rows and a fifth of a table, for an hour), `EmudocLongTransaction` (over an hour) |
@@ -3175,14 +3309,18 @@ The directories:
   `/run/emudoc/aws/app` (`emudoc-credentials.timer`), and boto3 reads the file again whenever
   the session it holds nears its end. The drill's dry run gets the storage reader's, which
   can only list the bucket.
-- **Mail**, when the root names a `mail` domain: SES with the domain verified by DKIM, and SMTP
-  credentials that may send from it and do nothing else, written into `SMTP_URL`. A new SES
+- **Mail**, when the root names a `mail` domain: SES with the domain verified by DKIM, its
+  envelope from `bounce.<domain>` for SPF, DMARC's record, and SMTP credentials that may send
+  from it and do nothing else, written into `SMTP_URL`; a configuration set every message of the
+  domain goes under, which sends only over TLS, keeps the account's list of addresses not to
+  send to, and publishes the bounces and complaints to EventBridge, whose rule puts this
+  environment's into an SQS queue the worker reads, `MAIL_EVENTS_QUEUE` ("Mail"). A new SES
   account sends only to verified addresses until AWS grants it production access, which is
   asked for by hand in SES's console. Without `mail`, `SMTP_URL` and `MAIL_FROM` go into the
   secrets path for a relay of the deployment's own.
-- **DNS**: with `dns_zone_id`, the domain's record and the DKIM records are made in Route 53;
-  otherwise `tofu output dns_records` lists them for the DNS kept elsewhere. Caddy asks Let's
-  Encrypt for the certificate once the name leads to the instance.
+- **DNS**: with `dns_zone_id`, the domain's record and the mail's DKIM, SPF and DMARC records
+  are made in Route 53; otherwise `tofu output dns_records` lists them for the DNS kept
+  elsewhere. Caddy asks Let's Encrypt for the certificate once the name leads to the instance.
 - **Alerts**: an SNS topic, under a key of the environment's own, that the instance reports a
   failed drill, a failed credentials renewal (the containers lose the bucket within the hour),
   a failed start or a container in trouble to (`emudoc-watch.timer`), that Alertmanager on the
@@ -3721,7 +3859,10 @@ and the like), named on its models' pages.
 
 | Variable | Default | In production | What |
 | --- | --- | --- | --- |
-| `SMTP_URL` | none: the mail is logged | required | The relay for the sign-in links and the operator's mail |
+| `SMTP_URL` | none: the mail is logged | required, or `RESEND_API_KEY` | The relay the mail goes through ("Mail") |
+| `RESEND_API_KEY` | none | a secret, or `SMTP_URL` | Resend's API key, which sends the mail through Resend instead ("Mail") |
+| `RESEND_WEBHOOK_SECRET` | none | a secret | The signing secret of Resend's webhook, which says what bounced ("Mail") |
+| `MAIL_EVENTS_QUEUE` | none | | The SQS queue of SES's bounces and complaints, which the worker reads ("Mail"; the AWS module writes it) |
 | `PWNED_PASSWORDS_URL` | `https://api.pwnedpasswords.com` | | Where new passwords are checked against breaches ("Rates"); empty checks nothing |
 | `ENCRYPTION_KEYS` | development's key, which is in the code | required, a secret | The keys the authenticators' secrets are encrypted with, the first encrypting ("The encryption keys") |
 | `MAIL_FROM` | `Emudoc <no-reply@localhost>` | | The sender |

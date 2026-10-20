@@ -46,6 +46,16 @@ mock_provider "aws" {
   mock_resource "aws_sns_topic" {
     defaults = { arn = "arn:aws:sns:eu-central-1:123456789012:emudoc-alerts" }
   }
+  mock_resource "aws_sqs_queue" {
+    defaults = {
+      arn = "arn:aws:sqs:eu-central-1:123456789012:emudoc-production-mail-events"
+      id  = "https://sqs.eu-central-1.amazonaws.com/123456789012/emudoc-production-mail-events"
+      url = "https://sqs.eu-central-1.amazonaws.com/123456789012/emudoc-production-mail-events"
+    }
+  }
+  mock_resource "aws_cloudwatch_event_rule" {
+    defaults = { arn = "arn:aws:events:eu-central-1:123456789012:rule/emudoc-production-mail-events" }
+  }
   mock_resource "aws_iam_access_key" {
     defaults = {
       id                   = "AKIAEXAMPLEKEY"
@@ -563,6 +573,10 @@ run "staging" {
     error_message = "Staging makes no DNS record, mail identity or subscription it was not asked for."
   }
   assert {
+    condition     = length(aws_sqs_queue.mail_events) == 0 && !contains(keys(aws_ssm_parameter.setting), "MAIL_EVENTS_QUEUE")
+    error_message = "Without mail there is no queue of its events for the worker to read."
+  }
+  assert {
     condition     = !contains(keys(aws_ssm_parameter.setting), "ALERT_EMAIL")
     error_message = "Without an alert address the app is given none."
   }
@@ -643,6 +657,105 @@ run "production" {
     ]) == "arn:aws:ssm:eu-central-1:123456789012:parameter/emudoc/production/release"
     error_message = "Production's role reads staging's release history, which release.sh checks a tag against, and records its own."
   }
+
+  # The mail: SPF and DMARC beside DKIM, and SES's news of what bounced for the worker.
+  assert {
+    condition = (
+      aws_sesv2_email_identity.mail[0].configuration_set_name == "emudoc-production"
+      && aws_sesv2_email_identity_mail_from_attributes.mail[0].mail_from_domain == "bounce.mail.example.com"
+      && aws_sesv2_email_identity_mail_from_attributes.mail[0].behavior_on_mx_failure == "USE_DEFAULT_VALUE"
+    )
+    error_message = "Everything the domain sends goes under the configuration set, its envelope from bounce.<domain>."
+  }
+  assert {
+    condition = (
+      aws_sesv2_configuration_set.mail[0].delivery_options[0].tls_policy == "REQUIRE"
+      && aws_sesv2_configuration_set.mail[0].suppression_options[0].suppressed_reasons == tolist(["BOUNCE", "COMPLAINT"])
+    )
+    error_message = "The mail reaches a server only encrypted, and SES drops what goes to an address on its list."
+  }
+  assert {
+    condition = (
+      aws_sesv2_configuration_set_event_destination.mail[0].event_destination[0].matching_event_types == toset(["BOUNCE", "COMPLAINT"])
+      && aws_sesv2_configuration_set_event_destination.mail[0].event_destination[0].event_bridge_destination[0].event_bus_arn == "arn:aws:events:eu-central-1:123456789012:event-bus/default"
+    )
+    error_message = "Bounces and complaints go to the account's default bus."
+  }
+  assert {
+    condition = jsondecode(aws_cloudwatch_event_rule.mail[0].event_pattern) == {
+      source        = ["aws.ses"]
+      "detail-type" = ["Email Bounced", "Email Complaint Received"]
+      detail        = { mail = { tags = { "ses:configuration-set" = ["emudoc-production"] } } }
+    }
+    error_message = "The rule takes this environment's bounces and complaints, not the other's on the same bus."
+  }
+  assert {
+    condition = (
+      aws_cloudwatch_event_target.mail[0].arn == aws_sqs_queue.mail_events[0].arn
+      && aws_sqs_queue.mail_events[0].sqs_managed_sse_enabled
+      && local.mail_events_policy.Statement[0].Principal == { Service = "events.amazonaws.com" }
+      && local.mail_events_policy.Statement[0].Condition.ArnEquals["aws:SourceArn"] == "arn:aws:events:eu-central-1:123456789012:rule/emudoc-production-mail-events"
+    )
+    error_message = "EventBridge sends the rule's events into the encrypted queue, and nothing else does."
+  }
+  assert {
+    condition = one([
+      for statement in local.app_policy.Statement : statement
+      if statement.Resource == "arn:aws:sqs:eu-central-1:123456789012:emudoc-production-mail-events"
+    ]).Action == ["sqs:ReceiveMessage", "sqs:DeleteMessage"]
+    error_message = "The app reads and removes the queue's events, and does nothing else to it."
+  }
+  assert {
+    condition     = aws_ssm_parameter.setting["MAIL_EVENTS_QUEUE"].value == "https://sqs.eu-central-1.amazonaws.com/123456789012/emudoc-production-mail-events"
+    error_message = "The worker is told where the queue is."
+  }
+  assert {
+    condition = {
+      for key, record in aws_route53_record.mail : key => tolist(record.records)
+      } == {
+      "MX bounce.mail.example.com"  = tolist(["10 feedback-smtp.eu-central-1.amazonses.com"])
+      "TXT bounce.mail.example.com" = tolist(["v=spf1 include:amazonses.com ~all"])
+      "TXT _dmarc.mail.example.com" = tolist(["v=DMARC1; p=quarantine"])
+    }
+    error_message = "With a zone, the MAIL FROM domain's MX and SPF and the domain's DMARC are made in it."
+  }
+}
+
+run "dmarc_asked_of_the_zone" {
+  command = plan
+  variables {
+    mail = {
+      domain        = "mail.example.com"
+      from          = "Emudoc <no-reply@mail.example.com>"
+      dmarc_policy  = "reject"
+      dmarc_reports = "dmarc@example.com"
+    }
+  }
+  assert {
+    condition = [for record in output.dns_records : record.value if record.name == "_dmarc.mail.example.com"] == [
+      "v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+    ]
+    error_message = "Without a zone, the DMARC record is listed, with the policy and the reports' address asked for."
+  }
+}
+
+run "dmarc_of_the_zone_s_own" {
+  command = plan
+  variables {
+    mail = { domain = "mail.example.com", from = "Emudoc <no-reply@mail.example.com>", dmarc_policy = "" }
+  }
+  assert {
+    condition     = length([for record in output.dns_records : record if record.name == "_dmarc.mail.example.com"]) == 0
+    error_message = "An empty policy makes no DMARC record, for a zone that has one."
+  }
+}
+
+run "a_dmarc_policy_that_is_none_of_them" {
+  command = plan
+  variables {
+    mail = { domain = "mail.example.com", from = "Emudoc <no-reply@mail.example.com>", dmarc_policy = "strict" }
+  }
+  expect_failures = [var.mail]
 }
 
 run "without_github" {

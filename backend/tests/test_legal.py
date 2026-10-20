@@ -55,10 +55,12 @@ DEVELOPMENT = {
     "stripe_secret_key": "",
     "stripe_trial_days": 14,
     "billing_grace_days": 14,
+    "resend_webhook_secret": "",
+    "mail_events_queue": "",
 }
 DIRECTORY = LocalStorage(Path("unused"))
 # The SHA-256 of terms.md and privacy.md as the edition TERMS_VERSION names was settled.
-SETTLED = "f25ee09debcb7e5c402fbd54a4ef58f46221c668819dc0691e87607563a3959e"
+SETTLED = "3cd33a932e5a760b70a412fdc1cdb3e87a10fa9815448bcf3deb0dc589c70f49"
 OLDER = "2026-01-01"
 
 
@@ -289,6 +291,28 @@ def test_the_documents_describe_paid_plans_where_they_are_sold():
     # Each kept only where it is set stays a bullet of the same list.
     both = policy(stripe_secret_key="sk_test_x", access_log_days=30)
     assert "- **Connection records**, 30 days.\n- **Billing records**" in both
+
+
+def test_the_policy_names_the_addresses_spared_where_the_provider_says_which():
+    # Notices may be turned off wherever, and the account keeps the choice.
+    assert "whether you want notices by email" in policy()
+    assert "which you can turn off on your account page or with the link at the foot" in policy()
+    assert "could not be delivered" not in policy()
+
+    for told in (
+        {"mail_events_queue": "https://sqs.eu-central-1.amazonaws.com/123456789012/q"},
+        {"resend_webhook_secret": "whsec_x"},
+    ):
+        text = policy(**told)
+        assert (
+            "- **Mail that could not be delivered**: when our email provider tells us that mail "
+            "to an address bounced for good or that its reader marked it as spam, the address "
+            "(as a hash only) and which of the two, so that we send it no notices."
+        ) in text
+        assert (
+            "- **Addresses mail could not be delivered to**, 365 days, or until the address's "
+            "own user turns notices on again."
+        ) in text
 
 
 def test_the_documents_are_published_to_anyone(client, signed_in_only):

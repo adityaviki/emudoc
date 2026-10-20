@@ -46,7 +46,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings, listing
 from app.db import MIGRATION_LOCK, SessionLocal
 from app.entitlements import MONTHS, PLANS, entitlements_of, upgrade
-from app.mail import Mailer
+from app.mail import Mailer, Message
 from app.models import Organization, SpendAlert, UsageEvent
 from app.usage import money
 
@@ -259,6 +259,6 @@ def alert_spending(mailer: Mailer, to: str) -> int:
             for item in due
         )
         subject, body = spending_email(due)
-        mailer.send(to, subject, body)
+        mailer.send(Message(to, subject, body))
         session.commit()
     return len(due)

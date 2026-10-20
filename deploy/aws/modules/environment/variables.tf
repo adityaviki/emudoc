@@ -168,12 +168,19 @@ variable "settings" {
 }
 
 variable "mail" {
-  description = "Mail through Amazon SES: the domain the app mails from, verified with DKIM, and MAIL_FROM. Null leaves SMTP_URL and MAIL_FROM to the secrets path."
+  description = "Mail through Amazon SES: the domain the app mails from, verified with DKIM, with bounce.<domain> for SPF; MAIL_FROM; the DMARC policy the domain's _dmarc record asks for (none, quarantine or reject; empty makes no record, for a zone that has its own) and where receivers send its reports (empty: nowhere). Null leaves SMTP_URL and MAIL_FROM to the secrets path."
   type = object({
-    domain = string
-    from   = string
+    domain        = string
+    from          = string
+    dmarc_policy  = optional(string, "quarantine")
+    dmarc_reports = optional(string, "")
   })
   default = null
+
+  validation {
+    condition     = var.mail == null || contains(["", "none", "quarantine", "reject"], try(var.mail.dmarc_policy, ""))
+    error_message = "dmarc_policy is none, quarantine, reject, or empty for no record."
+  }
 }
 
 variable "alert_email" {

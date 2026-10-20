@@ -52,6 +52,9 @@ JOB_KINDS = (
     "run_workflow",
 )
 JOB_STATUSES = ("queued", "running", "done", "failed")
+# Why an address is sent no notices (app/bounces.py): mail to it bounced for good, or its reader
+# marked a message as spam.
+MAIL_SUPPRESSIONS = ("bounce", "complaint")
 # How far an answer is: being written by the worker (app/answers.py), finished, stopped by the
 # user, or failed. A question is always `done`.
 MESSAGE_STATUSES = ("streaming", "done", "stopped", "failed")
@@ -175,6 +178,12 @@ class User(Base):
     # export its data, delete itself and sign out.
     terms_version: Mapped[str | None] = mapped_column(String(40))
     terms_accepted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    # Whether the user is mailed notices, the mail they may do without (app/postbox.py): turned
+    # off on the account page or by a notice's own unsubscribe link. The mail about the account,
+    # its organisations' invitations and billing is sent whatever it says.
+    notices_by_email: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true")
+    )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -836,7 +845,9 @@ class Job(Base):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    org_id: Mapped[int] = mapped_column(
+    # Null for work that is no organisation's: the mail to an address signing up, or about an
+    # account rather than what it does in an organisation (app/postbox.py).
+    org_id: Mapped[int | None] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True
     )
     # Null for work that belongs to the organisation rather than to one project, such as mail.
@@ -949,6 +960,23 @@ class WatchAlert(Base):
     message: Mapped[str] = mapped_column(Text)
     raised_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class MailSuppression(Base):
+    """An address the mail provider said not to write to (app/bounces.py): mail to it bounced for
+    good, or its reader marked a message as spam. It is sent no notices, the mail one may do
+    without (app/postbox.py), for SUPPRESSED_FOR, or until its user turns notices on again. The
+    address is kept as its SHA-256, as the rate limits key one (`by_email`), so that the table
+    names nobody to whoever reads it, while a message to the address still finds its row."""
+
+    __tablename__ = "mail_suppressions"
+    __table_args__ = (_one_of("reason", MAIL_SUPPRESSIONS, "mail_suppressions"),)
+
+    address_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    reason: Mapped[str] = mapped_column(String(20))
+    recorded_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
     )
 
 

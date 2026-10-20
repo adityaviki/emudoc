@@ -67,6 +67,7 @@ log = logging.getLogger(__name__)
 INDEX_DOCUMENT = "index_document"
 ANSWER_QUESTION = "answer_question"
 RENDER_PAGES = "render_pages"
+SEND_EMAIL = "send_email"
 # Lower runs first. An answer is work a user is watching for; an upload is work a user is
 # waiting for; a reprocess of a whole project, or of everything after a model change, is bulk
 # work that should not hold either up.
@@ -108,7 +109,8 @@ QUEUE_BY_STATE = text(
 # had lately (`share`: its jobs of these kinds running on a live lease or finished within
 # SHARE_WINDOW), divided by the weight its plan gives it (`weights`, by plan name, from
 # app/entitlements.py) or its agreed terms do (`overrides`), so that a paying organisation's
-# jobs count for less and its backlog gets the larger share; then by age. The due test is
+# jobs count for less and its backlog gets the larger share; then by age. A job of no
+# organisation (mail about an account, app/postbox.py) has had no share. The due test is
 # repeated on `j`, where the lock is taken, so that a row another worker claimed and
 # committed since this statement's snapshot is checked again and skipped, not taken twice.
 _CLAIM = text(
@@ -127,7 +129,7 @@ _CLAIM = text(
     WHERE id = (
         SELECT j.id
         FROM jobs AS j
-             JOIN organizations AS o ON o.id = j.org_id
+             LEFT JOIN organizations AS o ON o.id = j.org_id
              LEFT JOIN share ON share.org_id = j.org_id
         WHERE j.kind = ANY(:kinds)
           AND ((j.status = 'queued' AND j.run_at <= now())
@@ -225,7 +227,7 @@ def enqueue(
     session: Session,
     kind: str,
     *,
-    org_id: int,
+    org_id: int | None,
     project_id: int | None = None,
     payload: dict | None = None,
     priority: int = 0,

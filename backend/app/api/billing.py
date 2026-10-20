@@ -8,22 +8,23 @@ nothing of Stripe's loads on the app's pages and the content security policy sta
 request commits what it read before Stripe is asked, so that no transaction waits on another
 company's answer, and each that asks Stripe is held to RATE_BILLING a minute per member.
 
-The webhook is public, and the one route outside the cross-site check: Stripe sends no
-X-Requested-With, and what it sends is proved by its signature instead, an HMAC over the body as
-it came (app/payments.py), so the body is read raw, up to MAX_EVENT_BYTES. It counts no rate:
-checking a signature costs less than counting a request, and turning Stripe's own deliveries
-away in a burst of renewals would only delay them. A signature that does not hold is 400; an
-event acted on, or of a kind not acted on, 200; Stripe out of reach while it is acted on, 503,
-and Stripe delivers it again, for three days. The mail an event brings goes after the answer.
+The webhook is public, and outside the cross-site check: Stripe sends no X-Requested-With, and
+what it sends is proved by its signature instead, an HMAC over the body as it came
+(app/payments.py), so the body is read raw, up to MAX_EVENT_BYTES. It counts no rate: checking a
+signature costs less than counting a request, and turning Stripe's own deliveries away in a
+burst of renewals would only delay them. A signature that does not hold is 400; an event acted
+on, or of a kind not acted on, 200; Stripe out of reach while it is acted on, 503, and Stripe
+delivers it again, for three days. The mail an event brings is posted with what it acted on
+(app/postbox.py).
 """
 
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.api.auth import app_url, held_out, me_out
-from app.api.deps import AccountDep, HttpDep, MailerDep, SessionDep, limited
+from app.api.deps import AccountDep, HttpDep, SessionDep, body_within, limited
 from app.billing import (
     BILLING_OFF,
     billing_on,
@@ -33,7 +34,6 @@ from app.billing import (
     handle_event,
     plan_change,
     portal_for,
-    send_mail,
     start_checkout,
     start_pack_checkout,
     stripe_for,
@@ -178,43 +178,22 @@ def change(account: AccountDep, session: SessionDep, choice: Annotated[PlanChoic
     response_model=MeOut,
     dependencies=[Depends(limited(BILLING))],
 )
-def portal_done(
-    account: AccountDep,
-    request: Request,
-    session: SessionDep,
-    http: HttpDep,
-    mailer: MailerDep,
-    background: BackgroundTasks,
-):
+def portal_done(account: AccountDep, request: Request, session: SessionDep, http: HttpDep):
     """The organisation as its subscription stands, once its owner is back from Stripe's
     portal: Stripe's event says the same, a moment later or sooner, and whichever is first
     mails the owners what a cancellation or a lower plan means."""
-    mails = finish_portal(session, _stripe(http), account, app_url(request))
-    background.add_task(send_mail, mailer, mails)
+    finish_portal(session, _stripe(http), account, app_url(request))
     return me_out(session, account)
 
 
 async def raw_body(request: Request) -> bytes:
     """The request's body as it came, refused with 413 past MAX_EVENT_BYTES."""
-    declared = request.headers.get("content-length", "")
-    if declared.isdecimal() and int(declared) > MAX_EVENT_BYTES:
-        raise HTTPException(413, TOO_LARGE)
-    body = bytearray()
-    async for chunk in request.stream():
-        body += chunk
-        if len(body) > MAX_EVENT_BYTES:
-            raise HTTPException(413, TOO_LARGE)
-    return bytes(body)
+    return await body_within(request, MAX_EVENT_BYTES, TOO_LARGE)
 
 
 @events.post("/billing/events")
 def stripe_event(
-    body: Annotated[bytes, Depends(raw_body)],
-    request: Request,
-    session: SessionDep,
-    http: HttpDep,
-    mailer: MailerDep,
-    background: BackgroundTasks,
+    body: Annotated[bytes, Depends(raw_body)], request: Request, session: SessionDep, http: HttpDep
 ):
     """An event of Stripe's, signed with STRIPE_WEBHOOK_SECRET, acted on once."""
     settings = get_settings()
@@ -228,6 +207,5 @@ def stripe_event(
     except BadSignature as bad:
         log.warning("A request to the billing webhook was refused: it carried %s", bad)
         raise HTTPException(400, NOT_STRIPE) from None
-    mails = handle_event(session, stripe, event, app_url(request))
-    background.add_task(send_mail, mailer, mails)
+    handle_event(session, stripe, event, app_url(request))
     return {"received": True}

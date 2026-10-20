@@ -78,6 +78,7 @@ from app.billing import (
     managed,
     prune_billing_events,
 )
+from app.bounces import SUPPRESSED_FOR, prune_suppressions
 from app.config import PACK_UNITS, export_env_file, get_settings
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine, unbounded
 from app.deadletters import NamedJob, describe, failed_jobs, named_jobs, requeue
@@ -104,7 +105,6 @@ from app.jobs import (
     queue_index_by_id,
 )
 from app.logs import configure_logging
-from app.mail import Mailer
 from app.models import JOB_KINDS, STAGES, Document, Job, Organization
 from app.models import PLANS as PLAN_NAMES
 from app.parsing import MIME_TYPES
@@ -444,7 +444,7 @@ def _last_id(prefix: str) -> int:
     return int(prefix.rstrip("/").rpartition("/")[2])
 
 
-def housekeeping(storage: Storage, mailer: Mailer | None = None) -> None:
+def housekeeping(storage: Storage) -> None:
     """One round of what the app does to the stored data on its own, at intervals.
 
     Every replica reaches its interval, so a round first takes an advisory lock and skips when
@@ -452,7 +452,7 @@ def housekeeping(storage: Storage, mailer: Mailer | None = None) -> None:
     The lock is transaction-level, so it ends with the block. The accounts due for purging go
     after it, each in a transaction of its own, since their files are discarded only once their
     rows are gone for good, and so do the organisations whose payment has failed for longer than
-    the grace period, whose owners `mailer` tells (app/billing.py).
+    the grace period, whose owners are mailed (app/billing.py).
     """
     settings = get_settings()
     keep = timedelta(days=settings.page_image_days) if settings.page_image_days else None
@@ -478,9 +478,10 @@ def housekeeping(storage: Storage, mailer: Mailer | None = None) -> None:
         audited = prune_audit(connection)
         credentials = prune_credentials(connection)
         billing_events = prune_billing_events(connection)
+        spared = prune_suppressions(connection)
     reapply_erasures(storage)
     accounts = purge_due_accounts(storage)
-    lapsed = end_grace_periods(mailer)
+    lapsed = end_grace_periods()
     if accounts:
         log.info("Housekeeping: deleted %s accounts whose deletion was due", accounts)
     if lapsed:
@@ -491,6 +492,13 @@ def housekeeping(storage: Storage, mailer: Mailer | None = None) -> None:
         )
     if billing_events:
         log.info("Housekeeping: forgot %s Stripe events acted on long ago", billing_events)
+    if spared:
+        log.info(
+            "Housekeeping: writes again to %s addresses the mail provider said to spare more "
+            "than %s days ago",
+            spared,
+            SUPPRESSED_FOR.days,
+        )
     if chats:
         log.info("Housekeeping: deleted %s chats kept past their plan's retention", chats)
     if audited:

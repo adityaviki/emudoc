@@ -24,6 +24,7 @@ from app.embeddings import Embedder, EmbeddingError
 from app.encrypted import check_encrypted
 from app.indexing.pipeline import Services
 from app.llm import LLM, LLMUnavailable
+from app.mail import mailer_from_settings
 from app.maintenance import check_embeddings, requeue_stale_embeddings, warn_about_old_layout
 from app.network import MODEL_BASE_URLS, plain_http_problem, trust_store_problem
 from app.postgres import check_database
@@ -78,6 +79,7 @@ def prepare(settings: Settings, services: Services | None = None) -> Services:
             Embedder(settings),
             storage_from_settings(settings),
             scanner_from_settings(settings),
+            mailer_from_settings(settings),
         )
     # Before the first request to the bucket, which would already cross the network.
     check_transport(settings, services.storage, os.environ)

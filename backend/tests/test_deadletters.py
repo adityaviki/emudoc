@@ -11,7 +11,7 @@ import app.worker as worker_module
 from app.config import get_settings
 from app.deadletters import FAILED_JOBS_COMMAND, alert_failed_jobs
 from app.jobs import MAX_ATTEMPTS, queue_index
-from app.mail import MailError
+from app.mail import MailError, Message
 from app.maintenance import main
 from app.models import Job, Project
 from app.worker import Worker
@@ -107,7 +107,7 @@ def test_a_relay_that_is_down_leaves_the_failures_for_the_next_round(
     fail(session, job_of(session, document).id, "RuntimeError: boom")
 
     class DownMailer:
-        def send(self, to: str, subject: str, body: str) -> None:
+        def send(self, message: Message) -> None:
             raise MailError("The email could not be sent.")
 
     with pytest.raises(MailError):

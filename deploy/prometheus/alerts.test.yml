@@ -207,6 +207,66 @@ tests:
         alertname: EmudocJobsGivenUp
         exp_alerts: []
 
+  # Mail that waits, a relay that refuses everything for now, and the bounces past 3 in 100.
+  - interval: 1m
+    input_series:
+      - series: 'emudoc_job_oldest_due_seconds{job="emudoc", process="worker", instance="10.73.0.5:9464", kind="send_email"}'
+        values: "0+60x20"
+      - series: 'emudoc_job_oldest_due_seconds{job="emudoc", process="worker", instance="10.73.0.6:9464", kind="send_email"}'
+        values: "0+60x20"
+      - series: 'emudoc_mail_sent_total{job="emudoc", process="worker", instance="10.73.0.5:9464", outcome="retried"}'
+        values: "0+1x40"
+      - series: 'emudoc_mail_sent_total{job="emudoc", process="worker", instance="10.73.0.5:9464", outcome="sent"}'
+        values: "0x20 0+2x20"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: EmudocMailWaiting
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: EmudocMailWaiting
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: emudoc
+              kind: send_email
+            exp_annotations:
+              summary: The oldest email has waited 11m 0s to be sent.
+              description: "Sign-up, sign-in and reset links wait with it. The mail lane is stuck or no worker claims: the worker's log says which."
+      - eval_time: 15m
+        alertname: EmudocMailRefused
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: The mail relay has refused every email of the last 30 minutes, for now.
+              description: 'Each is tried again for half an hour, then given up. The worker''s log says what the relay answered (deploying.md, "Mail").'
+      # Once mail is sent again, the relay takes it.
+      - eval_time: 25m
+        alertname: EmudocMailRefused
+        exp_alerts: []
+
+  - interval: 1h
+    input_series:
+      # The worker sends 10 an hour; the API takes Resend's bounces, the worker SES's.
+      - series: 'emudoc_mail_sent_total{job="emudoc", process="worker", instance="10.73.0.5:9464", outcome="sent"}'
+        values: "0+10x48"
+      - series: 'emudoc_mail_events_total{job="emudoc", process="api", instance="10.73.0.4:9464", kind="bounce"}'
+        values: "0x24 0+1x24"
+      - series: 'emudoc_mail_events_total{job="emudoc", process="worker", instance="10.73.0.5:9464", kind="complaint"}'
+        values: "0x48"
+    alert_rule_test:
+      - eval_time: 24h
+        alertname: EmudocMailBounces
+        exp_alerts: []
+      - eval_time: 48h
+        alertname: EmudocMailBounces
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: More than 3 in 100 emails sent in the last day bounced or were marked as spam.
+              description: 'SES reviews an account once 5 in 100 bounce and may pause it at 10: look for addresses typed wrong at sign-up or invited by mistake (deploying.md, "Mail").'
+
   # The agent's models down, primary and fallback; the indexing's answering.
   - interval: 1m
     input_series:

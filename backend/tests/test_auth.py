@@ -28,7 +28,7 @@ from app.api.deps import CROSS_SITE, SAME_APP_HEADER, SIGN_IN
 from app.auth import totp_code, totp_step
 from app.config import Settings, get_settings
 from app.legal import TERMS_VERSION
-from app.mail import MailError
+from app.mail import MailError, Message
 from app.models import User
 from app.oidc import Handshake
 from tests.conftest import APP_HEADERS
@@ -42,7 +42,7 @@ def sign_up_link(client, email="ada@example.com") -> str:
     """Ask for an account with the address, and return the token of the link mailed to it."""
     asked = client.post("/api/auth/signup", json={"email": email})
     assert asked.status_code == 202, asked.text
-    return client.app.state.mailer.token()
+    return client.app.state.services.mailer.token()
 
 
 def finish_signup(
@@ -165,15 +165,16 @@ def test_signup_is_answered_alike_for_an_address_with_an_account(client, mailer,
     assert "http://testserver/forgot-password" in body and "#token=" not in body
     login(another_browser(client))
 
-    # A relay that is down answers the same: the mail goes out after the reply, and its failure
-    # is the log's. No account is left behind waiting for a link that never came.
-    def relay_down(to: str, subject: str, body: str) -> None:
-        raise MailError("The email could not be sent.")
+    # A relay that is down answers the same: the mail waits in the queue, and the worker tries
+    # it again later (tests/test_postbox.py). No account is left behind waiting for a link.
+    def relay_down(message: Message) -> None:
+        raise MailError("The email could not be sent.", transient=True)
 
     sent = len(mailer.sent)
     mailer.send = relay_down
     down = stranger.post("/api/auth/signup", json={"email": "grace@example.com"})
     assert down.status_code == 202 and down.content == free.content
+    assert mailer.deliver() == 1
     del mailer.send
     assert len(mailer.sent) == sent
 
@@ -320,15 +321,16 @@ def test_a_reset_link_sets_a_new_password_and_signs_out_everywhere(client, maile
     )
     assert len(mailer.sent) == 1
 
-    # A relay that is down answers the same as an address without an account: the mail goes
-    # out after the reply, and its failure is the log's.
-    def relay_down(to: str, subject: str, body: str) -> None:
-        raise MailError("The email could not be sent.")
+    # A relay that is down answers the same as an address without an account: the mail waits
+    # in the queue for the worker, which tries it again later.
+    def relay_down(message: Message) -> None:
+        raise MailError("The email could not be sent.", transient=True)
 
     sent = len(mailer.sent)
     mailer.send = relay_down
     down = client.post("/api/auth/password/forgot", json={"email": "ada@example.com"})
     assert down.status_code == 202
+    assert mailer.deliver() == 1
     del mailer.send
     assert len(mailer.sent) == sent
     assert (

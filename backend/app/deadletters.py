@@ -21,8 +21,8 @@ from sqlalchemy.orm import Session
 from app.audit import audit_event
 from app.db import SessionLocal
 from app.indexing.pipeline import reset_stages
-from app.jobs import INDEX_DOCUMENT, RENDER_PAGES, queue_index
-from app.mail import Mailer
+from app.jobs import INDEX_DOCUMENT, RENDER_PAGES, SEND_EMAIL, queue_index
+from app.mail import Mailer, Message
 from app.models import STAGES, Document, Job, Organization, Project
 
 FAILED_JOBS_COMMAND = "uv run python -m app.maintenance failed-jobs"
@@ -43,12 +43,12 @@ _TAKE = text(
 
 @dataclass(frozen=True)
 class NamedJob:
-    """A job with the names of what it is about: its organisation, its project and, for an
-    index or a drawing job, its document. The operator's commands print them (`failed-jobs`,
-    `jobs`)."""
+    """A job with the names of what it is about: its organisation, if it is one's, its project
+    and, for an index or a drawing job, its document, or for mail the message's subject. The
+    operator's commands print them (`failed-jobs`, `jobs`)."""
 
     job: Job
-    organization: str
+    organization: str | None
     project: str | None
     document: str | None
 
@@ -76,7 +76,7 @@ def named_jobs(session: Session, condition: ColumnElement[bool]) -> list[NamedJo
     by now."""
     rows = session.execute(
         select(Job, Organization.slug, Project.name, Document.filename)
-        .join(Organization, Organization.id == Job.org_id)
+        .outerjoin(Organization, Organization.id == Job.org_id)
         .outerjoin(Project, Project.id == Job.project_id)
         .outerjoin(
             Document,
@@ -95,6 +95,9 @@ def named_jobs(session: Session, condition: ColumnElement[bool]) -> list[NamedJo
 
 
 def _document_name(job: Job, filename: str | None) -> str | None:
+    if job.kind == SEND_EMAIL:
+        # The subject is the app's own sentence; the address is in the encrypted message alone.
+        return f"the email {job.payload.get('subject', '')!r}"
     if filename is not None or job.kind not in ABOUT_A_DOCUMENT:
         return filename
     return f"document {job.payload['document_id']} (deleted)"
@@ -138,7 +141,7 @@ def alert_failed_jobs(mailer: Mailer, to: str) -> int:
         if not failures:
             return 0
         subject, body = failed_jobs_email(failures)
-        mailer.send(to, subject, body)
+        mailer.send(Message(to, subject, body))
         session.commit()
     return len(failures)
 

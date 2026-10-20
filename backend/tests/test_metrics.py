@@ -472,8 +472,10 @@ def test_a_worker_counts_its_jobs_and_shows_its_lanes(session, services, make_do
         assert figures(lanes) == {
             ("emudoc_worker_threads", ("indexer",)): 2,
             ("emudoc_worker_threads", ("answerer",)): 1,
+            ("emudoc_worker_threads", ("mailer",)): 1,
             ("emudoc_worker_busy", ("indexer",)): 1,
             ("emudoc_worker_busy", ("answerer",)): 0,
+            ("emudoc_worker_busy", ("mailer",)): 0,
             ("emudoc_worker_listening", ()): 1,
         }
         services.embedder.go.set()

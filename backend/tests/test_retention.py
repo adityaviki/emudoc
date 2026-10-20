@@ -374,7 +374,7 @@ def test_the_last_owner_of_an_organisation_with_members_is_refused(client, sessi
 
 
 def test_the_purge_takes_the_account_its_organisation_and_their_files(
-    client, session, services, signed_in_only, sample_pdf, make_account
+    client, session, services, mailer, signed_in_only, sample_pdf, make_account
 ):
     account = signup(client)
     organization_id = org_of(account)["id"]
@@ -409,9 +409,15 @@ def test_the_purge_takes_the_account_its_organisation_and_their_files(
     session.expire_all()
     assert ada(session) is None
     assert session.get(Organization, organization_id) is None
-    # Everything else the database held was Ada's or her organisation's.
-    for model in (Document, Chat, ChatMessage, Job, UsageEvent, UserSession, AuthToken, Browser):
+    # Everything else the database held was Ada's or her organisation's, but the mail sent to
+    # her, which is no organisation's, and keeps its subject alone once sent, for the operator,
+    # until the finished jobs are pruned.
+    for model in (Document, Chat, ChatMessage, UsageEvent, UserSession, AuthToken, Browser):
         assert not session.scalar(select(func.count()).select_from(model)), model.__name__
+    assert mailer.sent
+    jobs = session.scalars(select(Job)).all()
+    assert {job.kind for job in jobs} == {"send_email"}
+    assert all(set(job.payload) == {"email", "subject", "try", "trace_id"} for job in jobs)
     assert session.scalars(select(Project.name)).all() == ["Globex files"]
     assert not list(storage.list(organization_prefix(organization_id)))
 
@@ -647,7 +653,11 @@ def test_the_export_holds_the_users_data_and_nothing_of_anyone_elses(
         "terms_accepted_at",
         "deletion_due_at",
         "sign_in_providers",
+        "notices_by_email",
+        "mail_spared",
     }
+    assert export["account"]["notices_by_email"] is True
+    assert export["account"]["mail_spared"] is None
     assert ada(session).password_hash not in response.text
     assert "Bob's own question" not in response.text and "bob@" not in response.text
 

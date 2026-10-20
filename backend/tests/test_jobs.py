@@ -562,7 +562,7 @@ def test_the_api_runs_the_worker_itself_only_when_the_settings_say_so(
         worker = client.app.state.worker
         assert isinstance(worker, Worker)
         # It reports the jobs it gives up on through the app's mailer.
-        assert worker._mailer is client.app.state.mailer
+        assert worker._mailer is client.app.state.services.mailer
 
         def ready() -> bool:
             session.expire_all()

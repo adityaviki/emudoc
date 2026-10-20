@@ -435,6 +435,9 @@ class ProfileIn(BaseModel):
 
     name: str | None = Field(None, max_length=200)
     time_zone: TimeZone | None = None
+    # Whether the user is mailed notices (app/postbox.py); turning them on writes to an address
+    # the mail provider said to spare (app/bounces.py) again.
+    notices_by_email: bool | None = None
 
 
 class EmailChangeIn(BaseModel):
@@ -688,6 +691,8 @@ class MeOut(BaseModel):
     name: str
     # The zone the account's mail is dated in, empty for UTC until its user chooses one.
     time_zone: str
+    # Whether the user is mailed notices, the mail they may do without (app/postbox.py).
+    notices_by_email: bool
     email_verified: bool
     mfa_enabled: bool
     # Providers the account can sign in through, such as "google".
@@ -966,6 +971,14 @@ class ExportedAccount(BaseModel):
     terms_accepted_at: dt.datetime | None
     deletion_due_at: dt.datetime | None
     sign_in_providers: list[ExportedIdentity]
+    notices_by_email: bool
+    # When the mail provider said not to write to the address, and why (app/bounces.py).
+    mail_spared: "ExportedSpared | None"
+
+
+class ExportedSpared(BaseModel):
+    reason: str
+    recorded_at: dt.datetime
 
 
 class ExportedMembership(BaseModel):

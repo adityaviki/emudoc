@@ -1,12 +1,12 @@
 """Who may join the organisation: the invitations its owners and admins send, and the domains
 whose confirmed addresses may join it by themselves (app/invitations.py).
 
-An owner or admin invites an address with a role no higher than their own, sees the
-invitations still open or expired, sends one again, which mails a new link and stops the one
-before, and revokes one. Each is held to the plan's members, an open invitation counted
-(`check_member`), and an organisation that holds more than its plan allows invites nobody until
-it is within it (`read_only`). The mail goes out after the answer, as every link the app mails
-does; the route is held to a rate per user and per address mailed, so that no inbox can be
+An owner or admin invites an address with a role no higher than their own, sees the invitations
+still open or expired, sends one again, which mails a new link and stops the one before, and
+revokes one. Each is held to the plan's members, an open invitation counted (`check_member`),
+and an organisation that holds more than its plan allows invites nobody until it is within it
+(`read_only`). The mail is posted with the invitation (app/postbox.py), as every link the app
+mails is; the route is held to a rate per user and per address mailed, so that no inbox can be
 flooded from one organisation. Whoever opens the link accepts it on the invitation's page
 (app/api/auth.py).
 
@@ -15,16 +15,15 @@ confirmed address is at it. A user whose confirmed address is at one is offered 
 organisation (`MeOut.joinable`) and joins it here, with the role it chose, if its plan has room.
 """
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.accounts import Account, add_member
-from app.api.auth import INVITATION_PAGE, mailed_link, me_out, send_quietly
+from app.api.auth import INVITATION_PAGE, mailed_link, me_out
 from app.api.deps import (
     AccountDep,
-    MailerDep,
     SessionDep,
     UsableAccountDep,
     limited,
@@ -35,8 +34,9 @@ from app.audit import audit
 from app.auth import now
 from app.entitlements import PlanRefused, Refusal, check_member, read_only
 from app.invitations import INVITATION_TTL, domain_of, is_open, issue, joining_refusal
-from app.mail import Mailer, invitation_email
+from app.mail import invitation_email
 from app.models import Invitation, Membership, User, UserSession
+from app.postbox import post
 from app.ratelimit import SIGN_INS, by_email
 from app.schemas import InvitationIn, InvitationOut, JoiningIn, MeOut
 
@@ -73,16 +73,9 @@ def list_invitations(account: AccountDep, session: SessionDep):
     status_code=201,
     dependencies=[Depends(limited(SIGN_INS))],
 )
-def invite(
-    body: InvitationIn,
-    account: AccountDep,
-    request: Request,
-    session: SessionDep,
-    mailer: MailerDep,
-    background: BackgroundTasks,
-):
-    """Invite an address to the organisation with a role, and mail it the link after the
-    answer. An address whose invitation expired is invited afresh."""
+def invite(body: InvitationIn, account: AccountDep, request: Request, session: SessionDep):
+    """Invite an address to the organisation with a role, and mail it the link. An address
+    whose invitation expired is invited afresh."""
     _refuse_unless_admin(account)
     if not account.is_at_least(body.role):
         raise HTTPException(403, OWNERS_INVITE_OWNERS)
@@ -128,8 +121,8 @@ def invite(
         target=("invitation", invitation.id),
         detail={"role": invitation.role},
     )
+    _mail(session, request, account, invitation, token)
     session.commit()
-    _mail(request, account, invitation, token, mailer, background)
     return _out(invitation, account.user)
 
 
@@ -139,12 +132,7 @@ def invite(
     dependencies=[Depends(limited(SIGN_INS))],
 )
 def resend_invitation(
-    invitation_id: int,
-    account: AccountDep,
-    request: Request,
-    session: SessionDep,
-    mailer: MailerDep,
-    background: BackgroundTasks,
+    invitation_id: int, account: AccountDep, request: Request, session: SessionDep
 ):
     """Mail the invitation again, with a new link for INVITATION_TTL from now; the link mailed
     before stops working. One that expired takes a place among the plan's members again."""
@@ -170,8 +158,8 @@ def resend_invitation(
         target=("invitation", invitation.id),
         detail={"role": invitation.role, "again": True},
     )
+    _mail(session, request, account, invitation, token)
     session.commit()
-    _mail(request, account, invitation, token, mailer, background)
     return _out(invitation, account.user)
 
 
@@ -293,21 +281,17 @@ def _invitation(
 
 
 def _mail(
-    request: Request,
-    account: Account,
-    invitation: Invitation,
-    token: str,
-    mailer: Mailer,
-    background: BackgroundTasks,
+    session: Session, request: Request, account: Account, invitation: Invitation, token: str
 ) -> None:
-    subject, text = invitation_email(
+    """Post the invitation's link with the change that made it."""
+    content = invitation_email(
         account.user.name or account.user.email,
         account.organization.name,
         invitation.role,
         mailed_link(request, INVITATION_PAGE, token),
         INVITATION_TTL.days,
     )
-    background.add_task(send_quietly, mailer, invitation.email, subject, text)
+    post(session, invitation.email, content, account.organization.id)
 
 
 def _out(invitation: Invitation, inviter: User | None) -> InvitationOut:

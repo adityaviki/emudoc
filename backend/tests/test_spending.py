@@ -18,7 +18,7 @@ import app.worker as worker_module
 from app.answers import answer
 from app.config import get_settings
 from app.jobs import INDEX_DOCUMENT, claim
-from app.mail import MailError
+from app.mail import MailError, Message
 from app.maintenance import main
 from app.models import SpendAlert
 from app.spending import alert_spending, day_of, retry_after, warn_without_prices, when
@@ -321,7 +321,7 @@ def test_the_operator_is_warned_once_a_day_as_spending_nears_a_limit(
     session.commit()
 
     class DownMailer:
-        def send(self, to: str, subject: str, body: str) -> None:
+        def send(self, message: Message) -> None:
             raise MailError("The email could not be sent.")
 
     with pytest.raises(MailError):

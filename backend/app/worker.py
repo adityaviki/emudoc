@@ -71,7 +71,8 @@ from pathlib import Path
 from sqlalchemy import text
 
 from app.answers import abandon_answer, run_answer
-from app.config import Settings, get_settings
+from app.bounces import read_ses_events
+from app.config import MAIL_THREADS, Settings, get_settings
 from app.db import SessionLocal, connection_lost
 from app.deadletters import alert_failed_jobs
 from app.errors import summary
@@ -87,6 +88,7 @@ from app.jobs import (
     INDEX_DOCUMENT,
     LEASE,
     RENDER_PAGES,
+    SEND_EMAIL,
     Lease,
     LeaseLost,
     claim,
@@ -97,7 +99,7 @@ from app.jobs import (
     release,
 )
 from app.logs import configure_logging, logging_about
-from app.mail import Mailer, mailer_from_settings
+from app.mail import Mailer
 from app.maintenance import housekeeping
 from app.metrics import (
     ANSWERER,
@@ -105,11 +107,14 @@ from app.metrics import (
     JOB_RUNS,
     JOB_SECONDS,
     JOB_WAIT,
+    LANES,
+    MAILER,
     MetricsRefused,
     export_metrics,
     lane_of,
 )
 from app.models import Document, Job
+from app.postbox import abandon_email, run_email
 from app.rendering import draw_ahead
 from app.scanning import ScanError, alert_quarantines
 from app.spending import alert_spending, when
@@ -292,13 +297,15 @@ def _abandon_render(job: Job, services: Services) -> None:
 
 
 # The kinds this worker runs. A kind in JOB_KINDS that is missing here is left in the queue for
-# a worker that has it. The answers have a lane of threads to themselves; every other kind
-# shares the indexers.
+# a worker that has it. The answers and the mail have a lane of threads each (`LANE_KINDS`);
+# every other kind shares the indexers.
 HANDLERS: dict[str, Handler] = {
     INDEX_DOCUMENT: Handler(_run_index, _abandon_index),
     ANSWER_QUESTION: Handler(run_answer, abandon_answer),
     RENDER_PAGES: Handler(_run_render, _abandon_render),
+    SEND_EMAIL: Handler(run_email, abandon_email),
 }
+LANE_KINDS = {ANSWERER: [ANSWER_QUESTION], MAILER: [SEND_EMAIL]}
 
 
 class Worker:
@@ -334,12 +341,19 @@ class Worker:
         return self._id
 
     def start(self) -> None:
-        index_kinds = [kind for kind in HANDLERS if kind != ANSWER_QUESTION]
+        laned = {kind for kinds in LANE_KINDS.values() for kind in kinds}
+        index_kinds = [kind for kind in HANDLERS if kind not in laned]
         for index in range(self._concurrency):
             self._spawn(partial(self._loop, index_kinds), f"{INDEXER}-{index}")
         for index in range(self._answer_concurrency):
-            self._spawn(partial(self._loop, [ANSWER_QUESTION]), f"{ANSWERER}-{index}")
+            self._spawn(partial(self._loop, LANE_KINDS[ANSWERER]), f"{ANSWERER}-{index}")
+        for index in range(MAIL_THREADS):
+            self._spawn(partial(self._loop, LANE_KINDS[MAILER]), f"{MAILER}-{index}")
         settings = get_settings()
+        if settings.mail_events_queue:
+            self._spawn(
+                partial(read_ses_events, settings.mail_events_queue, self._stop), "mail-events"
+            )
         if settings.listen_url:
             self._spawn(self._listen, "listener")
         else:
@@ -382,7 +396,7 @@ class Worker:
                 ),
                 running.count(lane),
             )
-            for lane in (INDEXER, ANSWERER)
+            for lane in LANES
         }
 
     def listening(self) -> bool:
@@ -595,7 +609,7 @@ class Worker:
         delay = HOUSEKEEPING_DELAY
         while not self._stop.wait(delay):
             try:
-                housekeeping(self._services.storage, self._mailer)
+                housekeeping(self._services.storage)
             except Exception:
                 # A storage or database that is unreachable now may be back by the next round;
                 # the thread stays alive for it.
@@ -646,7 +660,7 @@ def serve(
     worker = Worker(
         services,
         settings.worker_concurrency,
-        mailer_from_settings(settings),
+        services.mailer,
         answer_concurrency=settings.answer_concurrency,
     )
     exporter = export_metrics(settings, worker)
