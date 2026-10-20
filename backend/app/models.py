@@ -191,25 +191,32 @@ class Identity(Base):
 
 
 # What a one-time link does when it is opened.
-AUTH_TOKEN_PURPOSES = ("verify_email", "reset_password", "change_email")
+AUTH_TOKEN_PURPOSES = ("verify_email", "reset_password", "change_email", "sign_up")
 
 
 class AuthToken(Base):
-    """A one-time link sent by email: to confirm an address, to reset a password, or to make
-    a new address the account's.
+    """A one-time link sent by email: to confirm an address, to reset a password, to make a
+    new address the account's, or to make an account for an address that has none.
 
-    The link carries a random token; only its SHA-256 is stored, as for sessions.
+    The link carries a random token; only its SHA-256 is stored, as for sessions. A sign-up's
+    link belongs to no user, since the account is made only once the link is opened, and every
+    other link belongs to one.
     """
 
     __tablename__ = "auth_tokens"
-    __table_args__ = (_one_of("purpose", AUTH_TOKEN_PURPOSES, "auth_tokens"),)
+    __table_args__ = (
+        _one_of("purpose", AUTH_TOKEN_PURPOSES, "auth_tokens"),
+        CheckConstraint("(user_id IS NULL) = (purpose = 'sign_up')", name="ck_auth_tokens_user_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
     purpose: Mapped[str] = mapped_column(String(20))
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
-    # The address the link was sent to, which a verification confirms and a change of address
-    # makes the account's.
+    # The address the link was sent to, which a verification confirms, a change of address
+    # makes the account's and a sign-up makes an account with.
     email: Mapped[str] = mapped_column(String(320))
     expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))

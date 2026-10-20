@@ -1,7 +1,9 @@
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
+import { linkMailedTo } from './mail.ts'
 
-// The member's way through the app, end to end: sign up, make a project, upload a contract,
+// The member's way through the app, end to end: sign up through the link the app mails, make a
+// project, upload a contract,
 // wait for it to be indexed, find it by searching, ask about it, and open the passage the
 // answer cites. The answer is the stand-in's (e2e/standin.py): the first sentence of the
 // passage its search found best, with that passage's reference.
@@ -11,10 +13,16 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   test.setTimeout(120_000)
 
   await test.step('sign up', async () => {
-    await page.goto('/signup')
-    await page.getByLabel('Name', { exact: true }).fill('Ada Lovelace')
     // A new address every run, so that a server kept from an earlier run takes it too.
-    await page.getByLabel('Email', { exact: true }).fill(`ada.${Date.now()}@example.com`)
+    const address = `ada.${Date.now()}@example.com`
+    await page.goto('/signup')
+    await page.getByLabel('Email', { exact: true }).fill(address)
+    await page.getByRole('button', { name: 'Continue' }).click()
+    await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible()
+    await page.goto(await linkMailedTo(address))
+    await expect(page.getByRole('heading', { name: 'Finish creating your account' })).toBeVisible()
+    await expect(page.getByText(address)).toBeVisible()
+    await page.getByLabel('Name', { exact: true }).fill('Ada Lovelace')
     await page.getByLabel('Password', { exact: true }).fill('a sentence to remember')
     await page.getByLabel(/I accept the terms of service/).check()
     await page.getByRole('button', { name: 'Create account' }).click()

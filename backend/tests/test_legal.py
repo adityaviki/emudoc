@@ -19,7 +19,16 @@ from app.legal import (
 from app.models import AuditEvent, User
 from app.storage import LocalStorage, S3Storage
 from tests.conftest import FakeS3Client
-from tests.test_auth import PASSWORD, callback, google_claims, me, signup, start
+from tests.test_auth import (
+    PASSWORD,
+    callback,
+    finish_signup,
+    google_claims,
+    me,
+    sign_up_link,
+    signup,
+    start,
+)
 
 # Every setting the documents read, as a development machine has them, so that nothing in the
 # environment the suite runs in changes what a test expects.
@@ -45,7 +54,7 @@ DEVELOPMENT = {
 }
 DIRECTORY = LocalStorage(Path("unused"))
 # The SHA-256 of terms.md and privacy.md as the edition TERMS_VERSION names was settled.
-SETTLED = "a36087c93c3366d27fcd4346997e6dc3cfa4448d0bd4e11e5a72880fc54331c3"
+SETTLED = "ca67788e321945528d03b88df476b0e50d691205dd0c8146547e96a4a0988dac"
 OLDER = "2026-01-01"
 
 
@@ -240,14 +249,15 @@ def test_the_documents_are_published_to_anyone(client, signed_in_only):
 
 
 def test_sign_up_records_the_terms_its_form_showed(client, session, signed_in_only):
-    body = {"email": "ada@example.com", "name": "Ada", "password": PASSWORD}
-    refused = client.post("/api/auth/signup", json=body)
+    # The terms are accepted on the page the link opens, by whoever holds the address.
+    token = sign_up_link(client)
+    refused = finish_signup(client, token, terms_version=None)
     assert refused.status_code == 400 and refused.json()["detail"] == ACCEPT_TERMS
-    stale = client.post("/api/auth/signup", json={**body, "terms_version": OLDER})
+    stale = finish_signup(client, token, terms_version=OLDER)
     assert stale.status_code == 409 and stale.json()["detail"] == TERMS_CHANGED
     assert session.scalars(select(User)).all() == []
 
-    account = signup(client)
+    account = finish_signup(client, token).json()
     assert account["terms_version"] == TERMS_VERSION and account["terms_due"] is False
     assert account["terms_accepted_at"] is not None
     user = accepted(session)

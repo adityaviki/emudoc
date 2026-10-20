@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import update
 
-from app.accounts import LOCAL_OWNER_EMAIL
+from app.accounts import LOCAL_OWNER_EMAIL, create_account
 from app.api.auth import (
     ADDRESS_TAKEN,
     CODE_INVALID,
@@ -19,6 +19,7 @@ from app.api.auth import (
     MFA_FIRST,
     SAME_ADDRESS,
     SIGN_IN_FAILED,
+    SIGNED_UP_ALREADY,
     TYPE_EMAIL,
     UNKNOWN_ZONE,
     WRONG_PASSWORD,
@@ -37,12 +38,34 @@ PASSWORD = "correct horse battery"
 NEW_PASSWORD = "staple of a new life"
 
 
-def signup(client, email="ada@example.com", password=PASSWORD, name="Ada") -> dict:
-    """Sign up through the form, its box ticked for the current terms."""
-    response = client.post(
-        "/api/auth/signup",
-        json={"email": email, "name": name, "password": password, "terms_version": TERMS_VERSION},
+def sign_up_link(client, email="ada@example.com") -> str:
+    """Ask for an account with the address, and return the token of the link mailed to it."""
+    asked = client.post("/api/auth/signup", json={"email": email})
+    assert asked.status_code == 202, asked.text
+    return client.app.state.mailer.token()
+
+
+def finish_signup(
+    client, token, password=PASSWORD, name="Ada", terms_version=TERMS_VERSION, time_zone=""
+):
+    """Make the account on the page the link opens, as its form sends it."""
+    return client.post(
+        "/api/auth/signup/finish",
+        json={
+            "token": token,
+            "name": name,
+            "password": password,
+            "terms_version": terms_version,
+            "time_zone": time_zone,
+        },
     )
+
+
+def signup(client, email="ada@example.com", password=PASSWORD, name="Ada", time_zone="") -> dict:
+    """Sign up as a person does: ask for the link with the address, then make the account on
+    the page it opens, with the box ticked for the current terms."""
+    token = sign_up_link(client, email)
+    response = finish_signup(client, token, password, name, time_zone=time_zone)
     assert response.status_code == 201, response.text
     return response.json()
 
@@ -65,49 +88,54 @@ def another_browser(client, **headers) -> TestClient:
 # Accounts, passwords and sessions
 
 
-def test_signup_signs_in_and_sends_a_verification_link(client, mailer, signed_in_only):
+def test_signup_mails_a_link_whose_page_makes_the_account(client, mailer, signed_in_only):
     assert me(client).status_code == 401
-    account = signup(client)
+    asked = client.post("/api/auth/signup", json={"email": "Ada@Example.com"})
+    assert asked.status_code == 202 and asked.content == b"null"
+    # Nothing is made until the link is opened.
+    assert client.post(
+        "/api/auth/login", json={"email": "ada@example.com", "password": PASSWORD}
+    ).json() == {"detail": SIGN_IN_FAILED}
+
+    ((to, subject, body),) = mailer.sent
+    assert to == "ada@example.com" and subject == "Finish creating your Emudoc account"
+    assert body.startswith("Hi,\n") and "works for 24 hours" in body
+    # The token rides in the fragment, which no request carries to a server or its log.
+    assert mailer.link().startswith("http://testserver/finish-signup#token=")
+    token = mailer.token()
+
+    # The page shows the address first, as often as it is opened, and the link is opened in
+    # whichever browser holds the mail.
+    other = another_browser(client)
+    for _ in range(2):
+        shown = other.post("/api/auth/signup/link", json={"token": token})
+        assert shown.status_code == 200 and shown.json() == {"email": "ada@example.com"}
+    made = finish_signup(other, token, time_zone="Europe/Berlin")
+    assert made.status_code == 201, made.text
+    account = made.json()
     assert account["email"] == "ada@example.com" and account["name"] == "Ada"
-    assert account["email_verified"] is False and account["mfa_enabled"] is False
+    assert account["time_zone"] == "Europe/Berlin"
+    # Opening the link proved the address, so there is nothing more to confirm.
+    assert account["email_verified"] is True and account["mfa_enabled"] is False
     assert account["identities"] == [] and account["role"] == "owner"
     assert account["organization"]["name"] == "Ada's workspace"
     assert account["organization"]["slug"] == "ada"
-    assert me(client).json() == account
+    assert me(other).json() == account and me(client).status_code == 401
+    assert len(mailer.sent) == 1
     # The new organisation is empty, and its owner may fill it.
-    assert client.get("/api/projects").json() == []
-    assert client.post("/api/projects", json={"name": "Audit"}).status_code == 201
+    assert other.get("/api/projects").json() == []
+    assert other.post("/api/projects", json={"name": "Audit"}).status_code == 201
+    login(client)
 
-    ((to, subject, body),) = mailer.sent
-    assert to == "ada@example.com" and subject == "Confirm your email address"
-    assert "Hi Ada," in body
-    # The token rides in the fragment, which no request carries to a server or its log.
-    assert mailer.link().startswith("http://testserver/verify#token=")
-    # The link is opened in a browser that is not signed in.
-    token = mailer.token()
-    other = another_browser(client)
-    assert other.post("/api/auth/verify", json={"token": token}).status_code == 204
-    assert me(client).json()["email_verified"] is True
-    again = other.post("/api/auth/verify", json={"token": token})
-    assert again.status_code == 400 and again.json()["detail"] == LINK_INVALID
-
-    # Addresses are one account each, however they are typed.
-    taken = client.post(
-        "/api/auth/signup",
-        json={"email": "Ada@Example.com", "password": PASSWORD, "terms_version": TERMS_VERSION},
-    )
-    assert taken.status_code == 409
-    for body_ in (
-        {"email": "not-an-email", "password": PASSWORD, "terms_version": TERMS_VERSION},
-        {"email": "b@x.io", "password": "short", "terms_version": TERMS_VERSION},
+    for used in (
+        other.post("/api/auth/signup/link", json={"token": token}),
+        finish_signup(other, token),
     ):
-        assert client.post("/api/auth/signup", json=body_).status_code == 422
+        assert used.status_code == 400 and used.json()["detail"] == LINK_INVALID
+    assert client.post("/api/auth/signup", json={"email": "not-an-email"}).status_code == 422
     # A refusal says where and why, never what was sent: a password that is too short, or a
-    # reset link's token, would otherwise come back in the body.
-    short = client.post(
-        "/api/auth/signup",
-        json={"email": "b@x.io", "password": "s3cret!", "terms_version": TERMS_VERSION},
-    )
+    # link's token, would otherwise come back in the body.
+    short = finish_signup(client, "a-sign-up-token", password="s3cret!")
     assert short.json()["detail"] == [
         {
             "type": "string_too_short",
@@ -115,6 +143,7 @@ def test_signup_signs_in_and_sends_a_verification_link(client, mailer, signed_in
             "msg": "String should have at least 8 characters",
         }
     ]
+    assert "a-sign-up-token" not in short.text
     unfinished = client.post("/api/auth/password/reset", json={"token": "a-reset-token"})
     assert unfinished.status_code == 422 and "a-reset-token" not in unfinished.text
     # Names make the organisation; a second Ada gets the next slug.
@@ -122,17 +151,85 @@ def test_signup_signs_in_and_sends_a_verification_link(client, mailer, signed_in
     assert second["organization"]["slug"] == "ada-2"
 
 
-def test_resending_the_verification_link_voids_the_earlier_one(client, mailer, signed_in_only):
+def test_signup_is_answered_alike_for_an_address_with_an_account(client, mailer, signed_in_only):
     signup(client)
+    stranger = another_browser(client)
+    free = stranger.post("/api/auth/signup", json={"email": "eve@example.com"})
+    taken = stranger.post("/api/auth/signup", json={"email": "ADA@example.com"})
+    assert taken.status_code == free.status_code == 202 and taken.content == free.content
+    # The address that has an account is told so instead, with the ways back into it.
+    to, subject, body = mailer.sent[-1]
+    assert to == "ada@example.com" and subject == "You have an Emudoc account already"
+    assert "Hi Ada," in body and "nothing changed" in body
+    assert mailer.link() == "http://testserver/login"
+    assert "http://testserver/forgot-password" in body and "#token=" not in body
+    login(another_browser(client))
+
+    # A relay that is down answers the same: the mail goes out after the reply, and its failure
+    # is the log's. No account is left behind waiting for a link that never came.
+    def relay_down(to: str, subject: str, body: str) -> None:
+        raise MailError("The email could not be sent.")
+
+    sent = len(mailer.sent)
+    mailer.send = relay_down
+    down = stranger.post("/api/auth/signup", json={"email": "grace@example.com"})
+    assert down.status_code == 202 and down.content == free.content
+    del mailer.send
+    assert len(mailer.sent) == sent
+
+    # Asking again sends a new link and voids the earlier one.
+    first = sign_up_link(stranger, "grace@example.com")
+    second = sign_up_link(stranger, "grace@example.com")
+    assert finish_signup(stranger, first).json()["detail"] == LINK_INVALID
+
+    # An account made with the address since the link was sent, here by moving one to it, is
+    # refused at the page and at the form, and the link makes nothing.
+    assert change_email(client, "grace@example.com", password=PASSWORD).status_code == 202
+    assert confirm_email(client, mailer.token()).status_code == 204
+    for refused in (
+        stranger.post("/api/auth/signup/link", json={"token": second}),
+        finish_signup(stranger, second),
+    ):
+        assert refused.status_code == 409 and refused.json()["detail"] == SIGNED_UP_ALREADY
+    assert me(stranger).status_code == 401
+
+
+def test_an_account_made_with_the_address_at_the_same_moment_is_the_databases_to_see(
+    client, session, monkeypatch, signed_in_only
+):
+    token = sign_up_link(client)
+
+    def made_meanwhile(*args, **kwargs):
+        # Another sign-up, through a provider say, commits between the check and the insert.
+        session.add(User(email="ada@example.com", name="Ada"))
+        session.commit()
+        return create_account(*args, **kwargs)
+
+    monkeypatch.setattr("app.api.auth.create_account", made_meanwhile)
+    raced = finish_signup(client, token)
+    assert raced.status_code == 409 and raced.json()["detail"] == SIGNED_UP_ALREADY
+    assert me(client).status_code == 401
+
+
+def test_resending_the_verification_link_voids_the_earlier_one(
+    client, session, mailer, signed_in_only
+):
+    # An account through a provider that did not vouch for its address, or one whose address
+    # was confirmed before a restore said otherwise.
+    signup(client)
+    session.execute(update(User).values(email_verified_at=None))
+    session.commit()
+    assert client.post("/api/auth/verify/resend").status_code == 202
     first = mailer.token()
     assert client.post("/api/auth/verify/resend").status_code == 202
     second = mailer.token()
-    assert first != second
+    assert first != second and mailer.sent[-1][1] == "Confirm your email address"
     assert client.post("/api/auth/verify", json={"token": first}).status_code == 400
     assert client.post("/api/auth/verify", json={"token": second}).status_code == 204
+    assert me(client).json()["email_verified"] is True
     # Once verified there is nothing to resend.
     assert client.post("/api/auth/verify/resend").status_code == 202
-    assert len(mailer.sent) == 2
+    assert len(mailer.sent) == 3
 
 
 def test_login_and_logout(client, signed_in_only):
@@ -165,15 +262,7 @@ def test_cookies_are_secure_in_production_whatever_the_scheme(
     # The test client reaches the app as plain HTTP, as uvicorn sees a request from a proxy
     # that ends TLS but does not say so. In development that is a cookie without Secure, so
     # that http://localhost keeps working.
-    response = client.post(
-        "/api/auth/signup",
-        json={
-            "email": "ada@example.com",
-            "name": "Ada",
-            "password": PASSWORD,
-            "terms_version": TERMS_VERSION,
-        },
-    )
+    response = finish_signup(client, sign_up_link(client))
     assert response.status_code == 201, response.text
     assert "secure" not in response.headers["set-cookie"].lower()
 
@@ -305,12 +394,12 @@ def confirm_email(client, token: str):
 
 
 def test_the_name_and_time_zone_change_and_the_zone_starts_as_the_browsers(client, signed_in_only):
-    ada = signup_in(client, time_zone="Europe/Berlin")
+    ada = signup(client, time_zone="Europe/Berlin")
     assert ada["time_zone"] == "Europe/Berlin"
     # A zone the app does not know is left out at sign-up rather than refused, and a browser
     # that says none leaves it empty, which is UTC.
     assert (
-        signup_in(another_browser(client), "bob@example.com", time_zone="Mars/Olympus")["time_zone"]
+        signup(another_browser(client), "bob@example.com", time_zone="Mars/Olympus")["time_zone"]
         == ""
     )
     assert signup(another_browser(client), "eve@example.com")["time_zone"] == ""
@@ -329,28 +418,15 @@ def test_the_name_and_time_zone_change_and_the_zone_starts_as_the_browsers(clien
     assert client.patch("/api/auth/profile", json={"name": "x" * 201}).status_code == 422
 
 
-def signup_in(client, email="ada@example.com", time_zone="") -> dict:
-    """Sign up from a browser in the given zone, as the form sends it."""
-    response = client.post(
-        "/api/auth/signup",
-        json={
-            "email": email,
-            "name": "Ada",
-            "password": PASSWORD,
-            "terms_version": TERMS_VERSION,
-            "time_zone": time_zone,
-        },
-    )
-    assert response.status_code == 201, response.text
-    return response.json()
-
-
 def test_an_account_moves_to_a_new_address_through_a_link_sent_there(
-    client, mailer, signed_in_only
+    client, session, mailer, signed_in_only
 ):
     signup(client)
     elsewhere = another_browser(client)
     login(elsewhere)
+    session.execute(update(User).values(email_verified_at=None))
+    session.commit()
+    assert client.post("/api/auth/verify/resend").status_code == 202
     unconfirmed = mailer.token()
     forgot = client.post("/api/auth/password/forgot", json={"email": "ada@example.com"})
     assert forgot.status_code == 202
@@ -714,7 +790,7 @@ def test_providers_are_offered_only_when_set_up(client, oauth, monkeypatch):
 
 
 def test_google_sign_in_creates_an_account_and_links_verified_ones(
-    client, mailer, identity_provider, oauth, signed_in_only
+    client, session, mailer, identity_provider, oauth, signed_in_only
 ):
     query, handshake = start(client, next="/projects/3", time_zone="America/New_York")
     assert query["_host"] == "accounts.google.com"
@@ -761,10 +837,9 @@ def test_google_sign_in_creates_an_account_and_links_verified_ones(
     assert me(client).json()["id"] == account["id"]
     assert me(client).json()["email"] == "ada@example.com"
 
-    # A password account whose address is verified gets Google added to it.
+    # A password account, whose address its sign-up link confirmed, gets Google added to it.
     bob = another_browser(client)
     bob_account = signup(bob, "bob@example.com", name="Bob")
-    bob.post("/api/auth/verify", json={"token": mailer.token()})
     bob.post("/api/auth/logout")
     _, handshake = start(bob)
     identity_provider.claims = google_claims(
@@ -775,9 +850,14 @@ def test_google_sign_in_creates_an_account_and_links_verified_ones(
     assert linked["id"] == bob_account["id"] and linked["identities"] == ["google"]
     login(bob, "bob@example.com")
 
-    # An account that never verified its address is not linked: it may not be theirs.
+    # An account that never verified its address is not linked: it may not be theirs. One made
+    # before a sign-up confirmed it, or through a provider that did not vouch for it, is so.
     eve = another_browser(client)
     signup(eve, "eve@example.com", name="Eve")
+    session.execute(
+        update(User).where(User.email == "eve@example.com").values(email_verified_at=None)
+    )
+    session.commit()
     _, handshake = start(eve)
     identity_provider.claims = google_claims(
         handshake.nonce, sub="google-789", email="eve@example.com"
@@ -835,10 +915,9 @@ def test_microsoft_addresses_count_as_verified_only_when_the_provider_says_so(
 
 
 def test_oauth_sign_in_still_asks_for_the_authenticator_code(
-    client, mailer, identity_provider, oauth, signed_in_only
+    client, identity_provider, oauth, signed_in_only
 ):
     signup(client)
-    client.post("/api/auth/verify", json={"token": mailer.token()})
     setup = client.post("/api/auth/mfa/setup").json()
     client.post("/api/auth/mfa/enable", json={"code": totp_code(setup["secret"], totp_step())})
 

@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
+import { SERVER_LOG } from './e2e/mail.ts'
 
 // The end-to-end smoke test (e2e/): the built page and the API as one server, against a
 // stand-in for the model and the embeddings endpoint, since a real one needs a key and answers
@@ -26,7 +27,7 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
     },
     {
-      command: `e2e/serve.sh ${PORT} ${STANDIN_PORT}`,
+      command: `e2e/serve.sh ${PORT} ${STANDIN_PORT} '${SERVER_LOG}'`,
       url: `http://127.0.0.1:${PORT}/api/health`,
       // A fresh database is migrated first.
       timeout: 120_000,

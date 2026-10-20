@@ -5,8 +5,10 @@ import asyncio
 import json
 import mimetypes
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 
@@ -43,15 +45,19 @@ class Member:
     async def close(self) -> None:
         await self.client.aclose()
 
-    async def sign_up(self, email: str) -> dict:
+    async def sign_up(self, email: str, link_of: Callable[[str], str]) -> dict:
+        """Ask for an account, then make it on the page the link mailed to `email` opens, as a
+        person does; `link_of` finds the link wherever the run's mail goes."""
         version = (await self._ok("GET", "/api/legal")).json()["version"]
+        await self._ok("POST", "/api/auth/signup", json={"email": email})
+        link = await asyncio.to_thread(link_of, email)
         body = {
-            "email": email,
+            "token": parse_qs(urlsplit(link).fragment)["token"][0],
             "name": "Load",
             "password": "a load test's password",
             "terms_version": version,
         }
-        return (await self._ok("POST", "/api/auth/signup", json=body)).json()
+        return (await self._ok("POST", "/api/auth/signup/finish", json=body)).json()
 
     async def project(self, name: str) -> int:
         return (await self._ok("POST", "/api/projects", json={"name": name})).json()["id"]

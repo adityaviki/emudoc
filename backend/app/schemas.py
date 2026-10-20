@@ -296,7 +296,25 @@ TimeZone = Annotated[str, Field(max_length=64)]
 
 
 class SignupIn(BaseModel):
+    """The address an account is asked for. The rest is chosen on the page its link opens, by
+    whoever holds the address."""
+
     email: Email
+
+
+class SignupLinkOut(BaseModel):
+    """The address a sign-up link was sent to, which the account it makes will have."""
+
+    email: str
+
+
+class LinkTokenIn(BaseModel):
+    token: str = Field(min_length=1, max_length=200)
+
+
+class SignupFinishIn(LinkTokenIn):
+    """What the page a sign-up link opens makes the account with."""
+
     name: str = Field("", max_length=200)
     password: Password
     # The edition of the terms of service and privacy policy the form showed and the person
@@ -326,10 +344,6 @@ class LoginOut(BaseModel):
 
 class EmailIn(BaseModel):
     email: Email
-
-
-class LinkTokenIn(BaseModel):
-    token: str = Field(min_length=1, max_length=200)
 
 
 class PasswordResetIn(LinkTokenIn):

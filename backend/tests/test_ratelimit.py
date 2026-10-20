@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 
 from app.api.auth import (
     CODE_INVALID,
@@ -21,7 +21,7 @@ from app.api.auth import (
 from app.auth import BROWSER_COOKIE, BROWSER_KNOWN_FOR, token_hash, totp_code, totp_step
 from app.config import get_settings
 from app.maintenance import housekeeping
-from app.models import Browser
+from app.models import Browser, User
 from app.ratelimit import (
     ADDRESSES,
     FAILED_SIGN_INS,
@@ -73,6 +73,13 @@ def minute_turned(session, scope: str | None = None) -> None:
         text(f"UPDATE rate_limits SET window_start = window_start - interval '1 minute'{where}"),
         {"scope": scope},
     )
+    session.commit()
+
+
+def counted_afresh(session) -> None:
+    """Forget every count so far, as if the requests that made them were long past: a test of
+    the sign-ins starts after the sign-up's own requests."""
+    session.execute(text("DELETE FROM rate_limits"))
     session.commit()
 
 
@@ -162,11 +169,13 @@ def test_uploads_and_searches_have_rates_of_their_own(client, session, sample_cs
 def test_sign_in_requests_are_counted_per_address_and_per_email(
     client, session, mailer, signed_in_only, monkeypatch
 ):
-    monkeypatch.setattr(get_settings(), "rate_sign_ins", 2)
-    monkeypatch.setattr(get_settings(), "rate_sign_ins_per_address", 3)
+    monkeypatch.setattr(get_settings(), "rate_sign_ins", 4)
+    monkeypatch.setattr(get_settings(), "rate_sign_ins_per_address", 4)
     signup(client, "ada@example.com")
-    assert counts(session) == [("address", "ip:testclient", 1)]
     ada, bob = by_email("ada@example.com").value, by_email("bob@example.com").value
+    # Both of the sign-up's requests count for the client's address, and asking for the link
+    # counts for the address it mails as well, as a reset link's request does.
+    assert counts(session) == [("address", "ip:testclient", 2), ("sign_in", ada, 1)]
 
     # A sign-in that fails counts like one that succeeds; that is the point. The guesser's
     # browser never signed in to the account, so its guesses count under the address.
@@ -174,33 +183,33 @@ def test_sign_in_requests_are_counted_per_address_and_per_email(
     failed = attempt(guesser)
     assert failed.status_code == 401 and failed.json()["detail"] == SIGN_IN_FAILED
     assert attempt(guesser).status_code == 401
-    refused(attempt(guesser), ADDRESSES.refusal(3, FROM_ADDRESS))
+    refused(attempt(guesser), ADDRESSES.refusal(4, FROM_ADDRESS))
     # The failures are counted for the hour as well; the refused request is not one.
     assert counts(session) == [
-        ("address", "ip:testclient", 4),
+        ("address", "ip:testclient", 5),
         ("failed_sign_in", ada, 2),
-        ("sign_in", ada, 3),
+        ("sign_in", ada, 4),
     ]
 
     # With the address free again, the account is still held, however its address is typed,
     # and so is a reset link for it; another account from the same address is not.
     minute_turned(session, "address")
-    refused(attempt(guesser, email="Ada@Example.com"), SIGN_INS.refusal(2, FOR_EMAIL))
+    refused(attempt(guesser, email="Ada@Example.com"), SIGN_INS.refusal(4, FOR_EMAIL))
     refused(
         guesser.post("/api/auth/password/forgot", json={"email": "ada@example.com"}),
-        SIGN_INS.refusal(2, FOR_EMAIL),
+        SIGN_INS.refusal(4, FOR_EMAIL),
     )
     assert len(mailer.sent) == 1
     other = attempt(guesser, email="bob@example.com")
     assert other.status_code == 401 and other.json()["detail"] == SIGN_IN_FAILED
     assert counts(session) == [
-        ("address", "ip:testclient", 4),
+        ("address", "ip:testclient", 5),
         ("address", "ip:testclient", 3),
         # The keys are hashes, which sort Bob's first.
         ("failed_sign_in", bob, 1),
         ("failed_sign_in", ada, 2),
         ("sign_in", bob, 1),
-        ("sign_in", ada, 5),
+        ("sign_in", ada, 6),
     ]
 
     # When the minute turns, the account may try again.
@@ -208,10 +217,26 @@ def test_sign_in_requests_are_counted_per_address_and_per_email(
     assert login(guesser, "ada@example.com") == {"mfa_required": False}
 
 
+def test_sign_up_links_are_asked_for_at_the_sign_in_rate(client, session, mailer, monkeypatch):
+    monkeypatch.setattr(get_settings(), "rate_sign_ins", 1)
+    signup(another_browser(client), "ada@example.com")
+    counted_afresh(session)
+    # Nobody's inbox is flooded with links, or with word that the address has an account, and
+    # the refusal reads the same for both.
+    for address in ("eve@example.com", "ada@example.com"):
+        assert client.post("/api/auth/signup", json={"email": address}).status_code == 202
+        refused(
+            client.post("/api/auth/signup", json={"email": address.upper()}),
+            SIGN_INS.refusal(1, FOR_EMAIL),
+        )
+    assert [to for to, _, _ in mailer.sent[1:]] == ["eve@example.com", "ada@example.com"]
+
+
 def test_the_authenticator_code_is_held_to_the_accounts_rate(
     client, session, signed_in_only, monkeypatch
 ):
     signup(client)
+    counted_afresh(session)
     secret = client.post("/api/auth/mfa/setup").json()["secret"]
     enabled = client.post("/api/auth/mfa/enable", json={"code": totp_code(secret, totp_step())})
     assert enabled.status_code == 200
@@ -237,6 +262,7 @@ def test_the_browsers_an_account_signed_in_with_are_counted_apart(
 ):
     monkeypatch.setattr(get_settings(), "rate_sign_ins", 2)
     signup(client)
+    counted_afresh(session)
     assert client.cookies[BROWSER_COOKIE]
     browser = session.scalar(select(Browser.id))
     # Someone who knows the address uses up its minute from a browser of their own...
@@ -251,7 +277,7 @@ def test_the_browsers_an_account_signed_in_with_are_counted_apart(
     assert attempt(client).status_code == 401
     refused(attempt(client), SIGN_INS.refusal(2, FROM_BROWSER))
     assert counts(session) == [
-        ("address", "ip:testclient", 7),
+        ("address", "ip:testclient", 6),
         ("failed_sign_in", f"browser:{browser}", 1),
         ("failed_sign_in", by_email("ada@example.com").value, 2),
         ("sign_in", f"browser:{browser}", 3),
@@ -331,7 +357,7 @@ def test_a_browser_that_signed_in_before_is_paused_by_itself(
     )
     # Nobody else is held by it, and the owner is not mailed about their own browser.
     assert login(another_browser(client)) == {"mfa_required": False}
-    assert [subject for _, subject, _ in mailer.sent] == ["Confirm your email address"]
+    assert [subject for _, subject, _ in mailer.sent] == ["Finish creating your Emudoc account"]
 
 
 def test_a_new_password_ends_the_pause_and_the_browser_that_chose_it_is_the_accounts(
@@ -419,10 +445,13 @@ def test_a_signed_in_password_check_is_held_to_the_rates_per_user(
 
 
 def test_resending_the_verification_link_is_held_per_user(
-    client, mailer, signed_in_only, monkeypatch
+    client, session, mailer, signed_in_only, monkeypatch
 ):
     monkeypatch.setattr(get_settings(), "rate_sign_ins", 2)
     signup(client)
+    # As an account through a provider that did not vouch for its address is.
+    session.execute(update(User).values(email_verified_at=None))
+    session.commit()
     assert client.post("/api/auth/verify/resend").status_code == 202
     assert client.post("/api/auth/verify/resend").status_code == 202
     refused(client.post("/api/auth/verify/resend"), SIGN_INS.refusal(2, FROM_ACCOUNT))

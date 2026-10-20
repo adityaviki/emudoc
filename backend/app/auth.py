@@ -282,14 +282,28 @@ def clear_session_cookie(response: Response) -> None:
 
 
 def issue_link_token(
-    session: Session, user: User, purpose: str, email: str, lifetime: dt.timedelta
+    session: Session, user: User | None, purpose: str, email: str, lifetime: dt.timedelta
 ) -> str:
-    """A token for a link sent by email. Earlier unused links of the same purpose stop working."""
-    void_link_tokens(session, user.id, purpose)
+    """A token for a link sent by email: about the user's account, or with no user, about an
+    address that has none yet (a sign-up). Earlier unused links of the same purpose, the
+    user's or the address's, stop working."""
+    if user is None:
+        session.execute(
+            update(AuthToken)
+            .where(
+                AuthToken.user_id.is_(None),
+                AuthToken.email == email,
+                AuthToken.purpose == purpose,
+                AuthToken.used_at.is_(None),
+            )
+            .values(used_at=now())
+        )
+    else:
+        void_link_tokens(session, user.id, purpose)
     token = new_token()
     session.add(
         AuthToken(
-            user_id=user.id,
+            user_id=user.id if user is not None else None,
             purpose=purpose,
             token_hash=token_hash(token),
             email=email,
@@ -307,8 +321,19 @@ def void_link_tokens(session: Session, user_id: int, purpose: str | None = None)
     session.execute(statement.values(used_at=now()))
 
 
-def redeem_link_token(session: Session, token: str, purpose: str) -> AuthToken | None:
-    """Use a link's token up; None when it is unknown, used, expired or for another purpose."""
+def forget_sign_ups(session: Session, email: str) -> None:
+    """Delete the sign-up links sent to the address, used or not, once it is an account's or
+    no longer: they have no user for the account's deletion to take with it."""
+    session.execute(
+        delete(AuthToken).where(
+            AuthToken.user_id.is_(None), AuthToken.purpose == "sign_up", AuthToken.email == email
+        )
+    )
+
+
+def find_link_token(session: Session, token: str, purpose: str) -> AuthToken | None:
+    """The link behind a token, left unused; None when it is unknown, used, expired or for
+    another purpose."""
     row = session.scalar(
         select(AuthToken).where(
             AuthToken.token_hash == token_hash(token), AuthToken.purpose == purpose
@@ -316,7 +341,14 @@ def redeem_link_token(session: Session, token: str, purpose: str) -> AuthToken |
     )
     if row is None or row.used_at is not None or row.expires_at <= now():
         return None
-    row.used_at = now()
+    return row
+
+
+def redeem_link_token(session: Session, token: str, purpose: str) -> AuthToken | None:
+    """Use a link's token up; None when it is unknown, used, expired or for another purpose."""
+    row = find_link_token(session, token, purpose)
+    if row is not None:
+        row.used_at = now()
     return row
 
 

@@ -52,6 +52,7 @@ from sqlalchemy import Connection, and_, delete, func, select, text
 from sqlalchemy.orm import Session, aliased
 
 from app.audit import audit_event, forget_addresses
+from app.auth import forget_sign_ups
 from app.db import SessionLocal, engine, unbounded
 from app.entitlements import MONTHS, PLANS
 from app.models import ROLES, Membership, Organization, User
@@ -227,6 +228,9 @@ def purge_account(session: Session, user: User) -> list[str]:
     An organisation that keeps other members keeps its audit rows of the user too, without the
     addresses they were recorded from, and gains one saying the account was deleted."""
     forget_addresses(session, user.id)
+    # A sign-up link sent to the address before it became the account's, through a provider
+    # or a change of address, names it too and has no user to go with.
+    forget_sign_ups(session, user.email)
     alone = []
     for membership, members, owners in _memberships(session, user.id):
         if not members:

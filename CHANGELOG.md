@@ -11,6 +11,12 @@ its day, in the same commit.
 
 Members:
 
+- Signing up starts with your email address alone: Emudoc mails it a link, and on the page the
+  link opens you choose your name and password, accept the terms, and your account is made and
+  signed in, its address confirmed. The form answers the same for an address that already has
+  an account, which is told by mail how to sign in instead, so nobody learns from Emudoc who
+  uses it; and nobody can choose the password of an account for an address that is not theirs.
+
 - After 20 wrong passwords or codes in an hour, signing in to an account from browsers that
   have never signed in to it pauses until the hour ends, and its owner is told by mail. The
   browsers you have signed in with carry on as before, so someone guessing your password
@@ -36,6 +42,11 @@ Members:
 
 Operators:
 
+- A new account with a password is made from the link its sign-up mails, so while the mail
+  relay is down only Google and Microsoft sign-ups get through; the form answers as usual and
+  the API's log says why the mail failed. A sign-up no longer leaves an account behind when its
+  mail fails. The link is a one-time link of a new purpose, `sign_up`, which belongs to no user
+  until it is opened (a migration lets `auth_tokens.user_id` be null for it alone).
 - `RATE_FAILED_SIGN_INS` (20 an hour) pauses the sign-ins of an account from browsers that
   never signed in to it once its wrong passwords and codes reach it, and of a browser that did
   once its own do; such a browser keeps a cookie, `emudoc_browser` (path `/api/auth`, 90 days),

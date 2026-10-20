@@ -10,12 +10,12 @@ from sqlalchemy import select
 
 from app.accounts import create_account
 from app.config import Settings, get_settings
-from app.legal import TERMS_VERSION
 from app.main import create_app
 from app.models import Organization
 from app.residency import check_residency, model_place, residency_problems
 from app.storage import LocalStorage, S3Storage
 from tests.conftest import FakeS3Client
+from tests.test_auth import signup
 
 # Everything residency reads, as a deployment that keeps its data in the EU has it, with its
 # files in a directory and the embeddings on its own network: the models are what each test
@@ -281,18 +281,8 @@ def test_development_says_what_is_outside_the_region_and_starts(session, monkeyp
 
 def test_an_organisation_records_the_region_it_was_created_in(session, client, monkeypatch):
     monkeypatch.setattr(get_settings(), "data_region", "eu")
-    response = client.post(
-        "/api/auth/signup",
-        json={
-            "email": "ada@example.com",
-            "password": "correct horse battery",
-            "name": "Ada",
-            "terms_version": TERMS_VERSION,
-        },
-    )
-    assert response.status_code == 201, response.text
     # The member is shown the region their organisation's data is kept in.
-    assert response.json()["organization"]["region"] == "eu"
+    assert signup(client)["organization"]["region"] == "eu"
     organization = session.scalars(select(Organization).where(Organization.slug == "ada")).one()
     assert organization.region == "eu"
 

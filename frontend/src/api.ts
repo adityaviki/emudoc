@@ -511,9 +511,24 @@ export const auth = {
     return response.json()
   },
   options: () => request<{ providers: OAuthProvider[] }>('/auth/options'),
-  /** `terms_version` is the edition the form showed and its user accepted; `time_zone` the browser's. */
-  signup: (body: { email: string; name: string; password: string; terms_version: string; time_zone: string }) =>
-    request<Me>('/auth/signup', json('POST', body)),
+  /**
+   * Mails `email` the link that makes the account. Answers alike whether or not the address has an
+   * account; one that has is told so by mail instead.
+   */
+  signup: (email: string) => request<void>('/auth/signup', json('POST', { email })),
+  /** The address a sign-up link was sent to; the link stays unused. */
+  signupLink: (token: string) => request<{ email: string }>('/auth/signup/link', json('POST', { token })),
+  /**
+   * Makes the account a sign-up link was sent for and signs it in. `terms_version` is the edition the
+   * page showed and its user accepted; `time_zone` the browser's.
+   */
+  finishSignup: (body: {
+    token: string
+    name: string
+    password: string
+    terms_version: string
+    time_zone: string
+  }) => request<Me>('/auth/signup/finish', json('POST', body)),
   /** Accept the edition the page showed; a 409 says it changed meanwhile. */
   acceptTerms: (version: string) => request<Me>('/auth/terms', json('POST', { version })),
   /** With two-factor on, the session grants nothing until `verifyMfa` succeeds. */

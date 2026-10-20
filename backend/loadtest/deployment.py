@@ -5,7 +5,9 @@ metrics, against a database of their own on the compose server, made afresh, and
 nothing and measures the app's own time. Every setting a figure depends on is set here, so that
 a developer's .env changes none of them."""
 
+import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -212,6 +214,27 @@ class Deployment:
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
+
+    def link_mailed_to(self, address: str, seconds: float = 10) -> str:
+        """The first link of the newest message to `address` in the API's log, once it is there:
+        the run has no mail relay, so the app's log mailer writes each message to the log."""
+        deadline = time.monotonic() + seconds
+        while True:
+            found = None
+            for line in (self.directory / "api.log").read_text().splitlines():
+                try:
+                    message = json.loads(line).get("message", "")
+                except (ValueError, AttributeError):
+                    continue
+                if message.startswith(f"Email to {address}: ") and (
+                    link := re.search(r"https?://\S+", message)
+                ):
+                    found = link.group()
+            if found is not None:
+                return found
+            if time.monotonic() > deadline:
+                sys.exit(f"No message to {address} in the API's log within {seconds:g} seconds.")
+            time.sleep(0.1)
 
     def stop(self) -> None:
         for name in ("api", "worker", "standin"):

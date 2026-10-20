@@ -1,13 +1,18 @@
 """Sign-in: accounts with a password, sign-in through Google or Microsoft, the links that
-confirm an address or reset a password, authenticator codes, the sessions a user holds, and the
-account itself: its user's name, time zone and email address, the terms they accepted
-(app/legal/), a copy of what is kept about them, and its deletion (app/retention.py).
+make an account, confirm an address or reset a password, authenticator codes, the sessions a
+user holds, and the account itself: its user's name, time zone and email address, the terms
+they accepted (app/legal/), a copy of what is kept about them, and its deletion
+(app/retention.py).
+
+A sign-up asks for the address alone and mails it a link, and the page the link opens makes
+the account: whoever holds the address chooses its password and accepts the terms there. The
+answer to the form is the same whether the address has an account or not, and an address that
+has one is told so in a message instead, so that nobody learns from the app who uses it.
 
 An account moves to a new address through a link sent there, which works signed in or not, as
-a verification link does; until it is opened the account keeps its address. The answer to the
-request is the same whether the new address has an account or not, and an address that has
-one is told so in a message instead, so that nobody learns from the app who uses it. Once the
-link is opened, every link sent to the old address stops working, and the old address is told,
+a verification link does; until it is opened the account keeps its address. That request too
+is answered alike, and a new address that has an account is told so by mail. Once the link
+is opened, every link sent to the old address stops working, and the old address is told,
 since it no longer signs in; the sessions stay, as the change says nothing about who holds
 them.
 
@@ -61,11 +66,13 @@ from app.mail import (
     Mailer,
     MailError,
     account_deletion_email,
+    account_exists_email,
     address_taken_email,
     email_change_email,
     email_changed_email,
     password_reset_email,
     sign_ins_paused_email,
+    sign_up_email,
     verification_email,
 )
 from app.models import Identity, User, UserSession
@@ -116,7 +123,9 @@ from app.schemas import (
     ProfileIn,
     RecoveryCodesOut,
     SessionOut,
+    SignupFinishIn,
     SignupIn,
+    SignupLinkOut,
     TermsIn,
 )
 from app.storage import content_disposition
@@ -130,6 +139,7 @@ VERIFY_PAGE = "/verify"
 RESET_PAGE = "/reset-password"
 FORGOT_PAGE = "/forgot-password"
 EMAIL_PAGE = "/confirm-email"
+SIGNUP_PAGE = "/finish-signup"
 
 SIGN_IN_FAILED = "The email or password is not right."
 LINK_INVALID = "This link has expired or was already used. Request a new one."
@@ -152,6 +162,10 @@ ADDRESS_TAKEN = (
 )
 # Whom the old address is told to write to when its account moved without its owner asking.
 NO_CONTACT = "the people who run this Emudoc service"
+SIGNED_UP_ALREADY = (
+    "An Emudoc account was made with this address after the link was sent, so the link cannot "
+    "make another. Sign in with it; if you do not know its password, reset it."
+)
 ACCEPT_TERMS = "Accept the terms of service and the privacy policy to create an account."
 TERMS_CHANGED = (
     "The terms of service and the privacy policy changed while you were reading them. Read "
@@ -207,40 +221,93 @@ def options():
     )
 
 
-@router.post("/signup", response_model=MeOut, status_code=201)
+@router.post("/signup", status_code=202)
 def signup(
     body: SignupIn,
     request: Request,
-    response: Response,
     session: SessionDep,
     mailer: MailerDep,
+    background: BackgroundTasks,
+):
+    """Start an account: mail the address the link that makes it (`finish_signup`). The answer
+    is the same whether the address has an account or not, and the mail goes out after it, as
+    `forgot_password`'s does: an address with an account is told that someone tried, with the
+    way to sign in, so that nobody learns from the app who uses it."""
+    email = body.email.strip().lower()
+    user = session.scalar(select(User).where(User.email == email))
+    guesser = _guesser(session, request, user, email)
+    refuse_past(session, (ADDRESSES, by_address(request)), (SIGN_INS, guesser.key))
+    if user is None:
+        token = auth.issue_link_token(session, None, "sign_up", email, auth.VERIFY_LINK_TTL)
+        session.commit()
+        subject, text = sign_up_email(_link(request, SIGNUP_PAGE, token))
+    else:
+        subject, text = account_exists_email(
+            user.name, f"{_app_url(request)}{LOGIN_PAGE}", f"{_app_url(request)}{FORGOT_PAGE}"
+        )
+    background.add_task(_send_quietly, mailer, email, subject, text)
+
+
+@router.post("/signup/link", response_model=SignupLinkOut)
+def signup_link(body: LinkTokenIn, session: SessionDep):
+    """The address a sign-up link was sent to, for its page to show before anything is typed,
+    without using the link up; refused as `finish_signup` would refuse it."""
+    link = auth.find_link_token(session, body.token, "sign_up")
+    if link is None:
+        raise HTTPException(400, LINK_INVALID)
+    if session.scalar(select(User.id).where(User.email == link.email)) is not None:
+        raise HTTPException(409, SIGNED_UP_ALREADY)
+    return SignupLinkOut(email=link.email)
+
+
+@router.post("/signup/finish", response_model=MeOut, status_code=201)
+def finish_signup(
+    body: SignupFinishIn,
+    request: Request,
+    response: Response,
+    session: SessionDep,
     http: HttpDep,
 ):
-    """Create an account with its own organisation, sign it in and send the verification link.
-    The form carries the edition of the terms its user accepted, which must be the current one.
-    """
+    """Make the account a sign-up link was sent for, with an organisation of its own, and sign
+    it in. Opening the link proves the address, so it starts confirmed, and whoever holds the
+    address chooses the password and accepts the terms, never whoever typed it into the form.
+    The edition accepted must be the current one. A refusal leaves the link working, since
+    nothing is committed."""
     refuse_past(session, (ADDRESSES, by_address(request)))
     if body.terms_version is None:
         raise HTTPException(400, ACCEPT_TERMS)
     if body.terms_version != TERMS_VERSION:
         raise HTTPException(409, TERMS_CHANGED)
-    email = body.email.strip().lower()
-    if session.scalar(select(User.id).where(User.email == email)) is not None:
-        raise HTTPException(409, "An account with this email already exists. Sign in instead.")
+    link = auth.redeem_link_token(session, body.token, "sign_up")
+    if link is None:
+        raise HTTPException(400, LINK_INVALID)
+    # Through a provider or a change of address, since the link was sent.
+    if session.scalar(select(User.id).where(User.email == link.email)) is not None:
+        raise HTTPException(409, SIGNED_UP_ALREADY)
     _refuse_breached(http, body.password)
-    account = create_account(
-        session,
-        email,
-        body.name.strip(),
-        auth.hash_password(body.password),
-        time_zone=body.time_zone,
-    )
+    try:
+        account = create_account(
+            session,
+            link.email,
+            body.name.strip(),
+            auth.hash_password(body.password),
+            email_verified=True,
+            time_zone=body.time_zone,
+        )
+    except IntegrityError as error:
+        # The same link opened twice at once, or an account made with the address in the
+        # moment between, is the database's to see.
+        session.rollback()
+        if _constraint(error) == "users_email_key":
+            raise HTTPException(409, SIGNED_UP_ALREADY) from None
+        raise
+    # The audit log keeps the sign-up; its links would outlive a deletion of the account.
+    auth.forget_sign_ups(session, link.email)
     user_session, token = auth.start_session(session, account.user, request)
     browser = auth.remember_browser(session, account.user, request)
     audit(session, account, request, "sign_up", detail={"method": "password"})
     _accept_terms(session, account, request)
     session.commit()
-    _send_verification(session, account.user, request, mailer)
     auth.set_session_cookie(response, request, token)
     auth.set_browser_cookie(response, request, browser)
     return _me(replace(account, session_id=user_session.id))
@@ -1009,6 +1076,12 @@ def _accept_terms(session: Session, account: Account, request: Request) -> None:
     account.user.terms_version = TERMS_VERSION
     account.user.terms_accepted_at = auth.now()
     audit(session, account, request, "terms_accepted", detail={"version": TERMS_VERSION})
+
+
+def _constraint(error: IntegrityError) -> str | None:
+    """The name of the constraint the database refused a statement for."""
+    diagnostics = getattr(error.orig, "diag", None)
+    return getattr(diagnostics, "constraint_name", None)
 
 
 def _app_url(request: Request) -> str:

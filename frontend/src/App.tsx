@@ -8,7 +8,7 @@ import { DeletionPending } from './account/DeletionPending.tsx'
 import { TermsPending } from './account/TermsPending.tsx'
 import { LoginPage } from './account/LoginPage.tsx'
 import { ForgotPasswordPage, ResetPasswordPage } from './account/PasswordPages.tsx'
-import { SignupPage } from './account/SignupPage.tsx'
+import { FinishSignupPage, SignupPage } from './account/SignupPage.tsx'
 import { UserMenu } from './account/UserMenu.tsx'
 import { VerifyPage } from './account/VerifyPage.tsx'
 import { AuthLayout } from './account/shared.tsx'
@@ -68,6 +68,7 @@ function App() {
         <Route element={<AuthLayout />}>
           <Route path="login" element={<LoginPage />} />
           <Route path="signup" element={<SignupPage />} />
+          <Route path="finish-signup" element={<FinishSignupPage />} />
           <Route path="forgot-password" element={<ForgotPasswordPage />} />
           <Route path="reset-password" element={<ResetPasswordPage />} />
           <Route path="verify" element={<VerifyPage />} />

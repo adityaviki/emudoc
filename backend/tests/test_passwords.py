@@ -11,12 +11,20 @@ import pytest
 from sqlalchemy import func, select
 
 from app.config import get_settings
-from app.legal import TERMS_VERSION
 from app.logs import bare_url
 from app.models import User
 from app.passwords import BREACHED, breached
 from tests.conftest import PWNED_ADDRESS
-from tests.test_auth import NEW_PASSWORD, PASSWORD, another_browser, login, me, signup
+from tests.test_auth import (
+    NEW_PASSWORD,
+    PASSWORD,
+    another_browser,
+    finish_signup,
+    login,
+    me,
+    sign_up_link,
+    signup,
+)
 
 BREACHED_ONE = "password1234"
 
@@ -36,15 +44,8 @@ def sha1(password: str) -> str:
 def test_sign_up_refuses_a_breached_password_and_tells_the_service_only_the_hashs_start(
     client, session, checked, signed_in_only
 ):
-    response = client.post(
-        "/api/auth/signup",
-        json={
-            "email": "ada@example.com",
-            "name": "Ada",
-            "password": BREACHED_ONE,
-            "terms_version": TERMS_VERSION,
-        },
-    )
+    token = sign_up_link(client)
+    response = finish_signup(client, token, password=BREACHED_ONE)
     assert response.status_code == 422 and response.json() == {"detail": BREACHED}
     assert session.scalar(select(func.count()).select_from(User)) == 0
 
@@ -54,7 +55,8 @@ def test_sign_up_refuses_a_breached_password_and_tells_the_service_only_the_hash
     assert request.headers["Add-Padding"] == "true"
     assert BREACHED_ONE not in str(request.url) and sha1(BREACHED_ONE)[5:] not in str(request)
 
-    signup(client)
+    # The link was not used up by the refusal.
+    assert finish_signup(client, token).status_code == 201
     assert me(client).status_code == 200
 
 

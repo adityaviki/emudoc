@@ -4,19 +4,23 @@
 # uvicorn in development with its worker threads, serving the last `pnpm build`, the model and
 # the embeddings endpoint being the stand-in (e2e/standin.py, started before this). Every
 # setting the run depends on is set here, so that a developer's .env changes none of them.
+# Everything the server says goes to LOG as well as to standard error, which Playwright shows:
+# the run has no mail relay, so the app logs each message it sends, and the test follows a
+# sign-up's link from there (e2e/mail.ts).
 #
-#   e2e/serve.sh PORT STANDIN_PORT
+#   e2e/serve.sh PORT STANDIN_PORT LOG
 #
 # It needs the database of docker-compose.yml up (docker compose up -d --wait db).
 
 set -euo pipefail
 
-if (($# != 2)); then
-  echo "usage: $0 PORT STANDIN_PORT" >&2
+if (($# != 3)); then
+  echo "usage: $0 PORT STANDIN_PORT LOG" >&2
   exit 2
 fi
 port=$1
 standin=http://127.0.0.1:$2/v1
+log=$3
 root=$(cd "$(dirname "$0")/../.." && pwd)
 database=emudoc_e2e
 files=${TMPDIR:-/tmp}/emudoc-e2e-files
@@ -25,6 +29,8 @@ if [[ ! -f $root/frontend/dist/index.html ]]; then
   echo "The page is not built: pnpm --dir frontend build." >&2
   exit 2
 fi
+: >"$log"
+exec > >(tee -a "$log" >&2) 2>&1
 sql() {
   docker compose -f "$root/docker-compose.yml" exec -T -e PGOPTIONS=--client-min-messages=warning \
     db psql -q -U emudoc -d emudoc -c "$1"

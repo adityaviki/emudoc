@@ -36,7 +36,9 @@ on one machine; this is what changes for a deployment. The processes below run f
 - **An embeddings endpoint** in `EMBEDDING_BASE_URL`, which turns every passage and every
   search into a vector for search by meaning: llama.cpp's server beside the app, as the
   compose file runs it, or a hosted one: "The embeddings endpoint", below.
-- **An SMTP relay** in `SMTP_URL` for the sign-in links.
+- **An SMTP relay** in `SMTP_URL` for the sign-in links. A new account with a password is made
+  from the link its sign-up mails, so a relay that is down takes no new members but those of
+  Google and Microsoft; the form answers as usual, and the API's log names the failure.
 - **The model providers** named by `INDEX_MODEL` and `AGENT_MODEL`, and by their fallbacks,
   each on terms that forbid training on what it is sent, each model named by its version and
   tried with `python -m app.maintenance models`: "The models" and "What leaves the deployment",
@@ -1249,7 +1251,8 @@ belongs on the operator's own legal pages, beside a link to this one.
 ## Terms of service and privacy policy
 
 The app publishes both at `/terms` and `/privacy`, pages anyone can open (`GET /api/legal` is
-the same as JSON), and a new account accepts them with a ticked box at sign-up. They are
+the same as JSON), and a new account accepts them with a ticked box on the page its sign-up
+link opens. They are
 Markdown templates in `backend/app/legal/`, filled in from the settings as they are served:
 who runs the deployment (`OPERATOR_NAME`, the company with its postal address, and
 `OPERATOR_EMAIL`, where people write about their data), where the documents are kept

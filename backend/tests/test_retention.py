@@ -157,6 +157,9 @@ def test_ended_sessions_and_links_are_removed_after_a_month(client, session, ser
             )
         )
     issue_link_token(session, user, "reset_password", user.email, ended - NOW)
+    # Sign-up links have no user: one that ran out long ago, one sent to another address lately.
+    issue_link_token(session, None, "sign_up", "grace@example.com", ended - NOW)
+    issue_link_token(session, None, "sign_up", "eve@example.com", timedelta(hours=1))
     # A browser that last signed in longer ago than browsers are told apart for.
     forgotten = NOW - BROWSER_KNOWN_FOR - timedelta(days=1)
     session.add(
@@ -164,16 +167,16 @@ def test_ended_sessions_and_links_are_removed_after_a_month(client, session, ser
     )
     session.commit()
     assert session.scalar(select(func.count()).select_from(UserSession)) == 4
-    assert session.scalar(select(func.count()).select_from(AuthToken)) == 2
+    assert session.scalar(select(func.count()).select_from(AuthToken)) == 3
     assert session.scalar(select(func.count()).select_from(Browser)) == 2
 
     housekeeping(services.storage)
 
     session.expire_all()
-    # The session signed in now and the one that ended days ago stay; so does the verification
-    # link that signing up sent, which still works, and the browser that signed up.
+    # The session signed in now and the one that ended days ago stay; so does the sign-up link
+    # that still works, and the browser that signed up.
     assert session.scalar(select(func.count()).select_from(UserSession)) == 2
-    assert session.scalars(select(AuthToken.purpose)).all() == ["verify_email"]
+    assert session.scalars(select(AuthToken.email)).all() == ["eve@example.com"]
     assert session.scalars(select(Browser.signed_in_at)).one() > forgotten
     assert me(client).status_code == 200
 
@@ -308,6 +311,9 @@ def test_the_purge_takes_the_account_its_organisation_and_their_files(
     assert purge_due_accounts(storage) == 0
     assert ada(session) is not None
 
+    # A sign-up link sent to her address before it was hers, as before an account moved to it,
+    # names her too, and has no user to go with.
+    issue_link_token(session, None, "sign_up", "ada@example.com", timedelta(hours=1))
     make_due(session, ada(session))
     # A replica that holds the user is purging it already: another skips it.
     with SessionLocal() as other_replica:

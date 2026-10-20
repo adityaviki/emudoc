@@ -12,6 +12,7 @@ from app.main import create_app
 from app.storage import SANDBOX, S3Storage
 from tests.conftest import APP_HEADERS, FakeEmbedder, FakeLLM, FakeS3Client
 from tests.test_api import create_project, upload
+from tests.test_auth import sign_up_link
 
 POLICY = (
     "default-src 'self'; img-src 'self'; object-src 'none'; base-uri 'self'; "
@@ -185,10 +186,9 @@ def test_no_other_origin_is_answered(client):
     )
     assert preflight.status_code == 405
     signup = client.post(
-        "/api/auth/signup",
+        "/api/auth/signup/finish",
         json={
-            "email": "ada@example.com",
-            "name": "Ada",
+            "token": sign_up_link(client),
             "password": "correct horse battery",
             "terms_version": TERMS_VERSION,
         },

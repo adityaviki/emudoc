@@ -24,8 +24,8 @@ organisation uploaded a document about you, ask the organisation first; we help 
   you.
 - **Where you signed in**: for every browser or device you sign in from, its internet (IP)
   address, the browser's description of itself and when it was last used, all of which the
-  account page shows you, and the address each confirmation, reset or change-of-address link
-  was sent to; and for every browser you signed in with, a random code it keeps in a cookie
+  account page shows you, and the address each sign-up, confirmation, reset or
+  change-of-address link was sent to; and for every browser you signed in with, a random code it keeps in a cookie
   (as a hash only) and when it first and last signed in, so that it can still sign in while
   someone guessing your password has paused sign-ins from other browsers. We keep them to keep
   your account secure, which is our legitimate interest.

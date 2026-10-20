@@ -1,6 +1,6 @@
-"""Email the app sends: the links that confirm an address, reset a password or move an account
-to a new address, and the notices that an account's address changed or that it is set to be
-deleted.
+"""Email the app sends: the links that make an account, confirm an address, reset a password or
+move an account to a new address, and the notices that an address has an account already, that
+an account's address changed or that it is set to be deleted.
 
 There is no email provider yet. The log mailer writes each message to the log, which is enough
 to follow a link in development and never runs in production, where SMTP_URL is required
@@ -113,6 +113,36 @@ def mailer_from_settings(settings: Settings) -> Mailer:
 
 def _greeting(name: str) -> str:
     return f"Hi {name}," if name else "Hi,"
+
+
+def sign_up_email(link: str) -> tuple[str, str]:
+    """To an address someone asked to make an account with: the link to the page where whoever
+    holds the address chooses the password and makes the account."""
+    body = (
+        "Hi,\n\n"
+        "Someone asked to create an Emudoc account with this email address. If it was you, open "
+        "this link to choose your password and finish:\n\n"
+        f"{link}\n\n"
+        "The link works for 24 hours. If you did not ask for this, ignore this message and no "
+        "account will be made.\n"
+    )
+    return "Finish creating your Emudoc account", body
+
+
+def account_exists_email(name: str, sign_in: str, reset: str) -> tuple[str, str]:
+    """To an address someone asked to make an account with, which has one already: said here,
+    never in the answer to the request, so that nobody learns from the app whether an address
+    has an account."""
+    body = (
+        f"{_greeting(name)}\n\n"
+        "Someone asked to create an Emudoc account with this email address, but it has one "
+        "already, so nothing changed. To use it, sign in:\n\n"
+        f"{sign_in}\n\n"
+        "If you have forgotten your password, or never set one, choose a new one here:\n\n"
+        f"{reset}\n\n"
+        "If you did not ask for this, ignore this message.\n"
+    )
+    return "You have an Emudoc account already", body
 
 
 def verification_email(name: str, link: str) -> tuple[str, str]:
