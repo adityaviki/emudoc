@@ -50,6 +50,54 @@ class ProjectOut(_FromORM):
     unenriched_count: int = 0
 
 
+class TrashedProjectOut(BaseModel):
+    """A project in the organisation's trash (app/trash.py), with what it holds."""
+
+    id: int
+    name: str
+    sample: bool
+    document_count: int
+    deleted_at: dt.datetime
+    # Who deleted it; null once their account is gone.
+    deleted_by: str | None
+    # When the housekeeper deletes it for good, unless it is restored first.
+    purged_at: dt.datetime
+
+
+class TrashOut(BaseModel):
+    """The organisation's projects in the trash that the account sees, the latest deleted
+    first, and how many days the trash keeps what is put in it."""
+
+    projects: list[TrashedProjectOut]
+    days: int
+
+
+class TrashedOut(BaseModel):
+    """Something in a project's trash: a folder, with the documents that went with it, a
+    document deleted by itself, or one of the asker's own chats."""
+
+    kind: Literal["folder", "document", "chat"]
+    id: int
+    # The folder's or the file's name, or the chat's title (empty before its first question).
+    name: str
+    # The path of the folder it was in; null at the project's root, and for a chat.
+    place: str | None
+    documents: int
+    mime_type: str | None
+    deleted_at: dt.datetime
+    deleted_by: str | None
+    purged_at: dt.datetime
+
+
+class ProjectTrashOut(BaseModel):
+    """The newest of what a project's trash holds for the asker, newest first, how much it holds
+    in all, and how many days it keeps it."""
+
+    items: list[TrashedOut]
+    total: int
+    days: int
+
+
 class ProjectAccessIn(BaseModel):
     """Who is to see a project besides the organisation's owners and admins: everyone in it, or
     the members chosen. An open project keeps no members, so `user_ids` counts only for a
@@ -1119,6 +1167,9 @@ class ExportedChat(BaseModel):
     visibility: str
     created_at: dt.datetime
     last_question_at: dt.datetime
+    # When the chat, or its project, went into the trash (app/trash.py), where it is still
+    # kept; null for one out of it.
+    deleted_at: dt.datetime | None = None
     messages: list[ExportedMessage]
 
 

@@ -48,6 +48,8 @@ export interface Workspace {
   goToFolder(folderId: number | null, options?: { replace?: boolean }): void
   /** Searches the folder shown, or the folder given (null for the whole project). */
   setSearch(q: string, folderId?: number | null): void
+  /** Shows the project's trash in the library; going to a folder leaves it. */
+  showTrash(): void
   openChat(chatId: number | 'new' | null, options?: { replace?: boolean }): void
   /** Which pane shows on a narrow screen, where only one fits. */
   mobilePane: Pane

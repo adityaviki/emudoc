@@ -78,21 +78,28 @@ def test_uploads_downloads_and_deletions_are_recorded_with_who_and_where(
     assert client.get(f"/api/documents/{pdf['id']}/pages/1.png").status_code == 200
     assert client.get(f"/api/documents/{pdf['id']}/thumbnail.png").status_code == 200
     assert client.delete(f"/api/documents/{docx['id']}").status_code == 204
+    # Into the trash, then out of it for good, so that its bytes may come in again.
+    assert client.delete(f"/api/trash/documents/{docx['id']}").status_code == 204
 
     folder = make_folder(client, project["id"], "Invoices")
     upload_into(client, project["id"], folder["id"], sample_docx)
     assert client.delete(f"/api/folders/{folder['id']}").status_code == 204
+    assert client.post(f"/api/trash/folders/{folder['id']}/restore").status_code == 200
     assert client.delete(f"/api/projects/{project['id']}").status_code == 204
+    assert client.delete(f"/api/trash/projects/{project['id']}").status_code == 204
 
-    in_folder = rows(session)[-3].target_id
+    in_folder = rows(session)[-5].target_id
     assert actions(session) == [
         ("document_uploaded", {"filename": sample_pdf.name, "size_bytes": pdf["size_bytes"]}),
         ("document_uploaded", {"filename": sample_docx.name, "size_bytes": docx["size_bytes"]}),
         ("document_downloaded", {"filename": sample_pdf.name}),
         ("document_deleted", {"filename": sample_docx.name}),
+        ("document_purged", {"filename": sample_docx.name}),
         ("document_uploaded", {"filename": sample_docx.name, "size_bytes": docx["size_bytes"]}),
         ("folder_deleted", {"name": "Invoices", "documents": 1}),
-        ("project_deleted", {"name": "Contracts", "documents": 1}),
+        ("folder_restored", {"name": "Invoices", "documents": 1}),
+        ("project_deleted", {"name": "Contracts", "documents": 2}),
+        ("project_purged", {"name": "Contracts", "documents": 2}),
     ]
     targets = [(row.target_type, row.target_id) for row in rows(session)]
     assert targets == [
@@ -100,8 +107,11 @@ def test_uploads_downloads_and_deletions_are_recorded_with_who_and_where(
         ("document", docx["id"]),
         ("document", pdf["id"]),
         ("document", docx["id"]),
+        ("document", docx["id"]),
         ("document", in_folder),
         ("folder", folder["id"]),
+        ("folder", folder["id"]),
+        ("project", project["id"]),
         ("project", project["id"]),
     ]
     # Each row names the member, the project and the address; the project outlives its row.
@@ -112,7 +122,7 @@ def test_uploads_downloads_and_deletions_are_recorded_with_who_and_where(
 
     # The owner reads it back, the newest first, with the member's name.
     events = page(client)["events"]
-    assert [event["action"] for event in events][:2] == ["project_deleted", "folder_deleted"]
+    assert [event["action"] for event in events][:2] == ["project_purged", "project_deleted"]
     assert events[0]["user_email"] == account.user.email and events[0]["ip"] == CLIENT
 
 

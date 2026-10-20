@@ -91,7 +91,7 @@ def account_export(session: Session, user: User) -> AccountExport:
         select(Browser).where(Browser.user_id == user.id).order_by(Browser.id)
     ).all()
     chats = session.execute(
-        select(Chat, Project.name, Organization.slug)
+        select(Chat, Project.name, Organization.slug, Project.deleted_at)
         .join(Project, Project.id == Chat.project_id)
         .join(Organization, Organization.id == Project.org_id)
         .where(Chat.user_id == user.id)
@@ -176,6 +176,7 @@ def account_export(session: Session, user: User) -> AccountExport:
                 visibility=chat.visibility,
                 created_at=chat.created_at,
                 last_question_at=chat.updated_at,
+                deleted_at=chat.deleted_at or trashed,
                 messages=[
                     ExportedMessage(
                         role=message.role,
@@ -188,7 +189,7 @@ def account_export(session: Session, user: User) -> AccountExport:
                     for message in chat.messages
                 ],
             )
-            for chat, project, slug in chats
+            for chat, project, slug, trashed in chats
         ],
         notifications=[
             ExportedNotification(

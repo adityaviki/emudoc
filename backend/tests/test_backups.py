@@ -293,6 +293,7 @@ def play_a_restore(client, session, account, sample_pdf, sample_docx, sample_xls
     # and restored to the point, which has the deleted document's row and not the new one's.
     (lost,) = upload(client, project["id"], sample_xlsx)["documents"]
     assert client.delete(f"/api/documents/{deleted['id']}").status_code == 204
+    assert client.delete(f"/api/trash/documents/{deleted['id']}").status_code == 204
     storage.put(erasure_key(purged.id, purged.created_at), b"{}")
     session.execute(Document.__table__.delete().where(Document.id == lost["id"]))
     session.execute(Document.__table__.insert(), [as_it_was])

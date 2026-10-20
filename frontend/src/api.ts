@@ -48,6 +48,44 @@ export interface Project {
   unenriched_count: number
 }
 
+/** A project in the organisation's trash (backend/app/trash.py). */
+export interface TrashedProject {
+  id: number
+  name: string
+  sample: boolean
+  document_count: number
+  deleted_at: string
+  /** Who deleted it; null once their account is gone. */
+  deleted_by: string | null
+  /** When it is deleted for good, unless it is restored first. */
+  purged_at: string
+}
+
+/** What a project's trash holds: its folders and documents, and the asker's own chats. */
+export type TrashKind = 'folder' | 'document' | 'chat'
+
+export interface Trashed {
+  kind: TrashKind
+  id: number
+  /** The folder's or the file's name, or the chat's title (empty before its first question). */
+  name: string
+  /** The path of the folder it was in; null at the project's root, and for a chat. */
+  place: string | null
+  /** For a folder, the documents that went with it. */
+  documents: number
+  mime_type: string | null
+  deleted_at: string
+  deleted_by: string | null
+  purged_at: string
+}
+
+/** The newest of a project's trash, how much it holds in all, and how many days it keeps it. */
+export interface ProjectTrash {
+  items: Trashed[]
+  total: number
+  days: number
+}
+
 /** Who sees a project: the members chosen for a private one, by user id; none for an open one. */
 export interface ProjectAccess {
   visibility: ProjectVisibility
@@ -717,16 +755,24 @@ export type AuditAction =
   | 'member_removed'
   | 'project_access_changed'
   | 'project_deleted'
+  | 'project_restored'
+  | 'project_purged'
   | 'sample_added'
   | 'folder_deleted'
+  | 'folder_restored'
+  | 'folder_purged'
   | 'document_uploaded'
   | 'document_downloaded'
   | 'document_deleted'
+  | 'document_restored'
+  | 'document_purged'
   | 'document_quarantined'
   | 'document_requeued'
   | 'chat_shared'
   | 'chat_unshared'
   | 'chat_deleted'
+  | 'chat_restored'
+  | 'chat_purged'
   | 'database_restored'
 
 /** One row of the organisation's audit log, which its owners and admins read. */
@@ -1083,7 +1129,18 @@ export const api = {
    */
   setProjectAccess: (id: number, access: ProjectAccess) =>
     request<ProjectAccess>(`/projects/${id}/access`, json('PUT', access)),
+  /** Into the organisation's trash, with everything in it. */
   deleteProject: (id: number) => request<void>(`/projects/${id}`, { method: 'DELETE' }),
+  /** The organisation's projects in the trash, and how many days it keeps them. */
+  trashedProjects: () => request<{ projects: TrashedProject[]; days: number }>('/trash'),
+  projectTrash: (projectId: number) => request<ProjectTrash>(`/projects/${projectId}/trash`),
+  /** Delete for good everything in the project's trash, the asker's own chats among it. */
+  emptyTrash: (projectId: number) => request<void>(`/projects/${projectId}/trash`, { method: 'DELETE' }),
+  /** Take something out of the trash; a project, a folder or a document is held to the plan. */
+  restore: <T>(kind: TrashKind | 'project', id: number) =>
+    request<T>(`/trash/${kind}s/${id}/restore`, { method: 'POST' }),
+  /** Delete something in the trash for good, with its files. */
+  purge: (kind: TrashKind | 'project', id: number) => request<void>(`/trash/${kind}s/${id}`, { method: 'DELETE' }),
   reprocessProject: (id: number, fromStage: StageName) =>
     request<{ queued: number }>(`/projects/${id}/reprocess?from_stage=${fromStage}`, {
       method: 'POST',

@@ -70,9 +70,12 @@ def test_deleting_a_folder_removes_its_subtree_and_files(client, services, sampl
     assert client.delete(f"/api/folders/{contracts['id']}").status_code == 204
     assert client.get(f"/api/projects/{project['id']}/folders").json() == []
     assert client.get(f"/api/documents/{pdf['id']}").status_code == 404
-    assert not services.storage.exists(key)
     remaining = listed(client, project["id"])
     assert [d["id"] for d in remaining] == [docx["id"]]
+    # The files wait in the trash with the folder, and go once it is deleted from there.
+    assert services.storage.exists(key)
+    assert client.delete(f"/api/trash/folders/{contracts['id']}").status_code == 204
+    assert not services.storage.exists(key)
 
 
 def test_document_rename_and_move(client, sample_pdf, tmp_path):

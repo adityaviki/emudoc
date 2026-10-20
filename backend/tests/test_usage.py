@@ -256,6 +256,7 @@ def test_usage_stays_with_the_organisation_when_its_project_and_user_go(
 
     # The organisation is what is billed, so its usage outlives the project and the member.
     assert client.delete(f"/api/projects/{indexed.project_id}").status_code == 204
+    assert client.delete(f"/api/trash/projects/{indexed.project_id}").status_code == 204
     rows = rows_of(session, (CHAT_MESSAGE, message_id))
     assert [row.project_id for row in rows] == [None] * 3
     assert [row.user_id for row in rows] == [account.user.id] * 3

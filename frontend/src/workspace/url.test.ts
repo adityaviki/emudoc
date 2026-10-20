@@ -77,6 +77,7 @@ describe('buildWorkspaceUrl', () => {
         chatId: 'new',
       }),
     ).toBe('/projects/3/documents/41?folder=7&q=late+delivery&passage=812&chat=new')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', trash: true } })).toBe('/projects/3?trash=')
   })
 
   it('reads back what it wrote', () => {
@@ -86,6 +87,7 @@ describe('buildWorkspaceUrl', () => {
       { ...home, library: { folderId: null, q: 'a & b = c?' } },
       { ...home, document: { id: 41, focus: { block: 0 } }, chatId: 12 },
       { ...home, library: { folderId: 7, q: '' }, document: { id: 41, focus: { page: 3 } } },
+      { ...home, library: { folderId: null, q: '', trash: true }, chatId: 12 },
     ]
     for (const url of urls) expect(parse(buildWorkspaceUrl(url))).toEqual(url)
   })

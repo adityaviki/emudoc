@@ -6,7 +6,8 @@ it set up and is shown nothing. The documents count outside the sample project a
 every sign-up's organisation starts with (app/sample), while a question asked in the sample
 counts, being what it is for. A question is a member's message in any chat of the
 organisation's, so the step is untaken again only once every chat is gone, as when a plan's
-retention deleted them all.
+retention deleted them all. What is in the trash (app/trash.py) takes no step, as it held none
+before there was a trash.
 
 The steps are the organisation's, the member's role picks those it is offered (`offered`): an
 owner or admin all three, a member uploading and asking, since only owners and admins invite,
@@ -44,12 +45,14 @@ _TAKEN = text(
         EXISTS (
             SELECT 1 FROM documents d JOIN projects p ON p.id = d.project_id
             WHERE p.org_id = :org AND NOT p.sample
+              AND d.deleted_at IS NULL AND p.deleted_at IS NULL
         ) AS upload,
         EXISTS (
             SELECT 1 FROM chat_messages m
             JOIN chats c ON c.id = m.chat_id
             JOIN projects p ON p.id = c.project_id
             WHERE p.org_id = :org AND m.role = 'user'
+              AND c.deleted_at IS NULL AND p.deleted_at IS NULL
         ) AS ask,
         EXISTS (SELECT 1 FROM memberships WHERE org_id = :org AND user_id <> :user)
         OR EXISTS (SELECT 1 FROM invitations WHERE org_id = :org) AS invite

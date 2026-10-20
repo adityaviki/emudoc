@@ -222,6 +222,14 @@ def process_document(
         document = session.get(Document, document_id)
         if document is None:
             return []
+        if document.deleted_at is not None or document.project.deleted_at is not None:
+            # In the trash (app/trash.py), the document waits as it is, to cost nothing that
+            # nobody may use; a restore queues it again. A run lost before it found it there
+            # leaves it queued, as a restore looks for.
+            if document.status == "processing":
+                document.status = "queued"
+                _commit(session, lease)
+            return []
         todo = [name for name in STAGES if document.stages.get(name, {}).get("status") != "done"]
         if not todo:
             # A job queued for a document that another job has since finished, such as a retry

@@ -1,4 +1,6 @@
-"""The agent's five tools. Every query is scoped to one project by the server, not the model."""
+"""The agent's five tools. Every query is scoped to one project by the server, not the model,
+and to what is out of the project's trash (app/trash.py): nothing in it is listed, searched,
+counted or read."""
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -15,6 +17,8 @@ from app.indexing.enrich import parse_iso_date
 from app.models import Document, Fact, Passage, Section
 from app.search import hybrid_search
 
+# The documents the tools see: those out of the trash. A folder in the trash holds none of them.
+LIVE = Document.deleted_at.is_(None)
 # Characters of source text one `read` returns before it asks the model to continue.
 READ_BUDGET = 12_000
 MAX_OUTLINE_SECTIONS = 400
@@ -117,7 +121,7 @@ class ReadInput(_Input):
 
 
 def list_documents(ctx: ToolContext, args: ListDocumentsInput) -> str:
-    conditions = [Document.project_id == ctx.project_id]
+    conditions = [Document.project_id == ctx.project_id, LIVE]
     if args.folder:
         scope = _folder_scope(ctx, args.folder)
         if isinstance(scope, str):
@@ -148,7 +152,7 @@ def list_documents(ctx: ToolContext, args: ListDocumentsInput) -> str:
 
     types = ctx.session.execute(
         select(Document.doc_type, func.count())
-        .where(Document.project_id == ctx.project_id, Document.doc_type.is_not(None))
+        .where(Document.project_id == ctx.project_id, LIVE, Document.doc_type.is_not(None))
         .group_by(Document.doc_type)
         .order_by(func.count().desc())
     ).all()
@@ -175,7 +179,7 @@ def _folder_summary(ctx: ToolContext) -> str:
     counts = dict(
         ctx.session.execute(
             select(Document.folder_id, func.count())
-            .where(Document.project_id == ctx.project_id)
+            .where(Document.project_id == ctx.project_id, LIVE)
             .group_by(Document.folder_id)
         ).all()
     )
@@ -212,7 +216,7 @@ def _folder_scope(ctx: ToolContext, folder: str) -> list[int] | str:
         if path == root or path.startswith(f"{root}{PATH_SEPARATOR}")
     ]
     return list(
-        ctx.session.scalars(select(Document.id).where(Document.folder_id.in_(subtree))).all()
+        ctx.session.scalars(select(Document.id).where(Document.folder_id.in_(subtree), LIVE)).all()
     )
 
 
@@ -308,6 +312,7 @@ def query_facts(ctx: ToolContext, args: QueryFactsInput) -> str:
 
     if len(filters) == 1:
         return _fact_names(ctx)
+    filters.append(LIVE)
 
     joined = select(Fact, Document).join(Document, Document.id == Fact.document_id)
     total = ctx.session.scalar(
@@ -373,12 +378,16 @@ def query_facts(ctx: ToolContext, args: QueryFactsInput) -> str:
 
 
 def read(ctx: ToolContext, args: ReadInput) -> str:
-    query = select(Passage).where(Passage.project_id == ctx.project_id)
+    query = (
+        select(Passage)
+        .join(Document, Document.id == Passage.document_id)
+        .where(Passage.project_id == ctx.project_id, LIVE)
+    )
     if args.section_id is not None:
         section = ctx.session.scalar(
-            select(Section).where(
-                Section.id == args.section_id, Section.project_id == ctx.project_id
-            )
+            select(Section)
+            .join(Document, Document.id == Section.document_id)
+            .where(Section.id == args.section_id, Section.project_id == ctx.project_id, LIVE)
         )
         if section is None:
             return f"No section with id {args.section_id} in this project."
@@ -436,7 +445,8 @@ def read(ctx: ToolContext, args: ReadInput) -> str:
 def _fact_names(ctx: ToolContext) -> str:
     names = ctx.session.execute(
         select(Fact.name, func.count(), func.count(func.distinct(Fact.document_id)))
-        .where(Fact.project_id == ctx.project_id)
+        .join(Document, Document.id == Fact.document_id)
+        .where(Fact.project_id == ctx.project_id, LIVE)
         .group_by(Fact.name)
         .order_by(func.count().desc(), Fact.name)
     ).all()
@@ -453,7 +463,9 @@ def _fact_names(ctx: ToolContext) -> str:
 
 def _document(ctx: ToolContext, document_id: int) -> Document | None:
     return ctx.session.scalar(
-        select(Document).where(Document.id == document_id, Document.project_id == ctx.project_id)
+        select(Document).where(
+            Document.id == document_id, Document.project_id == ctx.project_id, LIVE
+        )
     )
 
 

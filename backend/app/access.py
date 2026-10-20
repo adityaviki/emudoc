@@ -17,6 +17,9 @@ changed keeps them, so an admin made a member sees the private projects chosen f
 What a member did in a project they no longer see stays theirs: their chats in it are hidden
 until they are chosen again. Access is checked when a question is asked, so an answer under way
 finishes.
+
+A project in the trash (app/trash.py) is seen through the trash alone: `visible_to` leaves it
+out, and `sees`, the same choice without the trash, is what the trash's routes find it by.
 """
 
 from dataclasses import dataclass
@@ -53,8 +56,15 @@ def sees_every_project(account: Account) -> bool:
 
 
 def visible_to(account: Account) -> ColumnElement[bool]:
-    """The condition a project the account sees meets: one of its organisation's that is open
-    to everyone, or private with the user chosen, or any for an owner or admin."""
+    """The condition a project the account sees meets: one it may see (`sees`) that is not in
+    the trash (app/trash.py), where nothing of it is reached but through the trash itself."""
+    return and_(sees(account), Project.deleted_at.is_(None))
+
+
+def sees(account: Account) -> ColumnElement[bool]:
+    """The condition a project the account may see meets, in the trash or out of it: one of its
+    organisation's that is open to everyone, or private with the user chosen, or any for an
+    owner or admin."""
     ours = Project.org_id == account.organization.id
     if sees_every_project(account):
         return ours

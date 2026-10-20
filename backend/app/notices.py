@@ -109,14 +109,15 @@ USAGE_PAGE = "/organization/usage"
 DEVELOPMENT_APP_URL = "http://localhost:5173"
 
 # The jobs are an uncorrelated list, which Postgres hashes once for the statement, rather than
-# looked up per document: an upload of hundreds is looked at as each of its jobs ends.
+# looked up per document: an upload of hundreds is looked at as each of its jobs ends. A document
+# in the trash (app/trash.py) waits there unindexed, and holds nothing up.
 _SETTLE = text(
     """
     UPDATE uploads AS u SET settled_at = now()
     WHERE u.id = :id AND u.settled_at IS NULL
       AND NOT EXISTS (
         SELECT 1 FROM documents AS d
-        WHERE d.upload_id = u.id
+        WHERE d.upload_id = u.id AND d.deleted_at IS NULL
           AND (d.status IN ('queued', 'processing')
                OR d.id IN (SELECT (j.payload->>'document_id')::bigint FROM jobs AS j
                            WHERE j.kind = 'index_document'
@@ -244,7 +245,7 @@ def _tell(session: Session, settled: Row, app_url: str) -> None:
         return
     documents = session.execute(
         select(Document.filename, Document.status, Document.error)
-        .where(Document.upload_id == settled.id)
+        .where(Document.upload_id == settled.id, Document.deleted_at.is_(None))
         .order_by(Document.filename, Document.id)
     ).all()
     project = session.get(Project, settled.project_id)

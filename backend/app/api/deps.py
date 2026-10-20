@@ -22,7 +22,9 @@ one the account sees (a private project only its chosen members and the owners a
 app/access.py), and a document, folder, passage or chat must lie in such a project. Anything
 else is reported as not found, so a guessed id reveals nothing about other tenants or about a
 private project. A chat is also hidden from everyone but the member who started it until they
-share it with the project.
+share it with the project. What is in the trash (app/trash.py) is found only by the `Trashed...`
+dependencies, the trash's own routes, and a document or passage asked for as if it were live is
+told where it went.
 
 Reading needs any role; changing something needs the member role or better, which the
 `Editable...` dependencies check after the object itself is found. They also hold the change
@@ -30,7 +32,8 @@ to the organisation's plan: one that holds more than its plan allows, since the 
 or its terms were lowered, is read-only until it is within it again (`read_only` in
 app/entitlements.py), and the change is refused with 402. Deleting is what such an
 organisation may still do, to get within its plan, so the `Deletable...` dependencies check
-the role alone.
+the role alone, as the `Trashed...` ones do for deleting for good from the trash; a restore
+from it adds to what the organisation holds, so its routes take `EditorDep` as well.
 
 A request that changes something must also carry the header the app's own requests send.
 The browser attaches the session cookie to a request from any site, so without that proof a
@@ -49,7 +52,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.access import visible_to
+from app.access import sees, visible_to
 from app.accounts import Account, account_for_user, local_account, zone_of
 from app.auth import SESSION_COOKIE, find_session, touch_session
 from app.config import get_settings
@@ -61,6 +64,7 @@ from app.logs import about
 from app.models import Chat, Document, Folder, Passage, Project, User
 from app.ratelimit import Key, Limit, by_user, hit
 from app.retention import deletion_pending
+from app.trash import DOCUMENT_IN_TRASH, NOT_IN_TRASH, PASSAGE_IN_TRASH
 from app.worker import Worker
 
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -254,7 +258,8 @@ def get_project(project_id: int, session: SessionDep, account: AccountDep) -> Pr
 def get_document(document_id: int, session: SessionDep, account: AccountDep) -> Document:
     document = _in_organization(session, account, Document, document_id)
     if document is None:
-        raise HTTPException(404, "Document not found")
+        trashed = _in_organization(session, account, Document, document_id, trashed=True)
+        raise HTTPException(404, DOCUMENT_IN_TRASH if trashed else "Document not found")
     about(document_id=document.id)
     return document
 
@@ -269,7 +274,8 @@ def get_folder(folder_id: int, session: SessionDep, account: AccountDep) -> Fold
 def get_passage(passage_id: int, session: SessionDep, account: AccountDep) -> Passage:
     passage = _in_organization(session, account, Passage, passage_id)
     if passage is None:
-        raise HTTPException(404, "Passage not found")
+        trashed = _in_organization(session, account, Passage, passage_id, trashed=True)
+        raise HTTPException(404, PASSAGE_IN_TRASH if trashed else "Passage not found")
     return passage
 
 
@@ -281,15 +287,22 @@ def get_chat(chat_id: int, session: SessionDep, account: AccountDep) -> Chat:
 
 
 def _in_organization[T: (Document, Folder, Passage, Chat)](
-    session: Session, account: Account, model: type[T], object_id: int
+    session: Session, account: Account, model: type[T], object_id: int, trashed: bool = False
 ) -> T | None:
     """The row with this id, provided its project is one of the organisation's that the account
-    sees. What the request logs from here on names the project, once it is known to be the
-    account's."""
-    found = session.scalar(
+    sees, out of the trash; and the row itself out of the trash too, or in it with `trashed` (a
+    passage by its document's). What the request logs from here on names the project, once it
+    is known to be the account's."""
+    query = (
         select(model)
         .join(Project, Project.id == model.project_id)
         .where(model.id == object_id, visible_to(account))
+    )
+    if model is Passage:
+        query = query.join(Document, Document.id == Passage.document_id)
+    deleted_at = Document.deleted_at if model is Passage else model.deleted_at
+    found = session.scalar(
+        query.where(deleted_at.is_not(None) if trashed else deleted_at.is_(None))
     )
     if found is not None:
         about(project_id=found.project_id)
@@ -353,3 +366,49 @@ DeletableProjectDep = Annotated[Project, Depends(get_deletable_project)]
 DeletableDocumentDep = Annotated[Document, Depends(get_deletable_document)]
 DeletableFolderDep = Annotated[Folder, Depends(get_deletable_folder)]
 OwnChatDep = Annotated[Chat, Depends(get_own_chat)]
+
+
+def get_trashed_project(project_id: int, session: SessionDep, account: AccountDep) -> Project:
+    """A project in the trash that the account may see, for restoring it or deleting it for
+    good, which a member or better may."""
+    project = session.scalar(
+        select(Project).where(
+            Project.id == project_id, sees(account), Project.deleted_at.is_not(None)
+        )
+    )
+    if project is None:
+        raise HTTPException(404, NOT_IN_TRASH)
+    _refuse_viewer(account)
+    about(project_id=project.id)
+    return project
+
+
+def get_trashed_folder(folder_id: int, session: SessionDep, account: AccountDep) -> Folder:
+    folder = _in_organization(session, account, Folder, folder_id, trashed=True)
+    if folder is None:
+        raise HTTPException(404, NOT_IN_TRASH)
+    _refuse_viewer(account)
+    return folder
+
+
+def get_trashed_document(document_id: int, session: SessionDep, account: AccountDep) -> Document:
+    document = _in_organization(session, account, Document, document_id, trashed=True)
+    if document is None:
+        raise HTTPException(404, NOT_IN_TRASH)
+    _refuse_viewer(account)
+    about(document_id=document.id)
+    return document
+
+
+def get_trashed_chat(chat_id: int, session: SessionDep, account: AccountDep) -> Chat:
+    """One of the account's own chats in the trash, which is theirs alone, shared or not."""
+    chat = _in_organization(session, account, Chat, chat_id, trashed=True)
+    if chat is None or chat.user_id != account.user.id:
+        raise HTTPException(404, NOT_IN_TRASH)
+    return chat
+
+
+TrashedProjectDep = Annotated[Project, Depends(get_trashed_project)]
+TrashedFolderDep = Annotated[Folder, Depends(get_trashed_folder)]
+TrashedDocumentDep = Annotated[Document, Depends(get_trashed_document)]
+TrashedChatDep = Annotated[Chat, Depends(get_trashed_chat)]

@@ -36,10 +36,11 @@ from app.api.folders import folder_paths, resolve_folder
 from app.audit import audit
 from app.config import Settings, get_settings
 from app.entitlements import PlanRefused, check_upload, size_label
+from app.folders import unique_filename
 from app.indexing.pipeline import reset_stages
 from app.jobs import queue_index
 from app.metrics import UPLOAD_BYTES, UPLOAD_REJECTIONS
-from app.models import STAGES, Block, Document, Fact, Project, Section
+from app.models import STAGES, Block, Document, Fact, Folder, Project, Section
 from app.notices import record_upload, settle_upload
 from app.parsing import IMAGE_TYPES, MIME_TYPES, SUPPORTED_EXTENSIONS, FileTooLarge
 from app.parsing.images import open_image
@@ -61,6 +62,7 @@ from app.schemas import (
     UploadResult,
 )
 from app.storage import Storage, StorageError, original_key
+from app.trash import trash_document
 from app.usage import DOCUMENT, RENDER, UPLOAD, record
 from app.version import VERSION
 
@@ -113,6 +115,7 @@ def list_documents(
     query = select(Document.id, ROW_VERSION).where(
         Document.project_id == project.id,
         Document.folder_id == folder.id if folder else Document.folder_id.is_(None),
+        Document.deleted_at.is_(None),
     )
     if after is not None:
         query = query.where(tuple_(Document.filename, Document.id) > tuple_(*_cursor(after)))
@@ -353,17 +356,35 @@ def too_many(files: list[UploadFile], settings: Settings) -> str | None:
 def _already_present(
     session: SessionDep, project_id: int, sha256: str, filename: str
 ) -> RejectedFile | None:
-    """The rejection for a file whose bytes the project already holds, naming where."""
+    """The rejection for a file whose bytes the project already holds, naming where: in the
+    library, or in its trash (app/trash.py), from which restoring it costs nothing that
+    indexing it again would."""
     duplicate = session.scalar(
         select(Document).where(Document.project_id == project_id, Document.sha256 == sha256)
     )
     if duplicate is None:
         return None
+    if duplicate.deleted_at is not None:
+        return RejectedFile(filename=filename, reason=_in_trash(session, duplicate))
     where = ""
     if duplicate.folder_id is not None:
         where = f" in {folder_paths(session, project_id)[duplicate.folder_id]}"
     return RejectedFile(
         filename=filename, reason=f"Already in this project as {duplicate.filename!r}{where}."
+    )
+
+
+def _in_trash(session: SessionDep, document: Document) -> str:
+    """Where in the trash a document is: by itself, or with the folder it went with."""
+    went_with = None
+    folder = session.get(Folder, document.folder_id) if document.folder_id else None
+    while folder is not None and folder.deleted_at == document.deleted_at:
+        went_with = folder
+        folder = session.get(Folder, folder.parent_id) if folder.parent_id else None
+    within = f", deleted with the folder {went_with.name!r}" if went_with else ""
+    return (
+        f"Already in this project's trash as {document.filename!r}{within}. Restore it from "
+        "there, or delete it there for good to upload it again."
     )
 
 
@@ -412,6 +433,7 @@ def update_document(document: EditableDocumentDep, body: DocumentPatch, session:
             select(Document.id).where(
                 Document.project_id == project.id,
                 Document.folder_id == folder_id,
+                Document.deleted_at.is_(None),
                 func.lower(Document.filename) == filename.lower(),
                 Document.id != document.id,
             )
@@ -435,34 +457,11 @@ def renamed(current: str, requested: str) -> str:
     return name
 
 
-def unique_filename(session: SessionDep, project_id: int, folder_id: int | None, name: str) -> str:
-    """The name, or "name (2).ext" and so on when a sibling already carries it."""
-    taken = {
-        existing.lower()
-        for existing in session.scalars(
-            select(Document.filename).where(
-                Document.project_id == project_id, Document.folder_id == folder_id
-            )
-        )
-    }
-    if name.lower() not in taken:
-        return name
-    stem, suffix = Path(name).stem, Path(name).suffix
-    for number in range(2, 10_000):
-        candidate = f"{stem} ({number}){suffix}"
-        if candidate.lower() not in taken:
-            return candidate
-    return name
-
-
 @router.delete("/documents/{document_id}", status_code=204)
 def delete_document(
-    document: DeletableDocumentDep,
-    session: SessionDep,
-    services: ServicesDep,
-    account: AccountDep,
-    request: Request,
+    document: DeletableDocumentDep, session: SessionDep, account: AccountDep, request: Request
 ):
+    """Put the document in the project's trash, where nothing reads it until it is restored."""
     audit(
         session,
         account,
@@ -472,9 +471,8 @@ def delete_document(
         target=("document", document.id),
         detail={"filename": document.filename},
     )
-    session.delete(document)
+    trash_document(session, document, account.user.id)
     session.commit()
-    services.storage.discard(document.storage_prefix)
 
 
 @router.post("/documents/{document_id}/reprocess", response_model=DocumentOut, status_code=202)

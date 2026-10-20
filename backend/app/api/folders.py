@@ -1,4 +1,6 @@
-"""Folders: the tree of a project's library. A document sits in one folder or at the root."""
+"""Folders: the tree of a project's library. A document sits in one folder or at the root. A
+folder deleted goes into the trash with everything in it (app/trash.py), and holds no place in
+the tree, nor its name among its siblings', until it is restored."""
 
 from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import func, select
@@ -10,13 +12,13 @@ from app.api.deps import (
     EditableFolderDep,
     EditableProjectDep,
     ProjectDep,
-    ServicesDep,
     SessionDep,
 )
 from app.audit import audit
-from app.folders import PATH_SEPARATOR, folder_paths, subtree_ids
+from app.folders import PATH_SEPARATOR, folder_name_taken, folder_paths, subtree_ids
 from app.models import Document, Folder, Project
 from app.schemas import FolderIn, FolderOut, FolderPatch
+from app.trash import trash_folder
 
 router = APIRouter(tags=["folders"])
 
@@ -29,14 +31,18 @@ def list_folders(project: ProjectDep, session: SessionDep):
     client builds the tree from parent_id."""
     held = (
         select(Document.folder_id, func.count().label("documents"))
-        .where(Document.project_id == project.id, Document.folder_id.is_not(None))
+        .where(
+            Document.project_id == project.id,
+            Document.folder_id.is_not(None),
+            Document.deleted_at.is_(None),
+        )
         .group_by(Document.folder_id)
         .subquery()
     )
     rows = session.execute(
         select(Folder, held.c.documents)
         .outerjoin(held, held.c.folder_id == Folder.id)
-        .where(Folder.project_id == project.id)
+        .where(Folder.project_id == project.id, Folder.deleted_at.is_(None))
         .order_by(Folder.name, Folder.id)
     ).all()
     return [_out(folder, count or 0) for folder, count in rows]
@@ -68,24 +74,28 @@ def update_folder(folder: EditableFolderDep, body: FolderPatch, session: Session
     folder.parent_id = parent_id
     folder.name = name
     session.commit()
-    count = session.scalar(
-        select(func.count()).select_from(Document).where(Document.folder_id == folder.id)
+    return _out(folder, held_by(session, folder))
+
+
+def held_by(session: Session, folder: Folder) -> int:
+    """How many live documents are in the folder itself."""
+    return (
+        session.scalar(
+            select(func.count())
+            .select_from(Document)
+            .where(Document.folder_id == folder.id, Document.deleted_at.is_(None))
+        )
+        or 0
     )
-    return _out(folder, count or 0)
 
 
 @router.delete("/folders/{folder_id}", status_code=204)
 def delete_folder(
-    folder: DeletableFolderDep,
-    session: SessionDep,
-    services: ServicesDep,
-    account: AccountDep,
-    request: Request,
+    folder: DeletableFolderDep, session: SessionDep, account: AccountDep, request: Request
 ):
-    """Delete the folder with its subfolders and every document in them."""
-    documents = session.scalars(
-        select(Document).where(Document.folder_id.in_(subtree_ids(session, folder)))
-    ).all()
+    """Put the folder in the project's trash with its subfolders and every document in them."""
+    name = folder.name
+    documents = trash_folder(session, folder, account.user.id)
     audit(
         session,
         account,
@@ -93,11 +103,9 @@ def delete_folder(
         "folder_deleted",
         project_id=folder.project_id,
         target=("folder", folder.id),
-        detail={"name": folder.name, "documents": len(documents)},
+        detail={"name": name, "documents": documents},
     )
-    session.delete(folder)
     session.commit()
-    services.storage.discard(*(document.storage_prefix for document in documents))
 
 
 def _out(folder: Folder, document_count: int) -> FolderOut:
@@ -112,11 +120,11 @@ def clean_name(name: str) -> str:
 
 
 def resolve_folder(session: Session, project: Project, folder_id: int | None) -> Folder | None:
-    """The folder with this id in the project, or None for the root."""
+    """The live folder with this id in the project, or None for the root."""
     if folder_id is None:
         return None
     folder = session.get(Folder, folder_id)
-    if folder is None or folder.project_id != project.id:
+    if folder is None or folder.project_id != project.id or folder.deleted_at is not None:
         raise HTTPException(404, "Folder not found")
     return folder
 
@@ -129,12 +137,5 @@ def check_folder_name(
     exclude_id: int | None = None,
 ) -> None:
     """Sibling folders need distinct names, whatever their case."""
-    query = select(Folder.id).where(
-        Folder.project_id == project_id,
-        Folder.parent_id == parent_id,
-        func.lower(Folder.name) == name.lower(),
-    )
-    if exclude_id is not None:
-        query = query.where(Folder.id != exclude_id)
-    if session.scalar(query) is not None:
+    if folder_name_taken(session, project_id, parent_id, name, exclude_id):
         raise HTTPException(409, f"A folder named {name!r} already exists here")

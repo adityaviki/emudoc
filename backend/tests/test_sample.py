@@ -184,11 +184,16 @@ def test_it_counts_against_nothing_the_plan_holds_and_takes_no_uploads(
     assert made.json()["sample"] is False and made.json()["suggestions"] == []
     assert client.post("/api/projects", json={"name": "More"}).status_code == 402
 
-    # Deleting it is deleting a project.
+    # Deleting it is deleting a project, into the trash and from there for good; restored, it
+    # counts against nothing again.
     org_id = client.get("/api/auth/me").json()["organization"]["id"]
     assert list(services.storage.list(project_prefix(org_id, sample["id"])))
     assert client.delete(f"/api/projects/{sample['id']}").status_code == 204
     assert client.get("/api/organization/usage").json()["sample_documents"] == 0
+    assert client.post(f"/api/trash/projects/{sample['id']}/restore").status_code == 200
+    assert client.get("/api/organization/usage").json()["sample_documents"] == FILE_COUNT
+    assert client.delete(f"/api/projects/{sample['id']}").status_code == 204
+    assert client.delete(f"/api/trash/projects/{sample['id']}").status_code == 204
     assert not list(services.storage.list(project_prefix(org_id, sample["id"])))
 
 

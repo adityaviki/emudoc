@@ -37,6 +37,7 @@ from app.oidc import OAUTH_COOKIE, OAUTH_WINDOW_SECONDS
 from app.ratelimit import HISTORY
 from app.retention import DELETION_GRACE, RETENTION_HELD, day
 from app.storage import Storage
+from app.trash import TRASH_DAYS
 from app.worker import HOUSEKEEPING_INTERVAL
 
 TERMS_VERSION = "2026-10-15"
@@ -120,6 +121,7 @@ def privacy_policy(
         credential_days=str(CREDENTIAL_HISTORY.days),
         browser_days=str(BROWSER_KNOWN_FOR.days),
         notification_days=str(NOTIFICATION_DAYS),
+        trash_days=str(TRASH_DAYS),
         # A count is pruned at the first housekeeping after it is HISTORY old.
         count_hours=str(round((HISTORY.total_seconds() + HOUSEKEEPING_INTERVAL) / 3600)),
         deletion_days=str(DELETION_GRACE.days),

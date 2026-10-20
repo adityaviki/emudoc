@@ -28,6 +28,7 @@ from app.api import (
     organizations,
     projects,
     query,
+    trash,
     usage,
 )
 from app.api.deps import (
@@ -444,6 +445,7 @@ def create_app(
         documents.router,
         query.router,
         chats.router,
+        trash.router,
         audit.router,
         usage.router,
         billing.router,

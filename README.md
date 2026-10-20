@@ -197,6 +197,20 @@ document in the middle at that passage, with the library still beside it. The ag
 folders too: ask about "the invoices in Finance/2026" and `list_documents`, `search` and
 `query_facts` work within that folder.
 
+Deleting puts things in a **trash** rather than removing them (`backend/app/trash.py`): a file
+or a folder with everything in it goes into its project's trash, where the library's trash
+button finds it, and the library offers to undo the deletion at once; a chat goes into its
+starter's trash, which the chat list's "Deleted chats" opens; a project goes, with everything
+in it, into the organisation's trash under the projects. What is in the trash is out of the
+library, the search, the agent's answers and the counts, and counts against nothing on the
+plan, so deleting still makes room at once. A member restores it as it was (a folder with what
+went with it, into the nearest folder that is still there, renamed if a name was taken
+meanwhile), as the plan has room for it again, or deletes it for good with its files; after 30
+days the housekeeper deletes it for good. A viewer reads the trash and restores only their own
+chats. A document in the trash keeps its place: uploading the same file again is refused with
+the way to restore it, which costs none of the indexing again, and its indexing waits until it
+is restored.
+
 ## Run it
 
 You need Docker, [uv](https://docs.astral.sh/uv/) and Node with pnpm.
@@ -762,7 +776,8 @@ rotate ("Runbooks"), and every variable the app reads with its default ("Every s
 Each organisation keeps an audit log (`backend/app/audit.py`): its members' sign-ins (and
 failed ones for their accounts), profile, address, password, two-factor and session changes,
 exports and deletion requests, every upload, download and deletion of a document, folder or
-project, who sees a project, chats shared, taken private or deleted, and what the operator (a plan change, a
+project and its restore from the trash or deletion for good there, who sees a project, chats
+shared, taken private, deleted or restored, and what the operator (a plan change, a
 requeue) and the app (a quarantine, an account purge with the owner it promoted) did on their
 own. A row names the member, the project and the object, the client's address, and names or
 settings as they were (a file's name, a role before and after), never what a document, a
@@ -975,5 +990,4 @@ CHANGELOG.md    what each day's commits changed for members and operators
   leave it either.
 - Billing: a page of usage against the limits is to come; the API keys, the connectors and the
   model tier the plans declare are not read by anything yet.
-- A trash: deleting a project, folder, document or chat is immediate and permanent.
 - More file types (slides, email, legacy .doc and .xls), and reading order for multi-column PDFs.

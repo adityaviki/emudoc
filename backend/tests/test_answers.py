@@ -153,7 +153,7 @@ def test_a_stop_mid_answer_keeps_what_arrived_and_ends_the_run(
     assert follow(client, chat["id"], message_id)[-1] == {"type": "end", "status": "stopped"}
 
 
-def test_a_chat_deleted_mid_answer_ends_the_run(client, session, services, indexed):
+def test_a_chat_deleted_for_good_mid_answer_ends_the_run(client, session, services, indexed):
     held = Held(TextPart("Gone."))
     services.llm.agent_turns = [held]
     chat = new_chat(client, indexed.project_id)
@@ -162,7 +162,9 @@ def test_a_chat_deleted_mid_answer_ends_the_run(client, session, services, index
     run.start()
     try:
         assert held.reached.wait(10)
+        # In the trash an answer would finish; deleted from there, the run has nowhere to write.
         assert client.delete(f"/api/chats/{chat['id']}").status_code == 204
+        assert client.delete(f"/api/trash/chats/{chat['id']}").status_code == 204
     finally:
         held.release.set()
     run.join(10)

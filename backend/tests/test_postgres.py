@@ -232,8 +232,11 @@ def test_the_maintenance_work_outlasts_the_role_s_timeouts(
 
 def test_a_project_s_deletion_outlasts_the_role_s_timeouts(client, session, role_timeouts):
     project = client.post("/api/projects", json={"name": "Archive"}).json()
+    assert client.delete(f"/api/projects/{project['id']}").status_code == 204
+    # Deleted for good from the trash, it goes in one statement that may take as long as the
+    # project is large.
     with held(f"SELECT 1 FROM projects WHERE id = {project['id']} FOR UPDATE"):
-        assert client.delete(f"/api/projects/{project['id']}").status_code == 204
+        assert client.delete(f"/api/trash/projects/{project['id']}").status_code == 204
     assert session.scalar(select(Project.id).where(Project.id == project["id"])) is None
 
 

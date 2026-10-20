@@ -290,10 +290,11 @@ def test_a_flagged_upload_is_quarantined_and_nothing_of_it_is_served(
     assert client.post(f"/api/projects/{project['id']}/reprocess").json() == {"queued": 1}
     assert session.scalars(text("SELECT status FROM jobs WHERE status = 'failed'")).all() == []
 
-    # An editor deletes it, and the file goes with it.
+    # An editor deletes it, and the file goes with it once it is deleted from the trash.
     key = session.get(Document, flagged["id"]).storage_key
     assert services.storage.exists(key)
     assert client.delete(f"/api/documents/{flagged['id']}").status_code == 204
+    assert client.delete(f"/api/trash/documents/{flagged['id']}").status_code == 204
     assert not services.storage.exists(key)
 
 

@@ -32,6 +32,7 @@ import { formatDate } from '../format.ts'
 import { useStatus } from '../hooks.ts'
 import { inviteNudgeOf, mayInvite } from '../onboarding.ts'
 import type { InviteNudge } from '../onboarding.ts'
+import { trashKey } from '../trash.ts'
 import { describeAnswerUsage } from '../usage.ts'
 import { InviteTeam } from './InviteTeam.tsx'
 import { useWorkspace } from './state.ts'
@@ -144,11 +145,19 @@ function ChatHeader({ own, shared, activeId }: ChatHeaderProps) {
               </>
             )}
           </div>
-          {keptFor !== null && (
-            <p className="border-t border-line px-3 py-2 text-xs text-muted">
-              A chat is deleted {keptFor} days after its last question.
-            </p>
-          )}
+          <div className="flex items-start justify-between gap-3 border-t border-line px-3 py-2 text-xs text-muted">
+            <p>{keptFor !== null && `A chat is deleted ${keptFor} days after its last question.`}</p>
+            <button
+              type="button"
+              className="shrink-0 font-medium hover:text-ink"
+              onClick={() => {
+                close()
+                workspace.showTrash()
+              }}
+            >
+              Deleted chats
+            </button>
+          </div>
         </Floating>
       )}
     </div>
@@ -252,6 +261,8 @@ function ChatRow({ chat, active, onOpen }: { chat: Chat; active: boolean; onOpen
     onSuccess: () => {
       queryClient.setQueryData<Chat[]>(['chats', project.id], (chats) => chats?.filter((item) => item.id !== chat.id))
       queryClient.removeQueries({ queryKey: chatKey(chat.id) })
+      // Into the trash, which the chat list leads to under "Deleted chats".
+      void queryClient.invalidateQueries({ queryKey: trashKey(project.id) })
       if (active) workspace.openChat(null, { replace: true })
     },
   })
@@ -302,14 +313,7 @@ function ChatRow({ chat, active, onOpen }: { chat: Chat; active: boolean; onOpen
             <IconButton label="Rename chat" onClick={() => setRenaming(true)}>
               <Pencil className="size-3.5" />
             </IconButton>
-            <IconButton
-              label="Delete chat"
-              danger
-              disabled={remove.isPending}
-              onClick={() => {
-                if (window.confirm(`Delete "${title}"?`)) remove.mutate()
-              }}
-            >
+            <IconButton label="Delete chat" danger disabled={remove.isPending} onClick={() => remove.mutate()}>
               <Trash2 className="size-3.5" />
             </IconButton>
           </span>

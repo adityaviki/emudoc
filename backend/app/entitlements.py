@@ -15,6 +15,7 @@ per request through the account (app/api/deps.py), never from the settings.
 
 The checks run where the thing is about to happen: `check_project` in the route that creates
 one, `check_upload` in the upload route before anything is stored and again per file,
+`check_restore` in the routes that take a project, a folder or a document out of the trash,
 `check_pages` in the parse stage once it knows how many pages a document has (a document
 without pages, a Word file, a sheet or a text file, has those of its text, `text_pages`),
 `check_question`
@@ -25,7 +26,8 @@ with it, which app/main.py answers 402 with both, so that the page can offer wha
 figure (a pack for the month, a larger plan, more seats); the stage fails the document with
 the sentence. The counts come from the rows (projects, documents and their bytes, memberships;
 the sample project a new organisation starts with, app/sample, and its documents count against
-nothing), so a deleted document frees what it took, or from the month so far in UTC (the pages
+nothing, and neither does what is in the trash, app/trash.py), so a deleted document frees what
+it took at once, or from the month so far in UTC (the pages
 indexed, by the `upload` usage events; the questions, by the `answer` events in `questions`
 each question writes as it is asked, so that a chat deleted gives none back), which starts
 afresh on the first. Pages and
@@ -327,6 +329,50 @@ def check_upload(
     return None
 
 
+def check_restore(
+    session: Session,
+    organization: Organization,
+    *,
+    projects: int = 0,
+    documents: int = 0,
+    size: int = 0,
+) -> Refusal | None:
+    """Why the plan has no room for what a restore would bring back out of the trash, where it
+    counted against nothing: `projects` projects, and `documents` documents of `size` bytes.
+    None when it has room."""
+    plan = entitlements_of(organization)
+    label = _label(organization)
+    if projects and plan.projects is not None:
+        count = _projects(session, organization.id)
+        if count + projects > plan.projects:
+            return Refusal(
+                "projects",
+                f"The {label} plan allows {_count(plan.projects, 'project')}, and this "
+                f"organisation has {count}. Delete one, or {upgrade(organization)}, to restore "
+                "this one.",
+            )
+    if not documents:
+        return None
+    count, held = _documents(session, organization.id)
+    back = _count(documents, "document")
+    if plan.documents is not None and count + documents > plan.documents:
+        return Refusal(
+            "documents",
+            f"Restoring this brings back {back}, and the {label} plan allows "
+            f"{_count(plan.documents, 'document')}, of which this organisation has {count:,}. "
+            f"Delete some, or {upgrade(organization)}, to restore it.",
+        )
+    if plan.storage_bytes is not None and held + size > plan.storage_bytes:
+        return Refusal(
+            "storage_bytes",
+            f"Restoring this brings back {size_label(size)} of documents, and the {label} plan "
+            f"allows {size_label(plan.storage_bytes)}, of which this organisation holds "
+            f"{size_label(held)}. Delete some documents, or {upgrade(organization)}, to restore "
+            "it.",
+        )
+    return None
+
+
 def text_pages(characters: int) -> int:
     """The pages a document without pages counts for, by the characters of its text: one for
     every CHARS_PER_PAGE begun."""
@@ -540,21 +586,23 @@ def size_label(size: int) -> str:
 
 
 def _projects(session: Session, org_id: int) -> int:
-    """How many projects the organisation holds, the sample project left out (app/sample)."""
+    """How many projects the organisation holds, the sample project (app/sample) and those in
+    the trash (app/trash.py) left out."""
     return session.scalar(
         select(func.count())
         .select_from(Project)
-        .where(Project.org_id == org_id, Project.sample.is_(False))
+        .where(Project.org_id == org_id, Project.sample.is_(False), Project.deleted_at.is_(None))
     )
 
 
 def _documents(session: Session, org_id: int) -> tuple[int, int]:
     """How many documents the organisation holds, and their bytes, the sample project's left
-    out: they are the app's own, and none can be uploaded there."""
+    out (they are the app's own, and none can be uploaded there) and those in the trash, by
+    themselves or in a project there."""
     count, held = session.execute(
         select(func.count(Document.id), func.coalesce(func.sum(Document.size_bytes), 0))
         .join(Project, Project.id == Document.project_id)
-        .where(Project.org_id == org_id, Project.sample.is_(False))
+        .where(*_live_documents(org_id), Project.sample.is_(False))
     ).one()
     return count, held
 
@@ -565,7 +613,15 @@ def sample_documents(session: Session, org_id: int) -> int:
     return session.scalar(
         select(func.count(Document.id))
         .join(Project, Project.id == Document.project_id)
-        .where(Project.org_id == org_id, Project.sample.is_(True))
+        .where(*_live_documents(org_id), Project.sample.is_(True))
+    )
+
+
+def _live_documents(org_id: int) -> tuple:
+    return (
+        Project.org_id == org_id,
+        Project.deleted_at.is_(None),
+        Document.deleted_at.is_(None),
     )
 
 

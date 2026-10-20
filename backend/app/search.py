@@ -1,4 +1,6 @@
-"""Hybrid search: keyword and vector rankings over passages, merged by reciprocal rank."""
+"""Hybrid search: keyword and vector rankings over passages, merged by reciprocal rank. The
+passages of the documents in the project's trash (app/trash.py) are left out inside each
+ranking, before it takes its candidates, so that they never crowd out the live ones."""
 
 import logging
 import re
@@ -24,6 +26,11 @@ EF_SEARCH = 200
 HIT_START, HIT_STOP = "", ""
 
 _NO_VECTOR_CTE = "SELECT NULL::bigint AS id, NULL::bigint AS rank WHERE false"
+# The documents of the project in the trash, from their partial index: few, and passed to each
+# ranking as a list, so that its filter needs no join.
+_TRASHED = text(
+    "SELECT id FROM documents WHERE project_id = :project_id AND deleted_at IS NOT NULL"
+)
 _VECTOR_CTE = """
     SELECT p.id, row_number() OVER (ORDER BY p.embedding <=> CAST(:qvec AS vector)) AS rank
     FROM passages p
@@ -117,7 +124,13 @@ def hybrid_search(
         log.warning("A search in project %s matched keywords only: %s", project_id, error)
         vector = None
 
-    doc_filter = "AND p.document_id = ANY(:document_ids)" if document_ids else ""
+    trashed = session.scalars(_TRASHED, {"project_id": project_id}).all()
+    doc_filter = " ".join(
+        [
+            "AND p.document_id = ANY(:document_ids)" if document_ids else "",
+            "AND p.document_id <> ALL(:trashed)" if trashed else "",
+        ]
+    )
     sql = _QUERY.format(
         doc_filter=doc_filter,
         vector_cte=_VECTOR_CTE.format(doc_filter=doc_filter) if vector else _NO_VECTOR_CTE,
@@ -131,6 +144,7 @@ def hybrid_search(
         "candidates": max(limit * 4, 40),
         "k": RRF_K,
         "document_ids": document_ids or [],
+        "trashed": list(trashed),
     }
     # Plan every search for its own project. psycopg prepares a statement it has run five times
     # on a connection, and Postgres may then keep one plan for every project, made for a

@@ -91,6 +91,9 @@ $region
 
 - **Documents**, and everything read from them, until a member deletes them or the
   organisation is deleted.
+- **The trash**: a project, folder, document or chat a member deletes is kept in its trash for
+  $trash_days days, where it can be restored, and is then deleted for good, unless a member
+  deletes it there sooner; a chat goes sooner when its plan keeps it for less time.
 - **Chats**, for as long as the organisation's plan keeps a chat after its last question
   ($chat_retention), or the terms agreed with the organisation in its place, unless deleted
   sooner; the chats you did not share with a project go when you leave the organisation or an

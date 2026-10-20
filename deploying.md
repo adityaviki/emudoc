@@ -1651,8 +1651,13 @@ every six hours), and so what the privacy notice can promise:
   for `RETENTION_HELD` (30 days, `backend/app/retention.py`) after it, the days of the plan
   before hold as well (`organizations.retention_held_until`, `held_chat_days`; a move back up
   ends the hold, another move down holds the longer of the two for 30 days from then). The
-  `plan` command prints a hold that stands.
-  Deleting a project, folder, document or chat is immediate: there is no trash yet.
+  `plan` command prints a hold that stands. A chat in the trash goes at whichever comes
+  first, this or the trash's 30 days.
+- **The trash**: a project, folder, document or chat a member deleted goes for good, rows and
+  files, 30 days after it was deleted (`TRASH_DAYS` in `backend/app/trash.py`, `purge_trash` in
+  the housekeeping round), unless a member restores it or deletes it for good there first. Its
+  originals count in `emudoc_stored_bytes` meanwhile, its documents as `trashed` in
+  `emudoc_documents`, and against nothing on the organisation's plan.
 - **Sessions and one-time links** go 30 days after they expired or were revoked
   (`CREDENTIAL_HISTORY` in `backend/app/auth.py`), with the address and browser a session
   recorded and the address a link went to.
@@ -2362,7 +2367,7 @@ value.
 
 | Metric | What it holds |
 | --- | --- |
-| `emudoc_documents{status}` | Documents `queued`, `processing`, `ready`, `failed`, `quarantined` |
+| `emudoc_documents{status}` | Documents `queued`, `processing`, `ready`, `failed`, `quarantined`, and `trashed` for those in the trash whatever their status (their originals still count in `emudoc_stored_bytes`) |
 | `emudoc_jobs{kind,state}` | Jobs `due` (to be claimed now), `waiting` (a retry's backoff, or the next UTC day), `running`, and `failed` (kept 30 days for `failed-jobs`) |
 | `emudoc_job_oldest_due_seconds{kind}` | How long the oldest due job has waited for a worker: the backlog's age |
 | `emudoc_answers_in_flight` | Answers queued or being written (`MAX_ANSWERS` holds each organisation to 20) |

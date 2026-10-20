@@ -409,9 +409,12 @@ def test_reprocess_and_delete(client, services, sample_pdf):
 
     assert client.delete(f"/api/documents/{document_id}").status_code == 204
     assert client.get(f"/api/documents/{document_id}").status_code == 404
-    # The original and the pages rendered for it go together.
-    assert list(services.storage.list(prefix)) == []
     assert listed(client, project["id"]) == []
+    # In the trash its files wait for a restore; deleted for good there, the original and the
+    # pages rendered for it go together.
+    assert len(list(services.storage.list(prefix))) == 2
+    assert client.delete(f"/api/trash/documents/{document_id}").status_code == 204
+    assert list(services.storage.list(prefix)) == []
 
 
 def storage_key(document_id) -> str:

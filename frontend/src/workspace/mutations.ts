@@ -2,12 +2,15 @@
 // refuses them; the lists are fetched again afterwards either way. A refusal by the plan (a full
 // plan, or an organisation past it and so read-only) is shown as the way past it, and a deletion
 // asks again what the organisation holds past its plan, since deleting is how it gets within it.
+// A deletion puts things in the project's trash (backend/app/trash.py), and the library offers
+// to take back the last one at once.
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api, isPlanLimit } from '../api.ts'
 import type { Document, Folder, PlanRefusal, UploadResult } from '../api.ts'
 import { ME_KEY } from '../auth.ts'
+import { trashKey } from '../trash.ts'
 import { documentKey, editListings, listingsKey, restore, snapshotListings } from './listing.ts'
 import { useWorkspace } from './state.ts'
 
@@ -15,6 +18,15 @@ export interface MoveItems {
   folderIds: number[]
   documentIds: number[]
   targetId: number | null
+}
+
+export interface TrashItems {
+  folderIds: number[]
+  documentIds: number[]
+  /** The documents inside the folders, as far as the library holds them, whose tabs close. */
+  inFolders: number[]
+  /** What the items are called, for saying where they went. */
+  names: string[]
 }
 
 export function useLibraryMutations() {
@@ -25,6 +37,8 @@ export function useLibraryMutations() {
   // A change the organisation's plan refused: shown as the way past its limit.
   const [planLimit, setPlanLimit] = useState<PlanRefusal | null>(null)
   const [rejected, setRejected] = useState<UploadResult['rejected']>([])
+  // The last deletion, which the library offers to undo until the next one or a dismissal.
+  const [trashed, setTrashed] = useState<TrashItems | null>(null)
 
   // Every folder's listing: a document may be on a page of any of them.
   const documentsKey = [...listingsKey(projectId)]
@@ -118,28 +132,39 @@ export function useLibraryMutations() {
     onSettled: () => invalidate(foldersKey, documentsKey, openKey),
   })
 
-  const deleteFolder = useMutation({
-    // `documentIds` are the ones the library holds; the tabs of the others close when their
-    // documents are asked for again and found gone.
-    mutationFn: ({ id }: { id: number; documentIds: number[] }) => api.deleteFolder(id),
-    onMutate: ({ documentIds }) => workspace.closeTabs(documentIds),
-    onError: fail,
-    onSettled: () => invalidate(foldersKey, documentsKey, projectKey, openKey, [...ME_KEY]),
-  })
+  // What a deletion and its undoing touch: the library, the counts, the open documents, the
+  // trash and what the organisation holds against its plan.
+  const afterTrash = () => invalidate(foldersKey, documentsKey, projectKey, openKey, [...trashKey(projectId)], [...ME_KEY])
 
-  const deleteDocuments = useMutation({
-    mutationFn: (ids: number[]) => Promise.all(ids.map((id) => api.deleteDocument(id))),
-    onMutate: async (ids) => {
+  const trashItems = useMutation({
+    // A folder's documents that the library does not hold close their tabs once they are asked
+    // for again and found gone.
+    mutationFn: ({ folderIds, documentIds }: TrashItems) =>
+      Promise.all([...folderIds.map((id) => api.deleteFolder(id)), ...documentIds.map((id) => api.deleteDocument(id))]),
+    onMutate: async ({ documentIds, inFolders }) => {
+      setTrashed(null)
       const previous = await snapshotListings(queryClient, projectId)
-      editDocuments(ids, () => null)
-      workspace.closeTabs(ids)
+      editDocuments(documentIds, () => null)
+      workspace.closeTabs([...documentIds, ...inFolders])
       return { previous }
     },
+    onSuccess: (_data, items) => setTrashed(items),
     onError: (error, _variables, context) => {
       restore(queryClient, context?.previous)
       fail(error)
     },
-    onSettled: () => invalidate(documentsKey, foldersKey, projectKey, [...ME_KEY]),
+    onSettled: afterTrash,
+  })
+
+  const untrash = useMutation({
+    mutationFn: ({ folderIds, documentIds }: TrashItems) =>
+      Promise.all([
+        ...folderIds.map((id) => api.restore('folder', id)),
+        ...documentIds.map((id) => api.restore('document', id)),
+      ]),
+    onSuccess: () => setTrashed(null),
+    onError: fail,
+    onSettled: afterTrash,
   })
 
   const upload = useMutation({
@@ -169,12 +194,14 @@ export function useLibraryMutations() {
     clearPlanLimit: () => setPlanLimit(null),
     rejected,
     clearRejected: () => setRejected([]),
+    trashed,
+    clearTrashed: () => setTrashed(null),
     createFolder,
     renameFolder,
     renameDocument,
     moveItems,
-    deleteFolder,
-    deleteDocuments,
+    trashItems,
+    untrash,
     upload,
     reprocess,
     enrichAll,

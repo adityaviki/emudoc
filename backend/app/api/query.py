@@ -34,7 +34,9 @@ def search(
     folder = resolve_folder(session, project, folder_id)
     if folder is not None:
         in_folder = session.scalars(
-            select(Document.id).where(Document.folder_id.in_(subtree_ids(session, folder)))
+            select(Document.id).where(
+                Document.folder_id.in_(subtree_ids(session, folder)), Document.deleted_at.is_(None)
+            )
         ).all()
         document_ids = [d for d in in_folder if document_ids is None or d in document_ids]
     if document_ids == []:
@@ -73,7 +75,8 @@ def list_facts(
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
     offset: Annotated[int, Query(ge=0)] = 0,
 ):
-    filters = [Fact.project_id == project.id]
+    # The facts of the documents out of the trash (app/trash.py).
+    filters = [Fact.project_id == project.id, Document.deleted_at.is_(None)]
     if name:
         filters.append(Fact.name == name)
     if document_id:
@@ -82,7 +85,12 @@ def list_facts(
         pattern = f"%{q}%"
         filters.append(or_(Fact.value.ilike(pattern), Fact.name.ilike(pattern)))
 
-    total = session.scalar(select(func.count()).select_from(Fact).where(*filters))
+    total = session.scalar(
+        select(func.count())
+        .select_from(Fact)
+        .join(Document, Document.id == Fact.document_id)
+        .where(*filters)
+    )
     rows = session.execute(
         select(Fact, Document)
         .join(Document, Document.id == Fact.document_id)
@@ -98,7 +106,8 @@ def list_facts(
 def list_fact_names(project: ProjectDep, session: SessionDep):
     rows = session.execute(
         select(Fact.name, func.count())
-        .where(Fact.project_id == project.id)
+        .join(Document, Document.id == Fact.document_id)
+        .where(Fact.project_id == project.id, Document.deleted_at.is_(None))
         .group_by(Fact.name)
         .order_by(func.count().desc(), Fact.name)
     ).all()

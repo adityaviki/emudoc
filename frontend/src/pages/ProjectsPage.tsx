@@ -1,16 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Circle, CircleCheck, FolderOpen, Lock, Plus, Sparkles, Trash2, Users, X } from 'lucide-react'
+import { Circle, CircleCheck, FolderOpen, Lock, Plus, RotateCcw, Sparkles, Trash2, Users, X } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { api, auth, isPlanLimit, mayChange, organizations } from '../api.ts'
-import type { Project } from '../api.ts'
+import type { PlanRefusal, Project, TrashedProject } from '../api.ts'
 import { ME_KEY, setSignedIn, useMe } from '../auth.ts'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, Checkbox, EmptyState, FIELD, IconButton, LinkButton, Loading, Notice } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
 import { checklistOf } from '../onboarding.ts'
 import type { ChecklistStep } from '../onboarding.ts'
+import { describeTrashedProject, TRASHED_PROJECTS_KEY } from '../trash.ts'
 import { ProjectAccessForm } from './ProjectAccessForm.tsx'
 
 export function ProjectsPage() {
@@ -93,8 +94,69 @@ export function ProjectsPage() {
             />
           ))}
         </div>
+        {changes && <ProjectTrash />}
       </div>
     </div>
+  )
+}
+
+/**
+ * The organisation's projects in the trash, each with everything it held, until a member
+ * restores it, as the plan has room for, or deletes it for good, or the days it is kept pass.
+ */
+function ProjectTrash() {
+  const queryClient = useQueryClient()
+  const trash = useQuery({ queryKey: TRASHED_PROJECTS_KEY, queryFn: api.trashedProjects })
+  const [refused, setRefused] = useState<PlanRefusal | null>(null)
+  const settle = () => {
+    for (const queryKey of [TRASHED_PROJECTS_KEY, ['projects'], ME_KEY]) void queryClient.invalidateQueries({ queryKey: [...queryKey] })
+  }
+  const options = {
+    onMutate: () => setRefused(null),
+    onError: (error: Error) => setRefused({ message: error.message, limit: isPlanLimit(error) ? error.limit : null }),
+    onSettled: settle,
+  }
+  const restore = useMutation({ mutationFn: (project: TrashedProject) => api.restore('project', project.id), ...options })
+  const purge = useMutation({ mutationFn: (project: TrashedProject) => api.purge('project', project.id), ...options })
+  if (!trash.data?.projects.length) return null
+
+  return (
+    <section aria-labelledby="project-trash" className="mt-10">
+      <h2 id="project-trash" className="font-semibold">
+        Trash
+      </h2>
+      <p className="mt-0.5 mb-3 text-[13px] text-muted">
+        A deleted project waits here with everything in it for {trash.data.days} days, then is deleted for good.
+      </p>
+      {refused && (
+        <div className="mb-3">
+          {refused.limit ? <PlanLimitNotice refusal={refused} onDismiss={() => setRefused(null)} /> : <Notice tone="bad">{refused.message}</Notice>}
+        </div>
+      )}
+      <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
+        {trash.data.projects.map((project) => (
+          <li key={project.id} className="flex items-center gap-3 px-4 py-2.5">
+            <div className="min-w-0 flex-1" title={`Deleted for good on ${formatDate(project.purged_at)}`}>
+              <p className="truncate text-[13px] font-medium">{project.name}</p>
+              <p className="truncate text-xs text-muted">{describeTrashedProject(project, formatDate(project.deleted_at))}</p>
+            </div>
+            <Button icon={<RotateCcw className="size-4" />} disabled={restore.isPending} onClick={() => restore.mutate(project)}>
+              Restore
+            </Button>
+            <IconButton
+              label={`Delete ${project.name} for good`}
+              danger
+              disabled={purge.isPending}
+              onClick={() => {
+                if (window.confirm(`Delete “${project.name}” and everything in it for good? This cannot be undone.`)) purge.mutate(project)
+              }}
+            >
+              <Trash2 className="size-4" />
+            </IconButton>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 
@@ -235,20 +297,16 @@ function NewProjectForm({ onClose }: { onClose: () => void }) {
 
 function ProjectCard({ project, changes, onManage }: { project: Project; changes: boolean; onManage: () => void }) {
   const queryClient = useQueryClient()
+  // Into the trash below the projects, from which it is restored as it was.
   const remove = useMutation({
     mutationFn: () => api.deleteProject(project.id),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['projects'] })
+      void queryClient.invalidateQueries({ queryKey: TRASHED_PROJECTS_KEY })
       // What the organisation holds past its plan, which a deletion may bring it within.
       void queryClient.invalidateQueries({ queryKey: ME_KEY })
     },
   })
-
-  function confirmDelete() {
-    const count = project.document_count
-    const warning = count ? ` and its ${count} document${count === 1 ? '' : 's'}` : ''
-    if (window.confirm(`Delete "${project.name}"${warning}? This cannot be undone.`)) remove.mutate()
-  }
 
   return (
     <div className="group relative rounded-xl border border-line bg-surface shadow-xs transition hover:border-ink/15 hover:shadow-sm">
@@ -293,7 +351,7 @@ function ProjectCard({ project, changes, onManage }: { project: Project; changes
           <IconButton label="Who sees it" onClick={onManage}>
             <Users className="size-4" />
           </IconButton>
-          <IconButton label="Delete project" danger onClick={confirmDelete} disabled={remove.isPending}>
+          <IconButton label="Delete project" danger onClick={() => remove.mutate()} disabled={remove.isPending}>
             <Trash2 className="size-4" />
           </IconButton>
         </div>

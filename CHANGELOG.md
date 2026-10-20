@@ -11,6 +11,14 @@ its day, in the same commit.
 
 Members:
 
+- Deleting no longer loses anything at once: a file or a folder goes into its project's trash,
+  which the library's trash button opens, and the library offers to undo the deletion right
+  away; a chat goes into your own trash, under "Deleted chats" in the chat list; a project goes,
+  with everything in it, into the trash under the projects. Restore it as it was, or delete it
+  for good; what is still there after 30 days is deleted for good. Nothing in the trash is
+  searched, read by the agent or counted against your plan, so deleting still makes room at
+  once, and restoring needs the room again. Uploading a file that is in the trash says so,
+  rather than indexing it again.
 - Once an answer about your organisation's own documents is done, an owner or admin of an
   organisation nobody else is in or invited to finds a suggestion under it to invite the team,
   with the email and the role to send the invitation from the chat, or, on a plan for one
@@ -35,6 +43,13 @@ Members:
 
 Operators:
 
+- Projects, folders, documents and chats deleted wait in the trash, rows and files, until a
+  member restores them or deletes them for good; the housekeeping round deletes for good what
+  has been there 30 days (`TRASH_DAYS`, logged with the counts). `emudoc_documents` counts their
+  documents as `trashed`, and their originals stay in `emudoc_stored_bytes` until then. The
+  audit log records `*_restored` and `*_purged` beside `*_deleted`, which now means into the
+  trash; the migration drops the job kind `purge_trash`, which nothing queued. The privacy
+  policy names the trash's 30 days among what is kept.
 - `SAMPLE_PROJECT` (on by default) gives the organisation an account signs up with the sample
   project, copied from the image in the sign-up's transaction: no model is called and nothing
   of the month is used; each document's index job makes its vectors alone, recorded as `embed`

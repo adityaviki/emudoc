@@ -131,6 +131,10 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
       setSearch(q, folderId = url.library.folderId) {
         go({ library: { folderId, q } }, { replace: true })
       },
+      showTrash() {
+        setMobilePane('library')
+        go({ library: { folderId: null, q: '', trash: true } })
+      },
       openChat(chatId, options) {
         if (chatId === 'new') setMobilePane('chat')
         go({ chatId }, options)

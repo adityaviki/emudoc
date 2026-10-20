@@ -349,8 +349,10 @@ def test_the_free_plan_answers_so_many_questions_a_month(member, client, session
     }
     # Nothing was saved for the refused question.
     assert client.get(f"/api/chats/{second['id']}").json()["messages"] == []
-    # The month counts the asking, so deleting the chat gives its question back to nobody.
+    # The month counts the asking, so deleting the chat, for good too, gives its question back
+    # to nobody.
     assert client.delete(f"/api/chats/{first['id']}").status_code == 204
+    assert client.delete(f"/api/trash/chats/{first['id']}").status_code == 204
     again = client.post(f"/api/chats/{second['id']}/messages", json={"content": "Price?"})
     assert again.status_code == 402 and again.json() == refused.json()
 

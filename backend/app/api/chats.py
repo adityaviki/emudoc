@@ -4,7 +4,8 @@ A question is answered by the worker, not in the request (app/answers.py): `ask`
 question and an empty answer, queues the job and returns both at once; the client then follows
 the answer's events through `events`, a server-sent event stream read from the table, and can
 pick it up again from the last event it saw after a reload or a dropped connection. `stop`
-ends an answer early with what arrived so far.
+ends an answer early with what arrived so far. A chat deleted goes into the trash, its
+starter's alone (app/trash.py); an answer still being written there finishes.
 """
 
 import logging
@@ -49,6 +50,7 @@ from app.ratelimit import QUESTIONS
 from app.schemas import AskOut, ChatDetail, ChatMessageOut, ChatOut, ChatPatch, QuestionIn
 from app.shutdown import Stop
 from app.spending import check_platform_spend, check_spend, retry_after
+from app.trash import trash_chat
 from app.usage import ANSWER, record
 
 log = logging.getLogger(__name__)
@@ -78,6 +80,7 @@ def list_chats(project: ProjectDep, session: SessionDep, account: AccountDep):
         select(Chat)
         .where(
             Chat.project_id == project.id,
+            Chat.deleted_at.is_(None),
             or_(Chat.user_id == account.user.id, Chat.visibility == "project"),
         )
         .order_by(Chat.updated_at.desc(), Chat.id.desc())
@@ -122,6 +125,7 @@ def update_chat(
 
 @router.delete("/chats/{chat_id}", status_code=204)
 def delete_chat(chat: OwnChatDep, session: SessionDep, account: AccountDep, request: Request):
+    """Put the chat in its starter's trash; shared, it leaves the project's list with it."""
     audit(
         session,
         account,
@@ -130,7 +134,7 @@ def delete_chat(chat: OwnChatDep, session: SessionDep, account: AccountDep, requ
         project_id=chat.project_id,
         target=("chat", chat.id),
     )
-    session.delete(chat)
+    trash_chat(session, chat)
     session.commit()
 
 

@@ -30,6 +30,7 @@ import { StatusIcon } from '../components/IndexingStatus.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
 import { PlanLimitNotice, PlanOffer } from '../components/PlanLimit.tsx'
 import { Button, Chip, EmptyState, IconButton, Loading, Notice, Spinner } from '../components/ui.tsx'
+import { movedToTrash } from '../trash.ts'
 import { useContextMenu } from '../components/useContextMenu.tsx'
 import { useFolders, useLocalStorage, useStatus } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
@@ -39,6 +40,7 @@ import type { Listing } from './listing.ts'
 import { useLibraryMutations } from './mutations.ts'
 import type { LibraryMutations } from './mutations.ts'
 import { useWorkspace } from './state.ts'
+import { TrashView } from './Trash.tsx'
 
 type Item = { kind: 'folder'; folder: Folder } | { kind: 'file'; document: Document }
 
@@ -129,6 +131,7 @@ export function Library() {
   // Documents indexed before a model was configured can catch up in one go.
   const waitingForModel = project.unenriched_count
 
+  if (workspace.url.library.trash) return <TrashView />
   return (
     <div
       data-tour="library"
@@ -155,6 +158,13 @@ export function Library() {
         </div>
         <div className="flex items-center gap-2 px-3 pb-2.5">
           <SearchBox query={query} scope={folderId == null ? null : currentName} />
+          <Button
+            icon={<Trash2 className="size-4" />}
+            onClick={workspace.showTrash}
+            title="The trash: what was deleted, until it is deleted for good"
+            aria-label="Trash"
+            className="px-2"
+          />
           {changes && (
             <>
               <Button
@@ -202,6 +212,26 @@ export function Library() {
           </Notice>
         )}
         {mutations.planLimit && <PlanLimitNotice refusal={mutations.planLimit} onDismiss={mutations.clearPlanLimit} />}
+        {mutations.trashed && (
+          <Notice tone="info">
+            <div className="flex items-center justify-between gap-3">
+              <span>{movedToTrash(mutations.trashed.names)}</span>
+              <span className="flex shrink-0 items-center gap-1">
+                <Button
+                  variant="ghost"
+                  className="h-6 px-2"
+                  disabled={mutations.untrash.isPending}
+                  onClick={() => mutations.trashed && mutations.untrash.mutate(mutations.trashed)}
+                >
+                  Undo
+                </Button>
+                <IconButton label="Dismiss" onClick={mutations.clearTrashed} className="p-0.5!">
+                  <X className="size-3.5" />
+                </IconButton>
+              </span>
+            </div>
+          </Notice>
+        )}
         {mutations.rejected.length > 0 && (
           <Notice>
             <div className="flex items-start justify-between gap-3">
@@ -523,28 +553,18 @@ function Listing({
     else open(item)
   }
 
+  /** Put the items in the project's trash, from which the library offers to take them back. */
   function remove(chosen: Item[]) {
     const targets = outermost(chosen, tree)
     if (!targets.length) return
-    const folders = targets.filter((item) => item.kind === 'folder')
-    const files = targets.filter((item) => item.kind === 'file')
-    const inFolders = folders.reduce((count, item) => count + (item.kind === 'folder' ? filesBelow(tree, item.folder.id) : 0), 0)
-    const message =
-      targets.length === 1 && folders.length === 1
-        ? `Delete "${itemName(targets[0])}" and everything in it (${inFolders} file${inFolders === 1 ? '' : 's'})?`
-        : targets.length === 1
-          ? `Delete "${itemName(targets[0])}"?`
-          : `Delete ${targets.length} items?`
-    if (!window.confirm(message)) return
-    for (const item of folders) {
-      if (item.kind === 'folder') {
-        const below = tree.subtree(item.folder.id)
-        const ids = items.flatMap((i) => (i.kind === 'file' && i.document.folder_id != null && below.has(i.document.folder_id) ? [i.document.id] : []))
-        mutations.deleteFolder.mutate({ id: item.folder.id, documentIds: ids })
-      }
-    }
-    const fileIds = files.flatMap((item) => (item.kind === 'file' ? [item.document.id] : []))
-    if (fileIds.length) mutations.deleteDocuments.mutate(fileIds)
+    const folderIds = targets.flatMap((item) => (item.kind === 'folder' ? [item.folder.id] : []))
+    const below = new Set(folderIds.flatMap((id) => [...tree.subtree(id)]))
+    mutations.trashItems.mutate({
+      folderIds,
+      documentIds: targets.flatMap((item) => (item.kind === 'file' ? [item.document.id] : [])),
+      inFolders: items.flatMap((i) => (i.kind === 'file' && i.document.folder_id != null && below.has(i.document.folder_id) ? [i.document.id] : [])),
+      names: targets.map(itemName),
+    })
     setSelected(new Set())
   }
 
@@ -905,11 +925,6 @@ function treeLines(tree: FolderTree, listings: Map<number | null, ListingResult>
   }
   visit(rootId, 0)
   return lines
-}
-
-/** How many files a folder and the folders below it hold. */
-function filesBelow(tree: FolderTree, folderId: number): number {
-  return [...tree.subtree(folderId)].reduce((count, id) => count + (tree.byId.get(id)?.document_count ?? 0), 0)
 }
 
 /** The folders below this one that have anything in them to show when opened. */

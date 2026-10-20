@@ -85,9 +85,10 @@ EMBED = "embed"
 METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
 # The route of a request no route took: a 404 of the API, or a method nothing serves.
 NO_ROUTE = "other"
-# The statuses a document's row holds, served even when no document has them, so that a
-# dashboard's series start at zero rather than appear with the first one.
-DOCUMENT_STATUSES = ("queued", "processing", "ready", "failed", "quarantined")
+# The statuses a document's row holds, and `trashed` for one in the trash, served even when no
+# document has them, so that a dashboard's series start at zero rather than appear with the
+# first one.
+DOCUMENT_STATUSES = ("queued", "processing", "ready", "failed", "quarantined", "trashed")
 # The kinds of job the worker runs (HANDLERS in app/worker.py), whose series start at zero.
 JOBS = (INDEX_DOCUMENT, ANSWER_QUESTION, RENDER_PAGES, SEND_EMAIL)
 # What a lane of the worker's threads runs (app/worker.py).
@@ -470,10 +471,14 @@ class Lanes:
         )
 
 
+# A document in the trash (app/trash.py), by itself or in a project there, counts as `trashed`
+# whatever its status: it waits there unindexed, and its bytes are still held.
 _DOCUMENTS = text(
-    "SELECT o.plan, d.status, count(*) AS documents, coalesce(sum(d.size_bytes), 0) AS bytes "
+    "SELECT o.plan, CASE WHEN d.deleted_at IS NOT NULL OR p.deleted_at IS NOT NULL "
+    "THEN 'trashed' ELSE d.status END AS status, "
+    "count(*) AS documents, coalesce(sum(d.size_bytes), 0) AS bytes "
     "FROM documents d JOIN projects p ON p.id = d.project_id "
-    "JOIN organizations o ON o.id = p.org_id GROUP BY o.plan, d.status"
+    "JOIN organizations o ON o.id = p.org_id GROUP BY 1, 2"
 )
 _ORGANIZATIONS = text("SELECT plan, count(*) FROM organizations GROUP BY plan")
 # Served by the partial index on the messages being written.
@@ -516,7 +521,8 @@ class Holdings:
         return {
             "documents": GaugeMetricFamily(
                 "emudoc_documents",
-                "Documents by status: queued, processing, ready, failed, quarantined.",
+                "Documents by status: queued, processing, ready, failed, quarantined, and "
+                "trashed for those in the trash, whatever their status.",
                 labels=["status"],
             ),
             "stored": GaugeMetricFamily(

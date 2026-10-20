@@ -19,8 +19,9 @@ Route = tuple[str, str, dict]
 @dataclass
 class World:
     """A project with a folder, an indexed document and a chat holding one answered question,
-    and an invitation to the organisation, all made by the local owner in the local
-    organisation, and another member of it."""
+    and in its trash a folder, a document and a chat; another project in the trash; and an
+    invitation to the organisation, all made by the local owner in the local organisation, and
+    another member of it."""
 
     org_id: int
     project_id: int
@@ -31,6 +32,10 @@ class World:
     passage_id: int
     invitation_id: int
     member_id: int
+    trashed_folder_id: int
+    trashed_document_id: int
+    trashed_chat_id: int
+    trashed_project_id: int
 
 
 @pytest.fixture
@@ -46,6 +51,20 @@ def world(client, services, sample_pdf, account, make_account) -> World:
     hits = client.get(f"/api/projects/{project['id']}/search", params={"q": "notice"}).json()
     invited = client.post("/api/organization/invitations", json={"email": "ivy@example.com"})
     member = make_account("mo@example.com", account.organization, role="member")
+    trashed_folder = make_folder(client, project["id"], "Old")
+    note = client.post(
+        f"/api/projects/{project['id']}/documents",
+        files=[("files", ("note.txt", b"A note for the trash."))],
+    ).json()["documents"][0]
+    trashed_chat = new_chat(client, project["id"])
+    trashed_project = create_project(client, "Archive")
+    for path in (
+        f"/api/folders/{trashed_folder['id']}",
+        f"/api/documents/{note['id']}",
+        f"/api/chats/{trashed_chat['id']}",
+        f"/api/projects/{trashed_project['id']}",
+    ):
+        assert client.delete(path).status_code == 204, path
     return World(
         account.organization.id,
         project["id"],
@@ -56,6 +75,10 @@ def world(client, services, sample_pdf, account, make_account) -> World:
         hits["hits"][0]["passage_id"],
         invited.json()["id"],
         member.user.id,
+        trashed_folder["id"],
+        note["id"],
+        trashed_chat["id"],
+        trashed_project["id"],
     )
 
 
@@ -103,6 +126,38 @@ def writes(w: World) -> list[Route]:
         ("DELETE", f"/api/folders/{w.folder_id}", {}),
         ("DELETE", f"/api/documents/{w.document_id}", {}),
         ("DELETE", f"/api/projects/{w.project_id}", {}),
+    ]
+
+
+def trash_reads(w: World) -> list[Route]:
+    """The project's trash, which whoever sees the project reads."""
+    return [("GET", f"/api/projects/{w.project_id}/trash", {})]
+
+
+def trash_writes(w: World) -> list[Route]:
+    """Restoring from the project's trash and deleting for good, a member's or better."""
+    return [
+        ("POST", f"/api/trash/folders/{w.trashed_folder_id}/restore", {}),
+        ("POST", f"/api/trash/documents/{w.trashed_document_id}/restore", {}),
+        ("DELETE", f"/api/trash/folders/{w.trashed_folder_id}", {}),
+        ("DELETE", f"/api/trash/documents/{w.trashed_document_id}", {}),
+        ("DELETE", f"/api/projects/{w.project_id}/trash", {}),
+    ]
+
+
+def trashed_project(w: World) -> list[Route]:
+    """Restoring a project from the organisation's trash and deleting it for good."""
+    return [
+        ("POST", f"/api/trash/projects/{w.trashed_project_id}/restore", {}),
+        ("DELETE", f"/api/trash/projects/{w.trashed_project_id}", {}),
+    ]
+
+
+def chat_trash(w: World) -> list[Route]:
+    """A chat in the trash, its starter's alone whatever it was."""
+    return [
+        ("POST", f"/api/trash/chats/{w.trashed_chat_id}/restore", {}),
+        ("DELETE", f"/api/trash/chats/{w.trashed_chat_id}", {}),
     ]
 
 
@@ -164,6 +219,10 @@ def scoped(w: World) -> list[Route]:
         reads(w)
         + writes(w)
         + chat_routes(w)
+        + trash_reads(w)
+        + trash_writes(w)
+        + trashed_project(w)
+        + chat_trash(w)
         + starts(w)
         + switches(w)
         + invitations(w)
@@ -233,7 +292,14 @@ def test_a_private_project_is_found_by_nobody_else(client, world, account, make_
         json={"visibility": "private", "user_ids": [chosen.user.id]},
     )
     assert made.status_code == 200, made.text
-    project_routes = reads(world) + writes(world) + chat_routes(world) + starts(world)
+    project_routes = (
+        reads(world)
+        + writes(world)
+        + chat_routes(world)
+        + trash_reads(world)
+        + trash_writes(world)
+        + starts(world)
+    )
 
     act_as(make_account("mo.too@example.com", account.organization, role="member"))
     assert client.get("/api/projects").json() == []
@@ -243,17 +309,20 @@ def test_a_private_project_is_found_by_nobody_else(client, world, account, make_
     for member in (chosen, admin):
         act_as(member)
         assert [p["id"] for p in client.get("/api/projects").json()] == [world.project_id]
-        shown = statuses(client, reads(world) + chat_reads(world))
+        shown = statuses(client, reads(world) + chat_reads(world) + trash_reads(world))
         assert set(shown.values()) == {200}, shown
 
 
 def test_a_viewer_can_read_but_not_change(client, world, account, make_account, act_as):
     act_as(make_account("vic@example.com", account.organization, role="viewer"))
     assert [p["id"] for p in client.get("/api/projects").json()] == [world.project_id]
-    seen = statuses(client, reads(world))
+    seen = statuses(client, reads(world) + trash_reads(world))
     assert set(seen.values()) == {200}, seen
-    refused = statuses(client, writes(world))
+    refused = statuses(client, writes(world) + trash_writes(world) + trashed_project(world))
     assert set(refused.values()) == {403}, refused
+    # The owner's chat in the trash is the owner's alone.
+    hidden = statuses(client, chat_trash(world))
+    assert set(hidden.values()) == {404}, hidden
     assert client.post("/api/projects", json={"name": "Mine"}).status_code == 403
     detail = client.delete(f"/api/documents/{world.document_id}").json()["detail"]
     assert detail.startswith("Your role in this organisation is viewer")
@@ -281,7 +350,7 @@ def test_chats_are_private_until_shared(client, services, world, account, make_a
     max_ = make_account("max@example.com", account.organization, role="member")
     act_as(max_)
     assert client.get(f"/api/projects/{world.project_id}/chats").json() == []
-    hidden = statuses(client, chat_routes(world))
+    hidden = statuses(client, chat_routes(world) + chat_trash(world))
     assert set(hidden.values()) == {404}, hidden
     own = new_chat(client, world.project_id)
 

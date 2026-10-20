@@ -134,6 +134,20 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByText(/^Either party may end this contract .* on the first page\.$/)).toBeInViewport()
   })
 
+  await test.step('delete the contract, and take it back from the trash', async () => {
+    const contract = page.getByRole('treeitem', { name: /service-contract\.md/ })
+    await contract.click()
+    await page.keyboard.press('Delete')
+    await expect(contract).toHaveCount(0)
+    await expect(page.getByText('“service-contract.md” is in the trash.')).toBeVisible()
+    await page.getByRole('button', { name: 'Trash', exact: true }).click()
+    await expect(page).toHaveURL(/[?&]trash/)
+    await page.getByRole('button', { name: 'Restore service-contract.md' }).click()
+    await expect(page.getByText('The trash is empty')).toBeVisible()
+    await page.getByRole('button', { name: 'Back to the library' }).click()
+    await expect(contract).toBeVisible()
+  })
+
   await test.step('start a second organisation, and switch back while another tab shows it', async () => {
     // From the projects page: a menu closes when anything scrolls, as the passage still may.
     await page.getByRole('link', { name: 'Emudoc' }).click()

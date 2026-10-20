@@ -47,7 +47,6 @@ JOB_KINDS = (
     "answer_question",
     "render_pages",
     "send_email",
-    "purge_trash",
     "sync_connector",
     "run_workflow",
 )
@@ -84,7 +83,9 @@ NATURAL_ORDER = "natural_order"
 # accounts, what was done to the organisation itself (its name, its owner, who was invited,
 # joined, left or was removed, and the members' roles), to its projects, its documents and the
 # sharing of its chats, and what the operator and the app did to it on their own (a quarantine,
-# the sample project a new account's organisation starts with).
+# the sample project a new account's organisation starts with). A project, folder, document or
+# chat `_deleted` went into the trash (app/trash.py), `_restored` came out of it, and `_purged`
+# was deleted for good from it by a member.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -128,16 +129,24 @@ AUDIT_ACTIONS = (
     "member_removed",
     "project_access_changed",
     "project_deleted",
+    "project_restored",
+    "project_purged",
     "sample_added",
     "folder_deleted",
+    "folder_restored",
+    "folder_purged",
     "document_uploaded",
     "document_downloaded",
     "document_deleted",
+    "document_restored",
+    "document_purged",
     "document_quarantined",
     "document_requeued",
     "chat_shared",
     "chat_unshared",
     "chat_deleted",
+    "chat_restored",
+    "chat_purged",
     "database_restored",
 )
 
@@ -151,6 +160,30 @@ def _one_of(column: str, values: tuple[str, ...], table: str) -> CheckConstraint
 
 def _role_check(table: str) -> CheckConstraint:
     return _one_of("role", ROLES, table)
+
+
+def _trash_indexes(table: str, scope: str, by: bool = True) -> tuple[Index, ...]:
+    # The rows in the trash are few beside the live ones, so they get partial indexes of their
+    # own: what one project's (or organisation's) trash holds, and the purge's look for what
+    # has been there long enough (app/trash.py). `deleted_by` is indexed for the account purge,
+    # whose foreign key would otherwise scan the table for the user's rows.
+    trashed = text("deleted_at IS NOT NULL")
+    indexes = [Index(f"ix_{table}_trashed", scope, "deleted_at", postgresql_where=trashed)]
+    if by:
+        indexes.append(
+            Index(
+                f"ix_{table}_deleted_by",
+                "deleted_by",
+                postgresql_where=text("deleted_by IS NOT NULL"),
+            )
+        )
+    return tuple(indexes)
+
+
+def _deleted_by() -> Mapped[int | None]:
+    # Who put the row in the trash, which the trash names; null for a live row, and once the
+    # member's account is gone.
+    return mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
 
 class User(Base):
@@ -491,7 +524,10 @@ class Project(Base):
     """A set of documents and the chats about them. Everything below it is scoped by project."""
 
     __tablename__ = "projects"
-    __table_args__ = (_one_of("visibility", PROJECT_VISIBILITIES, "projects"),)
+    __table_args__ = (
+        _one_of("visibility", PROJECT_VISIBILITIES, "projects"),
+        *_trash_indexes("projects", "org_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     # The tenant: every read of the project's documents, passages, facts and chats checks this.
@@ -513,6 +549,10 @@ class Project(Base):
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # When a member deleted the project into the trash (app/trash.py), which holds it with
+    # everything in it until it is restored or purged; null while it is live.
+    deleted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_by: Mapped[int | None] = _deleted_by()
 
     organization: Mapped[Organization] = relationship(back_populates="projects")
     documents: Mapped[list["Document"]] = relationship(
@@ -541,6 +581,7 @@ class Folder(Base):
     """A folder in a project's library. Folders nest; a null parent is the project root."""
 
     __tablename__ = "folders"
+    __table_args__ = _trash_indexes("folders", "project_id")
 
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(
@@ -553,6 +594,10 @@ class Folder(Base):
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # When the folder went into the trash (app/trash.py): its subfolders and documents that were
+    # live then went with it, at the same moment, which is how a restore finds them.
+    deleted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_by: Mapped[int | None] = _deleted_by()
 
 
 class Upload(Base):
@@ -590,6 +635,7 @@ class Document(Base):
         # app/api/documents.py), the root's being those whose folder is null; the leading
         # column serves every lookup by project as well.
         Index("ix_documents_listing", "project_id", "folder_id", "filename", "id"),
+        *_trash_indexes("documents", "project_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -644,6 +690,10 @@ class Document(Base):
     # model) leaves it, so that the time from the upload (`DOCUMENT_READY`, app/metrics.py) is
     # measured once, as the member waited for it.
     ready_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    # When the document went into the trash (app/trash.py), by itself or with its folder; null
+    # while it is live. Its bytes still hold its place under the unique constraint above.
+    deleted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_by: Mapped[int | None] = _deleted_by()
 
     project: Mapped[Project] = relationship(back_populates="documents")
 
@@ -793,7 +843,10 @@ class Chat(Base):
     """A conversation with the agent about one project's documents."""
 
     __tablename__ = "chats"
-    __table_args__ = (_one_of("visibility", CHAT_VISIBILITIES, "chats"),)
+    __table_args__ = (
+        _one_of("visibility", CHAT_VISIBILITIES, "chats"),
+        *_trash_indexes("chats", "project_id", by=False),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(
@@ -817,6 +870,8 @@ class Chat(Base):
     updated_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # When its starter deleted it into the trash (app/trash.py), which only they see it in.
+    deleted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
     messages: Mapped[list["ChatMessage"]] = relationship(
         back_populates="chat",

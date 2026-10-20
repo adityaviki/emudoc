@@ -5,8 +5,8 @@ Chats are kept for the organisation's plan's `retention_days` after their last q
 enterprise). The housekeeper (app/maintenance.py) deletes the older ones each round with
 `prune_chats`, every organisation in one statement, and leaves a chat whose answer is still
 being written. A chat's last question is `chats.updated_at`, which only asking sets, so
-renaming or sharing an old chat does not keep it. The trash keeps its own time once it exists
-(2.6).
+renaming or sharing an old chat does not keep it. A chat in the trash (app/trash.py) is still
+held to it, and goes at whichever comes first, its retention or the trash's own TRASH_DAYS.
 
 A move to a plan or terms that keep chats or audit rows for less time (a cancelled
 subscription that ended, a switch to a smaller plan, a figure agreed lower) takes nothing at

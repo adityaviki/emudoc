@@ -616,17 +616,21 @@ def test_the_app_works_over_a_bucket(bucket_client, sample_pdf, sample_docx, sam
     assert client.s3.calls.count("put_object") == puts
     assert client.get(f"/api/documents/{document['id']}/thumbnail.png").status_code == 307
 
-    # Each kind of delete takes every object of what it deleted, and nothing else.
+    # Each kind of delete for good takes every object of what it deleted, and nothing else.
     folder = make_folder(client, project["id"], "Policies")
     (policy,) = upload_into(client, project["id"], folder["id"], sample_docx)["documents"]
     (table,) = upload(client, project["id"], sample_xlsx)["documents"]
     of = lambda doc: {k for k in client.s3.objects if f"/documents/{doc['id']}/" in k}  # noqa: E731
     assert of(document) and of(policy) and of(table)
     assert client.delete(f"/api/documents/{table['id']}").status_code == 204
+    assert of(table)
+    assert client.delete(f"/api/trash/documents/{table['id']}").status_code == 204
     assert not of(table) and of(policy) and of(document)
     assert client.delete(f"/api/folders/{folder['id']}").status_code == 204
+    assert client.delete(f"/api/trash/folders/{folder['id']}").status_code == 204
     assert not of(policy) and of(document)
     assert client.delete(f"/api/projects/{project['id']}").status_code == 204
+    assert client.delete(f"/api/trash/projects/{project['id']}").status_code == 204
     assert client.s3.objects == {}
 
 
@@ -645,8 +649,9 @@ def test_the_pages_of_a_pdf_in_a_bucket_are_drawn_from_one_download(
     assert client.s3.calls.count("get_object") == 1
     assert [path.suffix for path in copies.iterdir()] == [".pdf"]
 
-    # Deleting the document takes this process's copy with it.
+    # Deleting the document for good takes this process's copy with it.
     assert client.delete(pages).status_code == 204
+    assert client.delete(f"/api/trash/documents/{document['id']}").status_code == 204
     assert list(copies.iterdir()) == []
 
 

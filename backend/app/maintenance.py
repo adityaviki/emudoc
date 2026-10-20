@@ -134,6 +134,7 @@ from app.storage import (
     project_prefix,
     storage_from_settings,
 )
+from app.trash import TRASH_DAYS, purge_trash
 from app.trial import describe_trials, try_models
 from app.usage import (
     DailyUsage,
@@ -455,7 +456,9 @@ def housekeeping(storage: Storage) -> None:
 
     Every replica reaches its interval, so a round first takes an advisory lock and skips when
     another replica holds it: the work is idempotent, and walking the storage once is enough.
-    The lock is transaction-level, so it ends with the block. The accounts due for purging go
+    The lock is transaction-level, so it ends with the block. What has been in the trash for
+    TRASH_DAYS is deleted for good in it, and its files once it has committed (app/trash.py),
+    as a delete for good does them. The accounts due for purging go
     after it, each in a transaction of its own, since their files are discarded only once their
     rows are gone for good, and so do the organisations whose payment has failed for longer than
     the grace period, whose owners are mailed (app/billing.py), and the uploads whose members
@@ -488,6 +491,8 @@ def housekeeping(storage: Storage) -> None:
         spared = prune_suppressions(connection)
         prune_quota_notices(connection)
         notifications = prune_notifications(connection)
+        emptied = purge_trash(connection)
+    storage.discard(*emptied.prefixes)
     reapply_erasures(storage)
     accounts = purge_due_accounts(storage)
     lapsed = end_grace_periods()
@@ -522,6 +527,16 @@ def housekeeping(storage: Storage) -> None:
         )
     if chats:
         log.info("Housekeeping: deleted %s chats kept past their plan's retention", chats)
+    if emptied.projects or emptied.folders or emptied.documents or emptied.chats:
+        log.info(
+            "Housekeeping: deleted for good what was in the trash for %s days: %s projects, "
+            "%s folders, %s documents and %s chats",
+            TRASH_DAYS,
+            emptied.projects,
+            emptied.folders,
+            emptied.documents,
+            emptied.chats,
+        )
     if audited:
         log.info("Housekeeping: deleted %s audit log rows kept past their plan's days", audited)
     if credentials:

@@ -635,6 +635,7 @@ def test_a_worker_serves_what_the_database_holds(
         ("emudoc_documents", ("ready",)): 0,
         ("emudoc_documents", ("failed",)): 1,
         ("emudoc_documents", ("quarantined",)): 0,
+        ("emudoc_documents", ("trashed",)): 0,
     }
     assert read["emudoc_stored_bytes", ("enterprise",)] == size
     assert read["emudoc_stored_bytes", ("free",)] == 0

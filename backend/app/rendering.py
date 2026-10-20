@@ -355,7 +355,12 @@ def draw_ahead(document_id: int, pages: list[int], storage: Storage) -> int:
     """
     with SessionLocal() as session:
         document = session.get(Document, document_id)
-        if document is None or document.status == "quarantined" or not scan_passed(document):
+        if (
+            document is None
+            or document.deleted_at is not None
+            or document.status == "quarantined"
+            or not scan_passed(document)
+        ):
             return 0
         original = document.storage_key
         wanted = {
