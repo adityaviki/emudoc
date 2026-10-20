@@ -202,15 +202,7 @@ def issue_link_token(
     session: Session, user: User, purpose: str, email: str, lifetime: dt.timedelta
 ) -> str:
     """A token for a link sent by email. Earlier unused links of the same purpose stop working."""
-    session.execute(
-        update(AuthToken)
-        .where(
-            AuthToken.user_id == user.id,
-            AuthToken.purpose == purpose,
-            AuthToken.used_at.is_(None),
-        )
-        .values(used_at=now())
-    )
+    void_link_tokens(session, user.id, purpose)
     token = new_token()
     session.add(
         AuthToken(
@@ -222,6 +214,14 @@ def issue_link_token(
         )
     )
     return token
+
+
+def void_link_tokens(session: Session, user_id: int, purpose: str | None = None) -> None:
+    """Stop the user's unused links working: those of one purpose, or every one."""
+    statement = update(AuthToken).where(AuthToken.user_id == user_id, AuthToken.used_at.is_(None))
+    if purpose is not None:
+        statement = statement.where(AuthToken.purpose == purpose)
+    session.execute(statement.values(used_at=now()))
 
 
 def redeem_link_token(session: Session, token: str, purpose: str) -> AuthToken | None:

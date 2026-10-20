@@ -11,7 +11,8 @@ import { AuthCard } from './shared.tsx'
 /**
  * The page a verification link opens, signed in or not. The token is redeemed as soon as the
  * page loads; a query rather than a mutation, so a second mount in development does not spend
- * it twice.
+ * it twice. The route answers 204, and a query that resolves to nothing is an error to TanStack
+ * Query, so it resolves to true.
  */
 export function VerifyPage() {
   const me = useContext(MeContext)
@@ -20,7 +21,7 @@ export function VerifyPage() {
   const token = useLinkToken()
   const verify = useQuery({
     queryKey: ['verify', token],
-    queryFn: () => auth.verifyEmail(token),
+    queryFn: () => auth.verifyEmail(token).then(() => true),
     enabled: token !== '',
     retry: false,
     staleTime: Infinity,

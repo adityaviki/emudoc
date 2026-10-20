@@ -320,6 +320,8 @@ export interface Me {
   id: number
   email: string
   name: string
+  /** The IANA zone the mail Emudoc sends the user is dated in, '' for UTC until they choose one. */
+  time_zone: string
   email_verified: boolean
   mfa_enabled: boolean
   /** Providers the account can sign in through, such as "google". */
@@ -380,6 +382,9 @@ export type AuditAction =
   | 'password_changed'
   | 'password_reset_requested'
   | 'password_reset'
+  | 'profile_changed'
+  | 'email_change_requested'
+  | 'email_changed'
   | 'mfa_enabled'
   | 'mfa_disabled'
   | 'account_exported'
@@ -505,8 +510,8 @@ export const auth = {
     return response.json()
   },
   options: () => request<{ providers: OAuthProvider[] }>('/auth/options'),
-  /** `terms_version` is the edition the form showed and its user accepted. */
-  signup: (body: { email: string; name: string; password: string; terms_version: string }) =>
+  /** `terms_version` is the edition the form showed and its user accepted; `time_zone` the browser's. */
+  signup: (body: { email: string; name: string; password: string; terms_version: string; time_zone: string }) =>
     request<Me>('/auth/signup', json('POST', body)),
   /** Accept the edition the page showed; a 409 says it changed meanwhile. */
   acceptTerms: (version: string) => request<Me>('/auth/terms', json('POST', { version })),
@@ -515,6 +520,16 @@ export const auth = {
     request<{ mfa_required: boolean }>('/auth/login', json('POST', body)),
   verifyMfa: (code: string) => request<Me>('/auth/mfa/verify', json('POST', { code })),
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
+
+  /** A field left out stays as it is. */
+  updateProfile: (body: { name?: string; time_zone?: string }) => request<Me>('/auth/profile', json('PATCH', body)),
+  /**
+   * Mails the link that makes `email` the account's, confirmed by the password, or by the current
+   * address for an account without one. Answers alike whether or not the address has an account.
+   */
+  requestEmailChange: (body: { email: string; password?: string; current_email?: string }) =>
+    request<void>('/auth/email', json('POST', body)),
+  confirmEmailChange: (token: string) => request<void>('/auth/email/confirm', json('POST', { token })),
 
   verifyEmail: (token: string) => request<void>('/auth/verify', json('POST', { token })),
   resendVerification: () => request<void>('/auth/verify/resend', { method: 'POST' }),
@@ -548,10 +563,11 @@ export const ACCOUNT_EXPORT_URL = '/api/auth/account/export'
 
 /**
  * Where a sign-in with a provider starts. It is a navigation, not a fetch: the provider sends
- * the browser back to `next`, or to /login with `mfa=1` or an `error` to show.
+ * the browser back to `next`, or to /login with `mfa=1` or an `error` to show. The browser's
+ * time zone goes to an account the sign-in creates.
  */
-export const oauthStartUrl = (provider: string, next: string) =>
-  `/api/auth/oauth/${provider}/start?${new URLSearchParams({ next })}`
+export const oauthStartUrl = (provider: string, next: string, timeZone: string) =>
+  `/api/auth/oauth/${provider}/start?${new URLSearchParams(timeZone ? { next, time_zone: timeZone } : { next })}`
 
 export const api = {
   status: () => request<SystemStatus>('/status'),

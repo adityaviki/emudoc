@@ -46,7 +46,7 @@ of anyone.
 import json
 import logging
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 
 from sqlalchemy import Connection, and_, delete, func, select, text
 from sqlalchemy.orm import Session, aliased
@@ -102,9 +102,10 @@ _PRUNE_CHATS = text(
 )
 
 
-def day(moment: datetime) -> str:
-    """A date as the messages name it: 29 October 2026."""
-    moment = moment.astimezone(UTC)
+def day(moment: datetime, zone: tzinfo = UTC) -> str:
+    """A date as the messages name it, 29 October 2026, in UTC or in the zone of the person
+    they are for (`zone_of` in app/accounts.py)."""
+    moment = moment.astimezone(zone)
     return f"{moment.day} {MONTHS[moment.month - 1]} {moment.year}"
 
 
@@ -123,10 +124,12 @@ def prune_chats(connection: Connection) -> int:
     ).rowcount
 
 
-def deletion_pending(due: datetime) -> str:
-    """What a request from an account that is set to be deleted is refused with."""
+def deletion_pending(due: datetime, zone: tzinfo = UTC) -> str:
+    """What a request from an account that is set to be deleted is refused with, the day in
+    the user's zone."""
     return (
-        f"Your account is set to be deleted on {day(due)}. Choose to keep it to use Emudoc again."
+        f"Your account is set to be deleted on {day(due, zone)}. Choose to keep it to use "
+        "Emudoc again."
     )
 
 

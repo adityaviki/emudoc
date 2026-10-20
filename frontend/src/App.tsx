@@ -3,6 +3,7 @@ import { Check, ChevronDown, X } from 'lucide-react'
 import { useContext, useEffect, useRef, useState } from 'react'
 import { Link, Navigate, Outlet, Route, Routes, useLocation, useMatch, useNavigate } from 'react-router'
 import { AccountPage } from './account/AccountPage.tsx'
+import { ConfirmEmailPage } from './account/ConfirmEmailPage.tsx'
 import { DeletionPending } from './account/DeletionPending.tsx'
 import { TermsPending } from './account/TermsPending.tsx'
 import { LoginPage } from './account/LoginPage.tsx'
@@ -70,6 +71,7 @@ function App() {
           <Route path="forgot-password" element={<ForgotPasswordPage />} />
           <Route path="reset-password" element={<ResetPasswordPage />} />
           <Route path="verify" element={<VerifyPage />} />
+          <Route path="confirm-email" element={<ConfirmEmailPage />} />
           <Route path="subprocessors" element={<SubprocessorsPage />} />
           <Route path="terms" element={<LegalPage document="terms" />} />
           <Route path="privacy" element={<LegalPage document="privacy" />} />

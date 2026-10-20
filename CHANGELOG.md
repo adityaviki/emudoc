@@ -11,6 +11,13 @@ its day, in the same commit.
 
 Members:
 
+- The account page changes your name and your time zone, and moves your account to a new
+  email address through a link sent there; once it is opened, the old address is told and
+  signs in no more. The dates in the mail Emudoc sends you are in your time zone, which a new
+  account takes from the browser.
+- Opening the link that confirms your email address says it worked. It did before as well,
+  but the page said "This link no longer works".
+
 - Emudoc opens sooner on every visit after the first: the browser keeps the app's scripts
   until a release changes them, and asks only whether the page itself changed.
 - In a large project, search finds more of the passages closest in meaning to what you typed:
@@ -20,6 +27,11 @@ Members:
 
 Operators:
 
+- A migration adds `users.time_zone`, a `change_email` link and three audit actions
+  (`profile_changed`, `email_change_requested`, `email_changed`), recorded without the name
+  or address they changed to. The backend now depends on `tzdata`, since the image's own zone
+  database lacks names browsers still report, such as `Asia/Calcutta`. The mail to an address
+  that was replaced names `OPERATOR_EMAIL` as the address to write to. Nothing to set.
 - The page's scripts and stylesheet (`/assets/`, named by a hash of what they hold) are sent
   with `Cache-Control: public, max-age=31536000, immutable`, and the page, `theme.js` and
   `favicon.svg` with `no-cache`, an unchanged one answered with a 304; the API's answers stay

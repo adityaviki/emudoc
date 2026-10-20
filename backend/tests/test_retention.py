@@ -8,6 +8,7 @@ user and nothing of anyone else's."""
 
 import logging
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic_ai.messages import TextPart
@@ -230,6 +231,22 @@ def test_an_account_without_a_password_confirms_with_its_address(client, session
         refused = delete_account(client, **body)
         assert refused.status_code == 403 and refused.json()["detail"] == TYPE_EMAIL
     assert delete_account(client, email=" Ada@Example.com ").status_code == 200
+
+
+def test_the_day_of_a_deletion_is_written_in_the_accounts_zone(client, mailer, signed_in_only):
+    signup(client)
+    moved = client.patch("/api/auth/profile", json={"time_zone": "Pacific/Kiritimati"})
+    assert moved.status_code == 200
+    mailer.sent.clear()
+    deleted = delete_account(client, password=PASSWORD)
+    due = datetime.fromisoformat(deleted.json()["deletion_due_at"])
+    kiritimati = ZoneInfo("Pacific/Kiritimati")
+    ((_, _, body),) = mailer.sent
+    assert f"set to be deleted on {day(due, kiritimati)}" in body
+    assert client.get("/api/projects").json()["detail"] == deletion_pending(due, kiritimati)
+    # Fourteen hours ahead of UTC, the evening is the next day already.
+    evening = datetime(2026, 10, 29, 22, 0, tzinfo=UTC)
+    assert (day(evening), day(evening, kiritimati)) == ("29 October 2026", "30 October 2026")
 
 
 def test_the_local_account_cannot_be_deleted(client):
@@ -515,6 +532,7 @@ def test_the_export_holds_the_users_data_and_nothing_of_anyone_elses(
     assert set(export["account"]) == {
         "email",
         "name",
+        "time_zone",
         "created_at",
         "email_verified_at",
         "two_factor_enabled_at",

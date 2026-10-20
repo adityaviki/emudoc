@@ -189,6 +189,16 @@ def test_sign_ins_and_changes_to_an_account_are_recorded(
     assert phone.post("/api/auth/mfa/verify", json={"code": recovery[0]}).status_code == 200
     assert client.post("/api/auth/mfa/disable", json={"password": PASSWORD}).status_code == 204
 
+    # A new name and address are recorded as changed, never as what they became.
+    profile = {"name": "Ada Lovelace", "time_zone": "Europe/London"}
+    assert client.patch("/api/auth/profile", json=profile).status_code == 200
+    moving = {"email": "ada@analytical.org", "password": PASSWORD}
+    assert client.post("/api/auth/email", json=moving).status_code == 202
+    confirmed = another_browser(client).post(
+        "/api/auth/email/confirm", json={"token": mailer.token()}
+    )
+    assert confirmed.status_code == 204
+
     assert client.get("/api/auth/account/export").status_code == 200
     deletion = client.post("/api/auth/account/deletion", json={"password": PASSWORD})
     assert deletion.status_code == 200
@@ -221,10 +231,15 @@ def test_sign_ins_and_changes_to_an_account_are_recorded(
         ("sign_in", {"second_factor": "authenticator"}),
         ("sign_in", {"second_factor": "recovery_code"}),
         ("mfa_disabled", {}),
+        ("profile_changed", {"changed": ["name", "time_zone"]}),
+        ("email_change_requested", {}),
+        ("email_changed", {}),
         ("account_exported", {}),
         ("account_deletion_requested", {}),
         ("account_deletion_cancelled", {}),
     ]
+    details = " ".join(str(row.detail) for row in rows(session))
+    assert not any(word in details for word in ("Lovelace", "London", "analytical"))
     # Every row is the account's, from the browser's address, and nothing names a stranger.
     assert {(row.user_id, row.ip) for row in rows(session)} == {(ada["id"], CLIENT)}
     assert rows(session)[7].target_type == "session"

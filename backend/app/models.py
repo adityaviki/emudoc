@@ -75,6 +75,9 @@ AUDIT_ACTIONS = (
     "password_changed",
     "password_reset_requested",
     "password_reset",
+    "profile_changed",
+    "email_change_requested",
+    "email_changed",
     "mfa_enabled",
     "mfa_disabled",
     "account_exported",
@@ -118,6 +121,10 @@ class User(Base):
     # Lower-cased before it is stored, so sign-in and invitations match however it was typed.
     email: Mapped[str] = mapped_column(String(320), unique=True)
     name: Mapped[str] = mapped_column(String(200), default="")
+    # The IANA zone the dates in the user's mail are written in (`zone_of` in app/accounts.py),
+    # taken from the browser at sign-up and chosen on the account page; empty is UTC. The pages
+    # date everything in the browser's own zone.
+    time_zone: Mapped[str] = mapped_column(String(64), default="")
     # Null for accounts that only sign in through an identity provider.
     password_hash: Mapped[str | None] = mapped_column(Text)
     email_verified_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
@@ -183,11 +190,12 @@ class Identity(Base):
 
 
 # What a one-time link does when it is opened.
-AUTH_TOKEN_PURPOSES = ("verify_email", "reset_password")
+AUTH_TOKEN_PURPOSES = ("verify_email", "reset_password", "change_email")
 
 
 class AuthToken(Base):
-    """A one-time link sent by email: to confirm an address or to reset a password.
+    """A one-time link sent by email: to confirm an address, to reset a password, or to make
+    a new address the account's.
 
     The link carries a random token; only its SHA-256 is stored, as for sessions.
     """
@@ -199,7 +207,8 @@ class AuthToken(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     purpose: Mapped[str] = mapped_column(String(20))
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
-    # The address the link was sent to, which a verification confirms.
+    # The address the link was sent to, which a verification confirms and a change of address
+    # makes the account's.
     email: Mapped[str] = mapped_column(String(320))
     expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))

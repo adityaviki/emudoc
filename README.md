@@ -487,10 +487,13 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
 Signing up with an email and a password makes a user and an organisation of their own, which they
 own; a verification link goes out by email, and a banner asks for it until it is used. Sign-in
 sets a session cookie, marked `Secure` over HTTPS and always in production. The account page (the
-initials in the header) changes the password, turns on a code from an authenticator app at sign-in
-(shown as a QR code to scan, with recovery codes for a lost phone), lists the browsers and devices
-that are signed in and signs any of them out; a forgotten password is reset through a link sent by
-email, which signs the account out everywhere. Google and Microsoft accounts sign in through
+initials in the header) changes the name and the time zone the mail is dated in (the browser's at
+sign-up; the pages date everything in the browser's own), moves the account to a new email
+address through a link sent there, which the old address is told of once it is opened, changes
+the password, turns on a code from an authenticator app at sign-in (shown as a QR code to scan,
+with recovery codes for a lost phone), lists the browsers and devices that are signed in and
+signs any of them out; a forgotten password is reset through a link sent by email, which signs
+the account out everywhere. Google and Microsoft accounts sign in through
 OpenID Connect and are linked to an existing account only when both sides have verified the
 address. A visitor without a session is sent to `/login` and returns to the page they wanted.
 A session the server stops accepting drops everything the tab had fetched, so whoever signs in
@@ -606,14 +609,14 @@ what to do for what goes wrong most often, from a stuck upload to a provider dow
 rotate ("Runbooks"), and every variable the app reads with its default ("Every setting").
 
 Each organisation keeps an audit log (`backend/app/audit.py`): its members' sign-ins (and
-failed ones for their accounts), password, two-factor and session changes, exports and
-deletion requests, every upload, download and deletion of a document, folder or project, chats
-shared, taken private or deleted, and what the operator (a plan change, a requeue) and the app
-(a quarantine, an account purge with the owner it promoted) did on their own. A row names the
-member, the project and the object, the client's address, and names or settings as they were
-(a file's name, a role before and after), never what a document, a question or a chat's title
-says. Its owners and admins read it page by page through `GET /api/audit`; the view with
-filters is still to come. A row is kept 90 days on Free, a year on Pro and Team, and for good
+failed ones for their accounts), profile, address, password, two-factor and session changes,
+exports and deletion requests, every upload, download and deletion of a document, folder or
+project, chats shared, taken private or deleted, and what the operator (a plan change, a
+requeue) and the app (a quarantine, an account purge with the owner it promoted) did on their
+own. A row names the member, the project and the object, the client's address, and names or
+settings as they were (a file's name, a role before and after), never what a document, a
+question or a chat's title says, nor what a name or an address was changed to. Its owners and
+admins read it page by page through `GET /api/audit`; the view with filters is still to come. A row is kept 90 days on Free, a year on Pro and Team, and for good
 on Enterprise. A purged account's rows stay with an organisation that keeps other members,
 without their addresses, and the account export includes the rows that name its user.
 

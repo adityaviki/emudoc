@@ -1,9 +1,9 @@
-// The account page: who you are, the terms you accepted, how you sign in, where you are signed
-// in, a copy of your data, and deleting the account.
+// The account page: who you are and your address, the terms you accepted, how you sign in,
+// where you are signed in, a copy of your data, and deleting the account.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Copy, Download, LogOut, X } from 'lucide-react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { Link } from 'react-router'
 import {
@@ -17,8 +17,10 @@ import {
 } from '../api.ts'
 import type { Me, MfaSetup, UserSession } from '../api.ts'
 import { ME_KEY, setSignedIn, useMe, useSignOut } from '../auth.ts'
-import { Button, ButtonLink, Chip, IconButton, InputField, Loading, Notice } from '../components/ui.tsx'
+import { Button, ButtonLink, Chip, IconButton, InputField, Loading, Notice, SelectField } from '../components/ui.tsx'
 import { formatDate, formatDateTime } from '../format.ts'
+import { browserTimeZone, timeZoneChoices, zoneLabel } from '../timeZones.ts'
+import { ChangeEmailForm } from './ChangeEmail.tsx'
 import { DeleteAccountForm } from './DeleteAccount.tsx'
 import { QrCode } from './QrCode.tsx'
 import { PasswordField } from './shared.tsx'
@@ -35,7 +37,7 @@ export function AccountPage() {
         <div className="mb-6 flex items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Account</h1>
-            <p className="mt-1 text-[13px] text-muted">How you sign in, and where you are signed in.</p>
+            <p className="mt-1 text-[13px] text-muted">Who you are, how you sign in, and where you are signed in.</p>
           </div>
           <Button icon={<LogOut className="size-4" />} onClick={signOut}>
             Sign out
@@ -43,6 +45,7 @@ export function AccountPage() {
         </div>
         <div className="space-y-5">
           <ProfileSection me={me} />
+          <EmailSection me={me} />
           <PasswordSection />
           <TwoFactorSection me={me} />
           <SessionsSection />
@@ -76,35 +79,11 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function ProfileSection({ me }: { me: Me }) {
-  const resend = useMutation({ mutationFn: auth.resendVerification })
   const role = me.role[0].toUpperCase() + me.role.slice(1)
   return (
     <Section title="Profile">
-      <dl className="divide-y divide-line">
-        <Row label="Name">{me.name || <span className="text-muted">Not given</span>}</Row>
-        <Row label="Email">
-          <span className="truncate">{me.email}</span>
-          {me.email_verified ? (
-            <Chip>Confirmed</Chip>
-          ) : (
-            <>
-              <Chip>Not confirmed</Chip>
-              {resend.isSuccess ? (
-                <span className="text-muted">A new link is on its way.</span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => resend.mutate()}
-                  disabled={resend.isPending}
-                  className="font-medium text-accent hover:underline disabled:opacity-50"
-                >
-                  Send the link again
-                </button>
-              )}
-              {resend.isError && <span className="text-bad">{resend.error.message}</span>}
-            </>
-          )}
-        </Row>
+      <ProfileForm me={me} />
+      <dl className="mt-4 divide-y divide-line border-t border-line">
         <Row label="Organisation">
           <span className="truncate">{me.organization.name}</span>
           <Chip>{role}</Chip>
@@ -136,6 +115,93 @@ function ProfileSection({ me }: { me: Me }) {
           </Row>
         )}
       </dl>
+    </Section>
+  )
+}
+
+// The zone is the browser's until the member saves one, so a first save takes it.
+function ProfileForm({ me }: { me: Me }) {
+  const queryClient = useQueryClient()
+  const browser = useMemo(() => browserTimeZone(), [])
+  const zones = useMemo(() => timeZoneChoices(me.time_zone, browser), [me.time_zone, browser])
+  const [name, setName] = useState(me.name)
+  const [zone, setZone] = useState(me.time_zone || browser || 'UTC')
+  const save = useMutation({
+    mutationFn: () => auth.updateProfile({ name: name.trim(), time_zone: zone }),
+    onSuccess: (account) => setSignedIn(queryClient, account),
+  })
+  const changed = name.trim() !== me.name || zone !== me.time_zone
+
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    if (changed) save.mutate()
+  }
+
+  return (
+    <form onSubmit={submit} className="max-w-sm space-y-3">
+      <InputField label="Name" autoComplete="name" maxLength={200} value={name} onChange={(event) => setName(event.target.value)} />
+      <SelectField
+        label="Time zone"
+        hint={
+          me.time_zone
+            ? "The dates in the email Emudoc sends you are in this zone; the pages show your browser's."
+            : 'Not saved yet, so the dates in the email Emudoc sends you are in UTC.'
+        }
+        value={zone}
+        onChange={(event) => setZone(event.target.value)}
+      >
+        {zones.map((choice) => (
+          <option key={choice} value={choice}>
+            {zoneLabel(choice)}
+          </option>
+        ))}
+      </SelectField>
+      {save.isError && <Notice tone="bad">{save.error.message}</Notice>}
+      <div className="flex items-center gap-3">
+        <Button type="submit" variant="primary" disabled={!changed || save.isPending}>
+          Save
+        </Button>
+        {save.isSuccess && !changed && <span className="text-[13px] text-muted">Saved.</span>}
+      </div>
+    </form>
+  )
+}
+
+function EmailSection({ me }: { me: Me }) {
+  const [changing, setChanging] = useState(false)
+  const resend = useMutation({ mutationFn: auth.resendVerification })
+  return (
+    <Section title="Email address" description="Where Emudoc writes to you, and the address you sign in with.">
+      <div className="flex flex-wrap items-center gap-2 text-[13px]">
+        <span className="truncate font-medium">{me.email}</span>
+        {me.email_verified ? (
+          <Chip>Confirmed</Chip>
+        ) : (
+          <>
+            <Chip>Not confirmed</Chip>
+            {resend.isSuccess ? (
+              <span className="text-muted">A new link is on its way.</span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => resend.mutate()}
+                disabled={resend.isPending}
+                className="font-medium text-accent hover:underline disabled:opacity-50"
+              >
+                Send the link again
+              </button>
+            )}
+            {resend.isError && <span className="text-bad">{resend.error.message}</span>}
+          </>
+        )}
+      </div>
+      <div className="mt-4">
+        {changing ? (
+          <ChangeEmailForm me={me} onClose={() => setChanging(false)} />
+        ) : (
+          <Button onClick={() => setChanging(true)}>Change email address…</Button>
+        )}
+      </div>
     </Section>
   )
 }

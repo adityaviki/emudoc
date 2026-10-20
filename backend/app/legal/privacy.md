@@ -16,15 +16,16 @@ organisation uploaded a document about you, ask the organisation first; we help 
 
 ## What we keep, and why
 
-- **Your account**: your email address, your name, your password (as a hash only, from which
-  it cannot be read back), whether you confirmed your address, the Google or Microsoft account
-  you sign in with, and with two-factor sign-in your authenticator's secret and the hashes of
-  your recovery codes, and which version of these terms you accepted and when. We need them to
-  give you an account, under our contract with you.
+- **Your account**: your email address, your name, the time zone our email to you is dated in,
+  your password (as a hash only, from which it cannot be read back), whether you confirmed your
+  address, the Google or Microsoft account you sign in with, and with two-factor sign-in your
+  authenticator's secret and the hashes of your recovery codes, and which version of these
+  terms you accepted and when. We need them to give you an account, under our contract with
+  you.
 - **Where you signed in**: for every browser or device you sign in from, its internet (IP)
   address, the browser's description of itself and when it was last used, all of which the
-  account page shows you, and the address each confirmation or reset link was sent to. We keep
-  them to keep your account secure, which is our legitimate interest.
+  account page shows you, and the address each confirmation, reset or change-of-address link
+  was sent to. We keep them to keep your account secure, which is our legitimate interest.
 - **What you upload and ask**: the documents, what is read from them (their text, images of
   their pages, summaries, facts and the search index), and your chats with their questions and
   answers. We need them to provide the service.
@@ -42,7 +43,8 @@ organisation uploaded a document about you, ask the organisation first; we help 
   They never hold what a document, a question or an answer says, nor an email address.
 $more_records
 
-We send you email only about your account: to confirm your address, to reset your password,
+We send you email only about your account: to confirm your address or a new one, to tell your
+address when it was replaced or when another account asked to take it, to reset your password,
 and to confirm that you asked for your account to be deleted. We send no marketing, show no
 advertising, sell no personal data and build no profile of you.
 
@@ -104,9 +106,10 @@ $scanning
 ## Your rights
 
 You can ask us for a copy of your personal data, to correct it, to delete it, to restrict or
-object to how we use it, and to have it in a machine-readable form to take elsewhere. Two of
-these you can do yourself on the account page: "Download your data" gives you a copy as a file,
-and "Delete account" deletes it. For anything else, write to $contact. You can also complain to
+object to how we use it, and to have it in a machine-readable form to take elsewhere. Three of
+these you can do yourself on the account page: you can correct your name and email address
+there, "Download your data" gives you a copy as a file, and "Delete account" deletes it. For
+anything else, write to $contact. You can also complain to
 the data protection authority where you live or work, or where we are established.
 
 Emudoc is a tool for work and is not meant for children under 16.

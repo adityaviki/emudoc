@@ -8,14 +8,27 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import update
 
 from app.accounts import LOCAL_OWNER_EMAIL
-from app.api.auth import CODE_INVALID, LINK_INVALID, MFA_FIRST, SIGN_IN_FAILED
+from app.api.auth import (
+    ADDRESS_TAKEN,
+    CODE_INVALID,
+    LINK_INVALID,
+    LOCAL_ADDRESS,
+    MFA_FIRST,
+    SAME_ADDRESS,
+    SIGN_IN_FAILED,
+    TYPE_EMAIL,
+    UNKNOWN_ZONE,
+    WRONG_PASSWORD,
+)
 from app.api.deps import CROSS_SITE, SAME_APP_HEADER, SIGN_IN
 from app.auth import totp_code, totp_step
 from app.config import Settings, get_settings
 from app.legal import TERMS_VERSION
 from app.mail import MailError
+from app.models import User
 from app.oidc import Handshake
 from tests.conftest import APP_HEADERS
 from tests.test_api import listed
@@ -280,6 +293,192 @@ def test_changing_the_password_keeps_only_the_current_session(client, signed_in_
     login(other, password=NEW_PASSWORD)
 
 
+# The profile and the address
+
+
+def change_email(client, email: str, **confirmation):
+    return client.post("/api/auth/email", json={"email": email, **confirmation})
+
+
+def confirm_email(client, token: str):
+    return client.post("/api/auth/email/confirm", json={"token": token})
+
+
+def test_the_name_and_time_zone_change_and_the_zone_starts_as_the_browsers(client, signed_in_only):
+    ada = signup_in(client, time_zone="Europe/Berlin")
+    assert ada["time_zone"] == "Europe/Berlin"
+    # A zone the app does not know is left out at sign-up rather than refused, and a browser
+    # that says none leaves it empty, which is UTC.
+    assert (
+        signup_in(another_browser(client), "bob@example.com", time_zone="Mars/Olympus")["time_zone"]
+        == ""
+    )
+    assert signup(another_browser(client), "eve@example.com")["time_zone"] == ""
+
+    renamed = client.patch("/api/auth/profile", json={"name": "  Ada Lovelace "})
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["name"] == "Ada Lovelace"
+    assert renamed.json()["time_zone"] == "Europe/Berlin"
+    # Chrome still reports India's zone by its old name, which the image's own database lacks.
+    moved = client.patch("/api/auth/profile", json={"time_zone": "Asia/Calcutta"})
+    assert moved.json()["time_zone"] == "Asia/Calcutta"
+    assert moved.json()["name"] == "Ada Lovelace"
+    unknown = client.patch("/api/auth/profile", json={"time_zone": "Mars/Olympus"})
+    assert unknown.status_code == 400 and unknown.json()["detail"] == UNKNOWN_ZONE
+    assert me(client).json()["time_zone"] == "Asia/Calcutta"
+    assert client.patch("/api/auth/profile", json={"name": "x" * 201}).status_code == 422
+
+
+def signup_in(client, email="ada@example.com", time_zone="") -> dict:
+    """Sign up from a browser in the given zone, as the form sends it."""
+    response = client.post(
+        "/api/auth/signup",
+        json={
+            "email": email,
+            "name": "Ada",
+            "password": PASSWORD,
+            "terms_version": TERMS_VERSION,
+            "time_zone": time_zone,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_an_account_moves_to_a_new_address_through_a_link_sent_there(
+    client, mailer, signed_in_only
+):
+    signup(client)
+    elsewhere = another_browser(client)
+    login(elsewhere)
+    unconfirmed = mailer.token()
+    forgot = client.post("/api/auth/password/forgot", json={"email": "ada@example.com"})
+    assert forgot.status_code == 202
+    reset = mailer.token()
+
+    for confirmation in ({}, {"password": "not it"}, {"current_email": "ada@example.com"}):
+        refused = change_email(client, "ada@analytical.org", **confirmation)
+        assert refused.status_code == 403 and refused.json()["detail"] == WRONG_PASSWORD
+    same = change_email(client, "Ada@Example.com", password=PASSWORD)
+    assert same.status_code == 400 and same.json()["detail"] == SAME_ADDRESS
+    assert change_email(client, "not-an-email", password=PASSWORD).status_code == 422
+
+    sent = len(mailer.sent)
+    asked = change_email(client, "Ada@Analytical.org", password=PASSWORD)
+    assert asked.status_code == 202
+    (to, subject, body), *_ = mailer.sent[sent:]
+    assert to == "ada@analytical.org" and subject == "Confirm your new email address"
+    assert "Hi Ada," in body and "keeps its old address" in body
+    assert mailer.link().startswith("http://testserver/confirm-email#token=")
+    token = mailer.token()
+    # Until the link is opened, nothing changes.
+    assert me(client).json()["email"] == "ada@example.com"
+
+    # The link works in a browser that is not signed in, once.
+    stranger = another_browser(client)
+    assert confirm_email(stranger, token).status_code == 204
+    again = confirm_email(stranger, token)
+    assert again.status_code == 400 and again.json()["detail"] == LINK_INVALID
+    account = me(client).json()
+    assert account["email"] == "ada@analytical.org" and account["email_verified"] is True
+    # The person who changed it, and every other browser, stay signed in.
+    assert me(elsewhere).status_code == 200
+
+    # The old address is told, and is no longer anything to the account: its links are void
+    # and it signs in nowhere.
+    to, subject, body = mailer.sent[-1]
+    assert to == "ada@example.com" and subject == "Your email address was changed"
+    assert "analytical" not in body and "write to the people who run" in body
+    for path, token_ in (("/api/auth/verify", unconfirmed), ("/api/auth/password/reset", reset)):
+        void = stranger.post(path, json={"token": token_, "password": NEW_PASSWORD})
+        assert void.status_code == 400 and void.json()["detail"] == LINK_INVALID
+    refused = stranger.post(
+        "/api/auth/login", json={"email": "ada@example.com", "password": PASSWORD}
+    )
+    assert refused.status_code == 401
+    login(stranger, "ada@analytical.org")
+
+    # The address it left is free for an account of its own.
+    signup(another_browser(client), "ada@example.com")
+
+
+def test_a_taken_address_is_answered_alike_and_told_instead(
+    client, mailer, monkeypatch, signed_in_only
+):
+    monkeypatch.setattr(get_settings(), "operator_email", "privacy@emudoc.example")
+    signup(another_browser(client), "bob@example.com", name="Bob")
+    signup(client)
+
+    free = change_email(client, "ada@analytical.org", password=PASSWORD)
+    taken = change_email(client, "Bob@Example.com", password=PASSWORD)
+    assert taken.status_code == free.status_code == 202 and taken.content == free.content
+    to, subject, body = mailer.sent[-1]
+    assert to == "bob@example.com" and subject == "This address has an Emudoc account already"
+    assert "Hi Bob," in body and "nothing changed" in body
+    assert mailer.link() == "http://testserver/login"
+    assert me(client).json()["email"] == "ada@example.com"
+
+    # An address that has become an account's since its link was sent is refused at the link,
+    # which the free one's was.
+    token = mailer.token(-2)
+    signup(another_browser(client), "ada@analytical.org")
+    late = confirm_email(client, token)
+    assert late.status_code == 409 and late.json()["detail"] == ADDRESS_TAKEN
+    assert me(client).json()["email"] == "ada@example.com"
+
+    # A second request voids the first's link.
+    change_email(client, "ada@one.org", password=PASSWORD)
+    first = mailer.token()
+    change_email(client, "ada@two.org", password=PASSWORD)
+    assert confirm_email(client, first).status_code == 400
+    assert confirm_email(client, mailer.token()).status_code == 204
+    assert me(client).json()["email"] == "ada@two.org"
+    # With an operator's address set, the old address is told to write there.
+    assert "write to privacy@emudoc.example at once" in mailer.sent[-1][2]
+
+
+def test_an_address_is_asked_for_at_a_rate(client, mailer, monkeypatch, signed_in_only):
+    monkeypatch.setattr(get_settings(), "rate_sign_ins", 1)
+    signup(client)
+    assert change_email(client, "ada@analytical.org", password=PASSWORD).status_code == 202
+    # A password is not guessed through the change either.
+    again = change_email(client, "ada@other.org", password="guess")
+    assert again.status_code == 429 and "from your account" in again.json()["detail"]
+    # Another account may not flood the same address.
+    bob = another_browser(client)
+    signup(bob, "bob@example.com")
+    flood = change_email(bob, "Ada@Analytical.org", password=PASSWORD)
+    assert flood.status_code == 429 and "for this email address" in flood.json()["detail"]
+    assert len(mailer.sent) == 3
+
+
+def test_an_account_without_a_password_confirms_with_its_address_typed_out(
+    client, session, mailer, signed_in_only
+):
+    signup(client)
+    session.execute(update(User).values(password_hash=None))
+    session.commit()
+    for confirmation in ({}, {"password": PASSWORD}, {"current_email": "ada@analytical.org"}):
+        refused = change_email(client, "ada@analytical.org", **confirmation)
+        assert refused.status_code == 403 and refused.json()["detail"] == TYPE_EMAIL
+    asked = change_email(client, "ada@analytical.org", current_email=" Ada@Example.com ")
+    assert asked.status_code == 202
+    assert confirm_email(client, mailer.token()).status_code == 204
+    assert me(client).json()["email"] == "ada@analytical.org"
+
+
+def test_the_local_account_keeps_its_address_but_may_be_renamed(client):
+    refused = change_email(client, "owner@example.com", password=PASSWORD)
+    assert refused.status_code == 409 and refused.json()["detail"] == LOCAL_ADDRESS
+    assert client.patch("/api/auth/profile", json={"name": "Me"}).json()["name"] == "Me"
+    assert me(client).json()["email"] == LOCAL_OWNER_EMAIL
+
+
+def test_the_profile_routes_need_a_session(client, signed_in_only):
+    assert client.patch("/api/auth/profile", json={"name": "Me"}).status_code == 401
+    assert change_email(client, "ada@example.com", password=PASSWORD).status_code == 401
+
+
 def test_sessions_are_listed_and_revoked(client, signed_in_only):
     signup(client)
     phone = another_browser(client, **{"user-agent": "Phone"})
@@ -517,14 +716,16 @@ def test_providers_are_offered_only_when_set_up(client, oauth, monkeypatch):
 def test_google_sign_in_creates_an_account_and_links_verified_ones(
     client, mailer, identity_provider, oauth, signed_in_only
 ):
-    query, handshake = start(client, next="/projects/3")
+    query, handshake = start(client, next="/projects/3", time_zone="America/New_York")
     assert query["_host"] == "accounts.google.com"
     assert query["client_id"] == "google-client"
     assert query["redirect_uri"] == "http://testserver/api/auth/oauth/google/callback"
     assert query["scope"] == "openid email profile"
     assert query["state"] == handshake.state and query["nonce"] == handshake.nonce
     assert query["code_challenge_method"] == "S256" and query["code_challenge"]
-    assert handshake.next == "/projects/3"
+    assert handshake.next == "/projects/3" and handshake.time_zone == "America/New_York"
+    # The zone stays with the browser, not in what the provider is sent.
+    assert "time_zone" not in query
 
     # The answer must belong to this very handshake.
     identity_provider.claims = google_claims(handshake.nonce)
@@ -536,7 +737,7 @@ def test_google_sign_in_creates_an_account_and_links_verified_ones(
     assert error_of(callback(client, code="the-code", state=handshake.state)).startswith(
         "The sign-in with Google could not be verified"
     )
-    _, handshake = start(client, next="/projects/3")
+    _, handshake = start(client, next="/projects/3", time_zone="America/New_York")
     identity_provider.claims = google_claims(handshake.nonce)
     arrived = callback(client, code="the-code", state=handshake.state)
     assert arrived.status_code == 302 and arrived.headers["location"] == "/projects/3"
@@ -547,6 +748,7 @@ def test_google_sign_in_creates_an_account_and_links_verified_ones(
     assert account["email"] == "ada@example.com" and account["name"] == "Ada Lovelace"
     assert account["email_verified"] is True and account["identities"] == ["google"]
     assert account["organization"]["slug"] == "ada-lovelace"
+    assert account["time_zone"] == "America/New_York"
     assert mailer.sent == []
 
     # The subject names the person: the account stays the same if the address changes.

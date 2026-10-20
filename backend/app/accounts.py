@@ -9,7 +9,9 @@ session can act as the local account instead: an organisation of one, created on
 import datetime as dt
 import re
 from dataclasses import dataclass
+from functools import cache
 from itertools import count
+from zoneinfo import ZoneInfo, available_timezones
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -59,11 +61,14 @@ def create_account(
     name: str = "",
     password_hash: str | None = None,
     email_verified: bool = False,
+    time_zone: str = "",
 ) -> Account:
-    """A new user who owns a new organisation of their own. The caller commits."""
+    """A new user who owns a new organisation of their own, in the time zone their browser
+    named if it is one the app knows. The caller commits."""
     user = User(
         email=email,
         name=name,
+        time_zone=time_zone if time_zone in time_zones() else "",
         password_hash=password_hash,
         email_verified_at=dt.datetime.now(dt.UTC) if email_verified else None,
     )
@@ -78,6 +83,19 @@ def create_account(
     session.add(Membership(org_id=organization.id, user_id=user.id, role="owner"))
     session.flush()
     return Account(organization, user, "owner")
+
+
+@cache
+def time_zones() -> frozenset[str]:
+    """The zones a user may choose: the IANA database's names, with the old ones a browser may
+    still report (Chrome's Asia/Calcutta) from the tzdata package, which the image's own
+    database lacks."""
+    return frozenset(available_timezones())
+
+
+def zone_of(name: str) -> dt.tzinfo:
+    """The zone a user's time zone names, UTC when they chose none."""
+    return ZoneInfo(name) if name in time_zones() else dt.UTC
 
 
 def _unique_slug(session: Session, stem: str) -> str:

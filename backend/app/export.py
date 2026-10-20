@@ -88,6 +88,7 @@ def account_export(session: Session, user: User) -> AccountExport:
         account=ExportedAccount(
             email=user.email,
             name=user.name,
+            time_zone=user.time_zone,
             created_at=user.created_at,
             email_verified_at=user.email_verified_at,
             two_factor_enabled_at=user.totp_enabled_at,

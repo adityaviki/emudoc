@@ -9,6 +9,7 @@ import { auth, oauthStartUrl } from '../api.ts'
 import { ThemeToggle } from '../components/ThemeToggle.tsx'
 import { InputField } from '../components/ui.tsx'
 import type { InputFieldProps } from '../components/ui.tsx'
+import { browserTimeZone } from '../timeZones.ts'
 
 /**
  * The frame of every page outside the signed-in shell: the logo above a centred card, and below
@@ -121,7 +122,7 @@ export function ProviderButtons({ next, verb }: { next: string; verb: string }) 
         {providers.map((provider) => (
           <a
             key={provider.name}
-            href={oauthStartUrl(provider.name, next)}
+            href={oauthStartUrl(provider.name, next, browserTimeZone())}
             className="flex h-9 w-full items-center justify-center gap-2.5 rounded-md border border-line bg-surface text-[13px] font-medium shadow-xs transition hover:bg-sunken"
           >
             {PROVIDER_ICONS[provider.name]}

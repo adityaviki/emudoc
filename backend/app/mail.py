@@ -1,5 +1,6 @@
-"""Email the app sends: the links that confirm an address or reset a password, and the notice
-that an account is set to be deleted.
+"""Email the app sends: the links that confirm an address, reset a password or move an account
+to a new address, and the notices that an account's address changed or that it is set to be
+deleted.
 
 There is no email provider yet. The log mailer writes each message to the log, which is enough
 to follow a link in development and never runs in production, where SMTP_URL is required
@@ -148,3 +149,44 @@ def account_deletion_email(name: str, due: str, link: str) -> tuple[str, str]:
         "and change your password.\n"
     )
     return "Your account is set to be deleted", body
+
+
+def email_change_email(name: str, link: str) -> tuple[str, str]:
+    """To the address an account asked to move to: the link that makes it the account's."""
+    body = (
+        f"{_greeting(name)}\n\n"
+        "Someone asked to make this the email address of their Emudoc account. If it was you, "
+        "confirm it by opening this link:\n\n"
+        f"{link}\n\n"
+        "The link works for 24 hours. Until it is opened, the account keeps its old address. If "
+        "you did not ask for this, ignore this message and nothing will happen.\n"
+    )
+    return "Confirm your new email address", body
+
+
+def address_taken_email(name: str, link: str) -> tuple[str, str]:
+    """To an address another account asked to move to, which has an account already: said
+    here, never in the answer to the request, so that nobody learns from the app whether an
+    address has an account."""
+    body = (
+        f"{_greeting(name)}\n\n"
+        "Someone asked to make this the email address of another Emudoc account, but it is the "
+        "address of your account already, so nothing changed. To use Emudoc with this address, "
+        "sign in to your account, where you can also reset a forgotten password:\n\n"
+        f"{link}\n\n"
+        "If you did not ask for this, ignore this message.\n"
+    )
+    return "This address has an Emudoc account already", body
+
+
+def email_changed_email(name: str, contact: str) -> tuple[str, str]:
+    """To the address an account just left: what changed, and whom to tell if it was not
+    them, since this address no longer signs in or receives a reset link."""
+    body = (
+        f"{_greeting(name)}\n\n"
+        "The email address of your Emudoc account was changed. From now on Emudoc writes to the "
+        "new address, and you sign in with it.\n\n"
+        f"If you did not ask for this, someone else may be using your account: write to "
+        f"{contact} at once.\n"
+    )
+    return "Your email address was changed", body

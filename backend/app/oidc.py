@@ -57,6 +57,9 @@ class Handshake:
     verifier: str
     # Where to send the browser once signed in.
     next: str
+    # The browser's time zone, for an account the sign-in creates; a cookie set before the
+    # field existed has none.
+    time_zone: str = ""
 
     def encode(self) -> str:
         return base64.urlsafe_b64encode(json.dumps(asdict(self)).encode()).decode()
@@ -110,7 +113,9 @@ def providers(settings: Settings) -> dict[str, Provider]:
     return found
 
 
-def begin(provider: Provider, redirect_uri: str, next_path: str) -> tuple[str, Handshake]:
+def begin(
+    provider: Provider, redirect_uri: str, next_path: str, time_zone: str = ""
+) -> tuple[str, Handshake]:
     """The URL to send the browser to, and what to remember until it comes back."""
     handshake = Handshake(
         provider=provider.name,
@@ -118,6 +123,7 @@ def begin(provider: Provider, redirect_uri: str, next_path: str) -> tuple[str, H
         nonce=secrets.token_urlsafe(24),
         verifier=secrets.token_urlsafe(64),
         next=next_path,
+        time_zone=time_zone,
     )
     challenge = _base64url(hashlib.sha256(handshake.verifier.encode()).digest())
     params = {

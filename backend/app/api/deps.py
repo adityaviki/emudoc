@@ -33,7 +33,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.accounts import Account, account_for_user, local_account
+from app.accounts import Account, account_for_user, local_account, zone_of
 from app.auth import SESSION_COOKIE, find_session, touch_session
 from app.config import get_settings
 from app.db import get_session
@@ -137,7 +137,9 @@ def get_live_account(account: AnyAccountDep) -> Account:
     """The account, provided it is not set to be deleted: until its user keeps it, it can do
     nothing that would add to what the purge removes, or act on what others hold."""
     if account.user.deletion_due_at is not None:
-        raise HTTPException(403, deletion_pending(account.user.deletion_due_at))
+        raise HTTPException(
+            403, deletion_pending(account.user.deletion_due_at, zone_of(account.user.time_zone))
+        )
     return account
 
 

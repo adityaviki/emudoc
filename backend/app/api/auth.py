@@ -1,7 +1,15 @@
 """Sign-in: accounts with a password, sign-in through Google or Microsoft, the links that
 confirm an address or reset a password, authenticator codes, the sessions a user holds, and the
-account itself: the terms its user accepted (app/legal/), a copy of what is kept about its
-user, and its deletion (app/retention.py).
+account itself: its user's name, time zone and email address, the terms they accepted
+(app/legal/), a copy of what is kept about them, and its deletion (app/retention.py).
+
+An account moves to a new address through a link sent there, which works signed in or not, as
+a verification link does; until it is opened the account keeps its address. The answer to the
+request is the same whether the new address has an account or not, and an address that has
+one is told so in a message instead, so that nobody learns from the app who uses it. Once the
+link is opened, every link sent to the old address stops working, and the old address is told,
+since it no longer signs in; the sessions stay, as the change says nothing about who holds
+them.
 
 The routes that take a password, a code or an address to mail are held to a rate
 (app/ratelimit.py): RATE_SIGN_INS a minute per email address, and RATE_SIGN_INS_PER_ADDRESS
@@ -16,10 +24,11 @@ from urllib.parse import quote, urlencode
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import auth
-from app.accounts import Account, account_for_user, create_account
+from app.accounts import Account, account_for_user, create_account, time_zones, zone_of
 from app.api.deps import (
     AccountDep,
     AnyAccountDep,
@@ -39,6 +48,9 @@ from app.mail import (
     Mailer,
     MailError,
     account_deletion_email,
+    address_taken_email,
+    email_change_email,
+    email_changed_email,
     password_reset_email,
     verification_email,
 )
@@ -61,6 +73,7 @@ from app.schemas import (
     AccountExport,
     AuthOptions,
     CodeIn,
+    EmailChangeIn,
     EmailIn,
     LinkTokenIn,
     LoginIn,
@@ -72,6 +85,7 @@ from app.schemas import (
     OrganizationOut,
     PasswordChangeIn,
     PasswordResetIn,
+    ProfileIn,
     RecoveryCodesOut,
     SessionOut,
     SignupIn,
@@ -86,6 +100,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 LOGIN_PAGE = "/login"
 VERIFY_PAGE = "/verify"
 RESET_PAGE = "/reset-password"
+EMAIL_PAGE = "/confirm-email"
 
 SIGN_IN_FAILED = "The email or password is not right."
 LINK_INVALID = "This link has expired or was already used. Request a new one."
@@ -96,6 +111,18 @@ CODE_INVALID = (
 MFA_FIRST = "Sign in with your password first."
 WRONG_PASSWORD = "The password is not right."
 TYPE_EMAIL = "Type the email address of your account to confirm."
+UNKNOWN_ZONE = "Choose a time zone from the list, such as Europe/Berlin or UTC."
+SAME_ADDRESS = "That is your account's address already. Type the new one."
+LOCAL_ADDRESS = (
+    "The local account's address cannot change: it is what this machine works as without "
+    "signing in, and it receives no mail."
+)
+ADDRESS_TAKEN = (
+    "That address became another Emudoc account's after the link was sent, so it cannot be "
+    "this account's. Sign in with it, or ask for the change again with another address."
+)
+# Whom the old address is told to write to when its account moved without its owner asking.
+NO_CONTACT = "the people who run this Emudoc service"
 ACCEPT_TERMS = "Accept the terms of service and the privacy policy to create an account."
 TERMS_CHANGED = (
     "The terms of service and the privacy policy changed while you were reading them. Read "
@@ -135,7 +162,13 @@ def signup(
     email = body.email.strip().lower()
     if session.scalar(select(User.id).where(User.email == email)) is not None:
         raise HTTPException(409, "An account with this email already exists. Sign in instead.")
-    account = create_account(session, email, body.name.strip(), auth.hash_password(body.password))
+    account = create_account(
+        session,
+        email,
+        body.name.strip(),
+        auth.hash_password(body.password),
+        time_zone=body.time_zone,
+    )
     user_session, token = auth.start_session(session, account.user, request)
     audit(session, account, request, "sign_up", detail={"method": "password"})
     _accept_terms(session, account, request)
@@ -224,6 +257,94 @@ def accept_terms(body: TermsIn, account: LiveAccountDep, request: Request, sessi
         _accept_terms(session, account, request)
         session.commit()
     return _me(account)
+
+
+# The profile and the address
+
+
+@router.patch("/profile", response_model=MeOut)
+def update_profile(body: ProfileIn, account: AccountDep, request: Request, session: SessionDep):
+    """Change the user's name or time zone. The audit log records which changed, never to
+    what, since its rows outlive the account (app/audit.py)."""
+    user = account.user
+    changed = []
+    if body.name is not None and body.name.strip() != user.name:
+        user.name = body.name.strip()
+        changed.append("name")
+    if body.time_zone is not None and body.time_zone != user.time_zone:
+        if body.time_zone not in time_zones():
+            raise HTTPException(400, UNKNOWN_ZONE)
+        user.time_zone = body.time_zone
+        changed.append("time_zone")
+    if changed:
+        audit(session, account, request, "profile_changed", detail={"changed": changed})
+        session.commit()
+    return _me(account)
+
+
+@router.post("/email", status_code=202, dependencies=[Depends(limited(SIGN_INS))])
+def request_email_change(
+    body: EmailChangeIn,
+    account: AccountDep,
+    request: Request,
+    session: SessionDep,
+    mailer: MailerDep,
+    background: BackgroundTasks,
+):
+    """Send the link that moves the account to a new address, once the password confirms it.
+    The mail goes out after the answer, as `forgot_password`'s does, so that an address with an
+    account, which is told so instead of getting the link, answers alike."""
+    user = account.user
+    if account.session_id is None:
+        raise HTTPException(409, LOCAL_ADDRESS)
+    _confirm(user, body.password, body.current_email)
+    email = body.email.strip().lower()
+    if email == user.email:
+        raise HTTPException(400, SAME_ADDRESS)
+    # Counted for the address as well as the account, so that no address is flooded from many.
+    refuse_past(session, (SIGN_INS, by_email(email)))
+    holder = session.scalar(select(User).where(User.email == email))
+    if holder is None:
+        token = auth.issue_link_token(session, user, "change_email", email, auth.VERIFY_LINK_TTL)
+        subject, text = email_change_email(user.name, _link(request, EMAIL_PAGE, token))
+    else:
+        subject, text = address_taken_email(holder.name, f"{_app_url(request)}{LOGIN_PAGE}")
+    audit(session, account, request, "email_change_requested")
+    session.commit()
+    background.add_task(_send_quietly, mailer, email, subject, text)
+
+
+@router.post("/email/confirm", status_code=204)
+def confirm_email_change(
+    body: LinkTokenIn,
+    request: Request,
+    session: SessionDep,
+    mailer: MailerDep,
+    background: BackgroundTasks,
+):
+    """Make the address a change-of-address link was sent to the account's, confirmed, since
+    opening the link proves it is the requester's. Works without being signed in."""
+    link = auth.redeem_link_token(session, body.token, "change_email")
+    if link is None:
+        raise HTTPException(400, LINK_INVALID)
+    user = session.get(User, link.user_id)
+    old = user.email
+    user.email = link.email
+    user.email_verified_at = auth.now()
+    try:
+        # An account made with the address since the link was sent is the database's to see,
+        # however close the two came.
+        session.flush()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(409, ADDRESS_TAKEN) from None
+    # A verification or reset link sent to the old address would act for an address that is
+    # no longer the account's, and a second change waiting would undo this one.
+    auth.void_link_tokens(session, user.id)
+    audit_sign_in(session, user, request, "email_changed")
+    session.commit()
+    subject, text = email_changed_email(user.name, get_settings().operator_email or NO_CONTACT)
+    background.add_task(_send_quietly, mailer, old, subject, text)
 
 
 # Email verification
@@ -381,11 +502,7 @@ def delete_account(
     user = account.user
     if account.session_id is None:
         raise HTTPException(409, LOCAL_ACCOUNT)
-    if user.password_hash is not None:
-        if not auth.verify_password(body.password or "", user.password_hash):
-            raise HTTPException(403, WRONG_PASSWORD)
-    elif (body.email or "").strip().lower() != user.email:
-        raise HTTPException(403, TYPE_EMAIL)
+    _confirm(user, body.password, body.email)
     if refusal := deletion_refusal(session, user):
         raise HTTPException(409, refusal)
     user.deletion_due_at = auth.now() + DELETION_GRACE
@@ -399,7 +516,9 @@ def delete_account(
     )
     session.commit()
     subject, text = account_deletion_email(
-        user.name, day(user.deletion_due_at), f"{_app_url(request)}{LOGIN_PAGE}"
+        user.name,
+        day(user.deletion_due_at, zone_of(user.time_zone)),
+        f"{_app_url(request)}{LOGIN_PAGE}",
     )
     # The deletion is set either way, and the next sign-in shows it; a relay that is down
     # is logged by the mailer.
@@ -497,10 +616,11 @@ def disable_mfa(body: MfaDisableIn, account: AccountDep, request: Request, sessi
 
 
 @router.get("/oauth/{provider}/start")
-def oauth_start(provider: str, request: Request, next: str = "/"):
-    """Send the browser to the provider, remembering the handshake in a short-lived cookie."""
+def oauth_start(provider: str, request: Request, next: str = "/", time_zone: str = ""):
+    """Send the browser to the provider, remembering the handshake in a short-lived cookie,
+    with the browser's time zone for an account the sign-in creates."""
     found = _provider(provider)
-    url, handshake = begin(found, _redirect_uri(request, found), _safe_path(next))
+    url, handshake = begin(found, _redirect_uri(request, found), _safe_path(next), time_zone[:64])
     response = RedirectResponse(url, status_code=302)
     response.set_cookie(
         OAUTH_COOKIE,
@@ -536,7 +656,7 @@ def oauth_callback(
         )
     try:
         claims = finish(found, code, _redirect_uri(request, found), handshake, http)
-        user = _user_for_claims(session, found, claims, request, mailer)
+        user = _user_for_claims(session, found, claims, request, mailer, handshake.time_zone)
     except (OidcError, SignInRefused) as refusal:
         session.rollback()
         return _back_to_login(request, error=str(refusal))
@@ -554,7 +674,12 @@ def oauth_callback(
 
 
 def _user_for_claims(
-    session: Session, provider: Provider, claims: Claims, request: Request, mailer: Mailer
+    session: Session,
+    provider: Provider,
+    claims: Claims,
+    request: Request,
+    mailer: Mailer,
+    time_zone: str = "",
 ) -> User:
     """The user behind the provider's subject, linking or creating an account the first time.
 
@@ -578,7 +703,11 @@ def _user_for_claims(
     user = session.scalar(select(User).where(User.email == claims.email))
     if user is None:
         account = create_account(
-            session, claims.email, claims.name, email_verified=claims.email_verified
+            session,
+            claims.email,
+            claims.name,
+            email_verified=claims.email_verified,
+            time_zone=time_zone,
         )
         audit(session, account, request, "sign_up", detail={"method": provider.name})
         user = account.user
@@ -629,6 +758,7 @@ def _me(account: Account) -> MeOut:
         id=user.id,
         email=user.email,
         name=user.name,
+        time_zone=user.time_zone,
         email_verified=user.email_verified_at is not None,
         mfa_enabled=user.mfa_enabled,
         identities=sorted(identity.provider for identity in user.identities),
@@ -642,6 +772,17 @@ def _me(account: Account) -> MeOut:
         terms_accepted_at=user.terms_accepted_at,
         terms_due=terms_due(account),
     )
+
+
+def _confirm(user: User, password: str | None, email: str | None) -> None:
+    """Refuse a change to the account that its password does not confirm, or for an account
+    without one, its address typed out, so that a browser left signed in is not enough by
+    itself."""
+    if user.password_hash is not None:
+        if not auth.verify_password(password or "", user.password_hash):
+            raise HTTPException(403, WRONG_PASSWORD)
+    elif (email or "").strip().lower() != user.email:
+        raise HTTPException(403, TYPE_EMAIL)
 
 
 def _accept_terms(session: Session, account: Account, request: Request) -> None:

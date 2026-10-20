@@ -1,7 +1,7 @@
 import { LoaderCircle } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useId } from 'react'
-import type { AnchorHTMLAttributes, ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react'
+import type { AnchorHTMLAttributes, ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react'
 
 const BUTTON_VARIANTS = {
   primary: 'bg-accent text-accent-ink shadow-xs hover:bg-accent-hover',
@@ -87,6 +87,28 @@ export function InputField({ label, hint, corner, id, className = '', ...props }
         {corner}
       </div>
       <input id={inputId} className={FIELD} {...props} />
+      {hint && <p className="mt-1 text-xs text-muted">{hint}</p>}
+    </div>
+  )
+}
+
+export interface SelectFieldProps extends SelectHTMLAttributes<HTMLSelectElement> {
+  label: ReactNode
+  hint?: ReactNode
+}
+
+/** A labelled list to pick one from, beside the text inputs of a form. */
+export function SelectField({ label, hint, id, className = '', children, ...props }: SelectFieldProps) {
+  const generated = useId()
+  const selectId = id ?? generated
+  return (
+    <div className={className}>
+      <label htmlFor={selectId} className="mb-1 block text-xs font-medium text-muted">
+        {label}
+      </label>
+      <select id={selectId} className={FIELD} {...props}>
+        {children}
+      </select>
       {hint && <p className="mt-1 text-xs text-muted">{hint}</p>}
     </div>
   )

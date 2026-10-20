@@ -6,6 +6,7 @@ import { ApiError, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, auth } from '../api
 import { MeContext, safeNext, setSignedIn } from '../auth.ts'
 import { Button, Checkbox, InputField, Notice } from '../components/ui.tsx'
 import { useLegal } from '../hooks.ts'
+import { browserTimeZone } from '../timeZones.ts'
 import { AuthCard, PasswordField, ProviderButtons } from './shared.tsx'
 
 /**
@@ -28,7 +29,7 @@ export function SignupPage() {
   const accepted = acceptedVersion !== null && acceptedVersion === legal.data?.version
   const signup = useMutation({
     mutationFn: (terms_version: string) =>
-      auth.signup({ name: name.trim(), email: email.trim(), password, terms_version }),
+      auth.signup({ name: name.trim(), email: email.trim(), password, terms_version, time_zone: browserTimeZone() }),
     onSuccess: (account) => {
       setSignedIn(queryClient, account)
       navigate(next, { replace: true })

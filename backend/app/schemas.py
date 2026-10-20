@@ -290,6 +290,8 @@ PASSWORD_MAX_LENGTH = 200
 
 Email = Annotated[str, Field(max_length=320, pattern=EMAIL_PATTERN)]
 Password = Annotated[str, Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)]
+# An IANA zone such as Europe/Berlin; which names are known is the route's to check.
+TimeZone = Annotated[str, Field(max_length=64)]
 
 
 class SignupIn(BaseModel):
@@ -299,6 +301,9 @@ class SignupIn(BaseModel):
     # The edition of the terms of service and privacy policy the form showed and the person
     # ticked (TERMS_VERSION, app/legal/); an account is made only when it is the current one.
     terms_version: str | None = Field(None, max_length=40)
+    # The browser's zone, for the dates in the account's mail; one the app does not know is
+    # left out rather than refused.
+    time_zone: TimeZone = ""
 
 
 class TermsIn(BaseModel):
@@ -365,6 +370,22 @@ class AccountDeletionIn(BaseModel):
     email: str | None = Field(None, max_length=320)
 
 
+class ProfileIn(BaseModel):
+    """What the account page changes about its user; a field left out stays as it is."""
+
+    name: str | None = Field(None, max_length=200)
+    time_zone: TimeZone | None = None
+
+
+class EmailChangeIn(BaseModel):
+    """The address to move the account to, confirmed as a deletion is: by the password, or, for
+    an account that has none and signs in through a provider, its current address typed out."""
+
+    email: Email
+    password: str | None = Field(None, max_length=PASSWORD_MAX_LENGTH)
+    current_email: str | None = Field(None, max_length=320)
+
+
 class OrganizationOut(_FromORM):
     id: int
     name: str
@@ -385,6 +406,8 @@ class MeOut(BaseModel):
     id: int
     email: str
     name: str
+    # The zone the account's mail is dated in, empty for UTC until its user chooses one.
+    time_zone: str
     email_verified: bool
     mfa_enabled: bool
     # Providers the account can sign in through, such as "google".
@@ -562,6 +585,7 @@ class ExportedIdentity(BaseModel):
 class ExportedAccount(BaseModel):
     email: str
     name: str
+    time_zone: str
     created_at: dt.datetime
     email_verified_at: dt.datetime | None
     two_factor_enabled_at: dt.datetime | None
