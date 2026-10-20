@@ -11,6 +11,15 @@ its day, in the same commit.
 
 Members:
 
+- Emudoc now sends the notices the account page's switch is for. An upload that takes five
+  minutes or more to index is followed by one email once its last document is done, saying how
+  many are ready and naming each that could not be indexed with the reason the library shows;
+  one indexed sooner sends none, since the library said as much while you watched. The owners
+  and admins of an organisation are mailed once a month when its pages or questions for the
+  month reach 80 % of what it may use, when they are all used, and when the pages left are too
+  few for a document, with a link to the usage page; a pack bought afterwards starts the count
+  again. The privacy policy names both.
+
 - The emails Emudoc sends come with an HTML part in Emudoc's colours beside the plain text, the
   link a button with its address under it to copy. A link asked for while the mail server is
   down arrives once it is back, tried again for half an hour, instead of not at all. The account
@@ -161,6 +170,17 @@ Members:
   slow to a third of their speed.
 
 Operators:
+
+- The notices are sent (`backend/app/notices.py`, deploying.md "Mail"). A migration adds
+  `uploads` (one row per upload request, with the member who sent it and when its last
+  document settled, named by `documents.upload_id`) and `quota_notices` (one row per
+  organisation, month, figure, share and allowance told). The worker looks at an upload once a
+  document's index job has ended, through a new `after` step of a job's handler; the
+  housekeeping round settles those whose last look was lost and forgets the records of months
+  gone by. A notice the worker writes links to `APP_URL` (in development without it, the
+  frontend's development server). Payment receipts and invoices are Stripe's to mail: turn on
+  "Successful payments" and "Finalized invoices" under its Customer emails (deploying.md,
+  "Billing").
 
 - The worker sends the mail now, in a lane of one thread of its own (the pool counts it: 16 +
   8 + 1 + 4 of 30 at the defaults, one more with `MAIL_EVENTS_QUEUE`): a request posts a

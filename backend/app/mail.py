@@ -3,7 +3,11 @@ move an account to a new address or join an organisation, the notices that an ad
 an account already, that an account's address changed or that it is set to be deleted, and to
 an organisation's owners what its subscription needs of them: a payment that failed, a trial
 about to end, a plan that lapsed, a cancellation and the lower plan it ends on, with what that
-leaves read-only and until when chats and audit rows are kept as before (app/billing.py).
+leaves read-only and until when chats and audit rows are kept as before (app/billing.py). And
+the notices about a member's work, which they may turn off (app/notices.py): that an upload
+which took a while to index is done, with what could not be indexed and why, and to an
+organisation's owners and admins that its month's pages or questions are mostly or all used.
+Stripe sends the receipts and the invoices itself (deploying.md, "Billing").
 
 A template writes `Content`: the subject, and the body as paragraphs and links. Both the plain
 text and the HTML of a message are made from it (`compose`), so they say the same: the text has
@@ -682,3 +686,129 @@ def _lowered(
             f"until {until}, and deleted then."
         )
     return tuple(paragraphs)
+
+
+# How many of an upload's documents that could not be indexed its notice names.
+LISTED = 20
+
+
+def upload_indexed_email(
+    name: str,
+    organization: str,
+    project: str,
+    uploaded: str,
+    ready: int,
+    failed: list[tuple[str, str]],
+    link: str,
+) -> Content:
+    """To the member whose upload took long enough to index that they may have left the page
+    (app/notices.py): how many of its documents are ready, and which could not be indexed, each
+    with the sentence the library shows for it, its members' words. A long list stops at
+    LISTED, the rest counted; the names are the files', in the body alone."""
+    total = ready + len(failed)
+    where = f"to {project} in {organization} at {uploaded}"
+    if not failed:
+        subject = "Your document is indexed" if total == 1 else "Your documents are indexed"
+        said = (
+            f"The document you uploaded {where} is indexed, ready to search and ask about."
+            if total == 1
+            else f"The {total:,} documents you uploaded {where} are indexed, ready to search "
+            "and ask about."
+        )
+        return Content(subject, (_greeting(name), said, Link(link, "Open the project")))
+    if total == 1:
+        subject, said = (
+            "Your document could not be indexed",
+            f"The document you uploaded {where} could not be indexed:",
+        )
+    elif not ready:
+        subject, said = (
+            "Your documents could not be indexed",
+            f"None of the {total:,} documents you uploaded {where} could be indexed:",
+        )
+    else:
+        subject, said = (
+            "Some of your documents could not be indexed",
+            f"Of the {total:,} documents you uploaded {where}, {ready:,} "
+            f"{'is' if ready == 1 else 'are'} indexed, ready to search and ask about, and "
+            f"{len(failed):,} could not be:",
+        )
+    lines = [f"{filename}: {reason}" for filename, reason in failed[:LISTED]]
+    if (unlisted := len(failed) - LISTED) > 0:
+        lines.append(f"And {unlisted:,} more, which the library lists with theirs.")
+    return Content(
+        subject,
+        (
+            _greeting(name),
+            said,
+            "\n".join(lines),
+            'Once what a document says is put right, "Index again" in the library runs it again:',
+            Link(link, "Open the project"),
+        ),
+    )
+
+
+def quota_email(
+    name: str,
+    organization: str,
+    figure: str,
+    used: int,
+    allowance: int,
+    month: str,
+    following: str,
+    link: str,
+    refused: bool = False,
+) -> Content:
+    """To an owner or admin of an organisation whose month's pages or questions (`figure`, of
+    QUOTA_FIGURES) reached 80 % of what it may use, or all of it, or whose pages left could not
+    take a document (`refused`; app/notices.py): how much is used of how much, what happens
+    once it is all used, and the usage page, where what lifts the limit is offered. `allowance`
+    is the plan's and the packs bought for the month together; `month` names it and
+    `following` the next, when the count starts afresh."""
+    pages = figure == "pages_per_month"
+    noun = "pages" if pages else "questions"
+    may = "index" if pages else "ask"
+    left = max(allowance - used, 0)
+    if refused and left:
+        subject = "Your organisation's pages for the month ran short"
+        said = (
+            f"{organization} may index {allowance:,} pages on Emudoc in {month} and has used "
+            f"{used:,}, so a document with more pages than the {left:,} left was not indexed. "
+            "One that fits still is, and from 1 "
+            f'{following}, when the count starts afresh, "Index again" indexes the other.'
+        )
+    elif used < allowance:
+        subject = f"Your organisation has used most of its {noun} for the month"
+        then = (
+            f"{left:,} {'is' if left == 1 else 'are'} left, and a document with more pages than "
+            f"that is not indexed until 1 {following}, when the count starts afresh."
+            if pages
+            else f"Once they are used, no question is answered until 1 {following}, when the "
+            "count starts afresh."
+        )
+        said = (
+            f"{organization} has used {used:,} of the {allowance:,} {noun} it may {may} on "
+            f"Emudoc in {month}, {used * 100 // allowance} %. {then}"
+        )
+    else:
+        subject = f"Your organisation has used all its {noun} for the month"
+        then = (
+            f"No more documents are indexed until 1 {following}, when the count starts afresh."
+            if pages
+            else f"No more questions are answered until 1 {following}, when the count starts "
+            "afresh."
+        )
+        said = (
+            f"{organization} has used all the {allowance:,} {noun} it may {may} on Emudoc in "
+            f"{month}. {then}"
+        )
+    return Content(
+        subject,
+        (
+            _greeting(name),
+            said,
+            "The organisation's usage page shows what it has used, and what lifts the limit "
+            "for this month:",
+            Link(link, "Open the usage page"),
+        ),
+    )

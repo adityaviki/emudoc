@@ -39,6 +39,7 @@ from app.llm import LLM, LLMError, OcrBlock
 from app.mail import Mailer
 from app.metrics import DOCUMENT_READY, INDEX_RUNS, PARSES, STAGE_RUNS, STAGE_SECONDS
 from app.models import STAGES, Block, Document, Fact, Passage, Section
+from app.notices import MONTH_PAGES, app_address, note_quota
 from app.parsing import IMAGE_TYPES, FileTooLarge, ParsedBlock, UnsupportedFile
 from app.parsing.images import open_image
 from app.parsing.limits import ParseLimits, parse_within_limits
@@ -155,6 +156,12 @@ class StageDeferred(PipelineError):
     def __init__(self, message: str, until: datetime):
         super().__init__(message, transient=True)
         self.until = until
+
+
+class PagesShort(PipelineError):
+    """What is left of the month's pages could not take the document (`check_pages`,
+    app/entitlements.py). The document fails as for any other refusal, and the organisation's
+    owners and admins are told with the stage's mark (app/notices.py)."""
 
 
 class StageSkipped(AppError):
@@ -375,6 +382,9 @@ def _run_stage(
             # The members read their own sentence, so the operator's is told here; the worker
             # tells one it runs again (app/worker.py).
             log.warning("Stage %s of document %s failed: %s", name, document_id, error)
+        if isinstance(error, PagesShort):
+            organization = document.project.organization
+            note_quota(session, organization, MONTH_PAGES, app_address(), refused=True)
         _set_stage(session, document, name, "failed", failure.detail, lease)
         return failure
     except Exception as error:
@@ -519,7 +529,7 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
         organization = document.project.organization
         of_text = parsed.page_count is None
         if refusal := check_pages(session, organization, new_pages, of_text=of_text):
-            raise PipelineError(refusal.sentence)
+            raise PagesShort(refusal.sentence)
         blocks = parsed.blocks
         note = ""
 
@@ -560,6 +570,9 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
         for ordinal, block in enumerate(blocks)
     )
     meter.add(UPLOAD, "pages", new_pages)
+    if new_pages:
+        # Committed with the stage's mark, which the charge's record of the pages follows.
+        note_quota(session, organization, MONTH_PAGES, app_address(), adding=new_pages)
     document.page_count = parsed.page_count
     document.page_sizes = [[round(w, 2), round(h, 2)] for w, h in parsed.page_sizes]
     document.title = parsed.title

@@ -28,6 +28,7 @@ from app.answers import (
     sse,
     start_answer,
 )
+from app.api.auth import app_url
 from app.api.deps import (
     RETRY_AFTER,
     AccountDep,
@@ -43,6 +44,7 @@ from app.db import SessionLocal
 from app.entitlements import PlanRefused, Refusal, check_question
 from app.logs import about
 from app.models import Chat, ChatMessage
+from app.notices import MONTH_QUESTIONS, note_quota
 from app.ratelimit import QUESTIONS
 from app.schemas import AskOut, ChatDetail, ChatMessageOut, ChatOut, ChatPatch, QuestionIn
 from app.shutdown import Stop
@@ -143,6 +145,7 @@ def ask(
     body: QuestionIn,
     session: SessionDep,
     account: AccountDep,
+    request: Request,
 ):
     """Add a question to the chat and queue its answer, which `events` streams."""
     question = body.content.strip()
@@ -186,6 +189,7 @@ def ask(
         kind=ANSWER,
         measures={"questions": 1},
     )
+    note_quota(session, account.organization, MONTH_QUESTIONS, app_url(request))
     # The request's lines name the answer its job writes, as the job's lines do.
     about(message_id=answer.id)
     session.commit()

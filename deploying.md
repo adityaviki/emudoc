@@ -1338,7 +1338,15 @@ What the app mails, and to whom:
   an invitation; and to an organisation's owners what its subscription needs of them
   ("Billing").
 - **Notices**, the mail a member may do without, about their work in the app rather than their
-  account. Each member has them on until they turn them off on the account page, or with the
+  account (`backend/app/notices.py`): to the member who uploaded files, once the last of them is
+  ready, failed or set apart by the scan with no retry waiting, if that took five minutes or
+  more (`NOTICE_AFTER`; an upload indexed sooner was most likely watched in the library, which
+  says as much), one message for the whole upload naming the files that could not be indexed
+  and why, as the library words it; and to an organisation's owners and admins, once a month
+  for each, when its pages or questions for the month reach 80 % of what it may use (its plan's
+  and the packs bought for the month), when they reach all of it, and for pages when what is
+  left could not take a document. A pack bought afterwards starts the count again. Each member
+  has them on until they turn them off on the account page, or with the
   link at the foot of every notice, and a mail program's own "Unsubscribe" turns them off in
   one click: a notice carries `List-Unsubscribe` and `List-Unsubscribe-Post:
   List-Unsubscribe=One-Click` (RFC 8058), whose address `/api/mail/unsubscribe` takes the
@@ -1350,7 +1358,17 @@ Every message has a plain text and an HTML part, both made from the same templat
 layout of the brand's colours; the only links in the HTML are the app's own, and the names a
 member typed (an inviter's, an organisation's) stay text there, however much they look like an
 address. A subject is the app's own sentence, which the log may repeat; names are in the body
-alone.
+alone. The links lead to `APP_URL`, which production requires; in development without it, a
+request's mail links to the address the request came to, and the worker's to the frontend's
+development server, `http://localhost:5173`.
+
+An upload is the files of one request (`uploads`, with the member who sent them, made once the
+request has stored them all). Whoever ends its last piece of work finds it indexed: the worker
+once a document's index job has ended, the request itself for documents indexed before it was
+done, and the housekeeper's round for one whose last word was lost with a worker that died. A
+notice about a project the member no longer sees, or from an organisation they left, is not
+sent. A document indexed again later ("Index again", a new embedding model) is told of by
+nothing: whoever asked for it is watching.
 
 ### How it is sent
 
@@ -1558,10 +1576,14 @@ In Stripe's dashboard, in a sandbox or test mode first (staging), then live:
    either moves the organisation to Free, as `BILLING_GRACE_DAYS` past the first failure does,
    whichever is sooner. Stripe's own emails about failed payments may stay off: the app mails
    the owners.
-6. Tax, for `STRIPE_TAX=true`: the registrations where the operator collects tax. Checkout asks
+6. Receipts: under Settings, Customer emails, turn on "Successful payments" and "Finalized
+   invoices" (and "Refunds"). Stripe then mails each payment's receipt and each invoice to
+   the address given at Checkout, with the tax and the VAT id it holds and the app does not;
+   the app sends none of its own, and the invoices stay in the portal under Manage billing.
+7. Tax, for `STRIPE_TAX=true`: the registrations where the operator collects tax. Checkout asks
    every buyer for the billing address and lets a business give its VAT ID, which the invoices
    carry once the invoice settings show the customer's tax IDs.
-7. A restricted key is enough: write on Customers, Checkout Sessions and the Customer portal,
+8. A restricted key is enough: write on Customers, Checkout Sessions and the Customer portal,
    read on Subscriptions. On AWS it and the signing secret go under `secrets/` ("The
    settings").
 
@@ -1606,6 +1628,9 @@ every six hours), and so what the privacy notice can promise:
   cannot ask until another member is an owner, and one who became the last owner meanwhile is
   succeeded at the purge by the next member in role and seniority (logged as a warning). The
   log names accounts by id only.
+- **What the notices were about** ("Mail"): the record that a month's pages or questions were
+  told of goes once the month is over (`quota_notices`); an upload's row, which names who sent
+  its files, stays as long as its project, and forgets them when their account goes.
 
 Backups (and a bucket's object versions) keep a purged account until they expire, so the
 privacy policy names that window, `BACKUP_DAYS`, as the outer bound of a deletion. A restore must not bring the

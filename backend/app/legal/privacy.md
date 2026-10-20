@@ -56,10 +56,12 @@ We send you email only about your account: to confirm your address or a new one,
 address when it was replaced or when another account asked to take it, to reset your password,
 to tell you when sign-ins to it were paused after many wrong passwords, and to confirm that you
 asked for your account to be deleted; and to an address a member of an organisation invited,
-the invitation.$billing_mail Besides, we may send you notices about your work in the service,
-which you can turn off on your account page or with the link at the foot of each. We send no
-marketing, show no advertising, sell no personal data
-and build no profile of you.
+the invitation.$billing_mail Besides, we send you notices about your work in the service: when
+documents you uploaded took a while to index, that they are done and which could not be
+indexed; and to an organisation's owners and admins, when its pages or questions for the month
+are mostly or all used. You can turn them off on your account page or with the link at the foot
+of each. We send no marketing, show no advertising, sell no personal data and build no profile
+of you.
 
 ## Who receives it
 

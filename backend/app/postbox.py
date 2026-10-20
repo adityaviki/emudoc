@@ -31,6 +31,7 @@ import json
 import logging
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from sqlalchemy import text
@@ -39,12 +40,15 @@ from sqlalchemy.orm import Session
 from app.bounces import suppressed
 from app.db import SessionLocal
 from app.encrypted import keys
-from app.indexing.pipeline import Services
 from app.jobs import LIVE, SEND_EMAIL, enqueue
 from app.keyring import Undecryptable, is_encrypted
 from app.mail import Block, Content, Link, LogMailer, Mailer, MailError, Message, compose
 from app.metrics import MAIL_SENT
 from app.models import Job, User
+
+if TYPE_CHECKING:
+    # For the handler's signature alone: the pipeline posts notices through this module.
+    from app.indexing.pipeline import Services
 
 log = logging.getLogger(__name__)
 
@@ -116,7 +120,7 @@ def unsubscriber(token: str) -> int | None:
         return None
 
 
-def run_email(job: Job, services: Services) -> str | None:
+def run_email(job: Job, services: "Services") -> str | None:
     """The worker's handler of `send_email`."""
     return deliver(job, services.mailer or LogMailer())
 
@@ -172,7 +176,7 @@ def deliver(job: Job, mailer: Mailer) -> str | None:
     return None
 
 
-def abandon_email(job: Job, services: Services) -> None:
+def abandon_email(job: Job, services: "Services") -> None:
     """A message whose every try was lost to a worker that died: nobody waits on the page for
     it, and whoever asked for a link asks again; the job keeps no copy."""
     _spent(job.id)

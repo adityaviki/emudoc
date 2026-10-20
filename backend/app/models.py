@@ -66,6 +66,9 @@ USAGE_UNITS = ("calls", "input_tokens", "output_tokens", "pages", "bytes", "inpu
 # What an organisation is entitled to (app/entitlements.py), from the plan with the least to
 # the one with no limits. A new organisation starts on the first.
 PLANS = ("free", "pro", "team", "enterprise")
+# The figures of a plan its owners and admins are told about as a month uses them up
+# (app/notices.py): the fields of `Entitlements` that count the month.
+QUOTA_FIGURES = ("pages_per_month", "questions_per_month")
 # The order the library lists a folder's files in, which the database keeps an index in: by
 # name, with the numbers in a name compared as numbers ("invoice 2" before "invoice 10") and
 # case and accents set aside, as the page sorts the folders. An ICU collation, made by the
@@ -521,6 +524,33 @@ class Folder(Base):
     )
 
 
+class Upload(Base):
+    """The documents one upload request brought in, and who sent them: what the notice that
+    their indexing finished is about and for (app/notices.py). The row is made once the request
+    has stored its files, so an upload is whole before it can be found settled, and is settled
+    once, when none of its documents is waiting or being indexed any more."""
+
+    __tablename__ = "uploads"
+    __table_args__ = (
+        # What the housekeeper looks through for an upload whose notice nothing posted.
+        Index("ix_uploads_unsettled", "id", postgresql_where=text("settled_at IS NULL")),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    # Null once the user's account is deleted: the documents stay with the project.
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # When its last document was ready, failed or set apart, with no retry waiting.
+    settled_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class Document(Base):
     __tablename__ = "documents"
     __table_args__ = (
@@ -544,6 +574,11 @@ class Document(Base):
     # The key of the uploaded file in the storage (app/storage.py); the document's other
     # objects sit under the same prefix.
     storage_key: Mapped[str] = mapped_column(Text)
+    # The upload it came in with, and so who brought it in (`Upload`); null for a document from
+    # before uploads were kept, and while its request is still storing the others.
+    upload_id: Mapped[int | None] = mapped_column(
+        ForeignKey("uploads.id", ondelete="SET NULL"), index=True
+    )
 
     # queued | processing | ready | failed | quarantined (the malware scan flagged the file:
     # it is neither indexed nor served, and `error` carries the verdict, app/scanning.py)
@@ -944,6 +979,30 @@ class SpendAlert(Base):
     # millionths of the billing currency.
     spent_micros: Mapped[int] = mapped_column(BigInteger)
     cap_micros: Mapped[int] = mapped_column(BigInteger)
+    sent_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class QuotaNotice(Base):
+    """A notice an organisation's owners and admins were posted about a month's pages or
+    questions (app/notices.py): that `used` reached `share` percent of the `allowance`, its
+    plan's and the packs bought for the month together. One is posted a month for each figure,
+    share and allowance, so a pack bought after the limit was reached starts the count afresh,
+    and the row is what says it was; the housekeeper removes those of months gone by."""
+
+    __tablename__ = "quota_notices"
+    __table_args__ = (
+        _one_of("figure", QUOTA_FIGURES, "quota_notices"),
+        UniqueConstraint("org_id", "month", "figure", "share", "allowance"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"))
+    # The start of the month, in UTC, as `AllowancePack.month`.
+    month: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    figure: Mapped[str] = mapped_column(String(40))
+    share: Mapped[int] = mapped_column(Integer)
+    allowance: Mapped[int] = mapped_column(Integer)
+    used: Mapped[int] = mapped_column(Integer)
     sent_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

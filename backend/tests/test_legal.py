@@ -60,7 +60,7 @@ DEVELOPMENT = {
 }
 DIRECTORY = LocalStorage(Path("unused"))
 # The SHA-256 of terms.md and privacy.md as the edition TERMS_VERSION names was settled.
-SETTLED = "3cd33a932e5a760b70a412fdc1cdb3e87a10fa9815448bcf3deb0dc589c70f49"
+SETTLED = "ffe9c85c9a5ff37e2d0acea67026b6890ce8f7fd1f11f332514c08e11ebda608"
 OLDER = "2026-01-01"
 
 
@@ -294,9 +294,12 @@ def test_the_documents_describe_paid_plans_where_they_are_sold():
 
 
 def test_the_policy_names_the_addresses_spared_where_the_provider_says_which():
-    # Notices may be turned off wherever, and the account keeps the choice.
+    # Notices may be turned off wherever, and the account keeps the choice; the policy names
+    # which there are (app/notices.py).
     assert "whether you want notices by email" in policy()
-    assert "which you can turn off on your account page or with the link at the foot" in policy()
+    assert "You can turn them off on your account page or with the link at the foot" in policy()
+    assert "when\ndocuments you uploaded took a while to index, that they are done" in policy()
+    assert "when its pages or questions for the month\nare mostly or all used" in policy()
     assert "could not be delivered" not in policy()
 
     for told in (

@@ -38,6 +38,7 @@ from app.models import (
     Membership,
     Organization,
     Project,
+    Upload,
     UsageEvent,
     User,
     UserSession,
@@ -438,6 +439,7 @@ def backup(session, organization_id: int) -> dict:
         User: User.id.in_(select(Membership.user_id).where(Membership.org_id == organization_id)),
         Membership: Membership.org_id == organization_id,
         Project: Project.org_id == organization_id,
+        Upload: Upload.project_id.in_(select(Project.id).where(Project.org_id == organization_id)),
         Document: Document.project_id.in_(
             select(Project.id).where(Project.org_id == organization_id)
         ),

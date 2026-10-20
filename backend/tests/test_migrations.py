@@ -343,10 +343,12 @@ def test_documents_parsed_before_their_text_counted_are_not_counted_again(
     ).all()
     assert [ref for ref, _ in pages] == [waiting.id]
 
-    # Going back removes the mark, which no event stands behind.
+    # Going back removes the mark, which no event stands behind. The id is read first: the
+    # rollback expires the row, which the model could not load again without a later column.
+    parsed_id = parsed.id
     session.rollback()
     command.downgrade(alembic_config(), BEFORE_TEXT_COUNTED)
-    assert uploads()[parsed.id] is None
+    assert uploads()[parsed_id] is None
 
 
 def test_database_made_before_migrations_cannot_be_upgraded(rebuilt_afterwards):

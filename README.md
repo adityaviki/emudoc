@@ -145,7 +145,8 @@ rename or move, "Index again", who sees it), an invitation and a join is refused
 page says so in a banner. The organisation page shows every member what the organisation may
 keep and use, and what it holds past it, and its usage page (`/organization/usage`) what it
 holds and has used of each figure against what it may, as the checks count it, with a warning
-and the way past a month's limit from 80 % of it on, and its pages indexed and questions asked
+and the way past a month's limit from 80 % of it on (its owners and admins are mailed then, and
+once it is all used), and its pages indexed and questions asked
 on each of the last 30 days and in each of the last 12 months, in UTC. A question counts as it
 is asked, answered or not, and deleting its chat gives it back to nobody. The plan is checked
 where the thing happens: creating a project, uploading (the request is refused when the plan
@@ -172,7 +173,8 @@ is in its trial (`STRIPE_TRIAL_DAYS`, 14, for an organisation's first) or paid, 
 once it ends, or the payment is not made, the organisation is on Free, keeping all it holds,
 until it pays again. With `STRIPE_PACKS` an owner also buys packs of pages or questions, paid
 once, which add to the plan's for the calendar month in UTC they are paid in. Checkout asks for
-the billing address and a business's VAT id, and works out the tax with `STRIPE_TAX`. An organisation on Enterprise or with agreed figures is left to
+the billing address and a business's VAT id, and works out the tax with `STRIPE_TAX`; Stripe
+mails the receipts and invoices itself, once its customer emails are on. An organisation on Enterprise or with agreed figures is left to
 the operator. Without Stripe, or for those, `uv run python -m app.maintenance plan <slug> [plan]`
 (in `backend/`) shows an organisation's plan and what it allows, or moves it to another, with
 `--seats N`, `--set NAME=VALUE` (`projects=500`, `storage_bytes=1 TB`, `retention_days=none`)
@@ -557,7 +559,11 @@ the password, turns on a code from an authenticator app at sign-in (shown as a Q
 with recovery codes for a lost phone; its secret is kept encrypted with `ENCRYPTION_KEYS`, which
 the database never holds, so a copy of it makes no codes), lists the browsers and devices that are signed in and
 signs any of them out, and turns off the notices, the mail a member may do without, which each
-notice's own link and a mail program's "Unsubscribe" turn off too; a forgotten password is reset
+notice's own link and a mail program's "Unsubscribe" turn off too: that an upload which took
+five minutes or more to index is done, in one message naming the files that could not be
+indexed and why, and to an organisation's owners and admins that its pages or questions for the
+month reached 80 % of what it may use, all of it, or for pages too few for a document
+(`backend/app/notices.py`); a forgotten password is reset
 through a link sent by email, which signs the account out everywhere. The worker sends the
 mail, a plain text and an HTML part each, from a queue: a relay that is down gets a message again
 for half an hour, and an address the mail provider says bounced for good or was marked as spam

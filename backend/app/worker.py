@@ -114,6 +114,7 @@ from app.metrics import (
     lane_of,
 )
 from app.models import Document, Job
+from app.notices import after_index
 from app.postbox import abandon_email, run_email
 from app.rendering import draw_ahead
 from app.scanning import ScanError, alert_quarantines
@@ -155,6 +156,8 @@ GRACE = 8.0
 ALIVE_SECONDS = 10.0
 
 CRASHED = "Indexing stopped unexpectedly. Try reprocessing."
+# The outcomes of a run after which the job's row says it ended (`Handler.after`).
+ENDED = ("done", "failed", "crashed", "abandoned")
 # How many times a stage that failed for a passing reason is run again, and how long the first
 # wait is; each wait is twice the one before, so four retries span a quarter of an hour. An
 # outage longer than that leaves the stage failed until the user presses "Index again".
@@ -172,10 +175,15 @@ class Handler:
     about must already say so to the user. `abandon` is called instead when the job is given up
     because every attempt (`max_attempts` of them) was lost to a process that died: it leaves
     what the job was about in a state the user can act on, saying so in its own words.
+    `after`, when there is one, runs once the job's row says it ended, done or failed, for
+    what must see it ended: an upload's notice waits for the jobs of all its documents
+    (app/notices.py). A run lost to another worker leaves it to that one; a failure of it is
+    logged and changes nothing of the job.
     """
 
     run: Callable[[Job, Services], str | None]
     abandon: Callable[[Job, Services], None]
+    after: Callable[[Job, Services], None] | None = None
 
 
 def _run_index(job: Job, services: Services) -> str | None:
@@ -300,7 +308,7 @@ def _abandon_render(job: Job, services: Services) -> None:
 # a worker that has it. The answers and the mail have a lane of threads each (`LANE_KINDS`);
 # every other kind shares the indexers.
 HANDLERS: dict[str, Handler] = {
-    INDEX_DOCUMENT: Handler(_run_index, _abandon_index),
+    INDEX_DOCUMENT: Handler(_run_index, _abandon_index, after_index),
     ANSWER_QUESTION: Handler(run_answer, abandon_answer),
     RENDER_PAGES: Handler(_run_render, _abandon_render),
     SEND_EMAIL: Handler(run_email, abandon_email),
@@ -530,43 +538,48 @@ class Worker:
                     outcome = "abandoned"
                     handler.abandon(job, self._services)
                     self._finish(job, "failed", f"Given up after {job.max_attempts} lost attempts")
-                    return outcome
-                try:
-                    given_up = handler.run(job, self._services)
-                except LeaseLost:
-                    # The job is the other worker's to finish, or queued for the next one.
-                    outcome = "lost"
-                    log.warning(
-                        "Job %s (%s) was taken over or handed back while this worker was "
-                        "running it; the run stopped at its next commit",
-                        job.id,
-                        job.kind,
-                    )
-                except Exception as error:
-                    if connection_lost(error):
-                        # As for a process that died: the lease runs out, and the next claim
-                        # runs the job again, given up after max_attempts of these.
+                else:
+                    try:
+                        given_up = handler.run(job, self._services)
+                    except LeaseLost:
+                        # The job is the other worker's to finish, or queued for the next one.
                         outcome = "lost"
                         log.warning(
-                            "Job %s (%s) stopped: the database could not be reached (%s); the "
-                            "next claim runs it again once its lease has run out",
+                            "Job %s (%s) was taken over or handed back while this worker was "
+                            "running it; the run stopped at its next commit",
                             job.id,
                             job.kind,
-                            summary(error.orig or error).splitlines()[0],
                         )
-                        return outcome
-                    outcome = "crashed"
-                    log.exception("Job %s (%s) failed", job.id, job.kind)
-                    # The operator reads it in the digest: the kind and where, as in the log.
-                    self._finish(job, "failed", summary(error))
-                else:
-                    outcome = "failed" if given_up else "done"
-                    self._finish(job, "failed" if given_up else "done", given_up)
+                    except Exception as error:
+                        if connection_lost(error):
+                            # As for a process that died: the lease runs out, and the next claim
+                            # runs the job again, given up after max_attempts of these.
+                            outcome = "lost"
+                            log.warning(
+                                "Job %s (%s) stopped: the database could not be reached (%s); the "
+                                "next claim runs it again once its lease has run out",
+                                job.id,
+                                job.kind,
+                                summary(error.orig or error).splitlines()[0],
+                            )
+                            return outcome
+                        outcome = "crashed"
+                        log.exception("Job %s (%s) failed", job.id, job.kind)
+                        # The operator reads it in the digest: the kind and where, as in the log.
+                        self._finish(job, "failed", summary(error))
+                    else:
+                        outcome = "failed" if given_up else "done"
+                        self._finish(job, "failed" if given_up else "done", given_up)
         except Exception:
             # The database went away while the job was being settled. Its lease runs out and
             # another claim runs it again, which every handler must be able to take.
             log.exception("Job %s (%s) could not be settled", job.id, job.kind)
             outcome = "unsettled"
+        if handler.after is not None and outcome in ENDED:
+            try:
+                handler.after(job, self._services)
+            except Exception:
+                log.exception("What follows job %s (%s) failed", job.id, job.kind)
         return outcome
 
     def _finish(self, job: Job, status: str, error: str | None = None) -> None:

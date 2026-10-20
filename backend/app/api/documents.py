@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.accounts import Account
+from app.api.auth import app_url
 from app.api.deps import (
     AccountDep,
     DeletableDocumentDep,
@@ -39,6 +40,7 @@ from app.indexing.pipeline import reset_stages
 from app.jobs import queue_index
 from app.metrics import UPLOAD_BYTES, UPLOAD_REJECTIONS
 from app.models import STAGES, Block, Document, Fact, Project, Section
+from app.notices import record_upload, settle_upload
 from app.parsing import IMAGE_TYPES, MIME_TYPES, SUPPORTED_EXTENSIONS, FileTooLarge
 from app.parsing.images import open_image
 from app.parsing.signatures import wrong_type
@@ -314,6 +316,13 @@ def upload_documents(
         finally:
             spool.unlink(missing_ok=True)
 
+    # The files kept are one upload, made once they are all stored, so that it is never found
+    # settled while the request still stores some; any indexed meanwhile are looked at here.
+    if upload_id := record_upload(
+        session, project.id, account.user.id, [document.id for document in documents]
+    ):
+        session.commit()
+        settle_upload(session, upload_id, app_url(request))
     if documents and worker:
         worker.notify()
     return UploadResult(documents=documents, rejected=rejected)

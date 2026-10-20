@@ -107,6 +107,7 @@ from app.jobs import (
 from app.logs import configure_logging
 from app.models import JOB_KINDS, STAGES, Document, Job, Organization
 from app.models import PLANS as PLAN_NAMES
+from app.notices import prune_quota_notices, settle_uploads
 from app.parsing import MIME_TYPES
 from app.postgres import concerns, database_report, describe_database, span
 from app.ratelimit import prune_rate_limits
@@ -452,7 +453,8 @@ def housekeeping(storage: Storage) -> None:
     The lock is transaction-level, so it ends with the block. The accounts due for purging go
     after it, each in a transaction of its own, since their files are discarded only once their
     rows are gone for good, and so do the organisations whose payment has failed for longer than
-    the grace period, whose owners are mailed (app/billing.py).
+    the grace period, whose owners are mailed (app/billing.py), and the uploads whose members
+    were not told they were indexed (app/notices.py).
     """
     settings = get_settings()
     keep = timedelta(days=settings.page_image_days) if settings.page_image_days else None
@@ -479,9 +481,11 @@ def housekeeping(storage: Storage) -> None:
         credentials = prune_credentials(connection)
         billing_events = prune_billing_events(connection)
         spared = prune_suppressions(connection)
+        prune_quota_notices(connection)
     reapply_erasures(storage)
     accounts = purge_due_accounts(storage)
     lapsed = end_grace_periods()
+    uploads = settle_uploads()
     if accounts:
         log.info("Housekeeping: deleted %s accounts whose deletion was due", accounts)
     if lapsed:
@@ -489,6 +493,11 @@ def housekeeping(storage: Storage) -> None:
             "Housekeeping: moved %s organisations to the Free plan, their payment failed for "
             "longer than the grace period",
             lapsed,
+        )
+    if uploads:
+        log.info(
+            "Housekeeping: found %s uploads indexed that the end of their last work did not",
+            uploads,
         )
     if billing_events:
         log.info("Housekeeping: forgot %s Stripe events acted on long ago", billing_events)

@@ -220,7 +220,7 @@ function NoticesSwitch({ me }: { me: Me }) {
         }}
       />
       <p className="mt-1 pl-6.5 text-xs text-muted">
-        Each notice has a link to stop them. Email about your account, invitations and billing is sent either way.
+        That a long upload is indexed, and to owners and admins that the month's pages or questions run low. Each has a link to stop them; email about your account, invitations and billing is sent either way.
       </p>
       {save.isError && (
         <div className="mt-2">
