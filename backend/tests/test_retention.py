@@ -142,6 +142,27 @@ def test_chats_past_their_plans_retention_go_and_the_rest_stay(
     assert session.scalar(select(func.count()).select_from(ChatMessage)) == messages - 2
 
 
+def test_the_days_agreed_with_an_organisation_keep_its_chats_in_place_of_its_plans(
+    session, services, account, make_account
+):
+    pro = make_account("bo@initech.example")
+    pro.organization.plan, pro.organization.overrides = "pro", {"retention_days": None}
+    account.organization.overrides = {"retention_days": 30}
+    session.commit()
+    projects = {}
+    for name, owner in (("pro", pro), ("enterprise", account)):
+        projects[name] = Project(org_id=owner.organization.id, name=name)
+        session.add(projects[name])
+    session.commit()
+    make_chat(session, projects["pro"], pro.user, "pro, kept for good", 400)
+    make_chat(session, projects["enterprise"], account.user, "enterprise, a month and more", 31)
+    make_chat(session, projects["enterprise"], account.user, "enterprise, asked lately", 29)
+
+    housekeeping(services.storage)
+
+    assert chat_titles(session) == {"pro, kept for good", "enterprise, asked lately"}
+
+
 def test_ended_sessions_and_links_are_removed_after_a_month(client, session, services):
     signup(client)
     user = ada(session)

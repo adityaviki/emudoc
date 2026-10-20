@@ -107,10 +107,10 @@ QUEUE_BY_STATE = text(
 # The due jobs are ordered by priority, then by how much of the workers their organisation has
 # had lately (`share`: its jobs of these kinds running on a live lease or finished within
 # SHARE_WINDOW), divided by the weight its plan gives it (`weights`, by plan name, from
-# app/entitlements.py), so that a paying organisation's jobs count for less and its backlog
-# gets the larger share; then by age. The due test is repeated on `j`, where the lock is
-# taken, so that a row another worker claimed and committed since this statement's snapshot
-# is checked again and skipped, not taken twice.
+# app/entitlements.py) or its agreed terms do (`overrides`), so that a paying organisation's
+# jobs count for less and its backlog gets the larger share; then by age. The due test is
+# repeated on `j`, where the lock is taken, so that a row another worker claimed and
+# committed since this statement's snapshot is checked again and skipped, not taken twice.
 _CLAIM = text(
     """
     WITH share AS (
@@ -134,7 +134,8 @@ _CLAIM = text(
                OR (j.status = 'running' AND j.lease_until < now()))
         ORDER BY j.priority,
                  coalesce(share.served, 0)
-                     / coalesce(CAST(CAST(:weights AS jsonb) ->> o.plan AS numeric), 1),
+                     / coalesce(CAST(o.overrides ->> 'priority' AS numeric),
+                                CAST(CAST(:weights AS jsonb) ->> o.plan AS numeric), 1),
                  j.run_at, j.id
         FOR UPDATE OF j SKIP LOCKED
         LIMIT 1

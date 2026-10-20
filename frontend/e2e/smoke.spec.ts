@@ -112,8 +112,12 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   await test.step('invite a viewer, who makes an account from the link, reads, and is made a member', async () => {
     await page.goto('/organization')
     const slug = await page.locator('code').filter({ hasText: /^ada-lovelace/ }).textContent()
-    movePlan(slug ?? '', 'team')
+    movePlan(slug ?? '', 'team', '--seats', '2')
     await page.reload()
+    // The plan's figures, with the seats bought for its members.
+    const plan = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Plan', exact: true }) })
+    await expect(plan.getByRole('definition').first()).toHaveText('Team')
+    await expect(plan.getByRole('definition').filter({ hasText: 'seats' })).toHaveText('2 seats')
     const colleague = `grace.${Date.now()}@example.com`
     await page.getByLabel('Email', { exact: true }).fill(colleague)
     await page.getByLabel('Role', { exact: true }).selectOption('viewer')

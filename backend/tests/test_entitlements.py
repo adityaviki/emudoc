@@ -2,9 +2,11 @@
 pages and questions it gets; the routes refuse past that with 402 and a sentence that says to
 upgrade, the upload rejects the files that would not fit while the rest go in, the parse stage
 refuses a document the month has no pages left for, a paying plan's backlog gets the larger
-share of the workers, and the operator moves an organisation between plans with the `plan`
-command."""
+share of the workers, a team has the members it bought as seats, an organisation's agreed
+figures take the place of its plan's, and the operator moves an organisation between plans,
+seats and figures with the `plan` command."""
 
+import re
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
@@ -12,13 +14,24 @@ import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
-from app.entitlements import MONTHS, PLANS, check_member, month_of, size_label
+from app.billing import change_plan, plan_problem
+from app.entitlements import (
+    MONTHS,
+    PLANS,
+    check_member,
+    check_project,
+    entitlements_of,
+    month_of,
+    over_limits,
+    size_label,
+)
 from app.indexing.pipeline import process_document, reset_stages
 from app.jobs import INDEX_DOCUMENT, claim, enqueue
 from app.maintenance import main
 from app.models import ChatMessage, Document, Invitation, Job, Organization, Project
 from app.usage import DOCUMENT, UPLOAD, record
 from tests.test_api import create_project, upload
+from tests.test_audit import actions
 from tests.test_auth import me, signup
 from tests.test_chats import new_chat
 from tests.test_pipeline import scanned_pdf
@@ -276,10 +289,14 @@ def test_an_open_invitation_holds_a_members_place(session, member, plan):
     )
 
 
-def test_a_paying_plans_backlog_gets_the_larger_share_of_the_workers(session, make_account):
+# The team plan's weight, or the same weight agreed with an organisation on the free plan.
+@pytest.mark.parametrize("plan, overrides", [("team", {}), ("free", {"priority": 3})])
+def test_a_paying_plans_backlog_gets_the_larger_share_of_the_workers(
+    session, make_account, plan, overrides
+):
     free = make_account("f@free.test").organization
     paying = make_account("p@paying.test").organization
-    paying.plan = "team"
+    paying.plan, paying.overrides = plan, overrides
     projects = {}
     for organization in (free, paying):
         projects[organization.id] = Project(org_id=organization.id, name="Files")
@@ -309,7 +326,7 @@ def test_a_paying_plans_backlog_gets_the_larger_share_of_the_workers(session, ma
     assert claim("w:2", [INDEX_DOCUMENT]).id == free_job
 
     # On the same plan, the older job goes first.
-    paying.plan = "free"
+    paying.plan, paying.overrides = "free", {}
     session.commit()
     free_job, paying_job = queue(free), queue(paying)
     assert claim("w:3", [INDEX_DOCUMENT]).id == free_job
@@ -327,7 +344,7 @@ def test_the_plan_command_shows_what_a_plan_allows(session, account, capsys):
     assert (
         lines[0] == "Local (local) moved from the Enterprise plan to the Free plan, which allows:"
     )
-    assert lines[3].split() == ["storage_bytes", "100,000,000"]
+    assert lines[3].split() == ["storage_bytes", "100", "MB"]
     session.refresh(account.organization)
     assert account.organization.plan == "free"
 
@@ -350,3 +367,209 @@ def test_sizes_and_months_read_well():
         datetime(2026, 12, 1, tzinfo=UTC),
         datetime(2027, 1, 1, tzinfo=UTC),
     )
+
+
+def test_a_team_has_the_members_it_bought_as_seats(session, member, client):
+    org = member.organization
+    change_plan(session, org, "team")
+    session.commit()
+    # Before it buys any, the plan's own.
+    assert entitlements_of(org).members == PLANS["team"].members
+    change_plan(session, org, "team", seats=2)
+    session.commit()
+    shown = me(client).json()["organization"]
+    assert shown["seats"] == 2
+    assert shown["allowance"]["members"] == 2 and shown["allowance"]["agreed"] == []
+    assert check_member(session, org) is None
+
+    session.add(
+        Invitation(
+            org_id=org.id,
+            email="bo@globex.example",
+            token_hash="bo",
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+    )
+    session.commit()
+    assert check_member(session, org) == (
+        "This organisation has 2 seats on the Team plan, and 2 members, open invitations "
+        "counted. Add seats to invite more."
+    )
+
+    # Fewer seats than it has members leaves it over the limit, and takes nobody away.
+    change_plan(session, org, "team", seats=1)
+    session.commit()
+    assert over_limits(session, org) == ["2 members of 1"]
+    assert session.scalar(select(func.count()).select_from(Invitation)) == 1
+    assert check_member(session, org).startswith("This organisation has 1 seat on the Team plan")
+
+
+def test_figures_agreed_with_an_organisation_take_the_place_of_its_plans(session, member, client):
+    org = member.organization
+    change_plan(
+        session, org, "enterprise", overrides={"storage_bytes": None, "projects": 1, "priority": 9}
+    )
+    session.commit()
+    create_project(client, "Contracts")
+    refused = client.post("/api/projects", json={"name": "More"})
+    assert refused.status_code == 402
+    # On the largest plan there is none to upgrade to.
+    assert refused.json()["detail"] == (
+        "The Enterprise plan allows 1 project, and this organisation has 1. Ask for a higher "
+        "limit to create another."
+    )
+    assert me(client).json()["organization"]["allowance"] == {
+        "projects": 1,
+        "documents": None,
+        "storage_bytes": None,
+        "pages_per_month": None,
+        "questions_per_month": None,
+        "members": None,
+        "agreed": ["projects", "storage_bytes"],
+    }
+
+    # On another plan an agreed figure takes the place of that plan's, and the rest are its.
+    change_plan(session, org, "free", overrides={"projects": 2, "documents": None})
+    session.commit()
+    assert check_project(session, org) is None
+    assert entitlements_of(org).documents is None
+    assert entitlements_of(org).storage_bytes == PLANS["free"].storage_bytes
+
+
+def test_another_plan_clears_the_seats_and_figures_agreed_on_the_one_before(session, member):
+    org = member.organization
+    change_plan(session, org, "team", seats=5, overrides={"projects": 80})
+    session.commit()
+    change_plan(session, org, "team", seats=5, overrides={"projects": None})
+    session.commit()
+    change_plan(session, org, "pro")
+    session.commit()
+    session.refresh(org)
+    assert (org.plan, org.seats, org.overrides) == ("pro", None, {})
+    assert actions(session, org.id) == [
+        ("plan_changed", {"from": "free", "to": "team"}),
+        ("seats_changed", {"from": None, "to": 5}),
+        (
+            "entitlements_changed",
+            {"entitlement": "projects", "from": None, "to": 80, "agreed": True},
+        ),
+        # Agreed to be no limit, which is not the plan's own.
+        (
+            "entitlements_changed",
+            {"entitlement": "projects", "from": 80, "to": None, "agreed": True},
+        ),
+        ("plan_changed", {"from": "team", "to": "pro"}),
+        ("seats_changed", {"from": 5, "to": None}),
+        (
+            "entitlements_changed",
+            {"entitlement": "projects", "from": None, "to": None, "agreed": False},
+        ),
+    ]
+    # Putting it on the plan it is on, as it is, records nothing.
+    change_plan(session, org, "pro")
+    session.commit()
+    assert len(actions(session, org.id)) == 7
+
+
+def test_a_plan_seats_or_figure_that_cannot_be_is_refused(session, member):
+    assert plan_problem("gold", None, {}) == (
+        "There is no 'gold' plan; the plans are free, pro, team, enterprise."
+    )
+    assert plan_problem("pro", 3, {}) == "The Pro plan is not sold by the seat; only Team is."
+    assert plan_problem("team", 0, {}) == "Seats are a whole number of one or more, not 0."
+    assert plan_problem("team", None, {"members": 9}) == (
+        "The Team plan's members are its seats; set the seats instead."
+    )
+    assert plan_problem("enterprise", None, {"pages": 9}).startswith(
+        "'pages' is no entitlement; they are projects, documents, storage_bytes,"
+    )
+    for figure, problem in (
+        ({"api_access": "maybe"}, "api_access is yes or no, not 'maybe'."),
+        ({"model_tier": "gold"}, "model_tier is one of standard, premium, not 'gold'."),
+        ({"priority": 0}, "priority is a weight of 1 or more, not 0."),
+        (
+            {"projects": -1},
+            "projects is a whole number of 0 or more, or none for no limit, not -1.",
+        ),
+        (
+            {"projects": True},
+            "projects is a whole number of 0 or more, or none for no limit, not True.",
+        ),
+    ):
+        assert plan_problem("enterprise", None, figure) == problem
+    agreeable = {"projects": None, "members": 0, "api_access": False, "model_tier": "standard"}
+    assert plan_problem("enterprise", None, agreeable) is None
+
+    # Nothing is changed by a refusal.
+    with pytest.raises(RuntimeError, match="not sold by the seat"):
+        change_plan(session, member.organization, "pro", seats=3)
+    assert member.organization.plan == "free" and actions(session) == []
+
+
+def test_the_plan_command_sells_seats_and_agrees_figures(session, account, client, capsys):
+    def plan(*arguments: str) -> list[str]:
+        main(["plan", "local", *arguments])
+        session.expire_all()
+        return capsys.readouterr().out.splitlines()
+
+    lines = plan("team", "--seats", "5")
+    assert lines[0] == (
+        "Local (local) moved from the Enterprise plan to the Team plan with 5 seats, which allows:"
+    )
+    assert lines[6] == "  members             5 (its seats; the plan's 3)"
+
+    lines = plan(
+        "--set", "projects=500",
+        "--set", "storage_bytes=1.5 TB",
+        "--set", "daily_spend_micros=25",
+        "--set", "api_access=no",
+        "--set", "audit_days=none",
+    )  # fmt: skip
+    assert lines[0] == "Local (local) is on the Team plan with 5 seats, which allows:"
+    assert lines[1] == "  projects            500 (agreed; the plan's 50)"
+    assert lines[3] == "  storage_bytes       1,500 GB (agreed; the plan's 100 GB)"
+    assert lines[7] == "  api_access          no (agreed; the plan's yes)"
+    assert lines[10] == "  audit_days          no limit (agreed; the plan's 365)"
+    assert lines[13] == "  daily_spend_micros  USD 25.00 a day (agreed; the plan's USD 50.00 a day)"
+    organization = session.get(Organization, account.organization.id)
+    assert organization.overrides == {
+        "projects": 500,
+        "storage_bytes": 1_500_000_000_000,
+        "daily_spend_micros": 25_000_000,
+        "api_access": False,
+        "audit_days": None,
+    }
+
+    # A figure made the plan's again; the projects past one it now holds are kept.
+    create_project(client, "Contracts")
+    create_project(client, "Invoices")
+    lines = plan("--unset", "storage_bytes", "--set", "projects=1")
+    assert lines[3] == "  storage_bytes       100 GB"
+    assert lines[-1] == (
+        "It holds more than it allows, 2 projects of 1: it keeps it all, and nothing more is "
+        "added until it has room."
+    )
+
+    lines = plan("pro")
+    assert lines[-2:] == [
+        "The 5 seats it bought on the Team plan no longer count.",
+        "The figures agreed with it on the Team plan no longer count: projects, api_access, "
+        "audit_days, daily_spend_micros.",
+    ]
+    organization = session.get(Organization, account.organization.id)
+    assert (organization.seats, organization.overrides) == (None, {})
+
+    for arguments, refusal in (
+        (["--seats", "3"], "The Pro plan is not sold by the seat; only Team is."),
+        (["team", "--seats", "some"], "--seats takes a whole number or none, not 'some'."),
+        (["--set", "projects"], "--set takes NAME=VALUE, such as projects=500, not 'projects'."),
+        (
+            ["--set", "projects=lots"],
+            "projects is a whole number of 0 or more, or none for no limit, not 'lots'.",
+        ),
+        (["--unset", "pages"], "'pages' is no entitlement; they are projects, documents,"),
+    ):
+        with pytest.raises(SystemExit, match=re.escape(refusal)):
+            main(["plan", "local", *arguments])
+    session.expire_all()
+    assert session.get(Organization, account.organization.id).plan == "pro"

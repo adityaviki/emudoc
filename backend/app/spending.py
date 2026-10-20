@@ -45,7 +45,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings, listing
 from app.db import MIGRATION_LOCK, SessionLocal
-from app.entitlements import MONTHS, PLANS, entitlements_of
+from app.entitlements import MONTHS, PLANS, entitlements_of, upgrade
 from app.mail import Mailer
 from app.models import Organization, SpendAlert, UsageEvent
 from app.usage import money
@@ -107,8 +107,8 @@ def check_spend(session: Session, organization: Organization) -> str | None:
         return None
     return (
         f"The {organization.plan.capitalize()} plan allows {money(cap)} of model use a day, and "
-        f"this organisation has used {money(spent)} today (UTC). Upgrade your plan, or try again "
-        "after midnight UTC."
+        f"this organisation has used {money(spent)} today (UTC). "
+        f"{upgrade(organization).capitalize()}, or try again after midnight UTC."
     )
 
 

@@ -130,14 +130,23 @@ Enterprise, each a row of what the organisation may hold (projects, documents, b
 documents, members), may use in a calendar month in UTC (pages indexed, questions asked) and
 may spend on models in a UTC day, plus what the later features will read from it (API access, connectors, how long data is
 kept, the model tier) and how much of the workers its jobs get. A new organisation starts on
-Free; the local development account has no limits. The plan is checked where the thing
+Free; the local development account has no limits. The Team plan is sold by the seat: the
+seats an organisation bought are its members, in place of the plan's three. Any figure may
+also be agreed with an organisation in place of its plan's, which is how an Enterprise
+organisation gets its terms (`backend/app/billing.py` changes the three together, and moving
+to another plan clears the seats and figures of the one before). Lowering any of them removes
+nothing: an organisation over its limits keeps what it holds, and is refused what would add to
+it. The organisation page shows every member what the organisation may keep and use. The plan
+is checked where the thing
 happens: creating a project, uploading (the request is refused when the plan has no room at
 all, a file that would not fit is rejected while the others go in), asking a question, and
 in the parse stage once it knows how many pages a document has, which fails the document
 with the reason rather than read a page past the month's allowance. A refusal is a 402 with
 a sentence that names the plan and the limit, which the app shows as the way to upgrade;
 there is no self-serve upgrade yet, so `uv run python -m app.maintenance plan <slug> [plan]`
-(in `backend/`) shows an organisation's plan and what it allows, or moves it to another. A
+(in `backend/`) shows an organisation's plan and what it allows, or moves it to another, with
+`--seats N`, `--set NAME=VALUE` (`projects=500`, `storage_bytes=1 TB`, `retention_days=none`)
+and `--unset NAME` for its seats and agreed figures. A
 paying plan's jobs also count for less in the claim's share of the workers, so its backlog
 is indexed sooner next to a free organisation's.
 
@@ -891,8 +900,8 @@ CHANGELOG.md    what each day's commits changed for members and operators
 
 - Deleting an organisation: one goes only with the account of its only member, who cannot
   leave it either.
-- Billing: plans exist and are enforced, but nothing sells them. The `plan` command moves an
-  organisation between them; the API keys, the connectors and the model tier the plans
+- Billing: plans, Team's seats and agreed figures exist and are enforced, but nothing sells
+  them. The `plan` command moves an organisation between them; the API keys, the connectors and the model tier the plans
   declare are not read by anything yet.
 - A trash: deleting a project, folder, document or chat is immediate and permanent.
 - More file types (slides, email, legacy .doc and .xls), and reading order for multi-column PDFs.

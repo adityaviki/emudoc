@@ -46,7 +46,8 @@ from app.models import AUDIT_ACTIONS, AuditEvent, User, UserSession
 # What a row was done to: ("document", 7).
 type Target = tuple[str, int]
 
-# Each plan with a limit joins as a row of `kept`, so one statement prunes every organisation.
+# Each plan joins as a row of `kept`, so one statement prunes every organisation, by the days
+# agreed with it when `overrides` names them, else by its plan's; a null is for good.
 _PRUNE = text(
     """
     DELETE FROM audit_events
@@ -54,7 +55,9 @@ _PRUNE = text(
           unnest(CAST(:plans AS text[]), CAST(:days AS integer[])) AS kept (plan, days)
     WHERE organizations.id = audit_events.org_id
       AND organizations.plan = kept.plan
-      AND audit_events.occurred_at < now() - make_interval(days => kept.days)
+      AND audit_events.occurred_at < now() - make_interval(days => CASE
+          WHEN organizations.overrides -> 'audit_days' IS NULL THEN kept.days
+          ELSE CAST(organizations.overrides ->> 'audit_days' AS integer) END)
     """
 )
 
@@ -136,8 +139,7 @@ def forget_addresses(session: Session, user_id: int) -> None:
 
 
 def prune_audit(connection: Connection) -> int:
-    """Delete the rows older than their organisation's plan keeps them; returns how many."""
-    kept = {plan: limit.audit_days for plan, limit in PLANS.items() if limit.audit_days is not None}
-    if not kept:
-        return 0
+    """Delete the rows older than their organisation keeps them, by its plan or its agreed
+    terms; returns how many."""
+    kept = {plan: limit.audit_days for plan, limit in PLANS.items()}
     return connection.execute(_PRUNE, {"plans": list(kept), "days": list(kept.values())}).rowcount

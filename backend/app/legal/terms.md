@@ -12,9 +12,10 @@ which is part of these terms.
 
 Emudoc keeps the documents you upload in projects and answers questions about them with an AI
 model, which reads the documents and cites the passages its answers rest on. Every account
-belongs to an organisation, and the organisation's plan sets how much it may keep and use:
-projects, documents, pages read, questions asked, members, and how long chats are kept. The
-service tells you when a limit is reached.
+belongs to an organisation, and the organisation's plan, with the seats it bought or the terms
+agreed with it in the plan's place, sets how much it may keep and use: projects, documents,
+pages read, questions asked, members, and how long chats are kept. The service tells you when
+a limit is reached.
 
 ## 2. Your account
 

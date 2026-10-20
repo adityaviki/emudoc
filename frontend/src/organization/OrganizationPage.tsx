@@ -1,4 +1,4 @@
-// The organisation the user works in: its name, plan and region, its members, their roles and
+// The organisation the user works in: its name and region, what its plan lets it keep and use, its members, their roles and
 // removing them, handing it over to another of them, the invitations its owners and admins send
 // and the domains whose addresses may join it, and leaving it; the user's other organisations to switch to and those
 // open to them; and the page that starts a new one. A switch, a join, a new organisation and
@@ -11,12 +11,12 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { PLAN_LABELS, REGION_NAMES, ROLES, ROLE_LABELS, isPlanLimit, isWithin, organizations } from '../api.ts'
-import type { Invitation, JoinRole, Me, Member, Role } from '../api.ts'
+import type { Allowance, Invitation, JoinRole, Me, Member, Role } from '../api.ts'
 import { setSignedIn, startAgainInOrganization, useMe } from '../auth.ts'
 import { PasswordField } from '../account/shared.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, Chip, FIELD, InputField, Loading, Notice, Row, Section, SelectField } from '../components/ui.tsx'
-import { formatDate } from '../format.ts'
+import { formatDate, formatSize } from '../format.ts'
 
 const MEMBERS_KEY = ['organization', 'members'] as const
 const INVITATIONS_KEY = ['organization', 'invitations'] as const
@@ -31,10 +31,11 @@ export function OrganizationPage() {
       <div className="mx-auto max-w-2xl px-6 py-10">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold tracking-tight">{me.organization.name}</h1>
-          <p className="mt-1 text-[13px] text-muted">The organisation you work in: its name, its members, who may join it, and leaving it.</p>
+          <p className="mt-1 text-[13px] text-muted">The organisation you work in: its name, its plan, its members, who may join it, and leaving it.</p>
         </div>
         <div className="space-y-5">
           <NameSection me={me} />
+          <PlanSection me={me} />
           <MembersSection me={me} />
           {isWithin('admin', me.role) && (
             <>
@@ -85,9 +86,6 @@ function NameSection({ me }: { me: Me }) {
         <Row label="Your role">
           <Chip>{ROLE_LABELS[me.role]}</Chip>
         </Row>
-        <Row label="Plan">
-          <span>{PLAN_LABELS[me.organization.plan]}</span>
-        </Row>
         {me.organization.region && (
           <Row label="Data kept in">
             <span>{capitalised(REGION_NAMES[me.organization.region])}</span>
@@ -95,6 +93,61 @@ function NameSection({ me }: { me: Me }) {
         )}
         <Row label="Identifier">
           <code className="font-mono text-xs">{me.organization.slug}</code>
+        </Row>
+      </dl>
+    </Section>
+  )
+}
+
+// What the organisation may keep and use, as the server holds it to them
+// (backend/app/entitlements.py): its plan's figures, the seats it bought on a plan sold by the
+// seat, and any figure agreed with it in the plan's place.
+function PlanSection({ me }: { me: Me }) {
+  const { plan, seats, allowance, chat_retention_days: keptFor } = me.organization
+  const figure = (value: number | null, words: (value: number) => string = (n) => n.toLocaleString()) =>
+    value === null ? 'No limit' : words(value)
+  const monthly = (n: number) => `${n.toLocaleString()} a month`
+  const agreed = (name: keyof Allowance | 'retention_days') =>
+    allowance.agreed.includes(name) && (
+      <span title="Agreed with the organisation in place of the plan's">
+        <Chip>Agreed</Chip>
+      </span>
+    )
+
+  return (
+    <Section
+      title="Plan"
+      description="What the organisation may keep and use, counted across its projects and members. Pages and questions start afresh on the first of each month, in UTC. Contact the Emudoc team to change the plan."
+    >
+      <dl className="divide-y divide-line border-t border-line">
+        <Row label="Plan">{PLAN_LABELS[plan]}</Row>
+        <Row label="Projects">
+          {figure(allowance.projects)}
+          {agreed('projects')}
+        </Row>
+        <Row label="Documents">
+          {figure(allowance.documents)}
+          {agreed('documents')}
+        </Row>
+        <Row label="Storage">
+          {figure(allowance.storage_bytes, formatSize)}
+          {agreed('storage_bytes')}
+        </Row>
+        <Row label="Pages indexed">
+          {figure(allowance.pages_per_month, monthly)}
+          {agreed('pages_per_month')}
+        </Row>
+        <Row label="Questions">
+          {figure(allowance.questions_per_month, monthly)}
+          {agreed('questions_per_month')}
+        </Row>
+        <Row label="Members">
+          {figure(allowance.members, (n) => (seats === null ? n.toLocaleString() : n === 1 ? '1 seat' : `${n.toLocaleString()} seats`))}
+          {agreed('members')}
+        </Row>
+        <Row label="Chats kept">
+          {keptFor === null ? 'Until deleted' : `${keptFor.toLocaleString()} days after the last question`}
+          {agreed('retention_days')}
         </Row>
       </dl>
     </Section>

@@ -58,22 +58,31 @@ import re
 import shutil
 import sys
 from collections import Counter
-from collections.abc import Iterable
-from dataclasses import dataclass, field, fields
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from sqlalchemy import Connection, func, select, text
 from sqlalchemy.orm import Session
 
 from app.answers import EVENT_HISTORY, prune_events
-from app.audit import audit_event, prune_audit
+from app.audit import prune_audit
 from app.auth import CREDENTIAL_HISTORY, prune_credentials
+from app.billing import SWITCHES, change_plan
 from app.config import export_env_file, get_settings
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine, unbounded
 from app.deadletters import NamedJob, describe, failed_jobs, named_jobs, requeue
 from app.encrypted import describe_encrypted, encrypt_secrets, keys
-from app.entitlements import PLANS, Entitlements, entitlements_of
+from app.entitlements import (
+    FIELDS,
+    PLANS,
+    agreed_with,
+    entitlements_of,
+    over_limits,
+    size_label,
+)
 from app.jobs import (
     ANSWER_QUESTION,
     BULK,
@@ -134,6 +143,9 @@ DOCUMENT_JOBS = 5
 # What a key belongs to: the document's prefix when it has one, else the project's. The match
 # is the owner's prefix, as `document_prefix` and `project_prefix` in app/storage.py build it.
 _OWNER = re.compile(r"orgs/\d+/projects/\d+/(?:documents/\d+/)?")
+# A size as `plan --set storage_bytes=` takes it: 500 GB, 1.5TB, 100000000.
+_SIZE = re.compile(r"([\d.,]+)\s*(bytes|kb|mb|gb|tb)?", re.IGNORECASE)
+_UNITS = {"bytes": 1, "kb": 1_000, "mb": 1_000_000, "gb": 1_000_000_000, "tb": 10**12}
 
 # pgvector keeps a column's size as the type's modifier, so the catalog has it without a scan.
 _STORED_DIM = text(
@@ -609,34 +621,69 @@ def costs_report(session: Session, days: int) -> list[str]:
     return lines
 
 
-def plan_report(session: Session, slug: str, plan: str | None) -> list[str]:
-    """The lines the `plan` command prints for the organisation `slug`: its plan and what the
-    plan allows (app/entitlements.py), after putting it on `plan` when one is given. The
-    caller commits."""
+def plan_report(
+    session: Session,
+    slug: str,
+    plan: str | None = None,
+    *,
+    seats: str | None = None,
+    figures: Sequence[str] = (),
+    unset: Sequence[str] = (),
+) -> list[str]:
+    """The lines the `plan` command prints for the organisation `slug`: its plan, its seats and
+    what it allows (app/entitlements.py), each figure agreed with it marked, after changing what
+    the arguments ask through `change_plan` (app/billing.py): `plan` another plan, which clears
+    the seats and figures of the one before; `seats` a number or "none"; `figures` agreed ones
+    as NAME=VALUE; `unset` the names of agreed ones that are the plan's again. The caller
+    commits."""
     organization = _organization(session, slug)
-    if plan is not None and plan not in PLAN_NAMES:
-        raise RuntimeError(f"There is no {plan!r} plan; the plans are {', '.join(PLAN_NAMES)}.")
     was = organization.plan
-    if plan is not None:
-        organization.plan = plan
-    changed = plan is not None and plan != was
-    if changed:
-        audit_event(
-            session, "plan_changed", org_id=organization.id, detail={"from": was, "to": plan}
-        )
-    verb = f"moved from the {was.capitalize()} plan to" if changed else "is on"
+    moving = plan is not None and plan != was
+    bought = None if moving else organization.seats
+    agreed = {} if moving else dict(organization.overrides or {})
+    if seats is not None:
+        bought = None if seats.strip().lower() == "none" else _whole(seats, "--seats")
+    for name in unset:
+        if name not in FIELDS:
+            raise RuntimeError(f"{name!r} is no entitlement; they are {', '.join(FIELDS)}.")
+        agreed.pop(name, None)
+    for figure in figures:
+        name, equals, value = figure.partition("=")
+        if not equals:
+            raise RuntimeError(f"--set takes NAME=VALUE, such as projects=500, not {figure!r}.")
+        agreed[name.strip()] = _figure_of(name.strip(), value)
+    dropped = (organization.seats, agreed_with(organization)) if moving else (None, {})
+    change_plan(session, organization, plan or was, seats=bought, overrides=agreed)
+
+    verb = f"moved from the {was.capitalize()} plan to" if moving else "is on"
+    with_seats = f" with {_count(bought, 'seat')}" if bought is not None else ""
     lines = [
-        f"{organization.name} ({slug}) {verb} the {organization.plan.capitalize()} plan, "
-        "which allows:"
+        f"{organization.name} ({slug}) {verb} the {organization.plan.capitalize()} plan"
+        f"{with_seats}, which allows:"
     ]
-    entitlements = PLANS[organization.plan]
-    for field_ in fields(Entitlements):
-        value = getattr(entitlements, field_.name)
-        # The day's spending limit is an amount of money, shown as one.
-        if field_.name == "daily_spend_micros" and value is not None:
-            lines.append(f"  {field_.name:<20}{money(value)} a day")
-        else:
-            lines.append(f"  {field_.name:<20}{_limit(value)}")
+    entitlements, own = entitlements_of(organization), PLANS[organization.plan]
+    for name in FIELDS:
+        line = f"  {name:<20}{_entitlement(name, getattr(entitlements, name))}"
+        if name in agreed:
+            line += f" (agreed; the plan's {_entitlement(name, getattr(own, name))})"
+        elif name == "members" and bought is not None:
+            line += f" (its seats; the plan's {_entitlement(name, own.members)})"
+        lines.append(line)
+    if dropped[0] is not None:
+        lines.append(
+            f"The {_count(dropped[0], 'seat')} it bought on the {was.capitalize()} plan "
+            "no longer count."
+        )
+    if dropped[1]:
+        lines.append(
+            f"The figures agreed with it on the {was.capitalize()} plan no longer "
+            f"count: {', '.join(dropped[1])}."
+        )
+    if beyond := over_limits(session, organization):
+        lines.append(
+            f"It holds more than it allows, {', '.join(beyond)}: it keeps it all, and nothing "
+            "more is added until it has room."
+        )
     return lines
 
 
@@ -792,12 +839,49 @@ def _at(moment: datetime) -> str:
     return f"{moment.astimezone(UTC):%Y-%m-%d %H:%M} UTC"
 
 
-def _limit(value: int | str | bool | None) -> str:
+def _entitlement(name: str, value: int | str | bool | None) -> str:
+    """A figure as the `plan` command prints it, which is also how `--set` takes it."""
     if value is None:
         return "no limit"
     if isinstance(value, bool):
         return "yes" if value else "no"
+    # The day's spending limit is an amount of money, and the storage a size.
+    if name == "daily_spend_micros":
+        return f"{money(value)} a day"
+    if name == "storage_bytes":
+        return size_label(value)
     return f"{value:,}" if isinstance(value, int) else value
+
+
+def _figure_of(name: str, given: str) -> object:
+    """A figure as the operator gives it after `--set NAME=`, read as the report prints it:
+    "none" for no limit, yes or no, a count (1,000), a size (500 GB) or an amount of
+    PRICE_CURRENCY a day (25.00). What it cannot read is returned as it was, for
+    `change_plan` to refuse with what the figure should be."""
+    value = given.strip()
+    if value.lower() in ("none", "no limit"):
+        return None
+    if name in SWITCHES:
+        return {"yes": True, "no": False}.get(value.lower(), value)
+    if name == "model_tier":
+        return value
+    try:
+        if name == "storage_bytes" and (size := _SIZE.fullmatch(value)):
+            number, unit = size.groups()
+            return int(Decimal(number.replace(",", "")) * _UNITS[(unit or "bytes").lower()])
+        if name == "daily_spend_micros":
+            amount = value.removeprefix(get_settings().price_currency).strip()
+            return int(Decimal(amount.replace(",", "")) * 1_000_000)
+        return int(value.replace(",", "").replace("_", ""))
+    except (InvalidOperation, ValueError):
+        return value
+
+
+def _whole(given: str, option: str) -> int:
+    try:
+        return int(given.replace(",", ""))
+    except ValueError:
+        raise RuntimeError(f"{option} takes a whole number or none, not {given!r}.") from None
 
 
 def _organization(session: Session, slug: str) -> Organization:
@@ -1026,14 +1110,38 @@ def main(argv: list[str] | None = None) -> None:
     )
     plan = commands.add_parser(
         "plan",
-        help="show, or with a plan name set, which plan an organisation is on",
-        description="Show which plan an organisation is on and what the plan allows "
-        f"({', '.join(PLAN_NAMES)}), or put it on the plan named. A new organisation starts "
-        "on the first; the limits take effect at its next upload, question or project.",
+        help="show, or change, an organisation's plan, seats and agreed figures",
+        description="Show which plan an organisation is on and what it allows "
+        f"({', '.join(PLAN_NAMES)}), or put it on the plan named, which clears the seats and "
+        "the figures agreed on the one before. A new organisation starts on the first; the "
+        "limits take effect at its next upload, question or project, and lowering them "
+        "removes nothing.",
     )
     plan.add_argument("organization", help="the organisation's slug")
     plan.add_argument(
         "plan", nargs="?", choices=PLAN_NAMES, help="the plan to put the organisation on"
+    )
+    plan.add_argument(
+        "--seats",
+        metavar="N",
+        help="the members it bought, on a plan sold by the seat (team); none for the plan's own",
+    )
+    plan.add_argument(
+        "--set",
+        dest="figures",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="agree a figure in place of the plan's, as the report prints it: projects=500, "
+        "storage_bytes=1 TB, daily_spend_micros=25.00 (an amount of PRICE_CURRENCY), "
+        "api_access=yes, retention_days=none for no limit; again for each",
+    )
+    plan.add_argument(
+        "--unset",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="make an agreed figure the plan's again; again for each",
     )
     jobs = commands.add_parser(
         "jobs",
@@ -1254,7 +1362,14 @@ def main(argv: list[str] | None = None) -> None:
         elif args.command == "plan":
             check_schema()
             with SessionLocal() as session:
-                lines = plan_report(session, args.organization, args.plan)
+                lines = plan_report(
+                    session,
+                    args.organization,
+                    args.plan,
+                    seats=args.seats,
+                    figures=args.figures,
+                    unset=args.unset,
+                )
                 session.commit()
                 for line in lines:
                     print(line)

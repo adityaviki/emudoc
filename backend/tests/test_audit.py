@@ -434,3 +434,23 @@ def test_rows_go_after_their_plans_days(session, services, make_account):
     }
     # The free plan keeps a row for 90 days; enterprise keeps it until a policy says otherwise.
     assert kept == {("free", 10), ("enterprise", 100), ("enterprise", 10)}
+
+    # Days agreed with an organisation take the place of its plan's: fewer, or none for good.
+    enterprise.organization.overrides = {"audit_days": 50}
+    free.organization.overrides = {"audit_days": None}
+    audit_event(
+        session, "document_downloaded", org_id=free.organization.id, detail={"days_ago": 200}
+    )
+    session.commit()
+    session.execute(
+        update(AuditEvent)
+        .where(AuditEvent.detail["days_ago"].as_integer() == 200)
+        .values(occurred_at=datetime.now(UTC) - timedelta(days=200))
+    )
+    session.commit()
+    housekeeping(services.storage)
+    kept = {
+        (session.get(Organization, row.org_id).plan, row.detail["days_ago"])
+        for row in rows(session)
+    }
+    assert kept == {("free", 200), ("free", 10), ("enterprise", 10)}

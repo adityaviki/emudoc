@@ -85,7 +85,9 @@ _BACK = text(
     """
 )
 
-# Each plan with a limit joins as a row of `kept`, so one statement prunes every organisation.
+# Each plan joins as a row of `kept`, so one statement prunes every organisation: by the days
+# agreed with it when `overrides` names them (a null there keeps a chat for good), else by its
+# plan's (a null plan keeps it for good: the interval and the comparison are null).
 _PRUNE_CHATS = text(
     """
     DELETE FROM chats
@@ -94,7 +96,9 @@ _PRUNE_CHATS = text(
     WHERE projects.id = chats.project_id
       AND organizations.id = projects.org_id
       AND organizations.plan = kept.plan
-      AND chats.updated_at < now() - make_interval(days => kept.days)
+      AND chats.updated_at < now() - make_interval(days => CASE
+          WHEN organizations.overrides -> 'retention_days' IS NULL THEN kept.days
+          ELSE CAST(organizations.overrides ->> 'retention_days' AS integer) END)
       AND NOT EXISTS (
           SELECT 1 FROM chat_messages
           WHERE chat_messages.chat_id = chats.id AND chat_messages.status = 'streaming'
@@ -111,15 +115,9 @@ def day(moment: datetime, zone: tzinfo = UTC) -> str:
 
 
 def prune_chats(connection: Connection) -> int:
-    """Delete the chats whose last question is older than their organisation's plan keeps
-    them; returns how many."""
-    kept = {
-        plan: limit.retention_days
-        for plan, limit in PLANS.items()
-        if limit.retention_days is not None
-    }
-    if not kept:
-        return 0
+    """Delete the chats whose last question is older than their organisation keeps them,
+    by its plan or its agreed terms; returns how many."""
+    kept = {plan: limit.retention_days for plan, limit in PLANS.items()}
     return connection.execute(
         _PRUNE_CHATS, {"plans": list(kept), "days": list(kept.values())}
     ).rowcount

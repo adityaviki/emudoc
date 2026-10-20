@@ -2913,7 +2913,8 @@ budget alert:
    usage <slug>` breaks one down by kind of work.
 2. The plan holds an organisation at its daily limit (questions refused, indexing held until
    midnight UTC); `maintenance plan <slug>` says what it allows and moves it to another plan,
-   from its next request on.
+   from its next request on, or agrees a day's limit of its own (`--set
+   daily_spend_micros=25.00`, an amount of `PRICE_CURRENCY`).
 3. `DAILY_SPEND_CAP` holds every organisation together, and `DISABLED_PROVIDERS` stops a
    provider's bill at once, for everyone.
 4. A model without a price counts toward neither: the end of `costs` lists the tokens recorded

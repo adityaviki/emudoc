@@ -325,6 +325,10 @@ export interface Organization {
   slug: string
   /** Which plan's limits the organisation is held to; a refusal by them is a 402. */
   plan: Plan
+  /** The members it bought, on a plan sold by the seat (Team); null otherwise. */
+  seats: number | null
+  /** What it may keep and use: its plan's, its seats and what was agreed with it in their place (backend/app/entitlements.py). */
+  allowance: Allowance
   /** The region its data is kept in, null when the deployment promised none as it was created. */
   region: Region | null
   /** How many days a chat is kept after its last question, null for good. */
@@ -332,6 +336,18 @@ export interface Organization {
   /** The domains whose confirmed addresses may join it, and the role they join with (backend/app/invitations.py). */
   join_domains: string[]
   join_role: JoinRole
+}
+
+/** What an organisation may keep and use, null for no limit. */
+export interface Allowance {
+  projects: number | null
+  documents: number | null
+  storage_bytes: number | null
+  pages_per_month: number | null
+  questions_per_month: number | null
+  members: number | null
+  /** Which of them, and of the chats' retention (`retention_days`), were agreed with the organisation in place of its plan's. */
+  agreed: string[]
 }
 
 /** The roles an organisation may let everyone at its domains join with. */
@@ -487,6 +503,8 @@ export type AuditAction =
   | 'account_purged'
   | 'role_changed'
   | 'plan_changed'
+  | 'seats_changed'
+  | 'entitlements_changed'
   | 'organization_created'
   | 'organization_renamed'
   | 'ownership_transferred'

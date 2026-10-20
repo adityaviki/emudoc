@@ -434,6 +434,21 @@ class EmailChangeIn(BaseModel):
     current_email: str | None = Field(None, max_length=320)
 
 
+class AllowanceOut(BaseModel):
+    """What the organisation may keep and use (`entitlements_of` in app/entitlements.py), for
+    the organisation page: None is no limit."""
+
+    projects: int | None
+    documents: int | None
+    storage_bytes: int | None
+    pages_per_month: int | None
+    questions_per_month: int | None
+    members: int | None
+    # Which of them, and of `chat_retention_days` (`retention_days`), were agreed with the
+    # organisation in place of its plan's.
+    agreed: list[str]
+
+
 class OrganizationOut(_FromORM):
     id: int
     name: str
@@ -441,6 +456,9 @@ class OrganizationOut(_FromORM):
     # Which plan's limits the organisation is held to (app/entitlements.py), for the prompt
     # the app shows when one is reached.
     plan: str
+    # The members it bought, on a plan sold by the seat; None otherwise.
+    seats: int | None = None
+    allowance: AllowanceOut | None = None
     # The region its data is kept in, as DATA_REGION names it (eu, us), None when the
     # deployment promised none as it was created (app/residency.py).
     region: str | None

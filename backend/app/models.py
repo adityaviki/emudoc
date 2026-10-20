@@ -96,6 +96,8 @@ AUDIT_ACTIONS = (
     "account_purged",
     "role_changed",
     "plan_changed",
+    "seats_changed",
+    "entitlements_changed",
     "organization_created",
     "organization_renamed",
     "ownership_transferred",
@@ -253,6 +255,8 @@ class Organization(Base):
         _one_of("plan", PLANS, "organizations"),
         _one_of("region", tuple(REGIONS), "organizations"),
         _one_of("join_role", JOIN_ROLES, "organizations"),
+        CheckConstraint("seats > 0", name="ck_organizations_seats"),
+        CheckConstraint("jsonb_typeof(overrides) = 'object'", name="ck_organizations_overrides"),
         # Which organisations a confirmed address's domain may join is asked at every `/me`.
         Index("ix_organizations_join_domains", "join_domains", postgresql_using="gin"),
     )
@@ -264,6 +268,13 @@ class Organization(Base):
     # Which plan's entitlements the organisation is held to (app/entitlements.py). Set by the
     # operator's `plan` command until billing sets it; the local account has no limits.
     plan: Mapped[str] = mapped_column(String(20), default="free", server_default="free")
+    # The members it bought on a plan sold by the seat (`BY_THE_SEAT`, app/entitlements.py),
+    # in place of the plan's own number; null on any other plan, or before any were bought.
+    seats: Mapped[int | None] = mapped_column(Integer)
+    # The entitlements agreed with the organisation in place of its plan's, by the name of an
+    # `Entitlements` field, a null value being no limit: an Enterprise organisation's terms.
+    # Set with the plan (app/billing.py), and cleared when the plan changes.
+    overrides: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     # The region its data is kept in (DATA_REGION, app/residency.py), recorded as it is created
     # so that a deployment in another region refuses to serve it; null while the deployment
     # names none. One deployment is one region; several are 4.3's.

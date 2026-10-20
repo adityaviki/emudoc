@@ -72,7 +72,7 @@ from app.api.deps import (
 )
 from app.audit import audit, audit_sign_in
 from app.config import get_settings
-from app.entitlements import entitlements_of
+from app.entitlements import agreed_with, entitlements_of, seats_of
 from app.export import account_export
 from app.invitations import find_invitation, is_open, joinable
 from app.legal import TERMS_VERSION, terms_due
@@ -120,6 +120,7 @@ from app.retention import DELETION_GRACE, LOCAL_ACCOUNT, day, deletion_refusal
 from app.schemas import (
     AccountDeletionIn,
     AccountExport,
+    AllowanceOut,
     AuthOptions,
     CodeIn,
     EmailChangeIn,
@@ -1122,9 +1123,7 @@ def me_out(session: Session, account: Account) -> MeOut:
         email_verified=user.email_verified_at is not None,
         mfa_enabled=user.mfa_enabled,
         identities=sorted(identity.provider for identity in user.identities),
-        organization=OrganizationOut.model_validate(account.organization).model_copy(
-            update={"chat_retention_days": entitlements_of(account.organization).retention_days}
-        ),
+        organization=organization_out(account.organization),
         role=account.role,
         organizations=[
             MembershipOut(id=organization.id, name=organization.name, role=role)
@@ -1139,6 +1138,30 @@ def me_out(session: Session, account: Account) -> MeOut:
         terms_version=user.terms_version,
         terms_accepted_at=user.terms_accepted_at,
         terms_due=terms_due(account),
+    )
+
+
+# The entitlements the organisation page shows, which are what a member may ask about.
+SHOWN = (*AllowanceOut.model_fields.keys() - {"agreed"}, "retention_days")
+
+
+def organization_out(organization: Organization) -> OrganizationOut:
+    """The organisation as the page shows it, with what it may keep and use."""
+    entitlements = entitlements_of(organization)
+    return OrganizationOut.model_validate(organization).model_copy(
+        update={
+            "seats": seats_of(organization),
+            "chat_retention_days": entitlements.retention_days,
+            "allowance": AllowanceOut(
+                projects=entitlements.projects,
+                documents=entitlements.documents,
+                storage_bytes=entitlements.storage_bytes,
+                pages_per_month=entitlements.pages_per_month,
+                questions_per_month=entitlements.questions_per_month,
+                members=entitlements.members,
+                agreed=[name for name in agreed_with(organization) if name in SHOWN],
+            ),
+        }
     )
 
 

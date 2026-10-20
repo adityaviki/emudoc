@@ -4,7 +4,11 @@ An organisation is on one plan (`Organization.plan`, app/models.py), and a plan 
 PLANS: how many projects, documents and bytes of documents the organisation may hold, how many
 pages it may index and questions it may ask in a calendar month, how many members it may have,
 whether it may use the API and the connectors, how long its data is kept, which tier of model
-serves it, and how much of the workers its jobs get. A limit of None is no limit. The
+serves it, and how much of the workers its jobs get. A limit of None is no limit. A plan sold
+by the seat (Team) takes its members from the seats the organisation bought
+(`organizations.seats`), and any figure may be agreed with an organisation in place of its
+plan's (`organizations.overrides`: an Enterprise organisation's terms); `entitlements_of` is
+the one place that puts the three together, and app/billing.py the one that changes them. The
 platform's own ceilings (MAX_UPLOAD_MB, MAX_ANSWERS and the PARSE_* limits in app/config.py)
 are the same for every plan and stay settings; everything here differs by plan, so it is read
 per request through the account (app/api/deps.py), never from the settings.
@@ -12,9 +16,9 @@ per request through the account (app/api/deps.py), never from the settings.
 The checks run where the thing is about to happen: `check_project` in the route that creates
 one, `check_upload` in the upload route before anything is stored and again per file,
 `check_pages` in the parse stage once it knows how many pages a document has, `check_question`
-in the ask route, and `check_member` by whatever invites (nothing does yet). Each returns the
-sentence the user sees, naming the plan, the limit and what to do, or None when the plan
-allows it; a route refuses with 402, the stage fails the document with it. The counts come
+in the ask route, and `check_member` by the invitations and the joining by domain. Each
+returns the sentence the user sees, naming the plan, the limit and what to do, or None when the
+plan allows it; a route refuses with 402, the stage fails the document with it. The counts come
 from the rows (projects, documents and their bytes, memberships), so a deleted document frees
 what it took, or from the month so far in UTC (the pages indexed, by the `upload` usage
 events; the questions, by the answers asked), which starts afresh on the first.
@@ -30,7 +34,7 @@ how long a chat is kept after its last question, which the housekeeper holds it 
 (the organisation settings, the API keys, the connectors) and enforced by nothing yet.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, replace
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select
@@ -67,6 +71,11 @@ MONTHS = (
     "November",
     "December",
 )
+
+
+# The plans whose members are the seats an organisation bought (`organizations.seats`).
+BY_THE_SEAT = frozenset({"team"})
+MODEL_TIERS = ("standard", "premium")
 
 
 @dataclass(frozen=True)
@@ -134,7 +143,9 @@ PLANS: dict[str, Entitlements] = {
         storage_bytes=100 * GB,
         pages_per_month=25_000,
         questions_per_month=5_000,
-        members=25,
+        # Sold by the seat: the organisation's seats replace this, what a team has before it
+        # buys any.
+        members=3,
         api_access=True,
         connectors=True,
         retention_days=None,
@@ -143,7 +154,8 @@ PLANS: dict[str, Entitlements] = {
         priority=3,
         daily_spend_micros=50_000_000,
     ),
-    # Custom terms: nothing here limits it, only the platform's ceilings do.
+    # Terms agreed per organisation (`organizations.overrides`); without any, nothing here limits
+    # it, only the platform's ceilings do.
     "enterprise": Entitlements(
         projects=None,
         documents=None,
@@ -163,8 +175,32 @@ PLANS: dict[str, Entitlements] = {
 assert set(PLANS) == set(PLAN_NAMES), "every plan the database accepts has its entitlements"
 
 
+FIELDS = tuple(field_.name for field_ in fields(Entitlements))
+
+
 def entitlements_of(organization: Organization) -> Entitlements:
-    return PLANS[organization.plan]
+    """What the organisation may keep and use: its plan's entitlements, with the seats it
+    bought for the plan's members and the figures agreed with it for the plan's."""
+    entitlements = PLANS[organization.plan]
+    if (seats := seats_of(organization)) is not None:
+        entitlements = replace(entitlements, members=seats)
+    if agreed := agreed_with(organization):
+        entitlements = replace(entitlements, **agreed)
+    return entitlements
+
+
+def seats_of(organization: Organization) -> int | None:
+    """The members the organisation bought, on a plan sold by the seat; None on another plan,
+    or before it bought any."""
+    return organization.seats if organization.plan in BY_THE_SEAT else None
+
+
+def agreed_with(organization: Organization) -> dict[str, object]:
+    """The figures agreed with the organisation in place of its plan's, in the order of the
+    fields (the database keeps none). A name no longer a field of `Entitlements` is passed
+    over, so that a renamed field cannot stop the organisation's every request."""
+    overrides = organization.overrides or {}
+    return {name: overrides[name] for name in FIELDS if name in overrides}
 
 
 def share_weights() -> dict[str, int]:
@@ -185,14 +221,12 @@ def check_project(session: Session, organization: Organization) -> str | None:
     cap = entitlements_of(organization).projects
     if cap is None:
         return None
-    count = session.scalar(
-        select(func.count()).select_from(Project).where(Project.org_id == organization.id)
-    )
+    count = _projects(session, organization.id)
     if count < cap:
         return None
     return (
         f"The {_label(organization)} plan allows {_count(cap, 'project')}, and this "
-        f"organisation has {count}. Upgrade your plan to create another."
+        f"organisation has {count}. {upgrade(organization).capitalize()} to create another."
     )
 
 
@@ -208,20 +242,21 @@ def check_upload(
     if plan.documents is not None and count >= plan.documents:
         return (
             f"The {label} plan allows {_count(plan.documents, 'document')}, and this "
-            f"organisation has {count}. Delete some, or upgrade your plan to add more."
+            f"organisation has {count}. Delete some, or {upgrade(organization)} to add more."
         )
     if plan.storage_bytes is not None:
         if held >= plan.storage_bytes:
             return (
                 f"The {label} plan allows {size_label(plan.storage_bytes)} of documents, and "
-                f"this organisation holds {size_label(held)}. Delete some, or upgrade your "
-                "plan to add more."
+                f"this organisation holds {size_label(held)}. Delete some, or "
+                f"{upgrade(organization)} to add more."
             )
         if size is not None and held + size > plan.storage_bytes:
             return (
                 f"This file is {size_label(size)}, more than the "
                 f"{size_label(plan.storage_bytes - held)} left of the {label} plan's "
-                f"{size_label(plan.storage_bytes)}. Delete some documents, or upgrade your plan."
+                f"{size_label(plan.storage_bytes)}. Delete some documents, or "
+                f"{upgrade(organization)}."
             )
     if size is None and plan.pages_per_month is not None:
         start, following = month_of()
@@ -229,8 +264,8 @@ def check_upload(
         if used >= plan.pages_per_month:
             return (
                 f"The {label} plan indexes {_count(plan.pages_per_month, 'page')} a month, and "
-                f"this organisation has indexed {used:,} in {_month(start)}. Upgrade your plan, "
-                f"or upload again from 1 {_month(following)}."
+                f"this organisation has indexed {used:,} in {_month(start)}. "
+                f"{upgrade(organization).capitalize()}, or upload again from 1 {_month(following)}."
             )
     return None
 
@@ -247,8 +282,8 @@ def check_pages(session: Session, organization: Organization, pages: int) -> str
         return None
     return (
         f"This document has {_count(pages, 'page')}, more than the {max(cap - used, 0):,} "
-        f"left of the {_label(organization)} plan's {cap:,} a month. Upgrade your plan, or "
-        f"index it again from 1 {_month(following)}."
+        f"left of the {_label(organization)} plan's {cap:,} a month. "
+        f"{upgrade(organization).capitalize()}, or index it again from 1 {_month(following)}."
     )
 
 
@@ -263,24 +298,52 @@ def check_question(session: Session, organization: Organization) -> str | None:
         return None
     return (
         f"The {_label(organization)} plan answers {_count(cap, 'question')} a month, and this "
-        f"organisation has asked {asked:,} in {_month(start)}. Upgrade your plan, or ask again "
-        f"from 1 {_month(following)}."
+        f"organisation has asked {asked:,} in {_month(start)}. "
+        f"{upgrade(organization).capitalize()}, or ask again from 1 {_month(following)}."
     )
 
 
 def check_member(session: Session, organization: Organization) -> str | None:
     """Why the plan refuses another member, or None when it has room for one. An invitation
-    that is still open holds a place."""
+    that is still open holds a place. An organisation with fewer seats than members keeps them
+    all, and takes nobody until it has room."""
     cap = entitlements_of(organization).members
     if cap is None:
         return None
     taken = _members(session, organization.id)
     if taken < cap:
         return None
+    if seats_of(organization) is not None:
+        return (
+            f"This organisation has {_count(cap, 'seat')} on the {_label(organization)} plan, "
+            f"and {_count(taken, 'member')}, open invitations counted. Add seats to invite more."
+        )
     return (
         f"The {_label(organization)} plan allows {_count(cap, 'member')}, and this organisation "
-        f"has {taken}, open invitations counted. Upgrade your plan to invite more."
+        f"has {taken}, open invitations counted. {upgrade(organization).capitalize()} to invite "
+        "more."
     )
+
+
+def over_limits(session: Session, organization: Organization) -> list[str]:
+    """What the organisation holds past what it may, as "7 members of 5", once its plan, seats
+    or terms were lowered under it: it keeps everything, and the checks refuse what would add
+    to it."""
+    entitlements = entitlements_of(organization)
+    projects = _projects(session, organization.id)
+    documents, held = _documents(session, organization.id)
+    members = _members(session, organization.id)
+    over = []
+    for number, cap, noun in (
+        (projects, entitlements.projects, "project"),
+        (documents, entitlements.documents, "document"),
+        (members, entitlements.members, "member"),
+    ):
+        if cap is not None and number > cap:
+            over.append(f"{_count(number, noun)} of {cap:,}")
+    if entitlements.storage_bytes is not None and held > entitlements.storage_bytes:
+        over.append(f"{size_label(held)} of documents of {size_label(entitlements.storage_bytes)}")
+    return over
 
 
 def pages_this_month(session: Session, org_id: int, start: datetime) -> int:
@@ -324,6 +387,10 @@ def size_label(size: int) -> str:
     return f"{size} bytes"
 
 
+def _projects(session: Session, org_id: int) -> int:
+    return session.scalar(select(func.count()).select_from(Project).where(Project.org_id == org_id))
+
+
 def _documents(session: Session, org_id: int) -> tuple[int, int]:
     """How many documents the organisation holds, and their bytes."""
     count, held = session.execute(
@@ -344,6 +411,14 @@ def _members(session: Session, org_id: int) -> int:
         .where(Invitation.org_id == org_id, Invitation.expires_at > func.now())
     )
     return members + invited
+
+
+def upgrade(organization: Organization) -> str:
+    """What a refusal offers besides deleting or waiting: a larger plan, or on the largest, a
+    higher figure in the organisation's terms."""
+    if organization.plan == PLAN_NAMES[-1]:
+        return "ask for a higher limit"
+    return "upgrade your plan"
 
 
 def _label(organization: Organization) -> str:

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatDate, parsePipeTable } from './format.ts'
+import { formatDate, formatSize, parsePipeTable } from './format.ts'
 
 describe('parsePipeTable', () => {
   it('reads the rows of a table and drops the separator under the header', () => {
@@ -44,5 +44,18 @@ describe('formatDate', () => {
 
   it('names the year of a date it is given', () => {
     expect(formatDate('2026-10-17T12:00:00Z')).toContain('2026')
+  })
+})
+
+describe('formatSize', () => {
+  it('words a size in the unit that reads best, as the server does', () => {
+    expect([999, 12_000, 2_500_000, 100_000_000, 1e10, 1.5e12].map(formatSize)).toEqual([
+      '999 bytes',
+      '12 kB',
+      '2.5 MB',
+      '100 MB',
+      '10 GB',
+      '1,500 GB',
+    ])
   })
 })

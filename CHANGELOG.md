@@ -11,6 +11,13 @@ its day, in the same commit.
 
 Members:
 
+- The organisation page shows the plan and what it lets the organisation keep and use:
+  projects, documents, storage, pages indexed and questions a month, members and how long
+  chats are kept, with the seats bought on the Team plan as its members and a figure agreed
+  with the organisation marked "Agreed". The terms and the privacy policy say that the seats
+  bought, or terms agreed with an organisation, take the place of the plan's figures. A limit
+  reached on the Enterprise plan asks for a higher limit rather than an upgrade.
+
 - A chat can be shared with the project from its header ("Share", and "Make private" to take
   it back). Everyone who sees the project finds the chats others shared under "Shared with the
   project" in the chat list, and a new chat offers the latest of them, each with the name of
@@ -94,6 +101,16 @@ Members:
 
 Operators:
 
+- `maintenance plan <slug>` sells the Team plan by the seat and agrees figures with an
+  organisation in place of its plan's: `--seats N` (`none` for the plan's own, three on Team),
+  `--set NAME=VALUE` as the report prints it (`projects=500`, `storage_bytes=1 TB`,
+  `daily_spend_micros=25.00`, `retention_days=none` for no limit) and `--unset NAME`; moving it
+  to another plan clears both, and the report says so, marks each agreed figure and names what
+  the organisation holds past what it allows, which it keeps. The release's migration adds
+  `organizations.seats` and `organizations.overrides`, gives the Team organisations from before
+  25 seats, what the plan allowed them, and gives the audit log `seats_changed` and
+  `entitlements_changed`. The housekeeper prunes chats and audit rows by agreed days, and the
+  job claim weighs an agreed `priority`.
 - The release's migration gives `projects` a `visibility` (every project stays open to its
   organisation), adds `project_members`, the members chosen for a private project, and gives
   the audit log the action `project_access_changed`, whose detail names the members let in and
