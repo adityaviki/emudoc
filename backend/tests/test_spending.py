@@ -125,7 +125,7 @@ def test_the_plan_limits_what_an_organisation_spends_in_a_day(
     # refused before it is saved.
     refused = client.post(f"/api/chats/{chat['id']}/messages", json={"content": "And?"})
     assert refused.status_code == 402
-    assert refused.json()["detail"] == plan_refusal("1.50")
+    assert refused.json() == {"detail": plan_refusal("1.50"), "limit": "daily_spend_micros"}
     assert len(client.get(f"/api/chats/{chat['id']}").json()["messages"]) == 2
 
     # Yesterday's spending was yesterday's.

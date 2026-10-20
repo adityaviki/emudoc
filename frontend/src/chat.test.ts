@@ -267,13 +267,18 @@ describe('ask', () => {
 
   it('shows a refusal of the question where the answer would be, a plan limit as such', async () => {
     const limit = 'The Free plan allows 50 questions a month. Upgrade your plan to ask more.'
-    serve(json({ detail: limit }, 402))
+    serve(json({ detail: limit, limit: 'questions_per_month' }, 402))
     await through(ask(client, 1, 'Notice period?'))
 
     const [question, answer] = messages()
     expect(question.content).toBe('Notice period?')
     expect(question.id).toBeUndefined()
-    expect(answer).toMatchObject({ error: limit, refusedByPlan: true, status: 'failed', thinking: false })
+    expect(answer).toMatchObject({
+      error: limit,
+      refusedByPlan: { message: limit, limit: 'questions_per_month' },
+      status: 'failed',
+      thinking: false,
+    })
     expect(calls).toHaveLength(1)
   })
 

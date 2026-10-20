@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from app.access import access_refusal, chosen_members, set_access, visible_to
 from app.api.deps import (
     AccountDep,
+    DeletableProjectDep,
     EditableProjectDep,
     EditorDep,
     ProjectDep,
@@ -17,7 +18,7 @@ from app.api.deps import (
 )
 from app.audit import audit
 from app.db import unbounded
-from app.entitlements import check_project
+from app.entitlements import PlanRefused, check_project
 from app.indexing.pipeline import reset_stages
 from app.jobs import BULK, queue_index
 from app.models import Document, Project, ProjectMember
@@ -70,8 +71,8 @@ def list_projects(session: SessionDep, account: AccountDep):
 @router.post("", response_model=ProjectOut, status_code=201)
 def create_project(body: NewProjectIn, session: SessionDep, account: EditorDep):
     """Make a project, open to everyone in the organisation or private to its maker."""
-    if reason := check_project(session, account.organization):
-        raise HTTPException(402, reason)
+    if refusal := check_project(session, account.organization):
+        raise PlanRefused(refusal)
     project = Project(
         org_id=account.organization.id,
         name=body.name.strip(),
@@ -141,7 +142,7 @@ def change_access(
 
 @router.delete("/{project_id}", status_code=204)
 def delete_project(
-    project: EditableProjectDep,
+    project: DeletableProjectDep,
     session: SessionDep,
     services: ServicesDep,
     account: AccountDep,

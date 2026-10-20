@@ -25,7 +25,12 @@ private project. A chat is also hidden from everyone but the member who started 
 share it with the project.
 
 Reading needs any role; changing something needs the member role or better, which the
-`Editable...` dependencies check after the object itself is found.
+`Editable...` dependencies check after the object itself is found. They also hold the change
+to the organisation's plan: one that holds more than its plan allows, since the plan, its seats
+or its terms were lowered, is read-only until it is within it again (`read_only` in
+app/entitlements.py), and the change is refused with 402. Deleting is what such an
+organisation may still do, to get within its plan, so the `Deletable...` dependencies check
+the role alone.
 
 A request that changes something must also carry the header the app's own requests send.
 The browser attaches the session cookie to a request from any site, so without that proof a
@@ -49,6 +54,7 @@ from app.accounts import Account, account_for_user, local_account, zone_of
 from app.auth import SESSION_COOKIE, find_session, touch_session
 from app.config import get_settings
 from app.db import get_session
+from app.entitlements import PlanRefused, read_only
 from app.indexing.pipeline import Services
 from app.legal import terms_due, terms_pending
 from app.logs import about
@@ -191,11 +197,18 @@ def get_current_account(request: Request, account: UsableAccountDep) -> Account:
 AccountDep = Annotated[Account, Depends(get_current_account)]
 
 
-def get_editor(account: AccountDep) -> Account:
-    """The account, provided its role allows changing what the organisation holds."""
+def get_editor(account: AccountDep, session: SessionDep) -> Account:
+    """The account, provided its role allows changing what the organisation holds and the
+    organisation holds no more than its plan allows."""
+    _refuse_viewer(account)
+    if refusal := read_only(session, account.organization):
+        raise PlanRefused(refusal)
+    return account
+
+
+def _refuse_viewer(account: Account) -> None:
     if not account.is_at_least("member"):
         raise HTTPException(403, READ_ONLY)
-    return account
 
 
 EditorDep = Annotated[Account, Depends(get_editor)]
@@ -282,18 +295,37 @@ PassageDep = Annotated[Passage, Depends(get_passage)]
 ChatDep = Annotated[Chat, Depends(get_chat)]
 
 
-def get_editable_project(project: ProjectDep, account: AccountDep) -> Project:
-    get_editor(account)
+def get_editable_project(project: ProjectDep, account: AccountDep, session: SessionDep) -> Project:
+    get_editor(account, session)
     return project
 
 
-def get_editable_document(document: DocumentDep, account: AccountDep) -> Document:
-    get_editor(account)
+def get_editable_document(
+    document: DocumentDep, account: AccountDep, session: SessionDep
+) -> Document:
+    get_editor(account, session)
     return document
 
 
-def get_editable_folder(folder: FolderDep, account: AccountDep) -> Folder:
-    get_editor(account)
+def get_editable_folder(folder: FolderDep, account: AccountDep, session: SessionDep) -> Folder:
+    get_editor(account, session)
+    return folder
+
+
+def get_deletable_project(project: ProjectDep, account: AccountDep) -> Project:
+    """The project, for deleting it: by role alone, since deleting is how an organisation past
+    its plan gets within it."""
+    _refuse_viewer(account)
+    return project
+
+
+def get_deletable_document(document: DocumentDep, account: AccountDep) -> Document:
+    _refuse_viewer(account)
+    return document
+
+
+def get_deletable_folder(folder: FolderDep, account: AccountDep) -> Folder:
+    _refuse_viewer(account)
     return folder
 
 
@@ -309,4 +341,7 @@ def get_own_chat(chat: ChatDep, account: AccountDep) -> Chat:
 EditableProjectDep = Annotated[Project, Depends(get_editable_project)]
 EditableDocumentDep = Annotated[Document, Depends(get_editable_document)]
 EditableFolderDep = Annotated[Folder, Depends(get_editable_folder)]
+DeletableProjectDep = Annotated[Project, Depends(get_deletable_project)]
+DeletableDocumentDep = Annotated[Document, Depends(get_deletable_document)]
+DeletableFolderDep = Annotated[Folder, Depends(get_deletable_folder)]
 OwnChatDep = Annotated[Chat, Depends(get_own_chat)]

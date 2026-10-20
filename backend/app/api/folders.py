@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import (
     AccountDep,
+    DeletableFolderDep,
     EditableFolderDep,
     EditableProjectDep,
     ProjectDep,
@@ -75,7 +76,7 @@ def update_folder(folder: EditableFolderDep, body: FolderPatch, session: Session
 
 @router.delete("/folders/{folder_id}", status_code=204)
 def delete_folder(
-    folder: EditableFolderDep,
+    folder: DeletableFolderDep,
     session: SessionDep,
     services: ServicesDep,
     account: AccountDep,

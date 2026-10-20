@@ -5,6 +5,7 @@ import {
   api,
   auth,
   handleForbidden,
+  handlePlanLimit,
   handleSwitched,
   isWithin,
   mayChange,
@@ -33,6 +34,7 @@ afterEach(() => {
   showOrganization(null)
   handleSwitched(null)
   handleForbidden(null)
+  handlePlanLimit(null)
 })
 
 describe('the organisation the page shows', () => {
@@ -78,6 +80,20 @@ describe('a request refused as not the account\'s to make', () => {
     serve(() => refused(403))
     await expect(auth.deleteAccount({ password: 'not it' })).rejects.toBeInstanceOf(ApiError)
     expect(forbidden).not.toHaveBeenCalled()
+  })
+})
+
+describe('a request the plan refused', () => {
+  it('names the figure it is held to, and has the page ask again what the plan allows', async () => {
+    const planned = vi.fn()
+    handlePlanLimit(planned)
+    serve(() => new Response(JSON.stringify({ detail: 'Full.', limit: 'projects' }), { status: 402 }))
+    await expect(api.createProject({ name: 'More', description: '', visibility: 'organization' })).rejects.toMatchObject({ status: 402, message: 'Full.', limit: 'projects' })
+    expect(planned).toHaveBeenCalledOnce()
+    // Any other refusal names none.
+    serve(() => refused(409))
+    await expect(api.projects()).rejects.toMatchObject({ status: 409, limit: null })
+    expect(planned).toHaveBeenCalledOnce()
   })
 })
 

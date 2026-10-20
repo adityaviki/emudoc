@@ -81,7 +81,14 @@ from app.billing import (
     trial_days,
 )
 from app.config import get_settings
-from app.entitlements import agreed_with, bought_this_month, entitlements_of, month_of, seats_of
+from app.entitlements import (
+    agreed_with,
+    bought_this_month,
+    entitlements_of,
+    month_of,
+    over_limits,
+    seats_of,
+)
 from app.export import account_export
 from app.invitations import find_invitation, is_open, joinable
 from app.legal import TERMS_VERSION, terms_due
@@ -135,6 +142,7 @@ from app.schemas import (
     CodeIn,
     EmailChangeIn,
     EmailIn,
+    ExcessOut,
     InvitationLinkOut,
     InvitationSignupIn,
     JoinableOut,
@@ -1161,7 +1169,7 @@ SHOWN = (
 
 def organization_out(session: Session, organization: Organization) -> OrganizationOut:
     """The organisation as the page shows it, with what it may keep and use, the packs bought
-    for the month among it, and how it buys its plan."""
+    for the month among it, what it holds past it, and how it buys its plan."""
     entitlements = entitlements_of(organization)
     settings = get_settings()
     on_sale = list(sold(settings))
@@ -1201,6 +1209,10 @@ def organization_out(session: Session, organization: Organization) -> Organizati
                 agreed=[name for name in agreed_with(organization) if name in SHOWN],
                 pages_bought=bought_this_month(session, organization.id, "pages", start),
                 questions_bought=bought_this_month(session, organization.id, "questions", start),
+                over=[
+                    ExcessOut(limit=excess.limit, words=excess.words)
+                    for excess in over_limits(session, organization)
+                ],
             ),
         }
     )

@@ -15,7 +15,10 @@ model, which reads the documents and cites the passages its answers rest on. Eve
 belongs to an organisation, and the organisation's plan, with the seats it bought or the terms
 agreed with it in the plan's place, sets how much it may keep and use: projects, documents,
 pages read, questions asked, members, and how long chats are kept. The service tells you when
-a limit is reached.
+a limit is reached. An organisation that holds more than its plan allows, once its plan, seats
+or terms were lowered, keeps everything, and is read-only until it is within the plan again:
+what it holds can be read, asked about and deleted, and its members removed, but nothing can be
+added or changed.
 $paid_plans
 ## 2. Your account
 

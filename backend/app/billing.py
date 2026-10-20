@@ -9,8 +9,8 @@ the plan's members; agreed figures replace any of the plan's, which is how an En
 organisation gets its terms. Both belong to the plan they were set on: a move to another plan
 clears them unless they are given again, so that an agreement does not outlive its plan. Fewer
 seats or lower figures than the organisation uses leave it over its limits without removing
-anything: it keeps its members, projects and documents, and the checks refuse what would add
-to them.
+anything: it keeps its members, projects and documents, and is read-only until it is within
+them again (`read_only` in app/entitlements.py).
 
 Billing (deploying.md, "Billing") is on with STRIPE_SECRET_KEY: an owner buys a plan of
 STRIPE_PRICES, Pro or Team with its seats, on Stripe's Checkout page, and changes or cancels it,
@@ -22,9 +22,10 @@ it now (`apply_subscription`): its price's plan, with its quantity as Team's sea
 in its trial or paid, and while a payment has failed for fewer than BILLING_GRACE_DAYS, during
 which Stripe tries again and the owners are written to; the Free plan once it ends, is left
 unpaid or the grace period runs out (`end_grace_periods`, the housekeeper's), the organisation
-keeping all it holds. Stripe's events (`handle_event`, from the webhook) only say when to ask:
-each is acted on once (`billing_events`), and the subscription it names is read from Stripe as
-it stands rather than from the event, which may come late or after a later one. An organisation
+keeping all it holds, read-only where that is more than Free allows. Stripe's events
+(`handle_event`, from the webhook) only say when to ask: each is acted on once
+(`billing_events`), and the subscription it names is read from Stripe as it stands rather than
+from the event, which may come late or after a later one. An organisation
 on Enterprise, or with figures agreed with it, is the operator's to move: its subscription is
 recorded, and its plan left alone. An organisation's first subscription starts with a trial of
 STRIPE_TRIAL_DAYS.

@@ -234,7 +234,7 @@ def test_a_simultaneous_upload_of_the_same_bytes_is_rejected_not_a_crash(
     result = upload(client, project["id"], sample_pdf, sample_docx)
     assert [d["filename"] for d in result["documents"]] == ["policy.docx"]
     assert result["rejected"] == [
-        {"filename": "msa.pdf", "reason": "Already in this project as 'scan.pdf'."}
+        {"filename": "msa.pdf", "reason": "Already in this project as 'scan.pdf'.", "limit": None}
     ]
     names = [d["filename"] for d in listed(client, project["id"])]
     assert names == ["policy.docx", "scan.pdf"]

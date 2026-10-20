@@ -512,8 +512,8 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
         # over it is refused whatever the plan, so an upgrade is not the answer.
         if reason := _too_many_scans(len(parsed.ocr_pages)):
             raise PipelineError(reason)
-        if reason := check_pages(session, document.project.organization, new_pages):
-            raise PipelineError(reason)
+        if refusal := check_pages(session, document.project.organization, new_pages):
+            raise PipelineError(refusal.sentence)
         blocks = parsed.blocks
         note = ""
 

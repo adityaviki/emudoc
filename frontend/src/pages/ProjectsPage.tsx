@@ -5,7 +5,7 @@ import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { api, isPlanLimit, mayChange } from '../api.ts'
 import type { Project } from '../api.ts'
-import { useMe } from '../auth.ts'
+import { ME_KEY, useMe } from '../auth.ts'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, Checkbox, EmptyState, FIELD, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
@@ -138,7 +138,7 @@ function NewProjectForm({ onClose }: { onClose: () => void }) {
       {create.isError && (
         <div className="mt-3">
           {isPlanLimit(create.error) ? (
-            <PlanLimitNotice message={create.error.message} />
+            <PlanLimitNotice refusal={create.error} />
           ) : (
             <Notice tone="bad">{create.error.message}</Notice>
           )}
@@ -160,7 +160,11 @@ function ProjectCard({ project, changes, onManage }: { project: Project; changes
   const queryClient = useQueryClient()
   const remove = useMutation({
     mutationFn: () => api.deleteProject(project.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects'] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['projects'] })
+      // What the organisation holds past its plan, which a deletion may bring it within.
+      void queryClient.invalidateQueries({ queryKey: ME_KEY })
+    },
   })
 
   function confirmDelete() {

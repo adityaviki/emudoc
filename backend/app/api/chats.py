@@ -40,7 +40,7 @@ from app.api.deps import (
 from app.audit import audit
 from app.config import get_settings
 from app.db import SessionLocal
-from app.entitlements import check_question
+from app.entitlements import PlanRefused, Refusal, check_question
 from app.logs import about
 from app.models import Chat, ChatMessage
 from app.ratelimit import QUESTIONS
@@ -163,15 +163,15 @@ def ask(
             in_flight,
         )
         raise HTTPException(429, TOO_MANY_ANSWERS, headers={"Retry-After": str(RETRY_AFTER)})
-    if reason := check_question(session, account.organization):
-        raise HTTPException(402, reason)
+    if refusal := check_question(session, account.organization):
+        raise PlanRefused(refusal)
     # The day's spending (app/spending.py): the platform's limit first, since no plan lifts it,
     # as a 503 with the seconds until midnight UTC, when it resets; then the plan's, as a 402.
     if reason := check_platform_spend(session):
         log.warning("A question in chat %s was refused: %s", chat.id, reason)
         raise HTTPException(503, reason, headers={"Retry-After": str(retry_after())})
     if reason := check_spend(session, account.organization):
-        raise HTTPException(402, reason)
+        raise PlanRefused(Refusal("daily_spend_micros", reason))
     if not chat.title:
         chat.title = _title(question)
     chat.updated_at = func.now()

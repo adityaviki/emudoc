@@ -80,10 +80,16 @@ def roles(client) -> dict[str, str]:
 @pytest.fixture
 def team(client, session, signed_in_only):
     """Ada, signed in on `client`, and Bob on a browser of his own, who is a member of the
-    organisation Ada signed up with."""
+    organisation Ada signed up with. It has seats for them on the Team plan, since the Free
+    plan's one member would leave it past its plan, and so read-only."""
     ada = signup(client, "ada@example.com", name="Ada")
     bob_client = another_browser(client)
     bob = signup(bob_client, "bob@example.com", name="Bob")
+    session.execute(
+        update(Organization)
+        .where(Organization.id == ada["organization"]["id"])
+        .values(plan="team", seats=5)
+    )
     join(session, ada["organization"]["id"], bob["id"])
     return ada, bob, bob_client
 

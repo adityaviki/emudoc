@@ -1347,8 +1347,14 @@ listed under in `STRIPE_PRICES`, with its quantity as Team's seats, while it is 
 paid, and while a payment has failed for fewer than `BILLING_GRACE_DAYS`; Free once it ends, is
 left unpaid, its trial ends without a payment method, or the grace period is over (the
 housekeeper's round moves those, every six hours, and so does the next failed payment). The
-organisation keeps all it holds past Free's limits and adds nothing until it has room; paid
-again, it has its plan again. Stripe's events only say when to ask: the webhook acts on each
+organisation keeps all it holds past Free's limits, and is read-only until it is within them
+(`read_only` in `backend/app/entitlements.py`, which lowered seats or agreed figures trigger as
+much): its members read, search, ask and delete, its owners and admins remove members and revoke
+invitations, and every other change of a project, every invitation and every join is refused
+with 402, while a banner on every page says so; paid again, it has its plan again. A refusal by
+the plan is a 402 whose body names the figure beside the sentence, `{"detail": …, "limit":
+"pages_per_month"}`, from which the page offers the owner a pack for the month, the plans or
+Manage billing, and tells anyone else to ask an owner. Stripe's events only say when to ask: the webhook acts on each
 once (`billing_events`, kept a month) and reads the subscription it names from Stripe, so an
 event that comes late or twice changes nothing. An organisation on Enterprise, or with figures
 agreed with it (`plan --set`), is the operator's: its subscription is recorded and its plan

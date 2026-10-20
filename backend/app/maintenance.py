@@ -703,8 +703,8 @@ def plan_report(
         )
     if beyond := over_limits(session, organization):
         lines.append(
-            f"It holds more than it allows, {', '.join(beyond)}: it keeps it all, and nothing "
-            "more is added until it has room."
+            f"It holds more than it allows, {', '.join(excess.words for excess in beyond)}: "
+            "it keeps it all, and is read-only until it is within the plan again."
         )
     start = month_of()[0]
     if bought := [

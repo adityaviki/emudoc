@@ -397,9 +397,9 @@ def test_an_owner_buys_a_pack_of_pages_for_the_month(client, session, stripe, ad
     record(session, **used, measures={"pages": 200})
     session.commit()
     month = MONTHS[month_of()[0].month - 1]
-    assert "The Free plan indexes 200 pages a month, and this" in check_upload(
-        session, organization(session, org_id)
-    )
+    refusal = check_upload(session, organization(session, org_id))
+    assert refusal.limit == "pages_per_month"
+    assert "The Free plan indexes 200 pages a month, and this" in refusal.sentence
 
     checkout_id = buy_pack(client)
     sent = stripe.made("/v1/checkout/sessions")[-1]
@@ -427,7 +427,7 @@ def test_an_owner_buys_a_pack_of_pages_for_the_month(client, session, stripe, ad
     )
     record(session, **used, measures={"pages": 1000})
     session.commit()
-    assert check_upload(session, held).startswith(
+    assert check_upload(session, held).sentence.startswith(
         f"The Free plan indexes 200 pages a month and 1,000 more bought for {month}, and this "
         f"organisation has indexed 1,200 in {month}."
     )

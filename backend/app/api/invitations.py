@@ -4,9 +4,11 @@ whose confirmed addresses may join it by themselves (app/invitations.py).
 An owner or admin invites an address with a role no higher than their own, sees the
 invitations still open or expired, sends one again, which mails a new link and stops the one
 before, and revokes one. Each is held to the plan's members, an open invitation counted
-(`check_member`), and the mail goes out after the answer, as every link the app mails does; the
-route is held to a rate per user and per address mailed, so that no inbox can be flooded from
-one organisation. Whoever opens the link accepts it on the invitation's page (app/api/auth.py).
+(`check_member`), and an organisation that holds more than its plan allows invites nobody until
+it is within it (`read_only`). The mail goes out after the answer, as every link the app mails
+does; the route is held to a rate per user and per address mailed, so that no inbox can be
+flooded from one organisation. Whoever opens the link accepts it on the invitation's page
+(app/api/auth.py).
 
 The domains are chosen by an owner or admin too, and one is added only by someone whose own
 confirmed address is at it. A user whose confirmed address is at one is offered the
@@ -31,7 +33,7 @@ from app.api.deps import (
 from app.api.organizations import NO_SESSION, NOT_FOUND, locked
 from app.audit import audit
 from app.auth import now
-from app.entitlements import check_member
+from app.entitlements import PlanRefused, Refusal, check_member, read_only
 from app.invitations import INVITATION_TTL, domain_of, is_open, issue, joining_refusal
 from app.mail import Mailer, invitation_email
 from app.models import Invitation, Membership, User, UserSession
@@ -102,8 +104,9 @@ def invite(
     )
     if invitation is not None and is_open(invitation):
         raise HTTPException(409, INVITED_ALREADY)
-    if refusal := check_member(session, organization):
-        raise HTTPException(402, refusal)
+    # An organisation past its plan takes nobody new, whatever it is past, until it is within it.
+    if refusal := read_only(session, organization) or check_member(session, organization):
+        raise PlanRefused(refusal)
     if invitation is None:
         invitation = Invitation(org_id=organization.id, email=email)
         session.add(invitation)
@@ -153,8 +156,10 @@ def resend_invitation(
     invitation = _invitation(session, account, invitation_id, lock=True)
     if not account.is_at_least(invitation.role):
         raise HTTPException(403, OWNERS_INVITE_OWNERS)
-    if not is_open(invitation) and (refusal := check_member(session, organization)):
-        raise HTTPException(402, refusal)
+    if not is_open(invitation) and (
+        refusal := read_only(session, organization) or check_member(session, organization)
+    ):
+        raise PlanRefused(refusal)
     invitation.invited_by_id = account.user.id
     token = issue(invitation)
     audit(
@@ -238,11 +243,22 @@ def join_organization(
         raise HTTPException(
             409, f"You are a member of {organization.name} already: switch to it instead."
         )
+    if read_only(session, organization) is not None:
+        raise PlanRefused(
+            Refusal(
+                "members",
+                f"{organization.name} holds more than its plan allows, so nobody can join it "
+                "until it is within the plan. Ask one of its owners to make room, or to move it "
+                "to a larger plan.",
+            )
+        )
     if check_member(session, organization) is not None:
-        raise HTTPException(
-            402,
-            f"{organization.name} has as many members as its plan allows. Ask one of its "
-            "owners to make room, or to move it to a larger plan.",
+        raise PlanRefused(
+            Refusal(
+                "members",
+                f"{organization.name} has as many members as its plan allows. Ask one of its "
+                "owners to make room, or to move it to a larger plan.",
+            )
         )
     user_session = session.get(UserSession, account.session_id)
     joined = add_member(session, organization, user, organization.join_role, user_session)

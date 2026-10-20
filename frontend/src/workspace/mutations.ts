@@ -1,10 +1,13 @@
 // Every change the library makes. Renames and moves show at once and are undone if the server
-// refuses them; the lists are fetched again afterwards either way.
+// refuses them; the lists are fetched again afterwards either way. A refusal by the plan (a full
+// plan, or an organisation past it and so read-only) is shown as the way past it, and a deletion
+// asks again what the organisation holds past its plan, since deleting is how it gets within it.
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api, isPlanLimit } from '../api.ts'
-import type { Document, Folder, UploadResult } from '../api.ts'
+import type { Document, Folder, PlanRefusal, UploadResult } from '../api.ts'
+import { ME_KEY } from '../auth.ts'
 import { documentKey, editListings, listingsKey, restore, snapshotListings } from './listing.ts'
 import { useWorkspace } from './state.ts'
 
@@ -19,8 +22,8 @@ export function useLibraryMutations() {
   const workspace = useWorkspace()
   const projectId = workspace.project.id
   const [notice, setNotice] = useState<string | null>(null)
-  // An upload the organisation's plan refused as a whole: shown as the way to upgrade.
-  const [planLimit, setPlanLimit] = useState<string | null>(null)
+  // A change the organisation's plan refused: shown as the way past its limit.
+  const [planLimit, setPlanLimit] = useState<PlanRefusal | null>(null)
   const [rejected, setRejected] = useState<UploadResult['rejected']>([])
 
   // Every folder's listing: a document may be on a page of any of them.
@@ -29,7 +32,8 @@ export function useLibraryMutations() {
   const openKey = ['document']
   const foldersKey = ['folders', projectId]
   const projectKey = ['project', projectId]
-  const fail = (error: Error) => setNotice(error.message)
+  const fail = (error: Error) =>
+    isPlanLimit(error) ? setPlanLimit({ message: error.message, limit: error.limit }) : setNotice(error.message)
   const invalidate = (...keys: unknown[][]) => {
     for (const queryKey of keys) queryClient.invalidateQueries({ queryKey })
   }
@@ -120,7 +124,7 @@ export function useLibraryMutations() {
     mutationFn: ({ id }: { id: number; documentIds: number[] }) => api.deleteFolder(id),
     onMutate: ({ documentIds }) => workspace.closeTabs(documentIds),
     onError: fail,
-    onSettled: () => invalidate(foldersKey, documentsKey, projectKey, openKey),
+    onSettled: () => invalidate(foldersKey, documentsKey, projectKey, openKey, [...ME_KEY]),
   })
 
   const deleteDocuments = useMutation({
@@ -135,14 +139,14 @@ export function useLibraryMutations() {
       restore(queryClient, context?.previous)
       fail(error)
     },
-    onSettled: () => invalidate(documentsKey, foldersKey, projectKey),
+    onSettled: () => invalidate(documentsKey, foldersKey, projectKey, [...ME_KEY]),
   })
 
   const upload = useMutation({
     mutationFn: ({ files, folderId }: { files: File[]; folderId: number | null }) =>
       api.upload(projectId, files, folderId),
     onSuccess: (result) => setRejected(result.rejected),
-    onError: (error) => (isPlanLimit(error) ? setPlanLimit(error.message) : fail(error)),
+    onError: fail,
     onSettled: () => invalidate(documentsKey, foldersKey, projectKey),
   })
 

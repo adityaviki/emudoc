@@ -11,6 +11,19 @@ its day, in the same commit.
 
 Members:
 
+- A limit of the plan reached now offers the way past it where it was reached: the owner of an
+  organisation whose month of pages or questions ran out buys a pack for the month there and
+  then, is shown the plans on the organisation page, or, with a subscription, Manage billing to
+  change the plan or add seats; anyone else is told to ask an owner, and an organisation whose
+  terms were agreed, or a deployment that sells nothing, to ask the Emudoc team. An organisation
+  that holds more than its plan allows, once its plan or seats were lowered (a subscription that
+  lapsed to Free, seats taken off), keeps everything and is read-only until it is within the
+  plan again: what it holds is read, searched, asked about and deleted, its members removed and
+  invitations revoked, but no project, document, folder, rename, move, re-index, access change,
+  invitation or joining goes through. Every page says so in a banner, with the way to the plan,
+  and the organisation page lists what it holds past it; the banner goes once a deletion or a
+  purchase brings it within. The terms say so.
+
 - Where the deployment sells its plans, an owner buys Pro, or Team with the seats it needs, on
   the organisation page, which sends them to Stripe to pay and back; an organisation's first
   subscription starts with a trial. Behind "Manage billing" an owner changes the plan or the
@@ -114,6 +127,13 @@ Members:
   slow to a third of their speed.
 
 Operators:
+
+- A refusal by the plan is a 402 whose body names the figure it is held to beside the sentence,
+  `{"detail": …, "limit": "pages_per_month"}`, and a file the plan rejected in an upload carries
+  the same `limit`. An organisation past its plan is refused every change of a project with 402
+  (deletions aside) and every invitation and join; `maintenance plan <slug>` says when an
+  organisation is read-only, and lowering a plan or seats under what an organisation holds
+  makes it so until it deletes, parts with members or buys.
 
 - Billing through Stripe (deploying.md, "Billing"): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
   (a webhook endpoint at `{APP_URL}/api/billing/events`, API version `2026-09-30.endive`) and

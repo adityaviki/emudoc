@@ -12,8 +12,8 @@ import type { FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { PLAN_LABELS, REGION_NAMES, ROLES, ROLE_LABELS, isPlanLimit, isWithin, organizations } from '../api.ts'
 import type { Allowance, Invitation, JoinRole, Me, Member, Role, SoldPlan } from '../api.ts'
-import { setSignedIn, startAgainInOrganization, useMe } from '../auth.ts'
-import { describeBilling, mayBuy } from '../billing.ts'
+import { ME_KEY, setSignedIn, startAgainInOrganization, useMe } from '../auth.ts'
+import { describeBilling, describeExcess, mayBuy, thisMonth } from '../billing.ts'
 import { PasswordField } from '../account/shared.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, Chip, FIELD, InputField, Loading, Notice, Row, Section, SelectField } from '../components/ui.tsx'
@@ -116,6 +116,7 @@ function PlanSection({ me }: { me: Me }) {
     )
   const sells = (billing.sold.length > 0 || billing.packs.length > 0) && billing.managed
   const standing = describeBilling(billing, formatDate)
+  const past = describeExcess(me.organization)
   const tones = { good: 'text-good', warn: 'text-warn', bad: 'text-bad' }
   const extra = (count: number) =>
     count > 0 && <span className="text-muted">and {count.toLocaleString()} more bought for {thisMonth()}</span>
@@ -163,14 +164,14 @@ function PlanSection({ me }: { me: Me }) {
           {agreed('retention_days')}
         </Row>
       </dl>
+      {past && (
+        <div className="mt-4">
+          <Notice>{past}</Notice>
+        </div>
+      )}
       {sells && <BillingActions me={me} />}
     </Section>
   )
-}
-
-/** The month a pack bought now counts in, the calendar month in UTC, as the server counts it. */
-function thisMonth(): string {
-  return new Date().toLocaleString(undefined, { month: 'long', timeZone: 'UTC' })
 }
 
 // Buying a plan or a pack on Stripe's Checkout page, managing them on Stripe's customer portal,
@@ -323,7 +324,14 @@ function MemberRow({ me, member }: { me: Me; member: Member }) {
       queryClient.setQueryData<Member[]>(MEMBERS_KEY, (list) => list?.map((m) => (m.user_id === changed.user_id ? changed : m))),
     onSettled: refresh,
   })
-  const remove = useMutation({ mutationFn: () => organizations.removeMember(member.user_id), onSuccess: refresh })
+  const remove = useMutation({
+    mutationFn: () => organizations.removeMember(member.user_id),
+    onSuccess: () => {
+      void refresh()
+      // What the organisation holds past its plan, which a member fewer may bring it within.
+      void queryClient.invalidateQueries({ queryKey: ME_KEY })
+    },
+  })
   const yours = member.user_id === me.id
   const manageable = !yours && isWithin('admin', me.role) && isWithin(member.role, me.role)
   const name = member.name || member.email
@@ -504,7 +512,7 @@ function InvitationsSection({ me }: { me: Me }) {
       <div className="mt-3 space-y-3">
         {invite.isError &&
           (isPlanLimit(invite.error) ? (
-            <PlanLimitNotice message={invite.error.message} onDismiss={() => invite.reset()} />
+            <PlanLimitNotice refusal={invite.error} onDismiss={() => invite.reset()} />
           ) : (
             <Notice tone="bad">{invite.error.message}</Notice>
           ))}
@@ -532,7 +540,14 @@ function InvitationRow({ me, invitation }: { me: Me; invitation: Invitation }) {
   const queryClient = useQueryClient()
   const refresh = () => queryClient.invalidateQueries({ queryKey: INVITATIONS_KEY })
   const resend = useMutation({ mutationFn: () => organizations.resendInvitation(invitation.id), onSuccess: refresh })
-  const revoke = useMutation({ mutationFn: () => organizations.revokeInvitation(invitation.id), onSuccess: refresh })
+  const revoke = useMutation({
+    mutationFn: () => organizations.revokeInvitation(invitation.id),
+    onSuccess: () => {
+      void refresh()
+      // An open invitation holds a member's place, so the organisation may be within its plan now.
+      void queryClient.invalidateQueries({ queryKey: ME_KEY })
+    },
+  })
   const error = resend.error ?? revoke.error
 
   return (
@@ -562,7 +577,7 @@ function InvitationRow({ me, invitation }: { me: Me; invitation: Invitation }) {
       </div>
       {error && (
         <div className="mt-2">
-          {isPlanLimit(error) ? <PlanLimitNotice message={error.message} /> : <Notice tone="bad">{error.message}</Notice>}
+          {isPlanLimit(error) ? <PlanLimitNotice refusal={error} /> : <Notice tone="bad">{error.message}</Notice>}
         </div>
       )}
     </li>

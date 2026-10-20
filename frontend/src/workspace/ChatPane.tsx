@@ -561,7 +561,7 @@ function Answer({ message, currency, onOpen }: AnswerProps) {
       )}
       {message.notice && <p className="text-sm text-muted">{message.notice}</p>}
       {message.error &&
-        (message.refusedByPlan ? <PlanLimitNotice message={message.error} /> : <Notice tone="bad">{message.error}</Notice>)}
+        (message.refusedByPlan ? <PlanLimitNotice refusal={message.refusedByPlan} /> : <Notice tone="bad">{message.error}</Notice>)}
       {cited.length > 0 && (
         <div className="border-t border-line pt-2.5">
           <p className="mb-1 text-[11px] font-medium tracking-wide text-muted uppercase">Sources</p>

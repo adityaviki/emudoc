@@ -1,10 +1,11 @@
 """Entitlements: an organisation is on a plan that says how many projects, documents, bytes,
-pages and questions it gets; the routes refuse past that with 402 and a sentence that says to
-upgrade, the upload rejects the files that would not fit while the rest go in, the parse stage
-refuses a document the month has no pages left for, a paying plan's backlog gets the larger
-share of the workers, a team has the members it bought as seats, an organisation's agreed
-figures take the place of its plan's, and the operator moves an organisation between plans,
-seats and figures with the `plan` command."""
+pages and questions it gets; the routes refuse past that with 402, a sentence that says to
+upgrade and the figure it is held to, the upload rejects the files that would not fit while the
+rest go in, the parse stage refuses a document the month has no pages left for, a paying plan's
+backlog gets the larger share of the workers, a team has the members it bought as seats, an
+organisation's agreed figures take the place of its plan's, one that holds more than its plan
+allows is read-only until it is within it, and the operator moves an organisation between
+plans, seats and figures with the `plan` command."""
 
 import re
 from dataclasses import replace
@@ -14,15 +15,19 @@ import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
+from app.api.deps import READ_ONLY
 from app.billing import change_plan, plan_problem
 from app.entitlements import (
     MONTHS,
     PLANS,
+    Excess,
+    Refusal,
     check_member,
     check_project,
     entitlements_of,
     month_of,
     over_limits,
+    read_only,
     size_label,
 )
 from app.indexing.pipeline import process_document, reset_stages
@@ -33,6 +38,7 @@ from app.usage import DOCUMENT, UPLOAD, record
 from tests.test_api import create_project, upload
 from tests.test_audit import actions
 from tests.test_auth import me, signup
+from tests.test_authorization import reads, starts, statuses, world, writes  # noqa: F401 (a fixture)
 from tests.test_chats import new_chat
 from tests.test_pipeline import scanned_pdf
 from tests.test_usage import rows_of
@@ -93,7 +99,8 @@ def test_the_free_plan_allows_one_project(member, client, session, capsys):
     create_project(client, "Contracts")
     refused = client.post("/api/projects", json={"name": "Invoices", "description": ""})
     assert refused.status_code == 402
-    assert refused.json()["detail"] == ONE_PROJECT
+    # The figure it is held to, from which the page chooses what to offer.
+    assert refused.json() == {"detail": ONE_PROJECT, "limit": "projects"}
     assert [p["name"] for p in client.get("/api/projects").json()] == ["Contracts"]
 
     # The operator moves the organisation up, and the next request sees it.
@@ -112,7 +119,9 @@ def test_an_upload_fills_the_plan_file_by_file_and_a_full_plan_refuses_the_reque
     project = create_project(client)
     result = upload(client, project["id"], sample_pdf, sample_docx)
     assert [d["filename"] for d in result["documents"]] == ["msa.pdf"]
-    assert result["rejected"] == [{"filename": sample_docx.name, "reason": ONE_DOCUMENT}]
+    assert result["rejected"] == [
+        {"filename": sample_docx.name, "reason": ONE_DOCUMENT, "limit": "documents"}
+    ]
     # The one that went in has its job; the one that did not left nothing behind.
     assert session.scalar(select(func.count()).select_from(Document)) == 1
     assert session.scalar(select(func.count()).select_from(Job)) == 1
@@ -122,7 +131,7 @@ def test_an_upload_fills_the_plan_file_by_file_and_a_full_plan_refuses_the_reque
         files=[("files", (sample_docx.name, sample_docx.read_bytes()))],
     )
     assert refused.status_code == 402
-    assert refused.json()["detail"] == ONE_DOCUMENT
+    assert refused.json() == {"detail": ONE_DOCUMENT, "limit": "documents"}
     assert session.scalar(select(func.count()).select_from(Document)) == 1
 
     # Deleting a document frees its place.
@@ -146,6 +155,7 @@ def test_a_file_that_would_not_fit_the_plans_storage_is_rejected(
                 f"the Free plan's {size_label(pdf_size + 10)}. Delete some documents, or "
                 "upgrade your plan."
             ),
+            "limit": "storage_bytes",
         }
     ]
 
@@ -247,10 +257,13 @@ def test_the_free_plan_answers_so_many_questions_a_month(member, client, session
     second = new_chat(client, project["id"])
     refused = client.post(f"/api/chats/{second['id']}/messages", json={"content": "Price?"})
     assert refused.status_code == 402
-    assert refused.json()["detail"] == (
-        f"The Free plan answers 1 question a month, and this organisation has asked 1 in {month}. "
-        f"Upgrade your plan, or ask again from 1 {following}."
-    )
+    assert refused.json() == {
+        "detail": (
+            f"The Free plan answers 1 question a month, and this organisation has asked 1 in "
+            f"{month}. Upgrade your plan, or ask again from 1 {following}."
+        ),
+        "limit": "questions_per_month",
+    }
     # Nothing was saved for the refused question.
     assert client.get(f"/api/chats/{second['id']}").json()["messages"] == []
 
@@ -266,7 +279,7 @@ def test_the_free_plan_answers_so_many_questions_a_month(member, client, session
 
 def test_an_open_invitation_holds_a_members_place(session, member, plan):
     org = member.organization
-    assert check_member(session, org) == (
+    assert check_member(session, org).sentence == (
         "The Free plan allows 1 member, and this organisation has 1, open invitations "
         "counted. Upgrade your plan to invite more."
     )
@@ -284,7 +297,7 @@ def test_an_open_invitation_holds_a_members_place(session, member, plan):
     invite("old@globex.example", expires_at=datetime.now(UTC) - timedelta(days=1))
     assert check_member(session, org) is None
     invite("new@globex.example")
-    assert check_member(session, org).startswith(
+    assert check_member(session, org).sentence.startswith(
         "The Free plan allows 2 members, and this organisation has 2, open invitations counted."
     )
 
@@ -391,17 +404,20 @@ def test_a_team_has_the_members_it_bought_as_seats(session, member, client):
         )
     )
     session.commit()
-    assert check_member(session, org) == (
+    assert check_member(session, org) == Refusal(
+        "members",
         "This organisation has 2 seats on the Team plan, and 2 members, open invitations "
-        "counted. Add seats to invite more."
+        "counted. Add seats to invite more.",
     )
 
     # Fewer seats than it has members leaves it over the limit, and takes nobody away.
     change_plan(session, org, "team", seats=1)
     session.commit()
-    assert over_limits(session, org) == ["2 members of 1"]
+    assert over_limits(session, org) == [Excess("members", "2 members of 1")]
     assert session.scalar(select(func.count()).select_from(Invitation)) == 1
-    assert check_member(session, org).startswith("This organisation has 1 seat on the Team plan")
+    assert check_member(session, org).sentence.startswith(
+        "This organisation has 1 seat on the Team plan"
+    )
 
 
 def test_figures_agreed_with_an_organisation_take_the_place_of_its_plans(session, member, client):
@@ -428,6 +444,7 @@ def test_figures_agreed_with_an_organisation_take_the_place_of_its_plans(session
         "agreed": ["projects", "storage_bytes"],
         "pages_bought": 0,
         "questions_bought": 0,
+        "over": [],
     }
 
     # On another plan an agreed figure takes the place of that plan's, and the rest are its.
@@ -548,8 +565,8 @@ def test_the_plan_command_sells_seats_and_agrees_figures(session, account, clien
     lines = plan("--unset", "storage_bytes", "--set", "projects=1")
     assert lines[3] == "  storage_bytes       100 GB"
     assert lines[-1] == (
-        "It holds more than it allows, 2 projects of 1: it keeps it all, and nothing more is "
-        "added until it has room."
+        "It holds more than it allows, 2 projects of 1: it keeps it all, and is read-only "
+        "until it is within the plan again."
     )
 
     lines = plan("pro")
@@ -575,3 +592,128 @@ def test_the_plan_command_sells_seats_and_agrees_figures(session, account, clien
             main(["plan", "local", *arguments])
     session.expire_all()
     assert session.get(Organization, account.organization.id).plan == "pro"
+
+
+# Past the plan
+
+
+PAST_FREE = (
+    "This organisation holds more than the Free plan allows ({held}), so until it is within the "
+    "plan nothing can be added or changed: what it holds can still be read, asked about and "
+    "deleted. {ways}."
+)
+
+
+def test_an_organisation_past_its_plan_is_read_only_until_it_is_within_it(
+    client,
+    session,
+    world,  # noqa: F811
+    account,
+):
+    # Lowered to Free with two members and an open invitation, where the plan allows one.
+    change_plan(session, account.organization, "free")
+    session.commit()
+    assert me(client).json()["organization"]["allowance"]["over"] == [
+        {"limit": "members", "words": "3 members of 1"}
+    ]
+    refusal = {
+        "detail": PAST_FREE.format(
+            held="3 members of 1",
+            ways="Remove members or revoke invitations, or upgrade your plan",
+        ),
+        "limit": "members",
+    }
+    changes = [route for route in writes(world) if route[0] != "DELETE"] + [
+        ("POST", "/api/projects", {"json": {"name": "More"}}),
+        ("POST", "/api/organization/invitations", {"json": {"email": "joe@example.com"}}),
+    ]
+    for method, path, kwargs in changes:
+        refused = client.request(method, path, **kwargs)
+        assert (refused.status_code, refused.json()) == (402, refusal), f"{method} {path}"
+
+    # What it holds is read and asked about as a viewer's would be.
+    seen = statuses(client, reads(world) + starts(world))
+    assert set(seen.values()) <= {200, 201}, seen
+    asked = client.post(f"/api/chats/{world.chat_id}/messages", json={"content": "What else?"})
+    assert asked.status_code == 201
+
+    # Deleting is how it gets within the plan, and so is parting with members.
+    assert client.delete(f"/api/folders/{world.folder_id}").status_code == 204
+    assert client.delete(f"/api/documents/{world.document_id}").status_code == 204
+    assert client.delete(f"/api/organization/invitations/{world.invitation_id}").status_code == 204
+    still = client.patch(f"/api/projects/{world.project_id}", json={"name": "Renamed"})
+    assert still.json()["detail"].startswith(
+        "This organisation holds more than the Free plan allows (2 members of 1)"
+    )
+    assert client.delete(f"/api/organization/members/{world.member_id}").status_code == 204
+    assert me(client).json()["organization"]["allowance"]["over"] == []
+    renamed = client.patch(f"/api/projects/{world.project_id}", json={"name": "Renamed"})
+    assert renamed.status_code == 200
+    assert client.delete(f"/api/projects/{world.project_id}").status_code == 204
+
+
+def test_past_its_plan_a_viewer_hears_of_its_role_and_others_find_nothing(
+    client,
+    session,
+    world,  # noqa: F811
+    account,
+    make_account,
+    act_as,
+):
+    change_plan(session, account.organization, "free")
+    session.commit()
+    act_as(make_account("vic@example.com", account.organization, role="viewer"))
+    viewed = client.patch(f"/api/projects/{world.project_id}", json={"name": "Renamed"})
+    assert (viewed.status_code, viewed.json()["detail"]) == (403, READ_ONLY)
+
+    # Another organisation past its own plan finds this one's projects no more than before.
+    eve = make_account("eve@globex.com")
+    make_account("bo@globex.com", eve.organization, role="member")
+    act_as(eve)
+    assert read_only(session, eve.organization) is not None
+    found = statuses(client, writes(world))
+    assert set(found.values()) == {404}, found
+
+
+def test_the_way_back_within_the_plan_is_what_the_organisation_holds_past_it(
+    session, member, client, make_account
+):
+    org = member.organization
+    assert read_only(session, org) is None
+    change_plan(session, org, "team", seats=2)
+    session.commit()
+    create_project(client, "Contracts")
+    create_project(client, "Invoices")
+    make_account("bo@globex.example", org, role="member")
+    assert read_only(session, org) is None
+
+    change_plan(session, org, "free")
+    session.commit()
+    assert read_only(session, org) == Refusal(
+        "projects",
+        PAST_FREE.format(
+            held="2 projects of 1 and 2 members of 1",
+            ways="Delete what it no longer needs, remove members or revoke invitations, or "
+            "upgrade your plan",
+        ),
+    )
+
+    # Seats fewer than its members: more seats are the way, besides parting with someone.
+    change_plan(session, org, "team", seats=1)
+    session.commit()
+    assert read_only(session, org).sentence.endswith(
+        "(2 members of 1), so until it is within the plan nothing can be added or changed: what "
+        "it holds can still be read, asked about and deleted. Remove members or revoke "
+        "invitations, or add seats."
+    )
+
+    # Terms agreed with it: a higher figure is asked for, there being no larger plan.
+    change_plan(session, org, "enterprise", overrides={"projects": 1})
+    session.commit()
+    assert read_only(session, org) == Refusal(
+        "projects",
+        "This organisation holds more than the Enterprise plan allows (2 projects of 1), so "
+        "until it is within the plan nothing can be added or changed: what it holds can still "
+        "be read, asked about and deleted. Delete what it no longer needs, or ask for a higher "
+        "limit.",
+    )

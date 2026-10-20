@@ -37,6 +37,7 @@ from app.api.deps import (
 from app.billing import BillingRefused
 from app.config import ROOT_DIR, get_settings
 from app.db import BUSY, TOO_SLOW, canceled, engine
+from app.entitlements import PlanRefused
 from app.errors import shown, summary
 from app.headers import (
     ASSETS_KEPT,
@@ -59,6 +60,7 @@ from app.schemas import (
     LLMStatus,
     PageErrorIn,
     PageErrorOut,
+    PlanRefusalOut,
     StatusOut,
     SubprocessorsOut,
 )
@@ -282,6 +284,15 @@ def billing_refused(request: Request, error: Exception) -> JSONResponse:
     return JSONResponse({"detail": str(error)}, status_code=error.status)
 
 
+def plan_refused(request: Request, error: Exception) -> JSONResponse:
+    """What the organisation's plan turns down (app/entitlements.py): 402, with the sentence and
+    the figure it is held to, from which the page chooses what to offer."""
+    assert isinstance(error, PlanRefused)
+    refusal = error.refusal
+    body = PlanRefusalOut(detail=refusal.sentence, limit=refusal.limit)
+    return JSONResponse(body.model_dump(), status_code=402)
+
+
 def pool_exhausted(request: Request, error: Exception) -> JSONResponse:
     """Every database connection this process may hold was in use for DB_POOL_TIMEOUT seconds.
 
@@ -403,6 +414,7 @@ def create_app(
     app.add_exception_handler(StorageError, storage_unavailable)
     app.add_exception_handler(PaymentsError, billing_unavailable)
     app.add_exception_handler(BillingRefused, billing_refused)
+    app.add_exception_handler(PlanRefused, plan_refused)
     app.add_exception_handler(PoolTimeout, pool_exhausted)
     app.add_exception_handler(OperationalError, statement_canceled)
     app.add_exception_handler(Exception, unexpected_error)

@@ -6,7 +6,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { useSyncExternalStore } from 'react'
 import { ApiError, api, isPlanLimit, streamEvents } from './api.ts'
-import type { Chat, ChatDetail, ChatEvent, ChatMessage, MessageStatus, Source, Usage } from './api.ts'
+import type { Chat, ChatDetail, ChatEvent, ChatMessage, MessageStatus, PlanRefusal, Source, Usage } from './api.ts'
 
 export interface Step {
   id: string
@@ -28,8 +28,8 @@ export interface Message {
   thinking?: boolean
   notice?: string | null
   error?: string | null
-  // The error is the organisation's plan refusing the question, shown as the way to upgrade.
-  refusedByPlan?: boolean
+  // The error is the organisation's plan refusing the question, shown as the way past its limit.
+  refusedByPlan?: PlanRefusal
   // What the answer used, once known: from the `done` event while it is followed, from the
   // saved row when the chat is loaded.
   usage?: Usage | null
@@ -268,7 +268,7 @@ export async function ask(queryClient: QueryClient, chatId: number, question: st
         ...message,
         thinking: false,
         error: (error as Error).message,
-        refusedByPlan: isPlanLimit(error),
+        refusedByPlan: isPlanLimit(error) ? { message: error.message, limit: error.limit } : undefined,
         status: 'failed',
       }))
       queryClient.invalidateQueries({ queryKey: ['chats'] })

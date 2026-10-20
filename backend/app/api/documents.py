@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.accounts import Account
 from app.api.deps import (
     AccountDep,
+    DeletableDocumentDep,
     DocumentDep,
     EditableDocumentDep,
     EditableProjectDep,
@@ -33,7 +34,7 @@ from app.api.deps import (
 from app.api.folders import folder_paths, resolve_folder
 from app.audit import audit
 from app.config import Settings, get_settings
-from app.entitlements import check_upload, size_label
+from app.entitlements import PlanRefused, check_upload, size_label
 from app.indexing.pipeline import reset_stages
 from app.jobs import queue_index
 from app.metrics import UPLOAD_BYTES, UPLOAD_REJECTIONS
@@ -197,9 +198,9 @@ def upload_documents(
         UPLOAD_REJECTIONS.labels("too_many").inc()
         raise HTTPException(413, reason)
     organization = account.organization
-    if reason := check_upload(session, organization):
+    if refusal := check_upload(session, organization):
         UPLOAD_REJECTIONS.labels("plan").inc(len(files))
-        raise HTTPException(402, reason)
+        raise PlanRefused(refusal)
     folder = resolve_folder(session, project, folder_id)
     documents: list[Document] = []
     rejected: list[RejectedFile] = []
@@ -239,8 +240,10 @@ def upload_documents(
                 UPLOAD_REJECTIONS.labels("duplicate").inc()
                 continue
             # Counted again per file: each one committed above fills the plan a little more.
-            if reason := check_upload(session, organization, size):
-                rejected.append(RejectedFile(filename=filename, reason=reason))
+            if refusal := check_upload(session, organization, size):
+                rejected.append(
+                    RejectedFile(filename=filename, reason=refusal.sentence, limit=refusal.limit)
+                )
                 UPLOAD_REJECTIONS.labels("plan").inc()
                 continue
 
@@ -441,7 +444,7 @@ def unique_filename(session: SessionDep, project_id: int, folder_id: int | None,
 
 @router.delete("/documents/{document_id}", status_code=204)
 def delete_document(
-    document: EditableDocumentDep,
+    document: DeletableDocumentDep,
     session: SessionDep,
     services: ServicesDep,
     account: AccountDep,

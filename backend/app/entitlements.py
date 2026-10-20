@@ -17,13 +17,23 @@ The checks run where the thing is about to happen: `check_project` in the route 
 one, `check_upload` in the upload route before anything is stored and again per file,
 `check_pages` in the parse stage once it knows how many pages a document has, `check_question`
 in the ask route, and `check_member` by the invitations and the joining by domain. Each
-returns the sentence the user sees, naming the plan, the limit and what to do, or None when the
-plan allows it; a route refuses with 402, the stage fails the document with it. The counts come
+returns a `Refusal`, the sentence the user sees, naming the plan, the limit and what to do,
+with the figure it is held to, or None when the plan allows it; a route raises `PlanRefused`
+with it, which app/main.py answers 402 with both, so that the page can offer what lifts that
+figure (a pack for the month, a larger plan, more seats); the stage fails the document with
+the sentence. The counts come
 from the rows (projects, documents and their bytes, memberships), so a deleted document frees
 what it took, or from the month so far in UTC (the pages indexed, by the `upload` usage
 events; the questions, by the answers asked), which starts afresh on the first. Pages and
 questions bought in packs for the month (`allowance_packs`, app/billing.py) add to the plan's
 until it ends.
+
+An organisation whose plan, seats or terms were lowered under what it holds (a subscription
+that lapsed to Free, seats taken off) keeps it all, and is read-only until it is within its plan
+again (`read_only`): what it holds can be read, asked about and deleted, members removed and
+invitations revoked, but nothing is added or changed, which the role checks in app/api/deps.py
+hold every change of a project to. Deleting stays, since it is how the organisation gets back
+within the plan without buying one.
 
 `priority` weights the organisation's share of the workers in the job claim (app/jobs.py): an
 organisation's jobs count for a third as much on the team plan as on the free one, so its
@@ -79,6 +89,32 @@ MONTHS = (
 # The plans whose members are the seats an organisation bought (`organizations.seats`).
 BY_THE_SEAT = frozenset({"team"})
 MODEL_TIERS = ("standard", "premium")
+
+
+@dataclass(frozen=True)
+class Refusal:
+    """What a plan turned down: the sentence the member reads, and the figure of `Entitlements`
+    it is held to, from which the page chooses what to offer."""
+
+    limit: str
+    sentence: str
+
+
+class PlanRefused(Exception):
+    """A request the organisation's plan turns down, which app/main.py answers 402."""
+
+    def __init__(self, refusal: Refusal):
+        super().__init__(refusal.sentence)
+        self.refusal = refusal
+
+
+@dataclass(frozen=True)
+class Excess:
+    """A figure the organisation holds past what it may: its field of `Entitlements`, and how it
+    reads, as "7 members of 5"."""
+
+    limit: str
+    words: str
 
 
 @dataclass(frozen=True)
@@ -219,7 +255,7 @@ def month_of(now: datetime | None = None) -> tuple[datetime, datetime]:
     return start, following
 
 
-def check_project(session: Session, organization: Organization) -> str | None:
+def check_project(session: Session, organization: Organization) -> Refusal | None:
     """Why the plan refuses another project, or None when it has room for one."""
     cap = entitlements_of(organization).projects
     if cap is None:
@@ -227,15 +263,16 @@ def check_project(session: Session, organization: Organization) -> str | None:
     count = _projects(session, organization.id)
     if count < cap:
         return None
-    return (
+    return Refusal(
+        "projects",
         f"The {_label(organization)} plan allows {_count(cap, 'project')}, and this "
-        f"organisation has {count}. {upgrade(organization).capitalize()} to create another."
+        f"organisation has {count}. {upgrade(organization).capitalize()} to create another.",
     )
 
 
 def check_upload(
     session: Session, organization: Organization, size: int | None = None
-) -> str | None:
+) -> Refusal | None:
     """Why the plan refuses another document, or None when it has room: for any at all when no
     size is given (the request as a whole, which is also when the month's pages are checked),
     or for one of `size` bytes (each file of it)."""
@@ -243,39 +280,43 @@ def check_upload(
     label = _label(organization)
     count, held = _documents(session, organization.id)
     if plan.documents is not None and count >= plan.documents:
-        return (
+        return Refusal(
+            "documents",
             f"The {label} plan allows {_count(plan.documents, 'document')}, and this "
-            f"organisation has {count}. Delete some, or {upgrade(organization)} to add more."
+            f"organisation has {count}. Delete some, or {upgrade(organization)} to add more.",
         )
     if plan.storage_bytes is not None:
         if held >= plan.storage_bytes:
-            return (
+            return Refusal(
+                "storage_bytes",
                 f"The {label} plan allows {size_label(plan.storage_bytes)} of documents, and "
                 f"this organisation holds {size_label(held)}. Delete some, or "
-                f"{upgrade(organization)} to add more."
+                f"{upgrade(organization)} to add more.",
             )
         if size is not None and held + size > plan.storage_bytes:
-            return (
+            return Refusal(
+                "storage_bytes",
                 f"This file is {size_label(size)}, more than the "
                 f"{size_label(plan.storage_bytes - held)} left of the {label} plan's "
                 f"{size_label(plan.storage_bytes)}. Delete some documents, or "
-                f"{upgrade(organization)}."
+                f"{upgrade(organization)}.",
             )
     if size is None and plan.pages_per_month is not None:
         start, following = month_of()
         used = pages_this_month(session, organization.id, start)
         bought = bought_this_month(session, organization.id, "pages", start)
         if used >= plan.pages_per_month + bought:
-            return (
+            return Refusal(
+                "pages_per_month",
                 f"The {label} plan indexes {_count(plan.pages_per_month, 'page')} a month"
                 f"{_and_bought(bought, start)}, and this organisation has indexed {used:,} in "
                 f"{_month(start)}. {upgrade(organization).capitalize()}, or upload again from "
-                f"1 {_month(following)}."
+                f"1 {_month(following)}.",
             )
     return None
 
 
-def check_pages(session: Session, organization: Organization, pages: int) -> str | None:
+def check_pages(session: Session, organization: Organization, pages: int) -> Refusal | None:
     """Why the plan refuses indexing a document of `pages` pages this month, or None when the
     month has room for them. A document without pages costs none."""
     cap = entitlements_of(organization).pages_per_month
@@ -286,15 +327,16 @@ def check_pages(session: Session, organization: Organization, pages: int) -> str
     bought = bought_this_month(session, organization.id, "pages", start)
     if used + pages <= cap + bought:
         return None
-    return (
+    return Refusal(
+        "pages_per_month",
         f"This document has {_count(pages, 'page')}, more than the "
         f"{max(cap + bought - used, 0):,} left of the {_label(organization)} plan's {cap:,} a "
         f"month{_and_bought(bought, start)}. {upgrade(organization).capitalize()}, or index it "
-        f"again from 1 {_month(following)}."
+        f"again from 1 {_month(following)}.",
     )
 
 
-def check_question(session: Session, organization: Organization) -> str | None:
+def check_question(session: Session, organization: Organization) -> Refusal | None:
     """Why the plan refuses another question this month, or None when it has room for one."""
     cap = entitlements_of(organization).questions_per_month
     if cap is None:
@@ -304,15 +346,16 @@ def check_question(session: Session, organization: Organization) -> str | None:
     bought = bought_this_month(session, organization.id, "questions", start)
     if asked < cap + bought:
         return None
-    return (
+    return Refusal(
+        "questions_per_month",
         f"The {_label(organization)} plan answers {_count(cap, 'question')} a month"
         f"{_and_bought(bought, start)}, and this organisation has asked {asked:,} in "
         f"{_month(start)}. {upgrade(organization).capitalize()}, or ask again from 1 "
-        f"{_month(following)}."
+        f"{_month(following)}.",
     )
 
 
-def check_member(session: Session, organization: Organization) -> str | None:
+def check_member(session: Session, organization: Organization) -> Refusal | None:
     """Why the plan refuses another member, or None when it has room for one. An invitation
     that is still open holds a place. An organisation with fewer seats than members keeps them
     all, and takes nobody until it has room."""
@@ -323,36 +366,66 @@ def check_member(session: Session, organization: Organization) -> str | None:
     if taken < cap:
         return None
     if seats_of(organization) is not None:
-        return (
+        return Refusal(
+            "members",
             f"This organisation has {_count(cap, 'seat')} on the {_label(organization)} plan, "
-            f"and {_count(taken, 'member')}, open invitations counted. Add seats to invite more."
+            f"and {_count(taken, 'member')}, open invitations counted. Add seats to invite more.",
         )
-    return (
+    return Refusal(
+        "members",
         f"The {_label(organization)} plan allows {_count(cap, 'member')}, and this organisation "
         f"has {taken}, open invitations counted. {upgrade(organization).capitalize()} to invite "
-        "more."
+        "more.",
     )
 
 
-def over_limits(session: Session, organization: Organization) -> list[str]:
-    """What the organisation holds past what it may, as "7 members of 5", once its plan, seats
-    or terms were lowered under it: it keeps everything, and the checks refuse what would add
-    to it."""
+def over_limits(session: Session, organization: Organization) -> list[Excess]:
+    """What the organisation holds past what it may, once its plan, seats or terms were lowered
+    under it: it keeps everything, and is read-only until it is within them (`read_only`).
+    Counts only the figures its plan limits, so that an organisation without limits costs no
+    query."""
     entitlements = entitlements_of(organization)
-    projects = _projects(session, organization.id)
-    documents, held = _documents(session, organization.id)
-    members = _members(session, organization.id)
     over = []
-    for number, cap, noun in (
-        (projects, entitlements.projects, "project"),
-        (documents, entitlements.documents, "document"),
-        (members, entitlements.members, "member"),
-    ):
-        if cap is not None and number > cap:
-            over.append(f"{_count(number, noun)} of {cap:,}")
-    if entitlements.storage_bytes is not None and held > entitlements.storage_bytes:
-        over.append(f"{size_label(held)} of documents of {size_label(entitlements.storage_bytes)}")
+    if (cap := entitlements.projects) is not None and (
+        projects := _projects(session, organization.id)
+    ) > cap:
+        over.append(Excess("projects", f"{_count(projects, 'project')} of {cap:,}"))
+    if entitlements.documents is not None or entitlements.storage_bytes is not None:
+        documents, held = _documents(session, organization.id)
+        if (cap := entitlements.documents) is not None and documents > cap:
+            over.append(Excess("documents", f"{_count(documents, 'document')} of {cap:,}"))
+        if (cap := entitlements.storage_bytes) is not None and held > cap:
+            over.append(
+                Excess("storage_bytes", f"{size_label(held)} of documents of {size_label(cap)}")
+            )
+    if (cap := entitlements.members) is not None and (
+        members := _members(session, organization.id)
+    ) > cap:
+        over.append(Excess("members", f"{_count(members, 'member')} of {cap:,}"))
     return over
+
+
+def read_only(session: Session, organization: Organization) -> Refusal | None:
+    """Why nothing can be added to or changed in the organisation now, or None when it holds no
+    more than it may: past its plan, what it holds can be read, asked about and deleted and its
+    members removed, which is how it gets within the plan again, and nothing else."""
+    if not (excesses := over_limits(session, organization)):
+        return None
+    limits = [excess.limit for excess in excesses]
+    ways = []
+    if any(limit != "members" for limit in limits):
+        ways.append("delete what it no longer needs")
+    if "members" in limits:
+        ways.append("remove members or revoke invitations")
+    seats = limits == ["members"] and seats_of(organization) is not None
+    ways.append("add seats" if seats else upgrade(organization))
+    return Refusal(
+        limits[0],
+        f"This organisation holds more than the {_label(organization)} plan allows "
+        f"({_listed([excess.words for excess in excesses])}), so until it is within the plan "
+        "nothing can be added or changed: what it holds can still be read, asked about and "
+        f"deleted. {', or '.join([', '.join(ways[:-1]), ways[-1]]).capitalize()}.",
+    )
 
 
 def pages_this_month(session: Session, org_id: int, start: datetime) -> int:
@@ -393,6 +466,11 @@ def bought_this_month(session: Session, org_id: int, unit: str, start: datetime)
             AllowancePack.month == start,
         )
     )
+
+
+def _listed(items: list[str]) -> str:
+    """The items as a sentence lists them: "a", "a and b", "a, b and c"."""
+    return " and ".join([", ".join(items[:-1]), items[-1]]) if len(items) > 1 else items[0]
 
 
 def _and_bought(bought: int, start: datetime) -> str:

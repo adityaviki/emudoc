@@ -491,3 +491,38 @@ def test_an_unconfirmed_address_or_a_full_plan_joins_nothing(client, session, ad
     full = bob.post(f"/api/organizations/{org_id}/join")
     assert full.status_code == 402
     assert full.json()["detail"].startswith("Ada's workspace has as many members as its plan")
+
+
+def test_an_organisation_past_its_plan_invites_and_takes_nobody(client, session, ada, room):
+    org_id = ada["organization"]["id"]
+    joining(client, "acme.com")
+    sent = invite(client, "bob@example.com")
+    # Its members lowered under the member and the invitation it has.
+    room(1)
+    refused = client.post("/api/organization/invitations", json={"email": "cat@example.com"})
+    assert refused.status_code == 402
+    assert refused.json() == {
+        "detail": (
+            "This organisation holds more than the Free plan allows (2 members of 1), so until "
+            "it is within the plan nothing can be added or changed: what it holds can still be "
+            "read, asked about and deleted. Remove members or revoke invitations, or upgrade "
+            "your plan."
+        ),
+        "limit": "members",
+    }
+    # The invitation still open is sent again, since it holds its place already.
+    assert client.post(f"/api/organization/invitations/{sent['id']}/resend").status_code == 200
+
+    dan = another_browser(client)
+    signup(dan, "dan@acme.com")
+    refused = dan.post(f"/api/organizations/{org_id}/join")
+    assert (refused.status_code, refused.json()["detail"]) == (
+        402,
+        "Ada's workspace holds more than its plan allows, so nobody can join it until it is "
+        "within the plan. Ask one of its owners to make room, or to move it to a larger plan.",
+    )
+
+    # Revoking it is the way back, and the next invitation goes out.
+    assert client.delete(f"/api/organization/invitations/{sent['id']}").status_code == 204
+    room(2)
+    invite(client, "cat@example.com")

@@ -307,10 +307,10 @@ def _paid_plans(settings: Settings) -> str:
         f"requires added where it applies.{trial} The subscription renews at the end of each "
         "period until it is cancelled, which an owner can do at any time under Manage billing "
         "on the organisation page: it then runs to the end of the period paid for, and the "
-        "organisation moves to the Free plan, keeping everything it holds but adding nothing "
-        "past the Free plan's limits. A period begun is not refunded, unless the law requires "
-        f"it. If a payment fails, the organisation {failed} in the same way, until the payment "
-        f"is made.{packs}\n"
+        "organisation moves to the Free plan, keeping everything it holds; where that is more "
+        "than the Free plan allows, it is read-only until it is within the plan again. A "
+        "period begun is not refunded, unless the law requires it. If a payment fails, the "
+        f"organisation {failed} in the same way, until the payment is made.{packs}\n"
     )
 
 

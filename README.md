@@ -135,14 +135,21 @@ seats an organisation bought are its members, in place of the plan's three. Any 
 also be agreed with an organisation in place of its plan's, which is how an Enterprise
 organisation gets its terms (`backend/app/billing.py` changes the three together, and moving
 to another plan clears the seats and figures of the one before). Lowering any of them removes
-nothing: an organisation over its limits keeps what it holds, and is refused what would add to
-it. The organisation page shows every member what the organisation may keep and use. The plan
-is checked where the thing
-happens: creating a project, uploading (the request is refused when the plan has no room at
-all, a file that would not fit is rejected while the others go in), asking a question, and
-in the parse stage once it knows how many pages a document has, which fails the document
-with the reason rather than read a page past the month's allowance. A refusal is a 402 with
-a sentence that names the plan and the limit, which the app shows as the way to upgrade.
+nothing: an organisation that holds more than its plan allows keeps it all, and is read-only
+until it is within the plan again (`read_only` in `backend/app/entitlements.py`): its members
+read, search, ask about and delete what it holds, and its owners and admins remove members and
+revoke invitations, but every other change of a project (a project, an upload, a folder, a
+rename or move, "Index again", who sees it), an invitation and a join is refused, and every
+page says so in a banner. The organisation page shows every member what the organisation may
+keep and use, and what it holds past it. The plan is checked where the thing happens: creating
+a project, uploading (the request is refused when the plan has no room at all, a file that
+would not fit is rejected while the others go in), asking a question, inviting, and in the
+parse stage once it knows how many pages a document has, which fails the document with the
+reason rather than read a page past the month's allowance. A refusal is a 402 whose body is
+the sentence, naming the plan and the limit, and the figure it is held to (`{"detail": …,
+"limit": "pages_per_month"}`); the app shows it with the way past it for whoever reads it
+(`offerFor` in `frontend/src/billing.ts`): the owner a pack for the month, the plans or Manage
+billing, anyone else to ask an owner.
 
 With `STRIPE_SECRET_KEY` set, the plans are sold through Stripe (`backend/app/billing.py`;
 deploying.md, "Billing"): an owner buys Pro, or Team with a number of seats, on the
@@ -914,8 +921,7 @@ CHANGELOG.md    what each day's commits changed for members and operators
 
 - Deleting an organisation: one goes only with the account of its only member, who cannot
   leave it either.
-- Billing: the plans and packs are sold through Stripe, but a refusal at a limit does not offer
-  the way to buy yet, and a page of usage against the limits is to come; the API keys, the
-  connectors and the model tier the plans declare are not read by anything yet.
+- Billing: a page of usage against the limits is to come; the API keys, the connectors and the
+  model tier the plans declare are not read by anything yet.
 - A trash: deleting a project, folder, document or chat is immediate and permanent.
 - More file types (slides, email, legacy .doc and .xls), and reading order for multi-column PDFs.

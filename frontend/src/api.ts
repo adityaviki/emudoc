@@ -90,7 +90,8 @@ export interface DocumentPage {
 
 export interface UploadResult {
   documents: Document[]
-  rejected: { filename: string; reason: string }[]
+  /** The files left out, each with why; `limit` names the plan's figure when it was the plan. */
+  rejected: { filename: string; reason: string; limit: PlanLimit | null }[]
 }
 
 export interface Section {
@@ -313,7 +314,30 @@ export type ChatEvent =
 
 /** The plans an organisation can be on (backend/app/entitlements.py), least to most. */
 export type Plan = 'free' | 'pro' | 'team' | 'enterprise'
+export const PLANS: Plan[] = ['free', 'pro', 'team', 'enterprise']
 export const PLAN_LABELS: Record<Plan, string> = { free: 'Free', pro: 'Pro', team: 'Team', enterprise: 'Enterprise' }
+
+/** The figures of a plan a refusal or an excess is about (`PlanLimit` in backend/app/schemas.py). */
+export type PlanLimit =
+  | 'projects'
+  | 'documents'
+  | 'storage_bytes'
+  | 'pages_per_month'
+  | 'questions_per_month'
+  | 'members'
+  | 'daily_spend_micros'
+
+/** What the organisation's plan turned down: the sentence, and the figure it is held to, null when the server named none. */
+export interface PlanRefusal {
+  message: string
+  limit: PlanLimit | null
+}
+
+/** A figure the organisation holds past, once its plan, seats or terms were lowered under it, and how it reads: "3 projects of 1". */
+export interface Excess {
+  limit: PlanLimit
+  words: string
+}
 
 /** The regions a deployment can keep its documents in (DATA_REGION, backend/app/residency.py). */
 export type Region = 'eu' | 'us'
@@ -384,6 +408,8 @@ export interface Allowance {
   /** The pages and questions bought in packs for this month, on top of the plan's. */
   pages_bought: number
   questions_bought: number
+  /** What it holds past them, which makes it read-only until it is within them again: everything is read, asked about and deleted, nothing added or changed. */
+  over: Excess[]
 }
 
 /** The roles an organisation may let everyone at its domains join with. */
@@ -602,23 +628,27 @@ export const DELETION_GRACE_DAYS = 14
 
 export class ApiError extends Error {
   status: number
+  /** On a 402, the figure of the plan it is held to, from which the page chooses what to offer. */
+  limit: PlanLimit | null
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, limit: PlanLimit | null = null) {
     super(message)
     this.status = status
+    this.limit = limit
   }
 }
 
 /**
  * Whether the server refused because the organisation's plan does not allow it (402). The
- * message names the limit and says to upgrade; the app shows it as the way forward, not as a
- * failure.
+ * message names the limit and says to upgrade, and `limit` which figure it is; the app shows
+ * it as the way forward, not as a failure.
  */
 export const isPlanLimit = (error: unknown): error is ApiError => error instanceof ApiError && error.status === 402
 
 let onUnauthorized: (() => void) | null = null
 let onSwitched: (() => void) | null = null
 let onForbidden: (() => void) | null = null
+let onPlanLimit: (() => void) | null = null
 let shownOrganization: number | null = null
 
 /**
@@ -650,6 +680,15 @@ export function handleForbidden(handler: (() => void) | null) {
   onForbidden = handler
 }
 
+/**
+ * What happens when the organisation's plan refused a request (402): what the page knows of the
+ * plan may be old, the organisation lowered under what it holds and read-only since, so the
+ * app registers a handler that asks again, and the page says so.
+ */
+export function handlePlanLimit(handler: (() => void) | null) {
+  onPlanLimit = handler
+}
+
 /** The organisation the page shows, which every request names from now on; null for none. */
 export function showOrganization(id: number | null) {
   shownOrganization = id
@@ -671,26 +710,29 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
   const response = await fetch(`/api${path}`, { ...init, headers })
   if (response.status === 401 && !path.startsWith('/auth/')) onUnauthorized?.()
   if (response.status === 403 && !path.startsWith('/auth/')) onForbidden?.()
+  if (response.status === 402) onPlanLimit?.()
   if (response.status === 409 && response.headers.has(ORGANIZATION_HEADER)) onSwitched?.()
   return response
 }
 
-/** The sentence a refused response carries as its `detail`, or the fallback when it has none. */
-async function detailOf(response: Response, fallback: string): Promise<string> {
+/**
+ * The error a refused response stands for: the sentence it carries as its `detail`, or the
+ * fallback when it has none, and the plan's figure a 402 names.
+ */
+async function refusal(response: Response, fallback: string): Promise<ApiError> {
   try {
     const body = await response.json()
-    if (typeof body.detail === 'string') return body.detail
+    const limit = typeof body.limit === 'string' ? (body.limit as PlanLimit) : null
+    return new ApiError(response.status, typeof body.detail === 'string' ? body.detail : fallback, limit)
   } catch {
     // Not JSON: keep the fallback.
+    return new ApiError(response.status, fallback)
   }
-  return fallback
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await send(path, init)
-  if (!response.ok) {
-    throw new ApiError(response.status, await detailOf(response, response.statusText))
-  }
+  if (!response.ok) throw await refusal(response, response.statusText)
   return response.status === 204 ? (undefined as T) : response.json()
 }
 
@@ -899,7 +941,7 @@ export const api = {
     const headers: Record<string, string> = held ? { 'If-None-Match': held } : {}
     const response = await send(`/projects/${projectId}/documents${query}`, { headers, signal })
     if (response.status === 304) return null
-    if (!response.ok) throw new ApiError(response.status, await detailOf(response, response.statusText))
+    if (!response.ok) throw await refusal(response, response.statusText)
     const page: DocumentPage = await response.json()
     return { ...page, etag: response.headers.get('ETag') }
   },
@@ -984,7 +1026,7 @@ export async function* streamEvents(
   const headers: Record<string, string> = after == null ? {} : { 'Last-Event-ID': String(after) }
   const response = await send(`/chats/${chatId}/messages/${messageId}/events`, { headers, signal })
   if (!response.ok || !response.body) {
-    throw new ApiError(response.status, await detailOf(response, 'The answer could not be followed.'))
+    throw await refusal(response, 'The answer could not be followed.')
   }
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
   let buffer = ''

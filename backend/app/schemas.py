@@ -10,6 +10,16 @@ class _FromORM(BaseModel):
 
 # PROJECT_VISIBILITIES in app/models.py, which the database's check constraint holds.
 ProjectVisibility = Literal["organization", "private"]
+# The figures of a plan a refusal or an excess is about (`Entitlements` in app/entitlements.py).
+PlanLimit = Literal[
+    "projects",
+    "documents",
+    "storage_bytes",
+    "pages_per_month",
+    "questions_per_month",
+    "members",
+    "daily_spend_micros",
+]
 
 
 class ProjectIn(BaseModel):
@@ -137,6 +147,8 @@ class DocumentPage(BaseModel):
 class RejectedFile(BaseModel):
     filename: str
     reason: str
+    # The figure of the plan that refused the file, when it was the plan (app/entitlements.py).
+    limit: PlanLimit | None = None
 
 
 class UploadResult(BaseModel):
@@ -434,6 +446,13 @@ class EmailChangeIn(BaseModel):
     current_email: str | None = Field(None, max_length=320)
 
 
+class ExcessOut(BaseModel):
+    """A figure the organisation holds past, and how it reads: "3 projects of 1"."""
+
+    limit: PlanLimit
+    words: str
+
+
 class AllowanceOut(BaseModel):
     """What the organisation may keep and use (`entitlements_of` in app/entitlements.py), for
     the organisation page: None is no limit."""
@@ -450,6 +469,18 @@ class AllowanceOut(BaseModel):
     # The pages and questions bought in packs for this month, on top of the plan's.
     pages_bought: int = 0
     questions_bought: int = 0
+    # What it holds past them, once they were lowered under it, which makes it read-only until
+    # it is within them again (`over_limits`).
+    over: list[ExcessOut] = []
+
+
+class PlanRefusalOut(BaseModel):
+    """The body of a 402, what the organisation's plan turned down: the sentence, and the
+    figure it is held to, from which the page chooses what to offer (a pack for the month, a
+    larger plan, more seats)."""
+
+    detail: str
+    limit: PlanLimit
 
 
 class PackOut(BaseModel):
