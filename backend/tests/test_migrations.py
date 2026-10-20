@@ -13,13 +13,14 @@ from alembic.runtime.migration import MigrationContext
 from alembic.util import CommandError
 from fastapi.testclient import TestClient
 from pydantic_ai.messages import TextPart
-from sqlalchemy import inspect, text
+from sqlalchemy import func, inspect, text, update
 
 from app.config import get_settings
 from app.db import MIGRATION_LOCK, UPGRADE_COMMAND, Base, alembic_config, check_schema, engine
+from app.encrypted import TOTP_SECRETS, encrypt
 from app.indexing.pipeline import process_document
 from app.main import create_app
-from app.models import NATURAL_ORDER, Document, Project
+from app.models import NATURAL_ORDER, Document, Project, User
 from tests.conftest import STORAGE_ROOT, FakeTurn, build_schema, drop_schema
 from tests.test_chats import answered, new_chat
 
@@ -29,6 +30,7 @@ STORAGE_KEYS = "5c1e7a9d2b40"
 USAGE_EVENTS = "4d17fad8beb9"
 USAGE_ON_ROWS = "29c97f1a6f4f"
 RATE_LIMITS = "133a863e3662"
+BEFORE_ENCRYPTED_SECRETS = "2656abd623ec"
 
 
 def current_revision() -> str | None:
@@ -243,6 +245,31 @@ def test_documents_from_before_scanning_are_served_as_they_were(
         "detail": "Uploaded before uploads were scanned.",
     }
     assert client.get(f"/api/documents/{document_id}/file").status_code == 200
+
+
+def test_a_downgrade_past_encrypted_secrets_turns_their_two_factor_off(
+    rebuilt_afterwards, session, account, make_account
+):
+    # The revision before cannot read an encrypted secret, and a migration has no key.
+    encrypted, plain = account.user.id, make_account("ann@globex.example").user.id
+    secret = "JBSWY3DPEHPK3PXP"
+    for user_id, value in ((encrypted, encrypt(TOTP_SECRETS, encrypted, secret)), (plain, secret)):
+        session.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(totp_secret=value, totp_enabled_at=func.now())
+        )
+    session.commit()
+    command.downgrade(alembic_config(), BEFORE_ENCRYPTED_SECRETS)
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT id, totp_secret, totp_enabled_at IS NOT NULL FROM users "
+                "WHERE id = ANY(:ids)"
+            ),
+            {"ids": [encrypted, plain]},
+        ).all()
+    assert sorted(rows) == sorted([(encrypted, None, False), (plain, secret, True)])
 
 
 def test_database_made_before_migrations_cannot_be_upgraded(rebuilt_afterwards):

@@ -11,6 +11,10 @@ its day, in the same commit.
 
 Members:
 
+- Your authenticator app's secret is kept encrypted, with a key the database does not hold, so
+  a copy of the database cannot make your two-factor codes. If Emudoc ever cannot check your
+  app's codes, it says so and asks for one of your recovery codes instead.
+
 - Signing up starts with your email address alone: Emudoc mails it a link, and on the page the
   link opens you choose your name and password, accept the terms, and your account is made and
   signed in, its address confirmed. The form answers the same for an address that already has
@@ -41,6 +45,14 @@ Members:
   slow to a third of their speed.
 
 Operators:
+
+- `ENCRYPTION_KEYS` is required in production: the keys the authenticators' secrets of
+  two-factor sign-in are encrypted with, made with `openssl rand -base64 32` and kept apart
+  from the database's backups (on AWS under the secrets path). After the release, run `python
+  -m app.maintenance encrypt-secrets` once to encrypt the secrets kept from before; the start
+  warns while any are left. A key is rotated by putting a new one first and running the same
+  command, keeping the old one for `BACKUP_DAYS` (deploying.md, "The encryption keys"); the
+  restore drill now fails when a restored secret's key is gone.
 
 - A new account with a password is made from the link its sign-up mails, so while the mail
   relay is down only Google and Microsoft sign-ups get through; the form answers as usual and

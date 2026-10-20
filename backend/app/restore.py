@@ -27,10 +27,12 @@ again, and the accounts purged since are back. `after_restore` sets each right, 
    app/retention.py), rather than at the worker's first housekeeping round.
 
 It then reports what it cannot set right by itself: documents whose original the storage
-lacks, as a storage restored to an earlier point than the database leaves them, and the files
-of documents the database does not know. It also says how far the restored database reaches,
-which is the recovery point a restore achieved: the last transaction its recovery replayed,
-which the server knows until it restarts, or else the newest act of a member its rows record.
+lacks, as a storage restored to an earlier point than the database leaves them, the files of
+documents the database does not know, and the secrets encrypted with a key ENCRYPTION_KEYS no
+longer holds (app/encrypted.py), which a key removed while a backup still held what it
+encrypted leaves. It also says how far the restored database reaches, which is the recovery
+point a restore achieved: the last transaction its recovery replayed, which the server knows
+until it restarts, or else the newest act of a member its rows record.
 
 A dry run (`after-restore --dry-run`) is the check of the restore drill (deploying.md, "The
 drill"): it takes every step but changes nothing. It lists the files it would bring back and
@@ -52,6 +54,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import audit_event
 from app.db import SessionLocal, unbounded
+from app.encrypted import Standing, keys, lost_line, standing
 from app.retention import purge_due_accounts, reapply_erasures
 from app.storage import ROOT_PREFIX, Deletion, S3Storage, Storage, StoredObject, is_rendered
 
@@ -141,8 +144,15 @@ class Restored:
     # The storage's folders of documents the database does not know, and their size.
     unknown: int = 0
     unknown_bytes: int = 0
+    # How each encrypted column's values are kept; those of a key that is gone are lost.
+    secrets: list[Standing] = field(default_factory=list)
     # How long the run took, in seconds: part of the time a restore takes.
     took: float = 0.0
+
+    @property
+    def whole(self) -> bool:
+        """Whether the restore brings everything back usable: every original, every secret."""
+        return not self.missing and not any(counts.lost for counts in self.secrets)
 
 
 @dataclass
@@ -177,6 +187,7 @@ def after_restore(storage: Storage, restored_to: datetime, *, dry_run: bool = Fa
             session.execute(_HOLD_INSERTS)
         restored.reached, restored.reached_by = _reach(session)
         restored.holds = dict(session.execute(_HOLDS).mappings().one())
+        restored.secrets = standing(session.connection(), keys())
         for table in TABLES:
             seen = survey.highest[table]
             if seen > (session.scalar(_LAST_ID, {"table": table}) or 0):
@@ -320,6 +331,17 @@ def describe_restore(restored: Restored, restored_to: datetime) -> list[str]:
                 "it to the same point or later and run this again; until then "
                 f"{those} can be searched and asked about, but not opened or indexed again."
             )
+    for counts in restored.secrets:
+        if counts.lost:
+            lines.append(
+                lost_line(counts)
+                + (
+                    " A key stays in ENCRYPTION_KEYS for as long as a backup holds what it "
+                    'encrypted (deploying.md, "The encryption keys").'
+                    if would
+                    else ""
+                )
+            )
     if restored.unknown:
         held = (
             f"The storage holds the files of {_count(restored.unknown, 'document')} "
@@ -340,6 +362,11 @@ def describe_restore(restored: Restored, restored_to: datetime) -> list[str]:
         lines.append(
             "The restore is not whole: the database and the storage do not come back to the same "
             "point."
+        )
+    elif not restored.whole:
+        lines.append(
+            "The restore is not whole: ENCRYPTION_KEYS no longer holds a key the database's "
+            "backups need."
         )
     else:
         lines.append(

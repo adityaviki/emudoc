@@ -14,6 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 
+from app.keyring import DEVELOPMENT_KEY, NEW_KEY, parse_keys
 from app.network import (
     database_problem,
     plain_http_problem,
@@ -451,6 +452,17 @@ class Settings(BaseSettings):
     # own network, from the downloaded list, sends nothing out. Empty checks nothing. A service
     # that does not answer lets the password through, and the log says so.
     pwned_passwords_url: str = "https://api.pwnedpasswords.com"
+    # The keys the database's secrets are encrypted with (app/keyring.py): the authenticators'
+    # secrets of two-factor sign-in, so that a copy of the database or of its backups cannot
+    # make a member's codes. Each key is 32 random bytes in base64, as `openssl rand -base64
+    # 32` prints one, and the keys are separated by commas: the first encrypts, and every one
+    # decrypts what it encrypted, so a key is rotated by putting a new one first and running
+    # `python -m app.maintenance encrypt-secrets`. Kept apart from the database's backups, or
+    # encrypting gains nothing; and a key that stopped being the first is kept for as long as a
+    # backup may hold what it encrypted, since a lost key loses those authenticators
+    # (deploying.md, "The encryption keys"). Empty is development's own key, which is in the
+    # code and which production refuses.
+    encryption_keys: str = ""
 
     # Verification and password-reset mail. Empty SMTP_URL writes the messages to the log,
     # which is enough to click the links in development. Otherwise smtp://user:pass@host:587
@@ -505,6 +517,12 @@ class Settings(BaseSettings):
         if parts.scheme == "s3" and parts.netloc and not parts.query and not parts.fragment:
             return value
         raise ValueError(f"{STORAGE_URL_FORMS}; {value!r} is neither")
+
+    @field_validator("encryption_keys")
+    @classmethod
+    def _lists_keys(cls, value: str) -> str:
+        parse_keys(value)
+        return value.strip()
 
     @field_validator("metrics_address")
     @classmethod
@@ -670,15 +688,15 @@ class Settings(BaseSettings):
     def production_problems(self, environ: Mapping[str, str] = os.environ) -> list[str]:
         """What stops these settings from serving a deployment, each as the step that fixes it.
 
-        Development's conveniences are production's holes: the well-known database password,
-        requests without a session acting as the owner, sign-in links written to the log,
-        uploads nobody scans, a model key that may be on a free tier which trains on what it
-        is sent, files and links whose place depends on where the process happens to run, and
-        connections that would carry the documents unencrypted across a network the deployment
-        does not own (app/network.py), or that could not check the server's certificate at all.
-        `environ` is read for the last: OpenSSL takes where to look for the authorities from
-        the process environment, not from these settings. Empty in development, and for
-        settings that are fit.
+        Development's conveniences are production's holes: the well-known database password
+        and encryption key, requests without a session acting as the owner, sign-in links
+        written to the log, uploads nobody scans, a model key that may be on a free tier which
+        trains on what it is sent, files and links whose place depends on where the process
+        happens to run, and connections that would carry the documents unencrypted across a
+        network the deployment does not own (app/network.py), or that could not check the
+        server's certificate at all. `environ` is read for the last: OpenSSL takes where to look
+        for the authorities from the process environment, not from these settings. Empty in
+        development, and for settings that are fit.
         """
         if self.environment != "production":
             return []
@@ -717,6 +735,19 @@ class Settings(BaseSettings):
             problems.append(
                 "SMTP_URL is not set, so verification and password-reset links would be "
                 "written to the log; name an SMTP relay."
+            )
+        if not self.encryption_keys:
+            problems.append(
+                "ENCRYPTION_KEYS is not set, so the authenticators' secrets of two-factor "
+                "sign-in would be encrypted with development's key, which is in the code; "
+                f"make a key with {NEW_KEY} and keep it apart from the database's backups."
+            )
+        elif DEVELOPMENT_KEY in parse_keys(self.encryption_keys):
+            problems.append(
+                "ENCRYPTION_KEYS holds development's key, which is in the code, so anyone "
+                "with a copy of the database could read the authenticators' secrets it "
+                f"encrypted; make a key with {NEW_KEY}, put it first, run `python -m "
+                "app.maintenance encrypt-secrets`, then remove development's."
             )
         if not self.scanner_url:
             problems.append(
@@ -880,15 +911,20 @@ def load_settings(**values: Any) -> Settings:
 
     The settings are read as the app is imported, by uvicorn, alembic and the maintenance
     command alike, so the alternative is pydantic's validation traceback from each of them.
-    Two mistakes get one message instead: no database named, and production asked for with
-    settings that only a development machine should run with. Other mistakes are rare enough
-    to keep that traceback, which names the setting.
+    Three mistakes get one message instead: no database named, ENCRYPTION_KEYS holding
+    something that is not a key, which the traceback would print, and production asked for
+    with settings that only a development machine should run with. Other mistakes are rare
+    enough to keep that traceback, which names the setting.
     """
     try:
         settings = Settings(**values)
     except ValidationError as error:
         if any(problem["loc"] == ("database_url",) for problem in error.errors()):
             raise SystemExit(MISSING_DATABASE) from None
+        # Pydantic's message would quote the value, and that is the keys.
+        for problem in error.errors(include_input=False):
+            if problem["loc"] == ("encryption_keys",):
+                raise SystemExit(str(problem["ctx"]["error"])) from None
         raise
     if problems := settings.production_problems():
         raise SystemExit(unfit_for_production(problems))

@@ -161,7 +161,7 @@ variable "settings" {
   validation {
     condition = alltrue([
       for name in keys(var.settings) :
-      !can(regex("(_KEY|_SECRET|_PASSWORD|_TOKEN|_CREDENTIALS)$|^(DATABASE_URL|DATABASE_LISTEN_URL|SMTP_URL|SENTRY_DSN)$", name))
+      !can(regex("(_KEYS?|_SECRET|_PASSWORD|_TOKEN|_CREDENTIALS)$|^(DATABASE_URL|DATABASE_LISTEN_URL|SMTP_URL|SENTRY_DSN)$", name))
     ])
     error_message = "Keys, secrets, passwords and the URLs that carry one are put into the secrets path by hand, never into the module's settings, which the plan shows and the state keeps."
   }

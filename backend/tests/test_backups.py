@@ -17,11 +17,13 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 
 from app.auth import issue_link_token, new_token, token_hash
 from app.config import get_settings
+from app.encrypted import TOTP_SECRETS
 from app.indexing.pipeline import Services
+from app.keyring import keyring
 from app.main import STORAGE_DOWN, create_app
 from app.maintenance import main
 from app.models import AuditEvent, AuthToken, Document, User, UserSession
@@ -38,6 +40,7 @@ from tests.conftest import (
     FakeScanner,
 )
 from tests.test_api import create_project, upload
+from tests.test_encrypted import new_key
 from tests.test_storage import bucket_error
 
 
@@ -462,6 +465,29 @@ def test_a_dry_run_fails_when_the_storage_cannot_come_back_to_the_point(
     assert (
         "The restore is not whole: the database and the storage do not come back to the same "
         "point." in out
+    )
+
+
+def test_a_dry_run_fails_when_a_restored_secret_s_key_is_gone(session, account, capsys):
+    # The copy holds an authenticator encrypted with a key removed from the list since.
+    removed = keyring(new_key(), False)
+    user_id = account.user.id
+    value = removed.encrypt("JBSWY3DPEHPK3PXP", TOTP_SECRETS.place(user_id))
+    session.execute(update(User).where(User.id == user_id).values(totp_secret=value))
+    session.commit()
+    STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
+    with pytest.raises(SystemExit) as failed:
+        main(["after-restore", "--dry-run", datetime.now(UTC).isoformat()])
+    assert failed.value.code == 1
+    out = capsys.readouterr().out
+    assert (
+        "1 authenticator secret is encrypted with a key ENCRYPTION_KEYS does not hold "
+        f"({removed.current}), so its member cannot sign in" in out
+    )
+    assert "A key stays in ENCRYPTION_KEYS for as long as a backup holds what it encrypted" in out
+    assert (
+        "The restore is not whole: ENCRYPTION_KEYS no longer holds a key the database's backups "
+        "need." in out
     )
 
 

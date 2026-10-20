@@ -2,8 +2,10 @@
 settings that only a development machine should have. Either stops the process with one
 message, from uvicorn, alembic and the maintenance command alike."""
 
+import base64
 import os
 import re
+import secrets
 import subprocess
 import sys
 from decimal import Decimal
@@ -23,6 +25,7 @@ from app.config import (
     get_settings,
     load_settings,
 )
+from app.keyring import DEVELOPMENT_KEY
 from app.main import MODELS_UNAVAILABLE, create_app
 from app.network import MODEL_BASE_URLS
 
@@ -30,6 +33,8 @@ A_DATABASE = "postgresql+psycopg://app:secret@db.internal:5432/emudoc"
 # The compose container's password on a server elsewhere: a copied development setup.
 WITH_THE_DEVELOPMENT_PASSWORD = "postgresql+psycopg://emudoc:emudoc@db.internal:5432/emudoc"
 API_DOCS = {"/openapi.json", "/docs", "/redoc"}
+A_KEY = base64.b64encode(secrets.token_bytes(32)).decode()
+DEVELOPMENT = base64.b64encode(DEVELOPMENT_KEY).decode()
 
 
 def paths_of(app) -> set[str]:
@@ -164,6 +169,7 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "INDEX_MODEL",
         "AGENT_FALLBACK_MODEL",
         "INDEX_FALLBACK_MODEL",
+        "ENCRYPTION_KEYS",
     ):
         monkeypatch.delenv(name, raising=False)
     return {
@@ -183,6 +189,7 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "operator_email": "privacy@emudoc.example.com",
         "backup_days": 35,
         "server_log_days": 30,
+        "encryption_keys": A_KEY,
     }
 
 
@@ -206,6 +213,7 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         "operator_email",
         "backup_days",
         "server_log_days",
+        "encryption_keys",
     ):
         del deployment[name]
     deployment["database_url"] = WITH_THE_DEVELOPMENT_PASSWORD
@@ -229,6 +237,7 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         "OPERATOR_EMAIL",
         "BACKUP_DAYS",
         "SERVER_LOG_DAYS",
+        "ENCRYPTION_KEYS",
     ):
         assert variable in message
     # Each line says what to do; none repeats the database's address or password.
@@ -251,6 +260,8 @@ def test_production_refuses_every_development_convenience_in_one_message(deploym
         ({"operator_email": ""}, "OPERATOR_EMAIL"),
         ({"backup_days": None}, "BACKUP_DAYS"),
         ({"server_log_days": None}, "SERVER_LOG_DAYS"),
+        ({"encryption_keys": ""}, "ENCRYPTION_KEYS"),
+        ({"encryption_keys": f"{A_KEY},{DEVELOPMENT}"}, "ENCRYPTION_KEYS"),
     ],
 )
 def test_each_development_setting_is_refused_on_its_own(deployment, change, variable):
@@ -264,6 +275,28 @@ def test_each_development_setting_is_refused_on_its_own(deployment, change, vari
         load_settings(**deployment)
     lines = stop.value.code.splitlines()
     assert len(lines) == 2 and variable in lines[1]
+
+
+@pytest.mark.parametrize(
+    ("keys", "said"),
+    [
+        ("not a key!", "Entry 1 of ENCRYPTION_KEYS is not base64"),
+        (f"{A_KEY},{base64.b64encode(b'sixteen bytes ok').decode()}", "Entry 2 of"),
+        (f"{A_KEY}, {A_KEY.replace('+', '-').replace('/', '_').rstrip('=')}", "listed before it"),
+    ],
+    ids=["not base64", "too short", "twice"],
+)
+def test_keys_that_are_not_keys_stop_the_process_without_printing_them(deployment, keys, said):
+    with pytest.raises(SystemExit) as stop:
+        load_settings(**{**deployment, "encryption_keys": keys})
+    assert said in stop.value.code
+    assert A_KEY not in stop.value.code and "not a key" not in stop.value.code
+
+
+def test_keys_are_read_in_either_base64_alphabet_and_a_trailing_comma_is_none():
+    urlsafe = A_KEY.replace("+", "-").replace("/", "_").rstrip("=")
+    settings = Settings(_env_file=None, encryption_keys=f" {urlsafe} , {DEVELOPMENT},")
+    assert settings.encryption_keys == f"{urlsafe} , {DEVELOPMENT},"
 
 
 def test_a_spend_cap_without_prices_is_refused_in_production(deployment):
@@ -607,6 +640,7 @@ def test_development_runs_with_everything_production_refuses(deployment):
         hosting_provider="",
         operator_name="",
         operator_email="",
+        encryption_keys="",
     )
     del deployment["storage_url"]
     del deployment["backup_days"]

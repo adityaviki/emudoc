@@ -4,6 +4,7 @@ files the host writes from them (deploy/aws/host/settings) carry them as they ar
 own tests are OpenTofu's (deploy/aws/modules/environment/tests); these keep it in step with
 Settings.production_problems, which is what a release's migrations refuse to start without."""
 
+import base64
 import json
 import re
 import subprocess
@@ -45,11 +46,12 @@ OPERATOR = {
     "AGENT_MODEL": "anthropic:claude-sonnet-5-5",
     "INDEX_MODEL": "anthropic:claude-haiku-5-5",
 }
-# What the operator puts under the secrets path by hand: the models' keys, and SMTP_URL when
-# the module makes no mail.
+# What the operator puts under the secrets path by hand: the models' keys, the key the
+# database's secrets are encrypted with, and SMTP_URL when the module makes no mail.
 SECRETS = {
     "SMTP_URL": "smtp://AKIAEXAMPLE:BAx%2Fy%2Bz%3D@email-smtp.eu-central-1.amazonaws.com:587",
     "ANTHROPIC_API_KEY": "sk-ant-example",
+    "ENCRYPTION_KEYS": base64.b64encode(bytes(range(32))).decode(),
 }
 # What the release tells Compose of the environment for Alertmanager (host/release, from the
 # host's settings that the module writes into the cloud-config).
@@ -208,12 +210,14 @@ def test_other_embedding_weights_reach_compose(tmp_path):
     )
 
 
-def test_the_drill_gets_production_settings_without_the_keys(tmp_path):
+def test_the_drill_gets_production_settings_without_the_providers_keys(tmp_path):
     assert write_env_files(tmp_path, WRITTEN | OPERATOR, SECRETS).returncode == 0
     drill_app = dict(
         line.split("=", 1) for line in (tmp_path / "drill-app.env").read_text().splitlines()
     )
     assert "ANTHROPIC_API_KEY" not in drill_app and "DATABASE_URL" not in drill_app
+    # By which the dry run checks that the restored secrets can be decrypted.
+    assert drill_app["ENCRYPTION_KEYS"] == SECRETS["ENCRYPTION_KEYS"]
     assert drill_app["AWS_CONFIG_FILE"] == "/run/aws/config"
     drill = compose_values((tmp_path / "drill.env").read_text())
     assert drill["RDS_URL"] == DATABASE_URL.replace(

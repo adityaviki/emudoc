@@ -147,6 +147,13 @@ CODE_INVALID = (
     "That code is not right. Enter the current code from your authenticator app, "
     "or one of your recovery codes."
 )
+# When the key that encrypted the authenticator's secret is gone (app/encrypted.py), no code
+# from the app can be right until the operator puts it back.
+CODE_UNCHECKABLE = (
+    "Codes from your authenticator app cannot be checked at the moment. Sign in with one of "
+    "your recovery codes, then turn two-factor sign-in off and on again on the account page to "
+    "set your app up afresh."
+)
 MFA_FIRST = "Sign in with your password first."
 WRONG_PASSWORD = "The password is not right."
 TYPE_EMAIL = "Type the email address of your account to confirm."
@@ -379,7 +386,7 @@ def verify_mfa(
     else:
         audit_sign_in(session, user, request, "sign_in_failed", {"reason": "code"})
         _failed(session, request, user, guesser, mailer, background)
-        return _refusal(401, CODE_INVALID)
+        return _refusal(401, CODE_INVALID if auth.totp_readable(user) else CODE_UNCHECKABLE)
     auth.complete_mfa(user_session)
     browser = auth.remember_browser(session, user, request)
     account = account_for_user(session, user, user_session.id)
@@ -746,7 +753,8 @@ def setup_mfa(account: AccountDep, session: SessionDep):
         raise HTTPException(
             409, "Two-factor sign-in is already on. Turn it off before setting up a new app."
         )
-    secret = user.totp_secret = auth.new_totp_secret()
+    secret = auth.new_totp_secret()
+    auth.set_totp_secret(user, secret)
     user.totp_last_step = None
     session.commit()
     return MfaSetupOut(secret=secret, otpauth_url=auth.totp_uri(secret, user.email))

@@ -702,6 +702,20 @@ run "a_key_among_the_settings" {
   expect_failures = [var.settings]
 }
 
+run "the_encryption_keys_among_the_settings" {
+  command = plan
+  variables {
+    settings = {
+      OPERATOR_NAME   = "Emudoc Ltd"
+      OPERATOR_EMAIL  = "privacy@example.com"
+      AGENT_MODEL     = "anthropic:claude-sonnet-5-5"
+      INDEX_MODEL     = "anthropic:claude-haiku-5-5"
+      ENCRYPTION_KEYS = "AAAA…"
+    }
+  }
+  expect_failures = [var.settings]
+}
+
 run "a_tracker_among_the_settings" {
   command = plan
   variables {

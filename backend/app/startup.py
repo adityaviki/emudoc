@@ -21,6 +21,7 @@ from collections.abc import Mapping
 from app.config import AGENT, BUNDLED_LIBPQ, INDEX, Settings, export_env_file, model_provider
 from app.db import check_schema
 from app.embeddings import Embedder, EmbeddingError
+from app.encrypted import check_encrypted
 from app.indexing.pipeline import Services
 from app.llm import LLM, LLMUnavailable
 from app.maintenance import check_embeddings, requeue_stale_embeddings, warn_about_old_layout
@@ -69,6 +70,7 @@ def prepare(settings: Settings, services: Services | None = None) -> Services:
     check_database(settings)
     check_embeddings()
     check_fts_language()
+    check_encrypted()
     if services is None:
         export_env_file(settings)
         services = Services(

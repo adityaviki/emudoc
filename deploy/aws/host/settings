@@ -4,7 +4,8 @@ journal's period, from the SSM parameters under the environment's path, which `a
 get-parameters-by-path --recursive --with-decryption` writes to this script's input:
 
   settings/NAME   what the OpenTofu module writes (deploy/aws/modules/environment/settings.tf)
-  secrets/NAME    what the operator puts there by hand: the models' keys, the OAuth secrets
+  secrets/NAME    what the operator puts there by hand: the models' keys, the OAuth secrets,
+                  ENCRYPTION_KEYS
 
 It writes five files into --out, each readable by root alone and each in the form its reader
 takes, since Compose, `docker run` and systemd quote values each their own way. The paths in
@@ -16,8 +17,9 @@ them name --home, where the release moves them once it succeeded:
                   which Alertmanager writes into its configuration (`docker compose
                   --env-file`)
   drill-app.env   the app's settings for the restore drill's dry run (`docker run --env-file`),
-                  without the models' and sign-in providers' keys, which it does not use, and
-                  with the storage reader's credentials in place of the app's
+                  without the models' and sign-in providers' keys, which it does not use, with
+                  ENCRYPTION_KEYS, by which it checks that the copy's secrets can be decrypted,
+                  and with the storage reader's credentials in place of the app's
   drill.env       the drill's own settings (a systemd EnvironmentFile)
   journald.conf   how long the journal keeps the containers' logs and the host's own,
                   SERVER_LOG_DAYS, which the privacy policy names (a drop-in of journald's,

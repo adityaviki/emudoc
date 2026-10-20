@@ -107,6 +107,9 @@ os.environ["METRICS_ADDRESS"] = ""
 # New passwords are checked against no breach list, which would be a request to Have I Been
 # Pwned; tests/test_passwords.py points the check at `FakePwnedPasswords`.
 os.environ["PWNED_PASSWORDS_URL"] = ""
+# The authenticators' secrets are encrypted with development's key, whatever `.env` names;
+# tests/test_encrypted.py sets keys of its own.
+os.environ["ENCRYPTION_KEYS"] = ""
 # The app under test starts no worker threads of its own: tests run the pipeline directly, or
 # build a `Worker` by hand (tests/test_jobs.py) and stop it.
 os.environ["RUN_WORKER"] = "false"

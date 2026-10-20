@@ -131,8 +131,9 @@ class User(Base):
     email_verified_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     # Two-factor sign-in with an authenticator app. The secret is set when setup starts and
     # counts only once `totp_enabled_at` is set by a correct code; the step of the last accepted
-    # code is kept so that a code cannot be used twice.
-    totp_secret: Mapped[str | None] = mapped_column(String(64))
+    # code is kept so that a code cannot be used twice. The secret is encrypted for this row
+    # with ENCRYPTION_KEYS (app/encrypted.py), so a copy of the database makes no codes.
+    totp_secret: Mapped[str | None] = mapped_column(Text)
     totp_enabled_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     totp_last_step: Mapped[int | None] = mapped_column(BigInteger)
     # SHA-256 hashes of the one-time codes that replace the authenticator when it is lost.

@@ -506,7 +506,8 @@ initials in the header) changes the name and the time zone the mail is dated in 
 sign-up; the pages date everything in the browser's own), moves the account to a new email
 address through a link sent there, which the old address is told of once it is opened, changes
 the password, turns on a code from an authenticator app at sign-in (shown as a QR code to scan,
-with recovery codes for a lost phone), lists the browsers and devices that are signed in and
+with recovery codes for a lost phone; its secret is kept encrypted with `ENCRYPTION_KEYS`, which
+the database never holds, so a copy of it makes no codes), lists the browsers and devices that are signed in and
 signs any of them out; a forgotten password is reset through a link sent by email, which signs
 the account out everywhere. Google and Microsoft accounts sign in through
 OpenID Connect and are linked to an existing account only when both sides have verified the
@@ -770,6 +771,8 @@ backend/app/
   agent/        the five tools and the tool-use loop
   accounts.py   who a request acts as; signing up makes a user and their organisation
   auth.py       passwords, sessions, one-time links and authenticator codes
+  keyring.py    the keys of ENCRYPTION_KEYS and the cipher the database's secrets are kept in
+  encrypted.py  the columns kept encrypted, the start's check and the encrypt-secrets command
   oidc.py       sign-in with Google and Microsoft
   mail.py       the emails the app sends
   maintenance.py

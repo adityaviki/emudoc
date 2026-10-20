@@ -27,7 +27,8 @@ lists the second part and removes it with `--delete`.
 the app again (app/restore.py): it brings back the files deleted since from a versioned bucket,
 moves the ids past the storage's, ends every session and records the restore in the audit logs.
 With `--dry-run` it changes nothing and exits 1 when the storage lacks a document's original at
-that point, which makes it the check of the restore drill (deploying.md, "The drill").
+that point, or when ENCRYPTION_KEYS lacks a key the restored secrets need, which makes it the
+check of the restore drill (deploying.md, "The drill").
 
 `failed-jobs` lists the jobs the worker gave up on, the dead letters (app/deadletters.py), and
 with `--requeue` queues their documents again from the stage they stopped at. `jobs` shows the
@@ -41,6 +42,10 @@ organisations: what each one's work cost the platform over a span of days, costl
 against its plan's daily limit, then the platform's total against DAILY_SPEND_CAP and the cost
 by kind of work and model. It reads the usage rows, since the metrics carry no label per
 organisation (app/metrics.py), and prints organisations by slug and name, never an address.
+
+`encrypt-secrets` encrypts with the first key of ENCRYPTION_KEYS what the database keeps
+encrypted (app/encrypted.py) and is not yet: the values from before a column was encrypted, and
+those of an earlier key, which is a key's rotation. It runs beside the app.
 
 `models` asks every model the settings name, fallbacks included, what the app asks of it
 (app/trial.py), and exits 1 when one does not answer as the app needs: the start only builds
@@ -67,6 +72,7 @@ from app.auth import CREDENTIAL_HISTORY, prune_credentials
 from app.config import export_env_file, get_settings
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine, unbounded
 from app.deadletters import NamedJob, describe, failed_jobs, named_jobs, requeue
+from app.encrypted import describe_encrypted, encrypt_secrets, keys
 from app.entitlements import PLANS, Entitlements, entitlements_of
 from app.jobs import (
     ANSWER_QUESTION,
@@ -963,10 +969,12 @@ def main(argv: list[str] | None = None) -> None:
         "deleted since that point, move the ids of organisations, projects and documents past "
         "every id the storage holds, end every session and unused link, record the restore in "
         "each organisation's audit log, and purge again the accounts deleted since. It then "
-        "names the documents whose original the storage lacks. Running it again is safe. With "
-        "--dry-run it changes neither the database nor the storage, says what it would do, and "
-        "exits with 1 when the storage lacks a document's original at that point: the check "
-        "of a restore drill, against a restored copy of the database and the live storage.",
+        "names the documents whose original the storage lacks, and the secrets encrypted "
+        "with a key ENCRYPTION_KEYS no longer holds. Running it again is safe. With --dry-run "
+        "it changes neither the database nor the storage, says what it would do, and exits "
+        "with 1 when the storage lacks a document's original at that point or a secret's key "
+        "is gone: the check of a restore drill, against a restored copy of the database and "
+        "the live storage.",
     )
     restore.add_argument(
         "restored_to",
@@ -1053,6 +1061,15 @@ def main(argv: list[str] | None = None) -> None:
         "changes nothing, and exits with 1 when something needs looking at: a pgvector before "
         "0.8, in production a role without timeouts, a table autovacuum is behind on, or a "
         "transaction open for over an hour.",
+    )
+    commands.add_parser(
+        "encrypt-secrets",
+        help="encrypt the database's secrets with the first key of ENCRYPTION_KEYS",
+        description="Encrypt with the first key of ENCRYPTION_KEYS every secret the database "
+        "keeps encrypted that is not yet: the authenticators' secrets from before they were "
+        "encrypted, and those an earlier key of the list encrypted. Run it after putting a new "
+        "key first, to rotate the key; it runs beside the app. It exits with 1 when a secret "
+        "is encrypted with a key the list does not hold, which it leaves as it is.",
     )
     commands.add_parser(
         "models",
@@ -1156,7 +1173,7 @@ def main(argv: list[str] | None = None) -> None:
             restored = after_restore(storage, args.restored_to, dry_run=args.dry_run)
             for line in describe_restore(restored, args.restored_to):
                 print(line)
-            if restored.dry_run and restored.missing:
+            if restored.dry_run and not restored.whole:
                 sys.exit(1)
         elif args.command == "failed-jobs":
             check_schema()
@@ -1217,6 +1234,13 @@ def main(argv: list[str] | None = None) -> None:
             for line in describe_database(report, settings):
                 print(line)
             if concerns(report, settings):
+                sys.exit(1)
+        elif args.command == "encrypt-secrets":
+            check_schema()
+            done = encrypt_secrets()
+            for line in describe_encrypted(done, keys(), settings.backup_days):
+                print(line)
+            if any(outcome.lost for outcome in done):
                 sys.exit(1)
         elif args.command == "models":
             # Each request's outcome is in the lines below; the model layer's and the HTTP

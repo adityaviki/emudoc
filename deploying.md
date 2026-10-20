@@ -1085,10 +1085,11 @@ launch. Where the deployment keeps what it was sent:
 
 - **The database** holds the documents' text (every passage, section summary and fact), the
   questions and answers, members' names and addresses, password and session hashes, and the
-  authenticator secrets of two-factor sign-in, which are stored as they are. Postgres has no
-  encryption of its own, so the volume under it is encrypted: LUKS on a server, or a managed
-  database's encryption at rest (on RDS it is chosen when the instance is created). Its
-  backups and archived WAL carry the same data and need the same.
+  authenticator secrets of two-factor sign-in, which the app encrypts itself with a key the
+  database never holds, since a secret makes its member's codes ("The encryption keys").
+  Postgres has no encryption of its own, so the volume under it is encrypted: LUKS on a
+  server, or a managed database's encryption at rest (on RDS it is chosen when the instance is
+  created). Its backups and archived WAL carry the same data and need the same.
 - **The bucket** holds the originals, the page images and the thumbnails, under its own
   default encryption. AWS encrypts every new object since January 2023 (SSE-S3, AES-256), and a
   bucket's default encryption can name a KMS key instead. Cloudflare R2 encrypts every object
@@ -1114,6 +1115,43 @@ launch. Where the deployment keeps what it was sent:
 
 Keys chosen per organisation are a later step; until then the bucket's default encryption and
 the disks' keys are the deployment's, the same for every organisation.
+
+### The encryption keys
+
+The disk's encryption protects a disk taken away, not a copy of the database: a dump, a backup,
+a restore drill's scratch copy, a read through a leaked password. So what in the database would
+let its holder act as a member, the authenticators' secrets of two-factor sign-in, the app
+encrypts itself (AES-256-GCM, each value bound to its row, so a value copied into another
+account's row decrypts nowhere; `backend/app/keyring.py`, `backend/app/encrypted.py`), with
+keys from `ENCRYPTION_KEYS`, which the database never sees. Passwords and session tokens are
+hashes and need no key.
+
+Make a key with `openssl rand -base64 32` and put it where the other secrets are kept: on one
+machine in the settings' file, on AWS under the secrets path ("The settings"). Production
+refuses to start without one, and with development's, which is in the code. Keep it apart from
+the database's backups, or encrypting gains nothing; and keep it as surely as the backups, since
+a lost key loses every authenticator it encrypted. A member whose secret no key decrypts is told
+to sign in with a recovery code and set the app up again; the start, the `encrypt-secrets`
+command and the drill name how many there are and which key they need.
+
+`ENCRYPTION_KEYS` holds several keys, separated by commas: the first encrypts, and every one
+decrypts what it encrypted (a value names its key by the first eight hex digits of the key's
+SHA-256, which the start's line "Secrets in the database are encrypted with key …" shows too).
+To rotate:
+
+1. Make a new key and put it first, the old one after it, then release the same tag. The
+   authenticators keep working, and new ones are encrypted with the new key.
+2. `python -m app.maintenance encrypt-secrets` (in the image, `docker compose run --rm --no-deps
+   worker python -m app.maintenance encrypt-secrets`) encrypts every secret with the first key,
+   beside the running app: a row is written only if it still holds what was read, so an
+   authenticator set up meanwhile stays. It exits with 1 when a secret's key is not in the list.
+3. Keep the old key in the list for `BACKUP_DAYS` more: a restore brings the rows back as they
+   were, encrypted with it, and the monthly drill fails on a secret whose key is gone. Then
+   remove it and release again.
+
+A key that leaked is rotated the same way at once; a copy of the database taken with it still
+holds what the old key decrypts. The secrets from before encryption (2026-10-20) stay readable
+as they were until `encrypt-secrets` runs once, and the start warns while any are left.
 
 ## What leaves the deployment
 
@@ -1440,7 +1478,8 @@ or backed up with restic, at least as often as a restore would need, and kept no
    given a lost one's would be served its pages; ends every session and unused link, since a
    session signed out since would work again; records the restore in every organisation's audit
    log; purges again the accounts deleted since; and names the documents whose original is
-   still missing, which means the storage is older than the database. Running it again is safe,
+   still missing, which means the storage is older than the database, and the authenticators
+   whose key `ENCRYPTION_KEYS` no longer holds ("The encryption keys"). Running it again is safe,
    and `after-restore --dry-run` with the same moment says first what it would do, changing
    nothing.
 6. Start the app, and tell the members that what they did after that moment is undone: their
@@ -1499,9 +1538,9 @@ how the backups are made.
 newest backup into a scratch directory, starts a throwaway Postgres on it that archives nothing
 and listens on no port, migrates it, and checks it against the live storage with `after-restore
 --dry-run`, which changes neither: every document of the copy must have its original in the
-storage, now or among the earlier versions the bucket keeps. It prints what a real
-`after-restore` would do and how long each part took, and exits with 0 only when the restore is
-whole:
+storage, now or among the earlier versions the bucket keeps, and every secret it holds a key in
+`ENCRYPTION_KEYS` ("The encryption keys"). It prints what a real `after-restore` would do and
+how long each part took, and exits with 0 only when the restore is whole:
 
 ```text
 The database reaches 2026-10-15 10:32:30 UTC (the last transaction its recovery replayed), 4 min 48 s before the restore point.
@@ -1525,8 +1564,9 @@ memory and disk, and which a restore must not depend on. That machine needs:
   large as the database. The copy is not encrypted while the drill runs, so that disk is kept
   like the database's (`DRILL_DIR`, `/var/tmp/emudoc-drill` by default, removed after).
 - The app's checkout with uv (`DRILL_BACKEND`), or its image through `DRILL_APP` (below), and
-  production's settings without the model keys, which the check does not use, and with the
-  bucket's keys replaced by read-only ones: `s3:ListBucket`, `s3:ListBucketVersions`,
+  production's settings without the model keys, which the check does not use, with
+  `ENCRYPTION_KEYS`, by which it checks the copy's secrets, and with the bucket's keys replaced
+  by read-only ones: `s3:ListBucket`, `s3:ListBucketVersions`,
   `s3:GetBucketVersioning` and `s3:GetLifecycleConfiguration` on the bucket are all it asks for.
   A directory storage is mounted read-only: the dry run only lists it. The script sets
   `DATABASE_URL` itself, to the copy's socket.
@@ -2819,6 +2859,7 @@ of the same tag (the Release workflow).
 | `SMTP_URL`'s password | The relay; on AWS `tofu apply -replace='module.emudoc.aws_iam_access_key.smtp[0]'` | A password reset's mail |
 | `GOOGLE_OAUTH_CLIENT_SECRET`, `MICROSOFT_OAUTH_CLIENT_SECRET` | The provider's console, which holds two secrets at once | A sign-in with each, then the old secret deleted there |
 | `SENTRY_DSN` | A new client key in the tracker's project | An error reaches the tracker, then the old key disabled |
+| `ENCRYPTION_KEYS` | `openssl rand -base64 32`, put first, the old key after it | `encrypt-secrets`; the old key removed after `BACKUP_DAYS` ("The encryption keys") |
 | The bucket's (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) | The bucket's provider; on AWS there are none, the host renews a role's session every quarter of an hour | The start's line "The bucket keeps …" |
 | The Models workflow's | The provider, with a low spending limit | `gh secret set`, then a run by hand |
 | pgBackRest's `repo1-cipher-pass` | Not for a repository that holds backups: a new repository under the new passphrase, the old one kept with its own until its backups pass `BACKUP_DAYS` | `pgbackrest --stanza=emudoc info` |
@@ -3127,8 +3168,9 @@ the containers with the next release (the same tag again does).
 2. Fill in `shared/main.tf` and each root's domain, zone, `mail` and `alert_email`, then
    `tofu -chdir=deploy/aws/staging init -backend-config=bucket=emudoc-state-<account>` and
    `apply`.
-3. Put the keys into the secrets path as above: each model's provider and each fallback's, the
-   OAuth clients' secrets, and `SMTP_URL` without `mail`.
+3. Put the keys into the secrets path as above: `ENCRYPTION_KEYS` (`openssl rand -base64 32`,
+   kept apart from the database's backups too, "The encryption keys"), each model's provider
+   and each fallback's, the OAuth clients' secrets, and `SMTP_URL` without `mail`.
 4. Make the DNS records if the zone is not in Route 53, ask SES for production access, and
    confirm the alerts' subscription. Its first message is the alarm
    `emudoc-<environment>-alerts-silent`, which stays in alarm until the first release starts
@@ -3308,9 +3350,12 @@ repository's policy among them.
    the companies behind the models and, with a bucket or a mail relay, theirs: what the
    deployment's privacy notice promises, and nothing it does not.
 9. The API's and the worker's logs say at start "The bucket encrypts every file it keeps at
-   rest" (with a bucket), and no line from `app.storage` warns about it. Request a password
-   reset: the mail arrives, and the API's log has no line saying the relay "presented a
-   certificate this machine does not trust". With a database off the own network, `psql` given
+   rest" (with a bucket), and no line from `app.storage` warns about it; and "Secrets in the
+   database are encrypted with key …, the first of ENCRYPTION_KEYS", and no line from
+   `app.encrypted` warns. Turn two-factor sign-in on and sign in again with the app's code: the
+   account's `totp_secret` in the database begins `v1.` and that key's eight digits. Request a
+   password reset: the mail arrives, and the API's log has no line saying the relay "presented
+   a certificate this machine does not trust". With a database off the own network, `psql` given
    the same URL without `+psycopg` opens with `SSL connection (protocol: TLSv1.3, …)`, and
    with `sslrootcert` pointed at an authority that did not sign the server's certificate it
    refuses to connect. `psql` has the system's libpq; that the app started at all is the check
@@ -3544,6 +3589,7 @@ and the like), named on its models' pages.
 | --- | --- | --- | --- |
 | `SMTP_URL` | none: the mail is logged | required | The relay for the sign-in links and the operator's mail |
 | `PWNED_PASSWORDS_URL` | `https://api.pwnedpasswords.com` | | Where new passwords are checked against breaches ("Rates"); empty checks nothing |
+| `ENCRYPTION_KEYS` | development's key, which is in the code | required, a secret | The keys the authenticators' secrets are encrypted with, the first encrypting ("The encryption keys") |
 | `MAIL_FROM` | `Emudoc <no-reply@localhost>` | | The sender |
 | `ALERT_EMAIL` | none | | Where the worker reports ("What the worker mails") |
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | none | the client secret is a secret | Sign-in with Google |

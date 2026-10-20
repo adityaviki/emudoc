@@ -19,9 +19,9 @@ organisation uploaded a document about you, ask the organisation first; we help 
 - **Your account**: your email address, your name, the time zone our email to you is dated in,
   your password (as a hash only, from which it cannot be read back), whether you confirmed your
   address, the Google or Microsoft account you sign in with, and with two-factor sign-in your
-  authenticator's secret and the hashes of your recovery codes, and which version of these
-  terms you accepted and when. We need them to give you an account, under our contract with
-  you.
+  authenticator's secret (encrypted) and the hashes of your recovery codes, and which version
+  of these terms you accepted and when. We need them to give you an account, under our
+  contract with you.
 - **Where you signed in**: for every browser or device you sign in from, its internet (IP)
   address, the browser's description of itself and when it was last used, all of which the
   account page shows you, and the address each sign-up, confirmation, reset or
@@ -108,9 +108,10 @@ $third_parties so there is nothing to consent to.
 
 - Connections to the service are encrypted, and so are its connections to anything outside its
   own network.
-- Passwords are kept only as hashes, and two-factor sign-in is available. After many wrong
-  passwords or codes, sign-ins from the browsers that have never signed in to the account pause
-  for the rest of the hour, and the account's owner is told.
+- Passwords are kept only as hashes, and two-factor sign-in is available, its authenticators'
+  secrets encrypted with a key the database does not hold. After many wrong passwords or
+  codes, sign-ins from the browsers that have never signed in to the account pause for the
+  rest of the hour, and the account's owner is told.
 - Every request is checked against the organisation it is for, so no organisation can reach
   another's data.
 $more_security

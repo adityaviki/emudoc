@@ -29,6 +29,8 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.encrypted import TOTP_SECRETS, decrypt, encrypt
+from app.keyring import Undecryptable
 from app.models import AuthToken, Browser, User, UserSession
 
 log = logging.getLogger(__name__)
@@ -359,6 +361,31 @@ def new_totp_secret() -> str:
     return base64.b32encode(secrets.token_bytes(20)).decode()
 
 
+def set_totp_secret(user: User, secret: str) -> None:
+    """Keep the authenticator's secret encrypted for the user's row (app/encrypted.py): the
+    codes it makes are a sign-in's second factor, so a copy of the database must not make
+    them."""
+    user.totp_secret = encrypt(TOTP_SECRETS, user.id, secret)
+
+
+def totp_secret(user: User) -> str | None:
+    """The authenticator's secret; `Undecryptable` when no key this process holds decrypts
+    it."""
+    if user.totp_secret is None:
+        return None
+    return decrypt(TOTP_SECRETS, user.id, user.totp_secret)
+
+
+def totp_readable(user: User) -> bool:
+    """Whether the user's authenticator, if any, can be checked: False when the key that
+    encrypted its secret is gone, and only a recovery code signs them in."""
+    try:
+        totp_secret(user)
+    except Undecryptable:
+        return False
+    return True
+
+
 def totp_uri(secret: str, email: str) -> str:
     """The otpauth link an authenticator app reads, usually from a QR code."""
     label = quote(f"{TOTP_ISSUER}:{email}")
@@ -390,9 +417,14 @@ def check_totp(user: User, code: str) -> bool:
     code = code.replace(" ", "")
     if user.totp_secret is None or len(code) != TOTP_DIGITS or not code.isdigit():
         return False
+    try:
+        secret = totp_secret(user)
+    except Undecryptable as error:
+        log.warning("User %s's code could not be checked: %s", user.id, error)
+        return False
     current = totp_step()
     for step in (current, current - 1, current + 1):
-        if hmac.compare_digest(totp_code(user.totp_secret, step), code):
+        if hmac.compare_digest(totp_code(secret, step), code):
             if user.totp_last_step is not None and step <= user.totp_last_step:
                 return False
             user.totp_last_step = step
