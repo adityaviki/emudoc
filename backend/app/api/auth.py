@@ -132,7 +132,14 @@ from app.ratelimit import (
     tally,
     window_end,
 )
-from app.retention import DELETION_GRACE, LOCAL_ACCOUNT, day, deletion_refusal
+from app.retention import (
+    DELETION_GRACE,
+    LOCAL_ACCOUNT,
+    Held,
+    day,
+    deletion_refusal,
+    retention_held,
+)
 from app.schemas import (
     AccountDeletionIn,
     AccountExport,
@@ -160,6 +167,7 @@ from app.schemas import (
     PasswordResetIn,
     ProfileIn,
     RecoveryCodesOut,
+    RetentionHeldOut,
     SessionOut,
     SignupFinishIn,
     SignupIn,
@@ -1169,7 +1177,8 @@ SHOWN = (
 
 def organization_out(session: Session, organization: Organization) -> OrganizationOut:
     """The organisation as the page shows it, with what it may keep and use, the packs bought
-    for the month among it, what it holds past it, and how it buys its plan."""
+    for the month among it, what it holds past it, what it keeps as before after a lower plan,
+    and how it buys its plan."""
     entitlements = entitlements_of(organization)
     settings = get_settings()
     on_sale = list(sold(settings))
@@ -1199,6 +1208,8 @@ def organization_out(session: Session, organization: Organization) -> Organizati
             ),
             "seats": seats_of(organization),
             "chat_retention_days": entitlements.retention_days,
+            "audit_retention_days": entitlements.audit_days,
+            "retention_held": held_out(retention_held(organization)),
             "allowance": AllowanceOut(
                 projects=entitlements.projects,
                 documents=entitlements.documents,
@@ -1215,6 +1226,17 @@ def organization_out(session: Session, organization: Organization) -> Organizati
                 ],
             ),
         }
+    )
+
+
+def held_out(standing: Held | None) -> RetentionHeldOut | None:
+    """What an organisation keeps as before after a move to a lower plan, as the page shows it."""
+    if standing is None:
+        return None
+    return RetentionHeldOut(
+        until=standing.until,
+        chat_days=standing.kept.chat_days,
+        audit_days=standing.kept.audit_days,
     )
 
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { Billing, Organization } from './api.ts'
-import { billed, describeBilling, describeExcess, mayBuy, offerFor, thisMonth } from './billing.ts'
+import type { Billing, Organization, PlanChange } from './api.ts'
+import { billed, describeBilling, describeChange, describeExcess, describeHeld, mayBuy, mayChange, offerFor, thisMonth } from './billing.ts'
 
 const none: Billing = {
   sold: ['pro', 'team'],
@@ -75,6 +75,8 @@ const free: Organization = {
   billing: { ...none, packs: [{ unit: 'pages', quantity: 1000 }] },
   region: null,
   chat_retention_days: 30,
+  audit_retention_days: 90,
+  retention_held: null,
   join_domains: [],
   join_role: 'member',
 }
@@ -159,5 +161,83 @@ describe('describeExcess', () => {
     expect(describeExcess(over)).toBe(
       'Acme holds more than the Free plan allows: 3 projects of 1, 40 documents of 25 and 2 members of 1. Until it is within it, nothing can be added or changed, though everything it holds can still be read, asked about and deleted.',
     )
+  })
+})
+
+describe('mayChange', () => {
+  it('moves or cancels a subscription in its trial or paid, not one cancelled or waiting for a payment', () => {
+    expect(mayChange({ ...none, status: 'active' })).toBe(true)
+    expect(mayChange({ ...none, status: 'trialing' })).toBe(true)
+    expect(mayChange({ ...none, status: 'active', ends_at: '2026-11-20T00:00:00Z' })).toBe(false)
+    expect(mayChange({ ...none, status: 'past_due' })).toBe(false)
+    expect(mayChange(none)).toBe(false)
+    expect(mayChange({ ...none, status: 'active', managed: false })).toBe(false)
+  })
+})
+
+const onTeam: Organization = {
+  ...team,
+  allowance: { ...free.allowance, projects: 50, documents: 10_000, storage_bytes: 100_000_000_000, pages_per_month: 25_000, questions_per_month: 5_000, members: 3 },
+  chat_retention_days: null,
+  audit_retention_days: 365,
+}
+const cancelled: PlanChange = {
+  plan: 'free',
+  seats: null,
+  at: '2027-01-15T00:00:00Z',
+  allowance: { ...free.allowance, over: [{ limit: 'members', words: '2 members of 1' }] },
+  retention: { chat_days: 30, audit_days: 90 },
+  held: { chat_days: null, audit_days: 365, until: '2027-02-14T00:00:00Z' },
+  held_days: 30,
+}
+
+describe('describeChange', () => {
+  it('says when a cancellation ends the plan, what it leaves read-only and what goes later', () => {
+    const { figures, notes } = describeChange(cancelled, onTeam, date)
+    expect(figures).toEqual([
+      { label: 'Projects', now: '50', then: '1' },
+      { label: 'Documents', now: '10,000', then: '25' },
+      { label: 'Storage', now: '100 GB', then: '100 MB' },
+      { label: 'Pages indexed', now: '25,000 a month', then: '200 a month' },
+      { label: 'Questions', now: '5,000 a month', then: '50 a month' },
+      { label: 'Members', now: '3', then: '1' },
+      { label: 'Chats kept', now: 'Until deleted', then: '30 days' },
+    ])
+    expect(notes).toEqual([
+      'The subscription ends on 2027-01-15, at the end of the period paid for, and the organisation then moves to the Free plan, keeping everything it holds.',
+      'It would hold more than the Free plan allows (2 members of 1), so until it is within the plan nothing could be added or changed, though everything it holds could still be read, asked about and deleted.',
+      'The Free plan keeps chats 30 days after their last question and audit log entries 90 days. Those older would be kept as now until 2027-02-14, and deleted then.',
+    ])
+  })
+
+  it('leaves the price to Stripe, and names only what the new plan keeps for less time', () => {
+    const toPro: PlanChange = {
+      ...cancelled,
+      plan: 'pro',
+      at: null,
+      allowance: { ...onTeam.allowance, projects: 10, members: 1, over: [] },
+      retention: { chat_days: 365, audit_days: 365 },
+      held: { chat_days: null, audit_days: 365, until: null },
+    }
+    const { notes } = describeChange(toPro, onTeam, date)
+    expect(notes[0]).toMatch(/^Stripe’s page shows the new price .* the organisation is on the Pro plan, keeping everything it holds\.$/)
+    expect(notes[1]).toBe('The Pro plan keeps chats 365 days after their last question. Those older would be kept as now for 30 days after the change, and deleted then.')
+    const moreSeats = describeChange({ ...toPro, plan: 'team', seats: 5, allowance: { ...onTeam.allowance, members: 5, over: [] }, retention: { chat_days: null, audit_days: 365 }, held: null }, onTeam, date)
+    expect(moreSeats).toEqual({
+      figures: [{ label: 'Members', now: '3', then: '5' }],
+      notes: [expect.stringContaining('on the Team plan with 5 seats')],
+    })
+  })
+})
+
+describe('describeHeld', () => {
+  it('says what is kept as before after a lower plan, and until when', () => {
+    expect(describeHeld(free, date)).toBeNull()
+    const held = { ...free, retention_held: { chat_days: null, audit_days: 365, until: '2026-11-19T00:00:00Z' } }
+    expect(describeHeld(held, date)).toBe(
+      'Until 2026-11-19 it keeps chats until they are deleted and audit log entries 365 days, as its plan before did; then those older go.',
+    )
+    // A hold of what the plan keeps as long anyway says nothing.
+    expect(describeHeld({ ...held, retention_held: { chat_days: 30, audit_days: 90, until: '2026-11-19T00:00:00Z' } }, date)).toBeNull()
   })
 })

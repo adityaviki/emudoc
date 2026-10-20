@@ -3,8 +3,10 @@ Stripe's portal, and buys packs of pages or questions for the month, counted onc
 that month alone; the subscription Stripe holds sets the plan, read back from Stripe at each of
 its events, which are acted on once and only with Stripe's signature; a failed payment keeps the
 plan for the grace period and tells the owners, then the organisation is on Free, keeping all it
-holds, until it pays; an organisation whose terms are agreed is left to the operator. Stripe is
-`FakeStripe` (tests/conftest.py), behind the app's own client."""
+holds, until it pays; an owner reads what a lower plan or a cancellation would leave read-only and
+which chats and audit rows it would keep for less time before Stripe's page takes it, and the
+owners are mailed it once it is done; an organisation whose terms are agreed is left to the
+operator. Stripe is `FakeStripe` (tests/conftest.py), behind the app's own client."""
 
 import copy
 import itertools
@@ -20,16 +22,22 @@ from sqlalchemy import text
 from app.billing import (
     AGREED,
     BILLING_OFF,
+    ENDING,
     NO_CUSTOMER,
     NO_LIMIT,
     NO_PACK,
+    NO_SEATS,
+    NO_SUBSCRIPTION,
     NOT_FINISHED,
     NOT_SOLD,
     OTHER_CHECKOUT,
     OWNERS_ONLY,
+    PAY_FIRST,
     PAYMENT_ON_ITS_WAY,
+    SAME_PLAN,
     SEATS_NEEDED,
     SUBSCRIBED,
+    UNLISTED,
     end_grace_periods,
     prune_billing_events,
     subscription_refusal,
@@ -40,7 +48,7 @@ from app.entitlements import MONTHS, PLANS, check_question, check_upload, month_
 from app.maintenance import housekeeping, plan_report
 from app.models import AllowancePack, BillingEvent, Organization
 from app.payments import API_VERSION, UNAVAILABLE, BadSignature, form, sign, verified_event
-from app.retention import day
+from app.retention import RETENTION_HELD, day
 from app.usage import UPLOAD, record
 from tests.test_audit import actions
 
@@ -355,7 +363,7 @@ def test_the_portal_is_an_owner_s_once_the_organisation_is_a_customer(client, st
     customer = stripe.subscriptions[next(iter(stripe.subscriptions))]["customer"]
     assert stripe.made("/v1/billing_portal/sessions")[-1] == {
         "customer": customer,
-        "return_url": f"{APP}/organization",
+        "return_url": f"{APP}/organization?billing=back",
     }
 
 
@@ -616,8 +624,18 @@ def test_a_cancelled_subscription_runs_to_its_end_then_the_plan_is_free(
         "plan_changed",
         {"from": "pro", "to": "free", "because": "subscription_ended"},
     )
-    # The owner chose it: nobody is written to.
-    assert mailer.sent == []
+    # The owners are told of the cancellation, and once it ends, of what the Free plan means.
+    assert [subject for _, subject, _ in mailer.sent] == [
+        "Your Emudoc subscription was cancelled",
+        "Your organisation's plan changed",
+    ]
+    body = mailer.sent[-1][2]
+    assert "The subscription to the Pro plan of Acme on Emudoc has ended" in body
+    assert (
+        "The Free plan keeps chats 30 days after their last question and audit log entries 90 "
+        f"days. Those older are kept as the Pro plan kept them until "
+        f"{day(held.retention_held_until)}, and deleted then." in body
+    )
 
 
 def test_a_failed_payment_keeps_the_plan_for_the_grace_period_then_the_plan_is_free(
@@ -660,6 +678,11 @@ def test_a_failed_payment_keeps_the_plan_for_the_grace_period_then_the_plan_is_f
     assert [subject for _, subject, _ in mailer.sent[-2:]] == [
         "Your organisation moved to the Free plan"
     ] * 2
+    # Free keeps chats and audit rows for less time than Team: those older stay for a while.
+    assert (
+        "Those older are kept as the Team plan kept them until "
+        f"{day(held.retention_held_until)}, and deleted then." in mailer.sent[-1][2]
+    )
     assert end_grace_periods(mailer, now=until + timedelta(days=1)) == 0
 
     # Paid at last, the subscription is active again, and so is its plan.
@@ -730,6 +753,206 @@ def test_the_housekeeper_forgets_events_acted_on_a_month_ago(
         assert prune_billing_events(connection) == 0
     session.expire_all()
     assert [row.id for row in session.query(BillingEvent)] == ["evt_new"]
+
+
+# Lowering and cancelling
+
+
+def change_of(client, plan: str, seats: int | None = None):
+    params = {"plan": plan} | ({"seats": seats} if seats is not None else {})
+    return client.get("/api/organization/billing/change", params=params)
+
+
+def portal(client, plan: str | None = None, seats: int | None = None):
+    body = {"plan": plan, "seats": seats} if plan else None
+    return client.post("/api/organization/billing/portal", json=body)
+
+
+def portal_done(client) -> dict:
+    response = client.post("/api/organization/billing/portal/done")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_an_owner_reads_what_cancelling_would_do_then_cancels_on_stripe_s_page(
+    client, session, stripe, make_account, ada
+):
+    make_account("cy@acme.com", ada.organization, "member")
+    bought = subscribed(client, stripe, ada, "team", 3)
+    ends = datetime.fromtimestamp(1_800_000_000, UTC)
+
+    response = change_of(client, "free")
+    assert response.status_code == 200, response.text
+    found = response.json()
+    assert moment(found["at"]) == ends
+    assert found["allowance"]["members"] == 1 and found["allowance"]["projects"] == 1
+    assert found["allowance"]["over"] == [{"limit": "members", "words": "2 members of 1"}]
+    assert found["retention"] == {"chat_days": 30, "audit_days": 90}
+    # What Team keeps longer stays as it was for a while after the end.
+    held = found["held"]
+    assert (held["chat_days"], held["audit_days"]) == (None, 365)
+    assert moment(held["until"]) == ends + RETENTION_HELD
+    assert found["held_days"] == RETENTION_HELD.days
+
+    assert portal(client, "free").json() == {"url": "https://billing.stripe.test/session"}
+    back_here = f"{APP}/organization?billing=back"
+    assert stripe.made("/v1/billing_portal/sessions")[-1] == {
+        "customer": bought["customer"],
+        "return_url": back_here,
+        "flow_data[type]": "subscription_cancel",
+        "flow_data[subscription_cancel][subscription]": bought["id"],
+        "flow_data[after_completion][type]": "redirect",
+        "flow_data[after_completion][redirect][return_url]": back_here,
+    }
+
+
+def test_back_from_the_portal_the_cancellation_shows_and_is_mailed_once(
+    client, session, stripe, mailer, make_account, ada
+):
+    make_account("cy@acme.com", ada.organization, "owner")
+    bought = subscribed(client, stripe, ada)
+    stripe.subscriptions[bought["id"]]["cancel_at_period_end"] = True
+
+    me = portal_done(client)
+    ends = datetime.fromtimestamp(1_800_000_000, UTC)
+    assert moment(me["organization"]["billing"]["ends_at"]) == ends
+    assert me["organization"]["plan"] == "pro"
+    assert actions(session, ada.organization.id)[-1] == (
+        "subscription_cancelled",
+        {"ends_at": ends.isoformat()},
+    )
+    assert [(to, subject) for to, subject, _ in mailer.sent] == [
+        ("ada@acme.com", "Your Emudoc subscription was cancelled"),
+        ("cy@acme.com", "Your Emudoc subscription was cancelled"),
+    ]
+    body = mailer.sent[0][2]
+    assert f"It runs until {day(ends)}, and then the organisation moves to the Free plan" in body
+    assert (
+        "The Free plan keeps chats 30 days after their last question and audit log entries 90 "
+        "days. Those older will be kept as the Pro plan keeps them until "
+        f"{day(ends + RETENTION_HELD)}, and deleted then." in body
+    )
+    # Stripe's event says the same a moment later, and nobody is told twice.
+    deliver(client, event("customer.subscription.updated", bought))
+    assert len(mailer.sent) == 2
+
+    # Renewed before it ends, it goes on as before.
+    stripe.subscriptions[bought["id"]]["cancel_at_period_end"] = False
+    deliver(client, event("customer.subscription.updated", bought))
+    held = organization(session, ada.organization.id)
+    assert (held.ends_at, held.renews_at) == (None, ends)
+    assert actions(session, ada.organization.id)[-1] == ("cancellation_withdrawn", {})
+    assert len(mailer.sent) == 2
+
+
+def test_an_owner_moves_to_a_lower_plan_through_stripe_s_confirmation(
+    client, session, stripe, mailer, make_account, ada
+):
+    make_account("cy@acme.com", ada.organization, "member")
+    bought = subscribed(client, stripe, ada, "team", 3)
+
+    # Fewer seats that still hold every member change nothing else.
+    fewer = change_of(client, "team", 2).json()
+    assert (fewer["allowance"]["members"], fewer["allowance"]["over"], fewer["held"]) == (
+        2,
+        [],
+        None,
+    )
+    found = change_of(client, "pro").json()
+    assert found["at"] is None
+    assert found["allowance"]["over"] == [{"limit": "members", "words": "2 members of 1"}]
+    assert found["retention"] == {"chat_days": 365, "audit_days": 365}
+    held = found["held"]
+    assert (held["chat_days"], held["audit_days"], held["until"]) == (None, 365, None)
+
+    assert portal(client, "pro").status_code == 200
+    (item,) = bought["items"]["data"]
+    sent = stripe.made("/v1/billing_portal/sessions")[-1]
+    assert {key: value for key, value in sent.items() if "update_confirm" in key} == {
+        "flow_data[subscription_update_confirm][subscription]": bought["id"],
+        "flow_data[subscription_update_confirm][items][0][id]": item["id"],
+        "flow_data[subscription_update_confirm][items][0][price]": "price_pro",
+        "flow_data[subscription_update_confirm][items][0][quantity]": "1",
+    }
+    assert sent["flow_data[type]"] == "subscription_update_confirm"
+
+    # Confirmed on Stripe's page; back here, the organisation is on Pro.
+    item["price"] = {"id": "price_pro", "object": "price"}
+    item["quantity"] = 1
+    me = portal_done(client)["organization"]
+    assert (me["plan"], me["seats"]) == ("pro", None)
+    assert me["allowance"]["over"] == [{"limit": "members", "words": "2 members of 1"}]
+    assert me["chat_retention_days"] == 365
+    kept = me["retention_held"]
+    assert (kept["chat_days"], kept["audit_days"]) == (None, 365)
+    assert moment(kept["until"]) > datetime.now(UTC) + RETENTION_HELD - timedelta(minutes=1)
+    ((to, subject, body),) = mailer.sent
+    assert (to, subject) == ("ada@acme.com", "Your organisation's plan changed")
+    assert "was changed to the Pro plan, keeping everything the organisation holds" in body
+    assert "It holds more than the Pro plan allows (2 members of 1)" in body
+    assert "The Pro plan keeps chats 365 days after their last question. Those older" in body
+    # The event a moment later finds nothing new.
+    deliver(client, event("customer.subscription.updated", bought))
+    assert len(mailer.sent) == 1
+    # The operator reads the hold too.
+    assert any(
+        line.startswith("Until ")
+        and "it keeps chats for good and audit log entries 365 days, as before its move" in line
+        for line in plan_report(session, "acme")
+    )
+
+
+def test_only_an_owner_of_a_paid_subscription_moves_it_here(
+    client, session, stripe, make_account, act_as, billing, monkeypatch
+):
+    ada = make_account("ada@acme.com")
+    act_as(ada)
+    for plan in ("free", "pro"):
+        response = change_of(client, plan)
+        assert (response.status_code, response.json()["detail"]) == (409, NO_SUBSCRIPTION)
+    bought = subscribed(client, stripe, ada)
+
+    for plan, seats, status, sentence in (
+        ("pro", None, 400, SAME_PLAN),
+        ("free", 2, 400, NO_SEATS.format(plan="Free")),
+        ("team", None, 400, SEATS_NEEDED),
+        ("enterprise", None, 422, None),
+    ):
+        for response in (change_of(client, plan, seats), portal(client, plan, seats)):
+            assert response.status_code == status, (plan, response.text)
+            if sentence:
+                assert response.json()["detail"] == sentence
+
+    act_as(make_account("bo@acme.com", ada.organization, "admin"))
+    for response in (change_of(client, "free"), portal(client, "free")):
+        assert (response.status_code, response.json()["detail"]) == (403, OWNERS_ONLY)
+    act_as(ada)
+
+    # A payment outstanding is paid first, and a cancelled subscription renewed first.
+    stripe.subscriptions[bought["id"]]["status"] = "past_due"
+    deliver(client, event("customer.subscription.updated", bought))
+    assert change_of(client, "free").json()["detail"] == PAY_FIRST
+    stripe.subscriptions[bought["id"]].update(status="active", cancel_at_period_end=True)
+    deliver(client, event("customer.subscription.updated", bought))
+    ends = day(datetime.fromtimestamp(1_800_000_000, UTC))
+    assert portal(client, "team", 2).json()["detail"] == ENDING.format(day=ends)
+    stripe.subscriptions[bought["id"]]["cancel_at_period_end"] = False
+    deliver(client, event("customer.subscription.updated", bought))
+
+    # A subscription at a price not sold here is changed on the portal's own page.
+    stripe.subscriptions[bought["id"]]["items"]["data"][0]["price"]["id"] = "price_old"
+    response = portal(client, "team", 2)
+    assert (response.status_code, response.json()["detail"]) == (409, UNLISTED)
+
+    # Agreed terms are the operator's; without billing there is nothing to read.
+    session.execute(
+        text("UPDATE organizations SET overrides = '{\"projects\": 5}' WHERE id = :id"),
+        {"id": ada.organization.id},
+    )
+    session.commit()
+    assert change_of(client, "free").json()["detail"] == AGREED
+    monkeypatch.setattr(get_settings(), "stripe_secret_key", "")
+    assert change_of(client, "free").json()["detail"] == BILLING_OFF
 
 
 def test_the_plan_command_says_a_subscription_sets_the_plan(client, session, stripe, ada):

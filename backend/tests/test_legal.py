@@ -3,6 +3,7 @@ deployment's settings so that they say what the code does, accepted at sign-up o
 anything else, and asked for again when their edition changes; leaving needs no acceptance."""
 
 import hashlib
+from datetime import timedelta
 from pathlib import Path
 
 from sqlalchemy import select, update
@@ -57,7 +58,7 @@ DEVELOPMENT = {
 }
 DIRECTORY = LocalStorage(Path("unused"))
 # The SHA-256 of terms.md and privacy.md as the edition TERMS_VERSION names was settled.
-SETTLED = "d3500eda8d8efabe57c888c50bdb6ea20fc82f7bcb20825ffb35c7952f2fd525"
+SETTLED = "f25ee09debcb7e5c402fbd54a4ef58f46221c668819dc0691e87607563a3959e"
 OLDER = "2026-01-01"
 
 
@@ -135,6 +136,17 @@ def test_the_terms_say_how_a_document_without_pages_counts(monkeypatch):
     # The figure is the one the parse stage counts by (app/entitlements.py), never typed in.
     monkeypatch.setattr("app.legal.CHARS_PER_PAGE", 2_500)
     assert "every 2,500 characters of its text" in said()
+
+
+def test_both_say_how_long_a_lower_plan_keeps_what_it_would_take_as_before(monkeypatch):
+    def said() -> str:
+        return " ".join(f"{terms_of_service(configured())} {policy()}".split())
+
+    assert "are kept as before for 30 days after the move" in said()
+    assert "time, they are kept as before for 30 days after the move" in said()
+    # The days are the housekeeper's (app/retention.py), never typed in.
+    monkeypatch.setattr("app.legal.RETENTION_HELD", timedelta(days=45))
+    assert "30 days after the move" not in said() and "for 45 days after the move" in said()
 
 
 def test_the_privacy_policy_says_what_the_settings_do():

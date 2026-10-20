@@ -111,7 +111,13 @@ from app.parsing import MIME_TYPES
 from app.postgres import concerns, database_report, describe_database, span
 from app.ratelimit import prune_rate_limits
 from app.restore import after_restore, describe_restore
-from app.retention import prune_chats, purge_due_accounts, reapply_erasures
+from app.retention import (
+    day,
+    prune_chats,
+    purge_due_accounts,
+    reapply_erasures,
+    retention_held,
+)
 from app.storage import (
     DELETE_BATCH,
     ROOT_PREFIX,
@@ -706,6 +712,13 @@ def plan_report(
             f"It holds more than it allows, {', '.join(excess.words for excess in beyond)}: "
             "it keeps it all, and is read-only until it is within the plan again."
         )
+    if standing := retention_held(organization):
+        kept = standing.kept
+        lines.append(
+            f"Until {day(standing.until)} it keeps chats {_kept(kept.chat_days)} and audit log "
+            f"entries {_kept(kept.audit_days)}, as before its move to a plan that keeps them for "
+            "less time."
+        )
     start = month_of()[0]
     if bought := [
         f"{count:,} {unit}"
@@ -729,6 +742,10 @@ def plan_report(
             )
         )
     return lines
+
+
+def _kept(days: int | None) -> str:
+    return "for good" if days is None else _count(days, "day")
 
 
 def jobs_report(session: Session) -> list[str]:

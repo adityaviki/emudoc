@@ -1,8 +1,9 @@
 """Stripe, the payment provider, reached over its HTTP API with the app's own client: the few
 calls billing makes (app/billing.py), and the check of the signature on the events Stripe sends.
 
-There is no SDK on purpose. Billing needs a customer, a Checkout session, a portal session and
-a subscription read back, and an event's signature checked; the library would bring a second
+There is no SDK on purpose. Billing needs a customer, a Checkout session, a portal session
+(opened on its home page, or on one step: cancelling, or confirming a new plan) and a
+subscription read back, and an event's signature checked; the library would bring a second
 HTTP stack with retries and telemetry of its own, which the app would have to hold to what it
 logs and sends as it holds httpx. Every request names API_VERSION, so the answers keep the
 shape this module reads whatever the Stripe account's default is, and the webhook endpoint is
@@ -94,14 +95,17 @@ class Stripe:
             "GET", f"/v1/checkout/sessions/{_id(session_id)}", call="read a Checkout session"
         )
 
-    def create_portal(self, customer: str, return_url: str) -> str:
+    def create_portal(
+        self, customer: str, return_url: str, flow: Mapping[str, Any] | None = None
+    ) -> str:
         """The address of a customer portal session, where an owner changes or cancels the
-        subscription, the payment method and the billing details, and finds the invoices."""
+        subscription, the payment method and the billing details, and finds the invoices; with
+        `flow` (its `flow_data`), one that opens on that one step, such as cancelling."""
+        params: dict[str, Any] = {"customer": _id(customer), "return_url": return_url}
+        if flow is not None:
+            params["flow_data"] = flow
         portal = self._request(
-            "POST",
-            "/v1/billing_portal/sessions",
-            {"customer": _id(customer), "return_url": return_url},
-            call="create a portal session",
+            "POST", "/v1/billing_portal/sessions", params, call="create a portal session"
         )
         return portal["url"]
 

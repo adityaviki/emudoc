@@ -2,7 +2,8 @@
 move an account to a new address or join an organisation, the notices that an address has
 an account already, that an account's address changed or that it is set to be deleted, and to
 an organisation's owners what its subscription needs of them: a payment that failed, a trial
-about to end, a plan that lapsed (app/billing.py).
+about to end, a plan that lapsed, a cancellation and the lower plan it ends on, with what that
+leaves read-only and until when chats and audit rows are kept as before (app/billing.py).
 
 There is no email provider yet. The log mailer writes each message to the log, which is enough
 to follow a link in development and never runs in production, where SMTP_URL is required
@@ -318,15 +319,111 @@ def trial_ending_email(
     return "Your Emudoc trial ends soon", body
 
 
-def plan_lapsed_email(name: str, organization: str, plan: str, page: str) -> tuple[str, str]:
+def plan_lapsed_email(
+    name: str,
+    organization: str,
+    plan: str,
+    page: str,
+    over: str | None = None,
+    kept: str | None = None,
+    until: str | None = None,
+) -> tuple[str, str]:
     """To an owner of an organisation that moved to the Free plan because its subscription's
-    payment kept failing."""
+    payment kept failing: what it holds past Free's limits (`over`, "4 projects of 1"), and
+    what Free keeps for less time (`kept`, worded by `shortened` in app/retention.py), kept as
+    before `until` a day."""
     body = (
         f"{_greeting(name)}\n\n"
         f"The payment for the {plan} plan of {organization} on Emudoc could not be made, so the "
-        "organisation is on the Free plan now. It keeps everything it holds, but adds nothing "
-        "past what the Free plan allows.\n\n"
+        "organisation is on the Free plan now, keeping everything it holds.\n\n"
+        f"{_lowered(organization, 'Free', plan, over, kept, until)}"
         "To have the plan again, open the organisation page and pay under Manage billing, or "
         f"choose the plan again if the subscription has ended:\n\n{page}\n"
     )
     return "Your organisation moved to the Free plan", body
+
+
+def plan_lowered_email(
+    name: str,
+    organization: str,
+    was_plan: str,
+    plan: str,
+    seats: int | None,
+    ended: bool,
+    over: str | None,
+    kept: str | None,
+    until: str | None,
+    page: str,
+) -> tuple[str, str]:
+    """To an owner of an organisation whose subscription ended, or was changed to a lower plan
+    or fewer `seats`, where that leaves it read-only or keeps chats or audit rows for less time:
+    as `plan_lapsed_email` says them."""
+    with_seats = f" with {seats:,} seat{'' if seats == 1 else 's'}" if seats else ""
+    moved = (
+        f"The subscription to the {was_plan} plan of {organization} on Emudoc has ended, so the "
+        f"organisation is on the {plan} plan now, keeping everything it holds."
+        if ended
+        else f"The subscription of {organization} on Emudoc was changed to the {plan} plan"
+        f"{with_seats}, keeping everything the organisation holds."
+    )
+    body = (
+        f"{_greeting(name)}\n\n{moved}\n\n"
+        f"{_lowered(organization, plan, was_plan, over, kept, until)}"
+        "To choose another plan, open the organisation page:\n\n"
+        f"{page}\n"
+    )
+    return "Your organisation's plan changed", body
+
+
+def cancellation_email(
+    name: str,
+    organization: str,
+    plan: str,
+    ends: str,
+    over: str | None,
+    kept: str | None,
+    until: str | None,
+    page: str,
+) -> tuple[str, str]:
+    """To an owner of an organisation whose subscription was cancelled: the day it ends, when
+    the organisation moves to the Free plan, and what that will leave read-only and keep for
+    less time, as `plan_lapsed_email` says them."""
+    body = (
+        f"{_greeting(name)}\n\n"
+        f"The subscription to the {plan} plan of {organization} on Emudoc was cancelled. It runs "
+        f"until {ends}, and then the organisation moves to the Free plan, keeping everything it "
+        "holds.\n\n"
+        f"{_lowered(organization, 'Free', plan, over, kept, until, coming=True)}"
+        "If it should go on, renew the subscription under Manage billing on the organisation "
+        f"page before then:\n\n{page}\n"
+    )
+    return "Your Emudoc subscription was cancelled", body
+
+
+def _lowered(
+    organization: str,
+    plan: str,
+    was_plan: str,
+    over: str | None,
+    kept: str | None,
+    until: str | None,
+    coming: bool = False,
+) -> str:
+    """The paragraphs on what a lower plan leaves read-only and keeps for less time, each ending
+    in a blank line; `coming` words them for a move still to come."""
+    text = ""
+    if over:
+        holds = "It will then hold" if coming else "It holds"
+        text += (
+            f"{holds} more than the {plan} plan allows ({over}), so until it is within the plan "
+            f"nothing can be added to {organization} or changed in it: what it holds can still "
+            "be read, asked about and deleted.\n\n"
+        )
+    if kept and until:
+        kept_as = "will be kept as the" if coming else "are kept as the"
+        keeps = "keeps" if coming else "kept"
+        text += (
+            f"The {plan} plan keeps {kept}. Those older {kept_as} {was_plan} plan {keeps} them "
+            f"until {until}, and deleted then.\n\n"
+        )
+    return text

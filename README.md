@@ -162,7 +162,11 @@ With `STRIPE_SECRET_KEY` set, the plans are sold through Stripe (`backend/app/bi
 deploying.md, "Billing"): an owner buys Pro, or Team with a number of seats, on the
 organisation page, which sends them to Stripe's Checkout page, and changes the plan or the
 seats, the payment method, the billing address and VAT id, cancels, and finds the invoices
-behind "Manage billing", on Stripe's customer portal. The subscription sets the plan: while it
+behind "Manage billing", on Stripe's customer portal. Another plan, other seats or a
+cancellation can also be chosen on the organisation page, which says first what that would
+leave read-only and which chats and audit log entries the lower plan keeps for less time, then
+opens that one step of Stripe's portal, which shows the price and confirms it; the owners are
+mailed a cancellation, and the lower plan once it comes. The subscription sets the plan: while it
 is in its trial (`STRIPE_TRIAL_DAYS`, 14, for an organisation's first) or paid, and for
 `BILLING_GRACE_DAYS` (14) after a payment failed, during which the owners are mailed how to pay;
 once it ends, or the payment is not made, the organisation is on Free, keeping all it holds,
@@ -657,7 +661,9 @@ into a throwaway copy and runs it against the live storage, the monthly restore 
 (`deploying.md`, "The drill"); `deploy/managed-restore-drill.sh` does the same for a managed
 database, which the provider restores to a new instance (`deploy/rds-drill.sh` for RDS).
 A chat is kept for the plan's retention after its last question (30 days on Free, a year on
-Pro, for good on Team and Enterprise), which the chat list and the account page say; sessions,
+Pro, for good on Team and Enterprise), which the chat list and the account page say; after a
+move to a plan that keeps chats or audit log entries for less time, those are kept as before
+for 30 more days (`RETENTION_HELD`), which the organisation page says; sessions,
 one-time links and expired invitations are removed a month after they ended.
 
 The log holds no document text, question, answer or key (`backend/app/logs.py`): a traceback

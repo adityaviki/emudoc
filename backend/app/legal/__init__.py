@@ -33,7 +33,7 @@ from app.entitlements import CHARS_PER_PAGE, PLANS, Entitlements
 from app.network import MODEL_BASE_URLS, host_of, on_own_network
 from app.oidc import OAUTH_COOKIE, OAUTH_WINDOW_SECONDS
 from app.ratelimit import HISTORY
-from app.retention import DELETION_GRACE, day
+from app.retention import DELETION_GRACE, RETENTION_HELD, day
 from app.storage import Storage
 from app.worker import HOUSEKEEPING_INTERVAL
 
@@ -96,6 +96,7 @@ def terms_of_service(settings: Settings) -> str:
         "terms.md",
         settings,
         deletion_days=str(DELETION_GRACE.days),
+        held_days=str(RETENTION_HELD.days),
         chars_per_page=f"{CHARS_PER_PAGE:,}",
         paid_plans=_paid_plans(settings),
     )
@@ -113,6 +114,7 @@ def privacy_policy(
         region=_region(settings),
         chat_retention=_by_plan(lambda plan: plan.retention_days, "until deleted"),
         audit_retention=_by_plan(lambda plan: plan.audit_days, "as long as it exists"),
+        held_days=str(RETENTION_HELD.days),
         credential_days=str(CREDENTIAL_HISTORY.days),
         browser_days=str(BROWSER_KNOWN_FOR.days),
         # A count is pruned at the first housekeeping after it is HISTORY old.
@@ -166,8 +168,9 @@ def privacy_policy(
         ),
         billing_mail=(
             " An organisation's owners also get email about its subscription: when a payment "
-            "failed, when its trial is about to end, and when it moved to the Free plan for "
-            "want of a payment."
+            "failed, when its trial is about to end, when it was cancelled, and when it moved "
+            "to a lower plan, for want of a payment or as a cancellation or a change ended "
+            "the plan before."
             if settings.stripe_secret_key
             else ""
         ),

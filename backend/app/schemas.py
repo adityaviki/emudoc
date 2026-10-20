@@ -575,6 +575,55 @@ class CheckoutIn(BaseModel):
     seats: int | None = Field(None, ge=1, le=10_000)
 
 
+class PlanChoiceIn(BaseModel):
+    """The plan an owner would move the organisation's subscription to, with its seats on
+    Team; Free is cancelling it."""
+
+    plan: Literal["free", "pro", "team"]
+    seats: int | None = Field(None, ge=1, le=10_000)
+
+
+class PortalIn(BaseModel):
+    """What Stripe's portal opens on: its home page, or with `plan` the one step that moves
+    the subscription there (app/billing.py, `portal_for`)."""
+
+    plan: Literal["free", "pro", "team"] | None = None
+    seats: int | None = Field(None, ge=1, le=10_000)
+
+
+class RetentionOut(BaseModel):
+    """How many days chats are kept after their last question and audit log entries; None for
+    good (app/retention.py)."""
+
+    chat_days: int | None
+    audit_days: int | None
+
+
+class RetentionHeldOut(RetentionOut):
+    """What an organisation keeps as before after a move to a plan that keeps less, and until
+    when; None for a move whose moment is not known yet."""
+
+    until: dt.datetime | None
+
+
+class PlanChangeOut(BaseModel):
+    """What moving the organisation's subscription to a plan would do (`plan_change` in
+    app/billing.py), for an owner to read before Stripe's page: what it would allow, what the
+    organisation would hold past that (read-only until it is within it), how long it would keep
+    chats and audit log entries, and what it keeps now that would be held for `held_days` after
+    the move (None when the plan keeps everything as long)."""
+
+    plan: str
+    seats: int | None
+    # When a cancellation would move it, the end of the period paid for; None for a change of
+    # plan, which Stripe makes once it is confirmed there.
+    at: dt.datetime | None
+    allowance: AllowanceOut
+    retention: RetentionOut
+    held: RetentionHeldOut | None
+    held_days: int
+
+
 class CheckoutDoneIn(BaseModel):
     """The Checkout session an owner came back from, as Stripe named it in the address."""
 
@@ -601,8 +650,13 @@ class OrganizationOut(_FromORM):
     # The region its data is kept in, as DATA_REGION names it (eu, us), None when the
     # deployment promised none as it was created (app/residency.py).
     region: str | None
-    # How many days a chat is kept after its last question (app/retention.py), None for good.
+    # How many days a chat is kept after its last question (app/retention.py), None for good,
+    # and an audit log entry.
     chat_retention_days: int | None = None
+    audit_retention_days: int | None = None
+    # What it keeps as before after a move to a plan that keeps less, and until when; None
+    # when nothing is held.
+    retention_held: RetentionHeldOut | None = None
     # The domains whose confirmed addresses may join it, and the role they join with
     # (app/invitations.py).
     join_domains: list[str]

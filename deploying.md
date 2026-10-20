@@ -1332,7 +1332,17 @@ With `STRIPE_SECRET_KEY` set the app sells its Pro and Team plans through Stripe
 moves organisations, as before. An owner buys a plan on the organisation page, which sends them
 to Stripe's Checkout page and back, and behind "Manage billing" changes the plan or the seats,
 the payment method, the billing address and VAT id, cancels and finds the invoices, on
-Stripe's customer portal. With `STRIPE_PACKS`, an owner also buys packs of pages or questions on
+Stripe's customer portal. A subscription in its trial or paid is also changed or cancelled from
+the organisation page itself: the owner chooses another plan, other seats or Free, and the page
+says first what that would do (`GET /api/organization/billing/change`, `plan_change` in
+`backend/app/billing.py`: what the plan would allow, what the organisation would then hold past
+it and so be read-only, which chats and audit log entries it keeps for less time and until when
+they would be kept as before, and for a cancellation the day it ends), then opens the portal on
+that one step (`flow_data`: `subscription_cancel`, or `subscription_update_confirm` with the
+subscription's item, the plan's first price in `STRIPE_PRICES` and the seats), whose page shows
+the price and the proration and sends the owner back to `/organization?billing=back`, where the
+page asks Stripe for the subscription as it stands (`POST …/billing/portal/done`) rather than
+wait for the event. With `STRIPE_PACKS`, an owner also buys packs of pages or questions on
 Checkout, paid once with an invoice, which add to the organisation's allowance for the calendar
 month (UTC) they are paid in and end with it (`allowance_packs`, counted once whichever of the
 page and the webhook says it was paid; a bank debit counts when its payment arrives, Stripe's
@@ -1364,11 +1374,22 @@ starts with a trial of `STRIPE_TRIAL_DAYS` (14), its card taken at Checkout and 
 trial ends. An account whose only organisation, which would go with it, has a subscription that
 still renews cannot be deleted until it is cancelled.
 
+A lower plan, whether cancelled, switched to or lapsed into, keeps everything it holds and
+takes no chat or audit log entry at once: what the plan before kept longer is kept as it was
+for 30 days after the move (`RETENTION_HELD`, "Retention and deletion"), and the organisation
+page says until when.
+
 The owners are mailed at each failed payment, with the day the plan stops waiting and the
-invoice's own page to pay it on; three days before a trial ends; and when the organisation moved
-to Free for want of a payment. Each step is in the audit log: `checkout_started` by the owner
+invoice's own page to pay it on; three days before a trial ends; when the subscription is
+cancelled, with the day it ends; when the organisation moved to a lower plan, for want of a
+payment, as a cancellation ended or by a change on the portal; each of the last three with what
+the lower plan leaves read-only and until when the chats and audit log entries it keeps for less
+time are kept as before. Whichever of the page's return and Stripe's event finds a change first
+sends its mail, once. Each step is in the audit log: `checkout_started` by the owner
 (the plan and seats, or the pack), and by the app `pack_bought`, `subscription_changed` (the
-status before and after), `payment_failed` and
+status before and after), `subscription_cancelled` (with `ends_at`) and
+`cancellation_withdrawn` (Stripe keeps the status `active` until a cancelled subscription
+ends), `payment_failed` and
 `plan_changed` and `seats_changed` with `because` (`subscription`, `subscription_ended`,
 `grace_ended`).
 
@@ -1392,7 +1413,13 @@ In Stripe's dashboard, in a sandbox or test mode first (staging), then live:
    rate: Stripe's signature over the body proves it, and a request without it is 400.
 3. The customer portal: let customers update the payment method, the billing address and tax
    ID, see their invoices, cancel at the end of the period, and switch between the plans'
-   prices and change Team's quantity. Save it once in each mode, or it does not open.
+   prices and change Team's quantity. Save it once in each mode, or it does not open. The
+   organisation page opens it on one step: the cancellation needs cancelling on (at the end of
+   the period, which the page promises), and the change of plan needs every price
+   `STRIPE_PRICES` sells first among the products the subscription may be updated to, or
+   Stripe refuses that step (logged as "Stripe refused to create a portal session"). Whether a
+   downgrade waits for the period's end is the portal's setting; the page says only that the
+   change comes once it is confirmed, and the plan moves when Stripe changes the subscription.
 4. The public details: the terms of service's address, `{APP_URL}/terms`. Checkout asks whoever
    pays to accept them, which covers the paid plans' paragraph however recently billing was
    turned on, and refuses to open without the address.
@@ -1423,6 +1450,11 @@ every six hours), and so what the privacy notice can promise:
 - **Chats** go once their last question is older than the organisation's plan keeps them
   (`retention_days` in `backend/app/entitlements.py`: 30 days on Free, 365 on Pro, never on
   Team and Enterprise); a chat whose answer is still being written stays until it is settled.
+  A move to a plan, seats or agreed figures that keep chats for less time takes none at once:
+  for `RETENTION_HELD` (30 days, `backend/app/retention.py`) after it, the days of the plan
+  before hold as well (`organizations.retention_held_until`, `held_chat_days`; a move back up
+  ends the hold, another move down holds the longer of the two for 30 days from then). The
+  `plan` command prints a hold that stands.
   Deleting a project, folder, document or chat is immediate: there is no trash yet.
 - **Sessions and one-time links** go 30 days after they expired or were revoked
   (`CREDENTIAL_HISTORY` in `backend/app/auth.py`), with the address and browser a session
@@ -1431,7 +1463,8 @@ every six hours), and so what the privacy notice can promise:
   expired, with the address it was sent to (`backend/app/invitations.py`).
 - **Audit log rows** go once they are older than the organisation's plan keeps them
   (`audit_days` in `backend/app/entitlements.py`: 90 days on Free, 365 on Pro and Team, never
-  on Enterprise). A row holds the client's address it was recorded from, which the privacy
+  on Enterprise), held after a move to a plan that keeps them for less time as chats are
+  (`held_audit_days`). A row holds the client's address it was recorded from, which the privacy
   notice names with that period; an account's purge clears it from the rows of that account.
 - **A deleted account** goes 14 days after its user asked (`DELETION_GRACE` in
   `backend/app/retention.py`), within six hours of the day, with every organisation it was the

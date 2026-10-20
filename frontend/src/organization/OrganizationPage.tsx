@@ -11,12 +11,12 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { PLAN_LABELS, REGION_NAMES, ROLES, ROLE_LABELS, isPlanLimit, isWithin, organizations } from '../api.ts'
-import type { Allowance, Invitation, JoinRole, Me, Member, Role, SoldPlan } from '../api.ts'
+import type { Allowance, Invitation, JoinRole, Me, Member, PlanChoice, Role, SoldPlan } from '../api.ts'
 import { ME_KEY, setSignedIn, startAgainInOrganization, useMe } from '../auth.ts'
-import { describeBilling, describeExcess, mayBuy, thisMonth } from '../billing.ts'
+import { describeBilling, describeChange, describeExcess, describeHeld, mayBuy, mayChange, thisMonth } from '../billing.ts'
 import { PasswordField } from '../account/shared.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
-import { Button, Chip, FIELD, InputField, Loading, Notice, Row, Section, SelectField } from '../components/ui.tsx'
+import { Button, Chip, FIELD, InputField, Loading, Notice, Radio, Row, Section, SelectField } from '../components/ui.tsx'
 import { formatDate, formatSize } from '../format.ts'
 
 const MEMBERS_KEY = ['organization', 'members'] as const
@@ -117,6 +117,7 @@ function PlanSection({ me }: { me: Me }) {
   const sells = (billing.sold.length > 0 || billing.packs.length > 0) && billing.managed
   const standing = describeBilling(billing, formatDate)
   const past = describeExcess(me.organization)
+  const kept = describeHeld(me.organization, formatDate)
   const tones = { good: 'text-good', warn: 'text-warn', bad: 'text-bad' }
   const extra = (count: number) =>
     count > 0 && <span className="text-muted">and {count.toLocaleString()} more bought for {thisMonth()}</span>
@@ -162,6 +163,7 @@ function PlanSection({ me }: { me: Me }) {
         <Row label="Chats kept">
           {keptFor === null ? 'Until deleted' : `${keptFor.toLocaleString()} days after the last question`}
           {agreed('retention_days')}
+          {kept && <span className="block text-muted">{kept}</span>}
         </Row>
       </dl>
       <div className="mt-3">
@@ -188,6 +190,7 @@ function BillingActions({ me }: { me: Me }) {
   const { billing, seats: bought } = me.organization
   const [params, setParams] = useSearchParams()
   const returned = params.get('checkout')
+  const fromPortal = params.get('billing') === 'back'
   const members = useQuery({ queryKey: MEMBERS_KEY, queryFn: organizations.members })
   // The seats to buy, the members the organisation has until the owner types a number.
   const [seats, setSeats] = useState<string | null>(null)
@@ -204,6 +207,12 @@ function BillingActions({ me }: { me: Me }) {
     onSuccess: (account) => setSignedIn(queryClient, account),
   })
   const { mutate: finish } = done
+  // Back from Stripe's portal, the server asks Stripe how the subscription stands rather than wait for its event.
+  const portalDone = useMutation({
+    mutationFn: organizations.portalDone,
+    onSuccess: (account) => setSignedIn(queryClient, account),
+  })
+  const { mutate: settle } = portalDone
 
   useEffect(() => {
     if (returned) {
@@ -211,6 +220,13 @@ function BillingActions({ me }: { me: Me }) {
       setParams({}, { replace: true })
     }
   }, [returned, finish, setParams])
+
+  useEffect(() => {
+    if (fromPortal) {
+      settle()
+      setParams({}, { replace: true })
+    }
+  }, [fromPortal, settle, setParams])
 
   const owner = me.role === 'owner'
   // Stripe's page is loading once an address came back: nothing is offered twice meanwhile.
@@ -222,6 +238,8 @@ function BillingActions({ me }: { me: Me }) {
       {done.isPending && <Notice tone="info">Asking Stripe about the payment…</Notice>}
       {done.isSuccess && <Notice tone="info">Thank you: the payment went through, and the plan above shows what it bought.</Notice>}
       {done.isError && <Notice tone="bad">{done.error.message}</Notice>}
+      {portalDone.isPending && <Notice tone="info">Asking Stripe how the subscription stands…</Notice>}
+      {portalDone.isError && <Notice tone="bad">{portalDone.error.message}</Notice>}
       {error && <Notice tone="bad">{error.message}</Notice>}
       {!owner ? (
         <p className="text-[13px] text-muted">Only its owners buy a plan or manage its billing.</p>
@@ -277,6 +295,7 @@ function BillingActions({ me }: { me: Me }) {
               </p>
             </div>
           )}
+          {mayChange(billing) && <ChangePlan me={me} leaving={leaving} />}
           {billing.customer && (
             <div>
               <Button icon={<CreditCard className="size-4" />} disabled={leaving} onClick={() => manage.mutate()}>
@@ -288,6 +307,82 @@ function BillingActions({ me }: { me: Me }) {
             </div>
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+// Moving the subscription to another plan, fewer or more seats, or cancelling it for Free: the
+// server says first what that would leave read-only and keep for less time
+// (`plan_change` in backend/app/billing.py), then Stripe's portal opens on that one step, whose
+// page shows the price and confirms it, and sends the owner back here.
+function ChangePlan({ me, leaving }: { me: Me; leaving: boolean }) {
+  const { billing, plan: current, seats: bought } = me.organization
+  const [plan, setPlan] = useState<PlanChoice['plan'] | null>(null)
+  const [seats, setSeats] = useState(String(bought ?? 1))
+  const seatCount = Number(seats)
+  const choice: PlanChoice | null =
+    plan === null || (plan === 'team' && !(seatCount >= 1)) ? null : plan === 'team' ? { plan, seats: seatCount } : { plan }
+  const change = useQuery({
+    queryKey: ['organization', 'planChange', choice],
+    queryFn: () => organizations.planChange(choice!),
+    enabled: choice !== null,
+    retry: false,
+  })
+  const go = useMutation({
+    mutationFn: () => organizations.billingPortal(choice!),
+    onSuccess: ({ url }) => window.location.assign(url),
+  })
+  // Each plan on sale, Team again for other seats, and Free, which is cancelling.
+  const choices = [...billing.sold.filter((sold) => sold !== current || sold === 'team'), 'free' as const]
+  const account = change.data ? describeChange(change.data, me.organization, formatDate) : null
+
+  return (
+    <div className="space-y-3 rounded-lg border border-line p-4">
+      <div>
+        <p className="text-[13px] font-medium">Change or cancel the plan</p>
+        <p className="mt-0.5 text-[13px] text-muted">See what it would mean here first; Stripe’s page then shows the price and confirms it.</p>
+      </div>
+      <div className="space-y-2" role="radiogroup" aria-label="Plan to move to">
+        {choices.map((option) => (
+          <Radio
+            key={option}
+            name="plan-change"
+            label={option === 'free' ? 'Free: cancel the subscription' : option === current ? `${PLAN_LABELS[option]}, other seats` : PLAN_LABELS[option]}
+            checked={plan === option}
+            onChange={() => setPlan(option)}
+          />
+        ))}
+      </div>
+      {plan === 'team' && (
+        <InputField label="Seats" type="number" min={1} max={10000} className="w-24" value={seats} onChange={(event) => setSeats(event.target.value)} />
+      )}
+      {change.isFetching && <p className="text-[13px] text-muted">Working out what it would mean…</p>}
+      {change.isError && <Notice tone="bad">{change.error.message}</Notice>}
+      {account && !change.isFetching && (
+        <div className="space-y-2">
+          {account.figures.length > 0 && (
+            <dl className="divide-y divide-line border-y border-line text-[13px]">
+              {account.figures.map((figure) => (
+                <div key={figure.label} className="flex justify-between gap-4 py-1.5">
+                  <dt className="text-muted">{figure.label}</dt>
+                  <dd>
+                    {figure.now} → <span className="font-medium">{figure.then}</span>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {account.notes.map((note) => (
+            <p key={note} className="text-[13px]">
+              {note}
+            </p>
+          ))}
+          {go.error && <Notice tone="bad">{go.error.message}</Notice>}
+          <Button variant={plan === 'free' ? 'danger' : 'primary'} disabled={leaving || go.isPending || go.isSuccess} onClick={() => go.mutate()}>
+            {plan === 'free' ? 'Cancel on Stripe’s page' : 'Confirm on Stripe’s page'}
+          </Button>
+        </div>
       )}
     </div>
   )

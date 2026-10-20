@@ -1,9 +1,11 @@
 // What the organisation page says of a subscription and offers an owner, from what Stripe last
-// said of it (`billing` on the organisation, backend/app/billing.py), and what a refusal by the
-// plan offers in its place: the server holds the plan to the subscription, and these only word it.
+// said of it (`billing` on the organisation, backend/app/billing.py), what a lower plan or a
+// cancellation would do before Stripe's page takes it, and what a refusal by the plan offers in
+// its place: the server holds the plan to the subscription, and these only word it.
 
 import { PLANS, PLAN_LABELS } from './api.ts'
-import type { Billing, Organization, Pack, PlanLimit, Role } from './api.ts'
+import type { Allowance, Billing, Organization, Pack, PlanChange, PlanLimit, Retention, Role } from './api.ts'
+import { formatSize } from './format.ts'
 
 /** The statuses of a subscription that is still billed, as the server's `BILLED`: no second is bought meanwhile. */
 const BILLED = new Set(['trialing', 'active', 'past_due', 'incomplete'])
@@ -21,6 +23,16 @@ export function billed(billing: Billing): boolean {
 /** Whether an owner may buy a plan for the organisation here now. */
 export function mayBuy(billing: Billing): boolean {
   return billing.sold.length > 0 && billing.managed && !billed(billing)
+}
+
+/**
+ * Whether an owner may move the subscription to another plan or cancel it here now, as the
+ * server's `change_refusal`: in its trial or paid and not cancelled already. One waiting for a
+ * payment, or cancelled, goes under Manage billing.
+ */
+export function mayChange(billing: Billing): boolean {
+  const going = billing.status === 'trialing' || billing.status === 'active'
+  return billing.managed && billing.sold.length > 0 && going && billing.ends_at === null
 }
 
 /**
@@ -129,4 +141,104 @@ export function describeExcess(organization: Organization): string | null {
   const words = over.map((excess) => excess.words)
   const held = words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : words[0]
   return `${organization.name} holds more than the ${PLAN_LABELS[organization.plan]} plan allows: ${held}. Until it is within it, nothing can be added or changed, though everything it holds can still be read, asked about and deleted.`
+}
+
+type Kept = 'chats' | 'audit'
+
+const count = (n: number, noun: string) => `${n.toLocaleString()} ${noun}${n === 1 ? '' : 's'}`
+const listed = (items: string[]) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0])
+const atLeast = (days: number | null, other: number | null) => days === null || (other !== null && days >= other)
+
+/** How long `retention` keeps one kind, as a sentence says it. */
+function keeps(kind: Kept, retention: Retention): string {
+  if (kind === 'chats') {
+    return retention.chat_days === null ? 'chats until they are deleted' : `chats ${count(retention.chat_days, 'day')} after their last question`
+  }
+  return retention.audit_days === null ? 'audit log entries for good' : `audit log entries ${count(retention.audit_days, 'day')}`
+}
+
+/** The kinds `after` keeps for less time than `before`, as `shortened` in backend/app/retention.py finds them. */
+function shorter(before: Retention, after: Retention): Kept[] {
+  const kinds: Kept[] = []
+  if (!atLeast(after.chat_days, before.chat_days)) kinds.push('chats')
+  if (!atLeast(after.audit_days, before.audit_days)) kinds.push('audit')
+  return kinds
+}
+
+/**
+ * What the Plan section says while the organisation keeps chats or audit log entries as before
+ * after a move to a plan that keeps them for less time; null while nothing is held.
+ */
+export function describeHeld(organization: Organization, date: (value: string) => string): string | null {
+  const held = organization.retention_held
+  if (!held?.until) return null
+  const now = { chat_days: organization.chat_retention_days, audit_days: organization.audit_retention_days }
+  const kinds = shorter(held, now)
+  if (kinds.length === 0) return null
+  return `Until ${date(held.until)} it keeps ${listed(kinds.map((kind) => keeps(kind, held)))}, as its plan before did; then those older go.`
+}
+
+/** One figure a move would change: what it allows now and what it would. */
+export interface Compared {
+  label: string
+  now: string
+  then: string
+}
+
+/** What a move to another plan would do, for its owner to read before Stripe's page. */
+export interface ChangeAccount {
+  /** The figures it would change. */
+  figures: Compared[]
+  /** When it would come, what it would leave read-only, and what it would keep for less time, a sentence each. */
+  notes: string[]
+}
+
+const FIGURES: [keyof Allowance & PlanLimit, string, (value: number) => string][] = [
+  ['projects', 'Projects', (n) => n.toLocaleString()],
+  ['documents', 'Documents', (n) => n.toLocaleString()],
+  ['storage_bytes', 'Storage', formatSize],
+  ['pages_per_month', 'Pages indexed', (n) => `${n.toLocaleString()} a month`],
+  ['questions_per_month', 'Questions', (n) => `${n.toLocaleString()} a month`],
+  ['members', 'Members', (n) => n.toLocaleString()],
+]
+
+/** What moving `organization`'s subscription to `change.plan` would do, each date worded by `date`. */
+export function describeChange(change: PlanChange, organization: Organization, date: (value: string) => string): ChangeAccount {
+  const label = PLAN_LABELS[change.plan]
+  const shown = (value: number | null, words: (value: number) => string) => (value === null ? 'No limit' : words(value))
+  const figures = FIGURES.flatMap(([name, figure, words]) => {
+    const [now, then] = [organization.allowance[name], change.allowance[name]]
+    return now === then ? [] : [{ label: figure, now: shown(now as number | null, words), then: shown(then as number | null, words) }]
+  })
+  const kept = { chat_days: organization.chat_retention_days, audit_days: organization.audit_retention_days }
+  if (kept.chat_days !== change.retention.chat_days) {
+    const words = (retention: Retention) => (retention.chat_days === null ? 'Until deleted' : count(retention.chat_days, 'day'))
+    figures.push({ label: 'Chats kept', now: words(kept), then: words(change.retention) })
+  }
+
+  const notes = []
+  if (change.plan === 'free') {
+    const when = change.at ? `on ${date(change.at)}, at the end of the period paid for` : 'at the end of the period paid for'
+    notes.push(`The subscription ends ${when}, and the organisation then moves to the Free plan, keeping everything it holds.`)
+  } else {
+    const seats = change.seats === null ? '' : ` with ${count(change.seats, 'seat')}`
+    notes.push(
+      `Stripe’s page shows the new price and what is charged or credited for the rest of the period. Once it is confirmed, the organisation is on the ${label} plan${seats}, keeping everything it holds.`,
+    )
+  }
+  const over = change.allowance.over.map((excess) => excess.words)
+  if (over.length > 0) {
+    notes.push(
+      `It would hold more than the ${label} plan allows (${listed(over)}), so until it is within the plan nothing could be added or changed, though everything it holds could still be read, asked about and deleted.`,
+    )
+  }
+  const held = change.held
+  const kinds = held ? shorter(held, change.retention) : []
+  if (held && kinds.length > 0) {
+    const until = held.until ? `until ${date(held.until)}` : `for ${count(change.held_days, 'day')} after the change`
+    notes.push(
+      `The ${label} plan keeps ${listed(kinds.map((kind) => keeps(kind, change.retention)))}. Those older would be kept as now ${until}, and deleted then.`,
+    )
+  }
+  return { figures, notes }
 }

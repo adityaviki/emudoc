@@ -88,9 +88,11 @@ $region
 - **Chats**, for as long as the organisation's plan keeps a chat after its last question
   ($chat_retention), or the terms agreed with the organisation in its place, unless deleted
   sooner; the chats you did not share with a project go when you leave the organisation or an
-  owner or admin removes you from it.
+  owner or admin removes you from it. After a move to a plan or terms that keep chats for less
+  time, they are kept as before for $held_days days after the move.
 - **Audit log entries**, for as long as the organisation's plan keeps them
-  ($audit_retention), or the terms agreed with the organisation in its place.
+  ($audit_retention), or the terms agreed with the organisation in its place; after a move to
+  a plan or terms that keep them for less time, as before for $held_days days after the move.
 - **Sessions and links**, until $credential_days days after they expired or were ended.
 - **Invitations**, until they are accepted or revoked, or $credential_days days after they
   expired.

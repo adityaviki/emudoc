@@ -360,7 +360,7 @@ def test_the_plan_command_shows_the_days_limit_as_money(session, account, capsys
     main(["plan", "local"])
     assert capsys.readouterr().out.splitlines()[-1].split() == ["daily_spend_micros", "no", "limit"]
     main(["plan", "local", "pro"])
-    assert capsys.readouterr().out.splitlines()[-1] == "  daily_spend_micros  USD 10.00 a day"
+    assert "  daily_spend_micros  USD 10.00 a day" in capsys.readouterr().out.splitlines()
 
 
 def test_production_is_told_when_the_plans_limits_count_nothing_of_a_model(monkeypatch, caplog):

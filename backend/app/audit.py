@@ -30,7 +30,8 @@ not recorded: it is a view, and what is done after it is.
 Admins and owners read their organisation's rows page by page through `GET /api/audit`
 (app/api/audit.py); the view with filters and an export is the organisation settings' (2.7).
 The housekeeper (app/maintenance.py) deletes the rows older than the plan's `audit_days`
-(app/entitlements.py) with `prune_audit`, every organisation in one statement.
+(app/entitlements.py) with `prune_audit`, every organisation in one statement, keeping them
+longer for a while after a move to a plan that keeps them for less time (app/retention.py).
 """
 
 from typing import Any
@@ -47,7 +48,8 @@ from app.models import AUDIT_ACTIONS, AuditEvent, User, UserSession
 type Target = tuple[str, int]
 
 # Each plan joins as a row of `kept`, so one statement prunes every organisation, by the days
-# agreed with it when `overrides` names them, else by its plan's; a null is for good.
+# agreed with it when `overrides` names them, else by its plan's, and while a hold after a lower
+# plan stands (app/retention.py), by its days as well; a null is for good.
 _PRUNE = text(
     """
     DELETE FROM audit_events
@@ -58,6 +60,10 @@ _PRUNE = text(
       AND audit_events.occurred_at < now() - make_interval(days => CASE
           WHEN organizations.overrides -> 'audit_days' IS NULL THEN kept.days
           ELSE CAST(organizations.overrides ->> 'audit_days' AS integer) END)
+      AND (organizations.retention_held_until IS NULL
+           OR organizations.retention_held_until <= now()
+           OR audit_events.occurred_at
+              < now() - make_interval(days => organizations.held_audit_days))
     """
 )
 
@@ -140,6 +146,6 @@ def forget_addresses(session: Session, user_id: int) -> None:
 
 def prune_audit(connection: Connection) -> int:
     """Delete the rows older than their organisation keeps them, by its plan or its agreed
-    terms; returns how many."""
+    terms, and by a hold after a lower plan while it stands; returns how many."""
     kept = {plan: limit.audit_days for plan, limit in PLANS.items()}
     return connection.execute(_PRUNE, {"plans": list(kept), "days": list(kept.values())}).rowcount

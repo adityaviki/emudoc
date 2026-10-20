@@ -11,6 +11,17 @@ its day, in the same commit.
 
 Members:
 
+- An owner changes or cancels the subscription from the organisation page: choosing another
+  plan, other seats or Free shows first what it would mean (the figures that change, what the
+  organisation would hold past the plan and so be read-only, which chats and audit log entries
+  the lower plan keeps for less time and until when, and for a cancellation the day it ends),
+  then Stripe's page shows the price and confirms it, and back on the page the plan shows as it
+  stands. A move to a plan that keeps chats or audit log entries for less time now deletes none
+  at once: those older are kept as before for 30 days after the move, which the plan's "Chats
+  kept" says. The owners are mailed a cancellation and the lower plan once it comes, with what
+  it leaves read-only and until when the older chats are kept; the terms and the privacy policy
+  say so, and the audit log records a cancellation and its withdrawal.
+
 - A Word file, a spreadsheet or a text file now counts against the month's pages like a PDF:
   a page for every 3,000 characters of its text, counted once, when it is first indexed. The
   usage page says so beside the pages indexed, a document's usage names them as pages of text,
@@ -141,6 +152,15 @@ Members:
   slow to a third of their speed.
 
 Operators:
+
+- The organisation page opens Stripe's customer portal on one step, a cancellation
+  (`subscription_cancel`) or a confirmed change of plan (`subscription_update_confirm`): the
+  portal needs cancelling at the end of the period and every price `STRIPE_PRICES` sells first
+  among its products to update to (deploying.md, "Billing", step 3). Portal sessions now return
+  to `/organization?billing=back`, which asks Stripe for the subscription. A migration adds
+  `organizations.retention_held_until`, `held_chat_days` and `held_audit_days`, which the
+  housekeeper's chat and audit pruning read, and the audit actions `subscription_cancelled` and
+  `cancellation_withdrawn`; the `plan` command prints a hold that stands.
 
 - The `upload` usage events in `pages`, which the plans' months, the usage page and the `usage`
   command read, now hold the pages of text of a document without pages (`CHARS_PER_PAGE`,

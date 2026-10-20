@@ -100,6 +100,8 @@ AUDIT_ACTIONS = (
     "entitlements_changed",
     "checkout_started",
     "subscription_changed",
+    "subscription_cancelled",
+    "cancellation_withdrawn",
     "payment_failed",
     "pack_bought",
     "organization_created",
@@ -302,6 +304,13 @@ class Organization(Base):
     renews_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     ends_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     payment_failed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    # After a move to a plan or terms that keep chats or audit rows for less time, until when
+    # they are kept as before, and how many days that was for each: a null there, while
+    # `retention_held_until` is set, kept them for good (app/retention.py). Null when nothing
+    # is held.
+    retention_held_until: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    held_chat_days: Mapped[int | None] = mapped_column(Integer)
+    held_audit_days: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

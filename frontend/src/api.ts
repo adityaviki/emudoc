@@ -357,8 +357,11 @@ export interface Organization {
   billing: Billing
   /** The region its data is kept in, null when the deployment promised none as it was created. */
   region: Region | null
-  /** How many days a chat is kept after its last question, null for good. */
+  /** How many days a chat is kept after its last question, and an audit log entry, null for good. */
   chat_retention_days: number | null
+  audit_retention_days: number | null
+  /** What it keeps as before after a move to a plan that keeps less, and until when; null when nothing is held (backend/app/retention.py). */
+  retention_held: RetentionHeld | null
   /** The domains whose confirmed addresses may join it, and the role they join with (backend/app/invitations.py). */
   join_domains: string[]
   join_role: JoinRole
@@ -366,6 +369,37 @@ export interface Organization {
 
 /** The plans an owner may buy for the organisation; Free is every organisation's, and Enterprise is agreed. */
 export type SoldPlan = 'pro' | 'team'
+
+/** How many days chats are kept after their last question and audit log entries, null for good. */
+export interface Retention {
+  chat_days: number | null
+  audit_days: number | null
+}
+
+/** What an organisation keeps as before after a move to a plan that keeps less, and until when: null for a move not made yet. */
+export interface RetentionHeld extends Retention {
+  until: string | null
+}
+
+/** A plan an owner may move the organisation's subscription to, with its seats on Team; Free is cancelling it. */
+export interface PlanChoice {
+  plan: 'free' | SoldPlan
+  seats?: number
+}
+
+/** What moving the subscription to a plan would do (`PlanChangeOut` in backend/app/schemas.py), for its owner to read before Stripe's page. */
+export interface PlanChange {
+  plan: Plan
+  seats: number | null
+  /** When a cancellation would move it, the end of the period paid for; null for a change of plan, made once Stripe's page confirms it. */
+  at: string | null
+  /** What it would allow, and what the organisation would hold past that (`over`), which would leave it read-only. */
+  allowance: Allowance
+  retention: Retention
+  /** What it keeps now that would be kept as before for `held_days` after the move, null when the plan keeps everything as long. */
+  held: RetentionHeld | null
+  held_days: number
+}
 
 /** How an organisation buys its plan, as Stripe last said of its subscription. */
 export interface Billing {
@@ -608,6 +642,8 @@ export type AuditAction =
   | 'entitlements_changed'
   | 'checkout_started'
   | 'subscription_changed'
+  | 'subscription_cancelled'
+  | 'cancellation_withdrawn'
   | 'payment_failed'
   | 'pack_bought'
   | 'organization_created'
@@ -914,8 +950,17 @@ export const organizations = {
   /** The organisation on the plan, or with the pack, the Checkout session it came back from bought. */
   checkoutDone: (checkoutId: string) =>
     request<Me>('/organization/billing/checkout/done', json('POST', { checkout_id: checkoutId })),
-  /** Owners only: the address of Stripe's customer portal for the organisation. */
-  billingPortal: () => request<{ url: string }>('/organization/billing/portal', { method: 'POST' }),
+  /** Owners only: the address of Stripe's customer portal for the organisation, or with a choice, of its one step that moves the subscription there (Free cancels it). */
+  billingPortal: (choice?: PlanChoice) =>
+    request<{ url: string }>('/organization/billing/portal', choice ? json('POST', choice) : { method: 'POST' }),
+  /** Owners only: what moving the subscription to the plan would do, asked before Stripe's page. */
+  planChange: ({ plan, seats }: PlanChoice) => {
+    const params = new URLSearchParams({ plan })
+    if (seats !== undefined) params.set('seats', String(seats))
+    return request<PlanChange>(`/organization/billing/change?${params}`)
+  },
+  /** The organisation as its subscription stands at Stripe, once back from the portal. */
+  portalDone: () => request<Me>('/organization/billing/portal/done', { method: 'POST' }),
   /** Every member: what the organisation holds and used of its plan, with the history. */
   usage: () => request<UsagePage>('/organization/usage'),
 }

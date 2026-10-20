@@ -403,12 +403,14 @@ def check_member(session: Session, organization: Organization) -> Refusal | None
     )
 
 
-def over_limits(session: Session, organization: Organization) -> list[Excess]:
+def over_limits(
+    session: Session, organization: Organization, entitlements: Entitlements | None = None
+) -> list[Excess]:
     """What the organisation holds past what it may, once its plan, seats or terms were lowered
     under it: it keeps everything, and is read-only until it is within them (`read_only`).
-    Counts only the figures its plan limits, so that an organisation without limits costs no
-    query."""
-    entitlements = entitlements_of(organization)
+    `entitlements` asks about others than its own, a plan it would move to. Counts only the
+    figures they limit, so that an organisation without limits costs no query."""
+    entitlements = entitlements or entitlements_of(organization)
     caps = {name: cap for name in HELD if (cap := getattr(entitlements, name)) is not None}
     held = holdings(session, organization.id, caps)
     return [
@@ -458,7 +460,7 @@ def read_only(session: Session, organization: Organization) -> Refusal | None:
     return Refusal(
         limits[0],
         f"This organisation holds more than the {_label(organization)} plan allows "
-        f"({_listed([excess.words for excess in excesses])}), so until it is within the plan "
+        f"({listed([excess.words for excess in excesses])}), so until it is within the plan "
         "nothing can be added or changed: what it holds can still be read, asked about and "
         f"deleted. {', or '.join([', '.join(ways[:-1]), ways[-1]]).capitalize()}.",
     )
@@ -514,7 +516,7 @@ def bought_by_month(session: Session, org_id: int, since: datetime) -> dict[tupl
     return {(month.astimezone(UTC).date(), unit): quantity for month, unit, quantity in rows}
 
 
-def _listed(items: list[str]) -> str:
+def listed(items: list[str]) -> str:
     """The items as a sentence lists them: "a", "a and b", "a, b and c"."""
     return " and ".join([", ".join(items[:-1]), items[-1]]) if len(items) > 1 else items[0]
 

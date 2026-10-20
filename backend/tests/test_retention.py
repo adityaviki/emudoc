@@ -1,5 +1,6 @@
 """Retention and deletion: a chat is kept for its organisation's plan's retention after its last
-question, an ended session or link for a month; an account is deleted after a grace period,
+question, and as before for a while after a move to a plan that keeps it for less time; an ended
+session or link for a month; an account is deleted after a grace period,
 confirmed by its password or its address, during which it can only be kept, exported or signed
 out of; the purge takes every organisation the account was the only member of, with its rows
 and files, leaves the rest of a shared one with an owner, and leaves a record by which an
@@ -23,6 +24,7 @@ from app.auth import (
     new_token,
     token_hash,
 )
+from app.billing import change_plan
 from app.db import SessionLocal
 from app.entitlements import PLANS
 from app.maintenance import housekeeping
@@ -44,11 +46,14 @@ from app.retention import (
     DELETION_GRACE,
     ERASURES,
     LOCAL_ACCOUNT,
+    RETENTION_HELD,
+    Kept,
     day,
     deletion_pending,
     erasure_key,
     purge_due_accounts,
     reapply_erasures,
+    retention_held,
 )
 from app.storage import StorageError, organization_prefix
 from app.usage import ANSWER, record
@@ -161,6 +166,63 @@ def test_the_days_agreed_with_an_organisation_keep_its_chats_in_place_of_its_pla
     housekeeping(services.storage)
 
     assert chat_titles(session) == {"pro, kept for good", "enterprise, asked lately"}
+
+
+def test_a_lower_plan_keeps_the_chats_it_would_take_as_before_for_a_while(
+    session, services, make_account
+):
+    organization = make_account("ann@globex.example").organization
+    change_plan(session, organization, "team", seats=3)
+    session.commit()
+    # A move up holds nothing.
+    assert organization.retention_held_until is None
+    project = Project(org_id=organization.id, name="contracts")
+    session.add(project)
+    session.commit()
+    user = session.scalar(select(User).where(User.email == "ann@globex.example"))
+    make_chat(session, project, user, "a year and more", 400)
+    make_chat(session, project, user, "two months", 60)
+    make_chat(session, project, user, "lately", 5)
+
+    change_plan(session, organization, "free", because="subscription_ended")
+    session.commit()
+    held = retention_held(organization)
+    assert held.kept == Kept(None, 365)
+    assert abs(held.until - (datetime.now(UTC) + RETENTION_HELD)) < timedelta(minutes=1)
+
+    housekeeping(services.storage)
+    assert chat_titles(session) == {"a year and more", "two months", "lately"}
+
+    # Once the hold is over, Free's 30 days take what is older.
+    organization.retention_held_until = datetime.now(UTC) - timedelta(minutes=1)
+    session.commit()
+    housekeeping(services.storage)
+    assert chat_titles(session) == {"lately"}
+
+
+def test_a_hold_ends_with_a_plan_that_keeps_as_long_and_a_second_move_keeps_the_longest(
+    session, make_account
+):
+    organization = make_account("ann@globex.example").organization
+    change_plan(session, organization, "team", seats=3)
+    # Team keeps chats for good and Pro for a year: Team's hold.
+    change_plan(session, organization, "pro")
+    first = organization.retention_held_until
+    assert retention_held(organization).kept == Kept(None, 365)
+    # What Pro alters but keeps as long leaves the hold as it was.
+    change_plan(session, organization, "pro", overrides={"projects": 20})
+    assert organization.retention_held_until == first
+    # Down again within it: the longest of the hold and Pro's, from now.
+    change_plan(session, organization, "free")
+    assert retention_held(organization).kept == Kept(None, 365)
+    assert organization.retention_held_until >= first
+    # Back on a plan that keeps everything as long: nothing is held.
+    change_plan(session, organization, "team", seats=3)
+    assert organization.retention_held_until is None and retention_held(organization) is None
+    # Days agreed lower are a lower plan too.
+    change_plan(session, organization, "team", seats=3, overrides={"retention_days": 7})
+    assert retention_held(organization).kept == Kept(None, 365)
+    session.commit()
 
 
 def test_ended_sessions_and_links_are_removed_after_a_month(client, session, services):

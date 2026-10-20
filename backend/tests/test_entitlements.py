@@ -664,11 +664,16 @@ def test_the_plan_command_sells_seats_and_agrees_figures(session, account, clien
     )
 
     lines = plan("pro")
-    assert lines[-2:] == [
+    assert lines[-3:-1] == [
         "The 5 seats it bought on the Team plan no longer count.",
         "The figures agreed with it on the Team plan no longer count: projects, api_access, "
         "audit_days, daily_spend_micros.",
     ]
+    # Pro keeps chats and audit rows for less time than Team with its agreed figures did.
+    assert lines[-1].startswith("Until ") and lines[-1].endswith(
+        "it keeps chats for good and audit log entries for good, as before its move to a plan "
+        "that keeps them for less time."
+    )
     organization = session.get(Organization, account.organization.id)
     assert (organization.seats, organization.overrides) == (None, {})
 

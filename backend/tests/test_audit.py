@@ -14,6 +14,7 @@ from starlette.requests import Request
 from app.api.audit import ADMINS_ONLY
 from app.audit import audit_event
 from app.auth import totp_code, totp_step
+from app.billing import change_plan
 from app.config import get_settings
 from app.indexing.pipeline import process_document
 from app.legal import TERMS_VERSION
@@ -454,3 +455,32 @@ def test_rows_go_after_their_plans_days(session, services, make_account):
         for row in rows(session)
     }
     assert kept == {("free", 200), ("free", 10), ("enterprise", 10)}
+
+
+def test_rows_a_lower_plan_keeps_for_less_time_stay_for_a_while(session, services, make_account):
+    organization = make_account("ann@globex.example").organization
+    change_plan(session, organization, "pro")
+    for days_ago in (200, 10):
+        audit_event(
+            session, "document_downloaded", org_id=organization.id, detail={"days_ago": days_ago}
+        )
+    session.commit()
+    session.execute(
+        update(AuditEvent)
+        .where(AuditEvent.detail["days_ago"].as_integer() == 200)
+        .values(occurred_at=datetime.now(UTC) - timedelta(days=200))
+    )
+    # Pro keeps a row for a year and Free for 90 days.
+    change_plan(session, organization, "free", because="subscription_ended")
+    session.commit()
+
+    def kept() -> set[int]:
+        session.expire_all()
+        return {row.detail["days_ago"] for row in rows(session) if "days_ago" in row.detail}
+
+    housekeeping(services.storage)
+    assert kept() == {200, 10}
+    organization.retention_held_until = datetime.now(UTC) - timedelta(minutes=1)
+    session.commit()
+    housekeeping(services.storage)
+    assert kept() == {10}

@@ -19,7 +19,8 @@ every $chars_per_page characters of its text), questions asked, members, and how
 kept. The service tells you when a limit is reached. An organisation that holds more than its plan allows, once its plan, seats
 or terms were lowered, keeps everything, and is read-only until it is within the plan again:
 what it holds can be read, asked about and deleted, and its members removed, but nothing can be
-added or changed.
+added or changed. A move to a plan that keeps chats or audit log entries for less time deletes
+none at once: those older than it keeps are kept as before for $held_days days after the move.
 $paid_plans
 ## 2. Your account
 

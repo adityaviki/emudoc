@@ -22,20 +22,31 @@ it now (`apply_subscription`): its price's plan, with its quantity as Team's sea
 in its trial or paid, and while a payment has failed for fewer than BILLING_GRACE_DAYS, during
 which Stripe tries again and the owners are written to; the Free plan once it ends, is left
 unpaid or the grace period runs out (`end_grace_periods`, the housekeeper's), the organisation
-keeping all it holds, read-only where that is more than Free allows. Stripe's events
+keeping all it holds, read-only where that is more than Free allows, and its chats and audit
+rows kept as before for a while (`hold_retention` in app/retention.py, which `change_plan` calls
+for every move to a plan that keeps them for less time). Stripe's events
 (`handle_event`, from the webhook) only say when to ask: each is acted on once
 (`billing_events`), and the subscription it names is read from Stripe as it stands rather than
 from the event, which may come late or after a later one. An organisation
 on Enterprise, or with figures agreed with it, is the operator's to move: its subscription is
 recorded, and its plan left alone. An organisation's first subscription starts with a trial of
 STRIPE_TRIAL_DAYS.
+
+Lowering a plan or cancelling is shown before it is done: an owner chooses a lower plan, fewer
+seats or Free on the organisation page, which asks `plan_change` what that would leave
+read-only and which chats and audit rows the lower plan keeps for less time, until when they
+are held, and then opens Stripe's portal on that one step (`portal_for` with a plan: Stripe's
+cancellation, or its confirmation of the new price and quantity, with the proration it works
+out), which sends the owner back to the page. The page then asks Stripe for the subscription
+as it stands (`finish_portal`) rather than wait for its event. A cancellation, and the lower
+plan once it comes, are mailed to the owners with the same account of what they mean.
 """
 
 import logging
 import uuid
 from collections.abc import Iterator, Mapping
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta, tzinfo
 
 import httpx
@@ -52,15 +63,38 @@ from app.entitlements import (
     FIELDS,
     MODEL_TIERS,
     PLANS,
+    Entitlements,
+    Excess,
     agreed_with,
     entitlements_of,
+    listed,
     month_of,
+    over_limits,
+    seats_of,
 )
-from app.mail import Mailer, MailError, payment_failed_email, plan_lapsed_email, trial_ending_email
+from app.mail import (
+    Mailer,
+    MailError,
+    cancellation_email,
+    payment_failed_email,
+    plan_lapsed_email,
+    plan_lowered_email,
+    trial_ending_email,
+)
 from app.models import PLANS as PLAN_NAMES
 from app.models import BillingEvent, Membership, Organization, User
 from app.payments import Stripe
-from app.retention import day
+from app.retention import (
+    RETENTION_HELD,
+    Held,
+    Kept,
+    day,
+    hold_retention,
+    kept_by,
+    kept_for,
+    retention_held,
+    shortened,
+)
 
 log = logging.getLogger(__name__)
 
@@ -74,6 +108,10 @@ _NONE = object()
 
 # The page the owners are sent back to from Stripe's, and the links in billing's mail lead to.
 ORGANIZATION_PAGE = "/organization"
+# What the organisation page is sent back from Stripe's portal with, to ask Stripe about the
+# subscription as it stands.
+PORTAL_BACK = "billing=back"
+FREE = PLAN_NAMES[0]
 # The subscription statuses that keep its plan: in its trial, or paid. A past-due one keeps it
 # for the grace period; an incomplete one, whose first payment waits for the buyer, changes
 # nothing yet; any other has ended, or is left unpaid, and the organisation is on Free.
@@ -128,6 +166,23 @@ SUBSCRIBED = (
 NOT_SOLD = "That plan is not sold here. Choose one the organisation page offers."
 SEATS_NEEDED = "Say how many seats to buy: the Team plan is sold by the seat."
 SEATS_TEAM_ONLY = "Only the Team plan is sold by the seat; buy the {plan} plan without seats."
+NO_SEATS = "Only the Team plan has seats; choose the {plan} plan without them."
+NO_SUBSCRIPTION = (
+    "This organisation has no subscription to change or cancel. Choose a plan to buy one."
+)
+PAY_FIRST = (
+    "A payment of this subscription is outstanding. Pay it under Manage billing first, where "
+    "it can also be cancelled."
+)
+ENDING = (
+    "The subscription is cancelled already and ends on {day}. To keep it, renew it under "
+    "Manage billing."
+)
+SAME_PLAN = "The organisation is on that plan already."
+UNLISTED = (
+    "The subscription is at a price this deployment does not sell, so it cannot be changed "
+    "here. Change it under Manage billing."
+)
 NO_CUSTOMER = (
     "This organisation has bought nothing yet, so there is no billing to manage. Choose a "
     "plan to buy one."
@@ -146,19 +201,49 @@ PAYMENT_ON_ITS_WAY = (
 
 @dataclass(frozen=True)
 class Applied:
-    """What a subscription did to an organisation: its status and plan before and after."""
+    """What a subscription did to an organisation: its status, plan and seats before and after;
+    whether the move held its chats and audit rows as before (app/retention.py), and whether
+    the subscription was set to end."""
 
     was_status: str | None
     status: str | None
     was_plan: str
     plan: str
+    was_seats: int | None = None
+    seats: int | None = None
+    held: bool = False
+    cancelled: bool = False
 
     @property
     def lapsed(self) -> bool:
         """Whether a paid plan ended for want of a payment rather than by an owner's choice:
         the owners are told, since nobody chose it."""
         unpaid = self.status in UNPAID or self.was_status in UNPAID
-        return unpaid and self.plan == PLAN_NAMES[0] != self.was_plan
+        return unpaid and self.plan == FREE != self.was_plan
+
+    @property
+    def lowered(self) -> bool:
+        """Whether the organisation moved to a lower plan, or to fewer seats on its own."""
+        if self.plan != self.was_plan:
+            return PLAN_NAMES.index(self.plan) < PLAN_NAMES.index(self.was_plan)
+        return None not in (self.seats, self.was_seats) and self.seats < self.was_seats
+
+
+@dataclass(frozen=True)
+class Change:
+    """What moving the organisation to `plan`, with `seats` on a plan sold by them, would do to
+    it: what it would allow, what the organisation would hold past that, which would leave it
+    read-only, how long it would keep chats and audit rows, and what it keeps now that would be
+    held for RETENTION_HELD after the move. `at` is when a cancellation would move it, the end
+    of the period paid for; None for a change Stripe makes once it is confirmed."""
+
+    plan: str
+    seats: int | None
+    entitlements: Entitlements
+    over: list[Excess]
+    kept: Kept
+    held: Held | None
+    at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -189,9 +274,10 @@ def change_plan(
 ) -> None:
     """Put the organisation on `plan` with `seats` and the `overrides` agreed with it, the three
     as a whole (None and nothing: the plan's own), and write an audit row for each part that
-    changed, one per agreed figure, with `because` in each when billing moved it. Raises
-    RuntimeError with the reason for a plan, seats or a figure that cannot be. The caller
-    commits."""
+    changed, one per agreed figure, with `because` in each when billing moved it. Chats and
+    audit rows the new ones keep for less time are held as before for a while
+    (`hold_retention`). Raises RuntimeError with the reason for a plan, seats or a figure that
+    cannot be. The caller commits."""
     overrides = dict(overrides or {})
     if problem := plan_problem(plan, seats, overrides):
         raise RuntimeError(problem)
@@ -200,7 +286,10 @@ def change_plan(
         organization.seats,
         dict(organization.overrides or {}),
     )
+    was_kept = kept_by(entitlements_of(organization))
     organization.plan, organization.seats, organization.overrides = plan, seats, overrides
+    # Nothing a lower plan keeps for less time goes at once.
+    hold_retention(organization, was_kept)
 
     def changed(action: str, detail: dict[str, object]) -> None:
         if because:
@@ -534,15 +623,125 @@ def record_pack(session: Session, organization: Organization, checkout: Mapping)
     return True
 
 
-def portal_for(session: Session, stripe: Stripe, account: Account, app_url: str) -> str:
-    """The address of the customer portal for the account's organisation."""
+def portal_for(
+    session: Session,
+    stripe: Stripe,
+    account: Account,
+    app_url: str,
+    plan: str | None = None,
+    seats: int | None = None,
+) -> str:
+    """The address of the customer portal for the account's organisation: its home page, or
+    with `plan` the one step that moves the subscription there, Free being its cancellation;
+    raises BillingRefused when the owner may not take it (`change_refusal`). Either sends the
+    owner back to the organisation page, which then asks for the subscription as it stands."""
     if account.role != "owner":
         raise BillingRefused(403, OWNERS_ONLY)
-    customer = account.organization.stripe_customer_id
+    organization = account.organization
+    customer = organization.stripe_customer_id
     if not customer:
         raise BillingRefused(409, NO_CUSTOMER)
+    back = f"{app_url}{ORGANIZATION_PAGE}?{PORTAL_BACK}"
+    if plan is None:
+        session.commit()
+        return stripe.create_portal(customer, back)
+    settings = get_settings()
+    if refusal := change_refusal(settings, account, plan, seats):
+        raise refusal
+    subscription_id = organization.stripe_subscription_id
     session.commit()
-    return stripe.create_portal(customer, f"{app_url}{ORGANIZATION_PAGE}")
+    done = {"type": "redirect", "redirect": {"return_url": back}}
+    if plan == FREE:
+        flow = {
+            "type": "subscription_cancel",
+            "subscription_cancel": {"subscription": subscription_id},
+            "after_completion": done,
+        }
+    else:
+        # Stripe's step changes one item, named by its id, which only the subscription holds.
+        item = _sold_item(stripe.subscription(subscription_id), settings)
+        if item is None:
+            raise BillingRefused(409, UNLISTED)
+        flow = {
+            "type": "subscription_update_confirm",
+            "subscription_update_confirm": {
+                "subscription": subscription_id,
+                "items": [{"id": item, "price": sold(settings)[plan], "quantity": seats or 1}],
+            },
+            "after_completion": done,
+        }
+    return stripe.create_portal(customer, back, flow)
+
+
+def change_refusal(
+    settings: Settings, account: Account, plan: str, seats: int | None
+) -> BillingRefused | None:
+    """Why the account cannot move its organisation's subscription to `plan` with `seats`, or
+    cancel it for Free, here now; None when it can. A subscription in its trial or paid moves;
+    one waiting for a payment is paid first, and one cancelled is renewed first, both under
+    Manage billing."""
+    organization = account.organization
+    if account.role != "owner":
+        return BillingRefused(403, OWNERS_ONLY)
+    if not managed(organization):
+        return BillingRefused(409, AGREED)
+    status = organization.subscription_status
+    if status not in BILLED:
+        return BillingRefused(409, NO_SUBSCRIPTION)
+    if status not in KEEPS_PLAN:
+        return BillingRefused(409, PAY_FIRST)
+    if organization.ends_at is not None:
+        ends = day(organization.ends_at, zone_of(account.user.time_zone))
+        return BillingRefused(409, ENDING.format(day=ends))
+    if plan != FREE and plan not in sold(settings):
+        return BillingRefused(400, NOT_SOLD)
+    if plan in BY_THE_SEAT and seats is None:
+        return BillingRefused(400, SEATS_NEEDED)
+    if plan not in BY_THE_SEAT and seats is not None:
+        return BillingRefused(400, NO_SEATS.format(plan=plan.capitalize()))
+    if (plan, seats) == (organization.plan, seats_of(organization)):
+        return BillingRefused(400, SAME_PLAN)
+    return None
+
+
+def plan_change(
+    session: Session, organization: Organization, plan: str, seats: int | None = None
+) -> Change:
+    """What moving the organisation to `plan`, with `seats` on Team, would do to it. The
+    organisation's terms are a plan's own, since billing moves no other: Free is its
+    subscription cancelled, which moves it at the end of the period paid for."""
+    entitlements = PLANS[plan]
+    if plan in BY_THE_SEAT and seats is not None:
+        entitlements = replace(entitlements, members=seats)
+    at = (organization.ends_at or organization.renews_at) if plan == FREE else None
+    kept, kept_now = kept_by(entitlements), kept_for(organization)
+    return Change(
+        plan=plan,
+        seats=seats,
+        entitlements=entitlements,
+        over=over_limits(session, organization, entitlements),
+        kept=kept,
+        held=None if kept.covers(kept_now) else Held(at + RETENTION_HELD if at else None, kept_now),
+        at=at,
+    )
+
+
+def finish_portal(session: Session, stripe: Stripe, account: Account, app_url: str) -> list[Mail]:
+    """Put the organisation on what its subscription is as Stripe holds it, once an owner is
+    back from the portal, rather than wait for Stripe's event, which says the same; returns the
+    mail for what this found first (a cancellation, a lower plan), which the event then does
+    not send again. The caller sends it."""
+    org_id = account.organization.id
+    subscription_id = account.organization.stripe_subscription_id
+    session.commit()
+    if not subscription_id:
+        return []
+    subscription = stripe.subscription(subscription_id)
+    organization = _held(session, org_id)
+    applied = apply_subscription(session, organization, subscription)
+    mails = _news(session, organization, applied, app_url)
+    session.commit()
+    return mails
 
 
 # What a subscription does
@@ -562,6 +761,11 @@ def apply_subscription(
     now = now or datetime.now(UTC)
     settings = get_settings()
     was_status, was_plan = organization.subscription_status, organization.plan
+    was_seats, was_ends, was_held = (
+        organization.seats,
+        organization.ends_at,
+        organization.retention_held_until,
+    )
     subscription_id, status = subscription["id"], subscription.get("status")
     current = organization.stripe_subscription_id
     if current and current != subscription_id and was_status in BILLED:
@@ -599,6 +803,15 @@ def apply_subscription(
             org_id=organization.id,
             detail={"from": was_status, "to": status},
         )
+    if organization.ends_at is not None and was_ends is None:
+        audit_event(
+            session,
+            "subscription_cancelled",
+            org_id=organization.id,
+            detail={"ends_at": organization.ends_at.isoformat()},
+        )
+    elif organization.ends_at is None and was_ends is not None and billed:
+        audit_event(session, "cancellation_withdrawn", org_id=organization.id)
     if not managed(organization):
         log.info(
             "Organisation %s's terms are agreed, so its subscription %s (%s) leaves its plan "
@@ -624,10 +837,20 @@ def apply_subscription(
             seats = quantity if plan in BY_THE_SEAT else None
             if (plan, seats) != (organization.plan, organization.seats):
                 change_plan(session, organization, plan, seats=seats, because="subscription")
-    elif organization.plan != PLAN_NAMES[0]:
+    elif organization.plan != FREE:
         because = "grace_ended" if status == PAST_DUE else "subscription_ended"
-        change_plan(session, organization, PLAN_NAMES[0], because=because)
-    return Applied(was_status, status, was_plan, organization.plan)
+        change_plan(session, organization, FREE, because=because)
+    held_until = organization.retention_held_until
+    return Applied(
+        was_status,
+        status,
+        was_plan,
+        organization.plan,
+        was_seats=was_seats,
+        seats=organization.seats,
+        held=held_until is not None and held_until != was_held,
+        cancelled=organization.ends_at is not None and was_ends is None,
+    )
 
 
 def _keeps_plan(organization: Organization, settings: Settings, now: datetime) -> bool:
@@ -651,6 +874,16 @@ def _bought(subscription: Mapping, settings: Settings) -> tuple[str, int] | None
         price = item.get("price") or {}
         if (plan := plans.get(price.get("id"))) is not None:
             return plan, int(item.get("quantity") or 1)
+    return None
+
+
+def _sold_item(subscription: Mapping, settings: Settings) -> str | None:
+    """The id of the subscription's item whose price STRIPE_PRICES lists, which a change of
+    plan changes; None when none is."""
+    plans = {price for prices in settings.stripe_plans.values() for price in prices}
+    for item in _items(subscription):
+        if (item.get("price") or {}).get("id") in plans and isinstance(item.get("id"), str):
+            return item["id"]
     return None
 
 
@@ -726,8 +959,7 @@ def handle_event(session: Session, stripe: Stripe, event: Mapping, app_url: str)
         record_pack(session, organization, found)
     elif subscription is not None:
         applied = apply_subscription(session, organization, subscription)
-        if applied.lapsed:
-            mails += _lapsed_mail(session, organization, applied.was_plan, app_url)
+        mails += _news(session, organization, applied, app_url)
         if kind == "customer.subscription.trial_will_end" and organization.trial_ends_at:
             mails += _trial_mail(session, organization, app_url)
     else:
@@ -785,11 +1017,11 @@ def _payment_failed(
         detail={"attempt": attempt if isinstance(attempt, int) else None},
     )
     # The plan the payment was for, unless the organisation is on Free already.
-    plan = organization.plan.capitalize() if organization.plan != PLAN_NAMES[0] else None
+    plan = organization.plan.capitalize() if organization.plan != FREE else None
     until = grace_end(organization, get_settings())
     over = now >= until
     if over and plan:
-        change_plan(session, organization, PLAN_NAMES[0], because="grace_ended")
+        change_plan(session, organization, FREE, because="grace_ended")
     pay = invoice.get("hosted_invoice_url")
     pay = pay if isinstance(pay, str) and pay.startswith("https://") else None
     return [
@@ -826,17 +1058,108 @@ def _trial_mail(session: Session, organization: Organization, app_url: str) -> l
     ]
 
 
+def _news(
+    session: Session, organization: Organization, applied: Applied, app_url: str
+) -> list[Mail]:
+    """The mail what a subscription did calls for, to the owners: a plan lost for want of a
+    payment, a lower plan where it leaves the organisation read-only or keeps chats or audit
+    rows for less time, a cancellation. An organisation whose terms are agreed gets none,
+    since its subscription moves nothing."""
+    if not managed(organization):
+        return []
+    mails = []
+    if applied.lapsed:
+        mails += _lapsed_mail(session, organization, applied.was_plan, app_url)
+    elif applied.lowered and (applied.held or over_limits(session, organization)):
+        mails += _lowered_mail(session, organization, applied, app_url)
+    if applied.cancelled:
+        mails += _cancelled_mail(session, organization, app_url)
+    return mails
+
+
 def _lapsed_mail(
     session: Session, organization: Organization, was_plan: str, app_url: str
 ) -> list[Mail]:
+    over, kept, until = _lowering(session, organization)
     return [
         Mail(
             email,
             *plan_lapsed_email(
-                name, organization.name, was_plan.capitalize(), f"{app_url}{ORGANIZATION_PAGE}"
+                name,
+                organization.name,
+                was_plan.capitalize(),
+                f"{app_url}{ORGANIZATION_PAGE}",
+                over,
+                kept,
+                day(until, zone) if until else None,
             ),
         )
-        for email, name, _ in _owners(session, organization.id)
+        for email, name, zone in _owners(session, organization.id)
+    ]
+
+
+def _lowered_mail(
+    session: Session, organization: Organization, applied: Applied, app_url: str
+) -> list[Mail]:
+    over, kept, until = _lowering(session, organization)
+    return [
+        Mail(
+            email,
+            *plan_lowered_email(
+                name,
+                organization.name,
+                applied.was_plan.capitalize(),
+                organization.plan.capitalize(),
+                seats_of(organization),
+                applied.status not in BILLED,
+                over,
+                kept,
+                day(until, zone) if until else None,
+                f"{app_url}{ORGANIZATION_PAGE}",
+            ),
+        )
+        for email, name, zone in _owners(session, organization.id)
+    ]
+
+
+def _lowering(
+    session: Session, organization: Organization
+) -> tuple[str | None, str | None, datetime | None]:
+    """What the organisation, moved to a lower plan, holds past it, what the plan keeps for
+    less time than before, and until when that is held, as billing's mail says them."""
+    over = _words(over_limits(session, organization))
+    standing = retention_held(organization)
+    if standing is None:
+        return over, None, None
+    return over, shortened(standing.kept, kept_by(entitlements_of(organization))), standing.until
+
+
+def _words(excesses: list[Excess]) -> str | None:
+    """What an organisation holds past a plan, as a sentence lists it: "4 projects of 1 and 30
+    documents of 25"."""
+    return listed([excess.words for excess in excesses]) if excesses else None
+
+
+def _cancelled_mail(session: Session, organization: Organization, app_url: str) -> list[Mail]:
+    change = plan_change(session, organization, FREE)
+    over = _words(change.over)
+    kept = shortened(change.held.kept, change.kept) if change.held else None
+    until = change.held.until if change.held else None
+    return [
+        Mail(
+            email,
+            *cancellation_email(
+                name,
+                organization.name,
+                organization.plan.capitalize(),
+                day(organization.ends_at, zone),
+                over,
+                kept,
+                day(until, zone) if until else None,
+                f"{app_url}{ORGANIZATION_PAGE}",
+            ),
+        )
+        for email, name, zone in _owners(session, organization.id)
     ]
 
 
@@ -887,7 +1210,7 @@ def end_grace_periods(mailer: Mailer | None, now: datetime | None = None) -> int
             if organization is None:
                 return moved
             was_plan = organization.plan
-            change_plan(session, organization, PLAN_NAMES[0], because="grace_ended")
+            change_plan(session, organization, FREE, because="grace_ended")
             mails = _lapsed_mail(session, organization, was_plan, settings.app_url.rstrip("/"))
             session.commit()
         moved += 1

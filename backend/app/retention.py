@@ -8,6 +8,15 @@ being written. A chat's last question is `chats.updated_at`, which only asking s
 renaming or sharing an old chat does not keep it. The trash keeps its own time once it exists
 (2.6).
 
+A move to a plan or terms that keep chats or audit rows for less time (a cancelled
+subscription that ended, a switch to a smaller plan, a figure agreed lower) takes nothing at
+once: what was kept before holds for RETENTION_HELD after the move (`hold_retention`, which
+`change_plan` in app/billing.py calls), so that an organisation that comes back to its plan
+within it finds its chats, and the owners, who are mailed the day, have time to choose. Both
+prune statements read the hold beside the plan, and keep a row while either keeps it. A move
+back up that keeps as long ends the hold; another move down within it holds the longest of
+the two for RETENTION_HELD from then.
+
 An account is deleted in two steps. The request (`POST /api/auth/account/deletion`) marks the
 user due for purging DELETION_GRACE from now and signs them out everywhere else; until then the
 account can do nothing but keep itself, export what is kept about its user (app/export.py) and
@@ -46,6 +55,7 @@ of anyone.
 import json
 import logging
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 
 from sqlalchemy import Connection, and_, delete, func, select, text
@@ -54,7 +64,7 @@ from sqlalchemy.orm import Session, aliased
 from app.audit import audit_event, forget_addresses
 from app.auth import forget_sign_ups
 from app.db import SessionLocal, engine, unbounded
-from app.entitlements import MONTHS, PLANS
+from app.entitlements import MONTHS, PLANS, Entitlements, entitlements_of
 from app.models import ROLES, Membership, Organization, User
 from app.storage import Storage, organization_prefix
 
@@ -64,6 +74,10 @@ log = logging.getLogger(__name__)
 # change one's mind, or to notice that someone else asked, and short enough that the erasure
 # lands within the month the law allows, a housekeeping round's delay included.
 DELETION_GRACE = timedelta(days=14)
+# How long, after a move to a plan or terms that keep chats or audit rows for less time, they are
+# kept as before: time to choose the plan again before the shorter period takes what it would,
+# as a lower plan removes no document either.
+RETENTION_HELD = timedelta(days=30)
 
 LOCAL_ACCOUNT = (
     "The local account cannot be deleted: it is what this machine works as without signing "
@@ -87,7 +101,8 @@ _BACK = text(
 
 # Each plan joins as a row of `kept`, so one statement prunes every organisation: by the days
 # agreed with it when `overrides` names them (a null there keeps a chat for good), else by its
-# plan's (a null plan keeps it for good: the interval and the comparison are null).
+# plan's (a null plan keeps it for good: the interval and the comparison are null), and while a
+# hold after a lower plan stands, by its days as well.
 _PRUNE_CHATS = text(
     """
     DELETE FROM chats
@@ -99,12 +114,109 @@ _PRUNE_CHATS = text(
       AND chats.updated_at < now() - make_interval(days => CASE
           WHEN organizations.overrides -> 'retention_days' IS NULL THEN kept.days
           ELSE CAST(organizations.overrides ->> 'retention_days' AS integer) END)
+      -- Past what a hold after a lower plan keeps, too: a null there keeps it for good.
+      AND (organizations.retention_held_until IS NULL
+           OR organizations.retention_held_until <= now()
+           OR chats.updated_at < now() - make_interval(days => organizations.held_chat_days))
       AND NOT EXISTS (
           SELECT 1 FROM chat_messages
           WHERE chat_messages.chat_id = chats.id AND chat_messages.status = 'streaming'
       )
     """
 )
+
+
+@dataclass(frozen=True)
+class Kept:
+    """How many days an organisation keeps a chat after its last question and a row of its
+    audit log; None for good."""
+
+    chat_days: int | None
+    audit_days: int | None
+
+    def covers(self, other: "Kept") -> bool:
+        """Whether this keeps each at least as long as `other` does."""
+        return _at_least(self.chat_days, other.chat_days) and _at_least(
+            self.audit_days, other.audit_days
+        )
+
+    def longest(self, other: "Kept") -> "Kept":
+        """Each kept as long as the longer of the two keeps it."""
+        return Kept(
+            self.chat_days if _at_least(self.chat_days, other.chat_days) else other.chat_days,
+            self.audit_days if _at_least(self.audit_days, other.audit_days) else other.audit_days,
+        )
+
+
+def _at_least(days: int | None, other: int | None) -> bool:
+    return days is None or (other is not None and days >= other)
+
+
+@dataclass(frozen=True)
+class Held:
+    """What an organisation keeps as before after a move to a plan that keeps less, and until
+    when; `until` is None for a move whose moment is not known yet."""
+
+    until: datetime | None
+    kept: Kept
+
+
+def kept_by(entitlements: Entitlements) -> Kept:
+    """How long a plan, with what was agreed in its place, keeps chats and audit rows."""
+    return Kept(entitlements.retention_days, entitlements.audit_days)
+
+
+def retention_held(organization: Organization, now: datetime | None = None) -> Held | None:
+    """The hold that stands on the organisation after a move to a plan that keeps less: None
+    once it is over, or when the plan keeps everything as long."""
+    until = organization.retention_held_until
+    if until is None or until <= (now or datetime.now(UTC)):
+        return None
+    kept = Kept(organization.held_chat_days, organization.held_audit_days)
+    if kept_by(entitlements_of(organization)).covers(kept):
+        return None
+    return Held(until, kept)
+
+
+def kept_for(organization: Organization, now: datetime | None = None) -> Kept:
+    """How long the organisation keeps chats and audit rows now: as its plan or terms do, or
+    longer while a hold after a lower plan stands."""
+    kept = kept_by(entitlements_of(organization))
+    standing = retention_held(organization, now)
+    return kept.longest(standing.kept) if standing else kept
+
+
+def shortened(before: Kept, after: Kept) -> str | None:
+    """What `after` keeps for less time than `before`, as a mail says it: "chats 30 days after
+    their last question and audit log entries 90 days"; None when it keeps each as long."""
+    parts = []
+    if not _at_least(after.chat_days, before.chat_days):
+        parts.append(f"chats {_days(after.chat_days)} after their last question")
+    if not _at_least(after.audit_days, before.audit_days):
+        parts.append(f"audit log entries {_days(after.audit_days)}")
+    return " and ".join(parts) or None
+
+
+def _days(days: int | None) -> str:
+    # Never None here: what keeps for good keeps as long as anything.
+    return f"{days:,} day{'' if days == 1 else 's'}"
+
+
+def hold_retention(organization: Organization, was: Kept, now: datetime | None = None) -> None:
+    """Hold, after the organisation's plan, seats or terms changed from ones that kept `was`,
+    what was kept before for RETENTION_HELD, where the new ones keep less: `was` and a hold that
+    stood, whichever keeps longer. New ones that keep as long leave a standing hold as it is,
+    and end it once they keep as long as it does. The caller commits."""
+    now = now or datetime.now(UTC)
+    kept, standing = kept_by(entitlements_of(organization)), retention_held(organization, now)
+    if kept.covers(was):
+        if standing is None:
+            organization.retention_held_until = None
+            organization.held_chat_days = organization.held_audit_days = None
+        return
+    before = was.longest(standing.kept) if standing else was
+    organization.retention_held_until = now + RETENTION_HELD
+    organization.held_chat_days, organization.held_audit_days = before.chat_days, before.audit_days
 
 
 def day(moment: datetime, zone: tzinfo = UTC) -> str:
@@ -116,7 +228,8 @@ def day(moment: datetime, zone: tzinfo = UTC) -> str:
 
 def prune_chats(connection: Connection) -> int:
     """Delete the chats whose last question is older than their organisation keeps them,
-    by its plan or its agreed terms; returns how many."""
+    by its plan or its agreed terms, and by a hold after a lower plan while it stands; returns
+    how many."""
     kept = {plan: limit.retention_days for plan, limit in PLANS.items()}
     return connection.execute(
         _PRUNE_CHATS, {"plans": list(kept), "days": list(kept.values())}
