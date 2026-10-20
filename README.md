@@ -278,6 +278,17 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   can be guessed at speed. The request past a rate is refused with 429 and the seconds until
   the minute turns; `0` removes a limit. The counts live in the database, so every API
   replica counts the same.
+- `RATE_FAILED_SIGN_INS` is how many wrong passwords and codes an account may be tried with
+  in an hour, 20 by default. Past it, sign-ins from the browsers that never signed in to the
+  account pause until the hour ends, the right password included, and the owner is told by
+  mail; a browser that signed in before (it keeps a cookie, `emudoc_browser`) is counted by
+  itself, on this and on `RATE_SIGN_INS`, so a stranger who knows an address cannot keep its
+  owner out. A password reset ends the pause.
+- `PWNED_PASSWORDS_URL` is where a new password is checked against the passwords exposed in
+  data breaches: Have I Been Pwned's range API by default, which is sent the first five
+  characters of the password's SHA-1 alone, or a copy of its list on your own network. A
+  breached password is refused at sign-up, from a reset link and on the account page; a
+  service that does not answer lets it through. Empty checks nothing.
 - `SCANNER_URL` names the ClamAV daemon that scans every upload before it is indexed or
   served: `clamd://host:3310`, or `clamd:///run/clamav/clamd.ctl` for one on the same
   machine. The file is streamed to it, so the daemon needs no access to the storage; its own

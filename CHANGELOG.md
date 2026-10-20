@@ -11,6 +11,15 @@ its day, in the same commit.
 
 Members:
 
+- After 20 wrong passwords or codes in an hour, signing in to an account from browsers that
+  have never signed in to it pauses until the hour ends, and its owner is told by mail. The
+  browsers you have signed in with carry on as before, so someone guessing your password
+  cannot keep you out; resetting the password ends the pause. A wrong password on the account
+  page counts too.
+- A new password that has appeared in a data breach is refused, at sign-up, from a reset link
+  and on the account page, since it is among the first anyone guessing would try. A reset link
+  stays good after such a refusal.
+
 - The account page changes your name and your time zone, and moves your account to a new
   email address through a link sent there; once it is opened, the old address is told and
   signs in no more. The dates in the mail Emudoc sends you are in your time zone, which a new
@@ -27,6 +36,22 @@ Members:
 
 Operators:
 
+- `RATE_FAILED_SIGN_INS` (20 an hour) pauses the sign-ins of an account from browsers that
+  never signed in to it once its wrong passwords and codes reach it, and of a browser that did
+  once its own do; such a browser keeps a cookie, `emudoc_browser` (path `/api/auth`, 90 days),
+  is counted by itself on `RATE_SIGN_INS` too, and has a row in the new `browsers` table. The
+  audit log gains `sign_in_paused`. Changing the password and turning two-factor sign-in off
+  are now held to `RATE_SIGN_INS` per user, as the address change and the deletion were. A
+  migration adds the table and the action.
+- New passwords are checked against Have I Been Pwned's Pwned Passwords
+  (`PWNED_PASSWORDS_URL`, on by default; empty turns it off), which is sent the first five
+  characters of the password's SHA-1 and appears on `/subprocessors` and in the privacy
+  policy; a copy of its list on your own network sends nothing out, and production refuses
+  one reached over plain HTTP off it. A check that fails lets the password through and logs
+  why. The privacy policy names the new cookie, the browsers kept and for how long the abuse
+  counts are kept (7 hours at most, where it said an hour).
+- A failed sign-in for an address without an account now takes as long as one with a wrong
+  password, so the time of the answer says nothing of which it was.
 - A migration adds `users.time_zone`, a `change_email` link and three audit actions
   (`profile_changed`, `email_change_requested`, `email_changed`), recorded without the name
   or address they changed to. The backend now depends on `tzdata`, since the image's own zone

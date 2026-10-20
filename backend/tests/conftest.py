@@ -104,6 +104,9 @@ os.environ["SENTRY_DSN"] = os.environ["SENTRY_ENVIRONMENT"] = ""
 # Every app the tests start would listen for its metrics on the same port; tests/test_metrics.py
 # starts the server on a port of its own.
 os.environ["METRICS_ADDRESS"] = ""
+# New passwords are checked against no breach list, which would be a request to Have I Been
+# Pwned; tests/test_passwords.py points the check at `FakePwnedPasswords`.
+os.environ["PWNED_PASSWORDS_URL"] = ""
 # The app under test starts no worker threads of its own: tests run the pipeline directly, or
 # build a `Worker` by hand (tests/test_jobs.py) and stop it.
 os.environ["RUN_WORKER"] = "false"
@@ -626,6 +629,32 @@ class FakeIdentityProvider:
         )
 
 
+class FakePwnedPasswords:
+    """Stands in for Pwned Passwords' range API at PWNED_ADDRESS: answers a prefix of five
+    hex digits with the rest of each breached SHA-1 that starts so and its count, padded with
+    entries of no count, as the service does when asked to; `status` makes it fail."""
+
+    def __init__(self):
+        self.breached: dict[str, int] = {}
+        self.requests: list[httpx.Request] = []
+        self.status = 200
+
+    def breach(self, password: str, count: int = 3) -> None:
+        self.breached[hashlib.sha1(password.encode()).hexdigest().upper()] = count
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        if self.status != 200:
+            return httpx.Response(self.status)
+        prefix = request.url.path.rsplit("/", 1)[-1]
+        lines = [f"{h[5:]}:{n}" for h, n in self.breached.items() if h.startswith(prefix)]
+        lines += [f"{'0' * 34}{i:01X}:0" for i in range(3)]
+        return httpx.Response(200, text="\r\n".join(lines))
+
+
+PWNED_ADDRESS = "https://pwned.test"
+
+
 def unsigned_jwt(claims: dict) -> str:
     """A JWT with an empty signature: the app trusts the token endpoint, not the signature."""
 
@@ -829,8 +858,18 @@ def identity_provider() -> FakeIdentityProvider:
 
 
 @pytest.fixture
-def client(services, session, mailer, identity_provider):
-    http = httpx.Client(transport=httpx.MockTransport(identity_provider.handler))
+def pwned_passwords() -> FakePwnedPasswords:
+    return FakePwnedPasswords()
+
+
+@pytest.fixture
+def client(services, session, mailer, identity_provider, pwned_passwords):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == httpx.URL(PWNED_ADDRESS).host:
+            return pwned_passwords.handler(request)
+        return identity_provider.handler(request)
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
     app = create_app(services=services, mailer=mailer, http=http)
     with TestClient(app, headers=APP_HEADERS) as test_client:
         yield test_client

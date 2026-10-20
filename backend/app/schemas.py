@@ -284,7 +284,8 @@ class AskOut(BaseModel):
 
 # Enough to catch a typo; the verification email settles whether the address is real.
 EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
-# NIST SP 800-63B: a minimum length and no composition rules; a breach check is a roadmap item.
+# NIST SP 800-63B: a minimum length and no composition rules; the routes refuse a breached
+# password (app/passwords.py).
 PASSWORD_MIN_LENGTH = 8
 PASSWORD_MAX_LENGTH = 200
 
@@ -611,6 +612,13 @@ class ExportedSession(BaseModel):
     revoked_at: dt.datetime | None
 
 
+class ExportedBrowser(BaseModel):
+    """A browser the account signed in with, told apart by its cookie (app/auth.py)."""
+
+    first_signed_in_at: dt.datetime
+    last_signed_in_at: dt.datetime
+
+
 class ExportedMessage(BaseModel):
     role: str
     content: str
@@ -656,6 +664,7 @@ class AccountExport(BaseModel):
     account: ExportedAccount
     organizations: list[ExportedMembership]
     sessions: list[ExportedSession]
+    browsers: list[ExportedBrowser]
     chats: list[ExportedChat]
     usage: list[ExportedUsage]
     activity: list[ExportedActivity]

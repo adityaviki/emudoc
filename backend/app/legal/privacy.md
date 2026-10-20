@@ -25,7 +25,10 @@ organisation uploaded a document about you, ask the organisation first; we help 
 - **Where you signed in**: for every browser or device you sign in from, its internet (IP)
   address, the browser's description of itself and when it was last used, all of which the
   account page shows you, and the address each confirmation, reset or change-of-address link
-  was sent to. We keep them to keep your account secure, which is our legitimate interest.
+  was sent to; and for every browser you signed in with, a random code it keeps in a cookie
+  (as a hash only) and when it first and last signed in, so that it can still sign in while
+  someone guessing your password has paused sign-ins from other browsers. We keep them to keep
+  your account secure, which is our legitimate interest.
 - **What you upload and ask**: the documents, what is read from them (their text, images of
   their pages, summaries, facts and the search index), and your chats with their questions and
   answers. We need them to provide the service.
@@ -36,8 +39,10 @@ organisation uploaded a document about you, ask the organisation first; we help 
   with the IP address of the request. Your organisation's owners and admins can read it, to see
   what happens to their documents, which is their and our legitimate interest. It never holds
   what a document, a question or an answer says.
-- **Abuse protection**: how many requests each account, each IP address and each email address
-  (as a hash only) made in a minute, to slow down password guessing and floods.
+- **Abuse protection**: how many requests each account, each IP address, each email address
+  (as a hash only) and each browser you signed in with made in a minute, and how many wrong
+  passwords and codes they were tried with in an hour, to slow down password guessing and
+  floods.
 - **Server logs**: the IP address, time and path of each request and the account and project it
   was for, and the service's own record of what it did, to keep it running and to find faults.
   They never hold what a document, a question or an answer says, nor an email address.
@@ -45,7 +50,8 @@ $more_records
 
 We send you email only about your account: to confirm your address or a new one, to tell your
 address when it was replaced or when another account asked to take it, to reset your password,
-and to confirm that you asked for your account to be deleted. We send no marketing, show no
+to tell you when sign-ins to it were paused after many wrong passwords, and to confirm that you
+asked for your account to be deleted. We send no marketing, show no
 advertising, sell no personal data and build no profile of you.
 
 ## Who receives it
@@ -75,7 +81,8 @@ $region
 - **Audit log entries**, for as long as the organisation's plan keeps them
   ($audit_retention).
 - **Sessions and links**, until $credential_days days after they expired or were ended.
-- **Abuse protection counts**, an hour.
+- **The browsers you signed in with**, until $browser_days days after their last sign-in.
+- **Abuse protection counts**, at most $count_hours hours.
 - **Server logs**, $server_logs
 - **Usage records**, as long as the organisation exists.
 - **Your account**, until you delete it. It goes $deletion_days days after you ask, with every
@@ -87,9 +94,12 @@ $connection_retention
 
 ## Cookies and storage in your browser
 
-Emudoc sets two cookies, both needed for the service to work: `$session_cookie`, which keeps you
-signed in for up to $session_days days, and `$oauth_cookie`, which lasts $oauth_minutes minutes
-while you sign in with Google or Microsoft. Your browser's own storage keeps your choice of a
+Emudoc sets three cookies, all needed for the service to work and its accounts to stay secure:
+`$session_cookie`, which keeps you signed in for up to $session_days days; `$oauth_cookie`, which
+lasts $oauth_minutes minutes while you sign in with Google or Microsoft; and `$browser_cookie`, a
+random code that tells a browser you signed in with from others for $browser_days days after its
+last sign-in, also once you have signed out, and goes with no request but those about signing in
+and your account. Your browser's own storage keeps your choice of a
 light or dark theme, which documents and folders you had open, how wide you made the panes, and
 which notices you dismissed. There are no analytics, advertising or tracking cookies, and
 $third_parties so there is nothing to consent to.
@@ -98,10 +108,12 @@ $third_parties so there is nothing to consent to.
 
 - Connections to the service are encrypted, and so are its connections to anything outside its
   own network.
-- Passwords are kept only as hashes, and two-factor sign-in is available.
+- Passwords are kept only as hashes, and two-factor sign-in is available. After many wrong
+  passwords or codes, sign-ins from the browsers that have never signed in to the account pause
+  for the rest of the hour, and the account's owner is told.
 - Every request is checked against the organisation it is for, so no organisation can reach
   another's data.
-$scanning
+$more_security
 
 ## Your rights
 

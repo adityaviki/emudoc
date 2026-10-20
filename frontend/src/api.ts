@@ -376,6 +376,7 @@ export type AuditAction =
   | 'sign_up'
   | 'sign_in'
   | 'sign_in_failed'
+  | 'sign_in_paused'
   | 'sign_out'
   | 'session_revoked'
   | 'other_sessions_revoked'

@@ -3,7 +3,8 @@
 `account_export` is the personal part of a subject access request: everything the app keeps
 about a user as a person, as one document the account page offers for download (`GET
 /api/auth/account/export`). That is the account, the providers it signs in through, its
-memberships, its sessions (as long as they are kept, app/auth.py), the chats it started with
+memberships, its sessions (as long as they are kept, app/auth.py) and the browsers it signed
+in with (each one's first and last sign-in, never its cookie), the chats it started with
 every message, the usage counted to it, and the rows of the audit logs that name it
 (app/audit.py). It leaves out the password hash, the authenticator
 secret and the recovery codes, which guard the data rather than describe the person, and the
@@ -17,6 +18,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
     AuditEvent,
+    Browser,
     Chat,
     Identity,
     Membership,
@@ -30,6 +32,7 @@ from app.schemas import (
     AccountExport,
     ExportedAccount,
     ExportedActivity,
+    ExportedBrowser,
     ExportedChat,
     ExportedIdentity,
     ExportedMembership,
@@ -41,11 +44,12 @@ from app.schemas import (
 ABOUT = (
     "What Emudoc keeps about you: your account and the edition of the terms you accepted, how "
     "you sign in, the organisations you belong to, the browsers and devices you signed in from "
-    "in the last month, the chats you started with every question and answer, the usage "
-    "counted to you, and what the audit logs of your organisations recorded you doing. Answers "
-    "cite passages of documents as [P<number>]. The documents themselves are not in this file: "
-    "they belong to the organisation that holds them. Your password and recovery codes are "
-    "kept only as hashes, and they and your authenticator secret are left out."
+    "in the last month and when each browser you signed in with did so first and last, the "
+    "chats you started with every question and answer, the usage counted to you, and what the "
+    "audit logs of your organisations recorded you doing. Answers cite passages of documents "
+    "as [P<number>]. The documents themselves are not in this file: they belong to the "
+    "organisation that holds them. Your password and recovery codes are kept only as hashes, "
+    "and they and your authenticator secret are left out."
 )
 
 
@@ -61,6 +65,9 @@ def account_export(session: Session, user: User) -> AccountExport:
     ).all()
     sessions = session.scalars(
         select(SessionRow).where(SessionRow.user_id == user.id).order_by(SessionRow.id)
+    ).all()
+    browsers = session.scalars(
+        select(Browser).where(Browser.user_id == user.id).order_by(Browser.id)
     ).all()
     chats = session.execute(
         select(Chat, Project.name, Organization.slug)
@@ -119,6 +126,10 @@ def account_export(session: Session, user: User) -> AccountExport:
                 revoked_at=row.revoked_at,
             )
             for row in sessions
+        ],
+        browsers=[
+            ExportedBrowser(first_signed_in_at=row.created_at, last_signed_in_at=row.signed_in_at)
+            for row in browsers
         ],
         chats=[
             ExportedChat(

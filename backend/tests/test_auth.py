@@ -741,6 +741,8 @@ def test_google_sign_in_creates_an_account_and_links_verified_ones(
     identity_provider.claims = google_claims(handshake.nonce)
     arrived = callback(client, code="the-code", state=handshake.state)
     assert arrived.status_code == 302 and arrived.headers["location"] == "/projects/3"
+    # The browser is the account's from now on, as after a sign-in with a password.
+    assert client.cookies["emudoc_browser"]
     assert identity_provider.requests[-1]["code"] == "the-code"
     assert identity_provider.requests[-1]["code_verifier"] == handshake.verifier
     assert identity_provider.requests[-1]["grant_type"] == "authorization_code"

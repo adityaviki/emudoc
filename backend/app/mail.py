@@ -137,6 +137,25 @@ def password_reset_email(name: str, link: str) -> tuple[str, str]:
     return "Reset your password", body
 
 
+def sign_ins_paused_email(name: str, failures: int, until: str, link: str) -> tuple[str, str]:
+    """To an account whose sign-ins from new browsers were paused after many wrong passwords or
+    codes (app/ratelimit.py): why a new browser of the owner's is refused, and what to do."""
+    body = (
+        f"{_greeting(name)}\n\n"
+        f"There have been {failures} failed attempts this hour to sign in to your Emudoc "
+        "account, with a wrong password or authenticator code, from browsers that have never "
+        "signed in to it. To slow down whoever is guessing, signing in from such browsers is "
+        f"paused until {until}.\n\n"
+        "The browsers you have signed in with before can sign in as usual. To sign in from a "
+        "new one before then, reset your password, which ends the pause:\n\n"
+        f"{link}\n\n"
+        "If that was not you, someone knows your address and is guessing your password: make "
+        "sure it is long and used nowhere else, and turn on two-factor sign-in on the account "
+        "page.\n"
+    )
+    return "Sign-ins to your account were paused", body
+
+
 def account_deletion_email(name: str, due: str, link: str) -> tuple[str, str]:
     body = (
         f"{_greeting(name)}\n\n"

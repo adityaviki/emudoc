@@ -65,6 +65,7 @@ KNOWN_DOMAINS = {
     "office365.com": "Microsoft",
     "openai.com": "OpenAI",
     "openrouter.ai": "OpenRouter",
+    "pwnedpasswords.com": "Have I Been Pwned",
     "postmarkapp.com": "Postmark",
     "resend.com": "Resend",
     "sendgrid.net": "Twilio SendGrid",
@@ -124,7 +125,7 @@ def subprocessors(
     """The companies the deployment configured by `settings` hands its users' data to: who
     hosts it, then the bucket (`storage`, by the origin its signed URLs lead to; a directory is
     the deployment's own), the models, the embeddings endpoint, the mail relay, the error
-    tracker and the sign-in providers.
+    tracker, the breached-password check and the sign-in providers.
 
     `environ` is where the model libraries read an address that moves a provider
     (`MODEL_BASE_URLS`) and Vertex AI its location, after `export_env_file` has copied `.env`
@@ -183,6 +184,16 @@ def subprocessors(
                 "member, organisation and project it happened in. It receives no documents, "
                 "questions, answers or email addresses.",
                 _where(tracker_place(settings.sentry_dsn, region)),
+            )
+        )
+    if settings.pwned_passwords_url and (name := _company(settings.pwned_passwords_url)):
+        found.append(
+            Subprocessor(
+                name,
+                "Checks each new password against the passwords exposed in data breaches, so "
+                "that none of those is chosen.",
+                "The first five characters of the SHA-1 hash of each new password, which "
+                "hundreds of passwords share. It receives no password, account or email address.",
             )
         )
     for provider in providers(settings).values():

@@ -146,6 +146,7 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "SMTP_URL",
         "SCANNER_URL",
         "EMBEDDING_BASE_URL",
+        "PWNED_PASSWORDS_URL",
         "RUN_WORKER",
         "LOG_FORMAT",
         "GOOGLE_PAID_TIER",
@@ -420,21 +421,27 @@ def test_a_fallback_is_another_model():
 def test_production_sends_nothing_off_its_own_network_unencrypted(
     deployment, monkeypatch, tmp_path
 ):
-    # A managed database, a scanner on another host and a hosted embeddings endpoint are each
-    # reached across networks nobody in the deployment controls.
+    # A managed database, a scanner on another host, a hosted embeddings endpoint and a copy of
+    # the breached passwords' list elsewhere are each reached across networks nobody in the
+    # deployment controls.
     deployment.update(
         database_url="postgresql+psycopg://app:secret@db.example.com:5432/emudoc",
         scanner_url="clamd://clamav.example.com:3310",
         embedding_base_url="http://embeddings.example.com/v1",
+        pwned_passwords_url="http://pwned.example.com",
     )
     with pytest.raises(SystemExit) as stop:
         load_settings(**deployment)
     lines = stop.value.code.splitlines()[1:]
-    assert len(lines) == 3
+    assert len(lines) == 4
     assert "DATABASE_URL connects to db.example.com without sslmode=verify-full" in lines[0]
     assert "SCANNER_URL streams every upload to the ClamAV daemon at clamav.example.com" in lines[1]
     assert (
         "EMBEDDING_BASE_URL sends every passage as it is indexed and every search to " in lines[2]
+    )
+    assert (
+        "PWNED_PASSWORDS_URL sends the start of the hash of every new password to "
+        "pwned.example.com over plain HTTP" in lines[3]
     )
     assert "secret" not in stop.value.code
 
@@ -447,6 +454,7 @@ def test_production_sends_nothing_off_its_own_network_unencrypted(
         "?sslmode=verify-full&sslrootcert=system",
         scanner_url="clamd://clamav:3310",
         embedding_base_url="https://embeddings.example.com/v1",
+        pwned_passwords_url="http://pwned:8080",
     )
     assert load_settings(**deployment).production_problems() == []
 

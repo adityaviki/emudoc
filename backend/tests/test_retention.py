@@ -16,12 +16,19 @@ from sqlalchemy import func, select, text, update
 
 from app.accounts import Account
 from app.api.auth import TYPE_EMAIL, WRONG_PASSWORD
-from app.auth import CREDENTIAL_HISTORY, issue_link_token, new_token, token_hash
+from app.auth import (
+    BROWSER_KNOWN_FOR,
+    CREDENTIAL_HISTORY,
+    issue_link_token,
+    new_token,
+    token_hash,
+)
 from app.db import SessionLocal
 from app.entitlements import PLANS
 from app.maintenance import housekeeping
 from app.models import (
     AuthToken,
+    Browser,
     Chat,
     ChatMessage,
     Document,
@@ -150,17 +157,24 @@ def test_ended_sessions_and_links_are_removed_after_a_month(client, session, ser
             )
         )
     issue_link_token(session, user, "reset_password", user.email, ended - NOW)
+    # A browser that last signed in longer ago than browsers are told apart for.
+    forgotten = NOW - BROWSER_KNOWN_FOR - timedelta(days=1)
+    session.add(
+        Browser(user_id=user.id, token_hash=token_hash(new_token()), signed_in_at=forgotten)
+    )
     session.commit()
     assert session.scalar(select(func.count()).select_from(UserSession)) == 4
     assert session.scalar(select(func.count()).select_from(AuthToken)) == 2
+    assert session.scalar(select(func.count()).select_from(Browser)) == 2
 
     housekeeping(services.storage)
 
     session.expire_all()
     # The session signed in now and the one that ended days ago stay; so does the verification
-    # link that signing up sent, which still works.
+    # link that signing up sent, which still works, and the browser that signed up.
     assert session.scalar(select(func.count()).select_from(UserSession)) == 2
     assert session.scalars(select(AuthToken.purpose)).all() == ["verify_email"]
+    assert session.scalars(select(Browser.signed_in_at)).one() > forgotten
     assert me(client).status_code == 200
 
 
@@ -307,7 +321,7 @@ def test_the_purge_takes_the_account_its_organisation_and_their_files(
     assert ada(session) is None
     assert session.get(Organization, organization_id) is None
     # Everything else the database held was Ada's or her organisation's.
-    for model in (Document, Chat, ChatMessage, Job, UsageEvent, UserSession, AuthToken):
+    for model in (Document, Chat, ChatMessage, Job, UsageEvent, UserSession, AuthToken, Browser):
         assert not session.scalar(select(func.count()).select_from(model)), model.__name__
     assert session.scalars(select(Project.name)).all() == ["Globex files"]
     assert not list(storage.list(organization_prefix(organization_id)))
@@ -519,6 +533,10 @@ def test_the_export_holds_the_users_data_and_nothing_of_anyone_elses(
     assert export["account"]["name"] == "Ada"
     assert [(row["slug"], row["role"]) for row in export["organizations"]] == [("ada", "owner")]
     assert [row["ip"] for row in export["sessions"]] == ["testclient"]
+    # The browser it signed up with, by its sign-ins alone, never its cookie.
+    (browser,) = export["browsers"]
+    assert set(browser) == {"first_signed_in_at", "last_signed_in_at"}
+    assert client.cookies["emudoc_browser"] not in response.text
     (exported,) = export["chats"]
     assert exported["project"] == "Contracts" and exported["organization"] == "ada"
     assert [(m["role"], m["content"]) for m in exported["messages"]] == [

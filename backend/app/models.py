@@ -69,6 +69,7 @@ AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
     "sign_in_failed",
+    "sign_in_paused",
     "sign_out",
     "session_revoked",
     "other_sessions_revoked",
@@ -317,6 +318,26 @@ class UserSession(Base):
     )
     expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Browser(Base):
+    """A browser that signed in to the account, which its failed sign-ins are counted apart
+    for (app/ratelimit.py). Its cookie holds a random token of the browser's own, the same for
+    every account it signs in to; the row holds the SHA-256 of the token with the user's id, so
+    that two accounts' rows do not show they were used in one browser."""
+
+    __tablename__ = "browsers"
+    __table_args__ = (UniqueConstraint("user_id", "token_hash"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    token_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    signed_in_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class ApiKey(Base):

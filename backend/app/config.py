@@ -420,6 +420,12 @@ class Settings(BaseSettings):
     rate_searches: int = Field(default=120, ge=0)
     rate_sign_ins: int = Field(default=10, ge=0)
     rate_sign_ins_per_address: int = Field(default=60, ge=0)
+    # The wrong passwords and authenticator codes an account may be tried with in an hour from
+    # the browsers that have not signed in to it, together, and from each browser that has, by
+    # itself; past it those sign-ins are paused until the hour ends, the right password
+    # included, and the owner is told (app/ratelimit.py). A signed-in request that confirms a
+    # change with the password is held to it per user. Zero removes it.
+    rate_failed_sign_ins: int = Field(default=20, ge=0)
     # The page's reports of the errors it rendered into (app/tracking.py), per client address:
     # a page that fails again on every load reports each time, and nothing else holds a script
     # back from filling the log and the tracker with reports.
@@ -439,6 +445,12 @@ class Settings(BaseSettings):
     # the origin of the request that needs it, which is right in development.
     app_url: str = ""
     session_days: int = 30
+    # Where a new password is checked against the passwords exposed in data breaches: a
+    # service with Have I Been Pwned's range API (app/passwords.py), which is sent the first five
+    # characters of the password's SHA-1 alone. Its own, by default; one run on the deployment's
+    # own network, from the downloaded list, sends nothing out. Empty checks nothing. A service
+    # that does not answer lets the password through, and the log says so.
+    pwned_passwords_url: str = "https://api.pwnedpasswords.com"
 
     # Verification and password-reset mail. Empty SMTP_URL writes the messages to the log,
     # which is enough to click the links in development. Otherwise smtp://user:pass@host:587
@@ -726,6 +738,12 @@ class Settings(BaseSettings):
             "EMBEDDING_BASE_URL",
             self.embedding_base_url,
             "every passage as it is indexed and every search",
+        ):
+            problems.append(problem)
+        if problem := plain_http_problem(
+            "PWNED_PASSWORDS_URL",
+            self.pwned_passwords_url,
+            "the start of the hash of every new password",
         ):
             problems.append(problem)
         unset = [

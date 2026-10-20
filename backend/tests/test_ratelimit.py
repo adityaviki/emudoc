@@ -1,34 +1,49 @@
 """Rate limits: so many uploads, questions and searches a minute per user, so many sign-in
 requests per email address and per client address, counted in the database, refused with 429
-and the seconds until the minute turns, and pruned by the housekeeper."""
+and the seconds until the minute turns, and pruned by the housekeeper; and so many failed
+sign-ins an hour, past which the browsers that have not signed in to the account are paused
+while its own carry on."""
 
 from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 
-from app.api.auth import CODE_INVALID, SIGN_IN_FAILED
-from app.auth import totp_code, totp_step
+from app.api.auth import (
+    CODE_INVALID,
+    PAUSED_BROWSER,
+    PAUSED_NEW,
+    PAUSED_SESSION,
+    SIGN_IN_FAILED,
+    WRONG_PASSWORD,
+)
+from app.auth import BROWSER_COOKIE, BROWSER_KNOWN_FOR, token_hash, totp_code, totp_step
 from app.config import get_settings
 from app.maintenance import housekeeping
+from app.models import Browser
 from app.ratelimit import (
     ADDRESSES,
+    FAILED_SIGN_INS,
+    HOUR,
     QUESTIONS,
     SEARCHES,
     SIGN_INS,
     UPLOADS,
     by_email,
     seconds_left,
+    window_end,
     window_start,
 )
 from tests.test_api import create_project
-from tests.test_auth import another_browser, login, signup
+from tests.test_audit import actions
+from tests.test_auth import NEW_PASSWORD, PASSWORD, another_browser, login, signup
 from tests.test_chats import ask, new_chat
 
 FROM_ACCOUNT = "from your account"
 FROM_ADDRESS = "from your address"
 FOR_EMAIL = "for this email address"
+FROM_BROWSER = "from this browser"
 
 
 @pytest.fixture(autouse=True)
@@ -61,10 +76,33 @@ def minute_turned(session, scope: str | None = None) -> None:
     session.commit()
 
 
-def refused(response, sentence: str) -> None:
+def hour_turned(session) -> None:
+    """Move the failed sign-ins to the hour before, so that a pause ends."""
+    session.execute(
+        text(
+            "UPDATE rate_limits SET window_start = window_start - interval '1 hour' "
+            "WHERE scope = 'failed_sign_in'"
+        )
+    )
+    session.commit()
+
+
+def refused(response, sentence: str, within: int = 60) -> None:
     assert response.status_code == 429, response.text
     assert response.json() == {"detail": sentence}
-    assert 1 <= int(response.headers["Retry-After"]) <= 60
+    assert 1 <= int(response.headers["Retry-After"]) <= within
+
+
+def paused(response, sentence: str, allowed: int) -> None:
+    """Refused for the rest of the hour, the minutes left in the sentence."""
+    seconds = int(response.headers.get("Retry-After", 0))
+    minutes = -(-seconds // 60)
+    wait = f"{minutes} {'minute' if minutes == 1 else 'minutes'}"
+    refused(response, sentence.format(allowed=allowed, wait=wait), within=3600)
+
+
+def attempt(client, password="guess", email="ada@example.com"):
+    return client.post("/api/auth/login", json={"email": email, "password": password})
 
 
 def test_questions_past_the_rate_are_refused_until_the_minute_turns(
@@ -128,41 +166,46 @@ def test_sign_in_requests_are_counted_per_address_and_per_email(
     monkeypatch.setattr(get_settings(), "rate_sign_ins_per_address", 3)
     signup(client, "ada@example.com")
     assert counts(session) == [("address", "ip:testclient", 1)]
+    ada, bob = by_email("ada@example.com").value, by_email("bob@example.com").value
 
-    # A sign-in that fails counts like one that succeeds; that is the point.
-    wrong = {"email": "ada@example.com", "password": "guess"}
-    failed = client.post("/api/auth/login", json=wrong)
+    # A sign-in that fails counts like one that succeeds; that is the point. The guesser's
+    # browser never signed in to the account, so its guesses count under the address.
+    guesser = another_browser(client)
+    failed = attempt(guesser)
     assert failed.status_code == 401 and failed.json()["detail"] == SIGN_IN_FAILED
-    assert client.post("/api/auth/login", json=wrong).status_code == 401
-    refused(client.post("/api/auth/login", json=wrong), ADDRESSES.refusal(3, FROM_ADDRESS))
+    assert attempt(guesser).status_code == 401
+    refused(attempt(guesser), ADDRESSES.refusal(3, FROM_ADDRESS))
+    # The failures are counted for the hour as well; the refused request is not one.
     assert counts(session) == [
         ("address", "ip:testclient", 4),
-        ("sign_in", by_email("ada@example.com").value, 3),
+        ("failed_sign_in", ada, 2),
+        ("sign_in", ada, 3),
     ]
 
     # With the address free again, the account is still held, however its address is typed,
     # and so is a reset link for it; another account from the same address is not.
     minute_turned(session, "address")
-    typed = {"email": "Ada@Example.com", "password": "guess"}
-    refused(client.post("/api/auth/login", json=typed), SIGN_INS.refusal(2, FOR_EMAIL))
+    refused(attempt(guesser, email="Ada@Example.com"), SIGN_INS.refusal(2, FOR_EMAIL))
     refused(
-        client.post("/api/auth/password/forgot", json={"email": "ada@example.com"}),
+        guesser.post("/api/auth/password/forgot", json={"email": "ada@example.com"}),
         SIGN_INS.refusal(2, FOR_EMAIL),
     )
     assert len(mailer.sent) == 1
-    other = client.post("/api/auth/login", json={"email": "bob@example.com", "password": "guess"})
+    other = attempt(guesser, email="bob@example.com")
     assert other.status_code == 401 and other.json()["detail"] == SIGN_IN_FAILED
     assert counts(session) == [
         ("address", "ip:testclient", 4),
         ("address", "ip:testclient", 3),
         # The keys are hashes, which sort Bob's first.
-        ("sign_in", by_email("bob@example.com").value, 1),
-        ("sign_in", by_email("ada@example.com").value, 5),
+        ("failed_sign_in", bob, 1),
+        ("failed_sign_in", ada, 2),
+        ("sign_in", bob, 1),
+        ("sign_in", ada, 5),
     ]
 
     # When the minute turns, the account may try again.
     minute_turned(session)
-    assert login(client, "ada@example.com") == {"mfa_required": False}
+    assert login(guesser, "ada@example.com") == {"mfa_required": False}
 
 
 def test_the_authenticator_code_is_held_to_the_accounts_rate(
@@ -187,6 +230,192 @@ def test_the_authenticator_code_is_held_to_the_accounts_rate(
     assert phone.post("/api/auth/mfa/verify", json={"code": right}).status_code == 429
     minute_turned(session)
     assert phone.post("/api/auth/mfa/verify", json={"code": right}).status_code == 200
+
+
+def test_the_browsers_an_account_signed_in_with_are_counted_apart(
+    client, session, signed_in_only, monkeypatch
+):
+    monkeypatch.setattr(get_settings(), "rate_sign_ins", 2)
+    signup(client)
+    assert client.cookies[BROWSER_COOKIE]
+    browser = session.scalar(select(Browser.id))
+    # Someone who knows the address uses up its minute from a browser of their own...
+    stranger = another_browser(client)
+    assert attempt(stranger).status_code == 401
+    assert attempt(stranger).status_code == 401
+    refused(attempt(stranger, PASSWORD), SIGN_INS.refusal(2, FOR_EMAIL))
+
+    # ...and the account's own browser signs in all the same, held to a minute of its own.
+    assert client.post("/api/auth/logout").status_code == 204
+    assert login(client) == {"mfa_required": False}
+    assert attempt(client).status_code == 401
+    refused(attempt(client), SIGN_INS.refusal(2, FROM_BROWSER))
+    assert counts(session) == [
+        ("address", "ip:testclient", 7),
+        ("failed_sign_in", f"browser:{browser}", 1),
+        ("failed_sign_in", by_email("ada@example.com").value, 2),
+        ("sign_in", f"browser:{browser}", 3),
+        ("sign_in", by_email("ada@example.com").value, 3),
+    ]
+
+    # The cookie is the browser's own: it goes only with the account's routes, outlives the
+    # session by its days, and is not what the database holds.
+    minute_turned(session, "sign_in")
+    response = attempt(client, PASSWORD)
+    assert response.status_code == 200, response.text
+    (cookie,) = [c for c in response.headers.get_list("set-cookie") if BROWSER_COOKIE in c]
+    assert "Path=/api/auth" in cookie and "HttpOnly" in cookie and "SameSite=lax" in cookie
+    assert f"Max-Age={BROWSER_KNOWN_FOR.days * 86400}" in cookie
+    assert session.get(Browser, browser).token_hash != token_hash(client.cookies[BROWSER_COOKIE])
+
+
+def test_failed_sign_ins_pause_the_browsers_an_account_never_signed_in_with(
+    client, session, mailer, signed_in_only, monkeypatch, caplog
+):
+    monkeypatch.setattr(get_settings(), "rate_sign_ins", 0)
+    monkeypatch.setattr(get_settings(), "rate_failed_sign_ins", 3)
+    account = signup(client)
+    mailer.sent.clear()
+    stranger = another_browser(client)
+    for _ in range(3):
+        assert attempt(stranger).status_code == 401
+    # The third failure paused them: the next try is refused before the password is looked
+    # at, the right one too, from that browser or any other new one, until the hour ends.
+    with caplog.at_level("WARNING", logger="app.ratelimit"):
+        paused(attempt(stranger, PASSWORD), PAUSED_NEW, 3)
+    paused(attempt(another_browser(client), PASSWORD), PAUSED_NEW, 3)
+    key = by_email("ada@example.com").value
+    assert f"{key} has made 3 failed sign-ins in the hour" in caplog.text
+    assert "as many as RATE_FAILED_SIGN_INS allows" in caplog.text
+
+    # The owner is told once, after the reply, with the hour's end and the way out.
+    assert len(mailer.sent) == 1
+    to, subject, body = mailer.sent[0]
+    assert to == "ada@example.com" and subject == "Sign-ins to your account were paused"
+    assert "3 failed attempts this hour" in body
+    assert f"paused until {window_end(FAILED_SIGN_INS):%H:%M} (UTC)" in body
+    assert mailer.link() == "http://testserver/forgot-password"
+    org_id = account["organization"]["id"]
+    assert actions(session, org_id)[-4:] == [
+        ("sign_in_failed", {"reason": "password"}),
+        ("sign_in_failed", {"reason": "password"}),
+        ("sign_in_failed", {"reason": "password"}),
+        ("sign_in_paused", {"from": "new_browsers"}),
+    ]
+
+    # The account's own browser signs in as before.
+    assert login(client) == {"mfa_required": False}
+
+    # An address without an account is answered alike, and nobody is told.
+    for _ in range(3):
+        assert attempt(stranger, email="nobody@example.com").status_code == 401
+    paused(attempt(stranger, email="nobody@example.com"), PAUSED_NEW, 3)
+    assert len(mailer.sent) == 1
+
+    # When the hour turns, the new browsers may try again.
+    hour_turned(session)
+    assert login(stranger) == {"mfa_required": False}
+
+
+def test_a_browser_that_signed_in_before_is_paused_by_itself(
+    client, session, mailer, signed_in_only, monkeypatch
+):
+    monkeypatch.setattr(get_settings(), "rate_failed_sign_ins", 2)
+    account = signup(client)
+    for _ in range(2):
+        assert attempt(client).status_code == 401
+    paused(attempt(client, PASSWORD), PAUSED_BROWSER, 2)
+    assert actions(session, account["organization"]["id"])[-1] == (
+        "sign_in_paused",
+        {"from": "known_browser"},
+    )
+    # Nobody else is held by it, and the owner is not mailed about their own browser.
+    assert login(another_browser(client)) == {"mfa_required": False}
+    assert [subject for _, subject, _ in mailer.sent] == ["Confirm your email address"]
+
+
+def test_a_new_password_ends_the_pause_and_the_browser_that_chose_it_is_the_accounts(
+    client, session, mailer, signed_in_only, monkeypatch
+):
+    monkeypatch.setattr(get_settings(), "rate_sign_ins", 0)
+    monkeypatch.setattr(get_settings(), "rate_failed_sign_ins", 2)
+    signup(client)
+    laptop = session.scalar(select(Browser.id))
+    stranger, phone = another_browser(client), another_browser(client)
+    for _ in range(2):
+        assert attempt(stranger).status_code == 401
+    paused(attempt(phone, PASSWORD), PAUSED_NEW, 2)
+
+    # The owner, on a phone that never signed in, resets the password there.
+    forgot = phone.post("/api/auth/password/forgot", json={"email": "ada@example.com"})
+    assert forgot.status_code == 202
+    reset = phone.post(
+        "/api/auth/password/reset", json={"token": mailer.token(), "password": NEW_PASSWORD}
+    )
+    assert reset.status_code == 204 and phone.cookies[BROWSER_COOKIE]
+    # The pause is over for every browser, and only the phone is the account's now: the laptop
+    # signed in with the old password.
+    assert [row for row in counts(session) if row[0] == "failed_sign_in"] == []
+    assert login(phone, password=NEW_PASSWORD) == {"mfa_required": False}
+    (phone_row,) = session.scalars(select(Browser)).all()
+    assert phone_row.id != laptop
+    assert attempt(stranger).status_code == 401
+    assert login(another_browser(client), password=NEW_PASSWORD) == {"mfa_required": False}
+
+
+def test_authenticator_codes_count_as_failed_sign_ins(client, session, signed_in_only, monkeypatch):
+    signup(client)
+    secret = client.post("/api/auth/mfa/setup").json()["secret"]
+    enabled = client.post("/api/auth/mfa/enable", json={"code": totp_code(secret, totp_step())})
+    assert enabled.status_code == 200
+    monkeypatch.setattr(get_settings(), "rate_sign_ins", 0)
+    monkeypatch.setattr(get_settings(), "rate_failed_sign_ins", 2)
+    # Someone with the password, on a browser of their own, guesses at the code.
+    thief = another_browser(client)
+    assert login(thief) == {"mfa_required": True}
+    for code in ("000000", "000001"):
+        assert thief.post("/api/auth/mfa/verify", json={"code": code}).status_code == 401
+    right = totp_code(secret, totp_step() + 1)
+    paused(thief.post("/api/auth/mfa/verify", json={"code": right}), PAUSED_NEW, 2)
+    # The owner's browser, with the password and the code, is let through.
+    assert login(client) == {"mfa_required": True}
+    assert client.post("/api/auth/mfa/verify", json={"code": right}).status_code == 200
+
+
+def test_a_signed_in_password_check_is_held_to_the_rates_per_user(
+    client, session, signed_in_only, monkeypatch
+):
+    account = signup(client)
+    monkeypatch.setattr(get_settings(), "rate_sign_ins", 2)
+    wrong = {"current_password": "guess", "new_password": NEW_PASSWORD}
+    for _ in range(2):
+        assert client.post("/api/auth/password", json=wrong).status_code == 403
+    refused(client.post("/api/auth/password", json=wrong), SIGN_INS.refusal(2, FROM_ACCOUNT))
+    refused(
+        client.post("/api/auth/mfa/disable", json={"password": "guess"}),
+        SIGN_INS.refusal(2, FROM_ACCOUNT),
+    )
+
+    # A wrong password counts for the hour, whichever change it was to confirm.
+    minute_turned(session, "sign_in")
+    monkeypatch.setattr(get_settings(), "rate_sign_ins", 0)
+    monkeypatch.setattr(get_settings(), "rate_failed_sign_ins", 3)
+    deletion = client.post("/api/auth/account/deletion", json={"password": "guess"})
+    assert deletion.status_code == 403 and deletion.json()["detail"] == WRONG_PASSWORD
+    right = {"current_password": PASSWORD, "new_password": NEW_PASSWORD}
+    paused(client.post("/api/auth/password", json=right), PAUSED_SESSION, 3)
+    paused(
+        client.post("/api/auth/email", json={"email": "ada@new.example", "password": PASSWORD}),
+        PAUSED_SESSION,
+        3,
+    )
+    assert actions(session, account["organization"]["id"])[-1] == (
+        "sign_in_paused",
+        {"from": "session"},
+    )
+    # The sign-in routes keep their own count: the browser is not paused by it.
+    assert client.post("/api/auth/logout").status_code == 204
+    assert login(client) == {"mfa_required": False}
 
 
 def test_resending_the_verification_link_is_held_per_user(
@@ -218,6 +447,17 @@ def test_the_housekeeper_removes_the_counts_of_minutes_long_past(client, session
     session.commit()
     housekeeping(services.storage)
     assert counts(session) == []
+
+
+def test_the_hour_is_fixed_too():
+    now = datetime(2026, 10, 13, 12, 40, 15, tzinfo=UTC)
+    start = window_start(now, HOUR)
+    assert start == datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
+    assert seconds_left(now, start, HOUR) == 19 * 60 + 45
+    assert window_end(FAILED_SIGN_INS, now) == datetime(2026, 10, 13, 13, 0, tzinfo=UTC)
+    # Half an hour east of UTC, the hour still turns on UTC's.
+    india = datetime(2026, 10, 13, 18, 10, 15, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+    assert window_start(india, HOUR) == start
 
 
 def test_the_minute_is_fixed_and_the_wait_is_the_rest_of_it():

@@ -2882,6 +2882,36 @@ every API replica counts the same. The proxy needs no rate limit of its own. One
 more than `RATE_SIGN_INS_PER_ADDRESS` a minute, or an office behind one address is held
 before the app would hold it.
 
+A minute's rate still lets a patient guesser try thousands of passwords a day at one account,
+so the wrong passwords and authenticator codes are also counted over the hour
+(`RATE_FAILED_SIGN_INS`, 20). Past it, the sign-ins they came from pause until the hour
+ends, the right password included, with a 429 that says for how many minutes. A pause must
+not be a way to keep someone out, and anyone who knows an address can fail its sign-ins, so
+the browsers that signed in to the account before are counted apart, each by itself, on the
+minute's rate as on the hour's: they keep a cookie of their own, `emudoc_browser` (path
+`/api/auth`, 90 days after their last sign-in, kept after signing out), and the account a row
+for each (`browsers`, the cookie's hash with the user's id). A stranger guessing pauses only the
+browsers the account never signed in with, which share the address's count whether or not it
+has an account; the owner is mailed once when that happens, the audit log records
+`sign_in_paused`, and the owner signs in from a browser of theirs as before, or from a new one
+after a password reset, which ends the pause and leaves only the browser that set the new
+password told apart (a change on the account page does the same). A signed-in request that
+confirms a change with the password (a new password, an address, turning two-factor off,
+deleting the account) is counted for its user instead. The 429 says nothing that differs
+between an address with an account and one without, and the mail goes out after it.
+
+New passwords, at sign-up, from a reset link or on the account page, are refused when they
+have appeared in a data breach. The check asks `PWNED_PASSWORDS_URL`, Have I Been Pwned's
+range API by default, with the first five characters of the password's SHA-1, which hundreds of
+passwords share, and finds the rest in the answer; it asks for padding, so the answer's size
+tells nothing either. Have I Been Pwned is then on `/subprocessors`, and the privacy policy
+says so. A copy of the list served on the deployment's own network in the same form (the
+downloader Have I Been Pwned publishes, behind any static server answering `/range/<prefix>`)
+sends nothing out; production refuses one reached over plain HTTP off that network. A service
+that does not answer within 5 seconds lets the password through and logs "The
+breached-password check at … failed"; nothing logs the five characters, which with a copy of
+the database would let a guesser skip most candidates at SHA-1's speed. Empty checks nothing.
+
 ## On AWS
 
 `deploy/aws` is this guide on AWS as OpenTofu code (1.12 or later): an environment is a network
@@ -3260,9 +3290,10 @@ repository's policy among them.
    PDF saves it rather than opening the browser's viewer, and its response carries
    `Content-Security-Policy: sandbox` (with a bucket, the signed URL's
    `response-content-disposition` says `attachment` instead).
-6. Sign in with a wrong password until the form says to wait a minute: the eleventh attempt
-   does (`RATE_SIGN_INS`), and the API's log line names the email address only by its hash
-   (`email:` and 64 hex digits), never as it was typed.
+6. In a private window, sign in with a wrong password until the form says to wait a minute:
+   the eleventh attempt does (`RATE_SIGN_INS`), and the API's log line names the email address
+   only by its hash (`email:` and 64 hex digits), never as it was typed. A browser that signed
+   in to the account before is counted by itself, and its line names `browser:` and a number.
 7. The worker's log says at start which scanner it uses ("Uploads are scanned by ClamAV
    1.5.4/…"), with the signature version and date after the slashes. Upload a `.txt` file
    whose whole content is the EICAR test string (any antivirus vendor publishes it; it is
@@ -3501,6 +3532,7 @@ and the like), named on its models' pages.
 | `RATE_SEARCHES` | `120` | | Searches a minute, per member |
 | `RATE_SIGN_INS` | `10` | | Sign-in requests a minute, per address named |
 | `RATE_SIGN_INS_PER_ADDRESS` | `60` | | Sign-in requests a minute, per client address |
+| `RATE_FAILED_SIGN_INS` | `20` | | Wrong passwords and codes an hour, past which those sign-ins pause ("Rates") |
 | `RATE_PAGE_ERRORS` | `10` | | The page's error reports a minute, per client address |
 
 ### Mail and sign-in
@@ -3508,6 +3540,7 @@ and the like), named on its models' pages.
 | Variable | Default | In production | What |
 | --- | --- | --- | --- |
 | `SMTP_URL` | none: the mail is logged | required | The relay for the sign-in links and the operator's mail |
+| `PWNED_PASSWORDS_URL` | `https://api.pwnedpasswords.com` | | Where new passwords are checked against breaches ("Rates"); empty checks nothing |
 | `MAIL_FROM` | `Emudoc <no-reply@localhost>` | | The sender |
 | `ALERT_EMAIL` | none | | Where the worker reports ("What the worker mails") |
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | none | the client secret is a secret | Sign-in with Google |

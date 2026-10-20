@@ -24,8 +24,23 @@ are for.
 
 A request past a limit is refused with 429, a sentence that names the limit, and a Retry-After
 of the seconds until the minute ends (`refuse_past` in app/api/deps.py). The housekeeper
-removes the rows older than an hour (`prune_rate_limits`, from `housekeeping` in
-app/maintenance.py).
+removes the rows of windows that started more than an hour ago (`prune_rate_limits`, from
+`housekeeping` in app/maintenance.py).
+
+A minute's rate still lets a patient guesser try 14,400 passwords a day at one account, so the
+wrong passwords and codes themselves are counted over an hour as well (FAILED_SIGN_INS,
+RATE_FAILED_SIGN_INS an hour; `tally` after each failure, `held` before the next try, which
+counts nothing): past the number, the sign-ins they came from are paused until the hour ends,
+the right password included, and a password reset ends the pause (`forgive`). A pause must not
+be a way to keep someone out, and whoever knows an address can fail its sign-ins, so the
+browsers that signed in to the account before (`Browser`, told apart by their cookie in
+app/auth.py) are counted apart, each by itself (`by_browser`), on the minute's limit as on the
+hour's: a stranger guessing pauses only the browsers the account has never signed in with,
+which share the address's count, and the owner signs in from their own as before, or from a
+new one after a reset. That is the device cookie of OWASP's guidance, rather than a count per
+address and client, which a guesser with many addresses would multiply. A signed-in request
+that confirms a change with the password (app/api/auth.py) is counted by its user instead,
+since only whoever holds the session can make it.
 """
 
 import hashlib
@@ -39,15 +54,17 @@ from fastapi import Request
 from sqlalchemy import Connection, text
 from sqlalchemy.orm import Session
 
-from app.accounts import Account
 from app.config import get_settings
 from app.metrics import RATE_LIMITED
+from app.models import User
 
 log = logging.getLogger(__name__)
 
 WINDOW = timedelta(minutes=1)
-# How long the counted minutes are kept, for the operator to see who was held and why.
-HISTORY = timedelta(hours=1)
+HOUR = timedelta(hours=1)
+# How long a window's count is kept once the window started: as long as the longest window,
+# so that no count is pruned while it counts, and for the operator to see who was held and why.
+HISTORY = HOUR
 
 _COUNT = text(
     """
@@ -57,17 +74,22 @@ _COUNT = text(
     RETURNING count
     """
 )
+_COUNTED = text(
+    "SELECT count FROM rate_limits WHERE scope = :scope AND key = :key AND window_start = :start"
+)
+_FORGIVE = text("DELETE FROM rate_limits WHERE scope = :scope AND key = :key")
 _PRUNE = text("DELETE FROM rate_limits WHERE window_start < :before")
 
 
 @dataclass(frozen=True)
 class Limit:
     """One kind of request held to a rate: its scope in the table, the setting that gives the
-    rate, and what the requests are called in the refusal."""
+    rate, what the requests are called in the refusal, and the window the rate is for."""
 
     scope: str
     setting: str
     what: str
+    window: timedelta = WINDOW
 
     @property
     def variable(self) -> str:
@@ -84,16 +106,19 @@ class Limit:
 UPLOADS = Limit("upload", "rate_uploads", "uploads")
 QUESTIONS = Limit("question", "rate_questions", "questions")
 SEARCHES = Limit("search", "rate_searches", "searches")
-# The sign-in family (app/api/auth.py) is one scope per account: a password tried at the
-# sign-in route and a reset link asked for are the same guess at the same account. The
-# address it comes from is held to a scope of its own, with more room.
+# The sign-in family (app/api/auth.py) is one scope: a password tried at the sign-in route
+# and a reset link asked for are the same guess at the same account, counted for the address
+# the request names, or for the browser itself when it signed in to that account before. The
+# client's address is held to a scope of its own, with more room.
 SIGN_INS = Limit("sign_in", "rate_sign_ins", "sign-in requests")
 ADDRESSES = Limit("address", "rate_sign_ins_per_address", "sign-in requests")
+# The wrong passwords and codes themselves, an hour, counted by `tally` once a guess failed.
+FAILED_SIGN_INS = Limit("failed_sign_in", "rate_failed_sign_ins", "failed sign-ins", HOUR)
 # The page's error reports (app/tracking.py), which a page on a sign-in form sends too, so per
 # client address.
 PAGE_ERRORS = Limit("page_error", "rate_page_errors", "error reports")
 # Each limit's refusals are counted from zero in the metrics (app/metrics.py).
-for _limit in (UPLOADS, QUESTIONS, SEARCHES, SIGN_INS, ADDRESSES, PAGE_ERRORS):
+for _limit in (UPLOADS, QUESTIONS, SEARCHES, SIGN_INS, ADDRESSES, FAILED_SIGN_INS, PAGE_ERRORS):
     RATE_LIMITED.labels(_limit.scope)
 
 
@@ -104,8 +129,8 @@ class Key(NamedTuple):
     who: str
 
 
-def by_user(account: Account) -> Key:
-    return Key(f"user:{account.user.id}", "from your account")
+def by_user(user: User) -> Key:
+    return Key(f"user:{user.id}", "from your account")
 
 
 def by_address(request: Request) -> Key:
@@ -115,9 +140,15 @@ def by_address(request: Request) -> Key:
 
 
 def by_email(email: str) -> Key:
-    """The address a sign-in names, whether or not an account has it, however it is typed."""
+    """The address a sign-in names, whether or not an account has it, however it is typed:
+    every browser that has not signed in to its account together."""
     digest = hashlib.sha256(email.strip().lower().encode()).hexdigest()
     return Key(f"email:{digest}", "for this email address")
+
+
+def by_browser(browser_id: int) -> Key:
+    """A browser that signed in to the account the sign-in names (`Browser`), by itself."""
+    return Key(f"browser:{browser_id}", "from this browser")
 
 
 @dataclass(frozen=True)
@@ -142,41 +173,86 @@ def hit(session: Session, *hits: tuple[Limit, Key], now: datetime | None = None)
     if not counted:
         return None
     now = now or datetime.now(UTC)
-    start = window_start(now)
-    counts = [
-        (
-            limit,
-            key,
-            allowed,
-            session.scalar(_COUNT, {"scope": limit.scope, "key": key.value, "start": start}),
-        )
-        for limit, key, allowed in counted
-    ]
+    counts = []
+    for limit, key, allowed in counted:
+        start = window_start(now, limit.window)
+        count = session.scalar(_COUNT, {"scope": limit.scope, "key": key.value, "start": start})
+        counts.append((limit, key, allowed, start, count))
     session.commit()
-    for limit, key, allowed, count in counts:
+    for limit, key, allowed, start, count in counts:
         if count > allowed:
-            log.warning(
-                "A request was refused: %s has made %s %s in the minute from %s, more than "
-                "%s allows",
-                key.value,
-                count,
-                limit.what,
-                start.isoformat(timespec="seconds"),
-                limit.variable,
-            )
-            RATE_LIMITED.labels(limit.scope).inc()
+            _refused(limit, key, count, start, "more than")
             return Refusal(limit.refusal(allowed, key.who), seconds_left(now, start))
     return None
 
 
-def window_start(now: datetime) -> datetime:
-    """The start of the minute `now` falls in, in UTC."""
-    return now.astimezone(UTC).replace(second=0, microsecond=0)
+def held(
+    session: Session, limit: Limit, key: Key, now: datetime | None = None
+) -> tuple[int, int] | None:
+    """Whether `key` has used up `limit` in the current window, without counting anything:
+    the number allowed and the seconds until the window ends, or None while it may go on.
+
+    For a count that `tally` raises after the fact, such as a sign-in that failed: the try
+    after the last one allowed is refused before anything is checked."""
+    allowed = getattr(get_settings(), limit.setting)
+    if not allowed:
+        return None
+    now = now or datetime.now(UTC)
+    start = window_start(now, limit.window)
+    count = session.scalar(_COUNTED, {"scope": limit.scope, "key": key.value, "start": start})
+    if count is None or count < allowed:
+        return None
+    _refused(limit, key, count, start, "as many as")
+    return allowed, seconds_left(now, start, limit.window)
 
 
-def seconds_left(now: datetime, start: datetime) -> int:
-    """The seconds until the minute that started at `start` ends, at least one."""
-    return max(1, math.ceil((start + WINDOW - now).total_seconds()))
+def tally(session: Session, limit: Limit, key: Key, now: datetime | None = None) -> int | None:
+    """Count one under `limit` for `key` in the current window and return the window's count
+    so far, or None when the limit is off and nothing is counted. The caller commits, with
+    whatever else it records of the failure."""
+    if not getattr(get_settings(), limit.setting):
+        return None
+    start = window_start(now or datetime.now(UTC), limit.window)
+    return session.scalar(_COUNT, {"scope": limit.scope, "key": key.value, "start": start})
+
+
+def window_end(limit: Limit, now: datetime | None = None) -> datetime:
+    """When the current window of `limit` ends, and a pause it holds with it."""
+    return window_start(now or datetime.now(UTC), limit.window) + limit.window
+
+
+def forgive(session: Session, limit: Limit, *keys: Key) -> None:
+    """Forget the counts of `keys` under `limit`, every window's; the caller commits."""
+    for key in keys:
+        session.execute(_FORGIVE, {"scope": limit.scope, "key": key.value})
+
+
+def _refused(limit: Limit, key: Key, count: int, start: datetime, measure: str) -> None:
+    window = "minute" if limit.window == WINDOW else "hour"
+    log.warning(
+        "A request was refused: %s has made %s %s in the %s from %s, %s %s allows",
+        key.value,
+        count,
+        limit.what,
+        window,
+        start.isoformat(timespec="seconds"),
+        measure,
+        limit.variable,
+    )
+    RATE_LIMITED.labels(limit.scope).inc()
+
+
+def window_start(now: datetime, window: timedelta = WINDOW) -> datetime:
+    """The start of the window of the given length that `now` falls in, in UTC: the minute or
+    the hour, counted from midnight."""
+    moment = now.astimezone(UTC)
+    midnight = moment.replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight + (moment - midnight) // window * window
+
+
+def seconds_left(now: datetime, start: datetime, window: timedelta = WINDOW) -> int:
+    """The seconds until the window that started at `start` ends, at least one."""
+    return max(1, math.ceil((start + window - now).total_seconds()))
 
 
 def prune_rate_limits(connection: Connection, age: timedelta = HISTORY) -> int:

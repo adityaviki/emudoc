@@ -183,7 +183,7 @@ def limited(limit: Limit) -> Callable[..., None]:
     account parameter refuses an account that has not accepted them."""
 
     def dependency(session: SessionDep, account: LiveAccountDep) -> None:
-        refuse_past(session, (limit, by_user(account)))
+        refuse_past(session, (limit, by_user(account.user)))
 
     return dependency
 

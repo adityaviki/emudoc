@@ -12,7 +12,8 @@ from app.subprocessors import subprocessors
 from tests.conftest import APP_HEADERS, FakeEmbedder, FakeLLM, FakeS3Client
 
 # Every setting the list reads, as a development machine has it, so that nothing in the
-# environment the suite runs in changes what a test expects.
+# environment the suite runs in changes what a test expects; but for the breached-password
+# check, on by default, which the tests that are about it turn on.
 DEVELOPMENT = {
     "_env_file": None,
     "database_url": "postgresql+psycopg://db.internal/emudoc",
@@ -27,6 +28,7 @@ DEVELOPMENT = {
     "google_oauth_client_id": "",
     "microsoft_oauth_client_id": "",
     "sentry_dsn": "",
+    "pwned_passwords_url": "",
 }
 # Files in a directory, which is the deployment's own disk; the list only asks where it is.
 DIRECTORY = LocalStorage(Path("unused"))
@@ -63,6 +65,7 @@ def test_a_deployment_lists_every_company_it_sends_data_to_in_order():
         agent_model="anthropic:claude-opus-5-5",
         embedding_base_url="https://api.voyageai.com/v1",
         smtp_url="smtp://user:secret@smtp.postmarkapp.com:587",
+        pwned_passwords_url="https://api.pwnedpasswords.com",
         google_oauth_client_id="client",
         microsoft_oauth_client_id="client",
     )
@@ -75,6 +78,7 @@ def test_a_deployment_lists_every_company_it_sends_data_to_in_order():
         "Anthropic",
         "Voyage AI",
         "Postmark",
+        "Have I Been Pwned",
         "Google",
         "Microsoft",
     ]
@@ -120,6 +124,21 @@ def test_services_on_the_deployment_s_own_network_are_not_subprocessors():
     ):
         settings = configured(embedding_base_url=address, smtp_url="smtp://mail:25")
         assert listed(settings, bucket("http://127.0.0.1:7070")) == ["Google (Gemini API)"], address
+
+
+def test_the_breached_password_check_is_named_unless_it_is_the_deployment_s_own():
+    # On by default: a development machine with nothing set sends it the start of a hash.
+    assert Settings.model_fields["pwned_passwords_url"].default == "https://api.pwnedpasswords.com"
+    _, check = subprocessors(
+        configured(pwned_passwords_url="https://api.pwnedpasswords.com/"), DIRECTORY, {}
+    )
+    assert check.name == "Have I Been Pwned"
+    assert check.purpose.startswith("Checks each new password against the passwords exposed")
+    assert check.data.startswith("The first five characters of the SHA-1 hash")
+    assert "no password, account or email address" in check.data
+    # A copy of its list served on the deployment's own network, or none, is nobody else.
+    for address in ("http://pwned:8080", ""):
+        assert listed(configured(pwned_passwords_url=address)) == ["Google (Gemini API)"]
 
 
 def test_a_host_the_list_does_not_know_is_named_as_it_is():

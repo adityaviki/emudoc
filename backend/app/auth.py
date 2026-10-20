@@ -1,8 +1,14 @@
-"""Credentials: passwords, sessions, one-time links and authenticator codes.
+"""Credentials: passwords, sessions, one-time links, authenticator codes, and the browsers an
+account signed in with.
 
 Everything a browser or an email carries is a random token, and the database holds only its
 SHA-256, so a copy of the database signs nobody in. Passwords are hashed with Argon2id. The
 routes in `api/auth.py` decide when each of these is used; this module only knows how.
+
+A browser that completes a sign-in keeps a cookie of its own (BROWSER_COOKIE), which outlives
+the session and signing out, and the account a row for it (`Browser`), so that its failed
+sign-ins are counted apart from a stranger's (app/ratelimit.py). It grants nothing else: the
+password and the code are asked as from any browser.
 """
 
 import base64
@@ -10,6 +16,7 @@ import datetime as dt
 import hashlib
 import hmac
 import logging
+import re
 import secrets
 import struct
 from urllib.parse import quote
@@ -17,11 +24,12 @@ from urllib.parse import quote
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from fastapi import Request, Response
-from sqlalchemy import Connection, select, text, update
+from sqlalchemy import Connection, delete, func, select, text, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import AuthToken, User, UserSession
+from app.models import AuthToken, Browser, User, UserSession
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +50,13 @@ RECOVERY_CODE_COUNT = 8
 # session recorded, and the address a link went to, are personal data with no use after that.
 # The month leaves time to answer a question about a recent sign-in from the rows.
 CREDENTIAL_HISTORY = dt.timedelta(days=30)
+# The cookie that tells a browser that signed in before from one that has not, for the
+# sign-in routes alone, and how long after its last sign-in a browser is told apart; its row
+# goes then too.
+BROWSER_COOKIE = "emudoc_browser"
+BROWSER_PATH = "/api/auth"
+BROWSER_KNOWN_FOR = dt.timedelta(days=90)
+_BROWSER_TOKEN = re.compile(r"[A-Za-z0-9_-]{43}")
 # Logged when a production request arrives as plain HTTP, which is the proxy's doing.
 PLAIN_HTTP = (
     "%s %s reached the app as plain HTTP in production, so its cookie was marked Secure "
@@ -146,16 +161,81 @@ def revoke_sessions(session: Session, user_id: int, except_id: int | None = None
 
 _PRUNE_SESSIONS = text("DELETE FROM sessions WHERE expires_at < :before OR revoked_at < :before")
 _PRUNE_LINKS = text("DELETE FROM auth_tokens WHERE expires_at < :before")
+_PRUNE_BROWSERS = text("DELETE FROM browsers WHERE signed_in_at < :before")
 
 
 def prune_credentials(connection: Connection, age: dt.timedelta = CREDENTIAL_HISTORY) -> int:
-    """Remove the sessions and one-time links that ended longer ago than `age`; returns how
-    many."""
+    """Remove the sessions and one-time links that ended longer ago than `age`, and the
+    browsers that have not signed in for BROWSER_KNOWN_FOR; returns how many."""
     before = now() - age
-    return sum(
+    pruned = sum(
         connection.execute(statement, {"before": before}).rowcount
         for statement in (_PRUNE_SESSIONS, _PRUNE_LINKS)
     )
+    browsers = connection.execute(_PRUNE_BROWSERS, {"before": now() - BROWSER_KNOWN_FOR})
+    return pruned + browsers.rowcount
+
+
+# Browsers
+
+
+def remember_browser(session: Session, user: User, request: Request) -> str:
+    """Record that this browser completed a sign-in to the user's account, now, and return the
+    token its cookie keeps: the one it carries, or a new one for a browser without."""
+    token = browser_token(request) or new_token()
+    session.execute(
+        insert(Browser)
+        .values(user_id=user.id, token_hash=_browser_hash(user.id, token))
+        .on_conflict_do_update(
+            index_elements=[Browser.user_id, Browser.token_hash],
+            set_={"signed_in_at": func.now()},
+        )
+    )
+    return token
+
+
+def known_browser(session: Session, user: User, request: Request) -> int | None:
+    """The id of this browser's row in the user's account while it is told apart, or None for
+    a browser that has not signed in to it, or not for BROWSER_KNOWN_FOR."""
+    token = browser_token(request)
+    if token is None:
+        return None
+    return session.scalar(
+        select(Browser.id).where(
+            Browser.user_id == user.id,
+            Browser.token_hash == _browser_hash(user.id, token),
+            Browser.signed_in_at > now() - BROWSER_KNOWN_FOR,
+        )
+    )
+
+
+def forget_browsers(session: Session, user_id: int) -> None:
+    """Tell none of the user's browsers apart any longer, as when a new password replaces the
+    one they signed in with."""
+    session.execute(delete(Browser).where(Browser.user_id == user_id))
+
+
+def browser_token(request: Request) -> str | None:
+    """The token of the browser's cookie, when it carries one the app could have made."""
+    token = request.cookies.get(BROWSER_COOKIE, "")
+    return token if _BROWSER_TOKEN.fullmatch(token) else None
+
+
+def set_browser_cookie(response: Response, request: Request, token: str) -> None:
+    response.set_cookie(
+        BROWSER_COOKIE,
+        token,
+        max_age=int(BROWSER_KNOWN_FOR.total_seconds()),
+        httponly=True,
+        samesite="lax",
+        secure=cookie_secure(request),
+        path=BROWSER_PATH,
+    )
+
+
+def _browser_hash(user_id: int, token: str) -> str:
+    # With the user's id, so that two accounts' rows for one browser differ.
+    return token_hash(f"{user_id}:{token}")
 
 
 def cookie_secure(request: Request) -> bool:
@@ -172,7 +252,10 @@ def cookie_secure(request: Request) -> bool:
         return True
     if get_settings().environment != "production":
         return False
-    log.warning(PLAIN_HTTP, request.method, request.url.path)
+    # Once for a request, however many cookies it sets.
+    if not getattr(request.state, "plain_http", False):
+        request.state.plain_http = True
+        log.warning(PLAIN_HTTP, request.method, request.url.path)
     return True
 
 

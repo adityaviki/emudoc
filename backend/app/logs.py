@@ -74,6 +74,11 @@ REQUEST_ID_HEADER = "X-Request-ID"
 # What a request id from the proxy may look like: Caddy's {http.request.uuid}, nginx's
 # $request_id, and other proxies' ids, but nothing that would read as more than an id.
 _REQUEST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{7,127}")
+# The breached-password check asks Pwned Passwords' range API by the first five characters of
+# the password's SHA-1, in the path (app/passwords.py). They are not the password, but with a
+# copy of the database they would let a guesser skip most candidates at SHA-1's speed before
+# trying the rest against the Argon2 hash, so no line holds them.
+_HASH_RANGE = re.compile(r"(/range/)[0-9A-Fa-f]{5}$")
 
 
 @dataclass(slots=True)
@@ -272,9 +277,10 @@ def _request_line(record: logging.LogRecord) -> dict[str, object]:
 
 
 def bare_url(url: str) -> str:
-    """An address as the log and the app's sentences name it: no user or password, and the
-    names of its query's parameters without their values."""
+    """An address as the log and the app's sentences name it: no user or password, the names
+    of its query's parameters without their values, and no password hash's range."""
     parts = urlsplit(url)
+    parts = parts._replace(path=_HASH_RANGE.sub(r"\1…", parts.path))
     host = parts.hostname or ""
     if ":" in host:
         host = f"[{host}]"

@@ -41,10 +41,11 @@ DEVELOPMENT = {
     "server_log_days": None,
     "session_days": 30,
     "sentry_dsn": "",
+    "pwned_passwords_url": "https://api.pwnedpasswords.com",
 }
 DIRECTORY = LocalStorage(Path("unused"))
 # The SHA-256 of terms.md and privacy.md as the edition TERMS_VERSION names was settled.
-SETTLED = "55f4b5ec211fbd10d07a4c01ca874c8f6950100f3d14772ff67e5c5cd38352ae"
+SETTLED = "a36087c93c3366d27fcd4346997e6dc3cfa4448d0bd4e11e5a72880fc54331c3"
 OLDER = "2026-01-01"
 
 
@@ -162,6 +163,7 @@ def test_the_privacy_policy_says_what_the_settings_do():
     assert "(Free: 30 days; Pro: 365 days; Team and Enterprise: until deleted)" in text
     assert "(Free: 90 days; Pro and Team: 365 days; Enterprise: as long as it exists)" in text
     assert "until 30 days after they expired or were ended" in text
+    assert "- **The browsers you signed in with**, until 90 days after their last sign-in." in text
     assert "It goes 14 days after you ask" in text
     assert "until they expire (BACKUP_DAYS is not set)" in text
     assert "this deployment keeps none" in policy(backup_days=0)
@@ -169,12 +171,17 @@ def test_the_privacy_policy_says_what_the_settings_do():
     # The server logs, with their client addresses, for the operator's period.
     assert "- **Server logs**, as long as the servers keep them (SERVER_LOG_DAYS is not" in text
     kept = policy(server_log_days=14)
-    assert "an hour.\n- **Server logs**, 14 days.\n- **Usage records**" in kept
+    # The counts are pruned at the first housekeeping after their hour.
+    assert "at most 7 hours.\n- **Server logs**, 14 days.\n- **Usage records**" in kept
     assert "- **Server logs**, 1 day." in policy(server_log_days=1)
 
     # The cookies, by the names the code sets them under.
-    assert "`emudoc_session`, which keeps you\nsigned in for up to 7 days" in policy(session_days=7)
-    assert "`emudoc_oauth`, which lasts 10 minutes" in text
+    assert "`emudoc_session`, which keeps you signed in for up to 7 days;" in policy(session_days=7)
+    assert "`emudoc_oauth`, which\nlasts 10 minutes" in text
+    assert (
+        "`emudoc_browser`, a\nrandom code that tells a browser you signed in with from others "
+        "for 90" in text
+    )
     assert "the pages load nothing from other sites, so" in text
     in_a_bucket = S3Storage(
         FakeS3Client("emudoc", origin="https://s3.eu-central-1.example"), "emudoc"
@@ -185,6 +192,19 @@ def test_the_privacy_policy_says_what_the_settings_do():
     assert "scanned for malware" not in text
     assert "scanned for malware" in policy(scanner_url="clamd://clamav:3310")
     assert "scanned for malware" not in policy(scanner_url="off")
+
+    # Breached passwords are refused where the check is set, and it says what it is told.
+    assert (
+        "- A new password is refused when it has appeared in a data breach: the service on the"
+        in text
+    )
+    assert "is sent the first five characters of its hash" in text
+    assert "looked up in a list kept on our own servers." in policy(
+        pwned_passwords_url="http://pwned:8080"
+    )
+    assert "data breach" not in policy(pwned_passwords_url="")
+    both = policy(scanner_url="clamd://clamav:3310")
+    assert "never the password itself.\n- Every upload is scanned for malware" in both
 
     # Error reports are named where they are made, and where they go.
     assert "Error reports" not in text

@@ -116,6 +116,7 @@ class Deployment:
             "DATA_REGION": "",
             "SCANNER_URL": "off",
             "SMTP_URL": "",
+            "PWNED_PASSWORDS_URL": "",
             "MODEL_PRICES": "",
             "DAILY_SPEND_CAP": "0",
             "SENTRY_DSN": "",

@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, auth } from '../api.ts'
+import { ApiError, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, auth } from '../api.ts'
 import { setSignedIn } from '../auth.ts'
 import { Button, InputField, Notice } from '../components/ui.tsx'
 import { useLinkToken } from './linkToken.ts'
@@ -116,10 +116,16 @@ export function ResetPasswordPage() {
         />
         {reset.isError && (
           <Notice tone="bad">
-            {reset.error.message}{' '}
-            <Link to="/forgot-password" className="font-medium underline">
-              Request a new link
-            </Link>
+            {reset.error.message}
+            {/* A password refused for itself (422) leaves the link working. */}
+            {!(reset.error instanceof ApiError && reset.error.status === 422) && (
+              <>
+                {' '}
+                <Link to="/forgot-password" className="font-medium underline">
+                  Request a new link
+                </Link>
+              </>
+            )}
           </Notice>
         )}
         <Button type="submit" variant="primary" className="w-full" disabled={reset.isPending}>

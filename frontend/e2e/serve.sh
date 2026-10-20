@@ -52,6 +52,7 @@ export DISABLED_PROVIDERS=
 export DATA_REGION=
 export SCANNER_URL=off
 export SMTP_URL=
+export PWNED_PASSWORDS_URL=
 export MODEL_PRICES=
 export DAILY_SPEND_CAP=0
 export SENTRY_DSN=

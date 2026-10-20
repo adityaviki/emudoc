@@ -14,15 +14,28 @@ them.
 The routes that take a password, a code or an address to mail are held to a rate
 (app/ratelimit.py): RATE_SIGN_INS a minute per email address, and RATE_SIGN_INS_PER_ADDRESS
 per client address, so that neither a password nor an authenticator code can be guessed at
-speed and nobody's inbox can be flooded with links.
+speed and nobody's inbox can be flooded with links. The wrong passwords and codes themselves
+are held to RATE_FAILED_SIGN_INS an hour, past which the sign-ins they came from are paused
+until the hour ends. Both count a browser that signed in to the account before by itself, and
+every other browser together under the address, so that a stranger who knows the address
+pauses only the browsers its owner has never used. The owner is told of a pause by mail, and a
+new password ends it. A signed-in request that confirms a change with the password is held per
+user instead, since only whoever holds the session can make it.
+
+A new password, at sign-up, from a reset link or on the account page, is refused when it has
+appeared in a data breach (app/passwords.py).
 """
 
+import datetime as dt
+import math
 from contextlib import suppress
 from dataclasses import replace
+from typing import NamedTuple
 from urllib.parse import quote, urlencode
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -52,6 +65,7 @@ from app.mail import (
     email_change_email,
     email_changed_email,
     password_reset_email,
+    sign_ins_paused_email,
     verification_email,
 )
 from app.models import Identity, User, UserSession
@@ -66,7 +80,21 @@ from app.oidc import (
     finish,
     providers,
 )
-from app.ratelimit import ADDRESSES, SIGN_INS, by_address, by_email
+from app.passwords import BREACHED, breached
+from app.ratelimit import (
+    ADDRESSES,
+    FAILED_SIGN_INS,
+    SIGN_INS,
+    Key,
+    by_address,
+    by_browser,
+    by_email,
+    by_user,
+    forgive,
+    held,
+    tally,
+    window_end,
+)
 from app.retention import DELETION_GRACE, LOCAL_ACCOUNT, day, deletion_refusal
 from app.schemas import (
     AccountDeletionIn,
@@ -100,6 +128,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 LOGIN_PAGE = "/login"
 VERIFY_PAGE = "/verify"
 RESET_PAGE = "/reset-password"
+FORGOT_PAGE = "/forgot-password"
 EMAIL_PAGE = "/confirm-email"
 
 SIGN_IN_FAILED = "The email or password is not right."
@@ -128,6 +157,37 @@ TERMS_CHANGED = (
     "The terms of service and the privacy policy changed while you were reading them. Read "
     "the new version and accept it."
 )
+# What a guess is refused with once its guesser has used up the hour's failed sign-ins
+# (`_refuse_paused`): the browsers that have not signed in with the address together, whether
+# or not it has an account; one browser that has; and a signed-in account.
+PAUSED_NEW = (
+    "There have been {allowed} failed sign-ins for this email address this hour from browsers "
+    "that have not signed in with it before, so signing in from those is paused for {wait}. "
+    "Sign in from a browser you have signed in with before, or reset your password, which "
+    "ends the pause."
+)
+PAUSED_BROWSER = (
+    "There have been {allowed} failed sign-ins from this browser this hour, so its sign-ins "
+    "are paused for {wait}. Try again then, or reset your password, which ends the pause."
+)
+PAUSED_SESSION = (
+    "There have been {allowed} wrong passwords or codes from your account this hour, so they "
+    "cannot be tried again for {wait}. Try again then, or reset your password from the sign-in "
+    "page, which ends the pause."
+)
+
+
+class Guesser(NamedTuple):
+    """Whom a guess at an account's password or code is counted for (app/ratelimit.py): the
+    browser itself when it signed in to the account before, else every browser that has not,
+    together under the address the guess names."""
+
+    key: Key
+    known: bool
+
+    @property
+    def paused(self) -> str:
+        return PAUSED_BROWSER if self.known else PAUSED_NEW
 
 
 class SignInRefused(Exception):
@@ -149,7 +209,12 @@ def options():
 
 @router.post("/signup", response_model=MeOut, status_code=201)
 def signup(
-    body: SignupIn, request: Request, response: Response, session: SessionDep, mailer: MailerDep
+    body: SignupIn,
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    mailer: MailerDep,
+    http: HttpDep,
 ):
     """Create an account with its own organisation, sign it in and send the verification link.
     The form carries the edition of the terms its user accepted, which must be the current one.
@@ -162,6 +227,7 @@ def signup(
     email = body.email.strip().lower()
     if session.scalar(select(User.id).where(User.email == email)) is not None:
         raise HTTPException(409, "An account with this email already exists. Sign in instead.")
+    _refuse_breached(http, body.password)
     account = create_account(
         session,
         email,
@@ -170,38 +236,64 @@ def signup(
         time_zone=body.time_zone,
     )
     user_session, token = auth.start_session(session, account.user, request)
+    browser = auth.remember_browser(session, account.user, request)
     audit(session, account, request, "sign_up", detail={"method": "password"})
     _accept_terms(session, account, request)
     session.commit()
     _send_verification(session, account.user, request, mailer)
     auth.set_session_cookie(response, request, token)
+    auth.set_browser_cookie(response, request, browser)
     return _me(replace(account, session_id=user_session.id))
 
 
 @router.post("/login", response_model=LoginOut)
-def login(body: LoginIn, request: Request, response: Response, session: SessionDep):
+def login(
+    body: LoginIn,
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    mailer: MailerDep,
+    background: BackgroundTasks,
+):
     """Check the password and start a session; with two-factor on, the code must follow."""
-    refuse_past(session, (ADDRESSES, by_address(request)), (SIGN_INS, by_email(body.email)))
-    user = session.scalar(select(User).where(User.email == body.email.strip().lower()))
-    if user is None or not auth.verify_password(body.password, user.password_hash):
+    email = body.email.strip().lower()
+    user = session.scalar(select(User).where(User.email == email))
+    guesser = _guesser(session, request, user, email)
+    refuse_past(session, (ADDRESSES, by_address(request)), (SIGN_INS, guesser.key))
+    _refuse_paused(session, guesser.key, guesser.paused)
+    # An address with no account is checked against a made-up hash, so that its answer takes
+    # as long as a wrong password's and says nothing of whether the account exists.
+    right = auth.verify_password(body.password, user.password_hash if user else None)
+    if user is None or not right:
         # An address with no account is a stranger's and leaves no row (app/audit.py).
         if user is not None:
             audit_sign_in(session, user, request, "sign_in_failed", {"reason": "password"})
-            session.commit()
-        raise HTTPException(401, SIGN_IN_FAILED)
+        _failed(session, request, user, guesser, mailer, background)
+        return _refusal(401, SIGN_IN_FAILED)
     if auth.needs_rehash(user.password_hash):
         user.password_hash = auth.hash_password(body.password)
     _, token = auth.start_session(session, user, request, needs_mfa=user.mfa_enabled)
-    # With two-factor on, the sign-in is recorded once the code has been entered.
+    # With two-factor on, the sign-in is recorded, and the browser remembered, once the code
+    # has been entered.
     if not user.mfa_enabled:
         audit_sign_in(session, user, request, "sign_in", {"method": "password"})
+        browser = auth.remember_browser(session, user, request)
     session.commit()
     auth.set_session_cookie(response, request, token, needs_mfa=user.mfa_enabled)
+    if not user.mfa_enabled:
+        auth.set_browser_cookie(response, request, browser)
     return LoginOut(mfa_required=user.mfa_enabled)
 
 
 @router.post("/mfa/verify", response_model=MeOut)
-def verify_mfa(body: CodeIn, request: Request, response: Response, session: SessionDep):
+def verify_mfa(
+    body: CodeIn,
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    mailer: MailerDep,
+    background: BackgroundTasks,
+):
     """Finish a sign-in that waits for the authenticator code, or a recovery code."""
     token = request.cookies.get(auth.SESSION_COOKIE)
     user_session = auth.find_session(session, token) if token else None
@@ -210,20 +302,24 @@ def verify_mfa(body: CodeIn, request: Request, response: Response, session: Sess
     user = session.get(User, user_session.user_id)
     # Counted for the account as well as the address: a code has a million values, and the
     # session that waits for it could be tried from anywhere.
-    refuse_past(session, (ADDRESSES, by_address(request)), (SIGN_INS, by_email(user.email)))
+    guesser = _guesser(session, request, user, user.email)
+    refuse_past(session, (ADDRESSES, by_address(request)), (SIGN_INS, guesser.key))
+    _refuse_paused(session, guesser.key, guesser.paused)
     if auth.check_totp(user, body.code):
         factor = "authenticator"
     elif auth.use_recovery_code(user, body.code):
         factor = "recovery_code"
     else:
         audit_sign_in(session, user, request, "sign_in_failed", {"reason": "code"})
-        session.commit()
-        raise HTTPException(401, CODE_INVALID)
+        _failed(session, request, user, guesser, mailer, background)
+        return _refusal(401, CODE_INVALID)
     auth.complete_mfa(user_session)
+    browser = auth.remember_browser(session, user, request)
     account = account_for_user(session, user, user_session.id)
     audit_sign_in(session, user, request, "sign_in", {"second_factor": factor})
     session.commit()
     auth.set_session_cookie(response, request, token)
+    auth.set_browser_cookie(response, request, browser)
     return _me(account)
 
 
@@ -297,7 +393,7 @@ def request_email_change(
     user = account.user
     if account.session_id is None:
         raise HTTPException(409, LOCAL_ADDRESS)
-    _confirm(user, body.password, body.current_email)
+    _confirm(session, account, request, body.password, body.current_email)
     email = body.email.strip().lower()
     if email == user.email:
         raise HTTPException(400, SAME_ADDRESS)
@@ -384,8 +480,10 @@ def forgot_password(
     """Send a reset link. Always accepted, so the reply does not say whether the address exists:
     the mail goes out after the reply, so neither the relay's time nor its failure (which the
     mailer logs) tells an address with an account from one without."""
-    refuse_past(session, (ADDRESSES, by_address(request)), (SIGN_INS, by_email(body.email)))
-    user = session.scalar(select(User).where(User.email == body.email.strip().lower()))
+    email = body.email.strip().lower()
+    user = session.scalar(select(User).where(User.email == email))
+    guesser = _guesser(session, request, user, email)
+    refuse_past(session, (ADDRESSES, by_address(request)), (SIGN_INS, guesser.key))
     if user is None:
         return
     token = auth.issue_link_token(session, user, "reset_password", user.email, auth.RESET_LINK_TTL)
@@ -396,37 +494,56 @@ def forgot_password(
 
 
 @router.post("/password/reset", status_code=204)
-def reset_password(body: PasswordResetIn, request: Request, session: SessionDep):
-    """Set a new password from a reset link and sign the account out everywhere."""
+def reset_password(
+    body: PasswordResetIn, request: Request, response: Response, session: SessionDep, http: HttpDep
+):
+    """Set a new password from a reset link and sign the account out everywhere. The browser
+    that opened the link is remembered as the account's, as after a sign-in, and a pause of
+    the account's sign-ins ends."""
     link = auth.redeem_link_token(session, body.token, "reset_password")
     if link is None:
         raise HTTPException(400, LINK_INVALID)
+    # A refused password leaves the link unused, since nothing is committed.
+    _refuse_breached(http, body.password)
     user = session.get(User, link.user_id)
     user.password_hash = auth.hash_password(body.password)
     # Opening the link proves control of the address, so it counts as verified.
     if user.email == link.email:
         user.email_verified_at = user.email_verified_at or auth.now()
     auth.revoke_sessions(session, user.id)
+    browser = _new_password(session, user, request)
     audit_sign_in(session, user, request, "password_reset")
     session.commit()
+    auth.set_browser_cookie(response, request, browser)
 
 
-@router.post("/password", status_code=204)
+@router.post("/password", status_code=204, dependencies=[Depends(limited(SIGN_INS))])
 def change_password(
-    body: PasswordChangeIn, account: AccountDep, request: Request, session: SessionDep
+    body: PasswordChangeIn,
+    account: AccountDep,
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    http: HttpDep,
 ):
-    """Change the password and sign out every other session."""
+    """Change the password and sign out every other session. Held to the sign-in rates, since
+    a session left open is enough to guess the current password with."""
     user = account.user
     if user.password_hash is None:
         raise HTTPException(
             400, 'Your account has no password yet. Use "Forgot password" to set one.'
         )
+    _refuse_paused(session, by_user(user), PAUSED_SESSION)
     if not auth.verify_password(body.current_password, user.password_hash):
+        _wrong(session, account, request)
         raise HTTPException(403, "The current password is not right.")
+    _refuse_breached(http, body.new_password)
     user.password_hash = auth.hash_password(body.new_password)
     auth.revoke_sessions(session, user.id, except_id=account.session_id)
+    browser = _new_password(session, user, request)
     audit(session, account, request, "password_changed")
     session.commit()
+    auth.set_browser_cookie(response, request, browser)
 
 
 # Sessions
@@ -502,7 +619,7 @@ def delete_account(
     user = account.user
     if account.session_id is None:
         raise HTTPException(409, LOCAL_ACCOUNT)
-    _confirm(user, body.password, body.email)
+    _confirm(session, account, request, body.password, body.email)
     if refusal := deletion_refusal(session, user):
         raise HTTPException(409, refusal)
     user.deletion_due_at = auth.now() + DELETION_GRACE
@@ -588,12 +705,14 @@ def enable_mfa(body: CodeIn, account: AccountDep, request: Request, session: Ses
     return RecoveryCodesOut(recovery_codes=codes)
 
 
-@router.post("/mfa/disable", status_code=204)
+@router.post("/mfa/disable", status_code=204, dependencies=[Depends(limited(SIGN_INS))])
 def disable_mfa(body: MfaDisableIn, account: AccountDep, request: Request, session: SessionDep):
-    """Turn two-factor sign-in off, confirmed by the password or by a code."""
+    """Turn two-factor sign-in off, confirmed by the password or by a code, which are held to
+    the sign-in rates as a sign-in's are."""
     user = account.user
     if not user.mfa_enabled:
         raise HTTPException(409, "Two-factor sign-in is not on.")
+    _refuse_paused(session, by_user(user), PAUSED_SESSION)
     confirmed = (
         body.password is not None and auth.verify_password(body.password, user.password_hash)
     ) or (
@@ -601,6 +720,7 @@ def disable_mfa(body: MfaDisableIn, account: AccountDep, request: Request, sessi
         and (auth.check_totp(user, body.code) or auth.use_recovery_code(user, body.code))
     )
     if not confirmed:
+        _wrong(session, account, request)
         raise HTTPException(
             403, "Confirm with your password or with a code from your authenticator app."
         )
@@ -663,12 +783,14 @@ def oauth_callback(
     _, token = auth.start_session(session, user, request, needs_mfa=user.mfa_enabled)
     if not user.mfa_enabled:
         audit_sign_in(session, user, request, "sign_in", {"method": found.name})
+        browser = auth.remember_browser(session, user, request)
     session.commit()
     if user.mfa_enabled:
         response = _back_to_login(request, mfa="1", next=handshake.next)
     else:
         response = RedirectResponse(handshake.next, status_code=302)
         response.delete_cookie(OAUTH_COOKIE, path="/api/auth/oauth")
+        auth.set_browser_cookie(response, request, browser)
     auth.set_session_cookie(response, request, token, needs_mfa=user.mfa_enabled)
     return response
 
@@ -774,15 +896,111 @@ def _me(account: Account) -> MeOut:
     )
 
 
-def _confirm(user: User, password: str | None, email: str | None) -> None:
+def _confirm(
+    session: Session, account: Account, request: Request, password: str | None, email: str | None
+) -> None:
     """Refuse a change to the account that its password does not confirm, or for an account
     without one, its address typed out, so that a browser left signed in is not enough by
-    itself."""
+    itself. A wrong password counts as a failed sign-in of the user's."""
+    user = account.user
     if user.password_hash is not None:
+        _refuse_paused(session, by_user(user), PAUSED_SESSION)
         if not auth.verify_password(password or "", user.password_hash):
+            _wrong(session, account, request)
             raise HTTPException(403, WRONG_PASSWORD)
     elif (email or "").strip().lower() != user.email:
         raise HTTPException(403, TYPE_EMAIL)
+
+
+def _guesser(session: Session, request: Request, user: User | None, email: str) -> Guesser:
+    """Whom a sign-in to the account `email` names is counted for: this browser by itself when
+    it signed in to that account before, else the address, for an address without an account
+    too, so that the answers say nothing of which has one."""
+    browser = auth.known_browser(session, user, request) if user is not None else None
+    if browser is None:
+        return Guesser(by_email(email), known=False)
+    return Guesser(by_browser(browser), known=True)
+
+
+def _refuse_paused(session: Session, key: Key, sentence: str) -> None:
+    """Refuse with 429 a guess from whoever `key` names once they have used up the hour's
+    failed sign-ins, before the password or code is looked at, and with the minutes left."""
+    if found := held(session, FAILED_SIGN_INS, key):
+        allowed, seconds = found
+        minutes = math.ceil(seconds / 60)
+        wait = f"{minutes} {'minute' if minutes == 1 else 'minutes'}"
+        raise HTTPException(
+            429, sentence.format(allowed=allowed, wait=wait), headers={"Retry-After": str(seconds)}
+        )
+
+
+def _failed(
+    session: Session,
+    request: Request,
+    user: User | None,
+    guesser: Guesser,
+    mailer: Mailer,
+    background: BackgroundTasks,
+) -> None:
+    """Count a sign-in's wrong password or code for its guesser, and commit it with whatever
+    the route recorded. The failure that uses up the hour pauses that guesser's sign-ins, which
+    the audit log records; when they are the new browsers', the account's owner is told, after
+    the reply, as `forgot_password` mails, so that nothing in the answer differs from an
+    address without an account."""
+    count = tally(session, FAILED_SIGN_INS, guesser.key)
+    allowed = get_settings().rate_failed_sign_ins
+    if user is not None and count == allowed:
+        browsers = "known_browser" if guesser.known else "new_browsers"
+        audit_sign_in(session, user, request, "sign_in_paused", {"from": browsers})
+        if not guesser.known:
+            subject, text = sign_ins_paused_email(
+                user.name,
+                allowed,
+                _clock(window_end(FAILED_SIGN_INS), user),
+                f"{_app_url(request)}{FORGOT_PAGE}",
+            )
+            background.add_task(_send_quietly, mailer, user.email, subject, text)
+    session.commit()
+
+
+def _refusal(status: int, detail: str) -> JSONResponse:
+    """A refusal returned, in the form FastAPI answers an HTTPException with, rather than
+    raised: a route's background tasks run only after a response it returns, and `_failed` may
+    have queued a mail."""
+    return JSONResponse({"detail": detail}, status_code=status)
+
+
+def _wrong(session: Session, account: Account, request: Request) -> None:
+    """Count a wrong password or code that a signed-in request confirmed a change with, for
+    its user, and commit; the one that uses up the hour is recorded in the audit log."""
+    count = tally(session, FAILED_SIGN_INS, by_user(account.user))
+    if count == get_settings().rate_failed_sign_ins:
+        audit(session, account, request, "sign_in_paused", detail={"from": "session"})
+    session.commit()
+
+
+def _new_password(session: Session, user: User, request: Request) -> str:
+    """What a new password changes besides itself: the browsers that signed in with the old
+    one are told apart no longer, and the failed sign-ins counted against the account are
+    forgotten, which ends a pause; the browser that chose it is remembered. Returns the token
+    for its cookie; the caller commits."""
+    auth.forget_browsers(session, user.id)
+    forgive(session, FAILED_SIGN_INS, by_email(user.email), by_user(user))
+    return auth.remember_browser(session, user, request)
+
+
+def _refuse_breached(http: httpx.Client, password: str) -> None:
+    """Refuse a new password that has appeared in a data breach, with 422 as one too short is,
+    so that a form can tell it from a refusal of the rest of the request."""
+    if breached(http, get_settings().pwned_passwords_url, password):
+        raise HTTPException(422, BREACHED)
+
+
+def _clock(moment: dt.datetime, user: User) -> str:
+    """A time of day as a mail names it, in the zone of the person it is for: 15:00
+    (Europe/Berlin)."""
+    zone = zone_of(user.time_zone)
+    return f"{moment.astimezone(zone):%H:%M} ({zone})"
 
 
 def _accept_terms(session: Session, account: Account, request: Request) -> None:

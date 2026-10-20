@@ -27,13 +27,15 @@ from pathlib import Path
 from string import Template
 
 from app.accounts import Account
-from app.auth import CREDENTIAL_HISTORY, SESSION_COOKIE
+from app.auth import BROWSER_COOKIE, BROWSER_KNOWN_FOR, CREDENTIAL_HISTORY, SESSION_COOKIE
 from app.config import REGIONS, Settings, model_provider, parse_scanner_url
 from app.entitlements import PLANS, Entitlements
 from app.network import MODEL_BASE_URLS, host_of, on_own_network
 from app.oidc import OAUTH_COOKIE, OAUTH_WINDOW_SECONDS
+from app.ratelimit import HISTORY
 from app.retention import DELETION_GRACE, day
 from app.storage import Storage
+from app.worker import HOUSEKEEPING_INTERVAL
 
 TERMS_VERSION = "2026-10-15"
 TEMPLATES = Path(__file__).parent
@@ -110,6 +112,9 @@ def privacy_policy(
         chat_retention=_by_plan(lambda plan: plan.retention_days, "until deleted"),
         audit_retention=_by_plan(lambda plan: plan.audit_days, "as long as it exists"),
         credential_days=str(CREDENTIAL_HISTORY.days),
+        browser_days=str(BROWSER_KNOWN_FOR.days),
+        # A count is pruned at the first housekeeping after it is HISTORY old.
+        count_hours=str(round((HISTORY.total_seconds() + HOUSEKEEPING_INTERVAL) / 3600)),
         deletion_days=str(DELETION_GRACE.days),
         backups=_backups(settings.backup_days),
         server_logs=_server_logs(settings.server_log_days),
@@ -117,20 +122,26 @@ def privacy_policy(
         session_days=str(settings.session_days),
         oauth_cookie=OAUTH_COOKIE,
         oauth_minutes=str(OAUTH_WINDOW_SECONDS // 60),
+        browser_cookie=BROWSER_COOKIE,
         third_parties=(
             "the pages load nothing from other sites but the images of document pages, which "
             "come straight from the file storage on the subprocessor list,"
             if storage.origin
             else "the pages load nothing from other sites,"
         ),
-        scanning=(
-            "- Every upload is scanned for malware before it is read, and one that is flagged "
-            "is never served."
-            if parse_scanner_url(settings.scanner_url)
-            else ""
+        # Each a bullet of its own when it is kept or done at all, joined so that none leaves a
+        # blank line inside the list.
+        more_security="\n".join(
+            bullet
+            for bullet in (
+                _breach_check(settings.pwned_passwords_url),
+                "- Every upload is scanned for malware before it is read, and one that is flagged "
+                "is never served."
+                if parse_scanner_url(settings.scanner_url)
+                else "",
+            )
+            if bullet
         ),
-        # Each a bullet of its own when it is kept at all, joined so that none leaves a blank
-        # line inside the list.
         more_records="\n".join(
             bullet
             for bullet in (
@@ -241,15 +252,29 @@ def _error_reports(dsn: str) -> str:
     )
 
 
+def _breach_check(url: str) -> str:
+    """What the breached-password check (app/passwords.py) is told, where PWNED_PASSWORDS_URL
+    names one: by the company on the subprocessor list, or by the deployment itself."""
+    if not url:
+        return ""
+    how = (
+        "its hash is looked up in a list kept on our own servers"
+        if on_own_network(host_of(url))
+        else "the service on the subprocessor list is sent the first five characters of its "
+        "hash, which hundreds of passwords share, and never the password itself"
+    )
+    return f"- A new password is refused when it has appeared in a data breach: {how}."
+
+
 def _region(settings: Settings) -> str:
     if code := settings.data_region:
         return (
             f"Your documents, and everything read from them, are kept and processed in "
             f"{REGIONS[code]}: our servers and database, the file storage and every AI model "
             "provider that receives them are there, and the service refuses to start "
-            "otherwise. Email, sign-in through Google or Microsoft, and error reports, which "
-            "hold no documents, may be handled elsewhere; the subprocessor list says where, "
-            "where it is known."
+            "otherwise. Email, sign-in through Google or Microsoft, the check of new passwords "
+            "and error reports, which hold no documents, may be handled elsewhere; the "
+            "subprocessor list says where, where it is known."
         )
     return (
         "This deployment does not keep the data in one region. The subprocessor list says where "
