@@ -33,7 +33,15 @@ from app.entitlements import (
 from app.indexing.pipeline import process_document, reset_stages
 from app.jobs import INDEX_DOCUMENT, claim, enqueue
 from app.maintenance import main
-from app.models import ChatMessage, Document, Invitation, Job, Organization, Project
+from app.models import (
+    ChatMessage,
+    Document,
+    Invitation,
+    Job,
+    Organization,
+    Project,
+    UsageEvent,
+)
 from app.usage import DOCUMENT, UPLOAD, record
 from tests.test_api import create_project, upload
 from tests.test_audit import actions
@@ -266,15 +274,26 @@ def test_the_free_plan_answers_so_many_questions_a_month(member, client, session
     }
     # Nothing was saved for the refused question.
     assert client.get(f"/api/chats/{second['id']}").json()["messages"] == []
+    # The month counts the asking, so deleting the chat gives its question back to nobody.
+    assert client.delete(f"/api/chats/{first['id']}").status_code == 204
+    again = client.post(f"/api/chats/{second['id']}/messages", json={"content": "Price?"})
+    assert again.status_code == 402 and again.json() == refused.json()
 
     # Last month's questions are last month's.
-    session.execute(text("UPDATE chat_messages SET created_at = :when"), {"when": last_month()})
+    session.execute(
+        text("UPDATE usage_events SET occurred_at = :when WHERE unit = 'questions'"),
+        {"when": last_month()},
+    )
     session.commit()
     assert (
         client.post(f"/api/chats/{second['id']}/messages", json={"content": "Price?"}).status_code
         == 201
     )
-    assert session.scalar(select(func.count()).select_from(ChatMessage)) == 4
+    assert session.scalar(select(func.count()).select_from(ChatMessage)) == 2
+    asked = session.scalars(select(UsageEvent).where(UsageEvent.unit == "questions")).all()
+    assert [(row.kind, row.quantity, row.user_id) for row in asked] == [
+        ("answer", 1, member.user.id)
+    ] * 2
 
 
 def test_an_open_invitation_holds_a_members_place(session, member, plan):

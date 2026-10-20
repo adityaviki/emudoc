@@ -152,6 +152,16 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(grace.getByRole('button', { name: 'Upload', exact: true })).toBeVisible()
   })
 
+  await test.step('read what the organisation holds and has used of its plan', async () => {
+    await page.getByRole('link', { name: 'See what it holds and has used' }).click()
+    await expect(page.getByRole('heading', { name: 'Usage', exact: true })).toBeVisible()
+    const section = (title: string) => page.locator('section').filter({ has: page.getByRole('heading', { name: title, exact: true }) })
+    // The question asked, of the Team plan's month; both seats taken.
+    await expect(section('This month').getByRole('definition').nth(1)).toContainText('1 of 5,000')
+    await expect(section('Held now').getByRole('definition').nth(3)).toContainText('2 of 2')
+    await expect(section('Day by day').getByRole('figure', { name: /^Questions/ })).toContainText('1 question in all')
+  })
+
   await test.step('make the project private, which a member not chosen no longer finds, then choose her', async () => {
     await page.goto('/')
     await page.getByRole('button', { name: 'Who sees it' }).click()

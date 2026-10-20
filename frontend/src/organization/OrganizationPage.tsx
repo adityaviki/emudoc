@@ -1,9 +1,9 @@
-// The organisation the user works in: its name and region, what its plan lets it keep and use and buying one, its members,
-// their roles and removing them, handing it over to another of them, the invitations its owners and admins send
-// and the domains whose addresses may join it, and leaving it; the user's other organisations to switch to and those
-// open to them; and the page that starts a new one. A switch, a join, a new organisation and
-// leaving one start the app again in the organisation the session then works in
-// (`startAgainInOrganization` in auth.ts).
+// The organisation the user works in: its name and region, what its plan lets it keep and use (what it holds and used
+// of it is the usage page's, UsagePage.tsx) and buying one, its members, their roles and removing them, handing it
+// over to another of them, the invitations its owners and admins send and the domains whose addresses may join it,
+// and leaving it; the user's other organisations to switch to and those open to them; and the page that starts a new
+// one. A switch, a join, a new organisation and leaving one start the app again in the organisation the session then
+// works in (`startAgainInOrganization` in auth.ts).
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, CreditCard, LogOut, Plus, UserMinus, UserPlus } from 'lucide-react'
@@ -164,6 +164,11 @@ function PlanSection({ me }: { me: Me }) {
           {agreed('retention_days')}
         </Row>
       </dl>
+      <div className="mt-3">
+        <Link to="/organization/usage" className="text-[13px] font-medium text-accent hover:underline">
+          See what it holds and has used
+        </Link>
+      </div>
       {past && (
         <div className="mt-4">
           <Notice>{past}</Notice>

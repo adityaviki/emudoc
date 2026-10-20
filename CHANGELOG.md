@@ -11,6 +11,14 @@ its day, in the same commit.
 
 Members:
 
+- Every member finds the organisation's usage under "See what it holds and has used" on the
+  organisation page: its projects, documents, storage and members, and this month's pages and
+  questions, each against what the plan allows (the packs bought for the month counted), with
+  a warning and the way past the limit from 80 % of a month's pages or questions on, and the
+  pages indexed and questions asked on each of the last 30 days and in each of the last 12
+  months, in UTC. A question now counts against the month as it is asked: deleting its chat no
+  longer gives it back.
+
 - A limit of the plan reached now offers the way past it where it was reached: the owner of an
   organisation whose month of pages or questions ran out buys a pack for the month there and
   then, is shown the plans on the organisation page, or, with a subscription, Manage billing to
@@ -127,6 +135,12 @@ Members:
   slow to a third of their speed.
 
 Operators:
+
+- Each question asked is a usage event of its own, `answer` in `questions` (one a question, no
+  reference, the asker and the project), which the plan's month counts in place of the month's
+  answers still in the chats; the release's migration writes one for every answer the chats
+  hold, at the time it was asked, so the month counts what it did. `maintenance usage <slug>`
+  prints them, and `GET /api/organization/usage` serves the usage page.
 
 - A refusal by the plan is a 402 whose body names the figure it is held to beside the sentence,
   `{"detail": …, "limit": "pages_per_month"}`, and a file the plan rejected in an upload carries

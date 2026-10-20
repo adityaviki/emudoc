@@ -24,6 +24,7 @@ import { Button, IconButton, Spinner } from './components/ui.tsx'
 import { useLocalStorage, useStatus } from './hooks.ts'
 import { NewOrganizationPage, OrganizationPage } from './organization/OrganizationPage.tsx'
 import { OrganizationSwitcher } from './organization/OrganizationSwitcher.tsx'
+import { UsagePage } from './organization/UsagePage.tsx'
 import { ProjectsPage } from './pages/ProjectsPage.tsx'
 import { LegalPage } from './pages/LegalPage.tsx'
 import { SubprocessorsPage } from './pages/SubprocessorsPage.tsx'
@@ -107,6 +108,7 @@ function App() {
           <Route index element={<ProjectsPage />} />
           <Route path="account" element={<AccountPage />} />
           <Route path="organization" element={<OrganizationPage />} />
+          <Route path="organization/usage" element={<UsagePage />} />
           <Route path="organizations/new" element={<NewOrganizationPage />} />
           <Route path="projects/:projectId/*" element={<Workspace />} />
           <Route path="*" element={<p className="py-16 text-center text-muted">Page not found.</p>} />

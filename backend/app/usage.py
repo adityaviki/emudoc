@@ -6,12 +6,14 @@ activity (`kind`), what was measured (`unit`) and how much (`quantity`), who did
 organisation, the project, the user), the model when one was called, and what it was for
 (`ref_type`, `ref_id`: a chat message, a document), so that a figure on a bill can be traced
 to its cause. The kinds (USAGE_KINDS in app/models.py) are an answer's model calls (`answer`,
-recorded by `answer` in app/answers.py), what an upload brought in (`upload`: its bytes, by
-the request in app/api/documents.py, and its pages, by the first parse), the model calls of
-the indexing stages (`ocr` with the pages it read, `infer_sections`, `enrich`), the texts
-embedded (`embed`, with the tokens the endpoint says they took) and the pages rendered for the
-viewer (`render`: the member's by app/api/documents.py, the organisation's for a PDF's first
-pages drawn ahead by app/rendering.py).
+recorded by `answer` in app/answers.py) and the question it answers (`answer` in `questions`,
+one a question, by the ask route in app/api/chats.py, with no reference: it is what the plan
+counts, and it stays when its chat is deleted), what an upload brought in (`upload`: its
+bytes, by the request in app/api/documents.py, and its pages, by the first parse), the model
+calls of the indexing stages (`ocr` with the pages it read, `infer_sections`, `enrich`), the
+texts embedded (`embed`, with the tokens the endpoint says they took) and the pages rendered
+for the viewer (`render`: the member's by app/api/documents.py, the organisation's for a PDF's
+first pages drawn ahead by app/rendering.py).
 
 The code that spent something records it, from what it counted, when its work ends however it
 ends: a stop, a lost lease or a crash ends an answer's run too, and the calls it made were
@@ -32,9 +34,11 @@ every run, the model the latest row named, and the cost summed when any row has 
 adds to it as it adds the rows, in the same transaction, so the two never drift apart.
 
 `daily` is the rollup: an organisation's quantities and costs per day in UTC, by kind and
-unit, which is what a quota, a usage page or an invoice reads. It is a query over the events,
-which is enough until their number says otherwise; a stored table would then go behind the
-same function. The `usage` command (app/maintenance.py) prints it.
+unit, which is what a quota or an invoice reads. It is a query over the events, which is
+enough until their number says otherwise; a stored table would then go behind the same
+function. The `usage` command (app/maintenance.py) prints it. `metered` is the part of it a
+plan counts against the month, the pages the uploads brought in and the questions asked, per
+day or per month, for the usage page (app/api/usage.py).
 
 `organization_costs` and `model_costs` are the platform's side of the same rows: what each
 organisation's work cost over a span of days, costliest first, with the days that make it up,
@@ -47,7 +51,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic_ai.usage import RequestUsage, RunUsage
 from sqlalchemy import text
@@ -78,6 +82,18 @@ _DAILY = text(
     WHERE org_id = :org_id AND occurred_at >= :since AND occurred_at < :until
     GROUP BY day, kind, unit
     ORDER BY day, kind, unit
+    """
+)
+# The two measures a plan counts against its month (app/entitlements.py), per UTC day or month.
+_METERED = text(
+    """
+    SELECT date_trunc(:period, occurred_at AT TIME ZONE 'UTC')::date AS start,
+           coalesce(sum(quantity) FILTER (WHERE kind = 'upload'), 0)::bigint AS pages,
+           coalesce(sum(quantity) FILTER (WHERE kind = 'answer'), 0)::bigint AS questions
+    FROM usage_events
+    WHERE org_id = :org_id AND occurred_at >= :since AND occurred_at < :until
+      AND (kind, unit) IN (('upload', 'pages'), ('answer', 'questions'))
+    GROUP BY start
     """
 )
 # Postgres sums a bigint as a numeric, which Python reads as a Decimal; the casts keep the
@@ -396,6 +412,54 @@ def daily(session: Session, org_id: int, since: date, until: date) -> list[Daily
     and unit, in that order."""
     rows = session.execute(_DAILY, {"org_id": org_id, **_span(since, until)})
     return [DailyUsage(*row) for row in rows]
+
+
+@dataclass(frozen=True)
+class Metered:
+    """What a plan counts against the month, over one UTC day or month: the pages the
+    organisation's uploads brought in (the first parse of each, as `upload` in `pages`) and
+    the questions it asked (`answer` in `questions`)."""
+
+    # The day, or the first of the month.
+    start: date
+    pages: int
+    questions: int
+
+
+def metered(
+    session: Session, org_id: int, since: date, until: date, period: Literal["day", "month"]
+) -> list[Metered]:
+    """The organisation's pages and questions per `period` from the one `since` falls in to
+    the one `until` falls in, in UTC, every one of them, the oldest first: a day or a month of
+    neither is there with nothing."""
+    first = _period_of(since, period)
+    found = {
+        start: Metered(start, pages, questions)
+        for start, pages, questions in session.execute(
+            _METERED,
+            {"org_id": org_id, "period": period, **_span(first, _last_day(until, period))},
+        )
+    }
+    starts = []
+    while first <= until:
+        starts.append(first)
+        first = _next_period(first, period)
+    return [found.get(start, Metered(start, 0, 0)) for start in starts]
+
+
+def _period_of(day: date, period: Literal["day", "month"]) -> date:
+    return day if period == "day" else day.replace(day=1)
+
+
+def _next_period(start: date, period: Literal["day", "month"]) -> date:
+    if period == "day":
+        return start + timedelta(days=1)
+    return date(start.year + (start.month == 12), start.month % 12 + 1, 1)
+
+
+def _last_day(day: date, period: Literal["day", "month"]) -> date:
+    """The last day of the period `day` falls in."""
+    return _next_period(_period_of(day, period), period) - timedelta(days=1)
 
 
 @dataclass(frozen=True)

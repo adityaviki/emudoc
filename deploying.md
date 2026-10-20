@@ -2223,7 +2223,10 @@ however many runs they took, and the pages those its uploads brought in. A cost 
 rows were priced at when they were recorded (`MODEL_PRICES`), so a price added later counts
 from then on, and "unpriced" means tokens without one: expected of an embeddings server of the
 deployment's own, as above, which no provider bills, and a gap in the spending limits for a
-model a provider bills. `usage <slug>` breaks one organisation down by day, kind and unit.
+model a provider bills. `usage <slug>` breaks one organisation down by day, kind and unit,
+the questions asked among them (`answer` in `questions`, one a question, written as it is
+asked, which the plan's month counts); the organisation's own members read its pages and
+questions by day and by month against its plan on its usage page (`/organization/usage`).
 The command reads the database and changes nothing; an organisation is named by its slug and
 name, never a member's address. `costs --days 1` is today's, which the spending warning
 ("What the worker mails") names.

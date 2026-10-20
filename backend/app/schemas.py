@@ -474,6 +474,54 @@ class AllowanceOut(BaseModel):
     over: list[ExcessOut] = []
 
 
+class FigureOut(BaseModel):
+    """One figure the plan sets, beside what the organisation holds or has used of it, as the
+    checks count it (app/entitlements.py): what it holds now (projects, documents, storage,
+    members with the open invitations), or the month so far in UTC (pages, questions)."""
+
+    used: int
+    # What it may, None for no limit.
+    allowed: int | None
+    # The pages or questions bought in packs for the month, on top of `allowed`.
+    bought: int = 0
+
+
+class MeteredOut(BaseModel):
+    """The pages the organisation's uploads brought in and the questions it asked over one UTC
+    day, or one month from its first day (`metered` in app/usage.py)."""
+
+    start: dt.date
+    pages: int
+    questions: int
+
+
+class MeteredMonthOut(MeteredOut):
+    """A month's pages and questions, with the packs of them bought for it."""
+
+    pages_bought: int = 0
+    questions_bought: int = 0
+
+
+class UsagePageOut(BaseModel):
+    """What the organisation holds and has used of what its plan allows, and its pages and
+    questions day by day and month by month, for the usage page (app/api/usage.py)."""
+
+    # The first day of the month in UTC the monthly figures count, and of the next, when they
+    # start afresh.
+    month: dt.date
+    next_month: dt.date
+    projects: FigureOut
+    documents: FigureOut
+    storage_bytes: FigureOut
+    members: FigureOut
+    pages_per_month: FigureOut
+    questions_per_month: FigureOut
+    # Every day of the last few up to today, and every month of the last few up to this one,
+    # the oldest first.
+    days: list[MeteredOut]
+    months: list[MeteredMonthOut]
+
+
 class PlanRefusalOut(BaseModel):
     """The body of a 402, what the organisation's plan turned down: the sentence, and the
     figure it is held to, from which the page chooses what to offer (a pack for the month, a

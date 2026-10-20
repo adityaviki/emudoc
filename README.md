@@ -141,15 +141,19 @@ read, search, ask about and delete what it holds, and its owners and admins remo
 revoke invitations, but every other change of a project (a project, an upload, a folder, a
 rename or move, "Index again", who sees it), an invitation and a join is refused, and every
 page says so in a banner. The organisation page shows every member what the organisation may
-keep and use, and what it holds past it. The plan is checked where the thing happens: creating
-a project, uploading (the request is refused when the plan has no room at all, a file that
-would not fit is rejected while the others go in), asking a question, inviting, and in the
-parse stage once it knows how many pages a document has, which fails the document with the
-reason rather than read a page past the month's allowance. A refusal is a 402 whose body is
-the sentence, naming the plan and the limit, and the figure it is held to (`{"detail": …,
-"limit": "pages_per_month"}`); the app shows it with the way past it for whoever reads it
-(`offerFor` in `frontend/src/billing.ts`): the owner a pack for the month, the plans or Manage
-billing, anyone else to ask an owner.
+keep and use, and what it holds past it, and its usage page (`/organization/usage`) what it
+holds and has used of each figure against what it may, as the checks count it, with a warning
+and the way past a month's limit from 80 % of it on, and its pages indexed and questions asked
+on each of the last 30 days and in each of the last 12 months, in UTC. A question counts as it
+is asked, answered or not, and deleting its chat gives it back to nobody. The plan is checked
+where the thing happens: creating a project, uploading (the request is refused when the plan
+has no room at all, a file that would not fit is rejected while the others go in), asking a
+question, inviting, and in the parse stage once it knows how many pages a document has, which
+fails the document with the reason rather than read a page past the month's allowance. A
+refusal is a 402 whose body is the sentence, naming the plan and the limit, and the figure it
+is held to (`{"detail": …, "limit": "pages_per_month"}`); the app shows it with the way past
+it for whoever reads it (`offerFor` in `frontend/src/billing.ts`): the owner a pack for the
+month, the plans or Manage billing, anyone else to ask an owner.
 
 With `STRIPE_SECRET_KEY` set, the plans are sold through Stripe (`backend/app/billing.py`;
 deploying.md, "Billing"): an owner buys Pro, or Team with a number of seats, on the

@@ -3,7 +3,9 @@ organisation's usage whatever ends the run, an upload and a render are the membe
 outlive the project and the user and go with the organisation, the answer and the document
 show what they used with its cost by the configured prices, and the daily rollup groups the
 rows by day in UTC, which the `usage` command prints; the `costs` command sums every
-organisation's rows, costliest first, against its plan's daily limit."""
+organisation's rows, costliest first, against its plan's daily limit; and the usage page shows
+every member what the organisation holds and used of its plan, as the checks count it, with
+its pages and questions by day and by month."""
 
 import threading
 from datetime import UTC, date, datetime, timedelta
@@ -16,12 +18,14 @@ from sqlalchemy import func, select
 import app.answers as answers_module
 from app.agent.tools import TOOLS
 from app.answers import answer
+from app.billing import change_plan
 from app.config import get_settings
+from app.entitlements import month_of
 from app.indexing.pipeline import StageFailure, process_document, reset_stages
 from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT, LeaseLost, claim
 from app.llm import LLMError
 from app.maintenance import main
-from app.models import Organization, Passage, UsageEvent, User
+from app.models import AllowancePack, Organization, Passage, UsageEvent, User
 from app.spending import day_of, spent_since
 from app.usage import (
     ANSWER,
@@ -34,11 +38,13 @@ from app.usage import (
     RENDER,
     UPLOAD,
     DailyUsage,
+    Metered,
     ModelCost,
     OrganizationCost,
     add,
     cost_of,
     daily,
+    metered,
     model_costs,
     organization_costs,
     record,
@@ -528,7 +534,13 @@ def test_costs_follow_the_prices_the_settings_list(
         for row in daily(session, account.organization.id, today, today)
         if row.kind == ANSWER
     }
-    assert costs == {("calls", None), ("input_tokens", 1), ("output_tokens", 2)}
+    # The question itself costs nothing: it is what the plan counts, not work a model did.
+    assert costs == {
+        ("calls", None),
+        ("input_tokens", 1),
+        ("output_tokens", 2),
+        ("questions", None),
+    }
 
     # Without a price for its model, a row has no cost and the document shows none.
     monkeypatch.setattr(get_settings(), "model_prices", "other=1/1")
@@ -610,6 +622,170 @@ def test_the_daily_rollup_sums_per_day_kind_and_unit_in_utc(session, account, ma
     ]
     # A measure of zero adds no row at all.
     assert session.scalar(select(UsageEvent).where(UsageEvent.unit == "output_tokens")) is None
+
+
+def test_the_metered_rollup_has_every_day_and_month_with_the_pages_and_questions_alone(
+    session, account, make_account
+):
+    org = account.organization.id
+    other = make_account("ann@globex.example").organization.id
+
+    def add(org_id: int, kind: str, measures: dict[str, int], when: datetime) -> None:
+        record(
+            session,
+            org_id=org_id,
+            project_id=None,
+            user_id=None,
+            kind=kind,
+            measures=measures,
+            occurred_at=when,
+        )
+
+    add(org, "upload", {"bytes": 4096, "pages": 3}, datetime(2026, 9, 30, 23, 30, tzinfo=UTC))
+    add(org, "upload", {"pages": 2}, datetime(2026, 10, 2, 8, tzinfo=UTC))
+    add(org, "answer", {"questions": 1}, datetime(2026, 10, 2, 9, tzinfo=UTC))
+    add(org, "answer", {"questions": 1}, datetime(2026, 10, 2, 23, 59, tzinfo=UTC))
+    # What the plan does not count against the month: an answer's calls, the pages rendered.
+    add(org, "answer", {"calls": 4}, datetime(2026, 10, 2, 9, tzinfo=UTC))
+    add(org, "render", {"pages": 9}, datetime(2026, 10, 2, 9, tzinfo=UTC))
+    add(other, "answer", {"questions": 5}, datetime(2026, 10, 2, 9, tzinfo=UTC))
+    # Past the last day asked for, though in its month.
+    add(org, "upload", {"pages": 7}, datetime(2026, 10, 4, tzinfo=UTC))
+    add(org, "answer", {"questions": 1}, datetime(2025, 12, 31, 12, tzinfo=UTC))
+    session.commit()
+
+    # Every day, those with nothing too, the oldest first.
+    assert metered(session, org, date(2026, 9, 30), date(2026, 10, 3), "day") == [
+        Metered(date(2026, 9, 30), 3, 0),
+        Metered(date(2026, 10, 1), 0, 0),
+        Metered(date(2026, 10, 2), 2, 2),
+        Metered(date(2026, 10, 3), 0, 0),
+    ]
+    # Every month from the one the first day is in to the one the last is in, each whole.
+    assert metered(session, org, date(2026, 8, 15), date(2026, 10, 3), "month") == [
+        Metered(date(2026, 8, 1), 0, 0),
+        Metered(date(2026, 9, 1), 3, 0),
+        Metered(date(2026, 10, 1), 9, 2),
+    ]
+    assert metered(session, org, date(2025, 12, 1), date(2026, 1, 1), "month") == [
+        Metered(date(2025, 12, 1), 0, 1),
+        Metered(date(2026, 1, 1), 0, 0),
+    ]
+    assert metered(session, other, date(2026, 10, 2), date(2026, 10, 2), "day") == [
+        Metered(date(2026, 10, 2), 0, 5)
+    ]
+
+
+def usage_page(client) -> dict:
+    response = client.get("/api/organization/usage")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+FIGURES = (
+    "projects",
+    "documents",
+    "storage_bytes",
+    "members",
+    "pages_per_month",
+    "questions_per_month",
+)
+
+
+def test_the_usage_page_counts_what_the_plan_allows_as_its_checks_do(
+    client, session, make_account, act_as, sample_pdf
+):
+    owner = make_account("ann@globex.example")
+    org = owner.organization.id
+    act_as(owner)
+    project = create_project(client)
+    upload(client, project["id"], sample_pdf)
+    ask(client, new_chat(client, project["id"])["id"], "Notice period?")
+    start, following = month_of()
+    # The pages the first parse counted, and a pack of questions bought for the month.
+    record(session, org_id=org, project_id=None, user_id=None, kind=UPLOAD, measures={"pages": 3})
+    session.add(
+        AllowancePack(org_id=org, unit="questions", quantity=100, month=start, checkout_id="cs_1")
+    )
+    # Last month's questions are in the history, not the month.
+    last = start - timedelta(hours=1)
+    record(
+        session,
+        org_id=org,
+        project_id=None,
+        user_id=None,
+        kind=ANSWER,
+        measures={"questions": 4},
+        occurred_at=last,
+    )
+    # Another organisation's are in neither.
+    other = make_account("bob@initech.example").organization.id
+    record(
+        session, org_id=other, project_id=None, user_id=None, kind=UPLOAD, measures={"pages": 50}
+    )
+    session.commit()
+
+    page = usage_page(client)
+    assert (page["month"], page["next_month"]) == (str(start.date()), str(following.date()))
+    assert {name: page[name] for name in FIGURES} == {
+        "projects": {"used": 1, "allowed": 1, "bought": 0},
+        "documents": {"used": 1, "allowed": 25, "bought": 0},
+        "storage_bytes": {"used": sample_pdf.stat().st_size, "allowed": 100_000_000, "bought": 0},
+        "members": {"used": 1, "allowed": 1, "bought": 0},
+        "pages_per_month": {"used": 3, "allowed": 200, "bought": 0},
+        "questions_per_month": {"used": 1, "allowed": 50, "bought": 100},
+    }
+
+    today = datetime.now(UTC).date()
+    days = page["days"]
+    assert [day["start"] for day in days] == [
+        str(today - timedelta(days=back)) for back in range(29, -1, -1)
+    ]
+    used = {day["start"]: (day["pages"], day["questions"]) for day in days}
+    assert used.pop(str(today)) == (3, 1)
+    if str(last.date()) in used:
+        assert used.pop(str(last.date())) == (0, 4)
+    assert set(used.values()) == {(0, 0)}
+
+    months = page["months"]
+    assert len(months) == 12 and months[-1] == {
+        "start": str(start.date()),
+        "pages": 3,
+        "questions": 1,
+        "pages_bought": 0,
+        "questions_bought": 100,
+    }
+    assert months[-2] == {
+        "start": str(last.date().replace(day=1)),
+        "pages": 0,
+        "questions": 4,
+        "pages_bought": 0,
+        "questions_bought": 0,
+    }
+    first = date(start.year - (start.month < 12), start.month % 12 + 1, 1)
+    assert months[0]["start"] == str(first)
+    assert all(month["pages"] == month["questions"] == 0 for month in months[:-2])
+
+    # A viewer reads it too; the seats bought and the figures agreed are what it is held to.
+    viewer = make_account("vic@globex.example", owner.organization, "viewer")
+    change_plan(
+        session,
+        session.get(Organization, org),
+        "team",
+        seats=4,
+        overrides={"questions_per_month": 10},
+    )
+    session.commit()
+    act_as(viewer)
+    page = usage_page(client)
+    assert page["members"] == {"used": 2, "allowed": 4, "bought": 0}
+    assert page["questions_per_month"] == {"used": 1, "allowed": 10, "bought": 100}
+    assert page["projects"] == {"used": 1, "allowed": 50, "bought": 0}
+
+
+def test_the_usage_page_has_no_limits_for_the_local_account(client):
+    page = usage_page(client)
+    assert {name: page[name]["allowed"] for name in FIGURES} == dict.fromkeys(FIGURES)
 
 
 def test_the_usage_command_prints_the_rollup(session, account, capsys):

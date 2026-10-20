@@ -47,6 +47,7 @@ from app.ratelimit import QUESTIONS
 from app.schemas import AskOut, ChatDetail, ChatMessageOut, ChatOut, ChatPatch, QuestionIn
 from app.shutdown import Stop
 from app.spending import check_platform_spend, check_spend, retry_after
+from app.usage import ANSWER, record
 
 log = logging.getLogger(__name__)
 
@@ -176,6 +177,15 @@ def ask(
         chat.title = _title(question)
     chat.updated_at = func.now()
     asked, answer = start_answer(session, chat, question)
+    # What the plan counts, with the question, so that deleting the chat gives none back.
+    record(
+        session,
+        org_id=account.organization.id,
+        project_id=chat.project_id,
+        user_id=account.user.id,
+        kind=ANSWER,
+        measures={"questions": 1},
+    )
     # The request's lines name the answer its job writes, as the job's lines do.
     about(message_id=answer.id)
     session.commit()

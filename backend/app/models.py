@@ -59,7 +59,7 @@ MESSAGE_STATUSES = ("streaming", "done", "stopped", "failed")
 # count is in. The stored `usage` of a document or a message (`Document.usage`,
 # `ChatMessage.usage`) is keyed by the same kinds.
 USAGE_KINDS = ("answer", "upload", "ocr", "infer_sections", "enrich", "embed", "render")
-USAGE_UNITS = ("calls", "input_tokens", "output_tokens", "pages", "bytes", "inputs")
+USAGE_UNITS = ("calls", "input_tokens", "output_tokens", "pages", "bytes", "inputs", "questions")
 # What an organisation is entitled to (app/entitlements.py), from the plan with the least to
 # the one with no limits. A new organisation starts on the first.
 PLANS = ("free", "pro", "team", "enterprise")

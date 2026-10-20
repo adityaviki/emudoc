@@ -13,16 +13,17 @@ from alembic.runtime.migration import MigrationContext
 from alembic.util import CommandError
 from fastapi.testclient import TestClient
 from pydantic_ai.messages import TextPart
-from sqlalchemy import func, inspect, text, update
+from sqlalchemy import func, inspect, select, text, update
 
 from app.config import get_settings
 from app.db import MIGRATION_LOCK, UPGRADE_COMMAND, Base, alembic_config, check_schema, engine
 from app.encrypted import TOTP_SECRETS, encrypt
 from app.indexing.pipeline import process_document
 from app.main import create_app
-from app.models import NATURAL_ORDER, Document, Project, User
+from app.models import NATURAL_ORDER, ChatMessage, Document, Project, User
 from tests.conftest import STORAGE_ROOT, FakeTurn, build_schema, drop_schema
-from tests.test_chats import answered, new_chat
+from tests.test_api import create_project
+from tests.test_chats import answered, ask, new_chat
 
 INITIAL_SCHEMA = "bedb624406a6"
 PASSAGE_LANGUAGE = "27bd56b4a29e"
@@ -31,6 +32,7 @@ USAGE_EVENTS = "4d17fad8beb9"
 USAGE_ON_ROWS = "29c97f1a6f4f"
 RATE_LIMITS = "133a863e3662"
 BEFORE_ENCRYPTED_SECRETS = "2656abd623ec"
+BEFORE_QUESTIONS_COUNTED = "0151920be687"
 
 
 def current_revision() -> str | None:
@@ -270,6 +272,41 @@ def test_a_downgrade_past_encrypted_secrets_turns_their_two_factor_off(
             {"ids": [encrypted, plain]},
         ).all()
     assert sorted(rows) == sorted([(encrypted, None, False), (plain, secret, True)])
+
+
+def test_the_questions_of_the_chats_kept_are_counted_from_when_they_were_asked(
+    rebuilt_afterwards, client, session, account
+):
+    # A question was counted by its chat's answers before; coming forward writes the event it
+    # would have written as it was asked, so that the month counts what it counted.
+    project = create_project(client)
+    ask(client, new_chat(client, project["id"])["id"], "Notice period?")
+    asked_at = session.scalar(select(ChatMessage.created_at).where(ChatMessage.role == "assistant"))
+    session.rollback()
+    command.downgrade(alembic_config(), BEFORE_QUESTIONS_COUNTED)
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM usage_events")) == 0
+
+    command.upgrade(alembic_config(), "head")
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT org_id, project_id, user_id, kind, unit, quantity, ref_type, occurred_at "
+                "FROM usage_events"
+            )
+        ).all()
+    assert rows == [
+        (
+            account.organization.id,
+            project["id"],
+            account.user.id,
+            "answer",
+            "questions",
+            1,
+            None,
+            asked_at,
+        )
+    ]
 
 
 def test_database_made_before_migrations_cannot_be_upgraded(rebuilt_afterwards):

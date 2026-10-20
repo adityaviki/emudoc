@@ -25,6 +25,7 @@ from app.api import (
     organizations,
     projects,
     query,
+    usage,
 )
 from app.api.deps import (
     RETRY_AFTER,
@@ -438,6 +439,7 @@ def create_app(
         query.router,
         chats.router,
         audit.router,
+        usage.router,
         billing.router,
     ):
         app.include_router(router, prefix="/api", dependencies=[Depends(refuse_cross_site)])

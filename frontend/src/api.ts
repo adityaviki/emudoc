@@ -412,6 +412,43 @@ export interface Allowance {
   over: Excess[]
 }
 
+/** One figure the plan sets, beside what the organisation holds or has used of it, as the server's checks count it. */
+export interface Figure {
+  used: number
+  /** What it may, null for no limit. */
+  allowed: number | null
+  /** The pages or questions bought in packs for the month, on top of `allowed`. */
+  bought: number
+}
+
+/** The pages the organisation's uploads brought in and the questions it asked over one UTC day, or one month from its first day. */
+export interface Metered {
+  start: string
+  pages: number
+  questions: number
+}
+
+export interface MeteredMonth extends Metered {
+  pages_bought: number
+  questions_bought: number
+}
+
+/** The figures a plan sets that the usage page shows: what is held now, then the month's. */
+export type Figured = 'projects' | 'documents' | 'storage_bytes' | 'members' | 'pages_per_month' | 'questions_per_month'
+
+/**
+ * What the organisation holds and has used of what its plan allows, and its pages and questions
+ * day by day and month by month, in UTC as the plan counts them (backend/app/api/usage.py).
+ */
+export type UsagePage = Record<Figured, Figure> & {
+  /** The first day of the month the monthly figures count, and of the next, when they start afresh. */
+  month: string
+  next_month: string
+  /** Every day of the last 30 up to today, and every month of the last 12 up to this one, the oldest first. */
+  days: Metered[]
+  months: MeteredMonth[]
+}
+
 /** The roles an organisation may let everyone at its domains join with. */
 export type JoinRole = 'member' | 'viewer'
 
@@ -877,6 +914,8 @@ export const organizations = {
     request<Me>('/organization/billing/checkout/done', json('POST', { checkout_id: checkoutId })),
   /** Owners only: the address of Stripe's customer portal for the organisation. */
   billingPortal: () => request<{ url: string }>('/organization/billing/portal', { method: 'POST' }),
+  /** Every member: what the organisation holds and used of its plan, with the history. */
+  usage: () => request<UsagePage>('/organization/usage'),
 }
 
 export const api = {

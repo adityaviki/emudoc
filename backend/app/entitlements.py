@@ -24,9 +24,11 @@ figure (a pack for the month, a larger plan, more seats); the stage fails the do
 the sentence. The counts come
 from the rows (projects, documents and their bytes, memberships), so a deleted document frees
 what it took, or from the month so far in UTC (the pages indexed, by the `upload` usage
-events; the questions, by the answers asked), which starts afresh on the first. Pages and
+events; the questions, by the `answer` events in `questions` each question writes as it is
+asked, so that a chat deleted gives none back), which starts afresh on the first. Pages and
 questions bought in packs for the month (`allowance_packs`, app/billing.py) add to the plan's
-until it ends.
+until it ends. `holdings` is what the organisation holds now, as the checks count it, which
+`over_limits` and the usage page (app/api/usage.py) both read.
 
 An organisation whose plan, seats or terms were lowered under what it holds (a subscription
 that lapsed to Free, seats taken off) keeps it all, and is read-only until it is within its plan
@@ -46,8 +48,9 @@ how long a chat is kept after its last question, which the housekeeper holds it 
 (the organisation settings, the API keys, the connectors) and enforced by nothing yet.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass, fields, replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -57,8 +60,6 @@ from app.models import (
 )
 from app.models import (
     AllowancePack,
-    Chat,
-    ChatMessage,
     Document,
     Invitation,
     Membership,
@@ -66,7 +67,7 @@ from app.models import (
     Project,
     UsageEvent,
 )
-from app.usage import UPLOAD
+from app.usage import ANSWER, UPLOAD
 
 MB = 1_000_000
 GB = 1_000 * MB
@@ -89,6 +90,9 @@ MONTHS = (
 # The plans whose members are the seats an organisation bought (`organizations.seats`).
 BY_THE_SEAT = frozenset({"team"})
 MODEL_TIERS = ("standard", "premium")
+# The figures of `Entitlements` that limit what an organisation holds at any moment, as
+# against what it uses in a month; past one of them it is read-only (`read_only`).
+HELD = ("projects", "documents", "storage_bytes", "members")
 
 
 @dataclass(frozen=True)
@@ -385,24 +389,36 @@ def over_limits(session: Session, organization: Organization) -> list[Excess]:
     Counts only the figures its plan limits, so that an organisation without limits costs no
     query."""
     entitlements = entitlements_of(organization)
-    over = []
-    if (cap := entitlements.projects) is not None and (
-        projects := _projects(session, organization.id)
-    ) > cap:
-        over.append(Excess("projects", f"{_count(projects, 'project')} of {cap:,}"))
-    if entitlements.documents is not None or entitlements.storage_bytes is not None:
-        documents, held = _documents(session, organization.id)
-        if (cap := entitlements.documents) is not None and documents > cap:
-            over.append(Excess("documents", f"{_count(documents, 'document')} of {cap:,}"))
-        if (cap := entitlements.storage_bytes) is not None and held > cap:
-            over.append(
-                Excess("storage_bytes", f"{size_label(held)} of documents of {size_label(cap)}")
-            )
-    if (cap := entitlements.members) is not None and (
-        members := _members(session, organization.id)
-    ) > cap:
-        over.append(Excess("members", f"{_count(members, 'member')} of {cap:,}"))
-    return over
+    caps = {name: cap for name in HELD if (cap := getattr(entitlements, name)) is not None}
+    held = holdings(session, organization.id, caps)
+    return [
+        Excess(name, _held_words(name, held[name], cap))
+        for name, cap in caps.items()
+        if held[name] > cap
+    ]
+
+
+def holdings(session: Session, org_id: int, figures: Iterable[str] = HELD) -> dict[str, int]:
+    """How much the organisation holds now of each of `figures` (of HELD), counted as the
+    checks count it: its projects, its documents and their bytes, and its members with the
+    open invitations, each of which holds a member's place. A figure not asked for costs no
+    query."""
+    wanted = set(figures)
+    held = {}
+    if "projects" in wanted:
+        held["projects"] = _projects(session, org_id)
+    if wanted & {"documents", "storage_bytes"}:
+        held["documents"], held["storage_bytes"] = _documents(session, org_id)
+    if "members" in wanted:
+        held["members"] = _members(session, org_id)
+    return {name: held[name] for name in HELD if name in wanted}
+
+
+def _held_words(name: str, held: int, cap: int) -> str:
+    """How a figure held past its cap reads: "7 members of 5"."""
+    if name == "storage_bytes":
+        return f"{size_label(held)} of documents of {size_label(cap)}"
+    return f"{_count(held, name.removesuffix('s'))} of {cap:,}"
 
 
 def read_only(session: Session, organization: Organization) -> Refusal | None:
@@ -442,16 +458,14 @@ def pages_this_month(session: Session, org_id: int, start: datetime) -> int:
 
 
 def questions_this_month(session: Session, org_id: int, start: datetime) -> int:
-    """The questions asked in the organisation's projects since `start`, answered or not."""
+    """The questions asked in the organisation's projects since `start`, answered or not, and
+    whether or not their chats are kept: what each wrote as it was asked (app/api/chats.py)."""
     return session.scalar(
-        select(func.count())
-        .select_from(ChatMessage)
-        .join(Chat, Chat.id == ChatMessage.chat_id)
-        .join(Project, Project.id == Chat.project_id)
-        .where(
-            Project.org_id == org_id,
-            ChatMessage.role == "assistant",
-            ChatMessage.created_at >= start,
+        select(func.coalesce(func.sum(UsageEvent.quantity), 0)).where(
+            UsageEvent.org_id == org_id,
+            UsageEvent.kind == ANSWER,
+            UsageEvent.unit == "questions",
+            UsageEvent.occurred_at >= start,
         )
     )
 
@@ -466,6 +480,17 @@ def bought_this_month(session: Session, org_id: int, unit: str, start: datetime)
             AllowancePack.month == start,
         )
     )
+
+
+def bought_by_month(session: Session, org_id: int, since: datetime) -> dict[tuple[date, str], int]:
+    """The pages and questions the organisation bought in packs for each month from the one
+    that starts at `since`, by the month's first day and the unit."""
+    rows = session.execute(
+        select(AllowancePack.month, AllowancePack.unit, func.sum(AllowancePack.quantity))
+        .where(AllowancePack.org_id == org_id, AllowancePack.month >= since)
+        .group_by(AllowancePack.month, AllowancePack.unit)
+    )
+    return {(month.astimezone(UTC).date(), unit): quantity for month, unit, quantity in rows}
 
 
 def _listed(items: list[str]) -> str:
