@@ -136,6 +136,7 @@ def account_export(session: Session, user: User) -> AccountExport:
             notices=choices(user),
             checklist_hidden_at=user.checklist_hidden_at,
             tour_seen_at=user.tour_seen_at,
+            invite_hidden_at=user.invite_hidden_at,
             mail_spared=(
                 ExportedSpared(reason=spared.reason, recorded_at=spared.recorded_at)
                 if (spared := session.get(MailSuppression, address_hash(user.email)))

@@ -467,11 +467,13 @@ class ProfileIn(BaseModel):
 
 
 class OnboardingIn(BaseModel):
-    """Whether the projects page hides its list of first steps, and whether the tour of a
-    project's workspace was seen (app/onboarding.py); a field left out stays as it is."""
+    """Whether the projects page hides its list of first steps, whether the tour of a
+    project's workspace was seen, and whether the chat hides its suggestion to invite the team
+    (app/onboarding.py); a field left out stays as it is."""
 
     checklist_hidden: bool | None = None
     tour_seen: bool | None = None
+    invite_hidden: bool | None = None
 
 
 class OnboardingStepOut(BaseModel):
@@ -766,10 +768,12 @@ class MeOut(BaseModel):
     terms_version: str | None
     terms_accepted_at: dt.datetime | None
     terms_due: bool
-    # Whether the user hid the projects page's list of first steps, and whether they ended the
-    # tour of a project's workspace, for every organisation (app/onboarding.py).
+    # Whether the user hid the projects page's list of first steps, whether they ended the tour
+    # of a project's workspace, and whether they hid the chat's suggestion to invite their team,
+    # for every organisation (app/onboarding.py).
     checklist_hidden: bool
     tour_seen: bool
+    invite_hidden: bool
 
 
 class OrganizationIn(BaseModel):
@@ -1060,9 +1064,11 @@ class ExportedAccount(BaseModel):
     sign_in_providers: list[ExportedIdentity]
     # How each kind of notice is told (app/notices.py).
     notices: list[NoticeChoiceOut]
-    # When the list of first steps was hidden and the tour seen (app/onboarding.py).
+    # When the list of first steps was hidden, the tour seen and the suggestion to invite the
+    # team hidden (app/onboarding.py).
     checklist_hidden_at: dt.datetime | None
     tour_seen_at: dt.datetime | None
+    invite_hidden_at: dt.datetime | None
     # When the mail provider said not to write to the address, and why (app/bounces.py).
     mail_spared: "ExportedSpared | None"
 

@@ -621,9 +621,10 @@ export interface Me {
   terms_accepted_at: string | null
   /** Whether the current edition waits to be accepted; until then the app offers only that, a copy of the data, and leaving. */
   terms_due: boolean
-  /** Whether the user hid the projects page's list of first steps, and ended the workspace's tour, for every organisation. */
+  /** Whether the user hid the projects page's list of first steps, ended the workspace's tour, and hid the chat's suggestion to invite their team, for every organisation. */
   checklist_hidden: boolean
   tour_seen: boolean
+  invite_hidden: boolean
 }
 
 /** The first steps the projects page lists (backend/app/onboarding.py), in its order. */
@@ -924,7 +925,7 @@ export const auth = {
     notices?: { kind: NoticeKind; app?: boolean; email?: boolean }[]
   }) => request<Me>('/auth/profile', json('PATCH', body)),
   /** Hide the list of first steps or show it again, or say the tour was seen; a field left out stays as it is. */
-  chooseOnboarding: (body: { checklist_hidden?: boolean; tour_seen?: boolean }) =>
+  chooseOnboarding: (body: { checklist_hidden?: boolean; tour_seen?: boolean; invite_hidden?: boolean }) =>
     request<Me>('/auth/onboarding', json('PATCH', body)),
   /**
    * Stops the email of the kind of notice a notice's link was made for, to its user, signed in

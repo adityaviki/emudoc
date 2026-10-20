@@ -11,6 +11,11 @@ its day, in the same commit.
 
 Members:
 
+- Once an answer about your organisation's own documents is done, an owner or admin of an
+  organisation nobody else is in or invited to finds a suggestion under it to invite the team,
+  with the email and the role to send the invitation from the chat, or, on a plan for one
+  person, the way to a plan for more. It goes once someone is invited, and for good with its
+  cross; the sample's answers make none.
 - The projects page lists your organisation's first steps, uploading your own documents, asking
   about them and inviting your team, each with a button that takes you where it is done, and
   ticks each as the organisation takes it, whoever in it does; hide the list with its cross, in
@@ -38,7 +43,9 @@ Operators:
   without the sample, logged. `python -m app.maintenance build-sample` indexes the files again
   with the configured models (deploying.md, "The sample project").
 - A migration keeps, per account, when its first steps were hidden and its tour seen, and takes
-  both as done for the accounts from before it, so that only new ones are shown them.
+  both as done for the accounts from before it, so that only new ones are shown them. A second
+  keeps when the suggestion to invite the team was hidden, likewise hidden for the accounts
+  from before it.
 
 ## 2026-10-20
 

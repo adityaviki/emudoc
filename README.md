@@ -560,7 +560,11 @@ done, so a member who joins a team at work finds them taken; a member is offered
 asking, an owner or admin inviting too, a viewer nothing (`backend/app/onboarding.py`). Hiding the
 list hides it in every organisation of the account. The first project a member opens shows a
 short tour of the workspace, card by card, which "Skip the tour" or Escape ends; the user menu
-offers it again inside a project. The form answers
+offers it again inside a project. Once an answer about the organisation's own documents is done
+(not the sample's), the chat suggests inviting the team under it to an owner or admin while
+nobody else is a member or invited, with a form that sends the invitation there, or on a plan
+for one the way to a larger one; its cross hides it in every organisation of the account
+(`frontend/src/workspace/InviteTeam.tsx`). The form answers
 an address that has an account the same, and that address is told by mail instead, so the form
 says nothing of who uses the deployment. An account made through Google or Microsoft whose
 address the provider does not vouch for gets a verification link, and a banner asks for it until
@@ -803,7 +807,7 @@ The frontend's unit tests (`pnpm test`, Vitest) sit beside the modules they test
 reconnections, the workspace's URLs, the formatting. `pnpm e2e` (Playwright) drives the built
 page in Chromium as a new member: sign up through the link the app mails, skip the tour, ask the
 sample project one of its questions, make a project, upload a contract, wait for it to be indexed, search for it, ask about it and open the passage the
-answer cites. It starts the app itself (`frontend/e2e/serve.sh`, in a database of its own,
+answer cites, then invite a colleague from under that answer. It starts the app itself (`frontend/e2e/serve.sh`, in a database of its own,
 `emudoc_e2e`, made afresh each run, its log in the temporary directory, where the test finds the
 mail) against a stand-in for the model and the embeddings endpoint (`frontend/e2e/standin.py`),
 which answers the same way every run and needs no key. Chromium comes once with `pnpm exec
@@ -902,7 +906,8 @@ backend/app/
   accounts.py   who a request acts as; signing up makes a user and their organisation
   sample/       the sample project a sign-up's organisation starts with: its files, the index
                 the pipeline made of them, the copy and the build-sample command's build
-  onboarding.py the organisation's first steps the projects page lists, read from what it did
+  onboarding.py the organisation's first steps the projects page lists, read from what it did,
+                and the account's choices about them, the tour and the invite suggestion
   invitations.py
                 invitations to an organisation, and joining one by an address's domain
   auth.py       passwords, sessions, one-time links and authenticator codes
@@ -936,8 +941,8 @@ frontend/src/
   api.ts        the typed client for the backend
   auth.ts       who is signed in, for the shell and its pages
   chat.ts       a chat's messages as the chat pane holds them, and the answers being followed
-  onboarding.ts the first steps' words and ways on; tour.ts the workspace's tour, which
-                components/Tour.tsx shows
+  onboarding.ts the first steps' words and ways on, and when the chat suggests inviting the
+                team; tour.ts the workspace's tour, which components/Tour.tsx shows
 deploy/
   compose.yml   the image on one machine: the migrations, the API, a worker and ClamAV
   restore-drill.sh

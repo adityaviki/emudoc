@@ -8,8 +8,9 @@ import { movePlan } from './operator.ts'
 // organisation's first steps listed, skip the tour the first project shows, ask the sample
 // project the organisation starts with one of its questions, make a project, upload a contract,
 // wait for it to be indexed, find it by searching, ask about it, open the passage the answer
-// cites, start a second organisation, hide its first steps and switch back, and invite a
-// colleague as a viewer, who makes an account from the invitation's link, ends her tour, finds
+// cites, which the Free plan's chat follows with the way to a plan for a team, start a second
+// organisation, hide its first steps and switch back, and, on Team, invite a colleague as a
+// viewer from under that answer, who makes an account from the invitation's link, ends her tour, finds
 // the project and is offered no change to it until made a member, then make the project
 // private, which she no longer finds until chosen for it, and share the chat, which the
 // colleague then reads but does not ask in, and last ask the question that uses the month's
@@ -29,6 +30,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   let slug = ''
   // The projects page's list of the organisation's first steps.
   const firstSteps = page.getByRole('region', { name: 'Get started' })
+  // The chat's suggestion to invite the team, under an answer about the organisation's documents.
+  const inviteTeam = page.getByRole('region', { name: 'Invite your team' })
 
   await test.step('sign up', async () => {
     // A new address every run, so that a server kept from an earlier run takes it too.
@@ -71,6 +74,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page).toHaveURL(/[?&]chat=\d+/)
     await expect(page.getByRole('button', { name: '1', exact: true })).toBeVisible({ timeout: 30_000 })
     await expect(page.getByText('Thinking')).toHaveCount(0)
+    // The sample's answer suggests no invitation: its documents are no work a team shares.
+    await expect(inviteTeam).toHaveCount(0)
     await page.getByRole('link', { name: 'Emudoc' }).click()
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
     await expect(firstSteps).toContainText('1 of 3 done')
@@ -115,6 +120,10 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByText(/Searched for "How much notice/)).toBeVisible()
     await expect(page.getByText("Either party may end this contract by giving ninety days' written notice to the other.")).toBeVisible()
     await expect(page.getByText('Thinking')).toHaveCount(0)
+    // The Free plan is for one: the suggestion says so, and offers no form.
+    await expect(inviteTeam).toContainText('Its plan has room for you alone.')
+    await expect(inviteTeam).toContainText('Your organisation is on the Free plan.')
+    await expect(inviteTeam.getByLabel('Email', { exact: true })).toHaveCount(0)
   })
 
   await test.step('open the cited passage', async () => {
@@ -165,11 +174,17 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const plan = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Plan', exact: true }) })
     await expect(plan.getByRole('definition').first()).toHaveText('Team')
     await expect(plan.getByRole('definition').filter({ hasText: 'seats' })).toHaveText('2 seats')
+    // With room on the plan, the answer's suggestion invites from the chat, which opens the member's latest.
+    await page.getByRole('link', { name: 'Emudoc' }).click()
+    await page.getByText('Supplier contracts').click()
+    await expect(page.getByRole('button', { name: /^How much notice/ })).toBeVisible()
     const colleague = `grace.${Date.now()}@example.com`
-    await page.getByLabel('Email', { exact: true }).fill(colleague)
-    await page.getByLabel('Role', { exact: true }).selectOption('viewer')
-    await page.getByRole('button', { name: 'Invite', exact: true }).click()
-    await expect(page.getByText(`An invitation is on its way to ${colleague}.`)).toBeVisible()
+    await inviteTeam.getByLabel('Email', { exact: true }).fill(colleague)
+    await inviteTeam.getByLabel('Role', { exact: true }).selectOption('viewer')
+    await inviteTeam.getByRole('button', { name: 'Invite', exact: true }).click()
+    await expect(inviteTeam).toContainText(`An invitation is on its way to ${colleague}.`)
+    await inviteTeam.getByRole('link', { name: 'See the invitations' }).click()
+    await expect(page).toHaveURL(/\/organization#invitations$/)
     await expect(page.getByRole('listitem').filter({ hasText: colleague })).toContainText('Viewer')
 
     // Another browser, signed in as nobody, as the colleague's is.
@@ -240,6 +255,9 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   await test.step('share the chat with the project, which a colleague reads but does not ask in', async () => {
     await page.getByText('Supplier contracts').click()
     await expect(page.getByRole('button', { name: /^How much notice/ })).toBeVisible()
+    // The team is in: the chat suggests inviting it no more.
+    await expect(page.getByRole('button', { name: 'Share', exact: true })).toBeVisible()
+    await expect(inviteTeam).toHaveCount(0)
     await page.getByRole('button', { name: 'Share', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Make private', exact: true })).toBeVisible()
 

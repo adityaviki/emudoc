@@ -19,7 +19,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
-import { api, pageLabel, sectionPath } from '../api.ts'
+import { api, organizations, pageLabel, sectionPath } from '../api.ts'
 import type { Chat, Source } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { ask, chatKey, isStreaming, loadChat, resume, splitChats, stop, useStreaming } from '../chat.ts'
@@ -30,7 +30,10 @@ import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, IconButton, Loading, Notice, Spinner } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
 import { useStatus } from '../hooks.ts'
+import { inviteNudgeOf, mayInvite } from '../onboarding.ts'
+import type { InviteNudge } from '../onboarding.ts'
 import { describeAnswerUsage } from '../usage.ts'
+import { InviteTeam } from './InviteTeam.tsx'
 import { useWorkspace } from './state.ts'
 
 const SUGGESTIONS = [
@@ -356,9 +359,23 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
   const messages = chat.data?.messages ?? NO_MESSAGES
   // Another member's chat, shared with the project: read here, asked in by its starter alone.
   const starter = chat.data && chat.data.user_id !== me.id ? chat.data.started_by : null
+  // The organisation's first steps, for the suggestion to invite its team under an answer, asked
+  // each time a chat opens and read only once answered then, since the team may have been invited
+  // meanwhile, on the organisation page or by another member.
+  const onboarding = useQuery({
+    queryKey: ['onboarding', me.organization.id],
+    queryFn: organizations.onboarding,
+    enabled: !starter && mayInvite(me, project),
+  })
+  const steps = onboarding.isFetchedAfterMount ? onboarding.data?.steps : undefined
+  // Kept once the member invited someone from it, which takes the step, to read where it went,
+  // until hidden.
+  const [invitedFrom, setInvitedFrom] = useState<InviteNudge | null>(null)
+  const nudge = me.invite_hidden ? null : (invitedFrom ?? (starter ? null : inviteNudgeOf(me, project, messages, steps)))
+  const nudged = nudge !== null
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' })
-  }, [messages])
+  }, [messages, nudged])
 
   function send(text: string) {
     const question = text.trim()
@@ -438,6 +455,7 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
               <Answer key={index} message={message} currency={health.data?.currency} onOpen={openSource} />
             ),
           )}
+          {nudge && <InviteTeam room={nudge.room} onInvited={() => setInvitedFrom(nudge)} />}
           <div ref={bottom} />
         </div>
       </div>

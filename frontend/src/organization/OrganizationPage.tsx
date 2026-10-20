@@ -18,7 +18,7 @@ import { PasswordField } from '../account/shared.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, Chip, FIELD, InputField, Loading, Notice, Radio, Row, Section, SelectField } from '../components/ui.tsx'
 import { formatDate, formatSize } from '../format.ts'
-import { INVITATIONS_SECTION } from '../onboarding.ts'
+import { INVITATIONS_SECTION, JOINING_SECTION } from '../onboarding.ts'
 
 const MEMBERS_KEY = ['organization', 'members'] as const
 const INVITATIONS_KEY = ['organization', 'invitations'] as const
@@ -707,6 +707,7 @@ function JoiningSection({ me }: { me: Me }) {
 
   return (
     <Section
+      id={JOINING_SECTION}
       title="Joining by email domain"
       description="Everyone whose confirmed address is at one of these domains is offered the organisation, and joins it if they choose, with the role below. A domain is added by someone whose own confirmed address is at it."
     >

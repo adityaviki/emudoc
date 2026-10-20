@@ -18,7 +18,7 @@ organisation uploaded a document about you, ask the organisation first; we help 
 
 - **Your account**: your email address, your name, the time zone our email to you is dated in,
   how you want to be told each kind of notice, when you ended the tour of the app and hid its
-  list of first steps, your password (as a hash only, from which it cannot be read back), whether you confirmed your
+  list of first steps or its suggestion to invite your team, your password (as a hash only, from which it cannot be read back), whether you confirmed your
   address, the Google or Microsoft account you sign in with, and with two-factor sign-in your
   authenticator's secret (encrypted) and the hashes of your recovery codes, and which version
   of these terms you accepted and when. We need them to give you an account, under our

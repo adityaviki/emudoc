@@ -1159,6 +1159,7 @@ def me_out(session: Session, account: Account) -> MeOut:
         terms_due=terms_due(account),
         checklist_hidden=user.checklist_hidden_at is not None,
         tour_seen=user.tour_seen_at is not None,
+        invite_hidden=user.invite_hidden_at is not None,
     )
 
 
