@@ -8,9 +8,20 @@ class _FromORM(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# PROJECT_VISIBILITIES in app/models.py, which the database's check constraint holds.
+ProjectVisibility = Literal["organization", "private"]
+
+
 class ProjectIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str = Field("", max_length=2000)
+
+
+class NewProjectIn(ProjectIn):
+    """A project to make: a private one is seen by its maker alone at first, and the owners and
+    admins, until its maker chooses others."""
+
+    visibility: ProjectVisibility = "organization"
 
 
 class ProjectOut(_FromORM):
@@ -18,10 +29,28 @@ class ProjectOut(_FromORM):
     name: str
     description: str
     created_at: dt.datetime
+    visibility: str
     document_count: int = 0
     # The documents whose enrich stage was skipped for want of a model: what the library
     # offers to run the model on once there is one.
     unenriched_count: int = 0
+
+
+class ProjectAccessIn(BaseModel):
+    """Who is to see a project besides the organisation's owners and admins: everyone in it, or
+    the members chosen. An open project keeps no members, so `user_ids` counts only for a
+    private one."""
+
+    visibility: ProjectVisibility
+    user_ids: list[int] = Field(default_factory=list, max_length=1000)
+
+
+class ProjectAccessOut(BaseModel):
+    """Who sees a project besides the organisation's owners and admins: everyone in it, or the
+    members chosen, by user id."""
+
+    visibility: str
+    user_ids: list[int]
 
 
 class FolderIn(BaseModel):
@@ -729,6 +758,8 @@ class ExportedMembership(BaseModel):
     slug: str
     role: str
     joined_at: dt.datetime
+    # The organisation's private projects the user was chosen to see, by name.
+    private_projects: list[str]
 
 
 class ExportedSession(BaseModel):

@@ -133,6 +133,39 @@ export function Checkbox({ label, id, className = '', ...props }: CheckboxProps)
   )
 }
 
+export interface RadioProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> {
+  label: ReactNode
+  /** What choosing it means, under the label. */
+  hint?: ReactNode
+}
+
+/** One of the choices that share a `name`, such as who sees a project. */
+export function Radio({ label, hint, id, className = '', ...props }: RadioProps) {
+  const generated = useId()
+  const inputId = id ?? generated
+  return (
+    <div className={`flex items-start gap-2.5 ${className}`}>
+      <input
+        id={inputId}
+        type="radio"
+        className="mt-0.5 size-4 shrink-0 accent-accent"
+        aria-describedby={hint ? `${inputId}-hint` : undefined}
+        {...props}
+      />
+      <div className="text-[13px] leading-snug">
+        <label htmlFor={inputId} className="font-medium">
+          {label}
+        </label>
+        {hint && (
+          <p id={`${inputId}-hint`} className="mt-0.5 text-xs text-muted">
+            {hint}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function Chip({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'accent' }) {
   const tones = {
     neutral: 'bg-sunken text-muted',

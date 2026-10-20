@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
+import type { BrowserContext, Page } from '@playwright/test'
 import { linkMailedTo } from './mail.ts'
 import { movePlan } from './operator.ts'
 
@@ -7,13 +8,17 @@ import { movePlan } from './operator.ts'
 // project, upload a contract, wait for it to be indexed, find it by searching, ask about it,
 // open the passage the answer cites, start a second organisation and switch back, and invite a
 // colleague as a viewer, who makes an account from the invitation's link, finds the project and
-// is offered no change to it until made a member. The
+// is offered no change to it until made a member, then make the project private, which she no
+// longer finds until chosen for it. The
 // answer is the stand-in's (e2e/standin.py): the first sentence of the passage its search
 // found best, with that passage's reference.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
 
 test('a new member uploads a contract, finds it, asks about it and opens the cited passage', async ({ page, browser }) => {
   test.setTimeout(120_000)
+  // The colleague's browser, from the invitation on.
+  let theirs: BrowserContext
+  let grace: Page
 
   await test.step('sign up', async () => {
     // A new address every run, so that a server kept from an earlier run takes it too.
@@ -117,8 +122,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('listitem').filter({ hasText: colleague })).toContainText('Viewer')
 
     // Another browser, signed in as nobody, as the colleague's is.
-    const theirs = await browser.newContext()
-    const grace = await theirs.newPage()
+    theirs = await browser.newContext()
+    grace = await theirs.newPage()
     await grace.goto(await linkMailedTo(colleague))
     await expect(grace.getByRole('heading', { name: "Join Ada Lovelace's workspace" })).toBeVisible()
     await grace.getByLabel('Name', { exact: true }).fill('Grace Hopper')
@@ -141,6 +146,26 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(role).toHaveValue('member')
     await grace.reload()
     await expect(grace.getByRole('button', { name: 'Upload', exact: true })).toBeVisible()
+  })
+
+  await test.step('make the project private, which a member not chosen no longer finds, then choose her', async () => {
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Who sees it' }).click()
+    await page.getByLabel('Only the members chosen').check()
+    await expect(page.getByText('Sees every project')).toBeVisible()
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page.getByText('Private', { exact: true })).toBeVisible()
+    await grace.goto('/')
+    await expect(grace.getByText('No projects yet')).toBeVisible()
+    await expect(grace.getByText('Supplier contracts')).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'Who sees it' }).click()
+    await page.getByLabel(/Grace Hopper/).check()
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Who sees Supplier contracts' })).toHaveCount(0)
+    await grace.reload()
+    await expect(grace.getByText('Supplier contracts')).toBeVisible()
+    await expect(grace.getByText('Private', { exact: true })).toBeVisible()
     await theirs.close()
   })
 })

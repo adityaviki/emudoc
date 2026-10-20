@@ -63,6 +63,7 @@ def reads(w: World) -> list[Route]:
     """Every route that shows a project or what is in it, the chat aside."""
     return [
         ("GET", f"/api/projects/{w.project_id}", {}),
+        ("GET", f"/api/projects/{w.project_id}/access", {}),
         ("GET", f"/api/projects/{w.project_id}/folders", {}),
         ("GET", f"/api/projects/{w.project_id}/documents", {}),
         ("GET", f"/api/projects/{w.project_id}/chats", {}),
@@ -84,6 +85,11 @@ def writes(w: World) -> list[Route]:
     """Every route that changes a project or what is in it, the destructive ones last."""
     return [
         ("PATCH", f"/api/projects/{w.project_id}", {"json": {"name": "Renamed"}}),
+        (
+            "PUT",
+            f"/api/projects/{w.project_id}/access",
+            {"json": {"visibility": "organization", "user_ids": []}},
+        ),
         ("POST", f"/api/projects/{w.project_id}/reprocess", {}),
         ("POST", f"/api/projects/{w.project_id}/folders", {"json": {"name": "Invoices"}}),
         (
@@ -214,6 +220,31 @@ def test_another_organisation_sees_nothing(client, world, make_account, act_as):
         ("What is due?", "done"),
         ("Nothing is due.", "done"),
     ]
+
+
+def test_a_private_project_is_found_by_nobody_else(client, world, account, make_account, act_as):
+    """A member not chosen for a private project finds nothing of it, as another organisation
+    does not; one chosen, and an admin, find everything (test_access.py has the rest)."""
+    chosen = make_account("cy@example.com", account.organization, role="member")
+    admin = make_account("al@example.com", account.organization, role="admin")
+    client.patch(f"/api/chats/{world.chat_id}", json={"visibility": "project"})
+    made = client.put(
+        f"/api/projects/{world.project_id}/access",
+        json={"visibility": "private", "user_ids": [chosen.user.id]},
+    )
+    assert made.status_code == 200, made.text
+    project_routes = reads(world) + writes(world) + chat_routes(world) + starts(world)
+
+    act_as(make_account("mo.too@example.com", account.organization, role="member"))
+    assert client.get("/api/projects").json() == []
+    found = statuses(client, project_routes)
+    assert set(found.values()) == {404}, found
+
+    for member in (chosen, admin):
+        act_as(member)
+        assert [p["id"] for p in client.get("/api/projects").json()] == [world.project_id]
+        shown = statuses(client, reads(world) + chat_reads(world))
+        assert set(shown.values()) == {200}, shown
 
 
 def test_a_viewer_can_read_but_not_change(client, world, account, make_account, act_as):

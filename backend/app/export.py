@@ -3,7 +3,8 @@
 `account_export` is the personal part of a subject access request: everything the app keeps
 about a user as a person, as one document the account page offers for download (`GET
 /api/auth/account/export`). That is the account, the providers it signs in through, its
-memberships, its sessions (as long as they are kept, app/auth.py) and the browsers it signed
+memberships with the private projects it was chosen to see (app/access.py), its sessions (as
+long as they are kept, app/auth.py) and the browsers it signed
 in with (each one's first and last sign-in, never its cookie), the chats it started with
 every message, the usage counted to it, and the rows of the audit logs that name it
 (app/audit.py). It leaves out the password hash, the authenticator
@@ -11,6 +12,7 @@ secret and the recovery codes, which guard the data rather than describe the per
 organisations' documents, which belong to the organisation and go in its project export (3.6).
 """
 
+from collections import defaultdict
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -24,6 +26,7 @@ from app.models import (
     Membership,
     Organization,
     Project,
+    ProjectMember,
     UsageEvent,
     User,
 )
@@ -43,7 +46,8 @@ from app.schemas import (
 
 ABOUT = (
     "What Emudoc keeps about you: your account and the edition of the terms you accepted, how "
-    "you sign in, the organisations you belong to, the browsers and devices you signed in from "
+    "you sign in, the organisations you belong to and the private projects you were chosen to "
+    "see, the browsers and devices you signed in from "
     "in the last month and when each browser you signed in with did so first and last, the "
     "chats you started with every question and answer, the usage counted to you, and what the "
     "audit logs of your organisations recorded you doing. Answers cite passages of documents "
@@ -63,6 +67,14 @@ def account_export(session: Session, user: User) -> AccountExport:
         .where(Membership.user_id == user.id)
         .order_by(Membership.created_at, Membership.id)
     ).all()
+    private_projects: dict[int, list[str]] = defaultdict(list)
+    for org_id, name in session.execute(
+        select(Project.org_id, Project.name)
+        .join(ProjectMember, ProjectMember.project_id == Project.id)
+        .where(ProjectMember.user_id == user.id)
+        .order_by(Project.name, Project.id)
+    ):
+        private_projects[org_id].append(name)
     sessions = session.scalars(
         select(SessionRow).where(SessionRow.user_id == user.id).order_by(SessionRow.id)
     ).all()
@@ -113,6 +125,7 @@ def account_export(session: Session, user: User) -> AccountExport:
                 slug=organization.slug,
                 role=membership.role,
                 joined_at=membership.created_at,
+                private_projects=private_projects[organization.id],
             )
             for membership, organization in memberships
         ],

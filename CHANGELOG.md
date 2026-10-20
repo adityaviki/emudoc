@@ -11,6 +11,15 @@ its day, in the same commit.
 
 Members:
 
+- A project can be made private, from "Who sees it" on its card or when making it: then only
+  the members chosen for it see it, besides the organisation's owners and admins, who see every
+  project, and anyone else finds no trace of it. Whoever may change the project chooses; a
+  member stays among the members of a project they make private, and a viewer may be chosen,
+  to read it. Opening it to everyone again forgets the choice, and leaving the organisation or
+  being removed from it takes one's place in its private projects. Chats in a project one no
+  longer sees are hidden until one is chosen again. The privacy policy says who sees a private
+  project, and the copy of one's data names the private projects one was chosen for.
+
 - The owners and admins of an organisation change the other members' roles and remove members
   from its page: an admin anyone's but an owner's, and to any role but owner, an owner
   anyone's, so an owner can make another without handing the organisation over. Nobody changes
@@ -77,6 +86,11 @@ Members:
 
 Operators:
 
+- The release's migration gives `projects` a `visibility` (every project stays open to its
+  organisation), adds `project_members`, the members chosen for a private project, and gives
+  the audit log the action `project_access_changed`, whose detail names the members let in and
+  left out by id. A restore to an earlier moment brings back who saw a private project then,
+  which the runbook now tells the owners and admins to check.
 - The release's migration gives the audit log the action `member_removed`; a role changed by
   an owner or admin is recorded as `role_changed`, as a successor's promotion was. Changing a
   role, removing a member, handing over and leaving each hold the organisation's row until

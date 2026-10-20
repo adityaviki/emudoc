@@ -27,14 +27,27 @@ export interface Usage {
   cost_micros: number | null
 }
 
+/**
+ * Who sees a project besides the organisation's owners and admins, who see every one: everyone
+ * in the organisation, or the members chosen for it (backend/app/access.py).
+ */
+export type ProjectVisibility = 'organization' | 'private'
+
 export interface Project {
   id: number
   name: string
   description: string
   created_at: string
+  visibility: ProjectVisibility
   document_count: number
   /** The documents whose enrich stage was skipped for want of a model. */
   unenriched_count: number
+}
+
+/** Who sees a project: the members chosen for a private one, by user id; none for an open one. */
+export interface ProjectAccess {
+  visibility: ProjectVisibility
+  user_ids: number[]
 }
 
 export interface Folder {
@@ -375,6 +388,9 @@ export const isWithin = (role: Role, granted: Role) => ROLES.indexOf(role) >= RO
 /** Whether the role may change what the organisation holds: every role but a viewer's (`get_editor` in backend/app/api/deps.py). */
 export const mayChange = (role: Role) => isWithin('member', role)
 
+/** Whether the role sees every project, the private ones whoever was chosen for them (`sees_every_project` in backend/app/access.py). */
+export const seesEveryProject = (role: Role) => isWithin('admin', role)
+
 /** A member of the organisation, as the other members see them. */
 export interface Member {
   user_id: number
@@ -478,6 +494,7 @@ export type AuditAction =
   | 'member_joined'
   | 'member_left'
   | 'member_removed'
+  | 'project_access_changed'
   | 'project_deleted'
   | 'folder_deleted'
   | 'document_uploaded'
@@ -504,8 +521,8 @@ export interface AuditEvent {
   /** What it was done to, which may be gone since. */
   target_type: string | null
   target_id: number | null
-  /** Names and settings as they were, such as `{ filename: 'invoice.pdf' }`. */
-  detail: Record<string, string | number | boolean | null>
+  /** Names and settings as they were, such as `{ filename: 'invoice.pdf' }`, and the users a change let in or left out by id. */
+  detail: Record<string, string | number | boolean | number[] | null>
 }
 
 /** A page of the audit log, the newest row first. */
@@ -769,8 +786,17 @@ export const api = {
 
   projects: () => request<Project[]>('/projects'),
   project: (id: number) => request<Project>(`/projects/${id}`),
-  createProject: (body: { name: string; description: string }) =>
+  /** A private project is seen by its maker alone at first, and by the owners and admins. */
+  createProject: (body: { name: string; description: string; visibility: ProjectVisibility }) =>
     request<Project>('/projects', json('POST', body)),
+  /** Who sees the project besides the owners and admins. */
+  projectAccess: (id: number) => request<ProjectAccess>(`/projects/${id}/access`),
+  /**
+   * Whoever may change the project chooses who sees it; one who is not an owner or admin must
+   * stay among a private project's members, and opening it forgets them.
+   */
+  setProjectAccess: (id: number, access: ProjectAccess) =>
+    request<ProjectAccess>(`/projects/${id}/access`, json('PUT', access)),
   deleteProject: (id: number) => request<void>(`/projects/${id}`, { method: 'DELETE' }),
   reprocessProject: (id: number, fromStage: StageName) =>
     request<{ queued: number }>(`/projects/${id}/reprocess?from_stage=${fromStage}`, {

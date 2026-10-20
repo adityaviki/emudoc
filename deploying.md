@@ -1487,7 +1487,8 @@ or backed up with restic, at least as often as a restore would need, and kept no
    nothing.
 6. Start the app, and tell the members that what they did after that moment is undone: their
    uploads, deletions, shares, a changed password. Everyone signs in again, and the owners and
-   admins send again the invitations still wanted.
+   admins send again the invitations still wanted and check who sees each private project,
+   since someone left out of one after that moment sees it again.
 
 The files uploaded after the moment stay in the storage as the files of documents the database
 does not know, and the worker's housekeeping removes them an hour after they were written

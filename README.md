@@ -540,7 +540,16 @@ and admins change the other members' roles and remove members: an admin anyone's
 owner's, and to any role but owner; an owner anyone's, so an owner can make another without
 handing the organisation over. Nobody changes their own role there, so an organisation always
 keeps an owner. A member removed loses what leaving loses, and one removed from their last
-organisation gets an empty one of their own, as at sign-up. Each act
+organisation gets an empty one of their own, as at sign-up. A project is seen by everyone in the
+organisation until it is made private ("Who sees it" on its card, or "Private" when making it):
+then only the members chosen for it see it, and the owners and admins, who see every project,
+so that none is left that nobody can manage. Whoever may change the project chooses; a member
+who is neither owner nor admin stays among its members, and a viewer may be chosen, to read it.
+Anyone else finds no trace of it: its routes answer 404, as another organisation's do. Opening
+it to everyone forgets the choice; leaving or being removed takes one's place among the
+organisation's private projects, and a changed role keeps it. A member's chats in a project
+they no longer see are hidden until they are chosen again, and an answer under way finishes
+(`backend/app/access.py`, `GET` and `PUT /api/projects/{id}/access`). Each act
 is in the organisation's audit log; a sign-in is recorded where its session starts and what the
 account does after where the session works then, so one organisation does not see when, or
 from where, a member signs in to another. The routes are `backend/app/api/organizations.py`, the
@@ -673,7 +682,7 @@ rotate ("Runbooks"), and every variable the app reads with its default ("Every s
 Each organisation keeps an audit log (`backend/app/audit.py`): its members' sign-ins (and
 failed ones for their accounts), profile, address, password, two-factor and session changes,
 exports and deletion requests, every upload, download and deletion of a document, folder or
-project, chats shared, taken private or deleted, and what the operator (a plan change, a
+project, who sees a project, chats shared, taken private or deleted, and what the operator (a plan change, a
 requeue) and the app (a quarantine, an account purge with the owner it promoted) did on their
 own. A row names the member, the project and the object, the client's address, and names or
 settings as they were (a file's name, a role before and after), never what a document, a

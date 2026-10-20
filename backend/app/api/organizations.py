@@ -11,9 +11,10 @@ Renaming is for owners and admins, and keeps the slug, which the operator's comm
 organisation by (`usage <slug>`, `plan <slug>`). Handing it over makes another member an owner
 and its owner an admin, confirmed as deleting the account is, by the password or the address
 typed out, since a browser left signed in should not give an organisation away. Leaving takes
-the member's private chats in its projects with them, which nobody else could read; their
-shared chats stay with the project. Nobody leaves an organisation that would be left without
-an owner, or with nobody, nor their last one, since an account in none can do nothing.
+the member's private chats in its projects with them, which nobody else could read, and their
+place among its private projects' members; their shared chats stay with the project. Nobody
+leaves an organisation that would be left without an owner, or with nobody, nor their last
+one, since an account in none can do nothing.
 
 Owners and admins change the other members' roles and remove them: an admin anyone's but an
 owner's, and to any role but owner; an owner anyone's. Nobody changes their own role or removes
@@ -29,6 +30,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
+from app.access import forget_projects
 from app.accounts import (
     Account,
     account_for_user,
@@ -354,7 +356,8 @@ def _membership(session: Session, account: Account, user_id: int) -> Membership:
 def _part(session: Session, org_id: int, user_id: int) -> int:
     """End the user's membership of the organisation, as leaving or being removed does, and
     return how many of their chats went: the private ones in its projects, which nobody else
-    could read. The caller commits."""
+    could read. Their place among its private projects' members goes too, so that joining
+    again shows them none. The caller commits."""
     own_projects = select(Project.id).where(Project.org_id == org_id)
     chats = session.execute(
         delete(Chat).where(
@@ -363,6 +366,7 @@ def _part(session: Session, org_id: int, user_id: int) -> int:
             Chat.project_id.in_(own_projects),
         )
     ).rowcount
+    forget_projects(session, org_id, user_id)
     session.execute(
         delete(Membership).where(Membership.org_id == org_id, Membership.user_id == user_id)
     )

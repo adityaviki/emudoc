@@ -70,7 +70,9 @@ advertising, sell no personal data and build no profile of you.
   $models
 - **The other members of your organisation** see your name, your email address and your role
   in its list of members, its projects and documents and the chats you share with a project,
-  and its owners and admins see the IP addresses of your requests in its audit log. An
+  though a private project only the members chosen for it and the organisation's owners and
+  admins see, and its owners and admins see the IP addresses of your requests in its audit
+  log. An
   organisation that lets everyone with an address at a domain join it is offered to you once
   you confirm an address there; it learns of you only if you join.
 - **Authorities**, only where the law obliges us to hand data over.

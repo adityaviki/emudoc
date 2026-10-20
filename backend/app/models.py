@@ -36,6 +36,9 @@ ROLES = ("owner", "admin", "member", "viewer")
 JOIN_ROLES = ("member", "viewer")
 # A chat is private to the member who started it until they share it with the project.
 CHAT_VISIBILITIES = ("private", "project")
+# A project is seen by everyone in its organisation, or, when private, by the members chosen
+# for it and the organisation's owners and admins (app/access.py).
+PROJECT_VISIBILITIES = ("organization", "private")
 # What a background job can be (app/jobs.py). A worker only claims the kinds it has a handler
 # for, so a kind can be queued by a newer API before an older worker knows it.
 JOB_KINDS = (
@@ -67,8 +70,8 @@ PLANS = ("free", "pro", "team", "enterprise")
 NATURAL_ORDER = "natural_order"
 # What the audit log records (app/audit.py): its members' sign-ins and what they did to their
 # accounts, what was done to the organisation itself (its name, its owner, who was invited,
-# joined, left or was removed, and the members' roles), to its documents and to the sharing of
-# its chats, and what the operator and the app did to it on their own.
+# joined, left or was removed, and the members' roles), to its projects, its documents and the
+# sharing of its chats, and what the operator and the app did to it on their own.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -102,6 +105,7 @@ AUDIT_ACTIONS = (
     "member_joined",
     "member_left",
     "member_removed",
+    "project_access_changed",
     "project_deleted",
     "folder_deleted",
     "document_uploaded",
@@ -411,6 +415,7 @@ class Project(Base):
     """A set of documents and the chats about them. Everything below it is scoped by project."""
 
     __tablename__ = "projects"
+    __table_args__ = (_one_of("visibility", PROJECT_VISIBILITIES, "projects"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     # The tenant: every read of the project's documents, passages, facts and chats checks this.
@@ -419,6 +424,11 @@ class Project(Base):
     )
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")
+    # organization | private: who sees it besides the owners and admins, who see every project:
+    # everyone in the organisation, or the members chosen for it (`ProjectMember`).
+    visibility: Mapped[str] = mapped_column(
+        String(20), default="organization", server_default="organization"
+    )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -426,6 +436,23 @@ class Project(Base):
     organization: Mapped[Organization] = relationship(back_populates="projects")
     documents: Mapped[list["Document"]] = relationship(
         back_populates="project", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class ProjectMember(Base):
+    """A member of the organisation chosen to see one of its private projects (app/access.py).
+    The rows are kept only while the project is private, and go with the membership."""
+
+    __tablename__ = "project_members"
+    __table_args__ = (UniqueConstraint("project_id", "user_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    # Indexed, since every request of a member who does not see every project asks which
+    # private ones they were chosen for.
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )
 
 

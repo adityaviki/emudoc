@@ -17,10 +17,12 @@ organisation the session works in, which the page takes to start again there. Sh
 signed in, switching and starting an organisation take the account whatever the page showed,
 since they are how a page catches up or moves on; a request without the header is not refused.
 
-Every object is reached through the account's organisation: a project must belong to it, and a
-document, folder, passage or chat must lie in one of its projects. Anything else is reported as
-not found, so a guessed id reveals nothing about other tenants. A chat is also hidden from
-everyone but the member who started it until they share it with the project.
+Every object is reached through the account's organisation: a project must belong to it and be
+one the account sees (a private project only its chosen members and the owners and admins,
+app/access.py), and a document, folder, passage or chat must lie in such a project. Anything
+else is reported as not found, so a guessed id reveals nothing about other tenants or about a
+private project. A chat is also hidden from everyone but the member who started it until they
+share it with the project.
 
 Reading needs any role; changing something needs the member role or better, which the
 `Editable...` dependencies check after the object itself is found.
@@ -42,6 +44,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.access import visible_to
 from app.accounts import Account, account_for_user, local_account, zone_of
 from app.auth import SESSION_COOKIE, find_session, touch_session
 from app.config import get_settings
@@ -220,9 +223,7 @@ def limited(limit: Limit) -> Callable[..., None]:
 
 
 def get_project(project_id: int, session: SessionDep, account: AccountDep) -> Project:
-    project = session.scalar(
-        select(Project).where(Project.id == project_id, Project.org_id == account.organization.id)
-    )
+    project = session.scalar(select(Project).where(Project.id == project_id, visible_to(account)))
     if project is None:
         raise HTTPException(404, "Project not found")
     about(project_id=project.id)
@@ -261,12 +262,13 @@ def get_chat(chat_id: int, session: SessionDep, account: AccountDep) -> Chat:
 def _in_organization[T: (Document, Folder, Passage, Chat)](
     session: Session, account: Account, model: type[T], object_id: int
 ) -> T | None:
-    """The row with this id, provided its project belongs to the account's organisation. What
-    the request logs from here on names the project, once it is known to be the account's."""
+    """The row with this id, provided its project is one of the organisation's that the account
+    sees. What the request logs from here on names the project, once it is known to be the
+    account's."""
     found = session.scalar(
         select(model)
         .join(Project, Project.id == model.project_id)
-        .where(model.id == object_id, Project.org_id == account.organization.id)
+        .where(model.id == object_id, visible_to(account))
     )
     if found is not None:
         about(project_id=found.project_id)
