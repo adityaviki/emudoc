@@ -7,7 +7,10 @@ they accepted (app/legal/), a copy of what is kept about them, and its deletion
 A sign-up asks for the address alone and mails it a link, and the page the link opens makes
 the account: whoever holds the address chooses its password and accepts the terms there. The
 answer to the form is the same whether the address has an account or not, and an address that
-has one is told so in a message instead, so that nobody learns from the app who uses it.
+has one is told so in a message instead, so that nobody learns from the app who uses it. An
+invitation's link (app/invitations.py) opens a page that does the same for a new account, which
+joins the organisation that invited it instead of starting one of its own, or lets the account
+with the address join once signed in; the address is the invitation's, which the link proves.
 
 An account moves to a new address through a link sent there, which works signed in or not, as
 a verification link does; until it is opened the account keeps its address. That request too
@@ -49,7 +52,9 @@ from app import auth
 from app.accounts import (
     Account,
     account_for_user,
+    add_member,
     create_account,
+    create_user,
     organizations_of,
     time_zones,
     zone_of,
@@ -61,6 +66,7 @@ from app.api.deps import (
     LiveAccountDep,
     MailerDep,
     SessionDep,
+    UsableAccountDep,
     limited,
     refuse_past,
 )
@@ -68,6 +74,7 @@ from app.audit import audit, audit_sign_in
 from app.config import get_settings
 from app.entitlements import entitlements_of
 from app.export import account_export
+from app.invitations import find_invitation, is_open, joinable
 from app.legal import TERMS_VERSION, terms_due
 from app.mail import (
     Mailer,
@@ -82,7 +89,7 @@ from app.mail import (
     sign_up_email,
     verification_email,
 )
-from app.models import Identity, User, UserSession
+from app.models import Identity, Invitation, Membership, Organization, User, UserSession
 from app.oidc import (
     OAUTH_COOKIE,
     OAUTH_WINDOW_SECONDS,
@@ -117,6 +124,9 @@ from app.schemas import (
     CodeIn,
     EmailChangeIn,
     EmailIn,
+    InvitationLinkOut,
+    InvitationSignupIn,
+    JoinableOut,
     LinkTokenIn,
     LoginIn,
     LoginOut,
@@ -148,6 +158,7 @@ RESET_PAGE = "/reset-password"
 FORGOT_PAGE = "/forgot-password"
 EMAIL_PAGE = "/confirm-email"
 SIGNUP_PAGE = "/finish-signup"
+INVITATION_PAGE = "/invitation"
 
 SIGN_IN_FAILED = "The email or password is not right."
 LINK_INVALID = "This link has expired or was already used. Request a new one."
@@ -180,6 +191,23 @@ NO_CONTACT = "the people who run this Emudoc service"
 SIGNED_UP_ALREADY = (
     "An Emudoc account was made with this address after the link was sent, so the link cannot "
     "make another. Sign in with it; if you do not know its password, reset it."
+)
+INVITATION_GONE = (
+    "This invitation was accepted, revoked or sent again since this link was mailed, so the "
+    "link no longer works. Ask whoever invited you for a new one."
+)
+INVITATION_EXPIRED = "This invitation has expired. Ask {inviter} to send it again."
+INVITATION_ELSEWHERE = (
+    "This invitation is for {invited}, and you are signed in as {email}. Sign out and sign in "
+    "with {invited}, or create an account with it, to accept; or ask for an invitation to "
+    "{email}."
+)
+INVITATION_HAS_ACCOUNT = (
+    "An Emudoc account has this address already. Sign in with it to accept the invitation."
+)
+LOCAL_INVITATION = (
+    "The local account cannot join another organisation: without a session there is nothing to "
+    "keep it in. Sign in with an account to accept the invitation."
 )
 ACCEPT_TERMS = "Accept the terms of service and the privacy policy to create an account."
 TERMS_CHANGED = (
@@ -255,12 +283,12 @@ def signup(
     if user is None:
         token = auth.issue_link_token(session, None, "sign_up", email, auth.VERIFY_LINK_TTL)
         session.commit()
-        subject, text = sign_up_email(_link(request, SIGNUP_PAGE, token))
+        subject, text = sign_up_email(mailed_link(request, SIGNUP_PAGE, token))
     else:
         subject, text = account_exists_email(
             user.name, f"{_app_url(request)}{LOGIN_PAGE}", f"{_app_url(request)}{FORGOT_PAGE}"
         )
-    background.add_task(_send_quietly, mailer, email, subject, text)
+    background.add_task(send_quietly, mailer, email, subject, text)
 
 
 @router.post("/signup/link", response_model=SignupLinkOut)
@@ -289,10 +317,7 @@ def finish_signup(
     The edition accepted must be the current one. A refusal leaves the link working, since
     nothing is committed."""
     refuse_past(session, (ADDRESSES, by_address(request)))
-    if body.terms_version is None:
-        raise HTTPException(400, ACCEPT_TERMS)
-    if body.terms_version != TERMS_VERSION:
-        raise HTTPException(409, TERMS_CHANGED)
+    _refuse_unaccepted(body.terms_version)
     link = auth.redeem_link_token(session, body.token, "sign_up")
     if link is None:
         raise HTTPException(400, LINK_INVALID)
@@ -326,6 +351,113 @@ def finish_signup(
     auth.set_session_cookie(response, request, token)
     auth.set_browser_cookie(response, request, browser)
     return me_out(session, replace(account, session_id=user_session.id))
+
+
+# Invitations (app/invitations.py)
+
+
+@router.post("/invitation", response_model=InvitationLinkOut)
+def invitation_link(body: LinkTokenIn, session: SessionDep):
+    """What an invitation's link is for, for its page to show before anything is done. An
+    expired one is shown too, so that its page can say whom to ask for it again."""
+    invitation = find_invitation(session, body.token)
+    if invitation is None:
+        raise HTTPException(400, INVITATION_GONE)
+    holder = session.scalar(select(User.id).where(User.email == invitation.email))
+    return InvitationLinkOut(
+        organization=session.get(Organization, invitation.org_id).name,
+        role=invitation.role,
+        email=invitation.email,
+        invited_by=_inviter(session, invitation),
+        expires_at=invitation.expires_at,
+        expired=not is_open(invitation),
+        has_account=holder is not None,
+    )
+
+
+@router.post("/invitation/accept", response_model=MeOut)
+def accept_invitation(
+    body: LinkTokenIn, account: UsableAccountDep, request: Request, session: SessionDep
+):
+    """Join the organisation an invitation to the account's address is to, with its role, and
+    work in it from now on, in every tab. Opening the link proves the address, which an account
+    that signed up through a provider may not have confirmed yet. The page shows no
+    organisation, so whichever the session works in is fine."""
+    if account.session_id is None:
+        raise HTTPException(409, LOCAL_INVITATION)
+    invitation = _open_invitation(session, body.token, lock=True)
+    user = account.user
+    if invitation.email != user.email:
+        raise HTTPException(
+            403, INVITATION_ELSEWHERE.format(invited=invitation.email, email=user.email)
+        )
+    organization = session.get(Organization, invitation.org_id)
+    user_session = session.get(UserSession, account.session_id)
+    role = session.scalar(
+        select(Membership.role).where(
+            Membership.org_id == organization.id, Membership.user_id == user.id
+        )
+    )
+    # A member already, who joined by the domain since it was sent, keeps their role.
+    if role is None:
+        joined = add_member(session, organization, user, invitation.role, user_session)
+    else:
+        user_session.org_id = organization.id
+        joined = Account(organization, user, role, user_session.id)
+    if user.email_verified_at is None:
+        user.email_verified_at = auth.now()
+    _accepted(session, joined, request, invitation)
+    session.commit()
+    return me_out(session, joined)
+
+
+@router.post("/invitation/signup", response_model=MeOut, status_code=201)
+def sign_up_invited(
+    body: InvitationSignupIn,
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    http: HttpDep,
+):
+    """Make an account for an invitation's address, a member of the organisation that invited
+    it and of none of its own, and sign it in, as `finish_signup` makes one for a sign-up link:
+    opening the link proves the address, and whoever holds it chooses the password and accepts
+    the terms. A refusal leaves the invitation open."""
+    refuse_past(session, (ADDRESSES, by_address(request)))
+    _refuse_unaccepted(body.terms_version)
+    # Held, so that one revoked meanwhile is found gone rather than accepted.
+    invitation = _open_invitation(session, body.token, lock=True)
+    if session.scalar(select(User.id).where(User.email == invitation.email)) is not None:
+        raise HTTPException(409, INVITATION_HAS_ACCOUNT)
+    _refuse_breached(http, body.password)
+    try:
+        user = create_user(
+            session,
+            invitation.email,
+            body.name.strip(),
+            auth.hash_password(body.password),
+            email_verified=True,
+            time_zone=body.time_zone,
+        )
+    except IntegrityError as error:
+        # An account made with the address in the same moment, through its sign-up link or a
+        # provider, is the database's to see.
+        session.rollback()
+        if _constraint(error) == "users_email_key":
+            raise HTTPException(409, INVITATION_HAS_ACCOUNT) from None
+        raise
+    auth.forget_sign_ups(session, user.email)
+    user_session, token = auth.start_session(session, user, request)
+    organization = session.get(Organization, invitation.org_id)
+    joined = add_member(session, organization, user, invitation.role, user_session)
+    browser = auth.remember_browser(session, user, request)
+    audit(session, joined, request, "sign_up", detail={"method": "password"})
+    _accept_terms(session, joined, request)
+    _accepted(session, joined, request, invitation)
+    session.commit()
+    auth.set_session_cookie(response, request, token)
+    auth.set_browser_cookie(response, request, browser)
+    return me_out(session, joined)
 
 
 @router.post("/login", response_model=LoginOut)
@@ -485,12 +617,12 @@ def request_email_change(
     holder = session.scalar(select(User).where(User.email == email))
     if holder is None:
         token = auth.issue_link_token(session, user, "change_email", email, auth.VERIFY_LINK_TTL)
-        subject, text = email_change_email(user.name, _link(request, EMAIL_PAGE, token))
+        subject, text = email_change_email(user.name, mailed_link(request, EMAIL_PAGE, token))
     else:
         subject, text = address_taken_email(holder.name, f"{_app_url(request)}{LOGIN_PAGE}")
     audit(session, account, request, "email_change_requested")
     session.commit()
-    background.add_task(_send_quietly, mailer, email, subject, text)
+    background.add_task(send_quietly, mailer, email, subject, text)
 
 
 @router.post("/email/confirm", status_code=204)
@@ -523,7 +655,7 @@ def confirm_email_change(
     audit_sign_in(session, user, request, "email_changed")
     session.commit()
     subject, text = email_changed_email(user.name, get_settings().operator_email or NO_CONTACT)
-    background.add_task(_send_quietly, mailer, old, subject, text)
+    background.add_task(send_quietly, mailer, old, subject, text)
 
 
 # Email verification
@@ -572,8 +704,8 @@ def forgot_password(
     token = auth.issue_link_token(session, user, "reset_password", user.email, auth.RESET_LINK_TTL)
     audit_sign_in(session, user, request, "password_reset_requested")
     session.commit()
-    subject, text = password_reset_email(user.name, _link(request, RESET_PAGE, token))
-    background.add_task(_send_quietly, mailer, user.email, subject, text)
+    subject, text = password_reset_email(user.name, mailed_link(request, RESET_PAGE, token))
+    background.add_task(send_quietly, mailer, user.email, subject, text)
 
 
 @router.post("/password/reset", status_code=204)
@@ -820,11 +952,16 @@ def disable_mfa(body: MfaDisableIn, account: AccountDep, request: Request, sessi
 
 
 @router.get("/oauth/{provider}/start")
-def oauth_start(provider: str, request: Request, next: str = "/", time_zone: str = ""):
+def oauth_start(
+    provider: str, request: Request, next: str = "/", time_zone: str = "", invitation: str = ""
+):
     """Send the browser to the provider, remembering the handshake in a short-lived cookie,
-    with the browser's time zone for an account the sign-in creates."""
+    with the browser's time zone for an account the sign-in creates, and the invitation whose
+    page it started from, which such an account accepts."""
     found = _provider(provider)
-    url, handshake = begin(found, _redirect_uri(request, found), _safe_path(next), time_zone[:64])
+    url, handshake = begin(
+        found, _redirect_uri(request, found), _safe_path(next), time_zone[:64], invitation[:200]
+    )
     response = RedirectResponse(url, status_code=302)
     response.set_cookie(
         OAUTH_COOKIE,
@@ -860,7 +997,7 @@ def oauth_callback(
         )
     try:
         claims = finish(found, code, _redirect_uri(request, found), handshake, http)
-        user = _user_for_claims(session, found, claims, request, mailer, handshake.time_zone)
+        user, joined = _user_for_claims(session, found, claims, request, mailer, handshake)
     except (OidcError, SignInRefused) as refusal:
         session.rollback()
         return _back_to_login(request, error=str(refusal))
@@ -872,7 +1009,8 @@ def oauth_callback(
     if user.mfa_enabled:
         response = _back_to_login(request, mfa="1", next=handshake.next)
     else:
-        response = RedirectResponse(handshake.next, status_code=302)
+        # The invitation's page has nothing more to do once the new account joined.
+        response = RedirectResponse("/" if joined else handshake.next, status_code=302)
         response.delete_cookie(OAUTH_COOKIE, path="/api/auth/oauth")
         auth.set_browser_cookie(response, request, browser)
     auth.set_session_cookie(response, request, token, needs_mfa=user.mfa_enabled)
@@ -885,13 +1023,16 @@ def _user_for_claims(
     claims: Claims,
     request: Request,
     mailer: Mailer,
-    time_zone: str = "",
-) -> User:
-    """The user behind the provider's subject, linking or creating an account the first time.
+    handshake: Handshake,
+) -> tuple[User, bool]:
+    """The user behind the provider's subject, linking or creating an account the first time,
+    and whether a new account joined the organisation that invited its address.
 
     An existing account is linked only when both sides vouch for the address: the provider
     says it is verified, and the account verified it too. Otherwise someone could sign up with
-    another person's address and wait for them to sign in through a provider.
+    another person's address and wait for them to sign in through a provider. A new account
+    whose sign-in started from an invitation's page for its address joins that organisation
+    instead of starting its own, its address proven by the link as on that page.
     """
     identity = session.scalar(
         select(Identity).where(
@@ -900,20 +1041,32 @@ def _user_for_claims(
     )
     if identity is not None:
         identity.email = claims.email
-        return identity.user
+        return identity.user, False
     if not claims.email:
         raise SignInRefused(
             f"{provider.label} did not share an email address for this account, which Emudoc "
             "needs. Sign in another way."
         )
     user = session.scalar(select(User).where(User.email == claims.email))
-    if user is None:
+    invitation = find_invitation(session, handshake.invitation) if handshake.invitation else None
+    joined = False
+    if user is None and invitation is not None and is_open(invitation):
+        joined = invitation.email == claims.email
+    if joined:
+        user = create_user(
+            session, claims.email, claims.name, email_verified=True, time_zone=handshake.time_zone
+        )
+        organization = session.get(Organization, invitation.org_id)
+        account = add_member(session, organization, user, invitation.role)
+        audit(session, account, request, "sign_up", detail={"method": provider.name})
+        _accepted(session, account, request, invitation)
+    elif user is None:
         account = create_account(
             session,
             claims.email,
             claims.name,
             email_verified=claims.email_verified,
-            time_zone=time_zone,
+            time_zone=handshake.time_zone,
         )
         audit(session, account, request, "sign_up", detail={"method": provider.name})
         user = account.user
@@ -930,7 +1083,7 @@ def _user_for_claims(
         )
     )
     session.flush()
-    return user
+    return user, joined
 
 
 def _provider(name: str) -> Provider:
@@ -976,6 +1129,10 @@ def me_out(session: Session, account: Account) -> MeOut:
         organizations=[
             MembershipOut(id=organization.id, name=organization.name, role=role)
             for organization, role in organizations_of(session, user)
+        ],
+        joinable=[
+            JoinableOut(id=organization.id, name=organization.name, role=organization.join_role)
+            for organization in joinable(session, user)
         ],
         has_password=user.password_hash is not None,
         deletion_due_at=user.deletion_due_at,
@@ -1049,7 +1206,7 @@ def _failed(
                 _clock(window_end(FAILED_SIGN_INS), user),
                 f"{_app_url(request)}{FORGOT_PAGE}",
             )
-            background.add_task(_send_quietly, mailer, user.email, subject, text)
+            background.add_task(send_quietly, mailer, user.email, subject, text)
     session.commit()
 
 
@@ -1093,6 +1250,44 @@ def _clock(moment: dt.datetime, user: User) -> str:
     return f"{moment.astimezone(zone):%H:%M} ({zone})"
 
 
+def _refuse_unaccepted(terms_version: str | None) -> None:
+    """Refuse a new account whose form did not accept the current edition of the terms."""
+    if terms_version is None:
+        raise HTTPException(400, ACCEPT_TERMS)
+    if terms_version != TERMS_VERSION:
+        raise HTTPException(409, TERMS_CHANGED)
+
+
+def _open_invitation(session: Session, token: str, lock: bool = False) -> Invitation:
+    """The invitation a link names, refused with 400 once it is gone or expired."""
+    invitation = find_invitation(session, token, lock)
+    if invitation is None:
+        raise HTTPException(400, INVITATION_GONE)
+    if not is_open(invitation):
+        inviter = _inviter(session, invitation) or "whoever invited you"
+        raise HTTPException(400, INVITATION_EXPIRED.format(inviter=inviter))
+    return invitation
+
+
+def _inviter(session: Session, invitation: Invitation) -> str:
+    """Who sent the invitation last, by name or address; "" once their account is gone."""
+    user = session.get(User, invitation.invited_by_id) if invitation.invited_by_id else None
+    return (user.name or user.email) if user is not None else ""
+
+
+def _accepted(session: Session, account: Account, request: Request, invitation: Invitation) -> None:
+    """Record that the account accepted the invitation, which goes; the caller commits."""
+    audit(
+        session,
+        account,
+        request,
+        "invitation_accepted",
+        target=("invitation", invitation.id),
+        detail={"role": account.role},
+    )
+    session.delete(invitation)
+
+
 def _accept_terms(session: Session, account: Account, request: Request) -> None:
     """Record that the user accepted the current edition, now, in the audit log as well; the
     caller commits."""
@@ -1111,7 +1306,7 @@ def _app_url(request: Request) -> str:
     return get_settings().app_url.rstrip("/") or str(request.base_url).rstrip("/")
 
 
-def _link(request: Request, page: str, token: str) -> str:
+def mailed_link(request: Request, page: str, token: str) -> str:
     """A one-time link to a page of the frontend, with the token in the fragment: the browser
     never sends a fragment, so the token reaches neither the access log nor a proxy's, which a
     query would, and a reset token there signs in within its hour (`useLinkToken` in
@@ -1122,11 +1317,11 @@ def _link(request: Request, page: str, token: str) -> str:
 def _send_verification(session: Session, user: User, request: Request, mailer: Mailer) -> None:
     token = auth.issue_link_token(session, user, "verify_email", user.email, auth.VERIFY_LINK_TTL)
     session.commit()
-    subject, text = verification_email(user.name, _link(request, VERIFY_PAGE, token))
+    subject, text = verification_email(user.name, mailed_link(request, VERIFY_PAGE, token))
     _send(mailer, user.email, subject, text)
 
 
-def _send_quietly(mailer: Mailer, to: str, subject: str, text: str) -> None:
+def send_quietly(mailer: Mailer, to: str, subject: str, text: str) -> None:
     with suppress(MailError):
         mailer.send(to, subject, text)
 

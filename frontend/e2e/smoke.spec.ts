@@ -1,15 +1,17 @@
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { linkMailedTo } from './mail.ts'
+import { movePlan } from './operator.ts'
 
 // The member's way through the app, end to end: sign up through the link the app mails, make a
 // project, upload a contract, wait for it to be indexed, find it by searching, ask about it,
-// open the passage the answer cites, and start a second organisation and switch back. The
+// open the passage the answer cites, start a second organisation and switch back, and invite a
+// colleague, who makes an account from the invitation's link and finds the project. The
 // answer is the stand-in's (e2e/standin.py): the first sentence of the passage its search
 // found best, with that passage's reference.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
 
-test('a new member uploads a contract, finds it, asks about it and opens the cited passage', async ({ page }) => {
+test('a new member uploads a contract, finds it, asks about it and opens the cited passage', async ({ page, browser }) => {
   test.setTimeout(120_000)
 
   await test.step('sign up', async () => {
@@ -99,5 +101,35 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await other.getByRole('button', { name: 'Create project' }).click()
     await expect(other.getByText('Supplier contracts')).toBeVisible()
     await expect(other.getByText('Lost')).toHaveCount(0)
+  })
+
+  await test.step('invite a colleague, who makes an account from the link and joins', async () => {
+    await page.goto('/organization')
+    const slug = await page.locator('code').filter({ hasText: /^ada-lovelace/ }).textContent()
+    movePlan(slug ?? '', 'team')
+    await page.reload()
+    const colleague = `grace.${Date.now()}@example.com`
+    await page.getByLabel('Email', { exact: true }).fill(colleague)
+    await page.getByLabel('Role', { exact: true }).selectOption('viewer')
+    await page.getByRole('button', { name: 'Invite', exact: true }).click()
+    await expect(page.getByText(`An invitation is on its way to ${colleague}.`)).toBeVisible()
+    await expect(page.getByRole('listitem').filter({ hasText: colleague })).toContainText('Viewer')
+
+    // Another browser, signed in as nobody, as the colleague's is.
+    const theirs = await browser.newContext()
+    const grace = await theirs.newPage()
+    await grace.goto(await linkMailedTo(colleague))
+    await expect(grace.getByRole('heading', { name: "Join Ada Lovelace's workspace" })).toBeVisible()
+    await grace.getByLabel('Name', { exact: true }).fill('Grace Hopper')
+    await grace.getByLabel('Password', { exact: true }).fill('another sentence to remember')
+    await grace.getByLabel(/I accept the terms of service/).check()
+    await grace.getByRole('button', { name: 'Create account' }).click()
+    await expect(grace.getByText('Supplier contracts')).toBeVisible()
+    await expect(grace.getByRole('button', { name: "Ada Lovelace's workspace" })).toBeVisible()
+    await theirs.close()
+
+    await page.reload()
+    await expect(page.getByText('Nobody is invited at the moment.')).toBeVisible()
+    await expect(page.getByRole('listitem').filter({ hasText: 'Grace Hopper' })).toContainText('Viewer')
   })
 })

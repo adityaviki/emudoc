@@ -537,6 +537,23 @@ account does after where the session works then, so one organisation does not se
 from where, a member signs in to another. The routes are `backend/app/api/organizations.py`, the
 pages `frontend/src/organization/`.
 
+People join an organisation by invitation. Its owners and admins invite an address with a role,
+never above their own, from the organisation's page; the address is mailed a link to
+`/invitation`, which shows who invited it to what. Signed in with the address, one click joins;
+an address with an account signs in first and comes back; one without makes its account there,
+or through Google or Microsoft from there, and that account is a member of the inviting
+organisation and of none of its own. Another account cannot accept it, since the link proves
+only the address it was sent to, which an account that had not confirmed it then has. An
+invitation lasts a week, takes a place among the members the plan allows meanwhile (the Free
+and Pro plans allow one, so only Team and Enterprise invite), and is listed for the owners and
+admins, who send it again (a new link, the old one stops) or revoke it; accepting or revoking
+it deletes it, and an expired one goes a month after (`backend/app/invitations.py`,
+`backend/app/api/invitations.py`, the link's routes in `backend/app/api/auth.py`). An owner or
+admin can also let everyone whose confirmed address is at a domain join, as a member or a
+viewer: only the domain of their own confirmed address, and never a mail service's such as
+gmail.com. Emudoc then offers the organisation to everyone there, on the organisation's page and
+in the header's menu, and they join only if they choose, while the plan has room.
+
 Making the account takes a ticked box, on the page the link opens, that accepts the terms of
 service and the privacy policy, which anyone can read at `/terms` and `/privacy` (the sign-in
 pages and the user menu link to them).
@@ -569,7 +586,8 @@ Each purge leaves a record under `erasures/` in the storage (the account's id an
 nothing else), so an account that a restored backup brings back is purged again at the next round.
 After the database is restored to an earlier point, `python -m app.maintenance after-restore
 <time>` brings back from a versioned bucket the files deleted since, moves the ids past every id
-the storage holds, signs everyone out and records the restore in each organisation's audit log
+the storage holds, signs everyone out, expires the open invitations and records the restore in
+each organisation's audit log
 (`backend/app/restore.py`); until it has run, an upload refuses a place in the storage that a
 lost document's files still hold. With `--dry-run` it changes nothing and fails when the storage
 lacks a document's original at that point: `deploy/restore-drill.sh` restores the newest backup
@@ -577,8 +595,8 @@ into a throwaway copy and runs it against the live storage, the monthly restore 
 (`deploying.md`, "The drill"); `deploy/managed-restore-drill.sh` does the same for a managed
 database, which the provider restores to a new instance (`deploy/rds-drill.sh` for RDS).
 A chat is kept for the plan's retention after its last question (30 days on Free, a year on
-Pro, for good on Team and Enterprise), which the chat list and the account page say; sessions
-and one-time links are removed a month after they ended.
+Pro, for good on Team and Enterprise), which the chat list and the account page say; sessions,
+one-time links and expired invitations are removed a month after they ended.
 
 The log holds no document text, question, answer or key (`backend/app/logs.py`): a traceback
 keeps its frames and the kinds of its exceptions but not their messages unless the app wrote
@@ -788,6 +806,8 @@ backend/app/
   folders.py    the folder tree as paths and subtrees
   agent/        the five tools and the tool-use loop
   accounts.py   who a request acts as; signing up makes a user and their organisation
+  invitations.py
+                invitations to an organisation, and joining one by an address's domain
   auth.py       passwords, sessions, one-time links and authenticator codes
   keyring.py    the keys of ENCRYPTION_KEYS and the cipher the database's secrets are kept in
   encrypted.py  the columns kept encrypted, the start's check and the encrypt-secrets command
@@ -842,10 +862,9 @@ CHANGELOG.md    what each day's commits changed for members and operators
 
 ## Not built yet
 
-- Invitations: an organisation has the one member who created it until the invitation routes
-  and the page that accepts them exist; the roles (viewers read, members change, a chat is
-  private until shared) are already enforced. The plan's member cap (`check_member` in
-  `backend/app/entitlements.py`) waits for them.
+- Changing a member's role, or removing a member: the roles (viewers read, members change, a
+  chat is private until shared) are enforced, but a member's is the one they joined with, or
+  one an owner handed over, until the role routes exist.
 - Deleting an organisation: one goes only with the account of its only member, who cannot
   leave it either.
 - Billing: plans exist and are enforced, but nothing sells them. The `plan` command moves an

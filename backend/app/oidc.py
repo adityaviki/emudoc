@@ -60,6 +60,10 @@ class Handshake:
     # The browser's time zone, for an account the sign-in creates; a cookie set before the
     # field existed has none.
     time_zone: str = ""
+    # The token of the invitation whose page the sign-in started from, which an account the
+    # sign-in creates for the invited address accepts instead of starting an organisation of
+    # its own (app/invitations.py); kept in this cookie alone, never in the provider's URL.
+    invitation: str = ""
 
     def encode(self) -> str:
         return base64.urlsafe_b64encode(json.dumps(asdict(self)).encode()).decode()
@@ -114,7 +118,11 @@ def providers(settings: Settings) -> dict[str, Provider]:
 
 
 def begin(
-    provider: Provider, redirect_uri: str, next_path: str, time_zone: str = ""
+    provider: Provider,
+    redirect_uri: str,
+    next_path: str,
+    time_zone: str = "",
+    invitation: str = "",
 ) -> tuple[str, Handshake]:
     """The URL to send the browser to, and what to remember until it comes back."""
     handshake = Handshake(
@@ -124,6 +132,7 @@ def begin(
         verifier=secrets.token_urlsafe(64),
         next=next_path,
         time_zone=time_zone,
+        invitation=invitation,
     )
     challenge = _base64url(hashlib.sha256(handshake.verifier.encode()).digest())
     params = {

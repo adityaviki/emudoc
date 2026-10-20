@@ -1,21 +1,26 @@
 // The organisation the user works in: its name, plan and region, its members, handing it over
-// to another of them and leaving it; the user's other organisations to switch to; and the page
-// that starts a new one. A switch, a new organisation and leaving one start the app again in
-// the organisation the session then works in (`startAgainInOrganization` in auth.ts).
+// to another of them, the invitations its owners and admins send and the domains whose
+// addresses may join it, and leaving it; the user's other organisations to switch to and those
+// open to them; and the page that starts a new one. A switch, a join, a new organisation and
+// leaving one start the app again in the organisation the session then works in
+// (`startAgainInOrganization` in auth.ts).
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, LogOut, Plus } from 'lucide-react'
+import { Check, LogOut, Plus, UserPlus } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { PLAN_LABELS, REGION_NAMES, ROLE_LABELS, organizations } from '../api.ts'
-import type { Me, Member } from '../api.ts'
+import { PLAN_LABELS, REGION_NAMES, ROLES, ROLE_LABELS, isPlanLimit, isWithin, organizations } from '../api.ts'
+import type { Invitation, JoinRole, Me, Member, Role } from '../api.ts'
 import { setSignedIn, startAgainInOrganization, useMe } from '../auth.ts'
 import { PasswordField } from '../account/shared.tsx'
-import { Button, Chip, InputField, Loading, Notice, Row, Section } from '../components/ui.tsx'
+import { PlanLimitNotice } from '../components/PlanLimit.tsx'
+import { Button, Chip, InputField, Loading, Notice, Row, Section, SelectField } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
 
 const MEMBERS_KEY = ['organization', 'members'] as const
+const INVITATIONS_KEY = ['organization', 'invitations'] as const
+const JOIN_ROLES: JoinRole[] = ['member', 'viewer']
 
 const capitalised = (text: string) => text[0].toUpperCase() + text.slice(1)
 
@@ -26,11 +31,17 @@ export function OrganizationPage() {
       <div className="mx-auto max-w-2xl px-6 py-10">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold tracking-tight">{me.organization.name}</h1>
-          <p className="mt-1 text-[13px] text-muted">The organisation you work in: its name, its members, and leaving it.</p>
+          <p className="mt-1 text-[13px] text-muted">The organisation you work in: its name, its members, who may join it, and leaving it.</p>
         </div>
         <div className="space-y-5">
           <NameSection me={me} />
           <MembersSection me={me} />
+          {isWithin('admin', me.role) && (
+            <>
+              <InvitationsSection me={me} />
+              <JoiningSection me={me} />
+            </>
+          )}
           <OrganizationsSection me={me} />
           <LeaveSection me={me} />
         </div>
@@ -199,8 +210,187 @@ function HandOverForm({ me, successor, onClose }: { me: Me; successor: Member; o
   )
 }
 
+// Owners and admins only, as the server holds them: who is invited, and inviting more.
+function InvitationsSection({ me }: { me: Me }) {
+  const queryClient = useQueryClient()
+  const invitations = useQuery({ queryKey: INVITATIONS_KEY, queryFn: organizations.invitations })
+  const [email, setEmail] = useState('')
+  const [role, setRole] = useState<Role>('member')
+  const invite = useMutation({
+    mutationFn: () => organizations.invite({ email: email.trim(), role }),
+    onSuccess: () => {
+      setEmail('')
+      void queryClient.invalidateQueries({ queryKey: INVITATIONS_KEY })
+    },
+  })
+
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    if (email.trim()) invite.mutate()
+  }
+
+  return (
+    <Section
+      title="Invitations"
+      description="Invite someone by email: the link they are sent lets them join with the role you choose, and makes their account if they have none. An invitation takes a place among the members your plan allows until it is accepted, revoked or runs out after a week."
+    >
+      <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
+        <InputField
+          label="Email"
+          type="email"
+          required
+          autoComplete="off"
+          className="min-w-56 flex-1"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+        />
+        <SelectField label="Role" value={role} onChange={(event) => setRole(event.target.value as Role)}>
+          {ROLES.filter((option) => isWithin(option, me.role)).map((option) => (
+            <option key={option} value={option}>
+              {ROLE_LABELS[option]}
+            </option>
+          ))}
+        </SelectField>
+        <Button type="submit" variant="primary" icon={<UserPlus className="size-4" />} disabled={!email.trim() || invite.isPending}>
+          Invite
+        </Button>
+      </form>
+      <div className="mt-3 space-y-3">
+        {invite.isError &&
+          (isPlanLimit(invite.error) ? (
+            <PlanLimitNotice message={invite.error.message} onDismiss={() => invite.reset()} />
+          ) : (
+            <Notice tone="bad">{invite.error.message}</Notice>
+          ))}
+        {invite.isSuccess && (
+          <p className="text-[13px] text-muted">An invitation is on its way to {invite.data.email}.</p>
+        )}
+      </div>
+      {invitations.isPending && <Loading />}
+      {invitations.isError && <Notice tone="bad">{invitations.error.message}</Notice>}
+      {invitations.data &&
+        (invitations.data.length ? (
+          <ul className="mt-3 divide-y divide-line border-t border-line">
+            {invitations.data.map((invitation) => (
+              <InvitationRow key={invitation.id} me={me} invitation={invitation} />
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-3 text-[13px] text-muted">Nobody is invited at the moment.</p>
+        ))}
+    </Section>
+  )
+}
+
+function InvitationRow({ me, invitation }: { me: Me; invitation: Invitation }) {
+  const queryClient = useQueryClient()
+  const refresh = () => queryClient.invalidateQueries({ queryKey: INVITATIONS_KEY })
+  const resend = useMutation({ mutationFn: () => organizations.resendInvitation(invitation.id), onSuccess: refresh })
+  const revoke = useMutation({ mutationFn: () => organizations.revokeInvitation(invitation.id), onSuccess: refresh })
+  const error = resend.error ?? revoke.error
+
+  return (
+    <li className="py-2.5 text-[13px]">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium">{invitation.email}</p>
+          <p className="truncate text-xs text-muted">
+            {invitation.invited_by && <>Sent by {invitation.invited_by} · </>}
+            {invitation.expired ? (
+              <span className="text-warn">Ran out on {formatDate(invitation.expires_at)}</span>
+            ) : (
+              <>Open until {formatDate(invitation.expires_at)}</>
+            )}
+          </p>
+        </div>
+        <Chip>{ROLE_LABELS[invitation.role]}</Chip>
+        {/* Only an owner sends an owner's invitation again; anyone here may revoke one. */}
+        {isWithin(invitation.role, me.role) && (
+          <Button variant="ghost" onClick={() => resend.mutate()} disabled={resend.isPending || revoke.isPending}>
+            {resend.isSuccess ? 'Sent' : 'Send again'}
+          </Button>
+        )}
+        <Button variant="ghost" onClick={() => revoke.mutate()} disabled={resend.isPending || revoke.isPending}>
+          Revoke
+        </Button>
+      </div>
+      {error && (
+        <div className="mt-2">
+          {isPlanLimit(error) ? <PlanLimitNotice message={error.message} /> : <Notice tone="bad">{error.message}</Notice>}
+        </div>
+      )}
+    </li>
+  )
+}
+
+// Owners and admins only. The page offers the domain of the user's own confirmed address, which
+// is the one the server lets them add; any domain may be taken off.
+function JoiningSection({ me }: { me: Me }) {
+  const queryClient = useQueryClient()
+  const { join_domains: domains, join_role: role } = me.organization
+  const own = me.email.slice(me.email.lastIndexOf('@') + 1).toLowerCase()
+  const change = useMutation({
+    mutationFn: organizations.setJoining,
+    onSuccess: (account) => setSignedIn(queryClient, account),
+  })
+
+  return (
+    <Section
+      title="Joining by email domain"
+      description="Everyone whose confirmed address is at one of these domains is offered the organisation, and joins it if they choose, with the role below. A domain is added by someone whose own confirmed address is at it."
+    >
+      {domains.length ? (
+        <ul className="divide-y divide-line">
+          {domains.map((domain) => (
+            <li key={domain} className="flex items-center gap-3 py-2 text-[13px]">
+              <span className="min-w-0 flex-1 truncate font-medium">@{domain}</span>
+              <Button
+                variant="ghost"
+                onClick={() => change.mutate({ domains: domains.filter((other) => other !== domain), role })}
+                disabled={change.isPending}
+              >
+                Remove
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-[13px] text-muted">Nobody joins without an invitation.</p>
+      )}
+      <div className="mt-3 flex flex-wrap items-end gap-3">
+        <SelectField
+          label="They join as"
+          value={role}
+          disabled={change.isPending}
+          onChange={(event) => change.mutate({ domains, role: event.target.value as JoinRole })}
+        >
+          {JOIN_ROLES.map((option) => (
+            <option key={option} value={option}>
+              {ROLE_LABELS[option]}
+            </option>
+          ))}
+        </SelectField>
+        {me.email_verified && !domains.includes(own) && (
+          <Button icon={<Plus className="size-4" />} onClick={() => change.mutate({ domains: [...domains, own], role })} disabled={change.isPending}>
+            Let everyone at @{own} join
+          </Button>
+        )}
+      </div>
+      {!me.email_verified && (
+        <p className="mt-3 text-[13px] text-muted">Confirm your email address to let everyone at its domain join.</p>
+      )}
+      {change.isError && (
+        <div className="mt-3">
+          <Notice tone="bad">{change.error.message}</Notice>
+        </div>
+      )}
+    </Section>
+  )
+}
+
 function OrganizationsSection({ me }: { me: Me }) {
   const switching = useMutation({ mutationFn: organizations.switch, onSettled: startAgainInOrganization })
+  const joining = useMutation({ mutationFn: organizations.join, onSuccess: startAgainInOrganization })
   return (
     <Section title="Your organisations" description="Switching changes the organisation every tab of this browser works in.">
       <ul className="divide-y divide-line">
@@ -220,6 +410,23 @@ function OrganizationsSection({ me }: { me: Me }) {
           </li>
         ))}
       </ul>
+      {me.joinable.length > 0 && (
+        <>
+          <p className="mt-4 text-xs font-medium text-muted">Open to everyone at your address's domain</p>
+          <ul className="divide-y divide-line">
+            {me.joinable.map((organization) => (
+              <li key={organization.id} className="flex items-center gap-3 py-2 text-[13px]">
+                <span className="min-w-0 flex-1 truncate font-medium">{organization.name}</span>
+                <Chip>{ROLE_LABELS[organization.role]}</Chip>
+                <Button className="w-20 justify-center" onClick={() => joining.mutate(organization.id)} disabled={joining.isPending}>
+                  Join
+                </Button>
+              </li>
+            ))}
+          </ul>
+          {joining.isError && <Notice tone="bad">{joining.error.message}</Notice>}
+        </>
+      )}
       <div className="mt-3">
         <Link to="/organizations/new" className="inline-flex items-center gap-1.5 text-[13px] font-medium text-accent hover:underline">
           <Plus className="size-4" />

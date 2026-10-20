@@ -267,9 +267,8 @@ def test_an_open_invitation_holds_a_members_place(session, member, plan):
         session.commit()
         return invitation
 
-    # An invitation that was accepted became a membership; one that expired holds nothing.
+    # One that expired holds nothing; an accepted one is gone (app/invitations.py).
     invite("old@globex.example", expires_at=datetime.now(UTC) - timedelta(days=1))
-    invite("done@globex.example", accepted_at=datetime.now(UTC))
     assert check_member(session, org) is None
     invite("new@globex.example")
     assert check_member(session, org).startswith(

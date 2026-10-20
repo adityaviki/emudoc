@@ -18,9 +18,10 @@ again, and the accounts purged since are back. `after_restore` sets each right, 
    them. The upload refuses a place in the storage that holds files already
    (`upload_documents` in app/api/documents.py), so a restore that skips this step fails
    uploads rather than mixing them up.
-3. Every session ends and every unused one-time link expires: one signed out or used since
-   the restore point would work again otherwise, a session its member ended on a lost laptop
-   among them. Everyone signs in again.
+3. Every session ends, and every unused one-time link and open invitation expires: one signed
+   out, used, revoked or accepted since the restore point would work again otherwise, a
+   session its member ended on a lost laptop among them. Everyone signs in again, and an
+   invitation still wanted is sent again.
 4. Every organisation's audit log records the restore and its point, since what was done
    after that moment is gone from it.
 5. The accounts purged since are purged again at once (`reapply_erasures` in
@@ -75,6 +76,7 @@ _END_SESSIONS = text(
 _END_LINKS = text(
     "UPDATE auth_tokens SET expires_at = now() WHERE used_at IS NULL AND expires_at > now()"
 )
+_END_INVITATIONS = text("UPDATE invitations SET expires_at = now() WHERE expires_at > now()")
 _DOCUMENT_KEYS = text("SELECT id, storage_key FROM documents ORDER BY id")
 # The organisations whose log does not record this restore yet, so that a second run, after
 # the storage was restored again, adds no second row.
@@ -136,6 +138,7 @@ class Restored:
     advanced: dict[str, int] = field(default_factory=dict)
     sessions: int = 0
     links: int = 0
+    invitations: int = 0
     organizations: int = 0
     # The accounts purged since the restore point, purged again.
     purged: list[int] = field(default_factory=list)
@@ -197,6 +200,7 @@ def after_restore(storage: Storage, restored_to: datetime, *, dry_run: bool = Fa
                 restored.advanced[table] = seen
         restored.sessions = session.execute(_END_SESSIONS).rowcount
         restored.links = session.execute(_END_LINKS).rowcount
+        restored.invitations = session.execute(_END_INVITATIONS).rowcount
         detail = {"restored_to": restored_to.isoformat()}
         for org_id in session.scalars(_UNRECORDED, {"detail": json.dumps(detail)}).all():
             audit_event(session, "database_restored", org_id=org_id, detail=detail)
@@ -291,12 +295,16 @@ def describe_restore(restored: Restored, restored_to: datetime) -> list[str]:
         )
     else:
         lines.append("New ids already continued past every id the storage holds.")
-    ended = f"{_count(restored.sessions, 'session')} and {_count(restored.links, 'unused link')}"
+    ended = (
+        f"{_count(restored.sessions, 'session')}, {_count(restored.links, 'unused link')} and "
+        f"{_count(restored.invitations, 'open invitation')}"
+    )
     if would:
         lines.append(f"Would end {ended}.")
     else:
         lines.append(
-            f"Ended {ended}: everyone signs in again, and links mailed before now no longer work."
+            f"Ended {ended}: everyone signs in again, links mailed before now no longer work, "
+            "and the invitations still wanted must be sent again."
         )
     if restored.organizations:
         recorded = _count(restored.organizations, "organisation")

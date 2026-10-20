@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, api, handleSwitched, showOrganization } from './api.ts'
+import { ApiError, api, handleSwitched, isWithin, oauthStartUrl, showOrganization } from './api.ts'
 
 /** Stub `fetch` with a reply made afresh for every call, keeping the headers each was sent with. */
 function serve(reply: () => Response): Headers[] {
@@ -48,5 +48,24 @@ describe('the organisation the page shows', () => {
     serve(() => refused(409))
     await expect(api.projects()).rejects.toMatchObject({ status: 409, message: 'Refused.' })
     expect(switched).not.toHaveBeenCalled()
+  })
+})
+
+describe('a sign-in through a provider', () => {
+  it('carries the zone and the invitation only when there are some', () => {
+    expect(oauthStartUrl('google', '/', '')).toBe('/api/auth/oauth/google/start?next=%2F')
+    expect(oauthStartUrl('microsoft', '/invitation', 'Europe/Berlin', 'tok-en')).toBe(
+      '/api/auth/oauth/microsoft/start?next=%2Finvitation&time_zone=Europe%2FBerlin&invitation=tok-en',
+    )
+  })
+})
+
+describe('the roles someone may invite to', () => {
+  it('are their own and those below it', () => {
+    expect(isWithin('owner', 'owner')).toBe(true)
+    expect(isWithin('owner', 'admin')).toBe(false)
+    expect(isWithin('admin', 'admin')).toBe(true)
+    expect(isWithin('viewer', 'admin')).toBe(true)
+    expect(isWithin('member', 'viewer')).toBe(false)
   })
 })

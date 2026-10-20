@@ -1337,6 +1337,8 @@ every six hours), and so what the privacy notice can promise:
 - **Sessions and one-time links** go 30 days after they expired or were revoked
   (`CREDENTIAL_HISTORY` in `backend/app/auth.py`), with the address and browser a session
   recorded and the address a link went to.
+- **Invitations** go when they are accepted or revoked, and an expired one 30 days after it
+  expired, with the address it was sent to (`backend/app/invitations.py`).
 - **Audit log rows** go once they are older than the organisation's plan keeps them
   (`audit_days` in `backend/app/entitlements.py`: 90 days on Free, 365 on Pro and Team, never
   on Enterprise). A row holds the client's address it was recorded from, which the privacy
@@ -1475,15 +1477,17 @@ or backed up with restic, at least as often as a restore would need, and kept no
    (`backend/app/restore.py`). It brings back from the bucket's versions every file deleted
    since then, whose rows are back; moves the ids of organisations, projects and documents past
    every id the storage holds, since a document's files sit under its ids and a new document
-   given a lost one's would be served its pages; ends every session and unused link, since a
-   session signed out since would work again; records the restore in every organisation's audit
+   given a lost one's would be served its pages; ends every session, unused link and open
+   invitation, since a session signed out or an invitation revoked since would work again;
+   records the restore in every organisation's audit
    log; purges again the accounts deleted since; and names the documents whose original is
    still missing, which means the storage is older than the database, and the authenticators
    whose key `ENCRYPTION_KEYS` no longer holds ("The encryption keys"). Running it again is safe,
    and `after-restore --dry-run` with the same moment says first what it would do, changing
    nothing.
 6. Start the app, and tell the members that what they did after that moment is undone: their
-   uploads, deletions, shares, a changed password. Everyone signs in again.
+   uploads, deletions, shares, a changed password. Everyone signs in again, and the owners and
+   admins send again the invitations still wanted.
 
 The files uploaded after the moment stay in the storage as the files of documents the database
 does not know, and the worker's housekeeping removes them an hour after they were written

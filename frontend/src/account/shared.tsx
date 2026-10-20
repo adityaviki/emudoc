@@ -111,8 +111,11 @@ const PROVIDER_ICONS: Record<string, ReactNode> = {
   ),
 }
 
-/** One button per identity provider the server is set up with; nothing when there is none. */
-export function ProviderButtons({ next, verb }: { next: string; verb: string }) {
+/**
+ * One button per identity provider the server is set up with; nothing when there is none. An
+ * invitation's page passes its token, which an account the sign-in makes accepts.
+ */
+export function ProviderButtons({ next, verb, invitation }: { next: string; verb: string; invitation?: string }) {
   const options = useQuery({ queryKey: ['auth-options'], queryFn: auth.options, staleTime: Infinity })
   const providers = options.data?.providers ?? []
   if (!providers.length) return null
@@ -122,7 +125,7 @@ export function ProviderButtons({ next, verb }: { next: string; verb: string }) 
         {providers.map((provider) => (
           <a
             key={provider.name}
-            href={oauthStartUrl(provider.name, next, browserTimeZone())}
+            href={oauthStartUrl(provider.name, next, browserTimeZone(), invitation)}
             className="flex h-9 w-full items-center justify-center gap-2.5 rounded-md border border-line bg-surface text-[13px] font-medium shadow-xs transition hover:bg-sunken"
           >
             {PROVIDER_ICONS[provider.name]}

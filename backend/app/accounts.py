@@ -8,7 +8,9 @@ refused until it catches up (`get_current_account` in app/api/deps.py).
 
 Signing up makes a user and an organisation of their own, which they own, and a user may start
 more (`create_organization`), each with its own plan. So that new organisations are no way past
-the free plan's limits, one user may own MAX_FREE_ORGANIZATIONS on it at most.
+the free plan's limits, one user may own MAX_FREE_ORGANIZATIONS on it at most. Signing up from
+an invitation makes the user alone (`create_user`), a member of the organisation that invited
+them (`add_member`, app/invitations.py) and of none of their own.
 
 For development on one machine, a request without a session can act as the local account
 instead: an organisation of one, created on first use, which has no session to switch in.
@@ -114,16 +116,33 @@ def create_organization(
     return Account(organization, user, "owner")
 
 
-def create_account(
+def add_member(
+    session: Session,
+    organization: Organization,
+    user: User,
+    role: str,
+    user_session: UserSession | None = None,
+) -> Account:
+    """Make the user a member of the organisation with the role, and when they came with a
+    session, work in it from now on. The caller commits."""
+    session.add(Membership(org_id=organization.id, user_id=user.id, role=role))
+    session.flush()
+    if user_session is None:
+        return Account(organization, user, role)
+    user_session.org_id = organization.id
+    return Account(organization, user, role, user_session.id)
+
+
+def create_user(
     session: Session,
     email: str,
     name: str = "",
     password_hash: str | None = None,
     email_verified: bool = False,
     time_zone: str = "",
-) -> Account:
-    """A new user who owns a new organisation of their own, in the time zone their browser
-    named if it is one the app knows. The caller commits."""
+) -> User:
+    """A new user, in the time zone their browser named if it is one the app knows, a member of
+    nothing yet: the caller makes them one and commits."""
     user = User(
         email=email,
         name=name,
@@ -133,6 +152,19 @@ def create_account(
     )
     session.add(user)
     session.flush()
+    return user
+
+
+def create_account(
+    session: Session,
+    email: str,
+    name: str = "",
+    password_hash: str | None = None,
+    email_verified: bool = False,
+    time_zone: str = "",
+) -> Account:
+    """A new user who owns a new organisation of their own. The caller commits."""
+    user = create_user(session, email, name, password_hash, email_verified, time_zone)
     stem = name or email.split("@")[0]
     return create_organization(session, user, f"{stem}'s workspace", stem)
 

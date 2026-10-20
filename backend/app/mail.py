@@ -1,6 +1,6 @@
-"""Email the app sends: the links that make an account, confirm an address, reset a password or
-move an account to a new address, and the notices that an address has an account already, that
-an account's address changed or that it is set to be deleted.
+"""Email the app sends: the links that make an account, confirm an address, reset a password,
+move an account to a new address or join an organisation, and the notices that an address has
+an account already, that an account's address changed or that it is set to be deleted.
 
 There is no email provider yet. The log mailer writes each message to the log, which is enough
 to follow a link in development and never runs in production, where SMTP_URL is required
@@ -113,6 +113,26 @@ def mailer_from_settings(settings: Settings) -> Mailer:
 
 def _greeting(name: str) -> str:
     return f"Hi {name}," if name else "Hi,"
+
+
+def invitation_email(
+    inviter: str, organization: str, role: str, link: str, days: int
+) -> tuple[str, str]:
+    """To an address a member of an organisation invited: who asked, to what and as what, and
+    the link to the page where whoever holds the address accepts, with a new account if it has
+    none. The names are in the body alone: a subject is the app's own sentence, which the log
+    repeats when a message cannot be sent."""
+    article = "an" if role[0] in "aeiou" else "a"
+    body = (
+        "Hi,\n\n"
+        f"{inviter} invited you to join {organization} on Emudoc as {article} {role}, to work "
+        "with its documents and ask questions about them. To accept, open this link:\n\n"
+        f"{link}\n\n"
+        "If you have no Emudoc account with this address yet, you create one there. The link "
+        f"works for {days} days. If you were not expecting this, ignore this message and nothing "
+        "will happen.\n"
+    )
+    return "You are invited to join an organisation on Emudoc", body
 
 
 def sign_up_email(link: str) -> tuple[str, str]:

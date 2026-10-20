@@ -19,7 +19,8 @@ Route = tuple[str, str, dict]
 @dataclass
 class World:
     """A project with a folder, an indexed document and a chat holding one answered question,
-    all made by the local owner in the local organisation."""
+    and an invitation to the organisation, all made by the local owner in the local
+    organisation."""
 
     org_id: int
     project_id: int
@@ -28,6 +29,7 @@ class World:
     chat_id: int
     message_id: int
     passage_id: int
+    invitation_id: int
 
 
 @pytest.fixture
@@ -41,6 +43,7 @@ def world(client, services, sample_pdf, account) -> World:
     asked = ask(client, chat["id"], "What is due?")
     answer(asked["answer"]["id"], services)
     hits = client.get(f"/api/projects/{project['id']}/search", params={"q": "notice"}).json()
+    invited = client.post("/api/organization/invitations", json={"email": "ivy@example.com"})
     return World(
         account.organization.id,
         project["id"],
@@ -49,6 +52,7 @@ def world(client, services, sample_pdf, account) -> World:
         chat["id"],
         asked["answer"]["id"],
         hits["hits"][0]["passage_id"],
+        invited.json()["id"],
     )
 
 
@@ -121,13 +125,25 @@ def starts(w: World) -> list[Route]:
 
 
 def switches(w: World) -> list[Route]:
-    """Switching to the organisation, which only its members may; the local account, which
-    has no session, may not either (test_organizations.py)."""
-    return [("POST", f"/api/organizations/{w.org_id}/switch", {})]
+    """Switching to the organisation, which only its members may, and joining it, which only
+    someone whose confirmed address is at one of its domains may; the local account, which
+    has no session, may do neither (test_organizations.py, test_invitations.py)."""
+    return [
+        ("POST", f"/api/organizations/{w.org_id}/switch", {}),
+        ("POST", f"/api/organizations/{w.org_id}/join", {}),
+    ]
+
+
+def invitations(w: World) -> list[Route]:
+    """The organisation's invitations, which only its owners and admins manage."""
+    return [
+        ("POST", f"/api/organization/invitations/{w.invitation_id}/resend", {}),
+        ("DELETE", f"/api/organization/invitations/{w.invitation_id}", {}),
+    ]
 
 
 def scoped(w: World) -> list[Route]:
-    return reads(w) + writes(w) + chat_routes(w) + starts(w) + switches(w)
+    return reads(w) + writes(w) + chat_routes(w) + starts(w) + switches(w) + invitations(w)
 
 
 def statuses(client, routes: list[Route]) -> dict[str, int]:
@@ -191,6 +207,8 @@ def test_a_viewer_can_read_but_not_change(client, world, account, make_account, 
     assert client.post("/api/projects", json={"name": "Mine"}).status_code == 403
     detail = client.delete(f"/api/documents/{world.document_id}").json()["detail"]
     assert detail.startswith("Your role in this organisation is viewer")
+    managed = statuses(client, invitations(world))
+    assert set(managed.values()) == {403}, managed
 
     # Asking questions is reading: a viewer may start a chat of their own.
     chat = new_chat(client, world.project_id)
@@ -203,6 +221,9 @@ def test_a_member_can_change_things(client, world, account, make_account, act_as
     renamed = client.patch(f"/api/projects/{world.project_id}", json={"name": "Ours"})
     assert renamed.status_code == 200
     assert client.delete(f"/api/folders/{world.folder_id}").status_code == 204
+    # The invitations are the owners' and admins' to manage.
+    managed = statuses(client, invitations(world))
+    assert set(managed.values()) == {403}, managed
 
 
 def test_chats_are_private_until_shared(client, services, world, account, make_account, act_as):

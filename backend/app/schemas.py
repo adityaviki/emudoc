@@ -413,6 +413,10 @@ class OrganizationOut(_FromORM):
     region: str | None
     # How many days a chat is kept after its last question (app/retention.py), None for good.
     chat_retention_days: int | None = None
+    # The domains whose confirmed addresses may join it, and the role they join with
+    # (app/invitations.py).
+    join_domains: list[str]
+    join_role: str
 
 
 class MembershipOut(BaseModel):
@@ -420,6 +424,15 @@ class MembershipOut(BaseModel):
 
     id: int
     name: str
+    role: str
+
+
+class JoinableOut(BaseModel):
+    """An organisation the user may join, since it lets everyone at their address's domain."""
+
+    id: int
+    name: str
+    # The role they would join with.
     role: str
 
 
@@ -439,6 +452,8 @@ class MeOut(BaseModel):
     role: str
     # Every organisation the user is a member of, the current one among them, by name.
     organizations: list[MembershipOut]
+    # The organisations the domain of the user's confirmed address lets them join, by name.
+    joinable: list[JoinableOut]
     # Whether the account has a password, which then confirms its deletion.
     has_password: bool
     # When the account will be purged, if its user asked for it to be deleted
@@ -466,6 +481,63 @@ class MemberOut(BaseModel):
     email: str
     role: str
     joined_at: dt.datetime
+
+
+InvitedRole = Literal["owner", "admin", "member", "viewer"]
+
+
+class InvitationIn(BaseModel):
+    """An address to invite to the organisation, and the role it joins with."""
+
+    email: Email
+    role: InvitedRole = "member"
+
+
+class InvitationOut(BaseModel):
+    """An invitation still open, or expired and not sent again, as its organisation's owners
+    and admins see it."""
+
+    id: int
+    email: str
+    role: str
+    # Who sent it last, by name or address; None once their account is gone.
+    invited_by: str | None
+    created_at: dt.datetime
+    expires_at: dt.datetime
+    expired: bool
+
+
+class InvitationLinkOut(BaseModel):
+    """What an invitation's link is for, as its page shows it before anything is done."""
+
+    organization: str
+    role: str
+    # The address it was sent to, which the account that accepts it must have.
+    email: str
+    # Who sent it, by name or address, "" once their account is gone.
+    invited_by: str
+    expires_at: dt.datetime
+    expired: bool
+    # Whether an account has the address, which then signs in to accept rather than signing up.
+    has_account: bool
+
+
+class InvitationSignupIn(LinkTokenIn):
+    """The account a new person makes on an invitation's page, as a sign-up link's page makes
+    one, without an organisation of its own."""
+
+    name: str = Field("", max_length=200)
+    password: Password
+    terms_version: str | None = Field(None, max_length=40)
+    time_zone: TimeZone = ""
+
+
+class JoiningIn(BaseModel):
+    """The domains whose confirmed addresses may join the organisation, and the role they join
+    with; no domains, nobody joins that way. Twenty is plenty for one company's."""
+
+    domains: list[Annotated[str, Field(max_length=253)]] = Field(max_length=20)
+    role: Literal["member", "viewer"] = "member"
 
 
 class OwnershipIn(BaseModel):

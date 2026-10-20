@@ -18,7 +18,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, REGCONFIG, TSVECTOR
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, REGCONFIG, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.config import REGIONS, get_settings
@@ -31,6 +31,9 @@ _settings = get_settings()
 STAGES = ("scan", "parse", "structure", "enrich", "embed")
 # From most to least permitted: each role may do everything the roles after it may.
 ROLES = ("owner", "admin", "member", "viewer")
+# The roles an organisation may let everyone at its domains join with (app/invitations.py): none
+# that may manage the organisation itself.
+JOIN_ROLES = ("member", "viewer")
 # A chat is private to the member who started it until they share it with the project.
 CHAT_VISIBILITIES = ("private", "project")
 # What a background job can be (app/jobs.py). A worker only claims the kinds it has a handler
@@ -63,9 +66,9 @@ PLANS = ("free", "pro", "team", "enterprise")
 # still have an order, so a page boundary between them is exact).
 NATURAL_ORDER = "natural_order"
 # What the audit log records (app/audit.py): its members' sign-ins and what they did to their
-# accounts, what was done to the organisation itself (its name, its owner, who left), to its
-# documents and to the sharing of its chats, and what the operator and the app did to it on
-# their own.
+# accounts, what was done to the organisation itself (its name, its owner, who was invited,
+# joined or left), to its documents and to the sharing of its chats, and what the operator and
+# the app did to it on their own.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -92,6 +95,11 @@ AUDIT_ACTIONS = (
     "organization_created",
     "organization_renamed",
     "ownership_transferred",
+    "invitation_sent",
+    "invitation_revoked",
+    "invitation_accepted",
+    "joining_changed",
+    "member_joined",
     "member_left",
     "project_deleted",
     "folder_deleted",
@@ -238,6 +246,9 @@ class Organization(Base):
     __table_args__ = (
         _one_of("plan", PLANS, "organizations"),
         _one_of("region", tuple(REGIONS), "organizations"),
+        _one_of("join_role", JOIN_ROLES, "organizations"),
+        # Which organisations a confirmed address's domain may join is asked at every `/me`.
+        Index("ix_organizations_join_domains", "join_domains", postgresql_using="gin"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -251,6 +262,12 @@ class Organization(Base):
     # so that a deployment in another region refuses to serve it; null while the deployment
     # names none. One deployment is one region; several are 4.3's.
     region: Mapped[str | None] = mapped_column(String(20))
+    # The domains whose confirmed addresses the app offers to join the organisation, with the
+    # role they join with (app/invitations.py); none by default.
+    join_domains: Mapped[list[str]] = mapped_column(
+        ARRAY(String(253)), default=list, server_default="{}"
+    )
+    join_role: Mapped[str] = mapped_column(String(20), default="member", server_default="member")
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -287,10 +304,13 @@ class Membership(Base):
 
 
 class Invitation(Base):
-    """An invitation to join an organisation: sent by email, accepted through a link."""
+    """An invitation to join an organisation, open until it is accepted, revoked or expires
+    (app/invitations.py). Accepting or revoking it deletes it, so a row is an invitation still
+    open or one that expired, which its inviter may send again; one an address at most per
+    organisation."""
 
     __tablename__ = "invitations"
-    __table_args__ = (_role_check("invitations"),)
+    __table_args__ = (UniqueConstraint("org_id", "email"), _role_check("invitations"))
 
     id: Mapped[int] = mapped_column(primary_key=True)
     org_id: Mapped[int] = mapped_column(
@@ -299,11 +319,11 @@ class Invitation(Base):
     email: Mapped[str] = mapped_column(String(320), index=True)
     role: Mapped[str] = mapped_column(String(20), default="member")
     # The link carries a random token; only its SHA-256 is stored, as for sessions and API keys,
-    # so a copy of the database cannot be used to accept, sign in or call the API.
+    # so a copy of the database cannot be used to accept, sign in or call the API. Sending it
+    # again replaces it, so the link mailed before stops working.
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     invited_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
-    accepted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

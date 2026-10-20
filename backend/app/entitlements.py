@@ -341,11 +341,7 @@ def _members(session: Session, org_id: int) -> int:
     invited = session.scalar(
         select(func.count())
         .select_from(Invitation)
-        .where(
-            Invitation.org_id == org_id,
-            Invitation.accepted_at.is_(None),
-            Invitation.expires_at > func.now(),
-        )
+        .where(Invitation.org_id == org_id, Invitation.expires_at > func.now())
     )
     return members + invited
 

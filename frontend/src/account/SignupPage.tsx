@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useContext, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import { ApiError, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, auth } from '../api.ts'
 import { MeContext, forgetUser, safeNext, setSignedIn } from '../auth.ts'
@@ -92,7 +92,7 @@ export function SignupPage() {
  * The page a sign-up link opens, signed in or not: whoever holds the address chooses the name and
  * the password and accepts the terms, and the account is made and signed in. The address is shown
  * first, which leaves the link unused; a refused password or a newer edition of the terms leaves it
- * working too. The box accepts the edition the page shows, which the server records.
+ * working too.
  */
 export function FinishSignupPage() {
   const me = useContext(MeContext)
@@ -106,15 +106,8 @@ export function FinishSignupPage() {
     retry: false,
     staleTime: Infinity,
   })
-  const [name, setName] = useState('')
-  const [password, setPassword] = useState('')
-  const legal = useLegal()
-  // The edition that was on show when the box was ticked: a newer one unticks it.
-  const [acceptedVersion, setAcceptedVersion] = useState<string | null>(null)
-  const accepted = acceptedVersion !== null && acceptedVersion === legal.data?.version
   const finish = useMutation({
-    mutationFn: (terms_version: string) =>
-      auth.finishSignup({ token, name: name.trim(), password, terms_version, time_zone: browserTimeZone() }),
+    mutationFn: (fields: NewAccount) => auth.finishSignup({ token, ...fields, time_zone: browserTimeZone() }),
     onSuccess: (account) => {
       // Whoever was signed in in this tab before is not the new account.
       forgetUser(queryClient)
@@ -127,11 +120,6 @@ export function FinishSignupPage() {
     },
   })
 
-  function submit(event: FormEvent) {
-    event.preventDefault()
-    if (password.length >= PASSWORD_MIN_LENGTH && accepted && acceptedVersion) finish.mutate(acceptedVersion)
-  }
-
   if (!token) {
     return (
       <AuthCard title="This link is incomplete" footer={ASK_AGAIN}>
@@ -143,15 +131,7 @@ export function FinishSignupPage() {
     )
   }
 
-  if (link.isPending) {
-    return (
-      <AuthCard title="Opening your link">
-        <div className="flex justify-center py-4">
-          <Spinner className="size-5" />
-        </div>
-      </AuthCard>
-    )
-  }
+  if (link.isPending) return <OpeningLink />
 
   if (link.isError) {
     return (
@@ -189,70 +169,133 @@ export function FinishSignupPage() {
         </>
       }
     >
-      <form onSubmit={submit} className="space-y-3">
+      <NewAccountForm
+        email={email}
+        pending={finish.isPending}
+        onSubmit={(fields) => finish.mutate(fields)}
+        error={
+          finish.isError && (
+            <Notice tone="bad">
+              {finish.error.message}
+              {/* A link that was used or ran out meanwhile; any other refusal leaves it working. */}
+              {finish.error instanceof ApiError && finish.error.status === 400 && (
+                <>
+                  {' '}
+                  <Link to="/signup" className="font-medium underline">
+                    Ask for a new link
+                  </Link>
+                </>
+              )}
+            </Notice>
+          )
+        }
+      >
         {me && (
           <Notice tone="info">
             This browser is signed in as {me.email}. Creating the account signs it in to the new one instead.
           </Notice>
         )}
-        {/* For a password manager, which saves the new password under the address it finds here. */}
-        <input type="email" autoComplete="username" value={email} readOnly hidden />
-        <InputField
-          label="Name"
-          autoComplete="name"
-          autoFocus
-          maxLength={200}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
-        <PasswordField
-          label="Password"
-          autoComplete="new-password"
-          required
-          minLength={PASSWORD_MIN_LENGTH}
-          maxLength={PASSWORD_MAX_LENGTH}
-          hint={`At least ${PASSWORD_MIN_LENGTH} characters; a sentence you can remember is a good choice.`}
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-        />
-        <Checkbox
-          required
-          disabled={!legal.data}
-          checked={accepted}
-          onChange={(event) => setAcceptedVersion(event.target.checked ? (legal.data?.version ?? null) : null)}
-          label={
-            <>
-              I accept the{' '}
-              <a href="/terms" target="_blank" className="font-medium text-accent hover:underline">
-                terms of service
-              </a>{' '}
-              and have read the{' '}
-              <a href="/privacy" target="_blank" className="font-medium text-accent hover:underline">
-                privacy policy
-              </a>
-              .
-            </>
-          }
-        />
-        {legal.isError && <Notice tone="bad">{legal.error.message}</Notice>}
-        {finish.isError && (
-          <Notice tone="bad">
-            {finish.error.message}
-            {/* A link that was used or ran out meanwhile; any other refusal leaves it working. */}
-            {finish.error instanceof ApiError && finish.error.status === 400 && (
-              <>
-                {' '}
-                <Link to="/signup" className="font-medium underline">
-                  Ask for a new link
-                </Link>
-              </>
-            )}
-          </Notice>
-        )}
-        <Button type="submit" variant="primary" className="w-full" disabled={finish.isPending || !legal.data}>
-          Create account
-        </Button>
-      </form>
+      </NewAccountForm>
     </AuthCard>
+  )
+}
+
+/** The card a link's page shows while the server says what the link is for. */
+export function OpeningLink() {
+  return (
+    <AuthCard title="Opening your link">
+      <div className="flex justify-center py-4">
+        <Spinner className="size-5" />
+      </div>
+    </AuthCard>
+  )
+}
+
+/** What a new account is made with, besides the link's token and the browser's zone. */
+export interface NewAccount {
+  name: string
+  password: string
+  terms_version: string
+}
+
+interface NewAccountFormProps {
+  /** The address the account is made with, for a password manager to save the password under. */
+  email: string
+  pending: boolean
+  onSubmit: (account: NewAccount) => void
+  /** Why the last try was refused, under the fields. */
+  error?: ReactNode
+  /** Above the fields, such as who is signed in in this browser. */
+  children?: ReactNode
+}
+
+/**
+ * The name, the password and the acceptance of the terms that a sign-up link's page and an
+ * invitation's page make an account with. The box accepts the edition the page shows, which the
+ * server records; a newer one, fetched after a 409, unticks it.
+ */
+export function NewAccountForm({ email, pending, onSubmit, error, children }: NewAccountFormProps) {
+  const [name, setName] = useState('')
+  const [password, setPassword] = useState('')
+  const legal = useLegal()
+  // The edition that was on show when the box was ticked: a newer one unticks it.
+  const [acceptedVersion, setAcceptedVersion] = useState<string | null>(null)
+  const accepted = acceptedVersion !== null && acceptedVersion === legal.data?.version
+
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    if (password.length >= PASSWORD_MIN_LENGTH && accepted && acceptedVersion) {
+      onSubmit({ name: name.trim(), password, terms_version: acceptedVersion })
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      {children}
+      {/* For a password manager, which saves the new password under the address it finds here. */}
+      <input type="email" autoComplete="username" value={email} readOnly hidden />
+      <InputField
+        label="Name"
+        autoComplete="name"
+        autoFocus
+        maxLength={200}
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+      />
+      <PasswordField
+        label="Password"
+        autoComplete="new-password"
+        required
+        minLength={PASSWORD_MIN_LENGTH}
+        maxLength={PASSWORD_MAX_LENGTH}
+        hint={`At least ${PASSWORD_MIN_LENGTH} characters; a sentence you can remember is a good choice.`}
+        value={password}
+        onChange={(event) => setPassword(event.target.value)}
+      />
+      <Checkbox
+        required
+        disabled={!legal.data}
+        checked={accepted}
+        onChange={(event) => setAcceptedVersion(event.target.checked ? (legal.data?.version ?? null) : null)}
+        label={
+          <>
+            I accept the{' '}
+            <a href="/terms" target="_blank" className="font-medium text-accent hover:underline">
+              terms of service
+            </a>{' '}
+            and have read the{' '}
+            <a href="/privacy" target="_blank" className="font-medium text-accent hover:underline">
+              privacy policy
+            </a>
+            .
+          </>
+        }
+      />
+      {legal.isError && <Notice tone="bad">{legal.error.message}</Notice>}
+      {error}
+      <Button type="submit" variant="primary" className="w-full" disabled={pending || !legal.data}>
+        Create account
+      </Button>
+    </form>
   )
 }

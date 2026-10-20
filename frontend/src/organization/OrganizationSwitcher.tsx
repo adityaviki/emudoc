@@ -1,8 +1,9 @@
 // The organisation the header shows, opening a menu of the user's organisations to switch to,
-// the organisation's page, and the way to start another.
+// those the domain of their address lets them join (on the organisation's page, which says why
+// a join is refused), the organisation's page, and the way to start another.
 
 import { useMutation } from '@tanstack/react-query'
-import { Check, ChevronDown, Plus, Settings } from 'lucide-react'
+import { Check, ChevronDown, Plus, Settings, UserPlus } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { organizations } from '../api.ts'
@@ -28,6 +29,13 @@ export function OrganizationSwitcher() {
         onSelect: () => {
           if (organization.id !== me.organization.id) switching.mutate(organization.id)
         },
+      }),
+    ),
+    ...me.joinable.map(
+      (organization): MenuItem => ({
+        label: `Join ${organization.name}…`,
+        icon: UserPlus,
+        onSelect: () => navigate('/organization'),
       }),
     ),
     'separator',

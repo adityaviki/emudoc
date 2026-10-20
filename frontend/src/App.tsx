@@ -5,6 +5,7 @@ import { Link, Navigate, Outlet, Route, Routes, useLocation, useMatch, useNaviga
 import { AccountPage } from './account/AccountPage.tsx'
 import { ConfirmEmailPage } from './account/ConfirmEmailPage.tsx'
 import { DeletionPending } from './account/DeletionPending.tsx'
+import { InvitationPage } from './account/InvitationPage.tsx'
 import { TermsPending } from './account/TermsPending.tsx'
 import { LoginPage } from './account/LoginPage.tsx'
 import { ForgotPasswordPage, ResetPasswordPage } from './account/PasswordPages.tsx'
@@ -81,6 +82,7 @@ function App() {
           <Route path="reset-password" element={<ResetPasswordPage />} />
           <Route path="verify" element={<VerifyPage />} />
           <Route path="confirm-email" element={<ConfirmEmailPage />} />
+          <Route path="invitation" element={<InvitationPage />} />
           <Route path="subprocessors" element={<SubprocessorsPage />} />
           <Route path="terms" element={<LegalPage document="terms" />} />
           <Route path="privacy" element={<LegalPage document="privacy" />} />

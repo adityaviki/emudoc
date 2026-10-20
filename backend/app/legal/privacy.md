@@ -32,6 +32,10 @@ organisation uploaded a document about you, ask the organisation first; we help 
 - **What you upload and ask**: the documents, what is read from them (their text, images of
   their pages, summaries, facts and the search index), and your chats with their questions and
   answers. We need them to provide the service.
+- **Invitations**: the email address a member of an organisation invited to join it, the role
+  offered and who sent it, to mail the invitation and let whoever holds the address join; the
+  organisation's owners and admins see it until it is accepted or revoked. We need it to
+  provide the service to the organisation.
 - **Usage**: the pages, questions and model use your organisation counted, and what they cost,
   each with the member it was for, to hold the organisation to its plan and, on a paid plan,
   to bill it.
@@ -51,7 +55,8 @@ $more_records
 We send you email only about your account: to confirm your address or a new one, to tell your
 address when it was replaced or when another account asked to take it, to reset your password,
 to tell you when sign-ins to it were paused after many wrong passwords, and to confirm that you
-asked for your account to be deleted. We send no marketing, show no
+asked for your account to be deleted; and to an address a member of an organisation invited,
+the invitation. We send no marketing, show no
 advertising, sell no personal data and build no profile of you.
 
 ## Who receives it
@@ -65,7 +70,9 @@ advertising, sell no personal data and build no profile of you.
   $models
 - **The other members of your organisation** see your name, your email address and your role
   in its list of members, its projects and documents and the chats you share with a project,
-  and its owners and admins see the IP addresses of your requests in its audit log.
+  and its owners and admins see the IP addresses of your requests in its audit log. An
+  organisation that lets everyone with an address at a domain join it is offered to you once
+  you confirm an address there; it learns of you only if you join.
 - **Authorities**, only where the law obliges us to hand data over.
 
 ## Where it is kept
@@ -82,6 +89,8 @@ $region
 - **Audit log entries**, for as long as the organisation's plan keeps them
   ($audit_retention).
 - **Sessions and links**, until $credential_days days after they expired or were ended.
+- **Invitations**, until they are accepted or revoked, or $credential_days days after they
+  expired.
 - **The browsers you signed in with**, until $browser_days days after their last sign-in.
 - **Abuse protection counts**, at most $count_hours hours.
 - **Server logs**, $server_logs

@@ -163,16 +163,19 @@ def revoke_sessions(session: Session, user_id: int, except_id: int | None = None
 
 _PRUNE_SESSIONS = text("DELETE FROM sessions WHERE expires_at < :before OR revoked_at < :before")
 _PRUNE_LINKS = text("DELETE FROM auth_tokens WHERE expires_at < :before")
+# An invitation accepted or revoked is gone already (app/invitations.py); one that expired is
+# kept as long as a one-time link, for its inviter to send again.
+_PRUNE_INVITATIONS = text("DELETE FROM invitations WHERE expires_at < :before")
 _PRUNE_BROWSERS = text("DELETE FROM browsers WHERE signed_in_at < :before")
 
 
 def prune_credentials(connection: Connection, age: dt.timedelta = CREDENTIAL_HISTORY) -> int:
-    """Remove the sessions and one-time links that ended longer ago than `age`, and the
-    browsers that have not signed in for BROWSER_KNOWN_FOR; returns how many."""
+    """Remove the sessions, one-time links and invitations that ended longer ago than `age`,
+    and the browsers that have not signed in for BROWSER_KNOWN_FOR; returns how many."""
     before = now() - age
     pruned = sum(
         connection.execute(statement, {"before": before}).rowcount
-        for statement in (_PRUNE_SESSIONS, _PRUNE_LINKS)
+        for statement in (_PRUNE_SESSIONS, _PRUNE_LINKS, _PRUNE_INVITATIONS)
     )
     browsers = connection.execute(_PRUNE_BROWSERS, {"before": now() - BROWSER_KNOWN_FOR})
     return pruned + browsers.rowcount

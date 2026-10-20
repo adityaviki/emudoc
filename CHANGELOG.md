@@ -11,6 +11,17 @@ its day, in the same commit.
 
 Members:
 
+- The owners and admins of an organisation invite people by email, as an owner, admin, member
+  or viewer, but never above their own role. The link mailed lets whoever holds the address
+  join: signed in with it, or with an account made on the link's page or through Google or
+  Microsoft from it, which then has no organisation of its own. The organisation's page lists
+  the invitations, sends one again with a new link, which stops the one before, and revokes
+  one; an invitation lasts a week and takes a place among the members the plan allows until
+  then. An organisation can also let everyone whose confirmed address is at its domain join,
+  as a member or a viewer: an admin with an address there adds the domain, and Emudoc offers
+  the organisation to everyone at it, who joins only if they choose. The privacy policy says
+  how long an invited address is kept.
+
 - You can belong to several organisations and switch between them from the organisation's
   name in the header. Every tab of the browser follows a switch, and a tab still showing the
   organisation before starts again in the new one rather than acting in the old. "New
@@ -56,6 +67,14 @@ Members:
 
 Operators:
 
+- Invitations are mailed through the relay like every link, after the answer, held to
+  `RATE_SIGN_INS` per inviter and per address mailed. The release's migration drops
+  `invitations.accepted_at` (an invitation accepted or revoked is deleted, one that expired
+  pruned with the one-time links), gives `organizations` the domains and role of joining by
+  domain, and the audit log five actions (`invitation_sent`, `invitation_revoked`,
+  `invitation_accepted`, `joining_changed`, `member_joined`). `after-restore` now also expires
+  every open invitation, since one revoked or accepted after the restore point would work
+  again, and says how many.
 - `MAX_FREE_ORGANIZATIONS` (2) is how many organisations on the Free plan one user may own;
   0 removes the ceiling. The release's migration gives each session the organisation it works
   in and the audit log four actions (`organization_created`, `organization_renamed`,

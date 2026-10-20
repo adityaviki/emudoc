@@ -313,6 +313,45 @@ export interface Organization {
   region: Region | null
   /** How many days a chat is kept after its last question, null for good. */
   chat_retention_days: number | null
+  /** The domains whose confirmed addresses may join it, and the role they join with (backend/app/invitations.py). */
+  join_domains: string[]
+  join_role: JoinRole
+}
+
+/** The roles an organisation may let everyone at its domains join with. */
+export type JoinRole = 'member' | 'viewer'
+
+/** An organisation the user may join, since it lets everyone at their confirmed address's domain. */
+export interface Joinable {
+  id: number
+  name: string
+  role: JoinRole
+}
+
+/** An invitation still open, or expired and not sent again, as its organisation's owners and admins see it. */
+export interface Invitation {
+  id: number
+  email: string
+  role: Role
+  /** Who sent it last, by name or address; null once their account is gone. */
+  invited_by: string | null
+  created_at: string
+  expires_at: string
+  expired: boolean
+}
+
+/** What an invitation's link is for, as its page shows it. */
+export interface InvitationLink {
+  organization: string
+  role: Role
+  /** The address it was sent to, which the account that accepts it must have. */
+  email: string
+  /** Who sent it, by name or address, '' once their account is gone. */
+  invited_by: string
+  expires_at: string
+  expired: boolean
+  /** Whether an account has the address, which then signs in to accept rather than signing up. */
+  has_account: boolean
 }
 
 /** One of the organisations a user is a member of, which they can switch to. */
@@ -324,7 +363,11 @@ export interface Membership {
 
 /** From most to least permitted: each role may do everything the roles after it may (ROLES in backend/app/models.py). */
 export type Role = 'owner' | 'admin' | 'member' | 'viewer'
+export const ROLES: Role[] = ['owner', 'admin', 'member', 'viewer']
 export const ROLE_LABELS: Record<Role, string> = { owner: 'Owner', admin: 'Admin', member: 'Member', viewer: 'Viewer' }
+
+/** Whether `role` grants nothing `granted` does not: the roles someone may invite to (backend/app/api/invitations.py). */
+export const isWithin = (role: Role, granted: Role) => ROLES.indexOf(role) >= ROLES.indexOf(granted)
 
 /** A member of the organisation, as the other members see them. */
 export interface Member {
@@ -350,6 +393,8 @@ export interface Me {
   role: Role
   /** Every organisation the user is a member of, the current one among them, by name. */
   organizations: Membership[]
+  /** The organisations the domain of the user's confirmed address lets them join, by name. */
+  joinable: Joinable[]
   /** Whether the account has a password, which then confirms its deletion. */
   has_password: boolean
   /** When the account will be deleted, if its user asked; until then the app offers only to keep it. */
@@ -420,6 +465,11 @@ export type AuditAction =
   | 'organization_created'
   | 'organization_renamed'
   | 'ownership_transferred'
+  | 'invitation_sent'
+  | 'invitation_revoked'
+  | 'invitation_accepted'
+  | 'joining_changed'
+  | 'member_joined'
   | 'member_left'
   | 'project_deleted'
   | 'folder_deleted'
@@ -578,6 +628,13 @@ export const auth = {
     terms_version: string
     time_zone: string
   }) => request<Me>('/auth/signup/finish', json('POST', body)),
+  /** What an invitation's link is for; an expired one too, a gone one is a 400. */
+  invitation: (token: string) => request<InvitationLink>('/auth/invitation', json('POST', { token })),
+  /** Joins the organisation an invitation to the signed-in account's address is to, and works in it. */
+  acceptInvitation: (token: string) => request<Me>('/auth/invitation/accept', json('POST', { token })),
+  /** Makes an account for an invitation's address, a member of that organisation alone, and signs it in. */
+  signUpInvited: (body: { token: string; name: string; password: string; terms_version: string; time_zone: string }) =>
+    request<Me>('/auth/invitation/signup', json('POST', body)),
   /** Accept the edition the page showed; a 409 says it changed meanwhile. */
   acceptTerms: (version: string) => request<Me>('/auth/terms', json('POST', { version })),
   /** With two-factor on, the session grants nothing until `verifyMfa` succeeds. */
@@ -629,15 +686,21 @@ export const ACCOUNT_EXPORT_URL = '/api/auth/account/export'
 /**
  * Where a sign-in with a provider starts. It is a navigation, not a fetch: the provider sends
  * the browser back to `next`, or to /login with `mfa=1` or an `error` to show. The browser's
- * time zone goes to an account the sign-in creates.
+ * time zone goes to an account the sign-in creates, and so does the invitation whose page it
+ * started from, which such an account accepts (then the browser comes back to the front page).
  */
-export const oauthStartUrl = (provider: string, next: string, timeZone: string) =>
-  `/api/auth/oauth/${provider}/start?${new URLSearchParams(timeZone ? { next, time_zone: timeZone } : { next })}`
+export function oauthStartUrl(provider: string, next: string, timeZone: string, invitation = '') {
+  const params = new URLSearchParams({ next })
+  if (timeZone) params.set('time_zone', timeZone)
+  if (invitation) params.set('invitation', invitation)
+  return `/api/auth/oauth/${provider}/start?${params}`
+}
 
 /**
- * The user's organisations: starting one and switching, which the session keeps for every tab,
- * and the current one's name, members, owner and leaving it. Mirrors
- * backend/app/api/organizations.py; each change answers with the account as `auth.me` does.
+ * The user's organisations: starting, switching and joining one by the domain of the address,
+ * which the session keeps for every tab, and the current one's name, members, owner,
+ * invitations, who may join it and leaving it. Mirrors backend/app/api/organizations.py and
+ * backend/app/api/invitations.py; each change answers with the account as `auth.me` does.
  */
 export const organizations = {
   start: (name: string) => request<Me>('/organizations', json('POST', { name })),
@@ -649,6 +712,17 @@ export const organizations = {
   handOver: (body: { user_id: number; password?: string; email?: string }) =>
     request<Me>('/organization/owner', json('POST', body)),
   leave: () => request<Me>('/organization/leave', { method: 'POST' }),
+  /** Owners and admins only, as is everything about invitations and joining. */
+  invitations: () => request<Invitation[]>('/organization/invitations'),
+  /** Mails the address its link; a 402 when the plan has no room, a 409 for a member or one invited already. */
+  invite: (body: { email: string; role: Role }) => request<Invitation>('/organization/invitations', json('POST', body)),
+  /** Mails a new link, which stops the one before. */
+  resendInvitation: (id: number) => request<Invitation>(`/organization/invitations/${id}/resend`, { method: 'POST' }),
+  revokeInvitation: (id: number) => request<void>(`/organization/invitations/${id}`, { method: 'DELETE' }),
+  /** A domain is added only by someone whose own confirmed address is at it. */
+  setJoining: (body: { domains: string[]; role: JoinRole }) => request<Me>('/organization/joining', json('PUT', body)),
+  /** One of `me.joinable`. */
+  join: (id: number) => request<Me>(`/organizations/${id}/join`, { method: 'POST' }),
 }
 
 export const api = {
