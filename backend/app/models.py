@@ -47,6 +47,7 @@ JOB_KINDS = (
     "answer_question",
     "render_pages",
     "send_email",
+    "apply_language",
     "sync_connector",
     "run_workflow",
 )
@@ -80,12 +81,12 @@ NOTICE_CHANNELS = ("app", "email")
 # still have an order, so a page boundary between them is exact).
 NATURAL_ORDER = "natural_order"
 # What the audit log records (app/audit.py): its members' sign-ins and what they did to their
-# accounts, what was done to the organisation itself (its name, its owner, who was invited,
-# joined, left or was removed, and the members' roles), to its projects, its documents and the
-# sharing of its chats, and what the operator and the app did to it on their own (a quarantine,
-# the sample project a new account's organisation starts with). A project, folder, document or
-# chat `_deleted` went into the trash (app/trash.py), `_restored` came out of it, and `_purged`
-# was deleted for good from it by a member.
+# accounts, what was done to the organisation itself (its name and settings, its owner, who was
+# invited, joined, left or was removed, and the members' roles), to its projects, its documents
+# and the sharing of its chats, and what the operator and the app did to it on their own (a
+# quarantine, the sample project a new account's organisation starts with). A project, folder,
+# document or chat `_deleted` went into the trash (app/trash.py), `_restored` came out of it, and
+# `_purged` was deleted for good from it by a member.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -119,6 +120,7 @@ AUDIT_ACTIONS = (
     "pack_bought",
     "organization_created",
     "organization_renamed",
+    "settings_changed",
     "ownership_transferred",
     "invitation_sent",
     "invitation_revoked",
@@ -253,16 +255,25 @@ class User(Base):
     def mfa_enabled(self) -> bool:
         return self.totp_enabled_at is not None
 
-    def wants(self, kind: str, channel: str) -> bool:
-        """Whether the user is told notices of the kind that way (NOTICE_CHANNELS)."""
-        return (self.notices or {}).get(kind, {}).get(channel, True) is not False
+    def wants(self, kind: str, channel: str, defaults: dict | None = None) -> bool:
+        """Whether the user is told notices of the kind that way (NOTICE_CHANNELS): as they
+        chose, or where they did not, as `defaults` says, an organisation's `notices`."""
+        chosen = (self.notices or {}).get(kind, {}).get(channel)
+        if chosen is None:
+            chosen = (defaults or {}).get(kind, {}).get(channel)
+        return chosen is not False
 
     def choose(self, kind: str, channel: str, on: bool) -> None:
-        """Tell the user notices of the kind that way from now on, or not. A new dict, since
-        the session saves a JSON column only when it is assigned."""
-        notices = {name: dict(ways) for name, ways in (self.notices or {}).items()}
-        notices.setdefault(kind, {})[channel] = on
-        self.notices = notices
+        """Tell the user notices of the kind that way from now on, or not."""
+        self.notices = _choosing(self.notices, kind, channel, on)
+
+
+def _choosing(notices: dict | None, kind: str, channel: str, on: bool) -> dict:
+    """The choices of `notices` with the kind told that way or not: a new dict, since the
+    session saves a JSON column only when it is assigned."""
+    chosen = {name: dict(ways) for name, ways in (notices or {}).items()}
+    chosen.setdefault(kind, {})[channel] = on
+    return chosen
 
 
 class Identity(Base):
@@ -334,6 +345,8 @@ class Organization(Base):
         _one_of("join_role", JOIN_ROLES, "organizations"),
         CheckConstraint("seats > 0", name="ck_organizations_seats"),
         CheckConstraint("jsonb_typeof(overrides) = 'object'", name="ck_organizations_overrides"),
+        CheckConstraint("chat_days > 0", name="ck_organizations_chat_days"),
+        CheckConstraint("jsonb_typeof(notices) = 'object'", name="ck_organizations_notices"),
         # Which organisations a confirmed address's domain may join is asked at every `/me`.
         Index("ix_organizations_join_domains", "join_domains", postgresql_using="gin"),
     )
@@ -362,6 +375,17 @@ class Organization(Base):
         ARRAY(String(253)), default=list, server_default="{}"
     )
     join_role: Mapped[str] = mapped_column(String(20), default="member", server_default="member")
+    # Its settings, chosen by its owners and admins (app/api/organizations.py). The language its
+    # documents are searched in, a text search configuration of the database, which its new
+    # passages are indexed with and its old ones are moved to (app/languages.py), and which
+    # answers fall back to; null for the deployment's FTS_LANGUAGE.
+    language: Mapped[str | None] = mapped_column(String(63))
+    # How many days it keeps a chat after its last question when that is less than its plan
+    # keeps one (app/retention.py); null for as long as the plan does.
+    chat_days: Mapped[int | None] = mapped_column(Integer)
+    # How its members are told each kind of notice until they choose for themselves, as
+    # `User.notices` holds a member's choices: a kind or a way not named is on.
+    notices: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     # Its customer at Stripe (app/billing.py), made at its first checkout and kept, so that its
     # invoices, payment details and tax ids stay together; null until then.
     stripe_customer_id: Mapped[str | None] = mapped_column(String(255), unique=True)
@@ -395,6 +419,14 @@ class Organization(Base):
     projects: Mapped[list["Project"]] = relationship(
         back_populates="organization", cascade="all, delete-orphan", passive_deletes=True
     )
+
+    def tells(self, kind: str, channel: str) -> bool:
+        """Whether its members are told notices of the kind that way until they choose."""
+        return (self.notices or {}).get(kind, {}).get(channel) is not False
+
+    def choose(self, kind: str, channel: str, on: bool) -> None:
+        """Tell its members notices of the kind that way until they choose, or not."""
+        self.notices = _choosing(self.notices, kind, channel, on)
 
 
 class Membership(Base):
@@ -796,8 +828,8 @@ class Passage(Base):
     # The text search configuration the passage was indexed with: the one `tsv` is built from
     # and the one a search parses its query with for this row. It is `regconfig`, not text,
     # because a generated column's expression must be immutable and casting text to a
-    # configuration is not. Today every passage gets FTS_LANGUAGE; per-document detection
-    # will write what it finds here.
+    # configuration is not. Today every passage gets its organisation's language, or
+    # FTS_LANGUAGE (app/languages.py); per-document detection will write what it finds here.
     language: Mapped[str] = mapped_column(REGCONFIG, server_default="english")
     tsv: Mapped[str] = mapped_column(
         TSVECTOR,

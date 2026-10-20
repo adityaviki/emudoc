@@ -11,16 +11,19 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { PLAN_LABELS, REGION_NAMES, ROLES, ROLE_LABELS, isPlanLimit, isWithin, organizations } from '../api.ts'
-import type { Allowance, Invitation, JoinRole, Me, Member, PlanChoice, Role, SoldPlan } from '../api.ts'
+import type { Allowance, Invitation, JoinRole, Languages, Me, Member, PlanChoice, Role, SoldPlan } from '../api.ts'
 import { ME_KEY, setSignedIn, startAgainInOrganization, useMe } from '../auth.ts'
 import { describeBilling, describeChange, describeExcess, describeHeld, mayBuy, mayChange, thisMonth } from '../billing.ts'
 import { PasswordField } from '../account/shared.tsx'
+import { NoticeChoices } from '../components/NoticeChoices.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, Chip, FIELD, InputField, Loading, Notice, Radio, Row, Section, SelectField } from '../components/ui.tsx'
 import { formatDate, formatSize } from '../format.ts'
 import { INVITATIONS_SECTION, JOINING_SECTION } from '../onboarding.ts'
+import { chatDayChoices, chosenLanguage, deletes, keptWords, languageChoices, languageName } from '../organizationSettings.ts'
 
 const MEMBERS_KEY = ['organization', 'members'] as const
+const LANGUAGES_KEY = ['organization', 'languages'] as const
 const INVITATIONS_KEY = ['organization', 'invitations'] as const
 const JOIN_ROLES: JoinRole[] = ['member', 'viewer']
 
@@ -41,10 +44,11 @@ export function OrganizationPage() {
       <div className="mx-auto max-w-2xl px-6 py-10">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold tracking-tight">{me.organization.name}</h1>
-          <p className="mt-1 text-[13px] text-muted">The organisation you work in: its name, its plan, its members, who may join it, and leaving it.</p>
+          <p className="mt-1 text-[13px] text-muted">The organisation you work in: its name and settings, its plan, its members, who may join it, and leaving it.</p>
         </div>
         <div className="space-y-5">
           <NameSection me={me} />
+          <SettingsSection me={me} />
           <PlanSection me={me} />
           <MembersSection me={me} />
           {isWithin('admin', me.role) && (
@@ -65,7 +69,7 @@ function NameSection({ me }: { me: Me }) {
   const queryClient = useQueryClient()
   const [name, setName] = useState(me.organization.name)
   const rename = useMutation({
-    mutationFn: () => organizations.rename(name),
+    mutationFn: () => organizations.change({ name }),
     onSuccess: (account) => setSignedIn(queryClient, account),
   })
   const mayRename = me.role === 'owner' || me.role === 'admin'
@@ -109,15 +113,112 @@ function NameSection({ me }: { me: Me }) {
   )
 }
 
+// The language its documents are searched in, how long it keeps a chat within its plan, and how
+// its members are told each kind of notice until they choose (backend/app/api/organizations.py).
+// Owners and admins change them as they choose; the others read the first two.
+function SettingsSection({ me }: { me: Me }) {
+  const organization = me.organization
+  const mayChange = isWithin('admin', me.role)
+  const languages = useQuery({ queryKey: LANGUAGES_KEY, queryFn: organizations.languages, staleTime: Infinity, enabled: mayChange })
+
+  if (!mayChange) {
+    return (
+      <Section title="Settings" description="Chosen by its owners and admins for everyone in the organisation.">
+        <dl className="divide-y divide-line border-t border-line">
+          <Row label="Language">{organization.language === null ? 'As Emudoc searches by default' : languageName(organization.language)}</Row>
+          <Row label="Chats kept">{keptWords(organization.chat_retention_days)}</Row>
+        </dl>
+      </Section>
+    )
+  }
+
+  return (
+    <Section title="Settings" description="Chosen for everyone in the organisation.">
+      <div className="max-w-md space-y-4">
+        {languages.data && <LanguageChoice me={me} languages={languages.data} />}
+        <ChatDays me={me} />
+      </div>
+      <h3 className="mt-5 mb-2 text-[13px] font-medium">How members are told, until they choose for themselves</h3>
+      <NoticeChoices
+        key={JSON.stringify(organization.notice_defaults)}
+        saved={organization.notice_defaults}
+        change={(choice) => organizations.change({ notices: [choice] })}
+      />
+    </Section>
+  )
+}
+
+// The select shows the choice being saved, then the saved one, which a failure leaves as it was.
+function LanguageChoice({ me, languages }: { me: Me; languages: Languages }) {
+  const queryClient = useQueryClient()
+  const save = useMutation({
+    mutationFn: (chosen: string) => organizations.change({ language: chosen || null }),
+    onSuccess: (account) => setSignedIn(queryClient, account),
+  })
+  const language = save.isPending ? save.variables : chosenLanguage(me.organization, languages)
+
+  return (
+    <div className="space-y-2">
+      <SelectField
+        label="Language of its documents"
+        hint="Search matches the words of its documents by their stems in this language, and answers are in it when a question does not show another. Documents indexed before move to it within minutes."
+        value={language}
+        disabled={save.isPending}
+        onChange={(event) => save.mutate(event.target.value)}
+      >
+        {languageChoices(languages).map((choice) => (
+          <option key={choice.value} value={choice.value}>
+            {choice.label}
+          </option>
+        ))}
+      </SelectField>
+      {save.isError && <Notice tone="bad">{save.error.message}</Notice>}
+    </div>
+  )
+}
+
+// A shorter time deletes chats for every member, so it is saved by a button, after the page has
+// said what goes; once saved, the choice is the saved one, and a failure leaves it to try again.
+function ChatDays({ me }: { me: Me }) {
+  const queryClient = useQueryClient()
+  const organization = me.organization
+  const [days, setDays] = useState(organization.chat_days === null ? '' : String(organization.chat_days))
+  const save = useMutation({
+    mutationFn: organizations.change,
+    onSuccess: (account) => setSignedIn(queryClient, account),
+  })
+  const chosen = days === '' ? null : Number(days)
+  const warning = deletes(organization, chosen)
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-end gap-3">
+        <SelectField label="Chats kept" className="min-w-0 flex-1" value={days} disabled={save.isPending} onChange={(event) => setDays(event.target.value)}>
+          {chatDayChoices(organization).map((choice) => (
+            <option key={choice.value} value={choice.value}>
+              {choice.label}
+            </option>
+          ))}
+        </SelectField>
+        <Button onClick={() => save.mutate({ chat_days: chosen })} disabled={chosen === organization.chat_days || save.isPending}>
+          Save
+        </Button>
+      </div>
+      {warning && chosen !== organization.chat_days && <Notice tone="warn">{warning}</Notice>}
+      {save.isError && <Notice tone="bad">{save.error.message}</Notice>}
+    </div>
+  )
+}
+
 // What the organisation may keep and use, as the server holds it to them
 // (backend/app/entitlements.py): its plan's figures, the seats it bought on a plan sold by the
 // seat, and any figure agreed with it in the plan's place; and how its subscription stands.
 function PlanSection({ me }: { me: Me }) {
-  const { plan, seats, allowance, chat_retention_days: keptFor, billing } = me.organization
+  const { plan, seats, allowance, chat_days: chosenDays, billing } = me.organization
   const figure = (value: number | null, words: (value: number) => string = (n) => n.toLocaleString()) =>
     value === null ? 'No limit' : words(value)
   const monthly = (n: number) => `${n.toLocaleString()} a month`
-  const agreed = (name: keyof Allowance | 'retention_days') =>
+  const agreed = (name: keyof Allowance) =>
     allowance.agreed.includes(name) && (
       <span title="Agreed with the organisation in place of the plan's">
         <Chip>Agreed</Chip>
@@ -170,8 +271,9 @@ function PlanSection({ me }: { me: Me }) {
           {agreed('members')}
         </Row>
         <Row label="Chats kept">
-          {keptFor === null ? 'Until deleted' : `${keptFor.toLocaleString()} days after the last question`}
+          {keptWords(allowance.retention_days)}
           {agreed('retention_days')}
+          {chosenDays !== null && <span className="block text-muted">The organisation keeps them {chosenDays.toLocaleString()} days, in its settings.</span>}
           {kept && <span className="block text-muted">{kept}</span>}
         </Row>
       </dl>

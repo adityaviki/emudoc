@@ -89,11 +89,12 @@ from app.retention import (
     RETENTION_HELD,
     Held,
     Kept,
+    chosen,
     day,
+    hold_in_force,
     hold_retention,
     kept_by,
     kept_for,
-    retention_held,
     shortened,
 )
 
@@ -706,7 +707,7 @@ def plan_change(
     if plan in BY_THE_SEAT and seats is not None:
         entitlements = replace(entitlements, members=seats)
     at = (organization.ends_at or organization.renews_at) if plan == FREE else None
-    kept, kept_now = kept_by(entitlements), kept_for(organization)
+    kept, kept_now = chosen(kept_by(entitlements), organization), kept_for(organization)
     return Change(
         plan=plan,
         seats=seats,
@@ -1125,10 +1126,11 @@ def _lowering(
     """What the organisation, moved to a lower plan, holds past it, what the plan keeps for
     less time than before, and until when that is held, as billing's mail says them."""
     over = _words(over_limits(session, organization))
-    standing = retention_held(organization)
+    standing = hold_in_force(organization)
     if standing is None:
         return over, None, None
-    return over, shortened(standing.kept, kept_by(entitlements_of(organization))), standing.until
+    kept = chosen(kept_by(entitlements_of(organization)), organization)
+    return over, shortened(standing.kept, kept), standing.until
 
 
 def _words(excesses: list[Excess]) -> str | None:

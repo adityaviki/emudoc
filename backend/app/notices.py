@@ -1,6 +1,8 @@
 """The notices the app tells members about their work, beside the mail their accounts,
 invitations and billing need. Each is told through `tell`, in the app and by email, each as its
-member chose for its kind (NOTICE_KINDS, `User.wants`): a row in their notification centre
+member chose for its kind (NOTICE_KINDS, `User.wants`), or where they did not choose, as the
+organisation it is about tells its members by default (`organizations.notices`, which its owners
+and admins choose on the organisation page): a row in their notification centre
 (`notifications`, app/api/notifications.py), and the mail through `post_notice`
 (app/postbox.py), which also leaves out an address the mail provider said to spare. Both are
 made in the transaction of the change that calls for them, so that the centre and the mail never
@@ -140,7 +142,8 @@ def tell(
     in the app and by email as they chose, in the caller's session; returns whether it was told
     either way. The content's own link is the caller's, `in_organization` of the same page."""
     told = False
-    if user.wants(kind, IN_APP):
+    defaults = session.get(Organization, org_id).notices
+    if user.wants(kind, IN_APP, defaults):
         session.add(
             Notification(
                 user_id=user.id,
@@ -157,10 +160,28 @@ def tell(
     return told
 
 
-def choices(user: User) -> list[NoticeChoiceOut]:
-    """How the user is told each kind of notice, for the account page and the export."""
+def choices(user: User, defaults: dict | None = None) -> list[NoticeChoiceOut]:
+    """How the user is told each kind of notice, where they did not choose as `defaults`, an
+    organisation's, say: for the account page, in the organisation it works in, and the
+    export, by the user's choices alone."""
     return [
-        NoticeChoiceOut(kind=kind, app=user.wants(kind, IN_APP), email=user.wants(kind, BY_EMAIL))
+        NoticeChoiceOut(
+            kind=kind,
+            app=user.wants(kind, IN_APP, defaults),
+            email=user.wants(kind, BY_EMAIL, defaults),
+        )
+        for kind in NOTICE_KINDS
+    ]
+
+
+def organization_choices(organization: Organization) -> list[NoticeChoiceOut]:
+    """How the organisation's members are told each kind of notice until they choose."""
+    return [
+        NoticeChoiceOut(
+            kind=kind,
+            app=organization.tells(kind, IN_APP),
+            email=organization.tells(kind, BY_EMAIL),
+        )
         for kind in NOTICE_KINDS
     ]
 

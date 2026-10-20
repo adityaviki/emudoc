@@ -11,6 +11,12 @@ its day, in the same commit.
 
 Members:
 
+- An organisation's owners and admins choose its settings on the organisation page: the
+  language its documents are searched in, which the documents indexed before move to within
+  minutes and which answers fall back to when a question does not show a language; keeping
+  chats for less time than the plan does, the page saying which chats that deletes before it is
+  saved; and how its members are told each kind of notice until they choose for themselves on
+  their account page. Each change is in the organisation's audit log.
 - Moving or renaming a file or a folder in the library can be undone at once, like a deletion:
   the notice under the library's toolbar says where the items went or what they are called now,
   and "Undo" puts each back in the folder it came from, or gives it the name it had.
@@ -46,6 +52,10 @@ Members:
 
 Operators:
 
+- A new kind of job, `apply_language`, moves an organisation's passages to the language its
+  owners or admins chose, 500 a transaction at the priority of bulk work, asking no model;
+  `FTS_LANGUAGE` is now the language of an organisation that chose none. The audit log has a
+  new action, `settings_changed`. The migration adds three columns to `organizations`.
 - Projects, folders, documents and chats deleted wait in the trash, rows and files, until a
   member restores them or deletes them for good; the housekeeping round deletes for good what
   has been there 30 days (`TRASH_DAYS`, logged with the counts). `emudoc_documents` counts their

@@ -12,11 +12,10 @@ import {
   DELETION_GRACE_DAYS,
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
-  PLAN_LABELS,
   ROLE_LABELS,
   auth,
 } from '../api.ts'
-import type { Me, MfaSetup, NoticeKind, UserSession } from '../api.ts'
+import type { Me, MfaSetup, UserSession } from '../api.ts'
 import { ME_KEY, setSignedIn, useMe, useSignOut } from '../auth.ts'
 import {
   Button,
@@ -31,9 +30,10 @@ import {
   Section,
   SelectField,
 } from '../components/ui.tsx'
+import { NoticeChoices } from '../components/NoticeChoices.tsx'
 import { formatDate, formatDateTime } from '../format.ts'
 import { useLocalStorage } from '../hooks.ts'
-import { NOTICE_KINDS, browserNoticesKey } from '../notifications.ts'
+import { browserNoticesKey } from '../notifications.ts'
 import { browserTimeZone, timeZoneChoices, zoneLabel } from '../timeZones.ts'
 import { ChangeEmailForm } from './ChangeEmail.tsx'
 import { DeleteAccountForm } from './DeleteAccount.tsx'
@@ -215,76 +215,13 @@ function NoticesSection({ me }: { me: Me }) {
     <div ref={box} id="notices" className="scroll-mt-6">
       <Section
         title="Notices"
-        description="News about your work in Emudoc, under the bell in the header and by email. Email about your account, invitations and billing is sent either way."
+        description="News about your work in Emudoc, under the bell in the header and by email. Until you choose, each kind is told as your organisation tells its members. Email about your account, invitations and billing is sent either way."
       >
-        <NoticeChoices key={JSON.stringify(me.notices)} me={me} />
+        {/* Turning a kind on by email also writes again to an address that bounced. */}
+        <NoticeChoices key={JSON.stringify(me.notices)} saved={me.notices} change={(choice) => auth.updateProfile({ notices: [choice] })} />
         <BrowserNotices me={me} />
       </Section>
     </div>
-  )
-}
-
-// Turning a kind on by email also writes again to an address that bounced. A box shows the
-// choice at once, and goes back if it is not saved; keyed by the saved choices, so that a change
-// from elsewhere (a notice's link, another tab) shows once the account is read again.
-function NoticeChoices({ me }: { me: Me }) {
-  const queryClient = useQueryClient()
-  const [choices, setChoices] = useState(me.notices)
-  const save = useMutation({
-    mutationFn: (choice: { kind: NoticeKind; app?: boolean; email?: boolean }) => auth.updateProfile({ notices: [choice] }),
-    onSuccess: (account) => setSignedIn(queryClient, account),
-    onError: () => setChoices(me.notices),
-  })
-
-  function choose(kind: NoticeKind, way: 'app' | 'email', on: boolean) {
-    setChoices((current) => current.map((choice) => (choice.kind === kind ? { ...choice, [way]: on } : choice)))
-    save.mutate({ kind, [way]: on })
-  }
-
-  return (
-    <>
-      <table className="w-full text-[13px]">
-        <thead>
-          <tr className="text-xs text-muted">
-            <th className="pb-2 text-left font-normal">When</th>
-            <th className="w-20 pb-2 font-normal">In Emudoc</th>
-            <th className="w-20 pb-2 font-normal">By email</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-line border-t border-line">
-          {choices
-            .filter((choice) => choice.kind in NOTICE_KINDS)
-            .map((choice) => {
-              const { label, detail } = NOTICE_KINDS[choice.kind]
-              return (
-                <tr key={choice.kind}>
-                  <td className="py-2.5 pr-4">
-                    <p className="font-medium">{label}</p>
-                    <p className="mt-0.5 text-xs leading-relaxed text-muted">{detail}</p>
-                  </td>
-                  {(['app', 'email'] as const).map((way) => (
-                    <td key={way} className="text-center">
-                      <input
-                        type="checkbox"
-                        aria-label={`${label}, ${way === 'app' ? 'in Emudoc' : 'by email'}`}
-                        className="size-4 accent-accent"
-                        checked={choice[way]}
-                        disabled={save.isPending}
-                        onChange={(event) => choose(choice.kind, way, event.target.checked)}
-                      />
-                    </td>
-                  ))}
-                </tr>
-              )
-            })}
-        </tbody>
-      </table>
-      {save.isError && (
-        <div className="mt-2">
-          <Notice tone="bad">{save.error.message}</Notice>
-        </div>
-      )}
-    </>
   )
 }
 
@@ -638,7 +575,7 @@ function DataSection({ me }: { me: Me }) {
       </ButtonLink>
       {days !== null && (
         <p className="mt-3 text-[13px] text-muted">
-          On the {PLAN_LABELS[me.organization.plan]} plan, a chat is deleted {days} days after its last question.
+          In {me.organization.name}, a chat is deleted {days.toLocaleString()} days after its last question.
         </p>
       )}
     </Section>

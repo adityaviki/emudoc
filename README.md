@@ -621,10 +621,19 @@ session works in, so nothing it asks lands in the wrong organisation. "New organ
 one the user owns, on the Free plan and in the deployment's region; one user may own
 `MAX_FREE_ORGANIZATIONS` (2) on the Free plan, so that new ones are no way past its limits. The
 organisation's page (`/organization`) renames it (owners and admins; the slug the operator's
-commands name it by stays), lists its members, hands it over to another member with the
+commands name it by stays), keeps its settings, lists its members, hands it over to another member with the
 password (they become an owner and the one handing it over an admin), and leaves it: the
 member's private chats in its projects go, and the shared ones stay. Nobody leaves an
 organisation that would be left without an owner or with nobody, nor their last one.
+Its settings are its owners' and admins', and each change is a row of its audit log: the
+language its documents are searched in (keyword search matches words by their stems in it, one
+of the database's text search configurations, else the deployment's `FTS_LANGUAGE`), which the
+documents indexed before move to by a background job within minutes, without asking a model
+or counting a page, and answers fall back to when a question does not show a language
+(`backend/app/languages.py`); how long it keeps a chat after its last question, never longer
+than its plan, which deletes the older chats of every member at the next housekeeping round,
+as the page says before it is saved; and how its members are told each kind of notice until
+they choose for themselves on their account page.
 The roles: a viewer reads the projects and asks about them in chats of their own, a member also
 changes the projects (makes, uploads, organises, deletes), an admin also renames the organisation
 and manages who is in it, and an owner also manages its owners. The page offers each member only
@@ -706,9 +715,10 @@ into a throwaway copy and runs it against the live storage, the monthly restore 
 (`deploying.md`, "The drill"); `deploy/managed-restore-drill.sh` does the same for a managed
 database, which the provider restores to a new instance (`deploy/rds-drill.sh` for RDS).
 A chat is kept for the plan's retention after its last question (30 days on Free, a year on
-Pro, for good on Team and Enterprise), which the chat list and the account page say; after a
-move to a plan that keeps chats or audit log entries for less time, those are kept as before
-for 30 more days (`RETENTION_HELD`), which the organisation page says; sessions,
+Pro, for good on Team and Enterprise), or for less time where the organisation chose so, which
+the chat list and the account page say; after a move to a plan that keeps chats or audit log
+entries for less time, those are kept as before for 30 more days (`RETENTION_HELD`), unless the
+organisation chose less, which the organisation page says; sessions,
 one-time links and expired invitations are removed a month after they ended.
 
 The log holds no document text, question, answer or key (`backend/app/logs.py`): a traceback
@@ -917,6 +927,7 @@ backend/app/
   version.py    the version a process runs: the commit its image was built from
   postgres.py   what the app needs of its Postgres server: pgvector, the role's timeouts, vacuum
   search.py     hybrid search over passages
+  languages.py  the language an organisation's documents are searched in, and its passages' move
   folders.py    the folder tree as paths and subtrees
   agent/        the five tools and the tool-use loop
   accounts.py   who a request acts as; signing up makes a user and their organisation

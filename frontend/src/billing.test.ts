@@ -67,6 +67,7 @@ const free: Organization = {
     pages_per_month: 200,
     questions_per_month: 50,
     members: 1,
+    retention_days: 30,
     agreed: [],
     pages_bought: 0,
     questions_bought: 0,
@@ -77,6 +78,9 @@ const free: Organization = {
   chat_retention_days: 30,
   audit_retention_days: 90,
   retention_held: null,
+  language: null,
+  chat_days: null,
+  notice_defaults: [],
   join_domains: [],
   join_role: 'member',
 }

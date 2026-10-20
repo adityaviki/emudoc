@@ -151,7 +151,10 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('button', { name: 'New folder' }).click()
     await page.getByLabel('New name').fill('Contracts')
     await page.getByLabel('New name').press('Enter')
-    await contract.dragTo(page.getByRole('treeitem', { name: /Contracts/ }))
+    // The folder first: a drag pressed while it is still being made finds the rows moved under it.
+    const folder = page.getByRole('treeitem', { name: /Contracts/ })
+    await expect(folder).toBeVisible()
+    await contract.dragTo(folder)
     await expect(page.getByText('“service-contract.md” is now in “Contracts”.')).toBeVisible()
     await expect(contract).toHaveCount(0)
     await undo.click()
@@ -173,7 +176,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(contract).toBeVisible()
   })
 
-  await test.step('start a second organisation, and switch back while another tab shows it', async () => {
+  await test.step('start a second organisation, choose its settings, and switch back while another tab shows it', async () => {
     // From the projects page: a menu closes when anything scrolls, as the passage still may.
     await page.getByRole('link', { name: 'Emudoc' }).click()
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
@@ -188,6 +191,20 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(firstSteps).toHaveCount(0)
     await expect(page.getByText('No projects yet')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Create a project' })).toBeVisible()
+    // Its settings: the language its documents are searched in, and chats kept for less time
+    // than its plan keeps them, which says what it deletes before it is saved.
+    await page.goto('/organization')
+    const language = page.getByLabel('Language of its documents')
+    const changed = page.waitForResponse((response) => response.url().endsWith('/api/organization') && response.request().method() === 'PATCH')
+    await language.selectOption('german')
+    expect((await changed).status()).toBe(200)
+    await expect(language).toHaveValue('german')
+    await page.getByLabel('Chats kept').selectOption('7')
+    await expect(page.getByText(/more than 7 days old are deleted within six hours/)).toBeVisible()
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page.getByText('The organisation keeps them 7 days, in its settings.')).toBeVisible()
+    await expect(page.getByLabel('Chats kept')).toHaveValue('7')
+    await page.goto('/')
     const other = await page.context().newPage()
     await other.goto('/')
     await expect(other.getByRole('button', { name: 'Lovelace Legal' })).toBeVisible()
@@ -253,7 +270,10 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByText('Nobody is invited at the moment.')).toBeVisible()
     const role = page.getByLabel('Role of Grace Hopper')
     await expect(role).toHaveValue('viewer')
+    // The select shows the role at once; the colleague's page waits until it is saved.
+    const saved = page.waitForResponse((response) => response.url().includes('/api/organization/members/') && response.request().method() === 'PATCH')
     await role.selectOption('member')
+    expect((await saved).status()).toBe(200)
     await expect(role).toHaveValue('member')
     await grace.reload()
     await expect(grace.getByRole('button', { name: 'Upload', exact: true })).toBeVisible()

@@ -105,7 +105,7 @@ from app.mail import (
     verification_email,
 )
 from app.models import Identity, Invitation, Membership, Organization, User, UserSession
-from app.notices import IN_APP, choices
+from app.notices import IN_APP, choices, organization_choices
 from app.oidc import (
     OAUTH_COOKIE,
     OAUTH_WINDOW_SECONDS,
@@ -137,9 +137,11 @@ from app.retention import (
     DELETION_GRACE,
     LOCAL_ACCOUNT,
     Held,
+    chosen,
     day,
     deletion_refusal,
-    retention_held,
+    hold_in_force,
+    kept_by,
 )
 from app.sample import add_sample
 from app.schemas import (
@@ -607,7 +609,7 @@ def update_profile(body: ProfileIn, account: AccountDep, request: Request, sessi
         (choice.kind, channel, on)
         for choice in body.notices or ()
         for channel, on in ((IN_APP, choice.app), (BY_EMAIL, choice.email))
-        if on is not None and on != user.wants(choice.kind, channel)
+        if on is not None and on != user.wants(choice.kind, channel, account.organization.notices)
     ]
     for kind, channel, on in chosen:
         user.choose(kind, channel, on)
@@ -1138,7 +1140,7 @@ def me_out(session: Session, account: Account) -> MeOut:
         email=user.email,
         name=user.name,
         time_zone=user.time_zone,
-        notices=choices(user),
+        notices=choices(user, account.organization.notices),
         email_verified=user.email_verified_at is not None,
         mfa_enabled=user.mfa_enabled,
         identities=sorted(identity.provider for identity in user.identities),
@@ -1164,10 +1166,7 @@ def me_out(session: Session, account: Account) -> MeOut:
 
 
 # The entitlements the organisation page shows, which are what a member may ask about.
-SHOWN = (
-    *AllowanceOut.model_fields.keys() - {"agreed", "pages_bought", "questions_bought"},
-    "retention_days",
-)
+SHOWN = tuple(AllowanceOut.model_fields.keys() - {"agreed", "pages_bought", "questions_bought"})
 
 
 def organization_out(session: Session, organization: Organization) -> OrganizationOut:
@@ -1202,9 +1201,10 @@ def organization_out(session: Session, organization: Organization) -> Organizati
                 ],
             ),
             "seats": seats_of(organization),
-            "chat_retention_days": entitlements.retention_days,
+            "chat_retention_days": chosen(kept_by(entitlements), organization).chat_days,
             "audit_retention_days": entitlements.audit_days,
-            "retention_held": held_out(retention_held(organization)),
+            "retention_held": held_out(hold_in_force(organization)),
+            "notice_defaults": organization_choices(organization),
             "allowance": AllowanceOut(
                 projects=entitlements.projects,
                 documents=entitlements.documents,
@@ -1212,6 +1212,7 @@ def organization_out(session: Session, organization: Organization) -> Organizati
                 pages_per_month=entitlements.pages_per_month,
                 questions_per_month=entitlements.questions_per_month,
                 members=entitlements.members,
+                retention_days=entitlements.retention_days,
                 agreed=[name for name in agreed_with(organization) if name in SHOWN],
                 pages_bought=bought_this_month(session, organization.id, "pages", start),
                 questions_bought=bought_this_month(session, organization.id, "questions", start),

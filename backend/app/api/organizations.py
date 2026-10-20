@@ -1,20 +1,25 @@
 """The organisations a user belongs to: starting one, switching between them, and the current
-one's name, its members and their roles, handing it over to another of them, removing a member,
-and leaving it.
+one's name, its settings, its members and their roles, handing it over to another of them,
+removing a member, and leaving it.
 
 The organisation a request works in is its session's (app/accounts.py), so starting one and
 switching set the session's choice, and every tab of the browser follows. Each answers with
 the account as `/auth/me` does, for the page to start again in the organisation it now shows.
 The local account has no session to keep a choice in, so it neither starts nor switches.
 
-Renaming is for owners and admins, and keeps the slug, which the operator's commands name the
-organisation by (`usage <slug>`, `plan <slug>`). Handing it over makes another member an owner
-and its owner an admin, confirmed as deleting the account is, by the password or the address
-typed out, since a browser left signed in should not give an organisation away. Leaving takes
-the member's private chats in its projects with them, which nobody else could read, and their
-place among its private projects' members; their shared chats stay with the project. Nobody
-leaves an organisation that would be left without an owner, or with nobody, nor their last
-one, since an account in none can do nothing.
+Renaming and the organisation's settings are for owners and admins. Renaming keeps the slug,
+which the operator's commands name the organisation by (`usage <slug>`, `plan <slug>`). The
+settings are the language its documents are searched in (app/languages.py), which moves the
+passages indexed before to it by a job; how long it keeps a chat, never longer than its plan
+does (app/retention.py); and how its members are told each kind of notice until they choose
+for themselves (app/notices.py). Each change is a row of the audit log of its own.
+
+Handing it over makes another member an owner and its owner an admin, confirmed as deleting the
+account is, by the password or the address typed out, since a browser left signed in should not
+give an organisation away. Leaving takes the member's private chats in its projects with them,
+which nobody else could read, and their place among its private projects' members; their shared
+chats stay with the project. Nobody leaves an organisation that would be left without an owner,
+or with nobody, nor their last one, since an account in none can do nothing.
 
 Owners and admins change the other members' roles and remove them: an admin anyone's but an
 owner's, and to any role but owner; an owner anyone's. Nobody changes their own role or removes
@@ -42,10 +47,21 @@ from app.api.auth import confirm_account, me_out
 from app.api.deps import AccountDep, SessionDep, UsableAccountDep, limited
 from app.audit import audit, audit_event
 from app.config import get_settings
+from app.entitlements import entitlements_of
+from app.languages import known_languages, language_of, queue_language
 from app.models import PLANS, ROLES, Chat, Membership, Organization, Project, User, UserSession
-from app.notices import forget_notifications
+from app.notices import IN_APP, forget_notifications
+from app.postbox import BY_EMAIL
 from app.ratelimit import SIGN_INS
-from app.schemas import MemberOut, MemberRoleIn, MeOut, OrganizationIn, OwnershipIn
+from app.schemas import (
+    LanguagesOut,
+    MemberOut,
+    MemberRoleIn,
+    MeOut,
+    OrganizationChangeIn,
+    OrganizationIn,
+    OwnershipIn,
+)
 
 router = APIRouter(tags=["organizations"])
 
@@ -56,9 +72,10 @@ NO_SESSION = (
 NAME_NEEDED = "Give the organisation a name."
 NOT_FOUND = "Organisation not found"
 ADMINS_ONLY = (
-    "Only the owners and admins of the organisation can rename it. Ask one of them to, if it "
-    "should change."
+    "Only the owners and admins of the organisation can rename it or change its settings. Ask "
+    "one of them to, if something should change."
 )
+UNKNOWN_LANGUAGE = "Emudoc cannot search documents in that language. Choose one of those offered."
 OWNERS_ONLY = "Only an owner of the organisation can hand it over to another member."
 YOURS_ALREADY = "Choose another member: the organisation is yours already."
 MEMBER_NOT_FOUND = "Member not found"
@@ -80,6 +97,15 @@ LAST_ORGANISATION = (
 )
 
 
+def longer_than_plan(plan: str, days: int) -> str:
+    """What keeping chats longer than the organisation's plan does is refused with."""
+    return (
+        f"The {plan.title()} plan keeps a chat {days:,} days after its last question, so the "
+        f"organisation cannot keep one longer. Choose {days:,} days or fewer, or keep them as "
+        "long as the plan does."
+    )
+
+
 def too_many_free(allowed: int) -> str:
     """What starting an organisation past MAX_FREE_ORGANIZATIONS is refused with."""
     owned = "one organisation" if allowed == 1 else f"{allowed} organisations"
@@ -96,7 +122,7 @@ def start_organization(
     """Start an organisation the user owns, and work in it from now on."""
     if account.session_id is None:
         raise HTTPException(409, NO_SESSION)
-    name = _name(body)
+    name = _name(body.name)
     allowed = get_settings().max_free_organizations
     if allowed and free_organizations_owned(session, account.user) >= allowed:
         raise HTTPException(409, too_many_free(allowed))
@@ -128,25 +154,50 @@ def switch_organization(org_id: int, account: UsableAccountDep, session: Session
 
 
 @router.patch("/organization", response_model=MeOut)
-def rename_organization(
-    body: OrganizationIn, account: AccountDep, request: Request, session: SessionDep
+def change_organization(
+    body: OrganizationChangeIn, account: AccountDep, request: Request, session: SessionDep
 ):
-    """Rename the organisation; its slug stays as it was."""
+    """Rename the organisation, its slug staying as it was, or change its settings; what the
+    body leaves out stays as it is."""
     if not account.is_at_least("admin"):
         raise HTTPException(403, ADMINS_ONLY)
-    name = _name(body)
     organization = account.organization
-    if name != organization.name:
-        audit(
-            session,
-            account,
-            request,
-            "organization_renamed",
-            detail={"from": organization.name, "to": name},
-        )
+    given = body.model_fields_set
+    changes: list[tuple[str, dict]] = []
+    if body.name is not None and (name := _name(body.name)) != organization.name:
+        changes.append(("organization_renamed", {"from": organization.name, "to": name}))
         organization.name = name
+    if "language" in given and body.language != organization.language:
+        if body.language is not None and body.language not in known_languages(session):
+            raise HTTPException(400, UNKNOWN_LANGUAGE)
+        was = language_of(organization)
+        changes.append(("settings_changed", _setting("language", organization.language, body)))
+        organization.language = body.language
+        if language_of(organization) != was:
+            queue_language(session, organization.id)
+    if "chat_days" in given and body.chat_days != organization.chat_days:
+        kept = entitlements_of(organization).retention_days
+        if body.chat_days is not None and kept is not None and body.chat_days > kept:
+            raise HTTPException(400, longer_than_plan(organization.plan, kept))
+        changes.append(("settings_changed", _setting("chat_days", organization.chat_days, body)))
+        organization.chat_days = body.chat_days
+    for choice in body.notices or ():
+        for way, on in ((IN_APP, choice.app), (BY_EMAIL, choice.email)):
+            if on is not None and on != organization.tells(choice.kind, way):
+                detail = {"setting": "notices", "kind": choice.kind, "way": way}
+                changes.append(("settings_changed", {**detail, "from": not on, "to": on}))
+                organization.choose(choice.kind, way, on)
+    for action, detail in changes:
+        audit(session, account, request, action, detail=detail)
+    if changes:
         session.commit()
     return me_out(session, account)
+
+
+@router.get("/organization/languages", response_model=LanguagesOut)
+def list_languages(account: AccountDep, session: SessionDep):
+    """The languages the organisation may search its documents in, and the deployment's."""
+    return LanguagesOut(languages=known_languages(session), default=get_settings().fts_language)
 
 
 @router.get("/organization/members", response_model=list[MemberOut])
@@ -392,8 +443,14 @@ def _member_out(membership: Membership, user: User) -> MemberOut:
     )
 
 
-def _name(body: OrganizationIn) -> str:
-    name = " ".join(body.name.split())
+def _setting(name: str, was: object, body: OrganizationChangeIn) -> dict:
+    """A setting's audit detail: what it was and what it is now, null for the deployment's or
+    the plan's."""
+    return {"setting": name, "from": was, "to": getattr(body, name)}
+
+
+def _name(given: str) -> str:
+    name = " ".join(given.split())
     if not name:
         raise HTTPException(400, NAME_NEEDED)
     return name

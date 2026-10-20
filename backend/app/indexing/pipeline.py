@@ -35,6 +35,7 @@ from app.indexing.enrich import (
 )
 from app.indexing.structure import SectionHint, build_outline
 from app.jobs import LIVE, RENDER_PAGES, Lease, LeaseLost, enqueue, renew
+from app.languages import project_language
 from app.llm import LLM, LLMError, OcrBlock
 from app.mail import Mailer
 from app.metrics import DOCUMENT_READY, INDEX_RUNS, PARSES, STAGE_RUNS, STAGE_SECONDS
@@ -814,7 +815,7 @@ def _structure(session: Session, document: Document, services: Services, meter: 
         session.flush()  # children need the parent's id
         rows[id(draft)] = row
 
-    language = get_settings().fts_language
+    language = project_language(session, document.project_id)
     session.add_all(
         Passage(
             document_id=document.id,

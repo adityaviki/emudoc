@@ -85,6 +85,7 @@ from app.indexing.pipeline import (
 )
 from app.jobs import (
     ANSWER_QUESTION,
+    APPLY_LANGUAGE,
     INDEX_DOCUMENT,
     LEASE,
     RENDER_PAGES,
@@ -98,6 +99,7 @@ from app.jobs import (
     queue_index,
     release,
 )
+from app.languages import apply_language
 from app.logs import configure_logging, logging_about
 from app.mail import Mailer
 from app.maintenance import housekeeping
@@ -304,6 +306,17 @@ def _abandon_render(job: Job, services: Services) -> None:
     pass
 
 
+def _run_language(job: Job, services: Services) -> str | None:
+    apply_language(job.org_id, Lease(job.id, job.worker_id))
+    return None
+
+
+def _abandon_language(job: Job, services: Services) -> None:
+    # The passages not moved yet are searched in the language they have, as before the change;
+    # the next change of language, or indexing a document again, moves them.
+    pass
+
+
 # The kinds this worker runs. A kind in JOB_KINDS that is missing here is left in the queue for
 # a worker that has it. The answers and the mail have a lane of threads each (`LANE_KINDS`);
 # every other kind shares the indexers.
@@ -312,6 +325,7 @@ HANDLERS: dict[str, Handler] = {
     ANSWER_QUESTION: Handler(run_answer, abandon_answer),
     RENDER_PAGES: Handler(_run_render, _abandon_render),
     SEND_EMAIL: Handler(run_email, abandon_email),
+    APPLY_LANGUAGE: Handler(_run_language, _abandon_language),
 }
 LANE_KINDS = {ANSWERER: [ANSWER_QUESTION], MAILER: [SEND_EMAIL]}
 

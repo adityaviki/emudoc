@@ -17,6 +17,13 @@ prune statements read the hold beside the plan, and keep a row while either keep
 back up that keeps as long ends the hold; another move down within it holds the longest of
 the two for RETENTION_HELD from then.
 
+An organisation's owners and admins may keep chats for less time than its plan does
+(`organizations.chat_days`, on the organisation page). Their choice wins over the plan and over
+a hold alike: the hold keeps what a move the organisation may not have chosen would take, while
+this is its own word. So a chat goes once it is older than either the plan, with a standing
+hold, or the choice keeps it, and every figure the page and billing's mail give is the plan's
+and the hold's with the choice applied (`chosen`).
+
 An account is deleted in two steps. The request (`POST /api/auth/account/deletion`) marks the
 user due for purging DELETION_GRACE from now and signs them out everywhere else; until then the
 account can do nothing but keep itself, export what is kept about its user (app/export.py) and
@@ -102,7 +109,7 @@ _BACK = text(
 # Each plan joins as a row of `kept`, so one statement prunes every organisation: by the days
 # agreed with it when `overrides` names them (a null there keeps a chat for good), else by its
 # plan's (a null plan keeps it for good: the interval and the comparison are null), and while a
-# hold after a lower plan stands, by its days as well.
+# hold after a lower plan stands, by its days as well; or by the days the organisation chose.
 _PRUNE_CHATS = text(
     """
     DELETE FROM chats
@@ -111,13 +118,15 @@ _PRUNE_CHATS = text(
     WHERE projects.id = chats.project_id
       AND organizations.id = projects.org_id
       AND organizations.plan = kept.plan
-      AND chats.updated_at < now() - make_interval(days => CASE
-          WHEN organizations.overrides -> 'retention_days' IS NULL THEN kept.days
-          ELSE CAST(organizations.overrides ->> 'retention_days' AS integer) END)
-      -- Past what a hold after a lower plan keeps, too: a null there keeps it for good.
-      AND (organizations.retention_held_until IS NULL
-           OR organizations.retention_held_until <= now()
-           OR chats.updated_at < now() - make_interval(days => organizations.held_chat_days))
+      AND ((chats.updated_at < now() - make_interval(days => CASE
+              WHEN organizations.overrides -> 'retention_days' IS NULL THEN kept.days
+              ELSE CAST(organizations.overrides ->> 'retention_days' AS integer) END)
+            -- Past what a hold after a lower plan keeps, too: a null there keeps it for good.
+            AND (organizations.retention_held_until IS NULL
+                 OR organizations.retention_held_until <= now()
+                 OR chats.updated_at < now() - make_interval(days => organizations.held_chat_days)))
+           -- A null choice is the plan's, and the comparison null.
+           OR chats.updated_at < now() - make_interval(days => organizations.chat_days))
       AND NOT EXISTS (
           SELECT 1 FROM chat_messages
           WHERE chat_messages.chat_id = chats.id AND chat_messages.status = 'streaming'
@@ -180,10 +189,32 @@ def retention_held(organization: Organization, now: datetime | None = None) -> H
 
 def kept_for(organization: Organization, now: datetime | None = None) -> Kept:
     """How long the organisation keeps chats and audit rows now: as its plan or terms do, or
-    longer while a hold after a lower plan stands."""
+    longer while a hold after a lower plan stands, and chats no longer than it chose."""
     kept = kept_by(entitlements_of(organization))
     standing = retention_held(organization, now)
-    return kept.longest(standing.kept) if standing else kept
+    return chosen(kept.longest(standing.kept) if standing else kept, organization)
+
+
+def chosen(kept: Kept, organization: Organization) -> Kept:
+    """What `kept`, a plan's or a hold's, keeps once the organisation's own choice of a
+    shorter time for chats takes what is older."""
+    days = organization.chat_days
+    if days is None or not _at_least(kept.chat_days, days):
+        return kept
+    return Kept(days, kept.audit_days)
+
+
+def hold_in_force(organization: Organization, now: datetime | None = None) -> Held | None:
+    """The hold after a lower plan as it keeps what the organisation's choice leaves: None
+    while none stands, or once the choice takes all the hold would keep that the plan does
+    not."""
+    standing = retention_held(organization, now)
+    if standing is None:
+        return None
+    kept = chosen(standing.kept, organization)
+    if chosen(kept_by(entitlements_of(organization)), organization).covers(kept):
+        return None
+    return Held(standing.until, kept)
 
 
 def shortened(before: Kept, after: Kept) -> str | None:
@@ -228,8 +259,8 @@ def day(moment: datetime, zone: tzinfo = UTC) -> str:
 
 def prune_chats(connection: Connection) -> int:
     """Delete the chats whose last question is older than their organisation keeps them,
-    by its plan or its agreed terms, and by a hold after a lower plan while it stands; returns
-    how many."""
+    by its plan or its agreed terms, and by a hold after a lower plan while it stands, or by
+    its own choice; returns how many."""
     kept = {plan: limit.retention_days for plan, limit in PLANS.items()}
     return connection.execute(
         _PRUNE_CHATS, {"plans": list(kept), "days": list(kept.values())}

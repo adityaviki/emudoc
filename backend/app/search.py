@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import engine
 from app.embeddings import Embedder, EmbeddingError
+from app.languages import known_languages
 from app.postgres import server
 
 log = logging.getLogger(__name__)
@@ -218,7 +219,7 @@ def check_fts_language() -> None:
     """
     name = get_settings().fts_language
     with engine.connect() as connection:
-        known = connection.scalars(text("SELECT cfgname FROM pg_ts_config ORDER BY 1")).all()
+        known = known_languages(connection)
     if name in known:
         return
     raise RuntimeError(

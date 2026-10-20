@@ -564,8 +564,10 @@ class AllowanceOut(BaseModel):
     pages_per_month: int | None
     questions_per_month: int | None
     members: int | None
-    # Which of them, and of `chat_retention_days` (`retention_days`), were agreed with the
-    # organisation in place of its plan's.
+    # How many days the plan, or the terms agreed in its place, keeps a chat after its last
+    # question.
+    retention_days: int | None = None
+    # Which of them were agreed with the organisation in place of its plan's.
     agreed: list[str]
     # The pages and questions bought in packs for this month, on top of the plan's.
     pages_bought: int = 0
@@ -755,12 +757,19 @@ class OrganizationOut(_FromORM):
     # deployment promised none as it was created (app/residency.py).
     region: str | None
     # How many days a chat is kept after its last question (app/retention.py), None for good,
-    # and an audit log entry.
+    # by its plan or by its own choice, whichever is shorter, and an audit log entry.
     chat_retention_days: int | None = None
     audit_retention_days: int | None = None
-    # What it keeps as before after a move to a plan that keeps less, and until when; None
-    # when nothing is held.
+    # What it keeps as before after a move to a plan that keeps less, and until when, with its
+    # own choice applied; None when nothing is held.
     retention_held: RetentionHeldOut | None = None
+    # Its settings, as its owners and admins chose them: the language its documents are
+    # searched in (a text search configuration, app/languages.py), None for the deployment's;
+    # the days it keeps a chat, None for as long as its plan does; and how its members are told
+    # each kind of notice until they choose for themselves, in the order of NOTICE_KINDS.
+    language: str | None
+    chat_days: int | None
+    notice_defaults: list[NoticeChoiceOut] = []
     # The domains whose confirmed addresses may join it, and the role they join with
     # (app/invitations.py).
     join_domains: list[str]
@@ -825,9 +834,30 @@ class MeOut(BaseModel):
 
 
 class OrganizationIn(BaseModel):
-    """The name of an organisation, a new one's or a new name for the current one."""
+    """The name of a new organisation."""
 
     name: str = Field(max_length=200)
+
+
+class OrganizationChangeIn(BaseModel):
+    """What the organisation page changes about the current organisation; a field left out
+    stays as it is, and a null `language` or `chat_days` goes back to the deployment's or the
+    plan's."""
+
+    name: str | None = Field(None, max_length=200)
+    # A text search configuration's name, which the database must have.
+    language: str | None = Field(None, pattern=r"^[a-z_]{1,63}$")
+    # Never more than the plan keeps a chat.
+    chat_days: int | None = Field(None, ge=1, le=36500)
+    notices: list[NoticeChoiceIn] | None = Field(None, max_length=20)
+
+
+class LanguagesOut(BaseModel):
+    """The languages an organisation may search its documents in, the text search
+    configurations the database has, and the deployment's, which it has until it chooses."""
+
+    languages: list[str]
+    default: str
 
 
 class MemberOut(BaseModel):

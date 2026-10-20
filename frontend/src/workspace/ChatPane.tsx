@@ -85,7 +85,8 @@ interface ChatHeaderProps {
 
 function ChatHeader({ own, shared, activeId }: ChatHeaderProps) {
   const workspace = useWorkspace()
-  // How long the organisation's plan keeps a chat after its last question (backend/app/retention.py).
+  // How long the organisation keeps a chat after its last question, by its plan or its own choice
+  // (backend/app/retention.py).
   const keptFor = useMe().organization.chat_retention_days
   // Where the list opens: set from the button's position when it is clicked.
   const [anchor, setAnchor] = useState<DOMRect | null>(null)

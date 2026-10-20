@@ -95,10 +95,11 @@ $region
   $trash_days days, where it can be restored, and is then deleted for good, unless a member
   deletes it there sooner; a chat goes sooner when its plan keeps it for less time.
 - **Chats**, for as long as the organisation's plan keeps a chat after its last question
-  ($chat_retention), or the terms agreed with the organisation in its place, unless deleted
-  sooner; the chats you did not share with a project go when you leave the organisation or an
-  owner or admin removes you from it. After a move to a plan or terms that keep chats for less
-  time, they are kept as before for $held_days days after the move.
+  ($chat_retention), or the terms agreed with the organisation in its place, or for less time
+  where its owners or admins chose so, unless deleted sooner; the chats you did not share with
+  a project go when you leave the organisation or an owner or admin removes you from it. After
+  a move to a plan or terms that keep chats for less time, they are kept as before for
+  $held_days days after the move, unless the organisation chose less.
 - **Audit log entries**, for as long as the organisation's plan keeps them
   ($audit_retention), or the terms agreed with the organisation in its place; after a move to
   a plan or terms that keep them for less time, as before for $held_days days after the move.

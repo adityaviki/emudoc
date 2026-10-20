@@ -28,6 +28,7 @@ from app.config import get_settings
 from app.db import SessionLocal
 from app.errors import shown
 from app.indexing.pipeline import Services
+from app.languages import answer_language
 from app.llm import LLMError
 from app.models import Project
 from app.tracing import TOOL, UNKNOWN_TOOL, span
@@ -104,6 +105,7 @@ def run_agent(
             # Read in UTC, like every timestamp the app stores, so the worker host's zone
             # cannot move it; the label tells the model which zone the date is in.
             + f"\nToday's date (UTC): {datetime.now(UTC).date().isoformat()}"
+            + answer_language(project.organization)
         )
     tools = [tool.definition() for tool in TOOLS.values()]
     conversation: list[ModelMessage] = [_chat_message(message) for message in messages]

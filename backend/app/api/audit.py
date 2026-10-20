@@ -1,6 +1,6 @@
 """The audit log as an organisation's admins read it (app/audit.py): its rows, the newest
-first, a page at a time. The organisation settings will put a view with filters and an export
-on top (2.7); until then this is the whole of it."""
+first, a page at a time. The security settings will put a view with filters and an export on
+top (2.7); until then this is the whole of it."""
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select

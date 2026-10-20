@@ -637,6 +637,12 @@ once; the others are drawn the first time a member looks at them. Each page draw
 organisation's with no member when it was drawn ahead. A page that cannot be drawn ahead is
 left for the pane, and the job ends done rather than failed.
 
+When an organisation's owners or admins choose another language for its documents, an
+`apply_language` job moves its passages to it, 500 a transaction, each generating the passage's
+keyword index again (and, as any update does, its entry in the vector index), without asking a
+model. It runs in the indexers' lane at the priority of bulk work, so uploads go first; an
+organisation of 100,000 passages takes a few minutes of one thread.
+
 From a bucket, a page is drawn from a copy of the original in the temporary directory. The
 pages drawn ahead share one, and the API keeps its copy for the pages and the thumbnails it
 draws next: five minutes after the last page drawn from it, up to `RENDER_CACHE_MB` of copies
@@ -3911,7 +3917,7 @@ and the like), named on its models' pages.
 | `EMBEDDING_DIM` | `768` | | The vectors' size; a change needs `rebuild-embeddings` |
 | `EMBEDDING_QUERY_PREFIX` | `search_query: ` | | What a search is prefixed with |
 | `EMBEDDING_DOCUMENT_PREFIX` | `search_document: ` | | What a passage is prefixed with |
-| `FTS_LANGUAGE` | `english` | | The text search configuration of new passages |
+| `FTS_LANGUAGE` | `english` | | The text search configuration of new passages, for an organisation that chose no language of its own |
 
 ### The worker and the limits
 

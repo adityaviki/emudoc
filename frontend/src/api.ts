@@ -399,14 +399,32 @@ export interface Organization {
   billing: Billing
   /** The region its data is kept in, null when the deployment promised none as it was created. */
   region: Region | null
-  /** How many days a chat is kept after its last question, and an audit log entry, null for good. */
+  /** How many days a chat is kept after its last question, by the plan or the organisation's own choice, whichever is shorter, and an audit log entry, null for good. */
   chat_retention_days: number | null
   audit_retention_days: number | null
-  /** What it keeps as before after a move to a plan that keeps less, and until when; null when nothing is held (backend/app/retention.py). */
+  /** What it keeps as before after a move to a plan that keeps less, and until when, with its own choice applied; null when nothing is held (backend/app/retention.py). */
   retention_held: RetentionHeld | null
+  /** Its settings, as its owners and admins chose them: the language its documents are searched in, null for the deployment's (backend/app/languages.py); the days it keeps a chat, null for as long as the plan does; how its members are told each kind of notice until they choose. */
+  language: string | null
+  chat_days: number | null
+  notice_defaults: NoticeChoice[]
   /** The domains whose confirmed addresses may join it, and the role they join with (backend/app/invitations.py). */
   join_domains: string[]
   join_role: JoinRole
+}
+
+/** What the organisation page changes about the organisation (OrganizationChangeIn in backend/app/schemas.py). */
+export interface OrganizationChange {
+  name?: string
+  language?: string | null
+  chat_days?: number | null
+  notices?: { kind: NoticeKind; app?: boolean; email?: boolean }[]
+}
+
+/** The text search configurations the database has, which an organisation may search its documents in, and the deployment's. */
+export interface Languages {
+  languages: string[]
+  default: string
 }
 
 /** The plans an owner may buy for the organisation; Free is every organisation's, and Enterprise is agreed. */
@@ -479,7 +497,9 @@ export interface Allowance {
   pages_per_month: number | null
   questions_per_month: number | null
   members: number | null
-  /** Which of them, and of the chats' retention (`retention_days`), were agreed with the organisation in place of its plan's. */
+  /** How many days the plan, or the terms agreed in its place, keeps a chat after its last question, null for good. */
+  retention_days: number | null
+  /** Which of them were agreed with the organisation in place of its plan's. */
   agreed: string[]
   /** The pages and questions bought in packs for this month, on top of the plan's. */
   pages_bought: number
@@ -745,6 +765,7 @@ export type AuditAction =
   | 'pack_bought'
   | 'organization_created'
   | 'organization_renamed'
+  | 'settings_changed'
   | 'ownership_transferred'
   | 'invitation_sent'
   | 'invitation_revoked'
@@ -1040,8 +1061,10 @@ export function oauthStartUrl(provider: string, next: string, timeZone: string, 
 export const organizations = {
   start: (name: string) => request<Me>('/organizations', json('POST', { name })),
   switch: (id: number) => request<Me>(`/organizations/${id}/switch`, { method: 'POST' }),
-  /** Owners and admins only. */
-  rename: (name: string) => request<Me>('/organization', json('PATCH', { name })),
+  /** Owners and admins only: its name or its settings; what is left out stays, a null setting goes back to the deployment's or the plan's. */
+  change: (body: OrganizationChange) => request<Me>('/organization', json('PATCH', body)),
+  /** The languages its documents may be searched in, and the deployment's. */
+  languages: () => request<Languages>('/organization/languages'),
   members: () => request<Member[]>('/organization/members'),
   /** Owners and admins only, for another member whose role is within their own, to a role within it. */
   changeRole: (userId: number, role: Role) => request<Member>(`/organization/members/${userId}`, json('PATCH', { role })),

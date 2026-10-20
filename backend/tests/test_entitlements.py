@@ -537,6 +537,7 @@ def test_figures_agreed_with_an_organisation_take_the_place_of_its_plans(session
         "pages_per_month": None,
         "questions_per_month": None,
         "members": None,
+        "retention_days": None,
         "agreed": ["projects", "storage_bytes"],
         "pages_bought": 0,
         "questions_bought": 0,

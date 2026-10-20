@@ -164,6 +164,7 @@ def change(account: AccountDep, session: SessionDep, choice: Annotated[PlanChoic
             pages_per_month=allowed.pages_per_month,
             questions_per_month=allowed.questions_per_month,
             members=allowed.members,
+            retention_days=allowed.retention_days,
             agreed=[],
             over=[ExcessOut(limit=excess.limit, words=excess.words) for excess in found.over],
         ),

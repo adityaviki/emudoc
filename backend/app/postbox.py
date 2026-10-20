@@ -46,7 +46,7 @@ from app.jobs import LIVE, SEND_EMAIL, enqueue
 from app.keyring import Undecryptable, is_encrypted
 from app.mail import Block, Content, Link, LogMailer, Mailer, MailError, Message, compose
 from app.metrics import MAIL_SENT
-from app.models import NOTICE_CHANNELS, NOTICE_KINDS, Job, User
+from app.models import NOTICE_CHANNELS, NOTICE_KINDS, Job, Organization, User
 
 if TYPE_CHECKING:
     # For the handler's signature alone: the pipeline posts notices through this module.
@@ -92,8 +92,10 @@ def post_notice(
     org_id: int | None = None,
 ) -> Job | None:
     """Queue a notice of the kind (NOTICE_KINDS) to the user unless they turned its email off,
-    or the provider said to spare their address; None when it is not posted."""
-    if not user.wants(kind, BY_EMAIL) or suppressed(session, user.email):
+    or where they did not choose, the organisation it is about did for its members, or the
+    provider said to spare their address; None when it is not posted."""
+    defaults = session.get(Organization, org_id).notices if org_id is not None else None
+    if not user.wants(kind, BY_EMAIL, defaults) or suppressed(session, user.email):
         return None
     return post(session, user.email, notice(user, kind, content, app_url), org_id)
 
