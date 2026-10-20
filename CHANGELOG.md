@@ -11,6 +11,9 @@ its day, in the same commit.
 
 Members:
 
+- Moving or renaming a file or a folder in the library can be undone at once, like a deletion:
+  the notice under the library's toolbar says where the items went or what they are called now,
+  and "Undo" puts each back in the folder it came from, or gives it the name it had.
 - Deleting no longer loses anything at once: a file or a folder goes into its project's trash,
   which the library's trash button opens, and the library offers to undo the deletion right
   away; a chat goes into your own trash, under "Deleted chats" in the chat list; a project goes,

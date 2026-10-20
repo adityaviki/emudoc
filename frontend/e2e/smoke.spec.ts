@@ -134,6 +134,31 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByText(/^Either party may end this contract .* on the first page\.$/)).toBeInViewport()
   })
 
+  await test.step('rename the contract and move it into a folder, undoing each', async () => {
+    const contract = page.getByRole('treeitem', { name: /service-contract\.md/ })
+    const undo = page.getByRole('button', { name: 'Undo', exact: true })
+    await contract.click()
+    await page.keyboard.press('F2')
+    await page.getByLabel('New name').fill('contract')
+    await page.getByLabel('New name').press('Enter')
+    // The extension is kept.
+    await expect(page.getByText('“service-contract.md” is now called “contract.md”.')).toBeVisible()
+    await expect(page.getByRole('treeitem', { name: /(^|\s)contract\.md/ })).toBeVisible()
+    await undo.click()
+    await expect(contract).toBeVisible()
+    await expect(undo).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'New folder' }).click()
+    await page.getByLabel('New name').fill('Contracts')
+    await page.getByLabel('New name').press('Enter')
+    await contract.dragTo(page.getByRole('treeitem', { name: /Contracts/ }))
+    await expect(page.getByText('“service-contract.md” is now in “Contracts”.')).toBeVisible()
+    await expect(contract).toHaveCount(0)
+    await undo.click()
+    await expect(contract).toBeVisible()
+    await expect(undo).toHaveCount(0)
+  })
+
   await test.step('delete the contract, and take it back from the trash', async () => {
     const contract = page.getByRole('treeitem', { name: /service-contract\.md/ })
     await contract.click()

@@ -187,7 +187,8 @@ is indexed sooner next to a free organisation's.
 A project opens as two panes. On the left is the **library**: the project's documents filed in
 folders, with the usual file-manager moves (new folder, rename, drag to move, delete, upload by
 button or by dropping files, search), shown as a tree that opens folders in place, a folder's
-files by name a hundred at a time, with more on request. Opening a file adds a third pane in
+files by name a hundred at a time, with more on request. The last deletion, move or rename is
+offered back at once with "Undo", until the next one or its cross. Opening a file adds a third pane in
 the middle, the **document**, with a tab for each open file; the tabs stay open across reloads,
 and closing the last one leaves the library and the agent side by side again.
 PDFs show their rendered pages with the extracted text laid invisibly over them, so it can be

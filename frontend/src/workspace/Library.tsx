@@ -30,10 +30,10 @@ import { StatusIcon } from '../components/IndexingStatus.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
 import { PlanLimitNotice, PlanOffer } from '../components/PlanLimit.tsx'
 import { Button, Chip, EmptyState, IconButton, Loading, Notice, Spinner } from '../components/ui.tsx'
-import { movedToTrash } from '../trash.ts'
 import { useContextMenu } from '../components/useContextMenu.tsx'
 import { useFolders, useLocalStorage, useStatus } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
+import { describeChange } from './changes.ts'
 import { fileKind, originalFileItem } from './files.ts'
 import { growing, hasMore, listed, showMore, useListings } from './listing.ts'
 import type { Listing } from './listing.ts'
@@ -212,20 +212,20 @@ export function Library() {
           </Notice>
         )}
         {mutations.planLimit && <PlanLimitNotice refusal={mutations.planLimit} onDismiss={mutations.clearPlanLimit} />}
-        {mutations.trashed && (
+        {mutations.last && (
           <Notice tone="info">
             <div className="flex items-center justify-between gap-3">
-              <span>{movedToTrash(mutations.trashed.names)}</span>
+              <span>{describeChange(mutations.last)}</span>
               <span className="flex shrink-0 items-center gap-1">
                 <Button
                   variant="ghost"
                   className="h-6 px-2"
-                  disabled={mutations.untrash.isPending}
-                  onClick={() => mutations.trashed && mutations.untrash.mutate(mutations.trashed)}
+                  disabled={mutations.undo.isPending}
+                  onClick={() => mutations.last && mutations.undo.mutate(mutations.last)}
                 >
                   Undo
                 </Button>
-                <IconButton label="Dismiss" onClick={mutations.clearTrashed} className="p-0.5!">
+                <IconButton label="Dismiss" onClick={mutations.clearLast} className="p-0.5!">
                   <X className="size-3.5" />
                 </IconButton>
               </span>
