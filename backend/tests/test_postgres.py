@@ -86,11 +86,15 @@ def role_timeouts():
 
 
 @contextmanager
-def held(statement: str, seconds: float = LONGER):
-    """Another client that takes a lock with `statement` and lets it go after `seconds`."""
+def held(statement: str, seconds: float | None = LONGER):
+    """Another client that takes a lock with `statement` and lets it go after `seconds`, or
+    with None when the block ends, as its connection closes."""
     url = engine.url.set(drivername="postgresql").render_as_string(hide_password=False)
     with psycopg.connect(url) as other:
         other.execute(statement)
+        if seconds is None:
+            yield
+            return
         release = threading.Timer(seconds, other.rollback)
         release.start()
         try:
@@ -235,8 +239,9 @@ def test_a_project_s_deletion_outlasts_the_role_s_timeouts(client, session, role
 
 def test_a_request_the_database_stopped_gets_a_sentence(client, session, role_timeouts, caplog):
     # Any other request is held to the role's statement_timeout, and one that runs into it is
-    # told so in a sentence, with one line in the log rather than a traceback.
-    with held("LOCK TABLE projects IN ACCESS EXCLUSIVE MODE"):
+    # told so in a sentence, with one line in the log rather than a traceback. The lock lasts
+    # until the answer, however long a slow machine takes to bring the request to its query.
+    with held("LOCK TABLE projects IN ACCESS EXCLUSIVE MODE", seconds=None):
         with caplog.at_level("WARNING", logger="app.main"):
             response = client.get("/api/projects")
     assert response.status_code == 503
