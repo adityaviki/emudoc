@@ -70,7 +70,14 @@ from sqlalchemy.orm import Session
 from app.answers import EVENT_HISTORY, prune_events
 from app.audit import prune_audit
 from app.auth import CREDENTIAL_HISTORY, prune_credentials
-from app.billing import SWITCHES, change_plan
+from app.billing import (
+    BILLED,
+    SWITCHES,
+    change_plan,
+    end_grace_periods,
+    managed,
+    prune_billing_events,
+)
 from app.config import export_env_file, get_settings
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine, unbounded
 from app.deadletters import NamedJob, describe, failed_jobs, named_jobs, requeue
@@ -94,6 +101,7 @@ from app.jobs import (
     queue_index_by_id,
 )
 from app.logs import configure_logging
+from app.mail import Mailer
 from app.models import JOB_KINDS, STAGES, Document, Job, Organization
 from app.models import PLANS as PLAN_NAMES
 from app.parsing import MIME_TYPES
@@ -427,14 +435,15 @@ def _last_id(prefix: str) -> int:
     return int(prefix.rstrip("/").rpartition("/")[2])
 
 
-def housekeeping(storage: Storage) -> None:
+def housekeeping(storage: Storage, mailer: Mailer | None = None) -> None:
     """One round of what the app does to the stored data on its own, at intervals.
 
     Every replica reaches its interval, so a round first takes an advisory lock and skips when
     another replica holds it: the work is idempotent, and walking the storage once is enough.
     The lock is transaction-level, so it ends with the block. The accounts due for purging go
     after it, each in a transaction of its own, since their files are discarded only once their
-    rows are gone for good.
+    rows are gone for good, and so do the organisations whose payment has failed for longer than
+    the grace period, whose owners `mailer` tells (app/billing.py).
     """
     settings = get_settings()
     keep = timedelta(days=settings.page_image_days) if settings.page_image_days else None
@@ -459,10 +468,20 @@ def housekeeping(storage: Storage) -> None:
         chats = prune_chats(connection)
         audited = prune_audit(connection)
         credentials = prune_credentials(connection)
+        billing_events = prune_billing_events(connection)
     reapply_erasures(storage)
     accounts = purge_due_accounts(storage)
+    lapsed = end_grace_periods(mailer)
     if accounts:
         log.info("Housekeeping: deleted %s accounts whose deletion was due", accounts)
+    if lapsed:
+        log.info(
+            "Housekeeping: moved %s organisations to the Free plan, their payment failed for "
+            "longer than the grace period",
+            lapsed,
+        )
+    if billing_events:
+        log.info("Housekeeping: forgot %s Stripe events acted on long ago", billing_events)
     if chats:
         log.info("Housekeeping: deleted %s chats kept past their plan's retention", chats)
     if audited:
@@ -683,6 +702,18 @@ def plan_report(
         lines.append(
             f"It holds more than it allows, {', '.join(beyond)}: it keeps it all, and nothing "
             "more is added until it has room."
+        )
+    if organization.subscription_status in BILLED:
+        # Stripe's next event about it would undo a move made here, unless its terms are agreed.
+        lines.append(
+            f"It pays for a subscription at Stripe, {organization.stripe_subscription_id} "
+            f"({organization.subscription_status}), which sets its plan"
+            + (
+                ": a change made here lasts until Stripe's next event about it. Change the "
+                "subscription in Stripe's dashboard instead."
+                if managed(organization)
+                else " no longer, since its terms are agreed."
+            )
         )
     return lines
 

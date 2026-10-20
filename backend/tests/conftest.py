@@ -107,6 +107,10 @@ os.environ["METRICS_ADDRESS"] = ""
 # New passwords are checked against no breach list, which would be a request to Have I Been
 # Pwned; tests/test_passwords.py points the check at `FakePwnedPasswords`.
 os.environ["PWNED_PASSWORDS_URL"] = ""
+# Nothing is sold, whatever `.env` says; tests/test_billing.py turns billing on against
+# `FakeStripe`.
+os.environ["STRIPE_SECRET_KEY"] = os.environ["STRIPE_WEBHOOK_SECRET"] = ""
+os.environ["STRIPE_PRICES"] = ""
 # The authenticators' secrets are encrypted with development's key, whatever `.env` names;
 # tests/test_encrypted.py sets keys of its own.
 os.environ["ENCRYPTION_KEYS"] = ""
@@ -658,6 +662,118 @@ class FakePwnedPasswords:
 PWNED_ADDRESS = "https://pwned.test"
 
 
+class FakeStripe:
+    """Stands in for Stripe's API (app/payments.py): customers, Checkout sessions, portal
+    sessions and subscriptions, kept as Stripe shapes them. `requests` holds each request as
+    (method, path, form, headers); `status` makes every request fail with it; `subscribe` and
+    `complete` play what a buyer and Stripe do meanwhile."""
+
+    HOST = "api.stripe.com"
+
+    def __init__(self):
+        self.customers: dict[str, dict] = {}
+        self.checkouts: dict[str, dict] = {}
+        self.subscriptions: dict[str, dict] = {}
+        self.requests: list[tuple[str, str, dict[str, str], httpx.Headers]] = []
+        self.status = 200
+        self._numbers = iter(range(1, 1_000_000))
+
+    def _new(self, prefix: str) -> str:
+        return f"{prefix}_{next(self._numbers):04d}"
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        form = dict(parse_qsl(request.content.decode()))
+        path = request.url.path
+        self.requests.append((request.method, path, form, request.headers))
+        if self.status != 200:
+            return httpx.Response(
+                self.status, json={"error": {"type": "api_error", "message": "Something broke"}}
+            )
+        found = None
+        if (request.method, path) == ("POST", "/v1/customers"):
+            found = {"id": self._new("cus"), "object": "customer", "name": form.get("name")}
+            self.customers[found["id"]] = found
+        elif (request.method, path) == ("POST", "/v1/checkout/sessions"):
+            found = {
+                "id": self._new("cs_test"),
+                "object": "checkout.session",
+                "mode": form["mode"],
+                "customer": form.get("customer"),
+                "client_reference_id": form.get("client_reference_id"),
+                "status": "open",
+                "subscription": None,
+                "form": form,
+            }
+            found["url"] = f"https://checkout.stripe.test/{found['id']}"
+            self.checkouts[found["id"]] = found
+        elif (request.method, path) == ("POST", "/v1/billing_portal/sessions"):
+            found = {"id": self._new("bps"), "url": "https://billing.stripe.test/session"}
+        elif request.method == "GET" and path.startswith("/v1/checkout/sessions/"):
+            found = self.checkouts.get(path.rsplit("/", 1)[1])
+        elif request.method == "GET" and path.startswith("/v1/subscriptions/"):
+            found = self.subscriptions.get(path.rsplit("/", 1)[1])
+        if found is None:
+            return httpx.Response(
+                404,
+                json={"error": {"type": "invalid_request_error", "code": "resource_missing"}},
+            )
+        return httpx.Response(
+            200, json={key: value for key, value in found.items() if key != "form"}
+        )
+
+    def subscribe(
+        self,
+        customer: str,
+        price: str,
+        quantity: int = 1,
+        status: str = "active",
+        *,
+        trial_end: int | None = None,
+        period_end: int = 1_800_000_000,
+        cancel_at_period_end: bool = False,
+    ) -> dict:
+        """A subscription of `customer` to `price`, as Stripe holds it."""
+        subscription = {
+            "id": self._new("sub"),
+            "object": "subscription",
+            "customer": customer,
+            "status": status,
+            "trial_end": trial_end,
+            "cancel_at": None,
+            "cancel_at_period_end": cancel_at_period_end,
+            "items": {
+                "object": "list",
+                "data": [
+                    {
+                        "id": self._new("si"),
+                        "price": {"id": price, "object": "price"},
+                        "quantity": quantity,
+                        "current_period_end": period_end,
+                    }
+                ],
+            },
+        }
+        self.subscriptions[subscription["id"]] = subscription
+        return subscription
+
+    def complete(self, checkout_id: str, status: str = "active", **subscription) -> dict:
+        """The Checkout session paid for: its subscription made, at its price and quantity."""
+        checkout = self.checkouts[checkout_id]
+        bought = self.subscribe(
+            checkout["customer"],
+            checkout["form"]["line_items[0][price]"],
+            int(checkout["form"]["line_items[0][quantity]"]),
+            status,
+            **subscription,
+        )
+        checkout.update(status="complete", subscription=bought["id"])
+        return bought
+
+    def made(self, path: str) -> list[dict[str, str]]:
+        """The forms of the requests that posted to `path`."""
+        return [form for method, at, form, _ in self.requests if method == "POST" and at == path]
+
+
 def unsigned_jwt(claims: dict) -> str:
     """A JWT with an empty signature: the app trusts the token endpoint, not the signature."""
 
@@ -752,7 +868,7 @@ def session():
         session_.execute(
             text(
                 "TRUNCATE projects, organizations, users, spend_alerts, rate_limits, "
-                "watch_alerts RESTART IDENTITY CASCADE"
+                "watch_alerts, billing_events RESTART IDENTITY CASCADE"
             )
         )
         session_.commit()
@@ -866,10 +982,17 @@ def pwned_passwords() -> FakePwnedPasswords:
 
 
 @pytest.fixture
-def client(services, session, mailer, identity_provider, pwned_passwords):
+def stripe() -> FakeStripe:
+    return FakeStripe()
+
+
+@pytest.fixture
+def client(services, session, mailer, identity_provider, pwned_passwords, stripe):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == httpx.URL(PWNED_ADDRESS).host:
             return pwned_passwords.handler(request)
+        if request.url.host == FakeStripe.HOST:
+            return stripe.handler(request)
         return identity_provider.handler(request)
 
     http = httpx.Client(transport=httpx.MockTransport(handler))

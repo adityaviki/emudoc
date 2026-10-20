@@ -117,8 +117,19 @@ FAILED_SIGN_INS = Limit("failed_sign_in", "rate_failed_sign_ins", "failed sign-i
 # The page's error reports (app/tracking.py), which a page on a sign-in form sends too, so per
 # client address.
 PAGE_ERRORS = Limit("page_error", "rate_page_errors", "error reports")
+# A member's requests to billing (app/api/billing.py), each a session made or read at Stripe.
+BILLING = Limit("billing", "rate_billing", "billing requests")
 # Each limit's refusals are counted from zero in the metrics (app/metrics.py).
-for _limit in (UPLOADS, QUESTIONS, SEARCHES, SIGN_INS, ADDRESSES, FAILED_SIGN_INS, PAGE_ERRORS):
+for _limit in (
+    UPLOADS,
+    QUESTIONS,
+    SEARCHES,
+    SIGN_INS,
+    ADDRESSES,
+    FAILED_SIGN_INS,
+    PAGE_ERRORS,
+    BILLING,
+):
     RATE_LIMITED.labels(_limit.scope)
 
 

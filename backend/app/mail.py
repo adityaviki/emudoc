@@ -1,6 +1,8 @@
 """Email the app sends: the links that make an account, confirm an address, reset a password,
-move an account to a new address or join an organisation, and the notices that an address has
-an account already, that an account's address changed or that it is set to be deleted.
+move an account to a new address or join an organisation, the notices that an address has
+an account already, that an account's address changed or that it is set to be deleted, and to
+an organisation's owners what its subscription needs of them: a payment that failed, a trial
+about to end, a plan that lapsed (app/billing.py).
 
 There is no email provider yet. The log mailer writes each message to the log, which is enough
 to follow a link in development and never runs in production, where SMTP_URL is required
@@ -259,3 +261,72 @@ def email_changed_email(name: str, contact: str) -> tuple[str, str]:
         f"{contact} at once.\n"
     )
     return "Your email address was changed", body
+
+
+def payment_failed_email(
+    name: str,
+    organization: str,
+    plan: str | None,
+    until: str | None,
+    pay: str | None,
+    page: str,
+) -> tuple[str, str]:
+    """To an owner of an organisation whose subscription's payment failed (app/billing.py): until
+    when the plan stays, or that the organisation is on Free meanwhile, and the two ways to pay:
+    the invoice's own page at Stripe, and the payment method under Manage billing. `plan` is
+    None once the organisation is on Free."""
+    subscription = f"the {plan} plan of {organization}" if plan else f"{organization}'s plan"
+    if until is None:
+        stands = (
+            f"{organization} is on the Free plan meanwhile, keeping everything it holds, and has "
+            "its plan again once the payment is made."
+        )
+    else:
+        stands = (
+            f"{organization} keeps the {plan} plan until {until} while the payment is tried "
+            "again. If it has not been made by then, the organisation moves to the Free plan, "
+            "keeping everything it holds, until it is."
+        )
+    invoice = f"Pay the invoice here:\n\n{pay}\n\nor change" if pay else "Change"
+    body = (
+        f"{_greeting(name)}\n\n"
+        f"A payment for {subscription} on Emudoc failed. {stands}\n\n"
+        f"{invoice} the card or other payment method under Manage billing on the organisation "
+        f"page, where the payment is then tried again:\n\n{page}\n"
+    )
+    return "A payment for your Emudoc plan failed", body
+
+
+def trial_ending_email(
+    name: str, organization: str, plan: str, ends: str, cancelled: bool, page: str
+) -> tuple[str, str]:
+    """To an owner of an organisation whose trial ends in a few days (Stripe tells three days
+    ahead): what happens then, and where to change it."""
+    then = (
+        f"The subscription was cancelled, so then {organization} moves to the Free plan, keeping "
+        "everything it holds."
+        if cancelled
+        else "Then the subscription's first payment is taken with the payment method given, "
+        "and the plan goes on."
+    )
+    body = (
+        f"{_greeting(name)}\n\n"
+        f"The trial of the {plan} plan for {organization} on Emudoc ends on {ends}. {then}\n\n"
+        "To change the plan or the seats, or to cancel, open Manage billing on the "
+        f"organisation page:\n\n{page}\n"
+    )
+    return "Your Emudoc trial ends soon", body
+
+
+def plan_lapsed_email(name: str, organization: str, plan: str, page: str) -> tuple[str, str]:
+    """To an owner of an organisation that moved to the Free plan because its subscription's
+    payment kept failing."""
+    body = (
+        f"{_greeting(name)}\n\n"
+        f"The payment for the {plan} plan of {organization} on Emudoc could not be made, so the "
+        "organisation is on the Free plan now. It keeps everything it holds, but adds nothing "
+        "past what the Free plan allows.\n\n"
+        "To have the plan again, open the organisation page and pay under Manage billing, or "
+        f"choose the plan again if the subscription has ended:\n\n{page}\n"
+    )
+    return "Your organisation moved to the Free plan", body

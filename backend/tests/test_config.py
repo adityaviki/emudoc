@@ -170,6 +170,9 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "AGENT_FALLBACK_MODEL",
         "INDEX_FALLBACK_MODEL",
         "ENCRYPTION_KEYS",
+        "STRIPE_SECRET_KEY",
+        "STRIPE_WEBHOOK_SECRET",
+        "STRIPE_PRICES",
     ):
         monkeypatch.delenv(name, raising=False)
     return {
@@ -323,6 +326,52 @@ def test_a_spend_cap_without_prices_is_refused_in_production(deployment):
     # Development is told nothing: it runs with whatever it has.
     del deployment["model_prices"]
     assert load_settings(**{**deployment, "environment": "development"}).production_problems() == []
+
+
+def test_the_prices_sold_are_read_by_plan_and_a_malformed_entry_is_refused():
+    settings = Settings(
+        _env_file=None,
+        stripe_secret_key="sk_test_x",
+        stripe_prices=" pro=price_pro , team=price_team,pro=price_pro_yearly,",
+    )
+    assert settings.stripe_plans == {
+        "pro": ["price_pro", "price_pro_yearly"],
+        "team": ["price_team"],
+    }
+    # Billing off sells nothing, whatever the prices say.
+    assert Settings(_env_file=None, stripe_prices="pro=price_pro").stripe_plans == {}
+    for entry in ("free=price_free", "enterprise=price_x", "pro", "pro=", "pro=price x"):
+        with pytest.raises(ValidationError, match="STRIPE_PRICES lists the Stripe prices"):
+            Settings(_env_file=None, stripe_prices=entry)
+    with pytest.raises(ValidationError, match="price_a is listed twice"):
+        Settings(_env_file=None, stripe_prices="pro=price_a,team=price_a")
+
+
+def test_production_bills_only_with_the_key_the_webhook_and_something_to_sell(deployment):
+    billing = {
+        "stripe_secret_key": "rk_live_x",
+        "stripe_webhook_secret": "whsec_x",
+        "stripe_prices": "pro=price_pro,team=price_team",
+    }
+    assert load_settings(**deployment, **billing).production_problems() == []
+    for left_out, said in (
+        ("stripe_secret_key", "STRIPE_SECRET_KEY is not, so nothing can be sold"),
+        ("stripe_webhook_secret", "what is bought would never reach the app"),
+        ("stripe_prices", "STRIPE_PRICES is not set, so there is nothing to sell"),
+    ):
+        with pytest.raises(SystemExit) as stop:
+            load_settings(**deployment, **{**billing, left_out: ""})
+        assert said in stop.value.code
+    for name, value, said in (
+        ("stripe_secret_key", "pk_live_x", "the publishable key, pk_, cannot sell anything"),
+        ("stripe_webhook_secret", "we_x", "STRIPE_WEBHOOK_SECRET is not a webhook endpoint's"),
+    ):
+        with pytest.raises(SystemExit) as stop:
+            load_settings(**deployment, **{**billing, name: value})
+        assert said in stop.value.code and value not in stop.value.code
+    # Development is told nothing: it bills with whatever it has.
+    development = {**deployment, "environment": "development", "stripe_secret_key": "sk_test_x"}
+    assert load_settings(**development).production_problems() == []
 
 
 def test_production_runs_without_a_scanner_only_when_told_to(deployment):

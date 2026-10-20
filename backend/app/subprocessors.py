@@ -125,7 +125,7 @@ def subprocessors(
     """The companies the deployment configured by `settings` hands its users' data to: who
     hosts it, then the bucket (`storage`, by the origin its signed URLs lead to; a directory is
     the deployment's own), the models, the embeddings endpoint, the mail relay, the error
-    tracker, the breached-password check and the sign-in providers.
+    tracker, the breached-password check, the payment provider and the sign-in providers.
 
     `environ` is where the model libraries read an address that moves a provider
     (`MODEL_BASE_URLS`) and Vertex AI its location, after `export_env_file` has copied `.env`
@@ -194,6 +194,18 @@ def subprocessors(
                 "that none of those is chosen.",
                 "The first five characters of the SHA-1 hash of each new password, which "
                 "hundreds of passwords share. It receives no password, account or email address.",
+            )
+        )
+    if settings.stripe_secret_key:
+        tax = " and works out the tax due" if settings.stripe_tax else ""
+        found.append(
+            Subprocessor(
+                "Stripe",
+                "Takes the payments for the paid plans, keeps the payment details and issues "
+                f"the invoices{tax}.",
+                "The organisation's name and its subscription, the email address of the owner "
+                "who buys, the billing address and VAT id given at checkout, and the payment "
+                "details. It receives no documents.",
             )
         )
     for provider in providers(settings).values():

@@ -16,7 +16,7 @@ belongs to an organisation, and the organisation's plan, with the seats it bough
 agreed with it in the plan's place, sets how much it may keep and use: projects, documents,
 pages read, questions asked, members, and how long chats are kept. The service tells you when
 a limit is reached.
-
+$paid_plans
 ## 2. Your account
 
 Give your name and an email address you control, keep your password and your authenticator to

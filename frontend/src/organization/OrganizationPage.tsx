@@ -1,18 +1,19 @@
-// The organisation the user works in: its name and region, what its plan lets it keep and use, its members, their roles and
-// removing them, handing it over to another of them, the invitations its owners and admins send
+// The organisation the user works in: its name and region, what its plan lets it keep and use and buying one, its members,
+// their roles and removing them, handing it over to another of them, the invitations its owners and admins send
 // and the domains whose addresses may join it, and leaving it; the user's other organisations to switch to and those
 // open to them; and the page that starts a new one. A switch, a join, a new organisation and
 // leaving one start the app again in the organisation the session then works in
 // (`startAgainInOrganization` in auth.ts).
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, LogOut, Plus, UserMinus, UserPlus } from 'lucide-react'
-import { useState } from 'react'
+import { Check, CreditCard, LogOut, Plus, UserMinus, UserPlus } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { PLAN_LABELS, REGION_NAMES, ROLES, ROLE_LABELS, isPlanLimit, isWithin, organizations } from '../api.ts'
-import type { Allowance, Invitation, JoinRole, Me, Member, Role } from '../api.ts'
+import type { Allowance, Invitation, JoinRole, Me, Member, Role, SoldPlan } from '../api.ts'
 import { setSignedIn, startAgainInOrganization, useMe } from '../auth.ts'
+import { describeBilling, mayBuy } from '../billing.ts'
 import { PasswordField } from '../account/shared.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, Chip, FIELD, InputField, Loading, Notice, Row, Section, SelectField } from '../components/ui.tsx'
@@ -101,9 +102,9 @@ function NameSection({ me }: { me: Me }) {
 
 // What the organisation may keep and use, as the server holds it to them
 // (backend/app/entitlements.py): its plan's figures, the seats it bought on a plan sold by the
-// seat, and any figure agreed with it in the plan's place.
+// seat, and any figure agreed with it in the plan's place; and how its subscription stands.
 function PlanSection({ me }: { me: Me }) {
-  const { plan, seats, allowance, chat_retention_days: keptFor } = me.organization
+  const { plan, seats, allowance, chat_retention_days: keptFor, billing } = me.organization
   const figure = (value: number | null, words: (value: number) => string = (n) => n.toLocaleString()) =>
     value === null ? 'No limit' : words(value)
   const monthly = (n: number) => `${n.toLocaleString()} a month`
@@ -113,14 +114,22 @@ function PlanSection({ me }: { me: Me }) {
         <Chip>Agreed</Chip>
       </span>
     )
+  const sells = billing.sold.length > 0 && billing.managed
+  const standing = describeBilling(billing, formatDate)
+  const tones = { good: 'text-good', warn: 'text-warn', bad: 'text-bad' }
 
   return (
     <Section
       title="Plan"
-      description="What the organisation may keep and use, counted across its projects and members. Pages and questions start afresh on the first of each month, in UTC. Contact the Emudoc team to change the plan."
+      description={`What the organisation may keep and use, counted across its projects and members. Pages and questions start afresh on the first of each month, in UTC. ${sells ? 'Its owners buy and change the plan here.' : 'Contact the Emudoc team to change the plan.'}`}
     >
       <dl className="divide-y divide-line border-t border-line">
         <Row label="Plan">{PLAN_LABELS[plan]}</Row>
+        {standing && (
+          <Row label="Subscription">
+            <span className={tones[standing.tone]}>{standing.text}</span>
+          </Row>
+        )}
         <Row label="Projects">
           {figure(allowance.projects)}
           {agreed('projects')}
@@ -150,7 +159,106 @@ function PlanSection({ me }: { me: Me }) {
           {agreed('retention_days')}
         </Row>
       </dl>
+      {sells && <BillingActions me={me} />}
     </Section>
+  )
+}
+
+// Buying a plan on Stripe's Checkout page, managing it on Stripe's customer portal, and the way
+// back from Checkout, whose session the server asks Stripe about (backend/app/api/billing.py).
+// Both pages are Stripe's: the browser goes to the address the server gives.
+function BillingActions({ me }: { me: Me }) {
+  const queryClient = useQueryClient()
+  const { billing, seats: bought } = me.organization
+  const [params, setParams] = useSearchParams()
+  const returned = params.get('checkout')
+  const members = useQuery({ queryKey: MEMBERS_KEY, queryFn: organizations.members })
+  // The seats to buy, the members the organisation has until the owner types a number.
+  const [seats, setSeats] = useState<string | null>(null)
+  const seatCount = seats ?? String(bought ?? Math.max(1, members.data?.length ?? 1))
+  const away = ({ url }: { url: string }) => window.location.assign(url)
+  const buy = useMutation({
+    mutationFn: (plan: SoldPlan) => organizations.checkout(plan === 'team' ? { plan, seats: Number(seatCount) } : { plan }),
+    onSuccess: away,
+  })
+  const manage = useMutation({ mutationFn: organizations.billingPortal, onSuccess: away })
+  const done = useMutation({
+    mutationFn: organizations.checkoutDone,
+    onSuccess: (account) => setSignedIn(queryClient, account),
+  })
+  const { mutate: finish } = done
+
+  useEffect(() => {
+    if (returned) {
+      finish(returned)
+      setParams({}, { replace: true })
+    }
+  }, [returned, finish, setParams])
+
+  const owner = me.role === 'owner'
+  // Stripe's page is loading once an address came back: nothing is offered twice meanwhile.
+  const leaving = buy.isPending || manage.isPending || buy.isSuccess || manage.isSuccess
+  const error = buy.error ?? manage.error
+
+  return (
+    <div className="mt-4 space-y-3">
+      {done.isPending && <Notice tone="info">Asking Stripe about the payment…</Notice>}
+      {done.isSuccess && <Notice tone="info">Thank you: the organisation is on the {PLAN_LABELS[done.data.organization.plan]} plan.</Notice>}
+      {done.isError && <Notice tone="bad">{done.error.message}</Notice>}
+      {error && <Notice tone="bad">{error.message}</Notice>}
+      {!owner ? (
+        <p className="text-[13px] text-muted">Only its owners buy a plan or manage its billing.</p>
+      ) : (
+        <>
+          {mayBuy(billing) && (
+            <>
+              {billing.trial_days !== null && (
+                <p className="text-[13px] text-muted">
+                  A plan bought now starts with a {billing.trial_days}-day trial, and is charged when the trial ends unless it is cancelled first.
+                </p>
+              )}
+              <div className="flex flex-wrap items-end gap-3">
+                {billing.sold.includes('pro') && (
+                  <Button variant="primary" disabled={leaving} onClick={() => buy.mutate('pro')}>
+                    Buy Pro
+                  </Button>
+                )}
+                {billing.sold.includes('team') && (
+                  <>
+                    <InputField
+                      label="Seats"
+                      type="number"
+                      min={1}
+                      max={10000}
+                      className="w-24"
+                      value={seatCount}
+                      onChange={(event) => setSeats(event.target.value)}
+                    />
+                    <Button
+                      variant={billing.sold.includes('pro') ? 'secondary' : 'primary'}
+                      disabled={leaving || !(Number(seatCount) >= 1)}
+                      onClick={() => buy.mutate('team')}
+                    >
+                      Buy Team
+                    </Button>
+                  </>
+                )}
+              </div>
+            </>
+          )}
+          {billing.customer && (
+            <div>
+              <Button icon={<CreditCard className="size-4" />} disabled={leaving} onClick={() => manage.mutate()}>
+                Manage billing
+              </Button>
+              <p className="mt-1.5 text-[13px] text-muted">
+                The plan, the seats, the payment method, the billing address and VAT id, cancelling, and the invoices, on Stripe’s page.
+              </p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
   )
 }
 

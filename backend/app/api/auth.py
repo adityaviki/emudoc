@@ -71,6 +71,7 @@ from app.api.deps import (
     refuse_past,
 )
 from app.audit import audit, audit_sign_in
+from app.billing import PAST_DUE, grace_end, managed, sold, subscription_refusal, trial_days
 from app.config import get_settings
 from app.entitlements import agreed_with, entitlements_of, seats_of
 from app.export import account_export
@@ -122,6 +123,7 @@ from app.schemas import (
     AccountExport,
     AllowanceOut,
     AuthOptions,
+    BillingOut,
     CodeIn,
     EmailChangeIn,
     EmailIn,
@@ -287,7 +289,7 @@ def signup(
         subject, text = sign_up_email(mailed_link(request, SIGNUP_PAGE, token))
     else:
         subject, text = account_exists_email(
-            user.name, f"{_app_url(request)}{LOGIN_PAGE}", f"{_app_url(request)}{FORGOT_PAGE}"
+            user.name, f"{app_url(request)}{LOGIN_PAGE}", f"{app_url(request)}{FORGOT_PAGE}"
         )
     background.add_task(send_quietly, mailer, email, subject, text)
 
@@ -620,7 +622,7 @@ def request_email_change(
         token = auth.issue_link_token(session, user, "change_email", email, auth.VERIFY_LINK_TTL)
         subject, text = email_change_email(user.name, mailed_link(request, EMAIL_PAGE, token))
     else:
-        subject, text = address_taken_email(holder.name, f"{_app_url(request)}{LOGIN_PAGE}")
+        subject, text = address_taken_email(holder.name, f"{app_url(request)}{LOGIN_PAGE}")
     audit(session, account, request, "email_change_requested")
     session.commit()
     background.add_task(send_quietly, mailer, email, subject, text)
@@ -836,7 +838,7 @@ def delete_account(
     if account.session_id is None:
         raise HTTPException(409, LOCAL_ACCOUNT)
     confirm_account(session, account, request, body.password, body.email)
-    if refusal := deletion_refusal(session, user):
+    if refusal := deletion_refusal(session, user) or subscription_refusal(session, user):
         raise HTTPException(409, refusal)
     user.deletion_due_at = auth.now() + DELETION_GRACE
     auth.revoke_sessions(session, user.id, except_id=account.session_id)
@@ -851,7 +853,7 @@ def delete_account(
     subject, text = account_deletion_email(
         user.name,
         day(user.deletion_due_at, zone_of(user.time_zone)),
-        f"{_app_url(request)}{LOGIN_PAGE}",
+        f"{app_url(request)}{LOGIN_PAGE}",
     )
     # The deletion is set either way, and the next sign-in shows it; a relay that is down
     # is logged by the mailer.
@@ -1095,7 +1097,7 @@ def _provider(name: str) -> Provider:
 
 
 def _redirect_uri(request: Request, provider: Provider) -> str:
-    return f"{_app_url(request)}/api/auth/oauth/{provider.name}/callback"
+    return f"{app_url(request)}/api/auth/oauth/{provider.name}/callback"
 
 
 def _back_to_login(request: Request, **params: str) -> RedirectResponse:
@@ -1146,10 +1148,30 @@ SHOWN = (*AllowanceOut.model_fields.keys() - {"agreed"}, "retention_days")
 
 
 def organization_out(organization: Organization) -> OrganizationOut:
-    """The organisation as the page shows it, with what it may keep and use."""
+    """The organisation as the page shows it, with what it may keep and use and how it buys
+    its plan."""
     entitlements = entitlements_of(organization)
+    settings = get_settings()
+    on_sale = list(sold(settings))
+    failed = organization.payment_failed_at
     return OrganizationOut.model_validate(organization).model_copy(
         update={
+            "billing": BillingOut(
+                sold=on_sale,
+                managed=managed(organization),
+                status=organization.subscription_status,
+                trial_ends_at=organization.trial_ends_at,
+                renews_at=organization.renews_at,
+                ends_at=organization.ends_at,
+                payment_failed_at=failed,
+                grace_ends_at=(
+                    grace_end(organization, settings)
+                    if failed and organization.subscription_status == PAST_DUE
+                    else None
+                ),
+                customer=organization.stripe_customer_id is not None,
+                trial_days=trial_days(settings, organization) if on_sale else None,
+            ),
             "seats": seats_of(organization),
             "chat_retention_days": entitlements.retention_days,
             "allowance": AllowanceOut(
@@ -1227,7 +1249,7 @@ def _failed(
                 user.name,
                 allowed,
                 _clock(window_end(FAILED_SIGN_INS), user),
-                f"{_app_url(request)}{FORGOT_PAGE}",
+                f"{app_url(request)}{FORGOT_PAGE}",
             )
             background.add_task(send_quietly, mailer, user.email, subject, text)
     session.commit()
@@ -1325,7 +1347,9 @@ def _constraint(error: IntegrityError) -> str | None:
     return getattr(diagnostics, "constraint_name", None)
 
 
-def _app_url(request: Request) -> str:
+def app_url(request: Request) -> str:
+    """Where members reach the app, for a link to one of its pages: APP_URL, or in development
+    the origin the request came to."""
     return get_settings().app_url.rstrip("/") or str(request.base_url).rstrip("/")
 
 
@@ -1334,7 +1358,7 @@ def mailed_link(request: Request, page: str, token: str) -> str:
     never sends a fragment, so the token reaches neither the access log nor a proxy's, which a
     query would, and a reset token there signs in within its hour (`useLinkToken` in
     frontend/src/account/linkToken.ts)."""
-    return f"{_app_url(request)}{page}#token={quote(token)}"
+    return f"{app_url(request)}{page}#token={quote(token)}"
 
 
 def _send_verification(session: Session, user: User, request: Request, mailer: Mailer) -> None:

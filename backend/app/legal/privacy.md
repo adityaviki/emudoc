@@ -56,15 +56,15 @@ We send you email only about your account: to confirm your address or a new one,
 address when it was replaced or when another account asked to take it, to reset your password,
 to tell you when sign-ins to it were paused after many wrong passwords, and to confirm that you
 asked for your account to be deleted; and to an address a member of an organisation invited,
-the invitation. We send no marketing, show no
-advertising, sell no personal data and build no profile of you.
+the invitation.$billing_mail We send no marketing, show no advertising, sell no personal data
+and build no profile of you.
 
 ## Who receives it
 
 - **The companies that run the service with us** receive what each needs for its part: the host
   of our servers and database, the AI model providers that read the documents and answer the
-  questions, and, where used, the file storage, the email relay, the error tracker and the
-  sign-in providers. The [subprocessor list](/subprocessors) names each company, what it
+  questions, and, where used, the file storage, the email relay, the error tracker, the payment
+  provider and the sign-in providers. The [subprocessor list](/subprocessors) names each company, what it
   receives and, where known, where it handles it; it is read from the service's own settings,
   so it is always current.
   $models
@@ -103,7 +103,7 @@ $region
   usage and audit log entries about you stay with the organisation without your name and your
   IP addresses.
 - **Backups**: $backups
-$connection_retention
+$more_retention
 
 ## Cookies and storage in your browser
 

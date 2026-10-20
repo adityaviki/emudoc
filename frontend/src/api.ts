@@ -329,6 +329,8 @@ export interface Organization {
   seats: number | null
   /** What it may keep and use: its plan's, its seats and what was agreed with it in their place (backend/app/entitlements.py). */
   allowance: Allowance
+  /** How it buys its plan through Stripe (backend/app/billing.py). */
+  billing: Billing
   /** The region its data is kept in, null when the deployment promised none as it was created. */
   region: Region | null
   /** How many days a chat is kept after its last question, null for good. */
@@ -336,6 +338,29 @@ export interface Organization {
   /** The domains whose confirmed addresses may join it, and the role they join with (backend/app/invitations.py). */
   join_domains: string[]
   join_role: JoinRole
+}
+
+/** The plans an owner may buy for the organisation; Free is every organisation's, and Enterprise is agreed. */
+export type SoldPlan = 'pro' | 'team'
+
+/** How an organisation buys its plan, as Stripe last said of its subscription. */
+export interface Billing {
+  /** The plans the deployment sells, empty while billing is off. */
+  sold: SoldPlan[]
+  /** Whether its subscription sets its plan: not when its terms were agreed with the operator. */
+  managed: boolean
+  /** Stripe's word for its subscription (trialing, active, past_due, canceled, unpaid, …), null before it had one. */
+  status: string | null
+  trial_ends_at: string | null
+  renews_at: string | null
+  ends_at: string | null
+  /** Since when a payment has failed, and when the plan stops waiting for it. */
+  payment_failed_at: string | null
+  grace_ends_at: string | null
+  /** Whether it is a customer at Stripe, whose billing an owner can manage. */
+  customer: boolean
+  /** The days of trial a plan bought now starts with, null for none. */
+  trial_days: number | null
 }
 
 /** What an organisation may keep and use, null for no limit. */
@@ -505,6 +530,9 @@ export type AuditAction =
   | 'plan_changed'
   | 'seats_changed'
   | 'entitlements_changed'
+  | 'checkout_started'
+  | 'subscription_changed'
+  | 'payment_failed'
   | 'organization_created'
   | 'organization_renamed'
   | 'ownership_transferred'
@@ -785,6 +813,14 @@ export const organizations = {
   setJoining: (body: { domains: string[]; role: JoinRole }) => request<Me>('/organization/joining', json('PUT', body)),
   /** One of `me.joinable`. */
   join: (id: number) => request<Me>(`/organizations/${id}/join`, { method: 'POST' }),
+  /** Owners only: the address of Stripe's Checkout page that sells the plan, with seats on Team. */
+  checkout: (body: { plan: SoldPlan; seats?: number }) =>
+    request<{ url: string }>('/organization/billing/checkout', json('POST', body)),
+  /** The organisation on the plan the Checkout session it came back from bought. */
+  checkoutDone: (checkoutId: string) =>
+    request<Me>('/organization/billing/checkout/done', json('POST', { checkout_id: checkoutId })),
+  /** Owners only: the address of Stripe's customer portal for the organisation. */
+  billingPortal: () => request<{ url: string }>('/organization/billing/portal', { method: 'POST' }),
 }
 
 export const api = {

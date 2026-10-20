@@ -449,6 +449,47 @@ class AllowanceOut(BaseModel):
     agreed: list[str]
 
 
+class BillingOut(BaseModel):
+    """How the organisation buys its plan (app/billing.py), for the organisation page."""
+
+    # The plans the deployment sells, in the order of the plans; empty while billing is off.
+    sold: list[str]
+    # Whether billing moves its plan: not when its terms were agreed with the operator.
+    managed: bool
+    # What Stripe last said of its subscription (trialing, active, past_due, canceled, unpaid,
+    # …), None before it had one; when its trial ends, when it renews or ends, since when a
+    # payment has failed, and when the plan stops waiting for that payment.
+    status: str | None
+    trial_ends_at: dt.datetime | None
+    renews_at: dt.datetime | None
+    ends_at: dt.datetime | None
+    payment_failed_at: dt.datetime | None
+    grace_ends_at: dt.datetime | None
+    # Whether it is a customer at Stripe, whose billing an owner can manage.
+    customer: bool
+    # The days of trial a subscription bought now starts with, None for none.
+    trial_days: int | None
+
+
+class CheckoutIn(BaseModel):
+    """The plan an owner buys, with its seats on the Team plan, sold by the seat."""
+
+    plan: Literal["pro", "team"]
+    seats: int | None = Field(None, ge=1, le=10_000)
+
+
+class CheckoutDoneIn(BaseModel):
+    """The Checkout session an owner came back from, as Stripe named it in the address."""
+
+    checkout_id: str = Field(max_length=255, pattern=r"^cs_[A-Za-z0-9_]+$")
+
+
+class RedirectOut(BaseModel):
+    """A page of Stripe's to send the owner to."""
+
+    url: str
+
+
 class OrganizationOut(_FromORM):
     id: int
     name: str
@@ -459,6 +500,7 @@ class OrganizationOut(_FromORM):
     # The members it bought, on a plan sold by the seat; None otherwise.
     seats: int | None = None
     allowance: AllowanceOut | None = None
+    billing: BillingOut | None = None
     # The region its data is kept in, as DATA_REGION names it (eu, us), None when the
     # deployment promised none as it was created (app/residency.py).
     region: str | None

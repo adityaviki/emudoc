@@ -52,6 +52,13 @@ SCANNER_URL_FORMS = (
     "this machine, clamd:///run/clamav/clamd.ctl; `off` runs without scanning"
 )
 SCANNER_OFF = "off"
+STRIPE_PRICES_FORM = (
+    "STRIPE_PRICES lists the Stripe prices sold, as plan=price separated by commas, such as "
+    "pro=price_1Pro,team=price_1Team, each plan pro or team"
+)
+# The plans an organisation may buy for itself (app/billing.py holds them to app/entitlements.py):
+# Free is what every organisation has, and Enterprise's terms are agreed, not bought.
+SOLD_PLANS = ("pro", "team")
 CLAMD_PORT = 3310
 # The work a model does: indexing (INDEX_MODEL: sections, summaries, facts, scans) or answering
 # (AGENT_MODEL: the Ask tab's agent), each with its fallback.
@@ -144,6 +151,23 @@ def parse_model_prices(text: str) -> dict[str, ModelPrice]:
             # A Decimal that cannot be read raises an ArithmeticError, not a ValueError.
             raise ValueError(f"{MODEL_PRICES_FORM}; {entry!r} is not of that form.") from None
         prices[model] = ModelPrice(input_price, output_price)
+    return prices
+
+
+@lru_cache
+def parse_stripe_prices(text: str) -> dict[str, list[str]]:
+    """The prices STRIPE_PRICES lists, by plan, in the order listed: the first of each is what
+    Checkout sells."""
+    prices: dict[str, list[str]] = {}
+    seen: set[str] = set()
+    for entry in filter(None, (part.strip() for part in text.split(","))):
+        plan, equals, price = (part.strip() for part in entry.partition("="))
+        if not equals or plan not in SOLD_PLANS or not re.fullmatch(r"[A-Za-z0-9_]+", price):
+            raise ValueError(f"{STRIPE_PRICES_FORM}; {entry!r} is not of that form.")
+        if price in seen:
+            raise ValueError(f"{STRIPE_PRICES_FORM}; {price} is listed twice.")
+        seen.add(price)
+        prices.setdefault(plan, []).append(price)
     return prices
 
 
@@ -437,6 +461,9 @@ class Settings(BaseSettings):
     # a page that fails again on every load reports each time, and nothing else holds a script
     # back from filling the log and the tracker with reports.
     rate_page_errors: int = Field(default=10, ge=0)
+    # Requests a minute per member to billing (app/api/billing.py): each starts a Checkout or a
+    # customer portal session at Stripe, or reads one back.
+    rate_billing: int = Field(default=10, ge=0)
     # Whether this process runs the background worker (app/worker.py) as well. Unset, it does
     # in development, so that one `uvicorn` indexes what it serves, and does not in production,
     # where the deployment runs `python -m app.worker` as its own process and scales it apart
@@ -469,6 +496,29 @@ class Settings(BaseSettings):
     # (deploying.md, "The encryption keys"). Empty is development's own key, which is in the
     # code and which production refuses.
     encryption_keys: str = ""
+
+    # Billing through Stripe (app/billing.py; deploying.md, "Billing"): the account's secret key,
+    # sk_live_… (sk_test_… on staging), or a restricted rk_… one, and the signing secret, whsec_…,
+    # of the webhook endpoint that sends Stripe's events to {APP_URL}/api/billing/events. Both
+    # are secrets. Empty, nothing is sold: the organisation page offers no plan, and the
+    # operator's `plan` command is how an organisation moves.
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    # The Stripe prices sold, as plan=price separated by commas, a plan pro or team: the first of
+    # each plan is what Checkout sells, and every one listed is read back as its plan, so a
+    # yearly price or one in another currency that the customer portal may switch to goes here
+    # too. Team's is a price per seat, the subscription's quantity its seats.
+    stripe_prices: str = ""
+    # The days of trial an organisation's first subscription starts with, charged only at its
+    # end; zero starts none.
+    stripe_trial_days: int = Field(default=14, ge=0)
+    # Whether Checkout works out the tax due where the buyer is (Stripe Tax), which needs the
+    # deployment's tax registrations in Stripe's dashboard first.
+    stripe_tax: bool = False
+    # The days a subscription whose payment failed keeps its plan while Stripe tries again and
+    # the owners are told; past them the organisation moves to the Free plan, keeping all it
+    # holds, until the payment is made. Zero moves it at the first failure.
+    billing_grace_days: int = Field(default=14, ge=0)
 
     # Verification and password-reset mail. Empty SMTP_URL writes the messages to the log,
     # which is enough to click the links in development. Otherwise smtp://user:pass@host:587
@@ -547,6 +597,22 @@ class Settings(BaseSettings):
     def _lists_prices(cls, value: str) -> str:
         parse_model_prices(value)
         return value
+
+    @field_validator("stripe_prices")
+    @classmethod
+    def _lists_stripe_prices(cls, value: str) -> str:
+        parse_stripe_prices(value)
+        return value
+
+    @field_validator("stripe_secret_key", "stripe_webhook_secret", mode="before")
+    @classmethod
+    def _trimmed_secret(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @property
+    def stripe_plans(self) -> dict[str, list[str]]:
+        """The Stripe prices sold, by plan (STRIPE_PRICES); empty while billing is off."""
+        return parse_stripe_prices(self.stripe_prices) if self.stripe_secret_key else {}
 
     @property
     def prices(self) -> dict[str, ModelPrice]:
@@ -852,6 +918,42 @@ class Settings(BaseSettings):
             problems.append(
                 f"DAILY_SPEND_CAP is set, but MODEL_PRICES has no price for {listing(unpriced)}, "
                 "so what it answers would count nothing against the cap; add its price."
+            )
+        problems += self._billing_problems()
+        return problems
+
+    def _billing_problems(self) -> list[str]:
+        """What stops billing from working, once any of its settings is given: Checkout needs
+        the key and something to sell, and nothing bought reaches the app without the webhook's
+        secret. Neither key is quoted, nor its start beyond its kind."""
+        if not (self.stripe_secret_key or self.stripe_webhook_secret or self.stripe_prices):
+            return []
+        problems = []
+        if not self.stripe_secret_key:
+            problems.append(
+                "STRIPE_WEBHOOK_SECRET or STRIPE_PRICES is set, but STRIPE_SECRET_KEY is not, so "
+                "nothing can be sold; set the Stripe account's secret key, or remove the others."
+            )
+        elif not self.stripe_secret_key.startswith(("sk_", "rk_")):
+            problems.append(
+                "STRIPE_SECRET_KEY is not a secret key, which starts sk_ (or rk_ for a "
+                "restricted one); the publishable key, pk_, cannot sell anything."
+            )
+        if not self.stripe_webhook_secret:
+            problems.append(
+                "STRIPE_WEBHOOK_SECRET is not set, so what is bought would never reach the app: "
+                "make the webhook endpoint {APP_URL}/api/billing/events in Stripe's dashboard and "
+                'set its signing secret (deploying.md, "Billing").'
+            )
+        elif not self.stripe_webhook_secret.startswith("whsec_"):
+            problems.append(
+                "STRIPE_WEBHOOK_SECRET is not a webhook endpoint's signing secret, which starts "
+                "whsec_."
+            )
+        if not self.stripe_prices:
+            problems.append(
+                "STRIPE_PRICES is not set, so there is nothing to sell; list the prices of the "
+                "Pro and Team plans, as pro=price_…,team=price_…."
             )
         return problems
 

@@ -17,6 +17,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api import (
     audit,
     auth,
+    billing,
     chats,
     documents,
     folders,
@@ -33,9 +34,10 @@ from app.api.deps import (
     refuse_cross_site,
     refuse_past,
 )
+from app.billing import BillingRefused
 from app.config import ROOT_DIR, get_settings
 from app.db import BUSY, TOO_SLOW, canceled, engine
-from app.errors import summary
+from app.errors import shown, summary
 from app.headers import (
     ASSETS_KEPT,
     PAGE_KEPT,
@@ -48,6 +50,7 @@ from app.legal import TERMS_VERSION, privacy_policy, published, terms_of_service
 from app.logs import REQUEST_ID_HEADER, RequestIds, configure_logging, current_context
 from app.mail import Mailer, mailer_from_settings
 from app.metrics import POOL_TIMEOUTS, HttpMetrics, export_metrics
+from app.payments import PaymentsError
 from app.ratelimit import PAGE_ERRORS, by_address
 from app.schemas import (
     EmbeddingStatus,
@@ -264,6 +267,21 @@ def storage_unavailable(request: Request, error: Exception) -> JSONResponse:
     return JSONResponse({"detail": STORAGE_DOWN}, status_code=503)
 
 
+def billing_unavailable(request: Request, error: Exception) -> JSONResponse:
+    """A request to Stripe that failed mid-request: 503 and the members' sentence, and in the log
+    the operator's, which names the call and Stripe's codes. Stripe delivers an event it was
+    answered so again."""
+    log.warning("%s %s failed: %s", request.method, request.url.path, error)
+    development = get_settings().environment == "development"
+    return JSONResponse({"detail": shown(error, development=development)}, status_code=503)
+
+
+def billing_refused(request: Request, error: Exception) -> JSONResponse:
+    """What billing turns down (app/billing.py), with its status and sentence."""
+    assert isinstance(error, BillingRefused)
+    return JSONResponse({"detail": str(error)}, status_code=error.status)
+
+
 def pool_exhausted(request: Request, error: Exception) -> JSONResponse:
     """Every database connection this process may hold was in use for DB_POOL_TIMEOUT seconds.
 
@@ -383,6 +401,8 @@ def create_app(
     )
     app.add_exception_handler(RequestValidationError, invalid_request)
     app.add_exception_handler(StorageError, storage_unavailable)
+    app.add_exception_handler(PaymentsError, billing_unavailable)
+    app.add_exception_handler(BillingRefused, billing_refused)
     app.add_exception_handler(PoolTimeout, pool_exhausted)
     app.add_exception_handler(OperationalError, statement_canceled)
     app.add_exception_handler(Exception, unexpected_error)
@@ -406,8 +426,12 @@ def create_app(
         query.router,
         chats.router,
         audit.router,
+        billing.router,
     ):
         app.include_router(router, prefix="/api", dependencies=[Depends(refuse_cross_site)])
+    # Stripe's events carry no header of the app's: their signature proves where they came from
+    # (app/api/billing.py).
+    app.include_router(billing.events, prefix="/api")
 
     if FRONTEND_DIST.is_dir():
         # Serve the built frontend; unknown paths fall back to index.html for client routing.

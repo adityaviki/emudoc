@@ -595,7 +595,7 @@ class Worker:
         delay = HOUSEKEEPING_DELAY
         while not self._stop.wait(delay):
             try:
-                housekeeping(self._services.storage)
+                housekeeping(self._services.storage, self._mailer)
             except Exception:
                 # A storage or database that is unreachable now may be back by the next round;
                 # the thread stays alive for it.

@@ -1325,6 +1325,82 @@ to them without undue delay. The app sets only the two cookies the policy names,
 for it to work, and loads nothing from other sites, so it shows no cookie banner; anything that
 adds an analytics or tracking cookie needs one, and a line in the policy.
 
+## Billing
+
+With `STRIPE_SECRET_KEY` set the app sells its Pro and Team plans through Stripe
+(`backend/app/billing.py`); without it nothing is sold, and `python -m app.maintenance plan`
+moves organisations, as before. An owner buys a plan on the organisation page, which sends them
+to Stripe's Checkout page and back, and behind "Manage billing" changes the plan or the seats,
+the payment method, the billing address and VAT id, cancels and finds the invoices, on
+Stripe's customer portal. Nothing of Stripe's loads on the app's pages, so the content security
+policy is as it was. While it is set, Stripe is on the subprocessor list, the terms of service
+gain the paid plans' paragraph (the trial, renewal, cancellation, refunds and a failed payment,
+with the days the settings give) and the privacy policy the billing records.
+
+What sets an organisation's plan is its subscription as Stripe holds it: the plan its price is
+listed under in `STRIPE_PRICES`, with its quantity as Team's seats, while it is in its trial or
+paid, and while a payment has failed for fewer than `BILLING_GRACE_DAYS`; Free once it ends, is
+left unpaid, its trial ends without a payment method, or the grace period is over (the
+housekeeper's round moves those, every six hours, and so does the next failed payment). The
+organisation keeps all it holds past Free's limits and adds nothing until it has room; paid
+again, it has its plan again. Stripe's events only say when to ask: the webhook acts on each
+once (`billing_events`, kept a month) and reads the subscription it names from Stripe, so an
+event that comes late or twice changes nothing. An organisation on Enterprise, or with figures
+agreed with it (`plan --set`), is the operator's: its subscription is recorded and its plan
+left alone. The `plan` command says when an organisation pays for a subscription, since
+Stripe's next event about it would undo a move made there. An organisation's first subscription
+starts with a trial of `STRIPE_TRIAL_DAYS` (14), its card taken at Checkout and charged when the
+trial ends. An account whose only organisation, which would go with it, has a subscription that
+still renews cannot be deleted until it is cancelled.
+
+The owners are mailed at each failed payment, with the day the plan stops waiting and the
+invoice's own page to pay it on; three days before a trial ends; and when the organisation moved
+to Free for want of a payment. Each step is in the audit log: `checkout_started` by the owner,
+and by the app `subscription_changed` (the status before and after), `payment_failed` and
+`plan_changed` and `seats_changed` with `because` (`subscription`, `subscription_ended`,
+`grace_ended`).
+
+### Setting it up
+
+In Stripe's dashboard, in a sandbox or test mode first (staging), then live:
+
+1. Products and prices: Pro with a recurring price (monthly, and a yearly one too if it is
+   offered), and Team with a recurring price per unit, the unit a seat. `STRIPE_PRICES` lists
+   them as `pro=price_…,team=price_…`: the first of each plan is what Checkout sells, and the
+   others are prices the portal may switch a subscription to, read back as their plan. A
+   subscription at a price not listed keeps the organisation's plan as it is, and the log says
+   so.
+2. A webhook endpoint at `{APP_URL}/api/billing/events`, made with the API version the app
+   names in every request (`API_VERSION` in `backend/app/payments.py`, `2026-09-30.endive`),
+   sending `checkout.session.completed`, `customer.subscription.created`, `.updated`,
+   `.deleted`, `.paused`, `.resumed` and `.trial_will_end`, and `invoice.payment_failed`. Its
+   signing secret is `STRIPE_WEBHOOK_SECRET`. The route takes no cross-site header and counts no
+   rate: Stripe's signature over the body proves it, and a request without it is 400.
+3. The customer portal: let customers update the payment method, the billing address and tax
+   ID, see their invoices, cancel at the end of the period, and switch between the plans'
+   prices and change Team's quantity. Save it once in each mode, or it does not open.
+4. The public details: the terms of service's address, `{APP_URL}/terms`. Checkout asks whoever
+   pays to accept them, which covers the paid plans' paragraph however recently billing was
+   turned on, and refuses to open without the address.
+5. Failed payments: the retries, and after the last, cancel the subscription or mark it unpaid;
+   either moves the organisation to Free, as `BILLING_GRACE_DAYS` past the first failure does,
+   whichever is sooner. Stripe's own emails about failed payments may stay off: the app mails
+   the owners.
+6. Tax, for `STRIPE_TAX=true`: the registrations where the operator collects tax. Checkout asks
+   every buyer for the billing address and lets a business give its VAT ID, which the invoices
+   carry once the invoice settings show the customer's tax IDs.
+7. A restricted key is enough: write on Customers, Checkout Sessions and the Customer portal,
+   read on Subscriptions. On AWS it and the signing secret go under `secrets/` ("The
+   settings").
+
+For development, `stripe listen --forward-to localhost:8000/api/billing/events` relays a test
+mode's events to this machine and prints the signing secret to set, and `stripe trigger` sends
+one. A Stripe that cannot be reached is a 503 for the member ("Billing cannot be reached just
+now") and a line in the log with Stripe's codes; the webhook answers it 503 too, and Stripe
+delivers the event again for three days, which its dashboard can also resend. Two subscriptions
+billed for one organisation, as two owners buying at once could make, are logged as an error:
+the first sets the plan, and the other is the operator's to cancel and refund.
+
 ## Retention and deletion
 
 What the app removes on its own, in the worker's housekeeping round (a minute after start, then
@@ -3589,6 +3665,7 @@ and the like), named on its models' pages.
 | `RATE_SIGN_INS_PER_ADDRESS` | `60` | | Sign-in requests a minute, per client address |
 | `RATE_FAILED_SIGN_INS` | `20` | | Wrong passwords and codes an hour, past which those sign-ins pause ("Rates") |
 | `RATE_PAGE_ERRORS` | `10` | | The page's error reports a minute, per client address |
+| `RATE_BILLING` | `10` | | Billing requests a minute, per member: Checkout, the portal, a payment asked about ("Billing") |
 
 ### Mail and sign-in
 
@@ -3602,6 +3679,17 @@ and the like), named on its models' pages.
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | none | the client secret is a secret | Sign-in with Google |
 | `MICROSOFT_OAUTH_CLIENT_ID`, `MICROSOFT_OAUTH_CLIENT_SECRET` | none | the client secret is a secret | Sign-in with Microsoft |
 | `MICROSOFT_OAUTH_TENANT` | `common` | | Whose Microsoft accounts may sign in |
+
+### Billing
+
+| Variable | Default | In production | What |
+| --- | --- | --- | --- |
+| `STRIPE_SECRET_KEY` | none: nothing is sold | a secret, `sk_…` or `rk_…` | The Stripe account's key ("Billing") |
+| `STRIPE_WEBHOOK_SECRET` | none | needed for billing, a secret, `whsec_…` | The webhook endpoint's signing secret |
+| `STRIPE_PRICES` | none | needed for billing | The prices sold, `plan=price` for pro and team |
+| `STRIPE_TRIAL_DAYS` | `14` | | The trial of an organisation's first subscription; 0 is none |
+| `STRIPE_TAX` | `false` | | Whether Checkout works out the tax (Stripe Tax) |
+| `BILLING_GRACE_DAYS` | `14` | | How long a failed payment keeps the plan before the organisation is on Free |
 
 ### The operator's word
 

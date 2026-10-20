@@ -98,6 +98,9 @@ AUDIT_ACTIONS = (
     "plan_changed",
     "seats_changed",
     "entitlements_changed",
+    "checkout_started",
+    "subscription_changed",
+    "payment_failed",
     "organization_created",
     "organization_renamed",
     "ownership_transferred",
@@ -285,6 +288,19 @@ class Organization(Base):
         ARRAY(String(253)), default=list, server_default="{}"
     )
     join_role: Mapped[str] = mapped_column(String(20), default="member", server_default="member")
+    # Its customer at Stripe (app/billing.py), made at its first checkout and kept, so that its
+    # invoices, payment details and tax ids stay together; null until then.
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(255), unique=True)
+    # Its last subscription, and what Stripe last said of it: its status (trialing, active,
+    # past_due, canceled, unpaid, …), when its trial ends, when it renews and when it ends, and
+    # since when a payment has failed, which the grace period counts from. Kept once it ends,
+    # since an organisation that had one starts its next without a trial.
+    stripe_subscription_id: Mapped[str | None] = mapped_column(String(255))
+    subscription_status: Mapped[str | None] = mapped_column(String(30))
+    trial_ends_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    renews_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    payment_failed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -939,6 +955,20 @@ class RateLimit(Base):
     key: Mapped[str] = mapped_column(String(300), primary_key=True)
     window_start: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
     count: Mapped[int] = mapped_column(Integer)
+
+
+class BillingEvent(Base):
+    """A Stripe event the app has acted on, by Stripe's id (app/billing.py): Stripe delivers an
+    event again when an answer is late, so one acted on twice would mail an owner twice. Kept a
+    month, longer than Stripe goes on delivering one, then pruned by the housekeeper."""
+
+    __tablename__ = "billing_events"
+
+    id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    type: Mapped[str] = mapped_column(String(100))
+    received_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
 
 
 class AuditEvent(Base):

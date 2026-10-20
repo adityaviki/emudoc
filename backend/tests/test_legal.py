@@ -51,10 +51,13 @@ DEVELOPMENT = {
     "session_days": 30,
     "sentry_dsn": "",
     "pwned_passwords_url": "https://api.pwnedpasswords.com",
+    "stripe_secret_key": "",
+    "stripe_trial_days": 14,
+    "billing_grace_days": 14,
 }
 DIRECTORY = LocalStorage(Path("unused"))
 # The SHA-256 of terms.md and privacy.md as the edition TERMS_VERSION names was settled.
-SETTLED = "4e0a257006f20d37550e29e7a010c42147c73dafd99b298dff5eee029c5f31d4"
+SETTLED = "edb7c8626e7ebd1337b5a385062a636c23f6721b91655542ccf697782776c8af"
 OLDER = "2026-01-01"
 
 
@@ -234,6 +237,30 @@ def test_the_privacy_policy_says_what_the_settings_do():
     both = policy(storage=in_a_bucket, access_log_days=30, sentry_dsn="https://k@sentry.io/2")
     assert "\n\n- **Connection records**" not in both
     assert "or an answer says.\n- **Error reports**" in both
+
+
+def test_the_documents_describe_paid_plans_where_they_are_sold():
+    assert "paid plan is a subscription" not in terms_of_service(configured())
+    assert "Billing" not in policy()
+
+    sold = configured(stripe_secret_key="sk_test_x", billing_grace_days=10)
+    terms = terms_of_service(sold)
+    assert "\nA paid plan is a subscription that an owner of the organisation buys" in terms
+    assert "starts with a free trial of 14 days" in terms
+    assert "keeps its plan for 10 days while the payment is tried again" in terms
+    assert "$" not in terms
+    plain = terms_of_service(
+        configured(stripe_secret_key="sk_test_x", stripe_trial_days=0, billing_grace_days=0)
+    )
+    assert "trial" not in plain and "moves to the Free plan at once" in plain
+
+    text = policy(stripe_secret_key="sk_test_x")
+    assert "- **Billing**: for an organisation that buys a plan" in text
+    assert "An organisation's owners also get email about its subscription" in text
+    assert "(BACKUP_DAYS is not set).\n- **Billing records**, as long as the organisation" in text
+    # Each kept only where it is set stays a bullet of the same list.
+    both = policy(stripe_secret_key="sk_test_x", access_log_days=30)
+    assert "- **Connection records**, 30 days.\n- **Billing records**" in both
 
 
 def test_the_documents_are_published_to_anyone(client, signed_in_only):

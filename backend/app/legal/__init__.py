@@ -96,6 +96,7 @@ def terms_of_service(settings: Settings) -> str:
         "terms.md",
         settings,
         deletion_days=str(DELETION_GRACE.days),
+        paid_plans=_paid_plans(settings),
     )
 
 
@@ -147,10 +148,28 @@ def privacy_policy(
             for bullet in (
                 _connection_records(settings.access_log_days, storage),
                 _error_reports(settings.sentry_dsn),
+                _billing_records(settings),
             )
             if bullet
         ),
-        connection_retention=_connection_retention(settings.access_log_days),
+        more_retention="\n".join(
+            bullet
+            for bullet in (
+                _connection_retention(settings.access_log_days),
+                "- **Billing records**, as long as the organisation exists; the payment "
+                "provider keeps the invoices as long as the law on accounts requires."
+                if settings.stripe_secret_key
+                else "",
+            )
+            if bullet
+        ),
+        billing_mail=(
+            " An organisation's owners also get email about its subscription: when a payment "
+            "failed, when its trial is about to end, and when it moved to the Free plan for "
+            "want of a payment."
+            if settings.stripe_secret_key
+            else ""
+        ),
     )
 
 
@@ -249,6 +268,56 @@ def _error_reports(dsn: str) -> str:
         "it happened and the ids of the request, account, organisation and project it happened "
         f"in, to find and fix the fault; they are {where}. They never hold what a document, a "
         "question or an answer says, nor an email address."
+    )
+
+
+def _paid_plans(settings: Settings) -> str:
+    """What a paid plan is, where the deployment sells them (STRIPE_SECRET_KEY): how it is
+    paid, renewed, ended and what a failed payment does, with the trial and the grace period
+    the settings give (app/billing.py)."""
+    if not settings.stripe_secret_key:
+        return ""
+    days = settings.stripe_trial_days
+    trial = (
+        f" An organisation's first subscription starts with a free trial of {days} "
+        f"{'day' if days == 1 else 'days'}, and its first payment is taken when the trial ends, "
+        "unless the subscription was cancelled before."
+        if days
+        else ""
+    )
+    grace = settings.billing_grace_days
+    failed = (
+        f"keeps its plan for {grace} {'day' if grace == 1 else 'days'} while the payment is "
+        "tried again and its owners are told, and then moves to the Free plan"
+        if grace
+        else "moves to the Free plan at once, and its owners are told"
+    )
+    return (
+        "\nA paid plan is a subscription that an owner of the organisation buys for it, paid in "
+        "advance for each period, a month or a year as chosen, through our payment provider on "
+        "the [subprocessor list](/subprocessors), which keeps the payment details: we never see "
+        "a card's number. The price is the one shown before paying, with the tax the law "
+        f"requires added where it applies.{trial} The subscription renews at the end of each "
+        "period until it is cancelled, which an owner can do at any time under Manage billing "
+        "on the organisation page: it then runs to the end of the period paid for, and the "
+        "organisation moves to the Free plan, keeping everything it holds but adding nothing "
+        "past the Free plan's limits. A period begun is not refunded, unless the law requires "
+        f"it. If a payment fails, the organisation {failed} in the same way, until the payment "
+        "is made.\n"
+    )
+
+
+def _billing_records(settings: Settings) -> str:
+    """What billing keeps, where the deployment sells its plans."""
+    if not settings.stripe_secret_key:
+        return ""
+    return (
+        "- **Billing**: for an organisation that buys a plan, its customer and subscription at "
+        "our payment provider and what we last heard of them: whether the subscription is in "
+        "its trial, paid or waiting for a payment, and until when. The provider keeps the "
+        "payment details, the billing address and VAT id, and the invoices, with the email "
+        "address of the owner who bought it; we never see a card's number. We need them to "
+        "bill the organisation under its contract with us."
     )
 
 
