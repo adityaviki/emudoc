@@ -6,7 +6,8 @@ about a user as a person, as one document the account page offers for download (
 memberships with the private projects it was chosen to see (app/access.py), its sessions (as
 long as they are kept, app/auth.py) and the browsers it signed
 in with (each one's first and last sign-in, never its cookie), the chats it started with
-every message, the usage counted to it, and the rows of the audit logs that name it
+every message, its notices in the notification centre and how it is told each kind
+(app/notices.py), the usage counted to it, and the rows of the audit logs that name it
 (app/audit.py). It leaves out the password hash, the authenticator
 secret and the recovery codes, which guard the data rather than describe the person, and the
 organisations' documents, which belong to the organisation and go in its project export (3.6).
@@ -26,6 +27,7 @@ from app.models import (
     Identity,
     MailSuppression,
     Membership,
+    Notification,
     Organization,
     Project,
     ProjectMember,
@@ -33,6 +35,7 @@ from app.models import (
     User,
 )
 from app.models import UserSession as SessionRow
+from app.notices import choices
 from app.schemas import (
     AccountExport,
     ExportedAccount,
@@ -42,6 +45,7 @@ from app.schemas import (
     ExportedIdentity,
     ExportedMembership,
     ExportedMessage,
+    ExportedNotification,
     ExportedSession,
     ExportedSpared,
     ExportedUsage,
@@ -49,11 +53,12 @@ from app.schemas import (
 
 ABOUT = (
     "What Emudoc keeps about you: your account and the edition of the terms you accepted, "
-    "whether you are mailed notices and whether the mail provider said not to write to your "
-    "address, how you sign in, the organisations you belong to and the private projects you "
-    "were chosen to see, the browsers and devices you signed in from in the last month and "
+    "how you are told each kind of notice and whether the mail provider said not to write to "
+    "your address, how you sign in, the organisations you belong to and the private projects "
+    "you were chosen to see, the browsers and devices you signed in from in the last month and "
     "when each browser you signed in with did so first and last, the chats you started with "
-    "every question and answer, the usage counted to you, and what the audit logs of your "
+    "every question and answer, the notices in your notification centre, the usage counted to "
+    "you, and what the audit logs of your "
     "organisations recorded you doing. Answers cite passages of documents as [P<number>]. "
     "The documents themselves are not in this file: they belong to the organisation that holds "
     "them. Your password and recovery codes are kept only as hashes, and they and your "
@@ -93,6 +98,12 @@ def account_export(session: Session, user: User) -> AccountExport:
         .order_by(Chat.created_at, Chat.id)
         .options(selectinload(Chat.messages))
     ).all()
+    notifications = session.execute(
+        select(Notification, Organization.slug)
+        .join(Organization, Organization.id == Notification.org_id)
+        .where(Notification.user_id == user.id)
+        .order_by(Notification.id)
+    ).all()
     usage = session.execute(
         select(UsageEvent, Organization.slug)
         .join(Organization, Organization.id == UsageEvent.org_id)
@@ -122,7 +133,7 @@ def account_export(session: Session, user: User) -> AccountExport:
                 ExportedIdentity(provider=row.provider, email=row.email, linked_at=row.created_at)
                 for row in identities
             ],
-            notices_by_email=user.notices_by_email,
+            notices=choices(user),
             mail_spared=(
                 ExportedSpared(reason=spared.reason, recorded_at=spared.recorded_at)
                 if (spared := session.get(MailSuppression, address_hash(user.email)))
@@ -175,6 +186,18 @@ def account_export(session: Session, user: User) -> AccountExport:
                 ],
             )
             for chat, project, slug in chats
+        ],
+        notifications=[
+            ExportedNotification(
+                organization=slug,
+                kind=row.kind,
+                title=row.title,
+                body=row.body,
+                link=row.link,
+                created_at=row.created_at,
+                read_at=row.read_at,
+            )
+            for row, slug in notifications
         ],
         usage=[
             ExportedUsage(

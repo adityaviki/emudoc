@@ -430,14 +430,36 @@ class AccountDeletionIn(BaseModel):
     email: str | None = Field(None, max_length=320)
 
 
+# The kinds of notice (NOTICE_KINDS in app/models.py, app/notices.py).
+NoticeKind = Literal["upload_indexed", "quota"]
+
+
+class NoticeChoiceIn(BaseModel):
+    """A change to how the user is told one kind of notice; a way left out stays as it is."""
+
+    kind: NoticeKind
+    # In the app's notification centre.
+    app: bool | None = None
+    # By email (app/postbox.py); turning it on writes to an address the mail provider said to
+    # spare (app/bounces.py) again.
+    email: bool | None = None
+
+
+class NoticeChoiceOut(BaseModel):
+    """How the user is told one kind of notice: in the app's notification centre, by email,
+    both or neither."""
+
+    kind: NoticeKind
+    app: bool
+    email: bool
+
+
 class ProfileIn(BaseModel):
     """What the account page changes about its user; a field left out stays as it is."""
 
     name: str | None = Field(None, max_length=200)
     time_zone: TimeZone | None = None
-    # Whether the user is mailed notices (app/postbox.py); turning them on writes to an address
-    # the mail provider said to spare (app/bounces.py) again.
-    notices_by_email: bool | None = None
+    notices: list[NoticeChoiceIn] | None = Field(None, max_length=20)
 
 
 class EmailChangeIn(BaseModel):
@@ -691,8 +713,9 @@ class MeOut(BaseModel):
     name: str
     # The zone the account's mail is dated in, empty for UTC until its user chooses one.
     time_zone: str
-    # Whether the user is mailed notices, the mail they may do without (app/postbox.py).
-    notices_by_email: bool
+    # How the user is told each kind of notice, the news they may do without (app/notices.py),
+    # in the order of NOTICE_KINDS.
+    notices: list[NoticeChoiceOut]
     email_verified: bool
     mfa_enabled: bool
     # Providers the account can sign in through, such as "google".
@@ -849,6 +872,37 @@ class AuditPage(BaseModel):
     next_before: int | None
 
 
+class NotificationOut(BaseModel):
+    """A notice in the user's notification centre (app/notices.py)."""
+
+    id: int
+    kind: NoticeKind
+    title: str
+    body: str
+    # The page it leads to, a path in the organisation `org_id`, which may be another than the
+    # one the session works in, and its name as it is now.
+    link: str
+    org_id: int
+    organization: str
+    created_at: dt.datetime
+    read_at: dt.datetime | None
+
+
+class NotificationPage(BaseModel):
+    """A page of the user's notices, the newest first, and how many of all of them are unread."""
+
+    notifications: list[NotificationOut]
+    unread: int
+    # What to pass as `before` for the next, older page; None on the last one.
+    next_before: int | None
+
+
+class NotificationsReadIn(BaseModel):
+    """The notices to mark read, of the user's own; none named marks every one."""
+
+    ids: list[int] | None = Field(None, max_length=200)
+
+
 class AuthOptions(BaseModel):
     """What the sign-in page can offer besides a password."""
 
@@ -971,7 +1025,8 @@ class ExportedAccount(BaseModel):
     terms_accepted_at: dt.datetime | None
     deletion_due_at: dt.datetime | None
     sign_in_providers: list[ExportedIdentity]
-    notices_by_email: bool
+    # How each kind of notice is told (app/notices.py).
+    notices: list[NoticeChoiceOut]
     # When the mail provider said not to write to the address, and why (app/bounces.py).
     mail_spared: "ExportedSpared | None"
 
@@ -1044,6 +1099,18 @@ class ExportedUsage(BaseModel):
     occurred_at: dt.datetime
 
 
+class ExportedNotification(BaseModel):
+    """A notice in the user's notification centre (app/notices.py)."""
+
+    organization: str
+    kind: str
+    title: str
+    body: str
+    link: str
+    created_at: dt.datetime
+    read_at: dt.datetime | None
+
+
 class AccountExport(BaseModel):
     exported_at: dt.datetime
     # What the file holds and what it leaves out, in words, for whoever reads it.
@@ -1053,5 +1120,6 @@ class AccountExport(BaseModel):
     sessions: list[ExportedSession]
     browsers: list[ExportedBrowser]
     chats: list[ExportedChat]
+    notifications: list[ExportedNotification]
     usage: list[ExportedUsage]
     activity: list[ExportedActivity]

@@ -4,10 +4,12 @@ an account already, that an account's address changed or that it is set to be de
 an organisation's owners what its subscription needs of them: a payment that failed, a trial
 about to end, a plan that lapsed, a cancellation and the lower plan it ends on, with what that
 leaves read-only and until when chats and audit rows are kept as before (app/billing.py). And
-the notices about a member's work, which they may turn off (app/notices.py): that an upload
-which took a while to index is done, with what could not be indexed and why, and to an
-organisation's owners and admins that its month's pages or questions are mostly or all used.
-Stripe sends the receipts and the invoices itself (deploying.md, "Billing").
+the notices about a member's work, which they choose how to be told of, kind by kind
+(app/notices.py): that an upload which took a while to index is done, with what could not be
+indexed and why, and to an organisation's owners and admins that its month's pages or questions
+are mostly or all used; a notice's `brief` is what the app's notification centre shows of it.
+Stripe sends the receipts and the invoices itself (deploying.md, "Billing"). A link into an
+organisation's pages names it (`in_organization`), since its reader may work in another.
 
 A template writes `Content`: the subject, and the body as paragraphs and links. Both the plain
 text and the HTML of a message are made from it (`compose`), so they say the same: the text has
@@ -74,6 +76,18 @@ class Link:
 
 Block = str | Link
 
+# The query a link to a page of the app names the organisation it is about with (`in_organization`).
+ORGANIZATION_QUERY = "organization"
+
+
+def in_organization(url: str, org_id: int) -> str:
+    """A link to a page of the app that opens it in the organisation `org_id`: a member of
+    several reads the mail of each, and the page switches to the one named first when the
+    session works in another (`useLinkedOrganization` in frontend/src/App.tsx), where the
+    project or the usage would be another's or not found."""
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}{ORGANIZATION_QUERY}={org_id}"
+
 
 @dataclass(frozen=True)
 class Content:
@@ -82,6 +96,9 @@ class Content:
 
     subject: str
     blocks: tuple[Block, ...]
+    # What the notification centre shows of a notice (app/notices.py): the body without the
+    # greeting, the links and what leads to them; empty for mail that is no notice.
+    brief: str = ""
 
     @property
     def text(self) -> str:
@@ -715,7 +732,7 @@ def upload_indexed_email(
             else f"The {total:,} documents you uploaded {where} are indexed, ready to search "
             "and ask about."
         )
-        return Content(subject, (_greeting(name), said, Link(link, "Open the project")))
+        return Content(subject, (_greeting(name), said, Link(link, "Open the project")), said)
     if total == 1:
         subject, said = (
             "Your document could not be indexed",
@@ -736,15 +753,17 @@ def upload_indexed_email(
     lines = [f"{filename}: {reason}" for filename, reason in failed[:LISTED]]
     if (unlisted := len(failed) - LISTED) > 0:
         lines.append(f"And {unlisted:,} more, which the library lists with theirs.")
+    listed = "\n".join(lines)
     return Content(
         subject,
         (
             _greeting(name),
             said,
-            "\n".join(lines),
+            listed,
             'Once what a document says is put right, "Index again" in the library runs it again:',
             Link(link, "Open the project"),
         ),
+        f"{said}\n{listed}",
     )
 
 
@@ -811,4 +830,5 @@ def quota_email(
             "for this month:",
             Link(link, "Open the usage page"),
         ),
+        said,
     )

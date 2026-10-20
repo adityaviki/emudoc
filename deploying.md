@@ -1345,13 +1345,20 @@ What the app mails, and to whom:
   and why, as the library words it; and to an organisation's owners and admins, once a month
   for each, when its pages or questions for the month reach 80 % of what it may use (its plan's
   and the packs bought for the month), when they reach all of it, and for pages when what is
-  left could not take a document. A pack bought afterwards starts the count again. Each member
-  has them on until they turn them off on the account page, or with the
-  link at the foot of every notice, and a mail program's own "Unsubscribe" turns them off in
-  one click: a notice carries `List-Unsubscribe` and `List-Unsubscribe-Post:
-  List-Unsubscribe=One-Click` (RFC 8058), whose address `/api/mail/unsubscribe` takes the
-  token in it, the member's id encrypted with `ENCRYPTION_KEYS`, as a mail program posts it,
-  without a session. A notice is not sent to an address the provider said to spare (below).
+  left could not take a document. A pack bought afterwards starts the count again. Each notice
+  is told twice, in the same transaction: in the member's notification centre, under the bell
+  in the app's header (`notifications`, kept `NOTIFICATION_DAYS`, 90, read or not, and gone
+  with the membership of the organisation it is about), and by email. A member chooses each
+  way of each kind on the account page (`users.notices`, every way on until they choose); the
+  link at the foot of a notice turns its kind's email off, and a mail program's own
+  "Unsubscribe" does in one click: a notice carries `List-Unsubscribe` and
+  `List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC 8058), whose address
+  `/api/mail/unsubscribe` takes the token in it, the member's id and the kind encrypted with
+  `ENCRYPTION_KEYS`, as a mail program posts it, without a session (a token mailed before the
+  kinds were chosen apart names the member alone, and turns every kind's email off). A notice
+  is not mailed to an address the provider said to spare (below). A browser may show the
+  notices as they come too, as the computer's own notifications while the app is open in a tab
+  in the background: the browser's choice, on the account page, kept in its own storage.
 - **The operator's reports** to `ALERT_EMAIL` ("What the worker mails").
 
 Every message has a plain text and an HTML part, both made from the same template, in one
@@ -1360,7 +1367,9 @@ member typed (an inviter's, an organisation's) stay text there, however much the
 address. A subject is the app's own sentence, which the log may repeat; names are in the body
 alone. The links lead to `APP_URL`, which production requires; in development without it, a
 request's mail links to the address the request came to, and the worker's to the frontend's
-development server, `http://localhost:5173`.
+development server, `http://localhost:5173`. A link to an organisation's page, a notice's or an
+owner's mail about billing, names the organisation (`?organization=<id>`): a member of several
+may work in another when they open it, and the page switches to the one named first.
 
 An upload is the files of one request (`uploads`, with the member who sent them, made once the
 request has stored them all). Whoever ends its last piece of work finds it indexed: the worker
@@ -1450,8 +1459,8 @@ SHA-256 of the address and whether it bounced or complained (`mail_suppressions`
 `backend/app/bounces.py`), for a year, and sends it no notices meanwhile; a bounce the provider
 calls transient (a full mailbox, a server that kept answering "later") is not kept. The mail an
 account needs is still posted: the provider keeps a list of its own and drops what goes to an
-address on it, and the app's list is for what the app chooses to send. A member who turns
-notices on again on the account page has their address written to again. The privacy policy
+address on it, and the app's list is for what the app chooses to send. A member who turns a
+kind of notice on by email again on the account page has their address written to again. The privacy policy
 names the list and its year where a provider reports to the deployment.
 
 - **SES**: the configuration set publishes its bounces and complaints to EventBridge, whose rule
@@ -1630,7 +1639,9 @@ every six hours), and so what the privacy notice can promise:
   log names accounts by id only.
 - **What the notices were about** ("Mail"): the record that a month's pages or questions were
   told of goes once the month is over (`quota_notices`); an upload's row, which names who sent
-  its files, stays as long as its project, and forgets them when their account goes.
+  its files, stays as long as its project, and forgets them when their account goes; a notice
+  in a member's notification centre goes after `NOTIFICATION_DAYS` (90), read or not, and those
+  about an organisation when they leave it or are removed from it.
 
 Backups (and a bucket's object versions) keep a purged account until they expire, so the
 privacy policy names that window, `BACKUP_DAYS`, as the outer bound of a deletion. A restore must not bring the

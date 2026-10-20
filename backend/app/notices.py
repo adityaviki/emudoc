@@ -1,6 +1,14 @@
-"""The notices the app posts members about their work, beside the mail their accounts,
-invitations and billing need: through `post_notice` (app/postbox.py), which leaves out a member
-who turned notices off and an address the mail provider said to spare.
+"""The notices the app tells members about their work, beside the mail their accounts,
+invitations and billing need. Each is told through `tell`, in the app and by email, each as its
+member chose for its kind (NOTICE_KINDS, `User.wants`): a row in their notification centre
+(`notifications`, app/api/notifications.py), and the mail through `post_notice`
+(app/postbox.py), which also leaves out an address the mail provider said to spare. Both are
+made in the transaction of the change that calls for them, so that the centre and the mail never
+disagree. The centre lists a member's notices of every organisation they belong to, and a
+notice's mail links to its page in the organisation it is about (`in_organization`), since they
+may work in another when they open it. A member who leaves an organisation, or is removed from
+it, loses its notices (`forget_notifications`), and the housekeeper removes those older than
+NOTIFICATION_DAYS (`prune_notifications`).
 
 An upload. The files of one request are one upload (`uploads`, made by `record_upload` once the
 request has stored them all), and the member who sent them is told once the last of them is
@@ -34,7 +42,7 @@ import logging
 from datetime import datetime, timedelta, tzinfo
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Connection, Row, exists, select, text, update
+from sqlalchemy import Connection, Row, delete, exists, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -50,9 +58,23 @@ from app.entitlements import (
     pages_this_month,
     questions_this_month,
 )
-from app.mail import quota_email, upload_indexed_email
-from app.models import ROLES, Document, Job, Membership, Organization, Project, QuotaNotice, Upload
-from app.postbox import post_notice
+from app.mail import Content, in_organization, quota_email, upload_indexed_email
+from app.models import (
+    NOTICE_CHANNELS,
+    NOTICE_KINDS,
+    ROLES,
+    Document,
+    Job,
+    Membership,
+    Notification,
+    Organization,
+    Project,
+    QuotaNotice,
+    Upload,
+    User,
+)
+from app.postbox import BY_EMAIL, post_notice
+from app.schemas import NoticeChoiceOut
 
 if TYPE_CHECKING:
     # For the handler's signature alone: the pipeline posts the pages' notices through here.
@@ -60,6 +82,12 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+# The kinds of notice, and the way of telling them this module makes itself.
+UPLOAD_INDEXED, QUOTA = NOTICE_KINDS
+IN_APP = NOTICE_CHANNELS[0]
+# How long a notice stays in its member's notification centre, read or not; the privacy policy
+# says so.
+NOTIFICATION_DAYS = 90
 # How long an upload must take to settle for its member to be told: one indexed sooner was
 # most likely watched in the library.
 NOTICE_AFTER = timedelta(minutes=5)
@@ -96,6 +124,60 @@ _SETTLE = text(
     RETURNING u.id, u.project_id, u.user_id, u.created_at, u.settled_at
     """
 )
+
+
+def tell(
+    session: Session,
+    user: User,
+    org_id: int,
+    kind: str,
+    content: Content,
+    path: str,
+    app_url: str,
+) -> bool:
+    """Tell the user a notice of the kind about the organisation, whose page `path` it leads to,
+    in the app and by email as they chose, in the caller's session; returns whether it was told
+    either way. The content's own link is the caller's, `in_organization` of the same page."""
+    told = False
+    if user.wants(kind, IN_APP):
+        session.add(
+            Notification(
+                user_id=user.id,
+                org_id=org_id,
+                kind=kind,
+                title=content.subject,
+                body=content.brief,
+                link=path,
+            )
+        )
+        told = True
+    if post_notice(session, user, kind, content, app_url, org_id) is not None:
+        told = True
+    return told
+
+
+def choices(user: User) -> list[NoticeChoiceOut]:
+    """How the user is told each kind of notice, for the account page and the export."""
+    return [
+        NoticeChoiceOut(kind=kind, app=user.wants(kind, IN_APP), email=user.wants(kind, BY_EMAIL))
+        for kind in NOTICE_KINDS
+    ]
+
+
+def forget_notifications(session: Session, org_id: int, user_id: int) -> None:
+    """Delete the user's notices about the organisation, which they are no longer a member of
+    and whose news is no longer theirs to read; the caller commits."""
+    session.execute(
+        delete(Notification).where(Notification.org_id == org_id, Notification.user_id == user_id)
+    )
+
+
+def prune_notifications(connection: Connection) -> int:
+    """Delete the notices older than NOTIFICATION_DAYS, read or not; returns how many."""
+    return connection.execute(
+        text("DELETE FROM notifications WHERE created_at < now() - make_interval(days => :days)"),
+        {"days": NOTIFICATION_DAYS},
+    ).rowcount
 
 
 def app_address() -> str:
@@ -156,7 +238,7 @@ def after_index(job: Job, services: "Services") -> None:
 
 
 def _tell(session: Session, settled: Row, app_url: str) -> None:
-    """Post the notice of an upload just settled to the member who sent it, if it took
+    """Tell the notice of an upload just settled to the member who sent it, if it took
     NOTICE_AFTER or longer and they still see its project."""
     if settled.user_id is None or settled.settled_at - settled.created_at < NOTICE_AFTER:
         return
@@ -185,21 +267,17 @@ def _tell(session: Session, settled: Row, app_url: str) -> None:
         if status != "ready"
     ]
     user = account.user
-    post_notice(
-        session,
-        user,
-        upload_indexed_email(
-            user.name,
-            project.organization.name,
-            project.name,
-            _moment(settled.created_at, zone_of(user.time_zone)),
-            len(documents) - len(failed),
-            failed,
-            f"{app_url}{PROJECT_PAGE.format(project.id)}",
-        ),
-        app_url,
-        project.org_id,
+    page = PROJECT_PAGE.format(project.id)
+    content = upload_indexed_email(
+        user.name,
+        project.organization.name,
+        project.name,
+        _moment(settled.created_at, zone_of(user.time_zone)),
+        len(documents) - len(failed),
+        failed,
+        in_organization(f"{app_url}{page}", project.org_id),
     )
+    tell(session, user, project.org_id, UPLOAD_INDEXED, content, page, app_url)
 
 
 def _moment(moment: datetime, zone: tzinfo) -> str:
@@ -217,8 +295,8 @@ def note_quota(
     adding: int = 0,
     refused: bool = False,
 ) -> int:
-    """Post the notice the month's `figure` calls for to the organisation's owners and admins
-    in the caller's session, which counts what was used, unless it was posted already; returns
+    """Tell the notice the month's `figure` calls for to the organisation's owners and admins
+    in the caller's session, which counts what was used, unless it was told already; returns
     to how many. `adding` is used beyond what the usage rows say: the pages the parse stage
     counted, which its charge records after the stage. `refused` says what is left could not
     take a document."""
@@ -248,7 +326,7 @@ def note_quota(
         .where(Membership.org_id == organization.id, Membership.role.in_(MANAGERS))
         .order_by(Membership.user_id)
     ).all()
-    posted = 0
+    told = 0
     for membership in managers:
         content = quota_email(
             membership.user.name,
@@ -258,12 +336,11 @@ def note_quota(
             allowance,
             MONTHS[start.month - 1],
             MONTHS[following.month - 1],
-            f"{app_url}{USAGE_PAGE}",
+            in_organization(f"{app_url}{USAGE_PAGE}", organization.id),
             refused=refused,
         )
-        if post_notice(session, membership.user, content, app_url, organization.id):
-            posted += 1
-    return posted
+        told += tell(session, membership.user, organization.id, QUOTA, content, USAGE_PAGE, app_url)
+    return told
 
 
 def _noted(

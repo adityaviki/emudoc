@@ -6,6 +6,7 @@ import { AccountPage } from './account/AccountPage.tsx'
 import { ConfirmEmailPage } from './account/ConfirmEmailPage.tsx'
 import { DeletionPending } from './account/DeletionPending.tsx'
 import { InvitationPage } from './account/InvitationPage.tsx'
+import { NotificationBell } from './account/NotificationBell.tsx'
 import { TermsPending } from './account/TermsPending.tsx'
 import { LoginPage } from './account/LoginPage.tsx'
 import { ForgotPasswordPage, ResetPasswordPage } from './account/PasswordPages.tsx'
@@ -16,7 +17,7 @@ import { VerifyPage } from './account/VerifyPage.tsx'
 import { AuthLayout } from './account/shared.tsx'
 import { api, auth, handleForbidden, handlePlanLimit, handleSwitched, handleUnauthorized } from './api.ts'
 import type { Me } from './api.ts'
-import { ME_KEY, MeContext, forgetUser, loginPath, startAgainInOrganization, useMeQuery } from './auth.ts'
+import { ME_KEY, MeContext, forgetUser, loginPath, openInOrganization, startAgainInOrganization, useMeQuery } from './auth.ts'
 import { describeExcess } from './billing.ts'
 import { Floating, Menu } from './components/Menu.tsx'
 import type { MenuItem } from './components/Menu.tsx'
@@ -30,6 +31,7 @@ import { ProjectsPage } from './pages/ProjectsPage.tsx'
 import { LegalPage } from './pages/LegalPage.tsx'
 import { SubprocessorsPage } from './pages/SubprocessorsPage.tsx'
 import { Workspace } from './pages/Workspace.tsx'
+import { linkedOrganization } from './notifications.ts'
 import { describeServices } from './status.ts'
 
 /**
@@ -131,6 +133,8 @@ function Shell() {
   if (!me) return <Navigate to={loginPath(location.pathname + location.search)} replace />
   if (me.deletion_due_at) return <DeletionPending me={me} />
   if (me.terms_due) return <TermsPending me={me} />
+  const linked = linkedOrganization(location.pathname, location.search, location.hash)
+  if (linked) return <OpenLinked me={me} id={linked.id} rest={linked.rest} />
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
@@ -147,6 +151,7 @@ function Shell() {
           </div>
           <div className="flex shrink-0 items-center gap-3">
             <ServiceStatus />
+            <NotificationBell />
             <ThemeToggle />
             <UserMenu />
           </div>
@@ -157,6 +162,27 @@ function Shell() {
       <main className="min-h-0 flex-1">
         <Outlet />
       </main>
+    </div>
+  )
+}
+
+/**
+ * A link that names the organisation it is about, as a notice's mail does: opened in it, switched
+ * to first when the session works in another of the user's, and without the name. One the user is
+ * not a member of opens where the session works, which says what is not found there.
+ */
+function OpenLinked({ me, id, rest }: { me: Me; id: number; rest: string }) {
+  const navigate = useNavigate()
+  useEffect(() => {
+    if (id !== me.organization.id && me.organizations.some((organization) => organization.id === id)) {
+      openInOrganization(id, rest, true)
+    } else {
+      navigate(rest, { replace: true })
+    }
+  }, [id, rest, me, navigate])
+  return (
+    <div className="flex h-dvh items-center justify-center">
+      <Spinner className="size-5" />
     </div>
   )
 }

@@ -558,12 +558,15 @@ address through a link sent there, which the old address is told of once it is o
 the password, turns on a code from an authenticator app at sign-in (shown as a QR code to scan,
 with recovery codes for a lost phone; its secret is kept encrypted with `ENCRYPTION_KEYS`, which
 the database never holds, so a copy of it makes no codes), lists the browsers and devices that are signed in and
-signs any of them out, and turns off the notices, the mail a member may do without, which each
-notice's own link and a mail program's "Unsubscribe" turn off too: that an upload which took
-five minutes or more to index is done, in one message naming the files that could not be
-indexed and why, and to an organisation's owners and admins that its pages or questions for the
-month reached 80 % of what it may use, all of it, or for pages too few for a document
-(`backend/app/notices.py`); a forgotten password is reset
+signs any of them out, and chooses how each kind of notice is told, the news a member may do
+without: that an upload which took five minutes or more to index is done, naming the files that
+could not be indexed and why, and to an organisation's owners and admins that its pages or
+questions for the month reached 80 % of what it may use, all of it, or for pages too few for a
+document (`backend/app/notices.py`). Each is told under the bell in the header, the member's
+notification centre of every organisation they belong to (opening one switches to its
+organisation; kept 90 days), and by email, each way on or off by kind; a notice's own link and a
+mail program's "Unsubscribe" turn its kind's email off, and a browser may show them as they come
+as the computer's own notifications while the app is open. A forgotten password is reset
 through a link sent by email, which signs the account out everywhere. The worker sends the
 mail, a plain text and an HTML part each, from a queue: a relay that is down gets a message again
 for half an hour, and an address the mail provider says bounced for good or was marked as spam
@@ -891,7 +894,8 @@ backend/app/
   encrypted.py  the columns kept encrypted, the start's check and the encrypt-secrets command
   oidc.py       sign-in with Google and Microsoft
   mail.py       the emails the app sends, and the mailers: SMTP, Resend, the log
-  postbox.py    mail posted through the queue, the worker's sending, and the notices
+  postbox.py    mail posted through the queue, the worker's sending, and the notices' mail
+  notices.py    the notices about members' work, told in the app and by email as each chose
   bounces.py    what the mail provider says bounced: Resend's webhook, SES's queue
   maintenance.py
                 the embedding checks at start, the housekeeping and the operator commands

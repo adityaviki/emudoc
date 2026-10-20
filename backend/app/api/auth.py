@@ -103,6 +103,7 @@ from app.mail import (
     verification_email,
 )
 from app.models import Identity, Invitation, Membership, Organization, User, UserSession
+from app.notices import IN_APP, choices
 from app.oidc import (
     OAUTH_COOKIE,
     OAUTH_WINDOW_SECONDS,
@@ -115,7 +116,7 @@ from app.oidc import (
     providers,
 )
 from app.passwords import BREACHED, breached
-from app.postbox import post
+from app.postbox import BY_EMAIL, post
 from app.ratelimit import (
     ADDRESSES,
     FAILED_SIGN_INS,
@@ -581,8 +582,9 @@ def accept_terms(body: TermsIn, account: LiveAccountDep, request: Request, sessi
 
 @router.patch("/profile", response_model=MeOut)
 def update_profile(body: ProfileIn, account: AccountDep, request: Request, session: SessionDep):
-    """Change the user's name, time zone or whether they are mailed notices. The audit log
-    records which changed, never to what, since its rows outlive the account (app/audit.py)."""
+    """Change the user's name, time zone or how they are told each kind of notice. The audit
+    log records which changed, never to what, since its rows outlive the account
+    (app/audit.py)."""
     user = account.user
     changed = []
     if body.name is not None and body.name.strip() != user.name:
@@ -593,12 +595,19 @@ def update_profile(body: ProfileIn, account: AccountDep, request: Request, sessi
             raise HTTPException(400, UNKNOWN_ZONE)
         user.time_zone = body.time_zone
         changed.append("time_zone")
-    if body.notices_by_email is not None and body.notices_by_email != user.notices_by_email:
-        user.notices_by_email = body.notices_by_email
-        changed.append("notices_by_email")
-        if body.notices_by_email:
-            # Asked for by the address's own user, who reads what it receives.
-            forget(session, user.email)
+    chosen = [
+        (choice.kind, channel, on)
+        for choice in body.notices or ()
+        for channel, on in ((IN_APP, choice.app), (BY_EMAIL, choice.email))
+        if on is not None and on != user.wants(choice.kind, channel)
+    ]
+    for kind, channel, on in chosen:
+        user.choose(kind, channel, on)
+    if chosen:
+        changed.append("notices")
+    if any(channel == BY_EMAIL and on for _, channel, on in chosen):
+        # Asked for by the address's own user, who reads what it receives.
+        forget(session, user.email)
     if changed:
         audit(session, account, request, "profile_changed", detail={"changed": changed})
         session.commit()
@@ -1112,7 +1121,7 @@ def me_out(session: Session, account: Account) -> MeOut:
         email=user.email,
         name=user.name,
         time_zone=user.time_zone,
-        notices_by_email=user.notices_by_email,
+        notices=choices(user),
         email_verified=user.email_verified_at is not None,
         mfa_enabled=user.mfa_enabled,
         identities=sorted(identity.provider for identity in user.identities),

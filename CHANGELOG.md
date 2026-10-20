@@ -11,6 +11,17 @@ its day, in the same commit.
 
 Members:
 
+- A bell in the header holds your notices, of every organisation you belong to, the newest
+  first, with how many you have not read; opening one marks it read and takes you to its page,
+  switching to its organisation first when you work in another, and "Mark all as read" clears
+  the count. The account page has a Notices section of its own: each kind of notice (a long
+  upload indexed, the month's pages or questions running low) is told in Emudoc, by email, both
+  or neither, as you choose, and a browser can show them as they come, as your computer's own
+  notifications while Emudoc is open in a tab. The link at the foot of a notice now stops that
+  kind by email rather than every notice. A link in a notice or in an owner's billing email
+  opens its page in the organisation it is about. Notices are kept 90 days, and those about an
+  organisation go when you leave it; the privacy policy and the data export say so.
+
 - Emudoc now sends the notices the account page's switch is for. An upload that takes five
   minutes or more to index is followed by one email once its last document is done, saying how
   many are ready and naming each that could not be indexed with the reason the library shows;
@@ -170,6 +181,15 @@ Members:
   slow to a third of their speed.
 
 Operators:
+
+- The notification centre (`backend/app/api/notifications.py`, deploying.md "Mail"). A
+  migration adds `notifications` (one row per notice told in the app: the member, the
+  organisation, the kind, its words and its page, and when it was read) and replaces
+  `users.notices_by_email` with `users.notices`, the ways each kind is told as the member chose
+  them (one who had notices off by email has every kind's email off). The housekeeping round
+  removes the notices older than 90 days (`NOTIFICATION_DAYS`). An unsubscribe link names its
+  kind now; one mailed before turns every kind's email off. The page's scripts' budget is 205 kB
+  (`scripts/size.ts`), the bell having taken them to 202.4 kB.
 
 - The notices are sent (`backend/app/notices.py`, deploying.md "Mail"). A migration adds
   `uploads` (one row per upload request, with the member who sent it and when its last

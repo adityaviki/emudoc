@@ -5,10 +5,11 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
 
-// 200 kB, with room for some growth above the 184 kB of 2026-10-20. A change that passes it
-// makes the scripts smaller (a dependency left out, a page loaded only when it is opened) or
+// 205 kB: 200 kB, with room for some growth above the 184 kB of 2026-10-20, was passed the same
+// day by the notification centre (202.4 kB), whose bell is on every page. A change that passes
+// it makes the scripts smaller (a dependency left out, a page loaded only when it is opened) or
 // raises this number, saying why in its commit.
-const BUDGET = 200_000
+const BUDGET = 205_000
 
 const assets = new URL('../dist/assets/', import.meta.url)
 const kB = (bytes: number) => `${(bytes / 1000).toFixed(1)} kB`

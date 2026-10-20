@@ -1,13 +1,13 @@
 """The mail the app posts: a job in the queue with its message encrypted, sent by the worker's
 mail lane, tried again while the relay says "later", given up and told when it will not take
-it; and the notices, which their reader may stop from the message itself."""
+it; and the notices, whose reader may stop their kind from the message itself."""
 
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 
 from app.bounces import Undeliverable, spare, suppressed
 from app.config import MAIL_THREADS
@@ -20,6 +20,7 @@ from app.postbox import (
     MAX_TRIES,
     STOP_NOTICES,
     UNSUBSCRIBE_PAGE,
+    UNSUBSCRIBE_PLACE,
     notice,
     post,
     post_notice,
@@ -172,7 +173,7 @@ def test_the_worker_sends_the_mail_in_a_lane_of_its_own(session, services):
 
 
 def test_a_notice_carries_the_way_to_stop_it(session, account):
-    message = notice(account.user, NEWS, APP)
+    message = notice(account.user, "quota", NEWS, APP)
     assert message.text.endswith(
         f"{STOP_NOTICES}\n\n{APP}{UNSUBSCRIBE_PAGE}#token=" + token_of(message) + "\n"
     )
@@ -192,18 +193,20 @@ def token_of(message: Message) -> str:
 
 def test_a_notice_is_posted_to_whoever_wants_it_at_an_address_that_takes_it(session, account):
     user = account.user
-    assert post_notice(session, user, NEWS, APP) is not None
-    user.notices_by_email = False
-    assert post_notice(session, user, NEWS, APP) is None
-    user.notices_by_email = True
+    assert post_notice(session, user, "quota", NEWS, APP) is not None
+    # Each kind's email is chosen apart.
+    user.choose("quota", "email", False)
+    assert post_notice(session, user, "quota", NEWS, APP) is None
+    assert post_notice(session, user, "upload_indexed", NEWS, APP) is not None
+    user.choose("quota", "email", True)
     # However the provider writes the address.
     spare(session, [Undeliverable(f" {user.email.upper()}", "bounce")])
-    assert post_notice(session, user, NEWS, APP) is None
+    assert post_notice(session, user, "quota", NEWS, APP) is None
     session.rollback()
 
 
-def test_the_link_in_a_notice_stops_them_without_signing_in(client, session, account):
-    message = notice(account.user, NEWS, APP)
+def test_the_link_in_a_notice_stops_its_kind_by_email_without_signing_in(client, session, account):
+    message = notice(account.user, "quota", NEWS, APP)
     token = parse_qs(urlsplit(message.headers["List-Unsubscribe"].strip("<>")).query)["token"][0]
     # A mail program posts the form RFC 8058 names, with no header of the app's.
     program = TestClient(client.app)
@@ -214,11 +217,20 @@ def test_the_link_in_a_notice_stops_them_without_signing_in(client, session, acc
     )
     assert one_click.status_code == 204
     session.expire_all()
-    assert session.get(User, account.user.id).notices_by_email is False
+    user = session.get(User, account.user.id)
+    assert user.notices == {"quota": {"email": False}}
+    # The other kind still comes by email, and this one still in the app.
+    assert user.wants("upload_indexed", "email") and user.wants("quota", "app")
     # Again changes nothing, and says nothing either.
     assert program.post("/api/mail/unsubscribe", params={"token": token}).status_code == 204
 
-    for forged in ("1", unsubscribe_token(account.user.id)[:-4] + "AAAA", "v1.0000.x"):
+    for forged in (
+        "1",
+        unsubscribe_token(account.user.id, "quota")[:-4] + "AAAA",
+        "v1.0000.x",
+        # A kind there is none of.
+        keys().encrypt(f"{account.user.id}:digest", UNSUBSCRIBE_PLACE),
+    ):
         refused = program.post("/api/mail/unsubscribe", params={"token": forged})
         assert refused.status_code == 400
         assert refused.json()["detail"].startswith("This link to stop the notices is not valid")
@@ -227,21 +239,45 @@ def test_the_link_in_a_notice_stops_them_without_signing_in(client, session, acc
     elsewhere = keys().encrypt(str(account.user.id), TOTP_SECRETS.place(account.user.id))
     assert program.post("/api/mail/unsubscribe", params={"token": elsewhere}).status_code == 400
 
+    # A notice mailed before the kinds were chosen apart names the user alone, and stops every
+    # kind's email.
+    before = keys().encrypt(str(account.user.id), UNSUBSCRIBE_PLACE)
+    assert program.post("/api/mail/unsubscribe", params={"token": before}).status_code == 204
+    session.expire_all()
+    user = session.get(User, account.user.id)
+    assert not user.wants("upload_indexed", "email") and not user.wants("quota", "email")
+    assert user.wants("upload_indexed", "app") and user.wants("quota", "app")
 
-def test_the_account_page_turns_notices_on_and_off(client, session, signed_in_only):
+
+def test_the_account_page_chooses_how_each_kind_of_notice_is_told(client, session, signed_in_only):
     signup(client)
-    assert client.get("/api/auth/me").json()["notices_by_email"] is True
-    off = client.patch("/api/auth/profile", json={"notices_by_email": False})
-    assert off.status_code == 200 and off.json()["notices_by_email"] is False
+    assert client.get("/api/auth/me").json()["notices"] == [
+        {"kind": "upload_indexed", "app": True, "email": True},
+        {"kind": "quota", "app": True, "email": True},
+    ]
+    off = client.patch("/api/auth/profile", json={"notices": [{"kind": "quota", "email": False}]})
+    assert off.status_code == 200
+    assert off.json()["notices"][1] == {"kind": "quota", "app": True, "email": False}
     rows = session.scalars(select(AuditEvent).where(AuditEvent.action == "profile_changed")).all()
-    assert [row.detail for row in rows] == [{"changed": ["notices_by_email"]}]
+    assert [row.detail for row in rows] == [{"changed": ["notices"]}]
+    # What is so already changes nothing, and records nothing.
+    same = client.patch("/api/auth/profile", json={"notices": [{"kind": "quota", "app": True}]})
+    assert same.status_code == 200
+    assert session.scalar(select(func.count()).where(AuditEvent.action == "profile_changed")) == 1
+    refused = client.patch("/api/auth/profile", json={"notices": [{"kind": "digest"}]})
+    assert refused.status_code == 422
 
-    # The provider said to spare the address; asking for notices again writes to it again.
+    # The provider said to spare the address: turning a kind off in the app writes to it no
+    # more than before, and asking for one by email again writes to it again.
     spare(session, [Undeliverable("ada@example.com", "complaint")])
     session.commit()
+    client.patch("/api/auth/profile", json={"notices": [{"kind": "upload_indexed", "app": False}]})
     assert suppressed(session, "ada@example.com")
-    on = client.patch("/api/auth/profile", json={"notices_by_email": True})
-    assert on.json()["notices_by_email"] is True
+    on = client.patch("/api/auth/profile", json={"notices": [{"kind": "quota", "email": True}]})
+    assert on.json()["notices"] == [
+        {"kind": "upload_indexed", "app": False, "email": True},
+        {"kind": "quota", "app": True, "email": True},
+    ]
     assert not suppressed(session, "ada@example.com")
 
 

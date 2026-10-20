@@ -36,6 +36,7 @@ from app.models import (
     Document,
     Job,
     Membership,
+    Notification,
     Organization,
     Project,
     Upload,
@@ -618,6 +619,19 @@ def test_the_export_holds_the_users_data_and_nothing_of_anyone_elses(
     session.flush()
     session.add(Membership(org_id=organization_id, user_id=bob.id, role="member"))
     make_chat(session, session.get(Project, project["id"]), bob, "Bob's own question", 1)
+    ada_id = session.scalar(select(User.id).where(User.email == "ada@example.com"))
+    for user_id, title in ((ada_id, "Your document is indexed"), (bob.id, "Bob's notice")):
+        session.add(
+            Notification(
+                user_id=user_id,
+                org_id=organization_id,
+                kind="upload_indexed",
+                title=title,
+                body="The document you uploaded is indexed.",
+                link=f"/projects/{project['id']}",
+            )
+        )
+    session.commit()
 
     response = client.get("/api/auth/account/export")
     assert response.status_code == 200
@@ -655,10 +669,17 @@ def test_the_export_holds_the_users_data_and_nothing_of_anyone_elses(
         "terms_accepted_at",
         "deletion_due_at",
         "sign_in_providers",
-        "notices_by_email",
+        "notices",
         "mail_spared",
     }
-    assert export["account"]["notices_by_email"] is True
+    assert export["account"]["notices"][0] == {"kind": "upload_indexed", "app": True, "email": True}
+    (notice,) = export["notifications"]
+    assert (notice["organization"], notice["title"], notice["read_at"]) == (
+        "ada",
+        "Your document is indexed",
+        None,
+    )
+    assert "Bob's notice" not in response.text
     assert export["account"]["mail_spared"] is None
     assert ada(session).password_hash not in response.text
     assert "Bob's own question" not in response.text and "bob@" not in response.text

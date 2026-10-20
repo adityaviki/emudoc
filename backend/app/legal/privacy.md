@@ -17,7 +17,7 @@ organisation uploaded a document about you, ask the organisation first; we help 
 ## What we keep, and why
 
 - **Your account**: your email address, your name, the time zone our email to you is dated in,
-  whether you want notices by email, your password (as a hash only, from which it cannot be read back), whether you confirmed your
+  how you want to be told each kind of notice, your password (as a hash only, from which it cannot be read back), whether you confirmed your
   address, the Google or Microsoft account you sign in with, and with two-factor sign-in your
   authenticator's secret (encrypted) and the hashes of your recovery codes, and which version
   of these terms you accepted and when. We need them to give you an account, under our
@@ -56,11 +56,12 @@ We send you email only about your account: to confirm your address or a new one,
 address when it was replaced or when another account asked to take it, to reset your password,
 to tell you when sign-ins to it were paused after many wrong passwords, and to confirm that you
 asked for your account to be deleted; and to an address a member of an organisation invited,
-the invitation.$billing_mail Besides, we send you notices about your work in the service: when
-documents you uploaded took a while to index, that they are done and which could not be
-indexed; and to an organisation's owners and admins, when its pages or questions for the month
-are mostly or all used. You can turn them off on your account page or with the link at the foot
-of each. We send no marketing, show no advertising, sell no personal data and build no profile
+the invitation.$billing_mail Besides, we tell you notices about your work in the service, in
+your notification centre in the app and by email: when documents you uploaded took a while to
+index, that they are done and which could not be indexed; and an organisation's owners and
+admins, when its pages or questions for the month are mostly or all used. You choose how you
+are told each kind on your account page, and can stop each kind by email with the link at the
+foot of its notices. We send no marketing, show no advertising, sell no personal data and build no profile
 of you.
 
 ## Who receives it
@@ -101,6 +102,8 @@ $region
 - **Invitations**, until they are accepted or revoked, or $credential_days days after they
   expired.
 - **The browsers you signed in with**, until $browser_days days after their last sign-in.
+- **The notices in your notification centre**, $notification_days days, read or not; those
+  about an organisation go when you leave it or an owner or admin removes you from it.
 - **Abuse protection counts**, at most $count_hours hours.
 - **Server logs**, $server_logs
 - **Usage records**, as long as the organisation exists.
@@ -119,8 +122,8 @@ lasts $oauth_minutes minutes while you sign in with Google or Microsoft; and `$b
 random code that tells a browser you signed in with from others for $browser_days days after its
 last sign-in, also once you have signed out, and goes with no request but those about signing in
 and your account. Your browser's own storage keeps your choice of a
-light or dark theme, which documents and folders you had open, how wide you made the panes, and
-which notices you dismissed. There are no analytics, advertising or tracking cookies, and
+light or dark theme, which documents and folders you had open, how wide you made the panes,
+which notices you dismissed, and whether it shows your notices as they come. There are no analytics, advertising or tracking cookies, and
 $third_parties so there is nothing to consent to.
 
 ## Security

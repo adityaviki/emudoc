@@ -23,6 +23,7 @@ from app.models import (
     Document,
     Job,
     Membership,
+    Notification,
     Project,
     QuotaNotice,
     Upload,
@@ -145,7 +146,7 @@ def test_an_upload_that_took_a_while_is_told_once_with_what_could_not_be_indexed
         "1 is indexed, ready to search and ask about, and 1 could not be:\n\n"
         f"empty.pdf: {error}\n\n"
         'Once what a document says is put right, "Index again" in the library runs it again:\n\n'
-        f"{APP}/projects/{project['id']}\n\n"
+        f"{APP}/projects/{project['id']}?organization={ann.organization.id}\n\n"
     )
     assert notice.headers["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
 
@@ -263,15 +264,17 @@ def test_whoever_no_longer_sees_the_project_or_wants_notices_is_told_nothing(
     assert uploads(session)[0].settled_at is not None
     assert told(mailer) == []
 
-    # Ann, who sees every project, turned notices off.
+    # Ann, who sees every project, turned these notices off both ways.
     act_as(ann)
     upload(client, project["id"], sample_docx)
-    session.get(User, ann.user.id).notices_by_email = False
+    for way in ("app", "email"):
+        session.get(User, ann.user.id).choose("upload_indexed", way, False)
     session.commit()
     taken_long(session)
     run_next(services)
     assert uploads(session)[1].settled_at is not None
     assert told(mailer) == []
+    assert session.scalars(select(Notification)).all() == []
 
 
 def test_a_member_who_left_is_told_nothing(
@@ -316,7 +319,7 @@ def test_owners_and_admins_are_told_once_a_month_of_its_questions_at_80_and_100_
     admin = make_account("ada@globex.example", ann.organization, "admin")
     make_account("max@globex.example", ann.organization, "member")
     quiet = make_account("vic@globex.example", ann.organization, "admin")
-    quiet.user.notices_by_email = False
+    quiet.user.choose("quota", "email", False)
     session.commit()
     project = create_project(client)
     month, following = (MONTHS[moment.month - 1] for moment in month_of())
@@ -339,7 +342,7 @@ def test_owners_and_admins_are_told_once_a_month_of_its_questions_at_80_and_100_
         f"Globex has used 4 of the 5 questions it may ask on Emudoc in {month}, 80 %. Once they "
         f"are used, no question is answered until 1 {following}, when the count starts afresh."
         "\n\nThe organisation's usage page shows what it has used, and what lifts the limit for "
-        f"this month:\n\n{APP}/organization/usage\n\n"
+        f"this month:\n\n{APP}/organization/usage?organization={ann.organization.id}\n\n"
     )
 
     ask()
@@ -350,6 +353,13 @@ def test_owners_and_admins_are_told_once_a_month_of_its_questions_at_80_and_100_
         f"are answered until 1 {following}, when the count starts afresh." in full.text
     )
     assert len(told(mailer)) == 4
+    # Vic, who turned these notices off by email, sees both in the app, as the others do.
+    centre = session.scalars(
+        select(Notification.title)
+        .where(Notification.user_id == quiet.user.id)
+        .order_by(Notification.id)
+    ).all()
+    assert centre == [near[0].subject, full.subject]
 
     # A pack for the month starts the count again, against what the month allows now.
     start = month_of()[0]

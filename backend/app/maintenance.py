@@ -107,7 +107,7 @@ from app.jobs import (
 from app.logs import configure_logging
 from app.models import JOB_KINDS, STAGES, Document, Job, Organization
 from app.models import PLANS as PLAN_NAMES
-from app.notices import prune_quota_notices, settle_uploads
+from app.notices import NOTIFICATION_DAYS, prune_notifications, prune_quota_notices, settle_uploads
 from app.parsing import MIME_TYPES
 from app.postgres import concerns, database_report, describe_database, span
 from app.ratelimit import prune_rate_limits
@@ -482,6 +482,7 @@ def housekeeping(storage: Storage) -> None:
         billing_events = prune_billing_events(connection)
         spared = prune_suppressions(connection)
         prune_quota_notices(connection)
+        notifications = prune_notifications(connection)
     reapply_erasures(storage)
     accounts = purge_due_accounts(storage)
     lapsed = end_grace_periods()
@@ -501,6 +502,12 @@ def housekeeping(storage: Storage) -> None:
         )
     if billing_events:
         log.info("Housekeeping: forgot %s Stripe events acted on long ago", billing_events)
+    if notifications:
+        log.info(
+            "Housekeeping: removed %s notices older than %s days from notification centres",
+            notifications,
+            NOTIFICATION_DAYS,
+        )
     if spared:
         log.info(
             "Housekeeping: writes again to %s addresses the mail provider said to spare more "

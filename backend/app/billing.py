@@ -75,6 +75,7 @@ from app.mail import (
     Message,
     cancellation_email,
     compose,
+    in_organization,
     payment_failed_email,
     plan_lapsed_email,
     plan_lowered_email,
@@ -1029,7 +1030,7 @@ def _payment_failed(
                 plan,
                 None if over else day(until, zone),
                 pay,
-                f"{app_url}{ORGANIZATION_PAGE}",
+                in_organization(f"{app_url}{ORGANIZATION_PAGE}", organization.id),
             ),
         )
         for email, name, zone in _owners(session, organization.id)
@@ -1047,7 +1048,7 @@ def _trial_mail(session: Session, organization: Organization, app_url: str) -> l
                 organization.plan.capitalize(),
                 day(ends, zone),
                 organization.ends_at is not None,
-                f"{app_url}{ORGANIZATION_PAGE}",
+                in_organization(f"{app_url}{ORGANIZATION_PAGE}", organization.id),
             ),
         )
         for email, name, zone in _owners(session, organization.id)
@@ -1084,7 +1085,7 @@ def _lapsed_mail(
                 name,
                 organization.name,
                 was_plan.capitalize(),
-                f"{app_url}{ORGANIZATION_PAGE}",
+                in_organization(f"{app_url}{ORGANIZATION_PAGE}", organization.id),
                 over,
                 kept,
                 day(until, zone) if until else None,
@@ -1111,7 +1112,7 @@ def _lowered_mail(
                 over,
                 kept,
                 day(until, zone) if until else None,
-                f"{app_url}{ORGANIZATION_PAGE}",
+                in_organization(f"{app_url}{ORGANIZATION_PAGE}", organization.id),
             ),
         )
         for email, name, zone in _owners(session, organization.id)
@@ -1152,7 +1153,7 @@ def _cancelled_mail(session: Session, organization: Organization, app_url: str) 
                 over,
                 kept,
                 day(until, zone) if until else None,
-                f"{app_url}{ORGANIZATION_PAGE}",
+                in_organization(f"{app_url}{ORGANIZATION_PAGE}", organization.id),
             ),
         )
         for email, name, zone in _owners(session, organization.id)

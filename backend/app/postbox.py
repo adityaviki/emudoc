@@ -20,16 +20,18 @@ through Resend, which holds the message's key as its Idempotency-Key for a day.
 
 Notices are the mail a member may do without, as against what the account, an invitation or
 billing needs said (deploying.md, "Mail"). `post_notice` posts one to a user who has not turned
-notices off (`users.notices_by_email`) and whose address the provider has not said to spare
-(app/bounces.py), with a footer that says how to stop them and RFC 8058's one-click headers, so
-that a mail program's own "unsubscribe" turns them off without opening anything: both lead to
-`/api/mail/unsubscribe` with a token that names the user, encrypted with ENCRYPTION_KEYS, so
-that it cannot be made for another and lasts as long as its key is held.
+its kind's email off (`User.wants`, app/notices.py) and whose address the provider has not said
+to spare (app/bounces.py), with a footer that says how to stop them and RFC 8058's one-click
+headers, so that a mail program's own "unsubscribe" turns them off without opening anything:
+both lead to `/api/mail/unsubscribe` with a token that names the user and the kind, encrypted
+with ENCRYPTION_KEYS, so that it cannot be made for another and lasts as long as its key is
+held. A token from before the kinds were chosen apart names the user alone, and stops every
+kind's email.
 """
 
 import json
 import logging
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from urllib.parse import quote
@@ -44,7 +46,7 @@ from app.jobs import LIVE, SEND_EMAIL, enqueue
 from app.keyring import Undecryptable, is_encrypted
 from app.mail import Block, Content, Link, LogMailer, Mailer, MailError, Message, compose
 from app.metrics import MAIL_SENT
-from app.models import Job, User
+from app.models import NOTICE_CHANNELS, NOTICE_KINDS, Job, User
 
 if TYPE_CHECKING:
     # For the handler's signature alone: the pipeline posts notices through this module.
@@ -64,9 +66,11 @@ UNSUBSCRIBE_ROUTE = "/api/mail/unsubscribe"
 # value of another kind decrypts as none.
 UNSUBSCRIBE_PLACE = "mail.unsubscribe"
 STOP_NOTICES = (
-    "You get this email because notices by email are on for your Emudoc account. To stop them, "
-    "open this link, or turn them off on your account page:"
+    "You get this email because notices like it are on by email for your Emudoc account. To "
+    "stop them, open this link, or choose which notices you get, and how, on your account page:"
 )
+# The way of telling a notice this module posts.
+BY_EMAIL = NOTICE_CHANNELS[1]
 
 _SPENT = text("UPDATE jobs SET payload = payload - 'message' WHERE id = :id")
 
@@ -80,18 +84,24 @@ def post(session: Session, to: str, content: Content | Message, org_id: int | No
 
 
 def post_notice(
-    session: Session, user: User, content: Content, app_url: str, org_id: int | None = None
+    session: Session,
+    user: User,
+    kind: str,
+    content: Content,
+    app_url: str,
+    org_id: int | None = None,
 ) -> Job | None:
-    """Queue a notice to the user unless they turned notices off, or the provider said to spare
-    their address; None when it is not posted."""
-    if not user.notices_by_email or suppressed(session, user.email):
+    """Queue a notice of the kind (NOTICE_KINDS) to the user unless they turned its email off,
+    or the provider said to spare their address; None when it is not posted."""
+    if not user.wants(kind, BY_EMAIL) or suppressed(session, user.email):
         return None
-    return post(session, user.email, notice(user, content, app_url), org_id)
+    return post(session, user.email, notice(user, kind, content, app_url), org_id)
 
 
-def notice(user: User, content: Content, app_url: str) -> Message:
-    """The notice to the user: `content` with the footer and headers that turn notices off."""
-    token = quote(unsubscribe_token(user.id))
+def notice(user: User, kind: str, content: Content, app_url: str) -> Message:
+    """The notice to the user: `content` with the footer and headers that turn its kind's email
+    off."""
+    token = quote(unsubscribe_token(user.id, kind))
     page = f"{app_url}{UNSUBSCRIBE_PAGE}#token={token}"
     footer: tuple[Block, ...] = (STOP_NOTICES, Link(page, "Stop these emails"))
     return compose(
@@ -105,17 +115,29 @@ def notice(user: User, content: Content, app_url: str) -> Message:
     )
 
 
-def unsubscribe_token(user_id: int) -> str:
-    return keys().encrypt(str(user_id), UNSUBSCRIBE_PLACE)
+def unsubscribe_token(user_id: int, kind: str) -> str:
+    return keys().encrypt(f"{user_id}:{kind}", UNSUBSCRIBE_PLACE)
 
 
-def unsubscriber(token: str) -> int | None:
-    """The id of the user an unsubscribe token was made for; None for anything else, or for one
-    whose key ENCRYPTION_KEYS no longer holds."""
+@dataclass(frozen=True)
+class Unsubscriber:
+    """Whose notices an unsubscribe token stops by email, and of which kind: None for every
+    kind, as a token made before the kinds were chosen apart says."""
+
+    user_id: int
+    kind: str | None
+
+
+def unsubscriber(token: str) -> Unsubscriber | None:
+    """Whom an unsubscribe token was made for; None for anything else, or for one whose key
+    ENCRYPTION_KEYS no longer holds."""
     if not is_encrypted(token):
         return None
     try:
-        return int(keys().decrypt(token, UNSUBSCRIBE_PLACE))
+        user_id, _, kind = keys().decrypt(token, UNSUBSCRIBE_PLACE).partition(":")
+        if kind and kind not in NOTICE_KINDS:
+            return None
+        return Unsubscriber(int(user_id), kind or None)
     except (Undecryptable, ValueError):
         return None
 

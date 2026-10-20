@@ -43,6 +43,7 @@ from app.api.deps import AccountDep, SessionDep, UsableAccountDep, limited
 from app.audit import audit, audit_event
 from app.config import get_settings
 from app.models import PLANS, ROLES, Chat, Membership, Organization, Project, User, UserSession
+from app.notices import forget_notifications
 from app.ratelimit import SIGN_INS
 from app.schemas import MemberOut, MemberRoleIn, MeOut, OrganizationIn, OwnershipIn
 
@@ -357,7 +358,8 @@ def _part(session: Session, org_id: int, user_id: int) -> int:
     """End the user's membership of the organisation, as leaving or being removed does, and
     return how many of their chats went: the private ones in its projects, which nobody else
     could read. Their place among its private projects' members goes too, so that joining
-    again shows them none. The caller commits."""
+    again shows them none, and so do its notices in their notification centre. The caller
+    commits."""
     own_projects = select(Project.id).where(Project.org_id == org_id)
     chats = session.execute(
         delete(Chat).where(
@@ -367,6 +369,7 @@ def _part(session: Session, org_id: int, user_id: int) -> int:
         )
     ).rowcount
     forget_projects(session, org_id, user_id)
+    forget_notifications(session, org_id, user_id)
     session.execute(
         delete(Membership).where(Membership.org_id == org_id, Membership.user_id == user_id)
     )

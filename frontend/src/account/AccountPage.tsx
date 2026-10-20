@@ -1,12 +1,12 @@
-// The account page: who you are and your address, whether you are mailed notices, the terms you
+// The account page: who you are and your address, how you are told notices, the terms you
 // accepted, how you sign in, where you are signed in, a copy of your data, and deleting the
 // account.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Copy, Download, LogOut, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import {
   ACCOUNT_EXPORT_URL,
   DELETION_GRACE_DAYS,
@@ -16,7 +16,7 @@ import {
   ROLE_LABELS,
   auth,
 } from '../api.ts'
-import type { Me, MfaSetup, UserSession } from '../api.ts'
+import type { Me, MfaSetup, NoticeKind, UserSession } from '../api.ts'
 import { ME_KEY, setSignedIn, useMe, useSignOut } from '../auth.ts'
 import {
   Button,
@@ -32,6 +32,8 @@ import {
   SelectField,
 } from '../components/ui.tsx'
 import { formatDate, formatDateTime } from '../format.ts'
+import { useLocalStorage } from '../hooks.ts'
+import { NOTICE_KINDS, browserNoticesKey } from '../notifications.ts'
 import { browserTimeZone, timeZoneChoices, zoneLabel } from '../timeZones.ts'
 import { ChangeEmailForm } from './ChangeEmail.tsx'
 import { DeleteAccountForm } from './DeleteAccount.tsx'
@@ -59,6 +61,7 @@ export function AccountPage() {
         <div className="space-y-5">
           <ProfileSection me={me} />
           <EmailSection me={me} />
+          <NoticesSection me={me} />
           <PasswordSection />
           <TwoFactorSection me={me} />
           <SessionsSection />
@@ -191,41 +194,130 @@ function EmailSection({ me }: { me: Me }) {
           <Button onClick={() => setChanging(true)}>Change email address…</Button>
         )}
       </div>
-      <NoticesSwitch key={String(me.notices_by_email)} me={me} />
     </Section>
   )
 }
 
-// The mail a member may do without; what the account, an invitation or billing needs said is
-// sent whatever this says. Turning it on also writes again to an address that bounced. The box
-// shows the choice at once, and goes back if it is not saved; keyed by the saved value, so that
-// a change from elsewhere (a notice's link, another tab) shows once the account is read again.
-function NoticesSwitch({ me }: { me: Me }) {
-  const queryClient = useQueryClient()
-  const [on, setOn] = useState(me.notices_by_email)
-  const save = useMutation({
-    mutationFn: (value: boolean) => auth.updateProfile({ notices_by_email: value }),
-    onSuccess: (account) => setSignedIn(queryClient, account),
-    onError: () => setOn(me.notices_by_email),
-  })
+/**
+ * How each kind of notice is told, the news a member may do without: in the notification centre
+ * and by email, each chosen apart, and whether this browser shows them as they come. The bell's
+ * settings link leads here, by the address's `#notices`.
+ */
+function NoticesSection({ me }: { me: Me }) {
+  const location = useLocation()
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (location.hash === '#notices') {
+      void box.current?.scrollIntoView({ block: 'start' })
+    }
+  }, [location.hash])
   return (
-    <div className="mt-5 border-t border-line pt-4">
-      <Checkbox
-        label="Email me notices about my work in Emudoc"
-        checked={on}
-        disabled={save.isPending}
-        onChange={(event) => {
-          setOn(event.target.checked)
-          save.mutate(event.target.checked)
-        }}
-      />
-      <p className="mt-1 pl-6.5 text-xs text-muted">
-        That a long upload is indexed, and to owners and admins that the month's pages or questions run low. Each has a link to stop them; email about your account, invitations and billing is sent either way.
-      </p>
+    <div ref={box} id="notices" className="scroll-mt-6">
+      <Section
+        title="Notices"
+        description="News about your work in Emudoc, under the bell in the header and by email. Email about your account, invitations and billing is sent either way."
+      >
+        <NoticeChoices key={JSON.stringify(me.notices)} me={me} />
+        <BrowserNotices me={me} />
+      </Section>
+    </div>
+  )
+}
+
+// Turning a kind on by email also writes again to an address that bounced. A box shows the
+// choice at once, and goes back if it is not saved; keyed by the saved choices, so that a change
+// from elsewhere (a notice's link, another tab) shows once the account is read again.
+function NoticeChoices({ me }: { me: Me }) {
+  const queryClient = useQueryClient()
+  const [choices, setChoices] = useState(me.notices)
+  const save = useMutation({
+    mutationFn: (choice: { kind: NoticeKind; app?: boolean; email?: boolean }) => auth.updateProfile({ notices: [choice] }),
+    onSuccess: (account) => setSignedIn(queryClient, account),
+    onError: () => setChoices(me.notices),
+  })
+
+  function choose(kind: NoticeKind, way: 'app' | 'email', on: boolean) {
+    setChoices((current) => current.map((choice) => (choice.kind === kind ? { ...choice, [way]: on } : choice)))
+    save.mutate({ kind, [way]: on })
+  }
+
+  return (
+    <>
+      <table className="w-full text-[13px]">
+        <thead>
+          <tr className="text-xs text-muted">
+            <th className="pb-2 text-left font-normal">When</th>
+            <th className="w-20 pb-2 font-normal">In Emudoc</th>
+            <th className="w-20 pb-2 font-normal">By email</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line border-t border-line">
+          {choices
+            .filter((choice) => choice.kind in NOTICE_KINDS)
+            .map((choice) => {
+              const { label, detail } = NOTICE_KINDS[choice.kind]
+              return (
+                <tr key={choice.kind}>
+                  <td className="py-2.5 pr-4">
+                    <p className="font-medium">{label}</p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-muted">{detail}</p>
+                  </td>
+                  {(['app', 'email'] as const).map((way) => (
+                    <td key={way} className="text-center">
+                      <input
+                        type="checkbox"
+                        aria-label={`${label}, ${way === 'app' ? 'in Emudoc' : 'by email'}`}
+                        className="size-4 accent-accent"
+                        checked={choice[way]}
+                        disabled={save.isPending}
+                        onChange={(event) => choose(choice.kind, way, event.target.checked)}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              )
+            })}
+        </tbody>
+      </table>
       {save.isError && (
         <div className="mt-2">
           <Notice tone="bad">{save.error.message}</Notice>
         </div>
+      )}
+    </>
+  )
+}
+
+// Whether this browser shows the notices as they come while Emudoc is open in a tab: the
+// browser's choice, kept in its own storage, with its permission, asked for as the box is ticked.
+function BrowserNotices({ me }: { me: Me }) {
+  const [on, setOn] = useLocalStorage(browserNoticesKey(me.id), false, (value): value is boolean => typeof value === 'boolean')
+  const [blocked, setBlocked] = useState(false)
+  if (!('Notification' in window)) return null
+
+  async function choose(value: boolean) {
+    if (value && window.Notification.permission !== 'granted' && (await window.Notification.requestPermission()) !== 'granted') {
+      setBlocked(true)
+      return
+    }
+    setBlocked(false)
+    setOn(value)
+  }
+
+  return (
+    <div className="mt-4 border-t border-line pt-4">
+      <Checkbox
+        label="Also show them on this computer as they come"
+        checked={on && window.Notification.permission === 'granted'}
+        onChange={(event) => void choose(event.target.checked)}
+      />
+      <p className="mt-1 pl-6.5 text-xs text-muted">
+        As your computer's own notifications, while Emudoc is open in a tab in the background. This browser's choice alone.
+      </p>
+      {blocked && (
+        <p className="mt-1 pl-6.5 text-xs text-warn">
+          This browser blocks notifications from Emudoc: allow them in its settings for this site, then tick the box again.
+        </p>
       )}
     </div>
   )

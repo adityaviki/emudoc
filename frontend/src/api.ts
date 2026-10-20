@@ -554,6 +554,39 @@ export interface Member {
   joined_at: string
 }
 
+/** The kinds of notice (NOTICE_KINDS in backend/app/models.py, backend/app/notices.py). */
+export type NoticeKind = 'upload_indexed' | 'quota'
+
+/** How one kind of notice is told: in the notification centre, by email, both or neither. */
+export interface NoticeChoice {
+  kind: NoticeKind
+  app: boolean
+  email: boolean
+}
+
+/** A notice in the user's notification centre. */
+export interface NotificationItem {
+  id: number
+  kind: NoticeKind
+  title: string
+  body: string
+  /** The page it leads to, a path in the organisation `org_id`, which may be another than the one the page shows. */
+  link: string
+  org_id: number
+  /** The organisation's name as it is now. */
+  organization: string
+  created_at: string
+  read_at: string | null
+}
+
+/** A page of the user's notices, the newest first, and how many of all of them are unread. */
+export interface NotificationPage {
+  notifications: NotificationItem[]
+  unread: number
+  /** What to pass as `before` for the next, older page; null on the last one. */
+  next_before: number | null
+}
+
 /** The signed-in user, and the organisation and role they act with. */
 export interface Me {
   id: number
@@ -561,8 +594,8 @@ export interface Me {
   name: string
   /** The IANA zone the mail Emudoc sends the user is dated in, '' for UTC until they choose one. */
   time_zone: string
-  /** Whether the user is mailed notices, the mail they may do without. */
-  notices_by_email: boolean
+  /** How the user is told each kind of notice, the news they may do without, in the server's order of the kinds. */
+  notices: NoticeChoice[]
   email_verified: boolean
   mfa_enabled: boolean
   /** Providers the account can sign in through, such as "google". */
@@ -860,12 +893,16 @@ export const auth = {
   verifyMfa: (code: string) => request<Me>('/auth/mfa/verify', json('POST', { code })),
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
 
-  /** A field left out stays as it is; turning notices on writes again to an address that bounced. */
-  updateProfile: (body: { name?: string; time_zone?: string; notices_by_email?: boolean }) =>
-    request<Me>('/auth/profile', json('PATCH', body)),
+  /** A field left out stays as it is, and so does a way of a kind of notice; turning one on by email writes again to an address that bounced. */
+  updateProfile: (body: {
+    name?: string
+    time_zone?: string
+    notices?: { kind: NoticeKind; app?: boolean; email?: boolean }[]
+  }) => request<Me>('/auth/profile', json('PATCH', body)),
   /**
-   * Stops the notices of the user a notice's link was made for, signed in or not: the token in
-   * the link says whose. Mirrors `unsubscribe` in backend/app/api/mail.py.
+   * Stops the email of the kind of notice a notice's link was made for, to its user, signed in
+   * or not: the token in the link says whose and which. Mirrors `unsubscribe` in
+   * backend/app/api/mail.py.
    */
   unsubscribe: (token: string) =>
     request<void>(`/mail/unsubscribe?${new URLSearchParams({ token })}`, { method: 'POST' }),
@@ -972,6 +1009,17 @@ export const organizations = {
   portalDone: () => request<Me>('/organization/billing/portal/done', { method: 'POST' }),
   /** Every member: what the organisation holds and used of its plan, with the history. */
   usage: () => request<UsagePage>('/organization/usage'),
+}
+
+/**
+ * The user's notification centre, their notices about every organisation they belong to.
+ * Mirrors backend/app/api/notifications.py.
+ */
+export const notifications = {
+  page: (before: number | null = null) =>
+    request<NotificationPage>(`/notifications${before === null ? '' : `?before=${before}`}`),
+  /** The notices named, or every one. */
+  read: (ids?: number[]) => request<void>('/notifications/read', json('POST', { ids })),
 }
 
 export const api = {

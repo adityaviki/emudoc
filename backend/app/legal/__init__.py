@@ -32,6 +32,7 @@ from app.bounces import SUPPRESSED_FOR
 from app.config import REGIONS, Settings, model_provider, parse_scanner_url
 from app.entitlements import CHARS_PER_PAGE, PLANS, Entitlements
 from app.network import MODEL_BASE_URLS, host_of, on_own_network
+from app.notices import NOTIFICATION_DAYS
 from app.oidc import OAUTH_COOKIE, OAUTH_WINDOW_SECONDS
 from app.ratelimit import HISTORY
 from app.retention import DELETION_GRACE, RETENTION_HELD, day
@@ -118,6 +119,7 @@ def privacy_policy(
         held_days=str(RETENTION_HELD.days),
         credential_days=str(CREDENTIAL_HISTORY.days),
         browser_days=str(BROWSER_KNOWN_FOR.days),
+        notification_days=str(NOTIFICATION_DAYS),
         # A count is pruned at the first housekeeping after it is HISTORY old.
         count_hours=str(round((HISTORY.total_seconds() + HOUSEKEEPING_INTERVAL) / 3600)),
         deletion_days=str(DELETION_GRACE.days),

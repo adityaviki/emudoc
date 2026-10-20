@@ -10,8 +10,10 @@ import { movePlan } from './operator.ts'
 // colleague as a viewer, who makes an account from the invitation's link, finds the project and
 // is offered no change to it until made a member, then make the project private, which she no
 // longer finds until chosen for it, and share the chat, which the colleague then reads but does
-// not ask in. The answer is the stand-in's (e2e/standin.py): the first sentence of the passage
-// its search found best, with that passage's reference.
+// not ask in, and last ask the question that uses the month's questions, which the bell tells,
+// and open that notice from the other organisation. The answer is the stand-in's
+// (e2e/standin.py): the first sentence of the passage its search found best, with that
+// passage's reference.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
 
 test('a new member uploads a contract, finds it, asks about it and opens the cited passage', async ({ page, browser }) => {
@@ -19,6 +21,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   // The colleague's browser, from the invitation on.
   let theirs: BrowserContext
   let grace: Page
+  // The first organisation's, for the operator's command.
+  let slug = ''
 
   await test.step('sign up', async () => {
     // A new address every run, so that a server kept from an earlier run takes it too.
@@ -111,8 +115,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
 
   await test.step('invite a viewer, who makes an account from the link, reads, and is made a member', async () => {
     await page.goto('/organization')
-    const slug = await page.locator('code').filter({ hasText: /^ada-lovelace/ }).textContent()
-    movePlan(slug ?? '', 'team', '--seats', '2')
+    slug = (await page.locator('code').filter({ hasText: /^ada-lovelace/ }).textContent()) ?? ''
+    movePlan(slug, 'team', '--seats', '2')
     await page.reload()
     // The plan's figures, with the seats bought for its members.
     const plan = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Plan', exact: true }) })
@@ -197,5 +201,28 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(grace.getByPlaceholder('Ask a question about these documents')).toHaveCount(0)
     await expect(grace.getByRole('button', { name: 'Share', exact: true })).toHaveCount(0)
     await theirs.close()
+  })
+
+  await test.step("be told the month's questions are used, and open the notice from the other organisation", async () => {
+    // Two questions a month: the second uses them all, which the owners are told as it is asked.
+    movePlan(slug, 'team', '--set', 'questions_per_month=2')
+    const asked = page.waitForResponse((response) => response.request().method() === 'POST' && /\/messages$/.test(response.url()))
+    const composer = page.getByPlaceholder('Ask a question about these documents')
+    await composer.fill('Who may end the contract?')
+    await composer.press('Enter')
+    expect((await asked).status()).toBe(201)
+
+    await page.getByRole('link', { name: 'Emudoc' }).click()
+    await page.getByRole('button', { name: "Ada Lovelace's workspace" }).click()
+    await page.getByRole('menuitem', { name: 'Lovelace Legal' }).click()
+    await expect(page.getByText('No projects yet')).toBeVisible()
+    await page.getByRole('button', { name: 'Notifications, 1 unread' }).click()
+    const notice = page.getByRole('dialog', { name: 'Notifications' }).getByRole('button', { name: /used all its questions for the month/ })
+    await expect(notice).toContainText("Ada Lovelace's workspace has used all the 2 questions it may ask")
+    // Opened in the organisation it is about, read.
+    await notice.click()
+    await expect(page).toHaveURL(/\/organization\/usage$/)
+    await expect(page.getByRole('button', { name: "Ada Lovelace's workspace" })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible()
   })
 })

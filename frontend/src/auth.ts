@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { createContext, useCallback, useContext } from 'react'
 import type { QueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router'
-import { auth, showOrganization } from './api.ts'
+import { auth, organizations, showOrganization } from './api.ts'
 import type { Me } from './api.ts'
 
 export const ME_KEY = ['me'] as const
@@ -44,6 +44,15 @@ export function setSignedIn(queryClient: QueryClient, me: Me | null) {
  */
 export function startAgainInOrganization() {
   window.location.assign('/')
+}
+
+/**
+ * Open a page of another of the user's organisations: switch the session to it, then load the
+ * page, so that the app starts again there as after any switch. A switch refused, the
+ * organisation gone meanwhile, loads the page in the one the session works in.
+ */
+export function openInOrganization(id: number, path: string, replace = false) {
+  void organizations.switch(id).finally(() => (replace ? window.location.replace(path) : window.location.assign(path)))
 }
 
 /**

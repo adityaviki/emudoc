@@ -69,6 +69,11 @@ PLANS = ("free", "pro", "team", "enterprise")
 # The figures of a plan its owners and admins are told about as a month uses them up
 # (app/notices.py): the fields of `Entitlements` that count the month.
 QUOTA_FIGURES = ("pages_per_month", "questions_per_month")
+# The kinds of notice the app tells members about their work (app/notices.py), and the ways each
+# reaches them: the notification centre in the app, and email. A member chooses each way of
+# each kind (`User.notices`).
+NOTICE_KINDS = ("upload_indexed", "quota")
+NOTICE_CHANNELS = ("app", "email")
 # The order the library lists a folder's files in, which the database keeps an index in: by
 # name, with the numbers in a name compared as numbers ("invoice 2" before "invoice 10") and
 # case and accents set aside, as the page sorts the folders. An ICU collation, made by the
@@ -181,12 +186,13 @@ class User(Base):
     # export its data, delete itself and sign out.
     terms_version: Mapped[str | None] = mapped_column(String(40))
     terms_accepted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
-    # Whether the user is mailed notices, the mail they may do without (app/postbox.py): turned
-    # off on the account page or by a notice's own unsubscribe link. The mail about the account,
-    # its organisations' invitations and billing is sent whatever it says.
-    notices_by_email: Mapped[bool] = mapped_column(
-        Boolean, default=True, server_default=text("true")
-    )
+    # How the user is told each kind of notice, the news they may do without (app/notices.py):
+    # NOTICE_KINDS by NOTICE_CHANNELS as they chose them, such as {"quota": {"email": false}}.
+    # A kind or a way not named is on, so that a kind added later reaches everyone until they
+    # choose. Chosen on the account page, and a kind's email turned off by its notices' own
+    # unsubscribe link. The mail about the account, its organisations' invitations and billing
+    # is sent whatever it says.
+    notices: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -204,6 +210,17 @@ class User(Base):
     @property
     def mfa_enabled(self) -> bool:
         return self.totp_enabled_at is not None
+
+    def wants(self, kind: str, channel: str) -> bool:
+        """Whether the user is told notices of the kind that way (NOTICE_CHANNELS)."""
+        return (self.notices or {}).get(kind, {}).get(channel, True) is not False
+
+    def choose(self, kind: str, channel: str, on: bool) -> None:
+        """Tell the user notices of the kind that way from now on, or not. A new dict, since
+        the session saves a JSON column only when it is assigned."""
+        notices = {name: dict(ways) for name, ways in (self.notices or {}).items()}
+        notices.setdefault(kind, {})[channel] = on
+        self.notices = notices
 
 
 class Identity(Base):
@@ -1004,6 +1021,41 @@ class QuotaNotice(Base):
     allowance: Mapped[int] = mapped_column(Integer)
     used: Mapped[int] = mapped_column(Integer)
     sent_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Notification(Base):
+    """A notice in its member's notification centre (app/notices.py), made beside its mail and
+    in the same transaction, so that the two never disagree: what it says in the app's words,
+    the page it leads to, and whether they read it. The organisation it is about may be another
+    than the one they work in; a member who leaves or is removed from it loses its notices with
+    the membership (`_part` in app/api/organizations.py), and the housekeeper removes those
+    older than NOTIFICATION_DAYS."""
+
+    __tablename__ = "notifications"
+    __table_args__ = (
+        _one_of("kind", NOTICE_KINDS, "notifications"),
+        # A member's notices, newest first, a page at a time by id.
+        Index("ix_notifications_user_id_id", "user_id", "id"),
+        # What the bell counts.
+        Index("ix_notifications_unread", "user_id", postgresql_where=text("read_at IS NULL")),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(40))
+    # The notice's subject, the app's own sentence, and what it says, which may name files, a
+    # project and the organisation, and give the library's reasons: never logged.
+    title: Mapped[str] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(Text)
+    # The page of the app it leads to, a path in the organisation it is about.
+    link: Mapped[str] = mapped_column(String(400))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    read_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class WatchAlert(Base):
