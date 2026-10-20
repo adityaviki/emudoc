@@ -16,10 +16,11 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    select,
     text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, REGCONFIG, TSVECTOR
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, column_property, mapped_column, relationship
 
 from app.config import REGIONS, get_settings
 from app.db import Base
@@ -688,6 +689,11 @@ class Chat(Base):
     )
     # Who started the chat. A private chat is theirs alone, so it goes when their account does.
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # The starter's name as it is now, read with the chat, which a shared chat shows the
+    # project's other members.
+    started_by: Mapped[str] = column_property(
+        select(User.name).where(User.id == user_id).correlate_except(User).scalar_subquery()
+    )
     # private | project
     visibility: Mapped[str] = mapped_column(String(20), default="private")
     # Taken from the first question, until the user renames the chat.

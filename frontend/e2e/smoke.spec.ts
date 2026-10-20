@@ -9,9 +9,9 @@ import { movePlan } from './operator.ts'
 // open the passage the answer cites, start a second organisation and switch back, and invite a
 // colleague as a viewer, who makes an account from the invitation's link, finds the project and
 // is offered no change to it until made a member, then make the project private, which she no
-// longer finds until chosen for it. The
-// answer is the stand-in's (e2e/standin.py): the first sentence of the passage its search
-// found best, with that passage's reference.
+// longer finds until chosen for it, and share the chat, which the colleague then reads but does
+// not ask in. The answer is the stand-in's (e2e/standin.py): the first sentence of the passage
+// its search found best, with that passage's reference.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
 
 test('a new member uploads a contract, finds it, asks about it and opens the cited passage', async ({ page, browser }) => {
@@ -166,6 +166,22 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await grace.reload()
     await expect(grace.getByText('Supplier contracts')).toBeVisible()
     await expect(grace.getByText('Private', { exact: true })).toBeVisible()
+  })
+
+  await test.step('share the chat with the project, which a colleague reads but does not ask in', async () => {
+    await page.getByText('Supplier contracts').click()
+    await expect(page.getByRole('button', { name: /^How much notice/ })).toBeVisible()
+    await page.getByRole('button', { name: 'Share', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Make private', exact: true })).toBeVisible()
+
+    // Her own chat opens by default, so a new one, which offers the chats others shared.
+    await grace.getByText('Supplier contracts').click()
+    const shared = grace.getByRole('button', { name: /How much notice .*Ada Lovelace ·/ })
+    await shared.click()
+    await expect(grace.getByText("Either party may end this contract by giving ninety days' written notice to the other.")).toBeVisible()
+    await expect(grace.getByText('Ada Lovelace shared this chat with the project.', { exact: false })).toBeVisible()
+    await expect(grace.getByPlaceholder('Ask a question about these documents')).toHaveCount(0)
+    await expect(grace.getByRole('button', { name: 'Share', exact: true })).toHaveCount(0)
     await theirs.close()
   })
 })

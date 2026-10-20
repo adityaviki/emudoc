@@ -6,6 +6,7 @@ import {
   ExternalLink,
   FileText,
   ListTree,
+  Lock,
   MessagesSquare,
   Pencil,
   Plus,
@@ -13,6 +14,7 @@ import {
   Square,
   Table2,
   Trash2,
+  Users,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -20,12 +22,13 @@ import type { KeyboardEvent } from 'react'
 import { api, pageLabel, sectionPath } from '../api.ts'
 import type { Chat, Source } from '../api.ts'
 import { useMe } from '../auth.ts'
-import { ask, chatKey, isStreaming, loadChat, resume, stop, useStreaming } from '../chat.ts'
+import { ask, chatKey, isStreaming, loadChat, resume, splitChats, stop, useStreaming } from '../chat.ts'
 import type { ChatData, Message, Step } from '../chat.ts'
 import { Markdown, SourceText } from '../components/Markdown.tsx'
 import { Floating } from '../components/Menu.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, IconButton, Loading, Notice, Spinner } from '../components/ui.tsx'
+import { formatDate } from '../format.ts'
 import { useStatus } from '../hooks.ts'
 import { describeAnswerUsage } from '../usage.ts'
 import { useWorkspace } from './state.ts'
@@ -37,11 +40,14 @@ const SUGGESTIONS = [
 ]
 
 const NO_MESSAGES: Message[] = []
+// How many of the chats other members shared a new chat shows; the chat list holds them all.
+const SHARED_SHOWN = 3
 
 /** The agent: the project's chats, one of them open, with answers that cite the documents. */
 export function ChatPane() {
   const workspace = useWorkspace()
   const project = workspace.project
+  const me = useMe()
   const chats = useQuery({ queryKey: ['chats', project.id], queryFn: () => api.chats(project.id) })
 
   if (chats.isPending) return <Loading />
@@ -52,27 +58,38 @@ export function ChatPane() {
       </div>
     )
   }
-  // Without a chat in the URL the latest one opens. "new" is an empty chat until its first question.
+  const { own, shared } = splitChats(chats.data, me.id)
+  // Without a chat in the URL the member's latest opens, never one another member shared. "new"
+  // is an empty chat until its first question.
   const requested = workspace.url.chatId
-  const chatId = requested === 'new' ? null : (requested ?? chats.data[0]?.id ?? null)
+  const chatId = requested === 'new' ? null : (requested ?? own[0]?.id ?? null)
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-page">
-      <ChatHeader chats={chats.data} activeId={chatId} />
-      <Conversation key={chatId ?? 'new'} chatId={chatId} />
+      <ChatHeader own={own} shared={shared} activeId={chatId} />
+      <Conversation key={chatId ?? 'new'} chatId={chatId} shared={shared} />
     </div>
   )
 }
 
-function ChatHeader({ chats, activeId }: { chats: Chat[]; activeId: number | null }) {
+interface ChatHeaderProps {
+  // The member's own chats, and the ones other members shared with the project.
+  own: Chat[]
+  shared: Chat[]
+  activeId: number | null
+}
+
+function ChatHeader({ own, shared, activeId }: ChatHeaderProps) {
   const workspace = useWorkspace()
   // How long the organisation's plan keeps a chat after its last question (backend/app/retention.py).
   const keptFor = useMe().organization.chat_retention_days
   // Where the list opens: set from the button's position when it is clicked.
   const [anchor, setAnchor] = useState<DOMRect | null>(null)
   const button = useRef<HTMLButtonElement>(null)
-  const active = chats.find((chat) => chat.id === activeId)
+  const mine = own.find((chat) => chat.id === activeId)
+  const active = mine ?? shared.find((chat) => chat.id === activeId)
   const title = activeId == null ? 'New chat' : active?.title || 'New chat'
+  const ChatIcon = active?.visibility === 'project' ? Users : MessagesSquare
   const close = () => setAnchor(null)
 
   return (
@@ -85,11 +102,13 @@ function ChatHeader({ chats, activeId }: { chats: Chat[]; activeId: number | nul
         onClick={(event) => setAnchor(anchor ? null : event.currentTarget.getBoundingClientRect())}
         className="flex h-7 min-w-0 max-w-full items-center gap-2 rounded-md px-2 text-left text-[13px] transition hover:bg-sunken"
       >
-        <MessagesSquare className="size-4 shrink-0 text-muted" />
+        <ChatIcon className="size-4 shrink-0 text-muted" />
         <span className="min-w-0 truncate font-medium">{title}</span>
+        {active?.visibility === 'project' && <span className="sr-only">, shared with the project</span>}
         <ChevronDown className="size-3.5 shrink-0 text-muted" />
       </button>
       <span className="flex-1" />
+      {mine && <ShareButton chat={mine} />}
       <Button
         variant="ghost"
         icon={<Plus className="size-4" />}
@@ -100,15 +119,28 @@ function ChatHeader({ chats, activeId }: { chats: Chat[]; activeId: number | nul
       </Button>
       {anchor && (
         <Floating anchor={anchor} onClose={close} ignore={button} className="w-80 max-w-[90vw]">
-          {chats.length === 0 ? (
-            <p className="px-3 py-2.5 text-[13px] text-muted">No chats yet. Ask a question to start one.</p>
-          ) : (
-            <ul className="max-h-80 space-y-0.5 overflow-y-auto p-1">
-              {chats.map((chat) => (
-                <ChatRow key={chat.id} chat={chat} active={chat.id === activeId} onOpen={close} />
-              ))}
-            </ul>
-          )}
+          <div className="max-h-80 overflow-y-auto p-1">
+            {shared.length > 0 && <ListHeading>Your chats</ListHeading>}
+            {own.length === 0 ? (
+              <p className="px-2.5 py-1.5 text-[13px] text-muted">No chats yet. Ask a question to start one.</p>
+            ) : (
+              <ul className="space-y-0.5">
+                {own.map((chat) => (
+                  <ChatRow key={chat.id} chat={chat} active={chat.id === activeId} onOpen={close} />
+                ))}
+              </ul>
+            )}
+            {shared.length > 0 && (
+              <>
+                <ListHeading>Shared with the project</ListHeading>
+                <ul className="space-y-0.5">
+                  {shared.map((chat) => (
+                    <SharedChatRow key={chat.id} chat={chat} active={chat.id === activeId} onOpen={close} />
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
           {keptFor !== null && (
             <p className="border-t border-line px-3 py-2 text-xs text-muted">
               A chat is deleted {keptFor} days after its last question.
@@ -117,6 +149,80 @@ function ChatHeader({ chats, activeId }: { chats: Chat[]; activeId: number | nul
         </Floating>
       )}
     </div>
+  )
+}
+
+function ListHeading({ children }: { children: string }) {
+  return <p className="px-2.5 pt-2 pb-1 text-[11px] font-medium tracking-wide text-muted uppercase">{children}</p>
+}
+
+/**
+ * Share the member's own chat with the project, or take it private again. Whoever sees the project
+ * reads a shared chat; only its starter asks in it.
+ */
+function ShareButton({ chat }: { chat: Chat }) {
+  const queryClient = useQueryClient()
+  const shared = chat.visibility === 'project'
+  const share = useMutation({
+    mutationFn: () => api.shareChat(chat.id, shared ? 'private' : 'project'),
+    onSuccess: (changed) => {
+      queryClient.setQueryData<Chat[]>(['chats', chat.project_id], (chats) =>
+        chats?.map((item) => (item.id === chat.id ? changed : item)),
+      )
+      queryClient.setQueryData<ChatData>(chatKey(chat.id), (data) => data && { ...data, visibility: changed.visibility })
+    },
+  })
+
+  return (
+    <>
+      {share.isError && (
+        <span role="alert" title={share.error.message} className="min-w-0 truncate text-xs text-bad">
+          {share.error.message}
+        </span>
+      )}
+      <Button
+        variant="ghost"
+        icon={shared ? <Lock className="size-4" /> : <Users className="size-4" />}
+        disabled={share.isPending}
+        title={
+          shared
+            ? 'Everyone who sees the project can read this chat. Make it yours alone again.'
+            : 'Let everyone who sees the project read this chat. Only you can ask in it.'
+        }
+        onClick={() => share.mutate()}
+      >
+        {shared ? 'Make private' : 'Share'}
+      </Button>
+    </>
+  )
+}
+
+/** Who shared a chat and when its last question was asked, under its title. */
+function sharedBy(chat: Chat): string {
+  return `${chat.started_by} · ${formatDate(chat.updated_at)}`
+}
+
+/** A chat another member shared with the project: theirs to rename and delete, so only opened here. */
+function SharedChatRow({ chat, active, onOpen }: { chat: Chat; active: boolean; onOpen: () => void }) {
+  const workspace = useWorkspace()
+  const streaming = useStreaming(chat.id)
+  const title = chat.title || 'New chat'
+  return (
+    <li className={`flex items-center rounded-md ${active ? 'bg-sunken' : 'hover:bg-sunken'}`}>
+      <button
+        type="button"
+        onClick={() => {
+          workspace.openChat(chat.id)
+          onOpen()
+        }}
+        title={title}
+        className="min-w-0 flex-1 px-2.5 py-1.5 text-left"
+      >
+        <span className="block truncate text-[13px]">{title}</span>
+        <span className="block truncate text-xs text-muted">{sharedBy(chat)}</span>
+      </button>
+      {streaming && <Spinner className="mr-2.5 size-3.5 shrink-0" />}
+    </li>
   )
 }
 
@@ -178,9 +284,11 @@ function ChatRow({ chat, active, onOpen }: { chat: Chat; active: boolean; onOpen
             onOpen()
           }}
           title={title}
-          className="min-w-0 flex-1 truncate px-2.5 py-1.5 text-left text-[13px]"
+          className="flex min-w-0 flex-1 items-center gap-1.5 px-2.5 py-1.5 text-left text-[13px]"
         >
-          {title}
+          {chat.visibility === 'project' && <Users className="size-3.5 shrink-0 text-muted" />}
+          <span className="min-w-0 truncate">{title}</span>
+          {chat.visibility === 'project' && <span className="sr-only">, shared with the project</span>}
         </button>
       )}
       {streaming ? (
@@ -208,9 +316,10 @@ function ChatRow({ chat, active, onOpen }: { chat: Chat; active: boolean; onOpen
   )
 }
 
-function Conversation({ chatId }: { chatId: number | null }) {
+function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[] }) {
   const workspace = useWorkspace()
   const project = workspace.project
+  const me = useMe()
   const queryClient = useQueryClient()
   const health = useStatus()
   const chat = useQuery({
@@ -245,13 +354,15 @@ function Conversation({ chatId }: { chatId: number | null }) {
 
   const loading = chatId != null && chat.isPending
   const messages = chat.data?.messages ?? NO_MESSAGES
+  // Another member's chat, shared with the project: read here, asked in by its starter alone.
+  const starter = chat.data && chat.data.user_id !== me.id ? chat.data.started_by : null
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' })
   }, [messages])
 
   function send(text: string) {
     const question = text.trim()
-    if (!question || streaming || loading || chat.isError || create.isPending) return
+    if (!question || streaming || loading || chat.isError || create.isPending || starter) return
     if (chatId == null) {
       create.mutate(question)
       return
@@ -286,7 +397,10 @@ function Conversation({ chatId }: { chatId: number | null }) {
               </button>
             </Notice>
           )}
-          {!loading && !chat.isError && messages.length === 0 && (
+          {starter && messages.length === 0 && (
+            <p className="pt-12 text-center text-[13px] text-muted">{starter} has not asked anything in this chat yet.</p>
+          )}
+          {!loading && !chat.isError && !starter && messages.length === 0 && (
             <div className="mx-auto max-w-md pt-12 text-center">
               <div className="mx-auto mb-4 flex size-11 items-center justify-center rounded-xl bg-accent-soft text-accent">
                 <MessagesSquare className="size-5" />
@@ -310,6 +424,7 @@ function Conversation({ chatId }: { chatId: number | null }) {
                   </button>
                 ))}
               </div>
+              {chatId == null && shared.length > 0 && <RecentlyShared chats={shared} />}
             </div>
           )}
           {messages.map((message, index) =>
@@ -334,38 +449,72 @@ function Conversation({ chatId }: { chatId: number | null }) {
               <Notice tone="bad">Could not start a chat: {create.error.message}</Notice>
             </div>
           )}
-          <div className="flex min-w-0 items-end gap-2 rounded-xl border border-line bg-surface p-2 shadow-xs transition focus-within:border-accent focus-within:ring-3 focus-within:ring-accent/15">
-            <textarea
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={onKeyDown}
-              rows={Math.min(6, draft.split('\n').length)}
-              placeholder="Ask a question about these documents"
-              disabled={chat.isError}
-              className="max-h-40 min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 outline-none placeholder:text-muted/70"
-            />
-            {streaming ? (
-              <Button icon={<Square className="size-3.5" />} onClick={() => chatId != null && stop(chatId)}>
-                Stop
-              </Button>
-            ) : (
-              <button
-                type="button"
-                aria-label="Send"
-                disabled={!draft.trim() || unavailable || loading || chat.isError || create.isPending}
-                onClick={() => send(draft)}
-                className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-ink shadow-xs transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <ArrowUp className="size-4" strokeWidth={2.25} />
-              </button>
-            )}
-          </div>
+          {starter ? (
+            <p className="rounded-xl border border-line bg-surface px-4 py-3 text-center text-[13px] text-muted">
+              {starter} shared this chat with the project. You can read it; to ask a question of your own, start a new
+              chat.
+            </p>
+          ) : (
+            <div className="flex min-w-0 items-end gap-2 rounded-xl border border-line bg-surface p-2 shadow-xs transition focus-within:border-accent focus-within:ring-3 focus-within:ring-accent/15">
+              <textarea
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={onKeyDown}
+                rows={Math.min(6, draft.split('\n').length)}
+                placeholder="Ask a question about these documents"
+                disabled={chat.isError}
+                className="max-h-40 min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 outline-none placeholder:text-muted/70"
+              />
+              {streaming ? (
+                <Button icon={<Square className="size-3.5" />} onClick={() => chatId != null && stop(chatId)}>
+                  Stop
+                </Button>
+              ) : (
+                <button
+                  type="button"
+                  aria-label="Send"
+                  disabled={!draft.trim() || unavailable || loading || chat.isError || create.isPending}
+                  onClick={() => send(draft)}
+                  className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-ink shadow-xs transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ArrowUp className="size-4" strokeWidth={2.25} />
+                </button>
+              )}
+            </div>
+          )}
           <p className="mt-2 text-center text-[11px] text-muted/80">
-            Answers are written by AI and can be wrong: check the cited passages · Enter to send · Shift+Enter for a
-            new line
+            Answers are written by AI and can be wrong: check the cited passages
+            {!starter && ' · Enter to send · Shift+Enter for a new line'}
           </p>
         </div>
       </div>
+    </div>
+  )
+}
+
+/** The latest chats other members shared with the project, offered beside a new chat's suggestions. */
+function RecentlyShared({ chats }: { chats: Chat[] }) {
+  const workspace = useWorkspace()
+  return (
+    <div className="mt-8 text-left">
+      <p className="mb-1.5 text-[11px] font-medium tracking-wide text-muted uppercase">Shared with the project</p>
+      <ul className="space-y-0.5">
+        {chats.slice(0, SHARED_SHOWN).map((chat) => (
+          <li key={chat.id}>
+            <button
+              type="button"
+              onClick={() => workspace.openChat(chat.id)}
+              className="w-full rounded-lg px-3 py-2 text-left transition hover:bg-sunken"
+            >
+              <span className="block truncate text-[13px]">{chat.title || 'New chat'}</span>
+              <span className="block truncate text-xs text-muted">{sharedBy(chat)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {chats.length > SHARED_SHOWN && (
+        <p className="mt-1.5 px-3 text-xs text-muted">The chat list holds {chats.length - SHARED_SHOWN} more.</p>
+      )}
     </div>
   )
 }

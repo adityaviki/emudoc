@@ -152,6 +152,18 @@ export function useStreaming(chatId: number | null): boolean {
   return useSyncExternalStore(subscribe, () => chatId != null && running.has(chatId))
 }
 
+/**
+ * A project's chats as its list holds them, parted by starter: the member's own, which they ask
+ * in and share, and the ones other members shared with the project, which they read. Each part
+ * keeps the server's order, the latest question first.
+ */
+export function splitChats(chats: Chat[], userId: number): { own: Chat[]; shared: Chat[] } {
+  return {
+    own: chats.filter((chat) => chat.user_id === userId),
+    shared: chats.filter((chat) => chat.user_id !== userId),
+  }
+}
+
 /** Whether the chat's last message is an answer still being written. */
 export function isStreaming(chat: ChatData | undefined): boolean {
   const last = chat?.messages[chat.messages.length - 1]

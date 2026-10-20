@@ -296,6 +296,13 @@ def test_chats_are_private_until_shared(client, services, world, account, make_a
     act_as(max_)
     listed = client.get(f"/api/projects/{world.project_id}/chats").json()
     assert {c["id"] for c in listed} == {owner_chat, own["id"]}
+    # Each chat names its starter, so the page offers the composer to them alone.
+    starters = {c["id"]: (c["user_id"], c["started_by"]) for c in listed}
+    assert starters == {
+        owner_chat: (account.user.id, account.user.name),
+        own["id"]: (max_.user.id, "Max"),
+    }
+    assert client.get(f"/api/chats/{owner_chat}").json()["started_by"] == account.user.name
     shown = statuses(client, chat_reads(world))
     assert set(shown.values()) == {200}, shown
     refused = statuses(client, chat_writes(world))

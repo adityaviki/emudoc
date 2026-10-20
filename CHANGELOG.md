@@ -11,6 +11,14 @@ its day, in the same commit.
 
 Members:
 
+- A chat can be shared with the project from its header ("Share", and "Make private" to take
+  it back). Everyone who sees the project finds the chats others shared under "Shared with the
+  project" in the chat list, and a new chat offers the latest of them, each with the name of
+  the member who started it and the day of its last question. They read a shared chat and
+  follow its answer as it is written, but only its starter asks in it, renames it or deletes
+  it, and the page no longer offers the others the composer, rename or delete that the server
+  refused. A project opens on one's own latest chat, never on one another member shared.
+
 - A project can be made private, from "Who sees it" on its card or when making it: then only
   the members chosen for it see it, besides the organisation's owners and admins, who see every
   project, and anyone else finds no trace of it. Whoever may change the project chooses; a

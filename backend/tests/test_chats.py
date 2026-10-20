@@ -78,6 +78,8 @@ def test_chat_crud(client, indexed):
     chat = new_chat(client, project_id)
     assert chat["title"] == "" and chat["project_id"] == project_id
     assert chat["visibility"] == "private"
+    me = client.get("/api/auth/me").json()
+    assert (chat["user_id"], chat["started_by"]) == (me["id"], me["name"])
     assert client.get(f"/api/chats/{chat['id']}").json()["messages"] == []
     assert [c["id"] for c in client.get(f"/api/projects/{project_id}/chats").json()] == [chat["id"]]
 
@@ -87,6 +89,10 @@ def test_chat_crud(client, indexed):
 
     shared = client.patch(f"/api/chats/{chat['id']}", json={"visibility": "project"}).json()
     assert shared["visibility"] == "project" and shared["title"] == "Notice periods"
+    assert shared["started_by"] == me["name"]
+    # The name is the starter's as it is now, not as it was when the chat began.
+    client.patch("/api/auth/profile", json={"name": "Ada King"})
+    assert client.get(f"/api/chats/{chat['id']}").json()["started_by"] == "Ada King"
     public = client.patch(f"/api/chats/{chat['id']}", json={"visibility": "public"})
     assert public.status_code == 422
 

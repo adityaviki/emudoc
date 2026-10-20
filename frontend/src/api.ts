@@ -249,6 +249,9 @@ export type ChatVisibility = 'private' | 'project'
 export interface Chat {
   id: number
   project_id: number
+  /** Who started the chat, and their name: a shared chat is theirs alone to ask in, rename and delete. */
+  user_id: number
+  started_by: string
   title: string
   visibility: ChatVisibility
   created_at: string

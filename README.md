@@ -80,6 +80,15 @@ another tab, survives a reload, a dropped connection and a restart of the API, a
 up where it was by another tab that opens the chat. Stop ends it with what arrived so far,
 whether or not a worker is alive; a chat takes one question at a time.
 
+A chat is its starter's alone until they share it with the project ("Share" in the chat's
+header, "Make private" to take it back). Everyone who sees the project then finds it under
+"Shared with the project" in the chat list, and a new chat offers the latest three, each with
+the starter's name and the day of its last question: they read it and follow an answer as it
+is written, but only the starter asks in it, renames it or deletes it, so the page offers the
+others no composer, and a question of their own starts a chat of their own. A project opens
+on the member's own latest chat, never on one another member shared. Sharing and taking
+private are in the organisation's audit log, without the chat's title.
+
 What an organisation uses is recorded as it happens, one row per measure in `usage_events`:
 an answer's model calls and tokens, an upload's bytes and pages, the pages a scan took to read
 and the model calls of the indexing stages, the texts embedded and the tokens the embeddings

@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { applyEvent, ask, chatKey, isStreaming, loadChat, resume, settle, stop } from './chat.ts'
+import { applyEvent, ask, chatKey, isStreaming, loadChat, resume, settle, splitChats, stop } from './chat.ts'
 import type { ChatData, Message } from './chat.ts'
 import type { AskResult, ChatDetail, ChatEvent, ChatMessage, Source } from './api.ts'
 
@@ -20,7 +20,7 @@ function saved(id: number, role: 'user' | 'assistant', content: string, status: 
 }
 
 function chat(messages: ChatMessage[] = []): ChatDetail {
-  return { id: 1, project_id: 3, title: 'Notice', visibility: 'private', created_at: '2026-10-17T09:00:00Z', updated_at: '2026-10-17T09:00:00Z', messages }
+  return { id: 1, project_id: 3, user_id: 1, started_by: 'Ada', title: 'Notice', visibility: 'private', created_at: '2026-10-17T09:00:00Z', updated_at: '2026-10-17T09:00:00Z', messages }
 }
 
 const answering: Message = { role: 'assistant', content: '', steps: [], sources: {}, status: 'streaming', thinking: true, turnStart: 0 }
@@ -99,6 +99,16 @@ describe('loadChat', () => {
     expect(isStreaming(loaded)).toBe(true)
     expect(isStreaming(loadChat(chat([saved(1, 'user', 'Notice period?'), saved(2, 'assistant', 'Done.')])))).toBe(false)
     expect(isStreaming(undefined)).toBe(false)
+  })
+})
+
+describe('splitChats', () => {
+  it("parts the member's own chats from those others shared, each in the server's order", () => {
+    const by = (id: number, user_id: number) => ({ ...chat(), id, user_id })
+    const { own, shared } = splitChats([by(5, 2), by(4, 1), by(3, 2), by(2, 1)], 1)
+    expect(own.map((item) => item.id)).toEqual([4, 2])
+    expect(shared.map((item) => item.id)).toEqual([5, 3])
+    expect(splitChats([], 1)).toEqual({ own: [], shared: [] })
   })
 })
 

@@ -241,6 +241,10 @@ ChatVisibility = Literal["private", "project"]
 class ChatOut(_FromORM):
     id: int
     project_id: int
+    # Who started the chat, and their name: a shared chat is read by the project's other
+    # members, but asked in, renamed and deleted by its starter alone.
+    user_id: int
+    started_by: str
     title: str
     visibility: ChatVisibility
     created_at: dt.datetime
