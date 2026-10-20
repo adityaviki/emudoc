@@ -46,7 +46,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import auth
-from app.accounts import Account, account_for_user, create_account, time_zones, zone_of
+from app.accounts import (
+    Account,
+    account_for_user,
+    create_account,
+    organizations_of,
+    time_zones,
+    zone_of,
+)
 from app.api.deps import (
     AccountDep,
     AnyAccountDep,
@@ -113,6 +120,7 @@ from app.schemas import (
     LinkTokenIn,
     LoginIn,
     LoginOut,
+    MembershipOut,
     MeOut,
     MfaDisableIn,
     MfaSetupOut,
@@ -317,7 +325,7 @@ def finish_signup(
     session.commit()
     auth.set_session_cookie(response, request, token)
     auth.set_browser_cookie(response, request, browser)
-    return _me(replace(account, session_id=user_session.id))
+    return me_out(session, replace(account, session_id=user_session.id))
 
 
 @router.post("/login", response_model=LoginOut)
@@ -389,12 +397,12 @@ def verify_mfa(
         return _refusal(401, CODE_INVALID if auth.totp_readable(user) else CODE_UNCHECKABLE)
     auth.complete_mfa(user_session)
     browser = auth.remember_browser(session, user, request)
-    account = account_for_user(session, user, user_session.id)
+    account = account_for_user(session, user, user_session)
     audit_sign_in(session, user, request, "sign_in", {"second_factor": factor})
     session.commit()
     auth.set_session_cookie(response, request, token)
     auth.set_browser_cookie(response, request, browser)
-    return _me(account)
+    return me_out(session, account)
 
 
 @router.post("/logout", status_code=204)
@@ -406,15 +414,16 @@ def logout(request: Request, response: Response, session: SessionDep):
     if user_session is not None:
         user_session.revoked_at = auth.now()
         if not user_session.needs_mfa:
-            audit_sign_in(session, session.get(User, user_session.user_id), request, "sign_out")
+            user = session.get(User, user_session.user_id)
+            audit_sign_in(session, user, request, "sign_out", user_session=user_session)
         session.commit()
     auth.clear_session_cookie(response)
     response.headers["Clear-Site-Data"] = '"cache"'
 
 
 @router.get("/me", response_model=MeOut)
-def me(account: AnyAccountDep):
-    return _me(account)
+def me(account: AnyAccountDep, session: SessionDep):
+    return me_out(session, account)
 
 
 @router.post("/terms", response_model=MeOut)
@@ -426,7 +435,7 @@ def accept_terms(body: TermsIn, account: LiveAccountDep, request: Request, sessi
     if account.user.terms_version != TERMS_VERSION:
         _accept_terms(session, account, request)
         session.commit()
-    return _me(account)
+    return me_out(session, account)
 
 
 # The profile and the address
@@ -449,7 +458,7 @@ def update_profile(body: ProfileIn, account: AccountDep, request: Request, sessi
     if changed:
         audit(session, account, request, "profile_changed", detail={"changed": changed})
         session.commit()
-    return _me(account)
+    return me_out(session, account)
 
 
 @router.post("/email", status_code=202, dependencies=[Depends(limited(SIGN_INS))])
@@ -467,7 +476,7 @@ def request_email_change(
     user = account.user
     if account.session_id is None:
         raise HTTPException(409, LOCAL_ADDRESS)
-    _confirm(session, account, request, body.password, body.current_email)
+    confirm_account(session, account, request, body.password, body.current_email)
     email = body.email.strip().lower()
     if email == user.email:
         raise HTTPException(400, SAME_ADDRESS)
@@ -693,7 +702,7 @@ def delete_account(
     user = account.user
     if account.session_id is None:
         raise HTTPException(409, LOCAL_ACCOUNT)
-    _confirm(session, account, request, body.password, body.email)
+    confirm_account(session, account, request, body.password, body.email)
     if refusal := deletion_refusal(session, user):
         raise HTTPException(409, refusal)
     user.deletion_due_at = auth.now() + DELETION_GRACE
@@ -715,7 +724,7 @@ def delete_account(
     # is logged by the mailer.
     with suppress(MailError):
         mailer.send(user.email, subject, text)
-    return _me(account)
+    return me_out(session, account)
 
 
 @router.delete("/account/deletion", response_model=MeOut)
@@ -725,7 +734,7 @@ def keep_account(account: AnyAccountDep, request: Request, session: SessionDep):
         audit(session, account, request, "account_deletion_cancelled")
     account.user.deletion_due_at = None
     session.commit()
-    return _me(account)
+    return me_out(session, account)
 
 
 @router.get("/account/export", response_model=AccountExport)
@@ -949,7 +958,8 @@ def _safe_path(path: str) -> str:
 # Shared
 
 
-def _me(account: Account) -> MeOut:
+def me_out(session: Session, account: Account) -> MeOut:
+    """The account as the page shows it, with every organisation its user may switch to."""
     user = account.user
     return MeOut(
         id=user.id,
@@ -963,6 +973,10 @@ def _me(account: Account) -> MeOut:
             update={"chat_retention_days": entitlements_of(account.organization).retention_days}
         ),
         role=account.role,
+        organizations=[
+            MembershipOut(id=organization.id, name=organization.name, role=role)
+            for organization, role in organizations_of(session, user)
+        ],
         has_password=user.password_hash is not None,
         deletion_due_at=user.deletion_due_at,
         terms_version=user.terms_version,
@@ -971,12 +985,13 @@ def _me(account: Account) -> MeOut:
     )
 
 
-def _confirm(
+def confirm_account(
     session: Session, account: Account, request: Request, password: str | None, email: str | None
 ) -> None:
-    """Refuse a change to the account that its password does not confirm, or for an account
-    without one, its address typed out, so that a browser left signed in is not enough by
-    itself. A wrong password counts as a failed sign-in of the user's."""
+    """Refuse a change that the account's password does not confirm, or for an account without
+    one, its address typed out, so that a browser left signed in is not enough by itself: to
+    the account, or one the account makes to its organisation (app/api/organizations.py). A
+    wrong password counts as a failed sign-in of the user's."""
     user = account.user
     if user.password_hash is not None:
         _refuse_paused(session, by_user(user), PAUSED_SESSION)

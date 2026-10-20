@@ -3,10 +3,10 @@ import { expect, test } from '@playwright/test'
 import { linkMailedTo } from './mail.ts'
 
 // The member's way through the app, end to end: sign up through the link the app mails, make a
-// project, upload a contract,
-// wait for it to be indexed, find it by searching, ask about it, and open the passage the
-// answer cites. The answer is the stand-in's (e2e/standin.py): the first sentence of the
-// passage its search found best, with that passage's reference.
+// project, upload a contract, wait for it to be indexed, find it by searching, ask about it,
+// open the passage the answer cites, and start a second organisation and switch back. The
+// answer is the stand-in's (e2e/standin.py): the first sentence of the passage its search
+// found best, with that passage's reference.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
 
 test('a new member uploads a contract, finds it, asks about it and opens the cited passage', async ({ page }) => {
@@ -74,5 +74,30 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('heading', { name: 'Service contract', exact: true })).toBeVisible()
     await expect(page.getByText('Showing: 4 Termination')).toBeVisible()
     await expect(page.getByText(/^Either party may end this contract .* on the first page\.$/)).toBeInViewport()
+  })
+
+  await test.step('start a second organisation, and switch back while another tab shows it', async () => {
+    // From the projects page: a menu closes when anything scrolls, as the passage still may.
+    await page.getByRole('link', { name: 'Emudoc' }).click()
+    await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
+    await page.getByRole('button', { name: "Ada Lovelace's workspace" }).click()
+    await page.getByRole('menuitem', { name: 'New organisation' }).click()
+    await page.getByLabel('Name', { exact: true }).fill('Lovelace Legal')
+    await page.getByRole('button', { name: 'Create organisation' }).click()
+    await expect(page.getByText('No projects yet')).toBeVisible()
+    const other = await page.context().newPage()
+    await other.goto('/')
+    await expect(other.getByRole('button', { name: 'Lovelace Legal' })).toBeVisible()
+
+    await page.getByRole('button', { name: 'Lovelace Legal' }).click()
+    await page.getByRole('menuitem', { name: "Ada Lovelace's workspace" }).click()
+    await expect(page.getByText('Supplier contracts')).toBeVisible()
+    // The other tab still shows the new organisation: what it asks is refused, and it starts
+    // again in the one the session works in, with nothing made in the wrong one.
+    await other.getByRole('button', { name: 'New project' }).click()
+    await other.getByLabel('Name', { exact: true }).fill('Lost')
+    await other.getByRole('button', { name: 'Create project' }).click()
+    await expect(other.getByText('Supplier contracts')).toBeVisible()
+    await expect(other.getByText('Lost')).toHaveCount(0)
   })
 })

@@ -63,8 +63,9 @@ PLANS = ("free", "pro", "team", "enterprise")
 # still have an order, so a page boundary between them is exact).
 NATURAL_ORDER = "natural_order"
 # What the audit log records (app/audit.py): its members' sign-ins and what they did to their
-# accounts, what was done to the organisation's documents and the sharing of its chats, and
-# what the operator and the app did to it on their own.
+# accounts, what was done to the organisation itself (its name, its owner, who left), to its
+# documents and to the sharing of its chats, and what the operator and the app did to it on
+# their own.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -88,6 +89,10 @@ AUDIT_ACTIONS = (
     "account_purged",
     "role_changed",
     "plan_changed",
+    "organization_created",
+    "organization_renamed",
+    "ownership_transferred",
+    "member_left",
     "project_deleted",
     "folder_deleted",
     "document_uploaded",
@@ -312,6 +317,13 @@ class UserSession(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    # The organisation the session works in, which the user chose by switching to it
+    # (`account_for_user` in app/accounts.py); null, or one they are no longer a member of, is
+    # the one they joined first. Every tab of the browser shares it. Indexed, since deleting an
+    # organisation clears it from every session.
+    org_id: Mapped[int | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="SET NULL"), index=True
+    )
     # True between a correct password and the authenticator code that must follow it: the
     # session exists, but grants nothing until the code is entered.
     needs_mfa: Mapped[bool] = mapped_column(Boolean, default=False)

@@ -315,6 +315,26 @@ export interface Organization {
   chat_retention_days: number | null
 }
 
+/** One of the organisations a user is a member of, which they can switch to. */
+export interface Membership {
+  id: number
+  name: string
+  role: Role
+}
+
+/** From most to least permitted: each role may do everything the roles after it may (ROLES in backend/app/models.py). */
+export type Role = 'owner' | 'admin' | 'member' | 'viewer'
+export const ROLE_LABELS: Record<Role, string> = { owner: 'Owner', admin: 'Admin', member: 'Member', viewer: 'Viewer' }
+
+/** A member of the organisation, as the other members see them. */
+export interface Member {
+  user_id: number
+  name: string
+  email: string
+  role: Role
+  joined_at: string
+}
+
 /** The signed-in user, and the organisation and role they act with. */
 export interface Me {
   id: number
@@ -327,7 +347,9 @@ export interface Me {
   /** Providers the account can sign in through, such as "google". */
   identities: string[]
   organization: Organization
-  role: string
+  role: Role
+  /** Every organisation the user is a member of, the current one among them, by name. */
+  organizations: Membership[]
   /** Whether the account has a password, which then confirms its deletion. */
   has_password: boolean
   /** When the account will be deleted, if its user asked; until then the app offers only to keep it. */
@@ -395,6 +417,10 @@ export type AuditAction =
   | 'account_purged'
   | 'role_changed'
   | 'plan_changed'
+  | 'organization_created'
+  | 'organization_renamed'
+  | 'ownership_transferred'
+  | 'member_left'
   | 'project_deleted'
   | 'folder_deleted'
   | 'document_uploaded'
@@ -456,6 +482,8 @@ export class ApiError extends Error {
 export const isPlanLimit = (error: unknown): error is ApiError => error instanceof ApiError && error.status === 402
 
 let onUnauthorized: (() => void) | null = null
+let onSwitched: (() => void) | null = null
+let shownOrganization: number | null = null
 
 /**
  * What happens when the server no longer accepts the session: the app registers a handler
@@ -467,14 +495,35 @@ export function handleUnauthorized(handler: (() => void) | null) {
 }
 
 /**
- * Every request carries this header. The server refuses a change without it, which is what
- * keeps a page on another site from making one with the user's cookie (backend/app/api/deps.py).
+ * What happens when the server refused a request because the page shows an organisation the
+ * session no longer works in, since another tab switched: the app registers a handler that
+ * starts it again in the one the session works in.
+ */
+export function handleSwitched(handler: (() => void) | null) {
+  onSwitched = handler
+}
+
+/** The organisation the page shows, which every request names from now on; null for none. */
+export function showOrganization(id: number | null) {
+  shownOrganization = id
+}
+
+// The header that names the organisation the page shows, and on a refusal the one the session
+// works in (ORGANIZATION_HEADER in backend/app/api/deps.py).
+const ORGANIZATION_HEADER = 'X-Organization'
+
+/**
+ * Every request carries these headers. The server refuses a change without the first, which is
+ * what keeps a page on another site from making one with the user's cookie, and anything a tab
+ * asks in an organisation other than the one the session works in now (backend/app/api/deps.py).
  */
 async function send(path: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers)
   headers.set('X-Requested-With', 'fetch')
+  if (shownOrganization !== null) headers.set(ORGANIZATION_HEADER, String(shownOrganization))
   const response = await fetch(`/api${path}`, { ...init, headers })
   if (response.status === 401 && !path.startsWith('/auth/')) onUnauthorized?.()
+  if (response.status === 409 && response.headers.has(ORGANIZATION_HEADER)) onSwitched?.()
   return response
 }
 
@@ -584,6 +633,23 @@ export const ACCOUNT_EXPORT_URL = '/api/auth/account/export'
  */
 export const oauthStartUrl = (provider: string, next: string, timeZone: string) =>
   `/api/auth/oauth/${provider}/start?${new URLSearchParams(timeZone ? { next, time_zone: timeZone } : { next })}`
+
+/**
+ * The user's organisations: starting one and switching, which the session keeps for every tab,
+ * and the current one's name, members, owner and leaving it. Mirrors
+ * backend/app/api/organizations.py; each change answers with the account as `auth.me` does.
+ */
+export const organizations = {
+  start: (name: string) => request<Me>('/organizations', json('POST', { name })),
+  switch: (id: number) => request<Me>(`/organizations/${id}/switch`, { method: 'POST' }),
+  /** Owners and admins only. */
+  rename: (name: string) => request<Me>('/organization', json('PATCH', { name })),
+  members: () => request<Member[]>('/organization/members'),
+  /** Owners only, confirmed by the password, or by the email address for an account without one. */
+  handOver: (body: { user_id: number; password?: string; email?: string }) =>
+    request<Me>('/organization/owner', json('POST', body)),
+  leave: () => request<Me>('/organization/leave', { method: 'POST' }),
+}
 
 export const api = {
   status: () => request<SystemStatus>('/status'),

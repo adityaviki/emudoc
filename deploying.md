@@ -3575,6 +3575,7 @@ and the like), named on its models' pages.
 | `PARSE_CONCURRENCY` | `2` | | Files a worker parses at once, each in a child process ("Large documents") |
 | `MAX_ANSWERS` | `20` | | Answers one organisation may have in flight |
 | `MAX_QUESTION_CHARS` | `20000` | | The longest question |
+| `MAX_FREE_ORGANIZATIONS` | `2` | | Organisations on the free plan one user may own; 0 is no ceiling |
 | `RATE_UPLOADS` | `20` | | Upload requests a minute, per member ("Rates") |
 | `RATE_QUESTIONS` | `20` | | Questions a minute, per member |
 | `RATE_SEARCHES` | `120` | | Searches a minute, per member |

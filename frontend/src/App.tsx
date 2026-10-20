@@ -12,14 +12,16 @@ import { FinishSignupPage, SignupPage } from './account/SignupPage.tsx'
 import { UserMenu } from './account/UserMenu.tsx'
 import { VerifyPage } from './account/VerifyPage.tsx'
 import { AuthLayout } from './account/shared.tsx'
-import { api, auth, handleUnauthorized } from './api.ts'
+import { api, auth, handleSwitched, handleUnauthorized } from './api.ts'
 import type { Me } from './api.ts'
-import { MeContext, forgetUser, loginPath, useMeQuery } from './auth.ts'
+import { MeContext, forgetUser, loginPath, startAgainInOrganization, useMeQuery } from './auth.ts'
 import { Floating, Menu } from './components/Menu.tsx'
 import type { MenuItem } from './components/Menu.tsx'
 import { ThemeToggle } from './components/ThemeToggle.tsx'
 import { Button, IconButton, Spinner } from './components/ui.tsx'
 import { useLocalStorage, useStatus } from './hooks.ts'
+import { NewOrganizationPage, OrganizationPage } from './organization/OrganizationPage.tsx'
+import { OrganizationSwitcher } from './organization/OrganizationSwitcher.tsx'
 import { ProjectsPage } from './pages/ProjectsPage.tsx'
 import { LegalPage } from './pages/LegalPage.tsx'
 import { SubprocessorsPage } from './pages/SubprocessorsPage.tsx'
@@ -40,6 +42,12 @@ function App() {
     handleUnauthorized(() => forgetUser(queryClient))
     return () => handleUnauthorized(null)
   }, [queryClient])
+
+  // Another tab switched the organisation this one shows: start again in the one it works in.
+  useEffect(() => {
+    handleSwitched(startAgainInOrganization)
+    return () => handleSwitched(null)
+  }, [])
 
   if (me.isPending) {
     return (
@@ -80,6 +88,8 @@ function App() {
         <Route element={<Shell />}>
           <Route index element={<ProjectsPage />} />
           <Route path="account" element={<AccountPage />} />
+          <Route path="organization" element={<OrganizationPage />} />
+          <Route path="organizations/new" element={<NewOrganizationPage />} />
           <Route path="projects/:projectId/*" element={<Workspace />} />
           <Route path="*" element={<p className="py-16 text-center text-muted">Page not found.</p>} />
         </Route>
@@ -110,9 +120,7 @@ function Shell() {
               Emudoc
             </Link>
             <Crumb />
-            <span className="hidden min-w-0 truncate px-1 text-[13px] text-muted sm:block" title="Your organisation">
-              {me.organization.name}
-            </span>
+            <OrganizationSwitcher />
             <ProjectSwitcher />
           </div>
           <div className="flex shrink-0 items-center gap-3">

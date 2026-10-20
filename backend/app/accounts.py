@@ -1,9 +1,17 @@
-"""Who is acting on a request, and how accounts come to be.
+"""Who is acting on a request, and how accounts and organisations come to be.
 
-A signed-in request acts as the user named by its session cookie, in the organisation they
-joined first (switching organisations is a roadmap item). Signing up makes a user and an
-organisation of their own, which they own. For development on one machine, a request without a
-session can act as the local account instead: an organisation of one, created on first use.
+A signed-in request acts as the user named by its session cookie, in the organisation the
+session works in: the one its user last switched to (`sessions.org_id`), or while they have not,
+or have left that one since, the one they joined first. The choice is the session's, so every
+tab of a browser works in the same organisation; a tab that still shows the one before is
+refused until it catches up (`get_current_account` in app/api/deps.py).
+
+Signing up makes a user and an organisation of their own, which they own, and a user may start
+more (`create_organization`), each with its own plan. So that new organisations are no way past
+the free plan's limits, one user may own MAX_FREE_ORGANIZATIONS on it at most.
+
+For development on one machine, a request without a session can act as the local account
+instead: an organisation of one, created on first use, which has no session to switch in.
 """
 
 import datetime as dt
@@ -13,12 +21,12 @@ from functools import cache
 from itertools import count
 from zoneinfo import ZoneInfo, available_timezones
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import ROLES, Membership, Organization, User
+from app.models import PLANS, ROLES, Membership, Organization, User, UserSession
 
 LOCAL_ORG_SLUG = "local"
 # A reserved domain, so the address can never receive mail or clash with a real account.
@@ -40,19 +48,70 @@ class Account:
         return ROLES.index(self.role) <= ROLES.index(role)
 
 
-def account_for_user(session: Session, user: User, session_id: int | None = None) -> Account | None:
-    """The user's account in the organisation they joined first; None if they are in none."""
+def account_for_user(
+    session: Session, user: User, user_session: UserSession | None = None
+) -> Account | None:
+    """The user's account in the organisation `user_session` works in, if they are still a
+    member of it, else in the one they joined first; None if they are in none."""
+    chosen = user_session.org_id if user_session is not None else None
     row = session.execute(
         select(Organization, Membership.role)
         .join(Membership, Membership.org_id == Organization.id)
         .where(Membership.user_id == user.id)
-        .order_by(Membership.created_at, Membership.id)
+        .order_by(
+            case((Membership.org_id == chosen, 0), else_=1),
+            Membership.created_at,
+            Membership.id,
+        )
         .limit(1)
     ).first()
     if row is None:
         return None
     organization, role = row
-    return Account(organization, user, role, session_id)
+    return Account(organization, user, role, user_session.id if user_session else None)
+
+
+def organizations_of(session: Session, user: User) -> list[tuple[Organization, str]]:
+    """Every organisation the user is a member of, with their role there, by name."""
+    rows = session.execute(
+        select(Organization, Membership.role)
+        .join(Membership, Membership.org_id == Organization.id)
+        .where(Membership.user_id == user.id)
+        .order_by(func.lower(Organization.name), Organization.id)
+    ).all()
+    return [(organization, role) for organization, role in rows]
+
+
+def free_organizations_owned(session: Session, user: User) -> int:
+    """How many organisations on the plan a new one starts on the user owns."""
+    return session.scalar(
+        select(func.count())
+        .select_from(Membership)
+        .join(Organization, Organization.id == Membership.org_id)
+        .where(
+            Membership.user_id == user.id,
+            Membership.role == "owner",
+            Organization.plan == PLANS[0],
+        )
+    )
+
+
+def create_organization(
+    session: Session, user: User, name: str, slug_stem: str | None = None
+) -> Account:
+    """A new organisation the user owns, on the plan a new one starts on, with its data kept
+    where the deployment keeps it (DATA_REGION), and a slug of its own from `slug_stem` or the
+    name. The caller commits."""
+    organization = Organization(
+        name=name,
+        slug=_unique_slug(session, slug_stem or name),
+        region=get_settings().data_region or None,
+    )
+    session.add(organization)
+    session.flush()
+    session.add(Membership(org_id=organization.id, user_id=user.id, role="owner"))
+    session.flush()
+    return Account(organization, user, "owner")
 
 
 def create_account(
@@ -72,17 +131,10 @@ def create_account(
         password_hash=password_hash,
         email_verified_at=dt.datetime.now(dt.UTC) if email_verified else None,
     )
+    session.add(user)
+    session.flush()
     stem = name or email.split("@")[0]
-    organization = Organization(
-        name=f"{stem}'s workspace",
-        slug=_unique_slug(session, stem),
-        region=get_settings().data_region or None,
-    )
-    session.add_all([user, organization])
-    session.flush()
-    session.add(Membership(org_id=organization.id, user_id=user.id, role="owner"))
-    session.flush()
-    return Account(organization, user, "owner")
+    return create_organization(session, user, f"{stem}'s workspace", stem)
 
 
 @cache

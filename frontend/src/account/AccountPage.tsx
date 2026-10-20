@@ -4,7 +4,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Copy, Download, LogOut, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import type { FormEvent, ReactNode } from 'react'
+import type { FormEvent } from 'react'
 import { Link } from 'react-router'
 import {
   ACCOUNT_EXPORT_URL,
@@ -12,12 +12,23 @@ import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
   PLAN_LABELS,
-  REGION_NAMES,
+  ROLE_LABELS,
   auth,
 } from '../api.ts'
 import type { Me, MfaSetup, UserSession } from '../api.ts'
 import { ME_KEY, setSignedIn, useMe, useSignOut } from '../auth.ts'
-import { Button, ButtonLink, Chip, IconButton, InputField, Loading, Notice, SelectField } from '../components/ui.tsx'
+import {
+  Button,
+  ButtonLink,
+  Chip,
+  IconButton,
+  InputField,
+  Loading,
+  Notice,
+  Row,
+  Section,
+  SelectField,
+} from '../components/ui.tsx'
 import { formatDate, formatDateTime } from '../format.ts'
 import { browserTimeZone, timeZoneChoices, zoneLabel } from '../timeZones.ts'
 import { ChangeEmailForm } from './ChangeEmail.tsx'
@@ -57,42 +68,18 @@ export function AccountPage() {
   )
 }
 
-function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
-  return (
-    <section className="rounded-xl border border-line bg-surface p-5 shadow-xs">
-      <h2 className="font-semibold">{title}</h2>
-      {description && <p className="mt-0.5 text-[13px] leading-relaxed text-muted">{description}</p>}
-      <div className="mt-4">{children}</div>
-    </section>
-  )
-}
-
-const capitalised = (text: string) => text[0].toUpperCase() + text.slice(1)
-
-function Row({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 py-2 text-[13px]">
-      <dt className="w-28 shrink-0 text-muted">{label}</dt>
-      <dd className="flex min-w-0 flex-1 flex-wrap items-center gap-2">{children}</dd>
-    </div>
-  )
-}
-
 function ProfileSection({ me }: { me: Me }) {
-  const role = me.role[0].toUpperCase() + me.role.slice(1)
   return (
     <Section title="Profile">
       <ProfileForm me={me} />
       <dl className="mt-4 divide-y divide-line border-t border-line">
         <Row label="Organisation">
-          <span className="truncate">{me.organization.name}</span>
-          <Chip>{role}</Chip>
+          <Link to="/organization" className="truncate font-medium text-accent hover:underline">
+            {me.organization.name}
+          </Link>
+          <Chip>{ROLE_LABELS[me.role]}</Chip>
+          {me.organizations.length > 1 && <span className="text-muted">and {otherOrganizations(me)}</span>}
         </Row>
-        {me.organization.region && (
-          <Row label="Data kept in">
-            <span>{capitalised(REGION_NAMES[me.organization.region])}</span>
-          </Row>
-        )}
         {me.terms_accepted_at && (
           <Row label="Terms">
             <span>
@@ -528,12 +515,17 @@ function DataSection({ me }: { me: Me }) {
   )
 }
 
+function otherOrganizations(me: Me): string {
+  const others = me.organizations.length - 1
+  return `${others} other organisation${others === 1 ? '' : 's'}`
+}
+
 function DeleteSection({ me }: { me: Me }) {
   const [open, setOpen] = useState(false)
   return (
     <Section
       title="Delete account"
-      description={`The account goes ${DELETION_GRACE_DAYS} days after you ask; until then, signing in lets you keep it. If you are the only member of ${me.organization.name}, the organisation goes with it: its projects, documents and chats.`}
+      description={`The account goes ${DELETION_GRACE_DAYS} days after you ask; until then, signing in lets you keep it. Each organisation you are the only member of goes with it, with its projects, documents and chats.`}
     >
       {open ? (
         <DeleteAccountForm me={me} onCancel={() => setOpen(false)} />

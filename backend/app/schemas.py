@@ -415,6 +415,14 @@ class OrganizationOut(_FromORM):
     chat_retention_days: int | None = None
 
 
+class MembershipOut(BaseModel):
+    """One of the organisations a user is a member of, for the page to offer a switch to."""
+
+    id: int
+    name: str
+    role: str
+
+
 class MeOut(BaseModel):
     """The signed-in user, and the organisation and role they act with."""
 
@@ -429,6 +437,8 @@ class MeOut(BaseModel):
     identities: list[str]
     organization: OrganizationOut
     role: str
+    # Every organisation the user is a member of, the current one among them, by name.
+    organizations: list[MembershipOut]
     # Whether the account has a password, which then confirms its deletion.
     has_password: bool
     # When the account will be purged, if its user asked for it to be deleted
@@ -440,6 +450,31 @@ class MeOut(BaseModel):
     terms_version: str | None
     terms_accepted_at: dt.datetime | None
     terms_due: bool
+
+
+class OrganizationIn(BaseModel):
+    """The name of an organisation, a new one's or a new name for the current one."""
+
+    name: str = Field(max_length=200)
+
+
+class MemberOut(BaseModel):
+    """A member of the organisation, as its other members see them."""
+
+    user_id: int
+    name: str
+    email: str
+    role: str
+    joined_at: dt.datetime
+
+
+class OwnershipIn(BaseModel):
+    """Whom the organisation is handed to, confirmed as a deletion is: by the password, or, for
+    an account that has none and signs in through a provider, its address typed out."""
+
+    user_id: int
+    password: str | None = Field(None, max_length=PASSWORD_MAX_LENGTH)
+    email: str | None = Field(None, max_length=320)
 
 
 class SessionOut(BaseModel):

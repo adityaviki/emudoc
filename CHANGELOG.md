@@ -11,6 +11,16 @@ its day, in the same commit.
 
 Members:
 
+- You can belong to several organisations and switch between them from the organisation's
+  name in the header. Every tab of the browser follows a switch, and a tab still showing the
+  organisation before starts again in the new one rather than acting in the old. "New
+  organisation" starts one of your own, empty and on the Free plan; you may own two on it. The
+  organisation's page renames it (owners and admins), lists its members, hands it over to
+  another member, which takes your password and leaves you an admin, and leaves it, taking
+  your private chats in its projects with you; the chats you shared stay. The privacy policy
+  says that members see each other's names and addresses, and that leaving takes the chats you
+  did not share.
+
 - Your authenticator app's secret is kept encrypted, with a key the database does not hold, so
   a copy of the database cannot make your two-factor codes. If Emudoc ever cannot check your
   app's codes, it says so and asks for one of your recovery codes instead.
@@ -46,6 +56,11 @@ Members:
 
 Operators:
 
+- `MAX_FREE_ORGANIZATIONS` (2) is how many organisations on the Free plan one user may own;
+  0 removes the ceiling. The release's migration gives each session the organisation it works
+  in and the audit log four actions (`organization_created`, `organization_renamed`,
+  `ownership_transferred`, `member_left`). A sign-out is now recorded in the organisation its
+  session worked in, a sign-in still in the one its user joined first.
 - `ENCRYPTION_KEYS` is required in production: the keys the authenticators' secrets of
   two-factor sign-in are encrypted with, made with `openssl rand -base64 32` and kept apart
   from the database's backups (on AWS under the secrets path). After the release, run `python

@@ -1,12 +1,21 @@
 """What a request may touch: the account behind it, and the objects it may see or change.
 
-The account is the user the session cookie names, in their organisation. Without a valid
-session the request is refused, unless the local account is on for development, in which case
-it acts as the local owner. An account set to be deleted (app/retention.py) is refused too,
-except by the three routes that take `AnyAccountDep`: the ones that show it, keep it and
-export its data. So is an account whose user has not accepted the current terms of service
-(app/legal/), except by those three and the two that take `LiveAccountDep`: accepting them,
-and asking for the account to be deleted instead. Signing out needs no account.
+The account is the user the session cookie names, in the organisation the session works in
+(`account_for_user` in app/accounts.py). Without a valid session the request is refused, unless
+the local account is on for development, in which case it acts as the local owner. An account
+set to be deleted (app/retention.py) is refused too, except by the three routes that take
+`AnyAccountDep`: the ones that show it, keep it and export its data. So is an account whose
+user has not accepted the current terms of service (app/legal/), except by those three and the
+two that take `LiveAccountDep`: accepting them, and asking for the account to be deleted
+instead. Signing out needs no account.
+
+Every tab of a browser shares its session, and so the organisation it works in: once one tab
+switches, another still shows the organisation before, and whatever it asked would be done in
+the new one. So the app's own requests name the organisation the page shows (ORGANIZATION_HEADER)
+and `get_current_account`, behind `AccountDep`, refuses one that names another with 409 and the
+organisation the session works in, which the page takes to start again there. Showing who is
+signed in, switching and starting an organisation take the account whatever the page showed,
+since they are how a page catches up or moves on; a request without the header is not refused.
 
 Every object is reached through the account's organisation: a project must belong to it, and a
 document, folder, passage or chat must lie in one of its projects. Anything else is reported as
@@ -72,6 +81,13 @@ CROSS_SITE = (
     "This request would change something but did not come from the Emudoc app: it lacks the "
     f"{SAME_APP_HEADER} header. If you call the API yourself, send that header with any value."
 )
+# The id of the organisation the page that sent a request shows, which the app's own requests
+# carry (`send` in frontend/src/api.ts), and of the one the session works in on a refusal.
+ORGANIZATION_HEADER = "X-Organization"
+SWITCHED = (
+    "You switched to another organisation in another tab or window, so this page shows one you "
+    "are no longer working in. Reload it to continue in the organisation you switched to."
+)
 
 
 def get_services(request: Request) -> Services:
@@ -117,7 +133,7 @@ def get_account(request: Request, session: SessionDep) -> Account:
         if user_session is not None and not user_session.needs_mfa:
             user = session.get(User, user_session.user_id)
             about(user_id=user.id)
-            account = account_for_user(session, user, user_session.id)
+            account = account_for_user(session, user, user_session)
             if account is None:
                 raise HTTPException(403, NO_ORGANISATION)
             about(org_id=account.organization.id)
@@ -154,7 +170,22 @@ def get_usable_account(account: LiveAccountDep) -> Account:
     return account
 
 
-AccountDep = Annotated[Account, Depends(get_usable_account)]
+UsableAccountDep = Annotated[Account, Depends(get_usable_account)]
+
+
+def get_current_account(request: Request, account: UsableAccountDep) -> Account:
+    """The account, provided the page that asks still shows the organisation the session works
+    in, when it says which: a tab left behind by a switch in another is refused rather than
+    shown, or let change, another organisation's projects."""
+    shown = request.headers.get(ORGANIZATION_HEADER, "")
+    if shown.isdecimal() and int(shown) != account.organization.id:
+        raise HTTPException(
+            409, SWITCHED, headers={ORGANIZATION_HEADER: str(account.organization.id)}
+        )
+    return account
+
+
+AccountDep = Annotated[Account, Depends(get_current_account)]
 
 
 def get_editor(account: AccountDep) -> Account:

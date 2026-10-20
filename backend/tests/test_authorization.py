@@ -19,8 +19,9 @@ Route = tuple[str, str, dict]
 @dataclass
 class World:
     """A project with a folder, an indexed document and a chat holding one answered question,
-    all made by the local owner."""
+    all made by the local owner in the local organisation."""
 
+    org_id: int
     project_id: int
     folder_id: int
     document_id: int
@@ -30,7 +31,7 @@ class World:
 
 
 @pytest.fixture
-def world(client, services, sample_pdf) -> World:
+def world(client, services, sample_pdf, account) -> World:
     project = create_project(client)
     folder = make_folder(client, project["id"], "Contracts")
     document = upload(client, project["id"], sample_pdf)["documents"][0]
@@ -41,6 +42,7 @@ def world(client, services, sample_pdf) -> World:
     answer(asked["answer"]["id"], services)
     hits = client.get(f"/api/projects/{project['id']}/search", params={"q": "notice"}).json()
     return World(
+        account.organization.id,
         project["id"],
         folder["id"],
         document["id"],
@@ -118,8 +120,14 @@ def starts(w: World) -> list[Route]:
     return [("POST", f"/api/projects/{w.project_id}/chats", {})]
 
 
+def switches(w: World) -> list[Route]:
+    """Switching to the organisation, which only its members may; the local account, which
+    has no session, may not either (test_organizations.py)."""
+    return [("POST", f"/api/organizations/{w.org_id}/switch", {})]
+
+
 def scoped(w: World) -> list[Route]:
-    return reads(w) + writes(w) + chat_routes(w) + starts(w)
+    return reads(w) + writes(w) + chat_routes(w) + starts(w) + switches(w)
 
 
 def statuses(client, routes: list[Route]) -> dict[str, int]:

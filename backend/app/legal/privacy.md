@@ -63,9 +63,9 @@ advertising, sell no personal data and build no profile of you.
   receives and, where known, where it handles it; it is read from the service's own settings,
   so it is always current.
   $models
-- **The other members of your organisation** see its projects and documents and the chats you
-  share with a project, and its owners and admins see your name, email address and the IP
-  addresses of your requests in its audit log.
+- **The other members of your organisation** see your name, your email address and your role
+  in its list of members, its projects and documents and the chats you share with a project,
+  and its owners and admins see the IP addresses of your requests in its audit log.
 - **Authorities**, only where the law obliges us to hand data over.
 
 ## Where it is kept
@@ -77,7 +77,8 @@ $region
 - **Documents**, and everything read from them, until a member deletes them or the
   organisation is deleted.
 - **Chats**, for as long as the organisation's plan keeps a chat after its last question
-  ($chat_retention), unless deleted sooner.
+  ($chat_retention), unless deleted sooner; the chats you did not share with a project go when
+  you leave the organisation.
 - **Audit log entries**, for as long as the organisation's plan keeps them
   ($audit_retention).
 - **Sessions and links**, until $credential_days days after they expired or were ended.

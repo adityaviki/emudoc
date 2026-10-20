@@ -14,7 +14,7 @@ from sqlalchemy.exc import TimeoutError as PoolTimeout
 from starlette.convertors import PathConvertor, register_url_convertor
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api import audit, auth, chats, documents, folders, projects, query
+from app.api import audit, auth, chats, documents, folders, organizations, projects, query
 from app.api.deps import (
     RETRY_AFTER,
     AccountDep,
@@ -388,6 +388,7 @@ def create_app(
     for router in (
         system,
         auth.router,
+        organizations.router,
         projects.router,
         folders.router,
         documents.router,

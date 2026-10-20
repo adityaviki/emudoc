@@ -5,14 +5,21 @@ import { useQuery } from '@tanstack/react-query'
 import { createContext, useCallback, useContext } from 'react'
 import type { QueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router'
-import { auth } from './api.ts'
+import { auth, showOrganization } from './api.ts'
 import type { Me } from './api.ts'
 
 export const ME_KEY = ['me'] as const
 
 /** The signed-in user, null when there is none, undefined until the server has answered. */
 export function useMeQuery() {
-  return useQuery({ queryKey: ME_KEY, queryFn: auth.me, staleTime: Infinity, retry: false })
+  return useQuery({ queryKey: ME_KEY, queryFn: whoIsSignedIn, staleTime: Infinity, retry: false })
+}
+
+/** Ask the server who is signed in, and name their organisation in every request from now on. */
+async function whoIsSignedIn(): Promise<Me | null> {
+  const me = await auth.me()
+  showOrganization(me?.organization.id ?? null)
+  return me
 }
 
 export const MeContext = createContext<Me | null>(null)
@@ -26,7 +33,17 @@ export function useMe(): Me {
 
 /** Remember who just signed in, so the shell renders without another round trip. */
 export function setSignedIn(queryClient: QueryClient, me: Me | null) {
+  showOrganization(me?.organization.id ?? null)
   queryClient.setQueryData(ME_KEY, me)
+}
+
+/**
+ * Start the app again in the organisation the session works in now, after a switch here or in
+ * another tab: a page load, so that nothing fetched in the one before stays in the cache, in a
+ * component's state or in an answer being followed, and the page starts from the front.
+ */
+export function startAgainInOrganization() {
+  window.location.assign('/')
 }
 
 /**

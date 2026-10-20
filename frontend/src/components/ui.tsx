@@ -207,3 +207,24 @@ export function Notice({ tone = 'warn', children }: { tone?: 'warn' | 'bad' | 'i
   }
   return <div className={`rounded-md border px-3 py-2 text-[13px] leading-relaxed ${tones[tone]}`}>{children}</div>
 }
+
+/** A titled card of a settings page, such as the account page's. */
+export function Section({ title, description, children }: { title: string; description?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="rounded-xl border border-line bg-surface p-5 shadow-xs">
+      <h2 className="font-semibold">{title}</h2>
+      {description && <p className="mt-0.5 text-[13px] leading-relaxed text-muted">{description}</p>}
+      <div className="mt-4">{children}</div>
+    </section>
+  )
+}
+
+/** A label and its value, in the definition list of a settings section. */
+export function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 py-2 text-[13px]">
+      <dt className="w-28 shrink-0 text-muted">{label}</dt>
+      <dd className="flex min-w-0 flex-1 flex-wrap items-center gap-2">{children}</dd>
+    </div>
+  )
+}

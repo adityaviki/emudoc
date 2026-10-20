@@ -1,4 +1,4 @@
-import { Building2, FileText, Lock, LogOut, ShieldCheck } from 'lucide-react'
+import { Building2, FileText, Lock, LogOut, ShieldCheck, Users } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useMe, useSignOut } from '../auth.ts'
@@ -7,7 +7,8 @@ import type { MenuItem } from '../components/Menu.tsx'
 import { useVersion } from '../hooks.ts'
 
 /** The signed-in user's initials in the header, opening the way to the account page, the
- * terms, the privacy policy and the subprocessor list, and out, above the version that runs. */
+ * organisation's, the terms, the privacy policy and the subprocessor list, and out, above the
+ * version that runs. */
 export function UserMenu() {
   const me = useMe()
   const signOut = useSignOut()
@@ -18,6 +19,7 @@ export function UserMenu() {
 
   const items: MenuItem[] = [
     { label: 'Account and security', icon: ShieldCheck, onSelect: () => navigate('/account') },
+    { label: 'Organisation', icon: Users, onSelect: () => navigate('/organization') },
     { label: 'Terms of service', icon: FileText, onSelect: () => navigate('/terms') },
     { label: 'Privacy policy', icon: Lock, onSelect: () => navigate('/privacy') },
     { label: 'Subprocessors', icon: Building2, onSelect: () => navigate('/subprocessors') },

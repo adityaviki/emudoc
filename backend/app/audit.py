@@ -1,8 +1,9 @@
 """The audit log: who did what to an organisation's documents, chats and accounts, and when.
 
 Each row of `audit_events` (app/models.py) is one action: a member's sign-in or a change to
-their account, an upload, download or deletion, a chat shared with the project or taken private
-again, and what the operator's commands (app/maintenance.py) and the app on its own (a
+their account, the organisation started, renamed or handed over, a member leaving it, an upload,
+download or deletion, a chat shared with the project or taken private again, and what the
+operator's commands (app/maintenance.py) and the app on its own (a
 quarantine, an account purge) did to the organisation. The code that acts writes the row with
 `audit`, `audit_sign_in` or `audit_event` before its own commit, so an action and its row commit
 or roll back together; a route that commits before a storage call writes it before that commit.
@@ -19,9 +20,12 @@ question or an answer says: not even a chat's title, which is its first question
 renamed. A failed sign-in for an address that has no account is not recorded, since the address
 is a stranger's; the rate limits count it (app/ratelimit.py).
 
-A sign-in belongs to the organisation the user's sessions work in (`account_for_user` in
-app/accounts.py), so a user in no organisation leaves no row; switching organisations will
-have to decide whether every one of them sees it.
+Each organisation's log holds what was done in it. A sign-in belongs to the organisation its
+session starts in, the one the user joined first (`account_for_user` in app/accounts.py), and
+what the account does after, its sign-out and the changes to how it signs in included, to the
+one the session works in by then; so a member of several organisations does not show the others
+when, or from where, they sign in, and a user in no organisation leaves no row. Switching is
+not recorded: it is a view, and what is done after it is.
 
 Admins and owners read their organisation's rows page by page through `GET /api/audit`
 (app/api/audit.py); the view with filters and an export is the organisation settings' (2.7).
@@ -37,7 +41,7 @@ from sqlalchemy.orm import Session
 
 from app.accounts import Account, account_for_user
 from app.entitlements import PLANS
-from app.models import AUDIT_ACTIONS, AuditEvent, User
+from app.models import AUDIT_ACTIONS, AuditEvent, User, UserSession
 
 # What a row was done to: ("document", 7).
 type Target = tuple[str, int]
@@ -114,10 +118,12 @@ def audit_sign_in(
     request: Request,
     action: str,
     detail: dict[str, Any] | None = None,
+    user_session: UserSession | None = None,
 ) -> None:
     """Add a row for a sign-in to the user's account, or a change to how it signs in, in the
-    organisation its sessions work in; none for a user in no organisation. The caller commits."""
-    account = account_for_user(session, user)
+    organisation `user_session` works in, or without one the one the user joined first; none
+    for a user in no organisation. The caller commits."""
+    account = account_for_user(session, user, user_session)
     if account is not None:
         audit(session, account, request, action, detail=detail)
 

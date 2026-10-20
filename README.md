@@ -519,6 +519,24 @@ header when calling the API by hand. The app answers no request from another ori
 no CORS): the frontend is served from the API's own origin, and the defence rests on that. The
 routes are under `/api/auth`, the pages in `frontend/src/account/`.
 
+A user may belong to several organisations, each with its own projects, members, plan and audit
+log. The organisation's name in the header opens a menu of them: switching is the session's, so
+every tab of the browser works in the one chosen, and a new session starts in the one joined
+first. Every request of the app names the organisation its page shows (`X-Organization`), and a
+tab left behind by a switch in another is refused with 409 and starts again in the one the
+session works in, so nothing it asks lands in the wrong organisation. "New organisation" starts
+one the user owns, on the Free plan and in the deployment's region; one user may own
+`MAX_FREE_ORGANIZATIONS` (2) on the Free plan, so that new ones are no way past its limits. The
+organisation's page (`/organization`) renames it (owners and admins; the slug the operator's
+commands name it by stays), lists its members, hands it over to another member with the
+password (they become an owner and the one handing it over an admin), and leaves it: the
+member's private chats in its projects go, and the shared ones stay. Nobody leaves an
+organisation that would be left without an owner or with nobody, nor their last one. Each act
+is in the organisation's audit log; a sign-in is recorded where its session starts and what the
+account does after where the session works then, so one organisation does not see when, or
+from where, a member signs in to another. The routes are `backend/app/api/organizations.py`, the
+pages `frontend/src/organization/`.
+
 Making the account takes a ticked box, on the page the link opens, that accepts the terms of
 service and the privacy policy, which anyone can read at `/terms` and `/privacy` (the sign-in
 pages and the user menu link to them).
@@ -828,6 +846,8 @@ CHANGELOG.md    what each day's commits changed for members and operators
   and the page that accepts them exist; the roles (viewers read, members change, a chat is
   private until shared) are already enforced. The plan's member cap (`check_member` in
   `backend/app/entitlements.py`) waits for them.
+- Deleting an organisation: one goes only with the account of its only member, who cannot
+  leave it either.
 - Billing: plans exist and are enforced, but nothing sells them. The `plan` command moves an
   organisation between them; the API keys, the connectors and the model tier the plans
   declare are not read by anything yet.
