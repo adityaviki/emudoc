@@ -16,6 +16,7 @@ from app.entitlements import (
     entitlements_of,
     holdings,
     month_of,
+    sample_documents,
 )
 from app.schemas import FigureOut, MeteredMonthOut, MeteredOut, UsagePageOut
 from app.usage import metered
@@ -60,6 +61,7 @@ def organization_usage(account: AccountDep, session: SessionDep):
             bought=bought.get((this.start, "questions"), 0),
         ),
         chars_per_page=CHARS_PER_PAGE,
+        sample_documents=sample_documents(session, organization.id),
         days=[
             MeteredOut(start=day.start, pages=day.pages, questions=day.questions)
             for day in metered(

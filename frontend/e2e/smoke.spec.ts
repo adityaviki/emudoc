@@ -4,8 +4,9 @@ import type { BrowserContext, Page } from '@playwright/test'
 import { linkMailedTo } from './mail.ts'
 import { movePlan } from './operator.ts'
 
-// The member's way through the app, end to end: sign up through the link the app mails, make a
-// project, upload a contract, wait for it to be indexed, find it by searching, ask about it,
+// The member's way through the app, end to end: sign up through the link the app mails, ask the
+// sample project the organisation starts with one of its questions, make a project, upload a
+// contract, wait for it to be indexed, find it by searching, ask about it,
 // open the passage the answer cites, start a second organisation and switch back, and invite a
 // colleague as a viewer, who makes an account from the invitation's link, finds the project and
 // is offered no change to it until made a member, then make the project private, which she no
@@ -15,6 +16,8 @@ import { movePlan } from './operator.ts'
 // (e2e/standin.py): the first sentence of the passage its search found best, with that
 // passage's reference.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
+// The project every sign-up's organisation starts with (backend/app/sample).
+const SAMPLE = 'Sample: Acme supplier contract'
 
 test('a new member uploads a contract, finds it, asks about it and opens the cited passage', async ({ page, browser }) => {
   test.setTimeout(120_000)
@@ -38,6 +41,23 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByLabel('Password', { exact: true }).fill('a sentence to remember')
     await page.getByLabel(/I accept the terms of service/).check()
     await page.getByRole('button', { name: 'Create account' }).click()
+    await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
+  })
+
+  await test.step('ask the sample project one of its questions', async () => {
+    await page.getByText(SAMPLE).click()
+    await expect(page).toHaveURL(/\/projects\/\d+$/)
+    await expect(page.getByText(/^Emudoc’s sample documents, which count against nothing/)).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Upload', exact: true })).toHaveCount(0)
+    // Indexed already: the job each document's copy queued makes its vectors alone.
+    const ready = page.getByRole('img', { name: /Embeddings: done/ })
+    await expect(ready).toHaveCount(8, { timeout: 30_000 })
+    await expect(ready.first()).toHaveAccessibleName(/Summaries and facts: done/)
+    await page.getByRole('button', { name: /^Does invoice INV-2026-0503 apply the volume discount/ }).click()
+    await expect(page).toHaveURL(/[?&]chat=\d+/)
+    await expect(page.getByRole('button', { name: '1', exact: true })).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByText('Thinking')).toHaveCount(0)
+    await page.getByRole('link', { name: 'Emudoc' }).click()
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
   })
 
@@ -160,24 +180,26 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('link', { name: 'See what it holds and has used' }).click()
     await expect(page.getByRole('heading', { name: 'Usage', exact: true })).toBeVisible()
     const section = (title: string) => page.locator('section').filter({ has: page.getByRole('heading', { name: title, exact: true }) })
-    // The question asked, of the Team plan's month; both seats taken.
-    await expect(section('This month').getByRole('definition').nth(1)).toContainText('1 of 5,000')
+    // The two questions asked, of the Team plan's month; both seats taken; the sample not counted.
+    await expect(section('This month').getByRole('definition').nth(1)).toContainText('2 of 5,000')
+    await expect(section('Held now').getByRole('definition').nth(0)).toContainText('Not counted: the sample project.')
     await expect(section('Held now').getByRole('definition').nth(3)).toContainText('2 of 2')
-    await expect(section('Day by day').getByRole('figure', { name: /^Questions/ })).toContainText('1 question in all')
+    await expect(section('Day by day').getByRole('figure', { name: /^Questions/ })).toContainText('2 questions in all')
   })
 
   await test.step('make the project private, which a member not chosen no longer finds, then choose her', async () => {
     await page.goto('/')
-    await page.getByRole('button', { name: 'Who sees it' }).click()
+    const card = page.locator('div.group').filter({ hasText: 'Supplier contracts' })
+    await card.getByRole('button', { name: 'Who sees it' }).click()
     await page.getByLabel('Only the members chosen').check()
     await expect(page.getByText('Sees every project')).toBeVisible()
     await page.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(page.getByText('Private', { exact: true })).toBeVisible()
     await grace.goto('/')
-    await expect(grace.getByText('No projects yet')).toBeVisible()
+    await expect(grace.getByText(SAMPLE)).toBeVisible()
     await expect(grace.getByText('Supplier contracts')).toHaveCount(0)
 
-    await page.getByRole('button', { name: 'Who sees it' }).click()
+    await card.getByRole('button', { name: 'Who sees it' }).click()
     await page.getByLabel(/Grace Hopper/).check()
     await page.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Who sees Supplier contracts' })).toHaveCount(0)
@@ -204,8 +226,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   })
 
   await test.step("be told the month's questions are used, and open the notice from the other organisation", async () => {
-    // Two questions a month: the second uses them all, which the owners are told as it is asked.
-    movePlan(slug, 'team', '--set', 'questions_per_month=2')
+    // Three questions a month: the third uses them all, which the owners are told as it is asked.
+    movePlan(slug, 'team', '--set', 'questions_per_month=3')
     const asked = page.waitForResponse((response) => response.request().method() === 'POST' && /\/messages$/.test(response.url()))
     const composer = page.getByPlaceholder('Ask a question about these documents')
     await composer.fill('Who may end the contract?')
@@ -218,7 +240,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByText('No projects yet')).toBeVisible()
     await page.getByRole('button', { name: 'Notifications, 1 unread' }).click()
     const notice = page.getByRole('dialog', { name: 'Notifications' }).getByRole('button', { name: /used all its questions for the month/ })
-    await expect(notice).toContainText("Ada Lovelace's workspace has used all the 2 questions it may ask")
+    await expect(notice).toContainText("Ada Lovelace's workspace has used all the 3 questions it may ask")
     // Opened in the organisation it is about, read.
     await notice.click()
     await expect(page).toHaveURL(/\/organization\/usage$/)

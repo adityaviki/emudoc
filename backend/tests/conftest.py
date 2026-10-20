@@ -124,6 +124,9 @@ os.environ["RUN_WORKER"] = "false"
 # A parsed PDF queues no drawing of its first pages, so that the jobs a test finds are the ones
 # it is about; tests/test_rendering.py turns it on.
 os.environ["PRERENDER_PAGES"] = "0"
+# A sign-up's organisation starts without the sample project, whose documents and index jobs
+# would be in every test that signs up; tests/test_sample.py turns it on.
+os.environ["SAMPLE_PROJECT"] = "false"
 
 from alembic import command  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

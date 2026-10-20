@@ -547,7 +547,14 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
 
 Signing up starts with an email address alone, which is sent a link; the page it opens takes a
 name and a password and makes a user and an organisation of their own, which they own, signed in
-and with the address confirmed, since whoever chose the password holds the mail. The form answers
+and with the address confirmed, since whoever chose the password holds the mail. The organisation
+starts with the sample project, "Sample: Acme supplier contract": a supplier's contract, three of
+its invoices, the price list, the delivery log, an email and meeting notes, indexed already
+(`backend/app/sample`), so that the first question gets its answer and citations without waiting
+for an upload, and an empty chat in it offers three questions that read the documents against
+each other. It counts against nothing on the plan and takes no uploads; its questions count, and
+it is deleted like any project (`SAMPLE_PROJECT=false` turns it off; deploying.md, "The sample
+project"). The form answers
 an address that has an account the same, and that address is told by mail instead, so the form
 says nothing of who uses the deployment. An account made through Google or Microsoft whose
 address the provider does not vouch for gets a verification link, and a banner asks for it until
@@ -788,8 +795,8 @@ cd frontend && pnpm e2e              # after pnpm build; needs the database cont
 The frontend's unit tests (`pnpm test`, Vitest) sit beside the modules they test
 (`src/**/*.test.ts`) and run in Node with `fetch` stubbed: the chat's events and its
 reconnections, the workspace's URLs, the formatting. `pnpm e2e` (Playwright) drives the built
-page in Chromium as a new member: sign up through the link the app mails, make a project, upload
-a contract, wait for it to be indexed, search for it, ask about it and open the passage the
+page in Chromium as a new member: sign up through the link the app mails, ask the sample project
+one of its questions, make a project, upload a contract, wait for it to be indexed, search for it, ask about it and open the passage the
 answer cites. It starts the app itself (`frontend/e2e/serve.sh`, in a database of its own,
 `emudoc_e2e`, made afresh each run, its log in the temporary directory, where the test finds the
 mail) against a stand-in for the model and the embeddings endpoint (`frontend/e2e/standin.py`),
@@ -887,6 +894,8 @@ backend/app/
   folders.py    the folder tree as paths and subtrees
   agent/        the five tools and the tool-use loop
   accounts.py   who a request acts as; signing up makes a user and their organisation
+  sample/       the sample project a sign-up's organisation starts with: its files, the index
+                the pipeline made of them, the copy and the build-sample command's build
   invitations.py
                 invitations to an organisation, and joining one by an address's domain
   auth.py       passwords, sessions, one-time links and authenticator codes

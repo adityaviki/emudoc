@@ -122,6 +122,8 @@ class Deployment:
             "RESEND_WEBHOOK_SECRET": "",
             "MAIL_EVENTS_QUEUE": "",
             "PWNED_PASSWORDS_URL": "",
+            # The member's library is the corpus alone, and the jobs the run times its own.
+            "SAMPLE_PROJECT": "false",
             "MODEL_PRICES": "",
             "DAILY_SPEND_CAP": "0",
             "SENTRY_DSN": "",

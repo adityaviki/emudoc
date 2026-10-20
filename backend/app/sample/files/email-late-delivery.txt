@@ -1,0 +1,11 @@
+From: Lena Vogt <lena.vogt@northwind.example>
+To: Helen Marsh <helen.marsh@acme.example>
+Date: 14 August 2026
+Subject: Late delivery PO-7708
+
+Hi Helen,
+
+PO-7708 (25 pallets of pipe fittings) arrived three days late. Please confirm the cause and whether a credit applies under clause 3.
+
+Thanks,
+Lena

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FolderOpen, Lock, Plus, Trash2, Users } from 'lucide-react'
+import { FolderOpen, Lock, Plus, Sparkles, Trash2, Users } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
@@ -197,6 +197,15 @@ function ProjectCard({ project, changes, onManage }: { project: Project; changes
               <span className="inline-flex items-center gap-1 align-bottom">
                 <Lock className="size-3" aria-hidden />
                 Private
+              </span>
+            </>
+          )}
+          {project.sample && (
+            <>
+              <span className="mx-1.5 text-line">·</span>
+              <span className="inline-flex items-center gap-1 align-bottom" title="Emudoc’s own documents, which count against nothing on your plan">
+                <Sparkles className="size-3" aria-hidden />
+                Sample
               </span>
             </>
           )}

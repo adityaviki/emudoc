@@ -40,6 +40,10 @@ class ProjectOut(_FromORM):
     description: str
     created_at: dt.datetime
     visibility: str
+    # The sample project a new organisation starts with (app/sample), which takes no uploads,
+    # and the questions an empty chat in a project offers, none being the page's own.
+    sample: bool = False
+    suggestions: list[str] = Field(default_factory=list)
     document_count: int = 0
     # The documents whose enrich stage was skipped for want of a model: what the library
     # offers to run the model on once there is one.
@@ -543,6 +547,9 @@ class UsagePageOut(BaseModel):
     questions_per_month: FigureOut
     # The characters of text a document without pages counts a page for (app/entitlements.py).
     chars_per_page: int
+    # The documents of the sample project, which `projects` and `documents` leave out
+    # (app/sample); 0 once it is deleted.
+    sample_documents: int
     # Every day of the last few up to today, and every month of the last few up to this one,
     # the oldest first.
     days: list[MeteredOut]

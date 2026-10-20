@@ -412,7 +412,7 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
                 so check the cited passages before you rely on an answer.
               </p>
               <div className="mt-6 flex flex-col gap-2 text-left">
-                {SUGGESTIONS.map((suggestion) => (
+                {(project.suggestions.length ? project.suggestions : SUGGESTIONS).map((suggestion) => (
                   <button
                     key={suggestion}
                     onClick={() => send(suggestion)}

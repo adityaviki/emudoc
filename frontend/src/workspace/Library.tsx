@@ -77,6 +77,8 @@ type DragRef = RefObject<DragPayload | null>
 
 const hasItems = (event: DragEvent) => event.dataTransfer.types.includes(ITEMS_TYPE)
 const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files')
+// What a drop of files onto the sample project's folders says (backend/app/sample, SAMPLE_UPLOADS).
+const SAMPLE_UPLOADS = 'This is the sample project, which holds Emudoc’s sample documents alone. Create a project of your own to upload yours.'
 
 // The folders left open in the tree, per project.
 const treeKey = (projectId: number) => `emudoc.tree-open.${projectId}`
@@ -96,6 +98,8 @@ export function Library() {
   const mutations = useLibraryMutations()
   const byPlan = mutations.rejected.find((file) => file.limit !== null)
   const changes = mayChange(useMe().role)
+  // The sample project takes no uploads: it counts against nothing on the plan (backend/app/sample).
+  const uploads = changes && !project.sample
   const health = useStatus()
   const fileInput = useRef<HTMLInputElement>(null)
   const dragging = useRef<DragPayload | null>(null)
@@ -112,6 +116,10 @@ export function Library() {
   const currentName = current?.name ?? project.name
 
   function uploadFiles(files: File[], targetId: number | null) {
+    if (project.sample) {
+      mutations.setNotice(SAMPLE_UPLOADS)
+      return
+    }
     // Dropped directories arrive as empty, typeless files.
     const accepted = files.filter((file) => file.size > 0 || file.type !== '')
     if (accepted.length < files.length) mutations.setNotice('Folders cannot be uploaded; drop files instead.')
@@ -125,7 +133,7 @@ export function Library() {
     <div
       className="relative flex h-full min-h-0 flex-col bg-page"
       onDragOver={(event) => {
-        if (!changes || !hasFiles(event)) return
+        if (!uploads || !hasFiles(event)) return
         event.preventDefault()
         event.dataTransfer.dropEffect = 'copy'
         setOverPane(true)
@@ -135,14 +143,14 @@ export function Library() {
       }}
       onDrop={(event) => {
         setOverPane(false)
-        if (!changes || !hasFiles(event)) return
+        if (!uploads || !hasFiles(event)) return
         event.preventDefault()
         uploadFiles([...event.dataTransfer.files], folderId)
       }}
     >
       <div className="@container shrink-0 border-b border-line bg-surface">
         <div className="flex h-11 items-center px-3">
-          <Breadcrumb folderId={folderId} mutations={mutations} dragging={dragging} onUpload={changes ? uploadFiles : null} />
+          <Breadcrumb folderId={folderId} mutations={mutations} dragging={dragging} onUpload={uploads ? uploadFiles : null} />
         </div>
         <div className="flex items-center gap-2 px-3 pb-2.5">
           <SearchBox query={query} scope={folderId == null ? null : currentName} />
@@ -157,22 +165,30 @@ export function Library() {
                 className="px-2"
               />
               {/* A narrow pane keeps the icon only. */}
-              <Button
-                icon={mutations.upload.isPending ? <Spinner /> : <Upload className="size-4" />}
-                onClick={() => fileInput.current?.click()}
-                disabled={mutations.upload.isPending}
-                title={ACCEPTED_TYPES_LABEL}
-                aria-label={mutations.upload.isPending ? 'Uploading…' : 'Upload'}
-                className="px-2 @xs:px-3"
-              >
-                <span className="hidden @xs:inline">{mutations.upload.isPending ? 'Uploading…' : 'Upload'}</span>
-              </Button>
+              {uploads && (
+                <Button
+                  icon={mutations.upload.isPending ? <Spinner /> : <Upload className="size-4" />}
+                  onClick={() => fileInput.current?.click()}
+                  disabled={mutations.upload.isPending}
+                  title={ACCEPTED_TYPES_LABEL}
+                  aria-label={mutations.upload.isPending ? 'Uploading…' : 'Upload'}
+                  className="px-2 @xs:px-3"
+                >
+                  <span className="hidden @xs:inline">{mutations.upload.isPending ? 'Uploading…' : 'Upload'}</span>
+                </Button>
+              )}
             </>
           )}
         </div>
       </div>
 
       <div className="shrink-0 space-y-2 empty:hidden px-3 pt-2">
+        {project.sample && !query && (
+          <Notice tone="info">
+            Emudoc’s sample documents, which count against nothing on your plan: ask about them in the chat. Your own
+            documents go in a project of your own.
+          </Notice>
+        )}
         {mutations.notice && (
           <Notice tone="bad">
             <div className="flex items-start justify-between gap-3">
@@ -242,7 +258,7 @@ export function Library() {
         />
       )}
 
-      {changes && (
+      {uploads && (
         <input
           ref={fileInput}
           type="file"

@@ -7,8 +7,9 @@ turns its requests down, with a pgvector that loses a project's passages to the 
 (app/postgres.py), with a model or a bucket reached in the clear across a network the deployment
 does not own (app/network.py), with a bucket that keeps deleted files longer than the privacy
 policy says (`check_versions` in app/storage.py), or outside the region the deployment promises
-(app/residency.py), and anywhere without a temporary directory to write in; then, refused by
-none of it, they queue what a changed embedding model left stale. One function does all of it,
+(app/residency.py), and anywhere without a temporary directory to write in or with a sample
+project whose files its index does not describe (app/sample); then, refused by none of it, they
+queue what a changed embedding model left stale. One function does all of it,
 so that the two processes refuse the same misconfigurations and a check added for one is not
 forgotten by the other.
 """
@@ -29,6 +30,7 @@ from app.maintenance import check_embeddings, requeue_stale_embeddings, warn_abo
 from app.network import MODEL_BASE_URLS, plain_http_problem, trust_store_problem
 from app.postgres import check_database
 from app.residency import check_residency
+from app.sample import check_sample
 from app.scanning import check_scanner, scanner_from_settings
 from app.search import check_fts_language
 from app.spending import warn_without_prices
@@ -72,6 +74,7 @@ def prepare(settings: Settings, services: Services | None = None) -> Services:
     check_embeddings()
     check_fts_language()
     check_encrypted()
+    check_sample(settings)
     if services is None:
         export_env_file(settings)
         services = Services(

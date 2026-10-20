@@ -516,6 +516,11 @@ class Settings(BaseSettings):
     # account instead of being refused. Off by default, so a deployment never opens up by
     # accident; the test suite turns it on.
     local_account: bool = False
+    # Whether the organisation an account signs up with starts with the sample project
+    # (app/sample): Emudoc's own documents of one supplier, indexed already, with three
+    # questions to ask about them, so that a new member's first answer waits for no upload or
+    # model. It counts against nothing the plan holds; its questions count as any do.
+    sample_project: bool = True
     # Where the app is reached, for the links in emails and the OAuth redirect URI. Empty takes
     # the origin of the request that needs it, which is right in development.
     app_url: str = ""

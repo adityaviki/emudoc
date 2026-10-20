@@ -7,6 +7,29 @@ full SHA is the image's tag, the version `/api/health` reports and the user menu
 they change. A commit that changes what a member or an operator sees adds its line here, under
 its day, in the same commit.
 
+## 2026-10-21
+
+Members:
+
+- A new account's organisation starts with a sample project, "Sample: Acme supplier contract": a
+  supplier's contract, three of its invoices, the price list, the delivery log, an email and the
+  notes of a review meeting, indexed already, so the first question is answered with citations
+  at once. An empty chat in it offers three questions that check the documents against each
+  other, such as whether an invoice applies the contract's volume discount. It counts against
+  nothing on your plan (the usage page says so) and takes no uploads; your questions in it count
+  as any do, and you delete it like any project. A colleague who joins from an invitation finds
+  the sample of the organisation they join.
+
+Operators:
+
+- `SAMPLE_PROJECT` (on by default) gives the organisation an account signs up with the sample
+  project, copied from the image in the sign-up's transaction: no model is called and nothing
+  of the month is used; each document's index job makes its vectors alone, recorded as `embed`
+  usage, and the audit log records `sample_added`. A start refuses an image whose sample files
+  are not those its index describes, and a storage that refuses the files leaves the account
+  without the sample, logged. `python -m app.maintenance build-sample` indexes the files again
+  with the configured models (deploying.md, "The sample project").
+
 ## 2026-10-20
 
 Members:

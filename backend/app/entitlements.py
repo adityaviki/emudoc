@@ -23,11 +23,12 @@ returns a `Refusal`, the sentence the user sees, naming the plan, the limit and 
 with the figure it is held to, or None when the plan allows it; a route raises `PlanRefused`
 with it, which app/main.py answers 402 with both, so that the page can offer what lifts that
 figure (a pack for the month, a larger plan, more seats); the stage fails the document with
-the sentence. The counts come
-from the rows (projects, documents and their bytes, memberships), so a deleted document frees
-what it took, or from the month so far in UTC (the pages indexed, by the `upload` usage
-events; the questions, by the `answer` events in `questions` each question writes as it is
-asked, so that a chat deleted gives none back), which starts afresh on the first. Pages and
+the sentence. The counts come from the rows (projects, documents and their bytes, memberships;
+the sample project a new organisation starts with, app/sample, and its documents count against
+nothing), so a deleted document frees what it took, or from the month so far in UTC (the pages
+indexed, by the `upload` usage events; the questions, by the `answer` events in `questions`
+each question writes as it is asked, so that a chat deleted gives none back), which starts
+afresh on the first. Pages and
 questions bought in packs for the month (`allowance_packs`, app/billing.py) add to the plan's
 until it ends. `holdings` is what the organisation holds now, as the checks count it, which
 `over_limits` and the usage page (app/api/usage.py) both read.
@@ -539,17 +540,33 @@ def size_label(size: int) -> str:
 
 
 def _projects(session: Session, org_id: int) -> int:
-    return session.scalar(select(func.count()).select_from(Project).where(Project.org_id == org_id))
+    """How many projects the organisation holds, the sample project left out (app/sample)."""
+    return session.scalar(
+        select(func.count())
+        .select_from(Project)
+        .where(Project.org_id == org_id, Project.sample.is_(False))
+    )
 
 
 def _documents(session: Session, org_id: int) -> tuple[int, int]:
-    """How many documents the organisation holds, and their bytes."""
+    """How many documents the organisation holds, and their bytes, the sample project's left
+    out: they are the app's own, and none can be uploaded there."""
     count, held = session.execute(
         select(func.count(Document.id), func.coalesce(func.sum(Document.size_bytes), 0))
         .join(Project, Project.id == Document.project_id)
-        .where(Project.org_id == org_id)
+        .where(Project.org_id == org_id, Project.sample.is_(False))
     ).one()
     return count, held
+
+
+def sample_documents(session: Session, org_id: int) -> int:
+    """How many documents the organisation's sample project holds, which count against nothing
+    (app/sample); 0 once it is deleted."""
+    return session.scalar(
+        select(func.count(Document.id))
+        .join(Project, Project.id == Document.project_id)
+        .where(Project.org_id == org_id, Project.sample.is_(True))
+    )
 
 
 def _members(session: Session, org_id: int) -> int:

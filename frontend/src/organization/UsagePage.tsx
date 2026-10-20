@@ -112,7 +112,7 @@ function UsageSections({ me, page }: { me: Me; page: Usage }) {
               words={name === 'storage_bytes' ? formatSize : plain}
               agreed={agreed.includes(name)}
             >
-              {name === 'members' && (seats ? 'The seats bought for the plan, open invitations counted.' : 'Open invitations counted.')}
+              {heldNote(name, page, seats)}
             </FigureRow>
           ))}
         </dl>
@@ -182,6 +182,15 @@ function FigureRow({
       </dd>
     </div>
   )
+}
+
+/** What a figure held counts beyond its rows, or leaves out: the sample project counts against nothing (backend/app/sample). */
+function heldNote(name: (typeof HELD)[number], page: Usage, seats: boolean): string | null {
+  if (name === 'members') return seats ? 'The seats bought for the plan, open invitations counted.' : 'Open invitations counted.'
+  if (!page.sample_documents) return null
+  if (name === 'projects') return 'Not counted: the sample project.'
+  if (name === 'documents') return `Not counted: the sample project’s ${count(page.sample_documents, 'document')}.`
+  return null
 }
 
 /** A bar for each day or month of a history, as tall as its share of the tallest, read out one by one. */

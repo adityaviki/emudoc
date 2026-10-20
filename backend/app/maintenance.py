@@ -50,6 +50,10 @@ those of an earlier key, which is a key's rotation. It runs beside the app.
 `models` asks every model the settings name, fallbacks included, what the app asks of it
 (app/trial.py), and exits 1 when one does not answer as the app needs: the start only builds
 them, so this is where a fallback is tried before its day.
+
+`build-sample` is a developer's: it indexes the sample project's files with the configured
+models and writes what the pipeline made of them into the checkout's app/sample/index.json,
+which every sign-up copies (app/sample).
 """
 
 import argparse
@@ -119,6 +123,7 @@ from app.retention import (
     reapply_erasures,
     retention_held,
 )
+from app.sample import INDEX, build_sample, written
 from app.storage import (
     DELETE_BATCH,
     ROOT_PREFIX,
@@ -1276,6 +1281,17 @@ def main(argv: list[str] | None = None) -> None:
         "thousand tokens per model; run it after changing a model, before a launch, and at "
         "intervals, since providers retire models on their own schedules.",
     )
+    commands.add_parser(
+        "build-sample",
+        help="index the sample project's files with the model and write app/sample/index.json",
+        description="Index the files of the sample project that the organisation an account "
+        "signs up with starts with (backend/app/sample/files) as an upload is, with the models "
+        "INDEX_MODEL and its fallback name, in an organisation made for the run and deleted "
+        "after it, and write what the pipeline made of them, all but the vectors, into "
+        "backend/app/sample/index.json, which every sign-up copies. It costs a few model calls, "
+        "which are no organisation's usage. Run it in a checkout after changing the sample's "
+        "files, or when a change to the parsing or the pipeline should show in the sample.",
+    )
     args = parser.parse_args(argv)
     # Text whatever LOG_FORMAT says: the commands are run, and their lines read, by a person.
     configure_logging("text", "%(levelname)s %(name)s: %(message)s")
@@ -1444,6 +1460,20 @@ def main(argv: list[str] | None = None) -> None:
                 print(line)
             if any(trial.failed for trial in trials):
                 sys.exit(1)
+        elif args.command == "build-sample":
+            check_schema()
+            # The run's documents are deleted as it ends: nothing is to draw their pages first.
+            settings.prerender_pages = 0
+            index = build_sample(settings)
+            INDEX.write_text(written(index))
+            documents = index["documents"]
+            print(
+                f"Indexed the sample's {_count(len(documents), 'document')} with "
+                f"{', '.join(index['built']['models'])}: "
+                f"{_count(sum(len(entry['passages']) for entry in documents), 'passage')} and "
+                f"{_count(sum(len(entry['facts']) for entry in documents), 'fact')}, written to "
+                f"{INDEX}. Read the summaries and facts before committing it."
+            )
         elif args.command == "plan":
             check_schema()
             with SessionLocal() as session:

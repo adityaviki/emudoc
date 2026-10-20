@@ -39,6 +39,10 @@ export interface Project {
   description: string
   created_at: string
   visibility: ProjectVisibility
+  /** The sample project a new organisation starts with (backend/app/sample): Emudoc's own documents, which count against nothing on the plan and take no uploads. */
+  sample: boolean
+  /** The questions an empty chat offers to ask; none offers the page's own. */
+  suggestions: string[]
   document_count: number
   /** The documents whose enrich stage was skipped for want of a model. */
   unenriched_count: number
@@ -480,6 +484,8 @@ export type UsagePage = Record<Figured, Figure> & {
   next_month: string
   /** The characters of text a document without pages (a Word file, a sheet, a text file) counts a page for. */
   chars_per_page: number
+  /** The sample project's documents, which `projects` and `documents` leave out; 0 once it is deleted. */
+  sample_documents: number
   /** Every day of the last 30 up to today, and every month of the last 12 up to this one, the oldest first. */
   days: Metered[]
   months: MeteredMonth[]
@@ -693,6 +699,7 @@ export type AuditAction =
   | 'member_removed'
   | 'project_access_changed'
   | 'project_deleted'
+  | 'sample_added'
   | 'folder_deleted'
   | 'document_uploaded'
   | 'document_downloaded'

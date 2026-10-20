@@ -14,6 +14,7 @@ const page = (pages: Figure, questions: Figure): UsagePage => ({
   pages_per_month: pages,
   questions_per_month: questions,
   chars_per_page: 3_000,
+  sample_documents: 0,
   days: [],
   months: [],
 })

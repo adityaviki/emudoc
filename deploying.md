@@ -836,6 +836,41 @@ replacement or another provider's model in the fallback, and move `MODEL_PRICES`
 retires unnoticed fails with 404, and the fallback answers while the log says the model "was not
 found, or is served no longer".
 
+## The sample project
+
+The organisation an account signs up with, by its link or through a provider, starts with a
+project named "Sample: Acme supplier contract": a supplier's contract, three of its invoices,
+the price list, the delivery log, an email and meeting notes, with three questions an empty
+chat offers, each asking the agent to read several of them against each other (an invoice that
+bills 340 pallets without the contract's discount, two late deliveries). A colleague who signs
+up from an invitation joins an organisation instead and makes none; a member removed from
+their last organisation is given one without it. `SAMPLE_PROJECT=false` turns it off.
+
+Nothing is indexed as an account is made. The image carries the files and what the pipeline
+made of them (`backend/app/sample/index.json`: blocks, outline, passages, summaries, facts), and
+the sign-up copies them in its own transaction: the files into the storage under the new
+documents' keys, the rows with new ids. So the copy calls no model and costs the organisation
+nothing of its month; only the vectors are the deployment's, made by each document's index job,
+which runs the embed stage alone at once (a few seconds against the compose file's server, the
+passages found by their words meanwhile) and records its `embed` usage as any document's does.
+The scan stage says the file is the app's own. The project and its documents count against
+nothing the plan holds, and it takes no uploads (409), so it never becomes a project the plan
+did not count; its questions count as any do, and a member deletes it like any project. The
+audit log records the copy as the app's own `sample_added`.
+
+A storage that refuses the files leaves the organisation without the sample, logged as
+"Organisation 12 starts without the sample project: …", and the account is made all the same;
+a file stored before the failure is the orphan sweep's. A start with `SAMPLE_PROJECT` on refuses
+an image whose sample files are not those its index describes.
+
+`python -m app.maintenance build-sample` makes the index again, in a checkout: it indexes the
+files with the configured models in an organisation of its own that it deletes after, and
+writes the file to commit. Run it after changing the files, or when a change to the parsers or
+the pipeline should show in the sample; until then the index describes the same files with the
+older code's outline, which is not wrong. The index first committed holds the enrich stage's
+replies written by hand (`built.models` says `hand:`), each fact's quote checked against its
+block by the stage as a model's is; the next build with a model replaces them.
+
 ## TLS at a reverse proxy
 
 Nothing in the app speaks TLS. A reverse proxy holds the certificate, answers the browsers on
@@ -3789,6 +3824,7 @@ the roots' `settings` the others ("The settings").
 | `LOCAL_ACCOUNT` | `false` | refused when true | Requests without a session act as a local owner, for development |
 | `APP_URL` | the request's origin | required | Where members reach the app: the links in mail, the OAuth redirect |
 | `SESSION_DAYS` | `30` | | How long a sign-in lasts |
+| `SAMPLE_PROJECT` | `true` | | Whether the organisation an account signs up with starts with the sample project ("The sample project") |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | the proxy's address | uvicorn's: whose `X-Forwarded-*` headers are believed ("TLS at a reverse proxy") |
 | `TMPDIR` | `/tmp` | | Where uploads pass through and a worker copies an original to ("The image") |
 | `EMUDOC_VERSION` | `unknown` in an image built without `VERSION`, `development` in a checkout | | The image's `VERSION`, which `/api/health` names; not set by hand |

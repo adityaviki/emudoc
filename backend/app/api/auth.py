@@ -63,8 +63,10 @@ from app.api.deps import (
     AnyAccountDep,
     HttpDep,
     LiveAccountDep,
+    ServicesDep,
     SessionDep,
     UsableAccountDep,
+    WorkerDep,
     limited,
     refuse_past,
 )
@@ -139,6 +141,7 @@ from app.retention import (
     deletion_refusal,
     retention_held,
 )
+from app.sample import add_sample
 from app.schemas import (
     AccountDeletionIn,
     AccountExport,
@@ -173,7 +176,7 @@ from app.schemas import (
     SignupLinkOut,
     TermsIn,
 )
-from app.storage import content_disposition
+from app.storage import Storage, content_disposition
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -331,12 +334,14 @@ def finish_signup(
     response: Response,
     session: SessionDep,
     http: HttpDep,
+    services: ServicesDep,
+    worker: WorkerDep,
 ):
-    """Make the account a sign-up link was sent for, with an organisation of its own, and sign
-    it in. Opening the link proves the address, so it starts confirmed, and whoever holds the
-    address chooses the password and accepts the terms, never whoever typed it into the form.
-    The edition accepted must be the current one. A refusal leaves the link working, since
-    nothing is committed."""
+    """Make the account a sign-up link was sent for, with an organisation of its own that
+    starts with the sample project (app/sample), and sign it in. Opening the link proves the
+    address, so it starts confirmed, and whoever holds the address chooses the password and
+    accepts the terms, never whoever typed it into the form. The edition accepted must be the
+    current one. A refusal leaves the link working, since nothing is committed."""
     refuse_past(session, (ADDRESSES, by_address(request)))
     _refuse_unaccepted(body.terms_version)
     link = auth.redeem_link_token(session, body.token, "sign_up")
@@ -368,7 +373,10 @@ def finish_signup(
     browser = auth.remember_browser(session, account.user, request)
     audit(session, account, request, "sign_up", detail={"method": "password"})
     _accept_terms(session, account, request)
+    sample = add_sample(session, account.organization, services.storage)
     session.commit()
+    if sample and worker:
+        worker.notify()
     auth.set_session_cookie(response, request, token)
     auth.set_browser_cookie(response, request, browser)
     return me_out(session, replace(account, session_id=user_session.id))
@@ -985,6 +993,8 @@ def oauth_callback(
     request: Request,
     session: SessionDep,
     http: HttpDep,
+    services: ServicesDep,
+    worker: WorkerDep,
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
@@ -1000,7 +1010,9 @@ def oauth_callback(
         )
     try:
         claims = finish(found, code, _redirect_uri(request, found), handshake, http)
-        user, joined = _user_for_claims(session, found, claims, request, handshake)
+        user, joined, sampled = _user_for_claims(
+            session, found, claims, request, handshake, services.storage
+        )
     except (OidcError, SignInRefused) as refusal:
         session.rollback()
         return _back_to_login(request, error=str(refusal))
@@ -1009,6 +1021,8 @@ def oauth_callback(
         audit_sign_in(session, user, request, "sign_in", {"method": found.name})
         browser = auth.remember_browser(session, user, request)
     session.commit()
+    if sampled and worker:
+        worker.notify()
     if user.mfa_enabled:
         response = _back_to_login(request, mfa="1", next=handshake.next)
     else:
@@ -1026,9 +1040,11 @@ def _user_for_claims(
     claims: Claims,
     request: Request,
     handshake: Handshake,
-) -> tuple[User, bool]:
+    storage: Storage,
+) -> tuple[User, bool, bool]:
     """The user behind the provider's subject, linking or creating an account the first time,
-    and whether a new account joined the organisation that invited its address.
+    whether a new account joined the organisation that invited its address, and whether one
+    that started its own got the sample project (app/sample), whose jobs are then queued.
 
     An existing account is linked only when both sides vouch for the address: the provider
     says it is verified, and the account verified it too. Otherwise someone could sign up with
@@ -1043,7 +1059,7 @@ def _user_for_claims(
     )
     if identity is not None:
         identity.email = claims.email
-        return identity.user, False
+        return identity.user, False, False
     if not claims.email:
         raise SignInRefused(
             f"{provider.label} did not share an email address for this account, which Emudoc "
@@ -1051,7 +1067,7 @@ def _user_for_claims(
         )
     user = session.scalar(select(User).where(User.email == claims.email))
     invitation = find_invitation(session, handshake.invitation) if handshake.invitation else None
-    joined = False
+    joined = sampled = False
     if user is None and invitation is not None and is_open(invitation):
         joined = invitation.email == claims.email
     if joined:
@@ -1071,6 +1087,7 @@ def _user_for_claims(
             time_zone=handshake.time_zone,
         )
         audit(session, account, request, "sign_up", detail={"method": provider.name})
+        sampled = add_sample(session, account.organization, storage) is not None
         user = account.user
         if not claims.email_verified:
             _send_verification(session, user, request)
@@ -1085,7 +1102,7 @@ def _user_for_claims(
         )
     )
     session.flush()
-    return user, joined
+    return user, joined, sampled
 
 
 def _provider(name: str) -> Provider:

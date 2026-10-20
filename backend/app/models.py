@@ -83,7 +83,8 @@ NATURAL_ORDER = "natural_order"
 # What the audit log records (app/audit.py): its members' sign-ins and what they did to their
 # accounts, what was done to the organisation itself (its name, its owner, who was invited,
 # joined, left or was removed, and the members' roles), to its projects, its documents and the
-# sharing of its chats, and what the operator and the app did to it on their own.
+# sharing of its chats, and what the operator and the app did to it on their own (a quarantine,
+# the sample project a new account's organisation starts with).
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -127,6 +128,7 @@ AUDIT_ACTIONS = (
     "member_removed",
     "project_access_changed",
     "project_deleted",
+    "sample_added",
     "folder_deleted",
     "document_uploaded",
     "document_downloaded",
@@ -496,6 +498,11 @@ class Project(Base):
     visibility: Mapped[str] = mapped_column(
         String(20), default="organization", server_default="organization"
     )
+    # The sample project a new account's organisation starts with (app/sample): its project and
+    # documents count against nothing the plan holds, and nothing is uploaded into it.
+    sample: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    # The questions an empty chat offers to ask about its documents; none offers the page's own.
+    suggestions: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default="{}")
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

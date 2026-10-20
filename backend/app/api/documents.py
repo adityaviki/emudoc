@@ -47,6 +47,7 @@ from app.parsing.signatures import wrong_type
 from app.ratelimit import UPLOADS
 from app.rendering import FOR_PANE, FOR_THUMBNAIL, RenderError, renderer
 from app.restore import place_taken
+from app.sample import SAMPLE_UPLOADS
 from app.scanning import scan_passed
 from app.schemas import (
     DocumentContent,
@@ -192,8 +193,11 @@ def upload_documents(
     has no room for a document at all (402, which the app shows as the way to upgrade); each
     file is then checked for its own size, for whether its bytes are the type its name claims
     (app/parsing/signatures.py) and against the plan, and one that fails is rejected with the
-    sentence while the others go in (app/entitlements.py).
+    sentence while the others go in (app/entitlements.py). The sample project takes none (409),
+    since it counts against nothing the plan holds (app/sample).
     """
+    if project.sample:
+        raise HTTPException(409, SAMPLE_UPLOADS)
     settings = get_settings()
     limit = settings.max_upload_mb * 1024 * 1024
     if reason := too_many(files, settings):
