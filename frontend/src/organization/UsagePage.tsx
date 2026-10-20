@@ -79,6 +79,8 @@ function UsageSections({ me, page }: { me: Me; page: Usage }) {
       ? `${allowed.toLocaleString()} a month on the plan, and ${bought.toLocaleString()} more bought for ${month}.`
       : null
   }
+  // A Word file's pages, counted by its text, would otherwise read as a mistake.
+  const byText = `A document without pages, such as a Word file or a spreadsheet, counts a page for every ${page.chars_per_page.toLocaleString()} characters of its text.`
   const seats = me.organization.seats !== null
 
   return (
@@ -87,7 +89,7 @@ function UsageSections({ me, page }: { me: Me; page: Usage }) {
         <dl className="divide-y divide-line border-t border-line">
           {MONTHLY.map((name) => (
             <FigureRow key={name} label={LABELS[name]} figure={page[name]} words={plain} agreed={agreed.includes(name)}>
-              {bought(name)}
+              {[bought(name), name === 'pages_per_month' ? byText : null].filter(Boolean).join(' ')}
             </FigureRow>
           ))}
         </dl>

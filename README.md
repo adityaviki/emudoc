@@ -90,7 +90,9 @@ on the member's own latest chat, never on one another member shared. Sharing and
 private are in the organisation's audit log, without the chat's title.
 
 What an organisation uses is recorded as it happens, one row per measure in `usage_events`:
-an answer's model calls and tokens, an upload's bytes and pages, the pages a scan took to read
+an answer's model calls and tokens, an upload's bytes and pages (once, by its first parse; a
+document without pages, a Word file, a sheet or a text file, has a page for every 3,000
+characters of its text begun, `text_pages` in `backend/app/entitlements.py`), the pages a scan took to read
 and the model calls of the indexing stages, the texts embedded and the tokens the embeddings
 endpoint says they took, and the pages rendered for the viewer, each with the organisation, project and member they belong to and the message or
 document they were for. Each is counted at the end of the run that made it, so an answer that
@@ -148,7 +150,8 @@ on each of the last 30 days and in each of the last 12 months, in UTC. A questio
 is asked, answered or not, and deleting its chat gives it back to nobody. The plan is checked
 where the thing happens: creating a project, uploading (the request is refused when the plan
 has no room at all, a file that would not fit is rejected while the others go in), asking a
-question, inviting, and in the parse stage once it knows how many pages a document has, which
+question, inviting, and in the parse stage once it knows how many pages a document has (those
+of its text for a document without pages, which the refusal and the usage page say), which
 fails the document with the reason rather than read a page past the month's allowance. A
 refusal is a 402 whose body is the sentence, naming the plan and the limit, and the figure it
 is held to (`{"detail": …, "limit": "pages_per_month"}`); the app shows it with the way past

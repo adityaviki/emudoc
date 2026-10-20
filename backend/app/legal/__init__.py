@@ -29,7 +29,7 @@ from string import Template
 from app.accounts import Account
 from app.auth import BROWSER_COOKIE, BROWSER_KNOWN_FOR, CREDENTIAL_HISTORY, SESSION_COOKIE
 from app.config import REGIONS, Settings, model_provider, parse_scanner_url
-from app.entitlements import PLANS, Entitlements
+from app.entitlements import CHARS_PER_PAGE, PLANS, Entitlements
 from app.network import MODEL_BASE_URLS, host_of, on_own_network
 from app.oidc import OAUTH_COOKIE, OAUTH_WINDOW_SECONDS
 from app.ratelimit import HISTORY
@@ -96,6 +96,7 @@ def terms_of_service(settings: Settings) -> str:
         "terms.md",
         settings,
         deletion_days=str(DELETION_GRACE.days),
+        chars_per_page=f"{CHARS_PER_PAGE:,}",
         paid_plans=_paid_plans(settings),
     )
 

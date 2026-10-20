@@ -444,6 +444,8 @@ export type UsagePage = Record<Figured, Figure> & {
   /** The first day of the month the monthly figures count, and of the next, when they start afresh. */
   month: string
   next_month: string
+  /** The characters of text a document without pages (a Word file, a sheet, a text file) counts a page for. */
+  chars_per_page: number
   /** Every day of the last 30 up to today, and every month of the last 12 up to this one, the oldest first. */
   days: Metered[]
   months: MeteredMonth[]

@@ -43,7 +43,7 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
   })
   // For the currency the document's cost is in.
   const health = useStatus()
-  const usage = describeDocumentUsage(document.usage, health.data?.currency)
+  const usage = describeDocumentUsage(document.usage, health.data?.currency, document.page_count !== null)
   const content = useQuery({
     queryKey: ['content', document.id, status],
     queryFn: () => api.content(document.id),

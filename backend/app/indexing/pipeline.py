@@ -23,7 +23,7 @@ from app.audit import audit_event
 from app.config import get_settings
 from app.db import SessionLocal, connection_lost
 from app.embeddings import Embedder
-from app.entitlements import check_pages
+from app.entitlements import check_pages, text_pages
 from app.errors import AppError, shown, summary
 from app.indexing.enrich import (
     ExtractedFact,
@@ -41,7 +41,7 @@ from app.models import STAGES, Block, Document, Fact, Passage, Section
 from app.parsing import IMAGE_TYPES, FileTooLarge, ParsedBlock, UnsupportedFile
 from app.parsing.images import open_image
 from app.parsing.limits import ParseLimits, parse_within_limits
-from app.parsing.types import clean_text
+from app.parsing.types import ParsedDocument, clean_text
 from app.rendering import FOR_OCR, RenderError, renderer
 from app.scanning import NOT_SCANNED, UNSCANNED, Scanner, quarantine_message
 from app.spending import check_platform_spend, check_spend, day_of
@@ -507,12 +507,14 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
         # The pages are a measure of the upload, counted when the first parse learns how many
         # there are; a parse run again for "Index again" brings nothing new in. The plan's
         # month is checked before a scan is read, since reading it costs model calls.
-        new_pages = (parsed.page_count or 0) if document.page_count is None else 0
+        new_pages = 0 if _pages_counted(document) else _pages_of(parsed)
         # The platform's ceiling on scanned pages comes before the plan's month: a document
         # over it is refused whatever the plan, so an upgrade is not the answer.
         if reason := _too_many_scans(len(parsed.ocr_pages)):
             raise PipelineError(reason)
-        if refusal := check_pages(session, document.project.organization, new_pages):
+        organization = document.project.organization
+        of_text = parsed.page_count is None
+        if refusal := check_pages(session, organization, new_pages, of_text=of_text):
             raise PipelineError(refusal.sentence)
         blocks = parsed.blocks
         note = ""
@@ -553,13 +555,33 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
         )
         for ordinal, block in enumerate(blocks)
     )
-    if document.page_count is None:
-        meter.add(UPLOAD, "pages", new_pages)
+    meter.add(UPLOAD, "pages", new_pages)
     document.page_count = parsed.page_count
     document.page_sizes = [[round(w, 2), round(h, 2)] for w, h in parsed.page_sizes]
     document.title = parsed.title
     _queue_drawing_ahead(session, document)
     return f"{len(blocks)} blocks{note}"
+
+
+def _pages_counted(document: Document) -> bool:
+    """Whether the document's pages were counted against its organisation's month already.
+
+    The document's usage says so (app/usage.py), since `record` adds the pages to it in the
+    transaction of their usage event: a parse whose stage was lost with its lease, after the
+    pages were recorded, is not counted again by the worker that takes it over, and one whose
+    record was lost is counted by the next. `page_count` cannot tell, since a document without
+    pages has none after any number of parses; the documents parsed before the text counted
+    hold a count of 0 (migration 67eb6d3cb16c).
+    """
+    return "pages" in document.usage.get(UPLOAD, {})
+
+
+def _pages_of(parsed: ParsedDocument) -> int:
+    """The pages a document counts for against the month: a PDF's or an image's own, and for a
+    document without pages those of its text (`text_pages`), the blocks the parse found."""
+    if parsed.page_count is not None:
+        return parsed.page_count
+    return text_pages(sum(len(block.text) for block in parsed.blocks))
 
 
 def _queue_drawing_ahead(session: Session, document: Document) -> None:

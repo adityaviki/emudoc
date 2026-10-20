@@ -40,13 +40,21 @@ function formatBytes(bytes: number): string {
 
 /**
  * The usage of one kind in a few words: "2 calls · 1,234 tokens in, 56 out · $0.0012". The
- * cost is left out while the currency is not known yet.
+ * cost is left out while the currency is not known yet. `ofText` says the pages are a
+ * document's text, as an upload without pages of its own counts them.
  */
-export function describeUsage(usage: Usage, currency: string | undefined, kind?: UsageKind): string {
+export function describeUsage(usage: Usage, currency: string | undefined, kind?: UsageKind, ofText = false): string {
   const parts: string[] = []
   if (usage.bytes) parts.push(formatBytes(usage.bytes))
   if (usage.pages) {
-    const noun = kind === 'ocr' ? ['page read', 'pages read'] : kind === 'render' ? ['page rendered', 'pages rendered'] : ['page']
+    const noun =
+      kind === 'ocr'
+        ? ['page read', 'pages read']
+        : kind === 'render'
+          ? ['page rendered', 'pages rendered']
+          : ofText
+            ? ['page of text', 'pages of text']
+            : ['page']
     parts.push(count(usage.pages, noun[0], noun[1]))
   }
   if (usage.calls) parts.push(count(usage.calls, 'call'))
@@ -69,11 +77,13 @@ export function describeAnswerUsage(usage: Usage, currency: string | undefined):
 /**
  * What bringing in, indexing and viewing the document used: one line adding the model
  * calls, tokens, texts embedded and cost up over the kinds, and the breakdown by kind for a
- * tooltip. Null while nothing was spent on a model or on embeddings.
+ * tooltip. Null while nothing was spent on a model or on embeddings. A document without
+ * pages of its own (`paged` false) was counted by the pages of its text.
  */
 export function describeDocumentUsage(
   usage: Partial<Record<UsageKind, Usage>>,
   currency: string | undefined,
+  paged = true,
 ): { summary: string; detail: string } | null {
   const kinds = DOCUMENT_KINDS.filter((kind) => usage[kind])
   let calls = 0
@@ -93,6 +103,8 @@ export function describeDocumentUsage(
   if (tokens) parts.push(count(tokens, 'token'))
   if (inputs) parts.push(`${count(inputs, 'text')} embedded`)
   if (cost != null && currency) parts.push(formatCost(cost, currency))
-  const detail = kinds.map((kind) => `${USAGE_LABELS[kind]}: ${describeUsage(usage[kind]!, currency, kind)}`).join('\n')
+  const detail = kinds
+    .map((kind) => `${USAGE_LABELS[kind]}: ${describeUsage(usage[kind]!, currency, kind, kind === 'upload' && !paged)}`)
+    .join('\n')
   return { summary: parts.join(' · '), detail }
 }

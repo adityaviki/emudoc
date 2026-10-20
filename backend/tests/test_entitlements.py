@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from app.api.deps import READ_ONLY
 from app.billing import change_plan, plan_problem
 from app.entitlements import (
+    CHARS_PER_PAGE,
     MONTHS,
     PLANS,
     Excess,
@@ -29,11 +30,13 @@ from app.entitlements import (
     over_limits,
     read_only,
     size_label,
+    text_pages,
 )
 from app.indexing.pipeline import process_document, reset_stages
 from app.jobs import INDEX_DOCUMENT, claim, enqueue
 from app.maintenance import main
 from app.models import (
+    Block,
     ChatMessage,
     Document,
     Invitation,
@@ -250,6 +253,78 @@ def test_the_parse_stage_refuses_a_document_the_month_has_no_pages_left_for(
     reset_stages(document, "parse")
     session.commit()
     assert process_document(document.id, services) == []
+
+
+def test_a_document_without_pages_counts_against_the_month_by_its_text(
+    session, services, account, plan, make_document, tmp_path
+):
+    account.organization.plan = "free"
+    session.commit()
+    plan(pages_per_month=4)
+    # Two paragraphs, 7,000 characters of text: three pages begun.
+    notes = tmp_path / "notes.txt"
+    notes.write_text("a" * 3_500 + "\n\n" + "b" * 3_500)
+    document = make_document(notes)
+    record(
+        session,
+        org_id=account.organization.id,
+        project_id=document.project_id,
+        user_id=None,
+        kind=UPLOAD,
+        measures={"pages": 2},
+    )
+    session.commit()
+
+    (failure,) = process_document(document.id, services)
+    _, following = this_month()
+    refusal = (
+        "This document has about 3 pages of text (a page for every 3,000 characters), more "
+        "than the 2 left of the Free plan's 4 a month. Upgrade your plan, or index it again "
+        f"from 1 {following}."
+    )
+    assert (failure.stage, failure.message, failure.transient) == ("parse", refusal, False)
+    assert rows_of(session, (DOCUMENT, document.id)) == []
+
+    # The month has room again: the parse counts the text's pages, and the document has
+    # none of its own still, for the outline and the viewer.
+    plan(pages_per_month=5)
+    reset_stages(document, "parse")
+    session.commit()
+    assert process_document(document.id, services) == []
+    session.refresh(document)
+    assert document.status == "ready" and document.page_count is None
+    assert document.usage["upload"]["pages"] == 3
+    rows = rows_of(session, (DOCUMENT, document.id))
+    assert [row.quantity for row in rows if row.unit == "pages"] == [3]
+
+    # Counted once: "Index again" neither checks the month nor counts the text again.
+    plan(pages_per_month=1)
+    reset_stages(document, "parse")
+    session.commit()
+    assert process_document(document.id, services) == []
+    rows = rows_of(session, (DOCUMENT, document.id))
+    assert [row.quantity for row in rows if row.unit == "pages"] == [3]
+    session.refresh(document)
+    assert document.usage["upload"]["pages"] == 3
+
+
+@pytest.mark.parametrize("sample", ["sample_docx", "sample_xlsx", "sample_csv"])
+def test_a_word_file_a_sheet_and_a_csv_count_the_pages_of_their_text(
+    session, services, account, make_document, sample, request
+):
+    document = make_document(request.getfixturevalue(sample))
+    assert process_document(document.id, services) == []
+    characters = session.scalar(
+        select(func.sum(func.length(Block.text))).where(Block.document_id == document.id)
+    )
+    rows = rows_of(session, (DOCUMENT, document.id))
+    pages = [row.quantity for row in rows if (row.kind, row.unit) == (UPLOAD, "pages")]
+    assert pages == [text_pages(characters)] and pages[0] >= 1
+
+
+def test_text_is_counted_a_page_for_every_so_many_characters_begun():
+    assert [text_pages(n) for n in (1, CHARS_PER_PAGE, CHARS_PER_PAGE + 1)] == [1, 1, 2]
+    assert text_pages(0) == 0
 
 
 def test_the_free_plan_answers_so_many_questions_a_month(member, client, session, plan):

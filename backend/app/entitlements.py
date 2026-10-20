@@ -15,7 +15,9 @@ per request through the account (app/api/deps.py), never from the settings.
 
 The checks run where the thing is about to happen: `check_project` in the route that creates
 one, `check_upload` in the upload route before anything is stored and again per file,
-`check_pages` in the parse stage once it knows how many pages a document has, `check_question`
+`check_pages` in the parse stage once it knows how many pages a document has (a document
+without pages, a Word file, a sheet or a text file, has those of its text, `text_pages`),
+`check_question`
 in the ask route, and `check_member` by the invitations and the joining by domain. Each
 returns a `Refusal`, the sentence the user sees, naming the plan, the limit and what to do,
 with the figure it is held to, or None when the plan allows it; a route raises `PlanRefused`
@@ -89,6 +91,10 @@ MONTHS = (
 
 # The plans whose members are the seats an organisation bought (`organizations.seats`).
 BY_THE_SEAT = frozenset({"team"})
+# A document without pages (a Word file, a sheet, a text file) counts against the month a page
+# for every CHARS_PER_PAGE characters of its text begun, about what a page of a report holds,
+# so that a file of up to PARSE_MAX_CHARS is indexed and embedded against the plan like a PDF.
+CHARS_PER_PAGE = 3_000
 MODEL_TIERS = ("standard", "premium")
 # The figures of `Entitlements` that limit what an organisation holds at any moment, as
 # against what it uses in a month; past one of them it is read-only (`read_only`).
@@ -320,9 +326,18 @@ def check_upload(
     return None
 
 
-def check_pages(session: Session, organization: Organization, pages: int) -> Refusal | None:
+def text_pages(characters: int) -> int:
+    """The pages a document without pages counts for, by the characters of its text: one for
+    every CHARS_PER_PAGE begun."""
+    return -(-characters // CHARS_PER_PAGE)
+
+
+def check_pages(
+    session: Session, organization: Organization, pages: int, *, of_text: bool = False
+) -> Refusal | None:
     """Why the plan refuses indexing a document of `pages` pages this month, or None when the
-    month has room for them. A document without pages costs none."""
+    month has room for them. `of_text` says the pages are a document's text (`text_pages`),
+    which the sentence says, or its member would read a Word file's pages as a mistake."""
     cap = entitlements_of(organization).pages_per_month
     if cap is None or not pages:
         return None
@@ -331,9 +346,14 @@ def check_pages(session: Session, organization: Organization, pages: int) -> Ref
     bought = bought_this_month(session, organization.id, "pages", start)
     if used + pages <= cap + bought:
         return None
+    has = (
+        f"about {_count(pages, 'page')} of text (a page for every {CHARS_PER_PAGE:,} characters)"
+        if of_text
+        else _count(pages, "page")
+    )
     return Refusal(
         "pages_per_month",
-        f"This document has {_count(pages, 'page')}, more than the "
+        f"This document has {has}, more than the "
         f"{max(cap + bought - used, 0):,} left of the {_label(organization)} plan's {cap:,} a "
         f"month{_and_bought(bought, start)}. {upgrade(organization).capitalize()}, or index it "
         f"again from 1 {_month(following)}.",
@@ -446,7 +466,8 @@ def read_only(session: Session, organization: Organization) -> Refusal | None:
 
 def pages_this_month(session: Session, org_id: int, start: datetime) -> int:
     """The pages the organisation's uploads brought in since `start`: what the first parse of
-    each document counted (app/indexing/pipeline.py)."""
+    each document counted (app/indexing/pipeline.py), its text's for a document without
+    pages."""
     return session.scalar(
         select(func.coalesce(func.sum(UsageEvent.quantity), 0)).where(
             UsageEvent.org_id == org_id,

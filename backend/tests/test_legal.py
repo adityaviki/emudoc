@@ -57,7 +57,7 @@ DEVELOPMENT = {
 }
 DIRECTORY = LocalStorage(Path("unused"))
 # The SHA-256 of terms.md and privacy.md as the edition TERMS_VERSION names was settled.
-SETTLED = "13ed049243ecce6d87703e18726a274a8161aa3c5d68b8c4b09b32e26ab1f354"
+SETTLED = "d3500eda8d8efabe57c888c50bdb6ea20fc82f7bcb20825ffb35c7952f2fd525"
 OLDER = "2026-01-01"
 
 
@@ -123,6 +123,18 @@ def test_the_documents_name_who_runs_the_deployment():
     # Development shows what to set; production refuses to start without it.
     unset = terms_of_service(configured())
     assert "OPERATOR_NAME is not set" in unset and "OPERATOR_EMAIL is not set" in unset
+
+
+def test_the_terms_say_how_a_document_without_pages_counts(monkeypatch):
+    def said() -> str:
+        return " ".join(terms_of_service(configured()).split())
+
+    assert (
+        "such as a Word file or a spreadsheet, counts a page for every 3,000 characters" in said()
+    )
+    # The figure is the one the parse stage counts by (app/entitlements.py), never typed in.
+    monkeypatch.setattr("app.legal.CHARS_PER_PAGE", 2_500)
+    assert "every 2,500 characters of its text" in said()
 
 
 def test_the_privacy_policy_says_what_the_settings_do():

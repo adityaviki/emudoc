@@ -516,6 +516,8 @@ class UsagePageOut(BaseModel):
     members: FigureOut
     pages_per_month: FigureOut
     questions_per_month: FigureOut
+    # The characters of text a document without pages counts a page for (app/entitlements.py).
+    chars_per_page: int
     # Every day of the last few up to today, and every month of the last few up to this one,
     # the oldest first.
     days: list[MeteredOut]

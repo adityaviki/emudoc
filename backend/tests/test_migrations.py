@@ -18,9 +18,9 @@ from sqlalchemy import func, inspect, select, text, update
 from app.config import get_settings
 from app.db import MIGRATION_LOCK, UPGRADE_COMMAND, Base, alembic_config, check_schema, engine
 from app.encrypted import TOTP_SECRETS, encrypt
-from app.indexing.pipeline import process_document
+from app.indexing.pipeline import process_document, reset_stages
 from app.main import create_app
-from app.models import NATURAL_ORDER, ChatMessage, Document, Project, User
+from app.models import NATURAL_ORDER, ChatMessage, Document, Project, UsageEvent, User
 from tests.conftest import STORAGE_ROOT, FakeTurn, build_schema, drop_schema
 from tests.test_api import create_project
 from tests.test_chats import answered, ask, new_chat
@@ -33,6 +33,7 @@ USAGE_ON_ROWS = "29c97f1a6f4f"
 RATE_LIMITS = "133a863e3662"
 BEFORE_ENCRYPTED_SECRETS = "2656abd623ec"
 BEFORE_QUESTIONS_COUNTED = "0151920be687"
+BEFORE_TEXT_COUNTED = "920efab20e8b"
 
 
 def current_revision() -> str | None:
@@ -307,6 +308,45 @@ def test_the_questions_of_the_chats_kept_are_counted_from_when_they_were_asked(
             asked_at,
         )
     ]
+
+
+def test_documents_parsed_before_their_text_counted_are_not_counted_again(
+    rebuilt_afterwards, session, services, make_document, sample_docx, sample_csv
+):
+    # Before, a document without pages counted for nothing, and its usage held no pages. The
+    # upgrade marks it counted for 0, so that "Index again" brings nothing new in; one not yet
+    # parsed is counted by its first parse.
+    parsed = make_document(sample_docx)
+    process_document(parsed.id, services)
+    waiting = make_document(sample_csv, project=parsed.project)
+    session.execute(text("UPDATE documents SET usage = usage #- '{upload,pages}'"))
+    session.execute(text("DELETE FROM usage_events WHERE unit = 'pages'"))
+    session.commit()
+    command.downgrade(alembic_config(), BEFORE_TEXT_COUNTED)
+
+    def uploads() -> dict[int, object]:
+        with engine.connect() as connection:
+            rows = connection.execute(text("SELECT id, usage -> 'upload' FROM documents"))
+            return dict(rows.all())
+
+    assert uploads() == {parsed.id: None, waiting.id: None}
+    command.upgrade(alembic_config(), "head")
+    assert uploads() == {parsed.id: {"pages": 0}, waiting.id: None}
+
+    session.expire_all()
+    reset_stages(session.get(Document, parsed.id), "parse")
+    session.commit()
+    for document in (parsed, waiting):
+        assert process_document(document.id, services) == []
+    pages = session.execute(
+        select(UsageEvent.ref_id, UsageEvent.quantity).where(UsageEvent.unit == "pages")
+    ).all()
+    assert [ref for ref, _ in pages] == [waiting.id]
+
+    # Going back removes the mark, which no event stands behind.
+    session.rollback()
+    command.downgrade(alembic_config(), BEFORE_TEXT_COUNTED)
+    assert uploads()[parsed.id] is None
 
 
 def test_database_made_before_migrations_cannot_be_upgraded(rebuilt_afterwards):

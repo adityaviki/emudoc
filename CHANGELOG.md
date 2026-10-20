@@ -11,6 +11,12 @@ its day, in the same commit.
 
 Members:
 
+- A Word file, a spreadsheet or a text file now counts against the month's pages like a PDF:
+  a page for every 3,000 characters of its text, counted once, when it is first indexed. The
+  usage page says so beside the pages indexed, a document's usage names them as pages of text,
+  and a month without room for one refuses it with "about N pages of text". Documents indexed
+  before count nothing more when indexed again.
+
 - Every member finds the organisation's usage under "See what it holds and has used" on the
   organisation page: its projects, documents, storage and members, and this month's pages and
   questions, each against what the plan allows (the packs bought for the month counted), with
@@ -135,6 +141,12 @@ Members:
   slow to a third of their speed.
 
 Operators:
+
+- The `upload` usage events in `pages`, which the plans' months, the usage page and the `usage`
+  command read, now hold the pages of text of a document without pages (`CHARS_PER_PAGE`,
+  3,000 characters a page). A document's pages are counted once, as its usage shows them, so a
+  parse redone after a lost lease no longer counts a PDF twice; the migration marks the
+  documents parsed before as counted for 0 pages (`usage.upload.pages`, which no page shows).
 
 - Each question asked is a usage event of its own, `answer` in `questions` (one a question, no
   reference, the asker and the project), which the plan's month counts in place of the month's

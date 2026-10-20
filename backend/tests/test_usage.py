@@ -16,11 +16,12 @@ from pydantic_ai.messages import TextPart, ToolCallPart
 from sqlalchemy import func, select
 
 import app.answers as answers_module
+import app.indexing.pipeline as pipeline
 from app.agent.tools import TOOLS
 from app.answers import answer
 from app.billing import change_plan
 from app.config import get_settings
-from app.entitlements import month_of
+from app.entitlements import CHARS_PER_PAGE, month_of
 from app.indexing.pipeline import StageFailure, process_document, reset_stages
 from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT, LeaseLost, claim
 from app.llm import LLMError
@@ -356,7 +357,8 @@ def test_inferring_sections_is_charged_as_its_own_kind(session, services, make_d
 
     rows = rows_of(session, (DOCUMENT, document.id))
     assert spent(rows, INFER_SECTIONS) == model_calls(INFER_SECTIONS, 1)
-    assert spent(rows, UPLOAD) == []  # a text file has no pages
+    # A text file has no pages of its own, and counts those of its text.
+    assert spent(rows, UPLOAD) == [(UPLOAD, "pages", 1)]
 
 
 def test_a_scan_is_charged_per_page_read_even_when_the_stage_fails_half_way(
@@ -454,6 +456,33 @@ def test_a_stage_whose_lease_was_lost_is_charged_and_so_is_the_run_that_redoes_i
     assert spent(rows, EMBED) == embedded(passages) * 2
     # Parse and enrich ran once: their rows were committed before the takeover.
     assert spent(rows, UPLOAD, ENRICH) == [(UPLOAD, "pages", 2), *model_calls(ENRICH, 1)]
+
+
+def test_the_pages_of_a_parse_whose_lease_was_lost_are_not_counted_again(
+    session, services, make_document, sample_pdf, monkeypatch
+):
+    # The pages are counted against the plan's month once: the worker that takes the parse
+    # over finds them in the document's usage, recorded with their event.
+    document = make_document(sample_pdf)
+    job = claim("w:1", [INDEX_DOCUMENT])
+    draw_ahead = pipeline._queue_drawing_ahead
+
+    def taken_over(stage_session, parsed):
+        draw_ahead(stage_session, parsed)
+        lose(session, job.id)
+
+    monkeypatch.setattr(pipeline, "_queue_drawing_ahead", taken_over)
+    with pytest.raises(LeaseLost):
+        HANDLERS[INDEX_DOCUMENT].run(job, services)
+    session.refresh(document)
+    assert document.page_count is None and document.usage["upload"] == {"pages": 2}
+
+    monkeypatch.setattr(pipeline, "_queue_drawing_ahead", draw_ahead)
+    taken = claim("w:2", [INDEX_DOCUMENT])
+    assert HANDLERS[INDEX_DOCUMENT].run(taken, services) is None
+    session.refresh(document)
+    assert document.page_count == 2 and document.usage["upload"] == {"pages": 2}
+    assert spent(rows_of(session, (DOCUMENT, document.id)), UPLOAD) == [(UPLOAD, "pages", 2)]
 
 
 def test_an_upload_records_its_bytes_for_the_member(client, session, account, sample_pdf, tmp_path):
@@ -727,6 +756,8 @@ def test_the_usage_page_counts_what_the_plan_allows_as_its_checks_do(
 
     page = usage_page(client)
     assert (page["month"], page["next_month"]) == (str(start.date()), str(following.date()))
+    # What the page says a document without pages counts by.
+    assert page["chars_per_page"] == CHARS_PER_PAGE
     assert {name: page[name] for name in FIGURES} == {
         "projects": {"used": 1, "allowed": 1, "bought": 0},
         "documents": {"used": 1, "allowed": 25, "bought": 0},

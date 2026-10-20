@@ -9,7 +9,14 @@ from datetime import UTC, date, datetime, time, timedelta
 from fastapi import APIRouter
 
 from app.api.deps import AccountDep, SessionDep
-from app.entitlements import HELD, bought_by_month, entitlements_of, holdings, month_of
+from app.entitlements import (
+    CHARS_PER_PAGE,
+    HELD,
+    bought_by_month,
+    entitlements_of,
+    holdings,
+    month_of,
+)
 from app.schemas import FigureOut, MeteredMonthOut, MeteredOut, UsagePageOut
 from app.usage import metered
 
@@ -52,6 +59,7 @@ def organization_usage(account: AccountDep, session: SessionDep):
             allowed=entitlements.questions_per_month,
             bought=bought.get((this.start, "questions"), 0),
         ),
+        chars_per_page=CHARS_PER_PAGE,
         days=[
             MeteredOut(start=day.start, pages=day.pages, questions=day.questions)
             for day in metered(
