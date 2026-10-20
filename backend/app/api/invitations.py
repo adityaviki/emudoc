@@ -28,13 +28,13 @@ from app.api.deps import (
     limited,
     refuse_past,
 )
-from app.api.organizations import NO_SESSION, NOT_FOUND
+from app.api.organizations import NO_SESSION, NOT_FOUND, locked
 from app.audit import audit
 from app.auth import now
 from app.entitlements import check_member
 from app.invitations import INVITATION_TTL, domain_of, is_open, issue, joining_refusal
 from app.mail import Mailer, invitation_email
-from app.models import Invitation, Membership, Organization, User, UserSession
+from app.models import Invitation, Membership, User, UserSession
 from app.ratelimit import SIGN_INS, by_email
 from app.schemas import InvitationIn, InvitationOut, JoiningIn, MeOut
 
@@ -87,7 +87,7 @@ def invite(
     email = body.email.strip().lower()
     # Counted for the address as well as the inviter, so that no address is flooded from many.
     refuse_past(session, (SIGN_INS, by_email(email)))
-    organization = _locked(session, account.organization.id)
+    organization = locked(session, account.organization.id)
     member = session.scalar(
         select(User)
         .join(Membership, Membership.user_id == User.id)
@@ -148,7 +148,7 @@ def resend_invitation(
     _refuse_unless_admin(account)
     email = _invitation(session, account, invitation_id).email
     refuse_past(session, (SIGN_INS, by_email(email)))
-    organization = _locked(session, account.organization.id)
+    organization = locked(session, account.organization.id)
     # Held, so that one accepted meanwhile is found gone rather than sent again.
     invitation = _invitation(session, account, invitation_id, lock=True)
     if not account.is_at_least(invitation.role):
@@ -222,7 +222,7 @@ def join_organization(
     join, with the role it chose, and work in it from now on, in every tab of the browser."""
     user = account.user
     domain = domain_of(user.email)
-    organization = _locked(session, org_id)
+    organization = locked(session, org_id)
     if (
         organization is None
         or user.email_verified_at is None
@@ -260,12 +260,6 @@ def join_organization(
 def _refuse_unless_admin(account: Account) -> None:
     if not account.is_at_least("admin"):
         raise HTTPException(403, ADMINS_ONLY)
-
-
-def _locked(session: Session, org_id: int) -> Organization | None:
-    """The organisation, held until the commit, so that two requests at once cannot both take
-    the plan's last place."""
-    return session.scalar(select(Organization).where(Organization.id == org_id).with_for_update())
 
 
 def _invitation(

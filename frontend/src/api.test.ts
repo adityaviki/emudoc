@@ -1,5 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, api, handleSwitched, isWithin, oauthStartUrl, showOrganization } from './api.ts'
+import {
+  ApiError,
+  ROLES,
+  api,
+  auth,
+  handleForbidden,
+  handleSwitched,
+  isWithin,
+  mayChange,
+  oauthStartUrl,
+  showOrganization,
+} from './api.ts'
 
 /** Stub `fetch` with a reply made afresh for every call, keeping the headers each was sent with. */
 function serve(reply: () => Response): Headers[] {
@@ -21,6 +32,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
   showOrganization(null)
   handleSwitched(null)
+  handleForbidden(null)
 })
 
 describe('the organisation the page shows', () => {
@@ -51,6 +63,24 @@ describe('the organisation the page shows', () => {
   })
 })
 
+describe('a request refused as not the account\'s to make', () => {
+  it('has the page ask again who is signed in, since a role may have changed', async () => {
+    const forbidden = vi.fn()
+    handleForbidden(forbidden)
+    serve(() => refused(403))
+    await expect(api.deleteProject(3)).rejects.toMatchObject({ status: 403, message: 'Refused.' })
+    expect(forbidden).toHaveBeenCalledOnce()
+  })
+
+  it('leaves the account\'s own routes alone, whose refusals the forms show', async () => {
+    const forbidden = vi.fn()
+    handleForbidden(forbidden)
+    serve(() => refused(403))
+    await expect(auth.deleteAccount({ password: 'not it' })).rejects.toBeInstanceOf(ApiError)
+    expect(forbidden).not.toHaveBeenCalled()
+  })
+})
+
 describe('a sign-in through a provider', () => {
   it('carries the zone and the invitation only when there are some', () => {
     expect(oauthStartUrl('google', '/', '')).toBe('/api/auth/oauth/google/start?next=%2F')
@@ -67,5 +97,11 @@ describe('the roles someone may invite to', () => {
     expect(isWithin('admin', 'admin')).toBe(true)
     expect(isWithin('viewer', 'admin')).toBe(true)
     expect(isWithin('member', 'viewer')).toBe(false)
+  })
+})
+
+describe('the roles that may change what an organisation holds', () => {
+  it('are every one but a viewer\'s', () => {
+    expect(ROLES.map(mayChange)).toEqual([true, true, true, false])
   })
 })

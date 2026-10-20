@@ -11,6 +11,16 @@ its day, in the same commit.
 
 Members:
 
+- The owners and admins of an organisation change the other members' roles and remove members
+  from its page: an admin anyone's but an owner's, and to any role but owner, an owner
+  anyone's, so an owner can make another without handing the organisation over. Nobody changes
+  their own role there. A member removed loses their private chats in its projects, as on
+  leaving, and one removed from their last organisation gets an empty one of their own. A
+  viewer is no longer offered what they may not do: no new project, upload, folder, rename,
+  move, delete or "Index again". A page whose request is refused because the account's role or
+  standing changed meanwhile catches up at once. The privacy policy says that being removed
+  takes the chats you did not share, as leaving does.
+
 - The owners and admins of an organisation invite people by email, as an owner, admin, member
   or viewer, but never above their own role. The link mailed lets whoever holds the address
   join: signed in with it, or with an account made on the link's page or through Google or
@@ -67,6 +77,10 @@ Members:
 
 Operators:
 
+- The release's migration gives the audit log the action `member_removed`; a role changed by
+  an owner or admin is recorded as `role_changed`, as a successor's promotion was. Changing a
+  role, removing a member, handing over and leaving each hold the organisation's row until
+  they commit, as an invitation does.
 - Invitations are mailed through the relay like every link, after the answer, held to
   `RATE_SIGN_INS` per inviter and per address mailed. The release's migration drops
   `invitations.accepted_at` (an invitation accepted or revoked is deleted, one that expired

@@ -1,22 +1,32 @@
-"""A user's organisations: starting one, switching between them, renaming, the members, handing
-one over and leaving it, and the tab a switch elsewhere leaves behind."""
+"""A user's organisations: starting one, switching between them, renaming, the members and
+their roles, handing one over, removing a member and leaving, and the tab a switch elsewhere
+leaves behind."""
+
+from concurrent.futures import ThreadPoolExecutor
+from typing import get_args
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 
 from app.api.auth import WRONG_PASSWORD
-from app.api.deps import ORGANIZATION_HEADER, SWITCHED
+from app.api.deps import ORGANIZATION_HEADER, READ_ONLY, SWITCHED
 from app.api.organizations import (
     ADMINS_ONLY,
     LAST_ORGANISATION,
+    MANAGERS_ONLY,
     NAME_NEEDED,
     NO_SESSION,
+    OWNERS_FOR_OWNERS,
     OWNERS_ONLY,
+    REMOVE_YOURSELF,
+    YOUR_OWN_ROLE,
     YOURS_ALREADY,
     too_many_free,
 )
 from app.config import get_settings
-from app.models import Chat, Membership, Organization, UserSession
+from app.db import engine
+from app.models import ROLES, Chat, Membership, Organization, UserSession
+from app.schemas import Role
 from tests.test_api import create_project
 from tests.test_audit import actions
 from tests.test_auth import PASSWORD, another_browser, login, me, signup
@@ -43,6 +53,28 @@ def join(session, org_id: int, user_id: int, role: str = "member") -> None:
 
 def names(client) -> list[str]:
     return [project["name"] for project in client.get("/api/projects").json()]
+
+
+def set_role(session, org_id: int, user_id: int, role: str) -> None:
+    session.execute(
+        update(Membership)
+        .where(Membership.org_id == org_id, Membership.user_id == user_id)
+        .values(role=role)
+    )
+    session.commit()
+
+
+def change_role(client, user_id: int, role: str):
+    return client.patch(f"/api/organization/members/{user_id}", json={"role": role})
+
+
+def remove(client, user_id: int):
+    return client.delete(f"/api/organization/members/{user_id}")
+
+
+def roles(client) -> dict[str, str]:
+    """The members' roles by name, as the organisation's page lists them."""
+    return {m["name"]: m["role"] for m in client.get("/api/organization/members").json()}
 
 
 @pytest.fixture
@@ -317,6 +349,146 @@ def test_nobody_leaves_an_organisation_without_an_owner_or_with_nobody(client, s
         "You are the only owner of Ada's workspace, which has other members. Make one of them "
         "its owner first.",
     )
+
+
+def test_the_roles_a_request_names_are_the_databases():
+    assert get_args(Role) == ROLES
+
+
+def test_owners_and_admins_change_the_other_members_roles(client, session, team, make_account):
+    ada, bob, bob_client = team
+    org_id = ada["organization"]["id"]
+    vic = make_account("vic@example.com", session.get(Organization, org_id), role="viewer")
+    vic = vic.user.id
+    switch(bob_client, org_id)
+    bobs = create_project(bob_client, "Bob's notes")
+
+    refused = change_role(bob_client, vic, "member")
+    assert (refused.status_code, refused.json()["detail"]) == (403, MANAGERS_ONLY)
+    changed = change_role(client, bob["id"], "admin")
+    assert changed.status_code == 200, changed.text
+    assert (changed.json()["name"], changed.json()["role"]) == ("Bob", "admin")
+    # The role is read at each request, so Bob's next one is an admin's.
+    assert me(bob_client).json()["role"] == "admin"
+
+    # An admin changes anyone's role but an owner's, to anything but owner, and never their own.
+    assert change_role(bob_client, vic, "member").status_code == 200
+    for user_id, role in ((vic, "owner"), (ada["id"], "admin")):
+        response = change_role(bob_client, user_id, role)
+        assert (response.status_code, response.json()["detail"]) == (403, OWNERS_FOR_OWNERS)
+    own = change_role(bob_client, bob["id"], "member")
+    assert (own.status_code, own.json()["detail"]) == (400, YOUR_OWN_ROLE)
+    assert change_role(client, ada["id"], "admin").json()["detail"] == YOUR_OWN_ROLE
+    assert change_role(client, 10**9, "member").status_code == 404
+    assert change_role(client, vic, "boss").status_code == 422
+
+    # The same role again records nothing, and an owner who makes another stays one.
+    assert change_role(client, vic, "member").status_code == 200
+    assert change_role(client, vic, "owner").status_code == 200
+    assert change_role(client, bob["id"], "viewer").status_code == 200
+    assert roles(client) == {"Ada": "owner", "Vic": "owner", "Bob": "viewer"}
+    refused = bob_client.delete(f"/api/projects/{bobs['id']}")
+    assert (refused.status_code, refused.json()["detail"]) == (403, READ_ONLY)
+    assert [(a, d) for a, d in actions(session, org_id) if a == "role_changed"] == [
+        ("role_changed", {"from": "member", "to": "admin"}),
+        ("role_changed", {"from": "viewer", "to": "member"}),
+        ("role_changed", {"from": "member", "to": "owner"}),
+        ("role_changed", {"from": "admin", "to": "viewer"}),
+    ]
+
+
+def test_two_owners_cannot_take_each_others_role_at_once(client, session, team):
+    ada, bob, bob_client = team
+    org_id = ada["organization"]["id"]
+    set_role(session, org_id, bob["id"], "owner")
+    switch(bob_client, org_id)
+    with engine.connect() as holder, ThreadPoolExecutor(1) as pool:
+        # Ada's request holds the organisation and makes Bob an admin...
+        holder.execute(select(Organization.id).where(Organization.id == org_id).with_for_update())
+        holder.execute(
+            update(Membership)
+            .where(Membership.org_id == org_id, Membership.user_id == bob["id"])
+            .values(role="admin")
+        )
+        # ...while Bob's, which began as an owner's, waits for it.
+        waiting = pool.submit(change_role, bob_client, ada["id"], "admin")
+        with pytest.raises(TimeoutError):
+            waiting.result(timeout=0.5)
+        holder.commit()
+        refused = waiting.result(timeout=10)
+    # Bob's is refused as the admin he is by then, and the organisation keeps its owner.
+    assert (refused.status_code, refused.json()["detail"]) == (403, OWNERS_FOR_OWNERS)
+    assert roles(client) == {"Ada": "owner", "Bob": "admin"}
+
+
+def test_a_member_removed_loses_their_private_chats_and_their_place(client, session, team):
+    ada, bob, bob_client = team
+    org_id = ada["organization"]["id"]
+    project = create_project(client, "Contracts")
+    switch(bob_client, org_id)
+    new_chat(bob_client, project["id"])
+    shared = new_chat(bob_client, project["id"])
+    bob_client.patch(f"/api/chats/{shared['id']}", json={"visibility": "project"})
+    # Another browser of Bob's works in Ada's organisation too, until he is removed.
+    elsewhere = another_browser(client)
+    login(elsewhere, "bob@example.com")
+    switch(elsewhere, org_id)
+
+    refused = remove(bob_client, ada["id"])
+    assert (refused.status_code, refused.json()["detail"]) == (403, MANAGERS_ONLY)
+    yourself = remove(client, ada["id"])
+    assert (yourself.status_code, yourself.json()["detail"]) == (400, REMOVE_YOURSELF)
+    assert remove(client, 10**9).status_code == 404
+
+    removed = remove(client, bob["id"])
+    assert removed.status_code == 204, removed.text
+    assert roles(client) == {"Ada": "owner"}
+    assert me(elsewhere).json()["organization"]["id"] == bob["organization"]["id"]
+    # A tab of his that still shows Ada's organisation starts again in his own.
+    stale = bob_client.get("/api/projects", headers={ORGANIZATION_HEADER: str(org_id)})
+    assert (stale.status_code, stale.json()["detail"]) == (409, SWITCHED)
+    session.expire_all()
+    assert set(session.scalars(select(Chat.id))) == {shared["id"]}
+    assert actions(session, org_id)[-1] == (
+        "member_removed",
+        {"role": "member", "private_chats": 1},
+    )
+    assert bob_client.post(f"/api/organizations/{org_id}/switch").status_code == 404
+
+
+def test_only_an_owner_removes_an_owner(client, session, team, make_account):
+    ada, bob, bob_client = team
+    org_id = ada["organization"]["id"]
+    organization = session.get(Organization, org_id)
+    cy = make_account("cy@example.com", organization, role="owner").user.id
+    dee = make_account("dee@example.com", organization, role="admin").user.id
+    set_role(session, org_id, bob["id"], "admin")
+    switch(bob_client, org_id)
+
+    refused = remove(bob_client, cy)
+    assert (refused.status_code, refused.json()["detail"]) == (403, OWNERS_FOR_OWNERS)
+    assert remove(bob_client, dee).status_code == 204
+    assert remove(client, cy).status_code == 204
+    assert roles(client) == {"Ada": "owner", "Bob": "admin"}
+
+
+def test_a_member_removed_from_their_last_organisation_is_given_one_of_their_own(
+    client, session, team
+):
+    ada, bob, bob_client = team
+    org_id = ada["organization"]["id"]
+    # Bob's own organisation is gone, so Ada's is the only one he is a member of.
+    session.execute(delete(Organization).where(Organization.id == bob["organization"]["id"]))
+    session.commit()
+    assert me(bob_client).json()["organization"]["id"] == org_id
+
+    assert remove(client, bob["id"]).status_code == 204
+    now = me(bob_client).json()
+    own = now["organization"]
+    assert (own["name"], own["plan"], now["role"]) == ("Bob's workspace", "free", "owner")
+    assert [o["id"] for o in now["organizations"]] == [own["id"]]
+    assert names(bob_client) == []
+    assert actions(session, own["id"]) == [("organization_created", {"name": "Bob's workspace"})]
 
 
 def test_each_organisation_logs_the_sign_ins_and_acts_of_its_own(client, session, team):

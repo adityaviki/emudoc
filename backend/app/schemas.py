@@ -483,14 +483,21 @@ class MemberOut(BaseModel):
     joined_at: dt.datetime
 
 
-InvitedRole = Literal["owner", "admin", "member", "viewer"]
+# ROLES in app/models.py, which the database's check constraints hold.
+Role = Literal["owner", "admin", "member", "viewer"]
+
+
+class MemberRoleIn(BaseModel):
+    """The role a member of the organisation is to have from now on."""
+
+    role: Role
 
 
 class InvitationIn(BaseModel):
     """An address to invite to the organisation, and the role it joins with."""
 
     email: Email
-    role: InvitedRole = "member"
+    role: Role = "member"
 
 
 class InvitationOut(BaseModel):

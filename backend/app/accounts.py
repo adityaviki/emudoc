@@ -10,7 +10,8 @@ Signing up makes a user and an organisation of their own, which they own, and a 
 more (`create_organization`), each with its own plan. So that new organisations are no way past
 the free plan's limits, one user may own MAX_FREE_ORGANIZATIONS on it at most. Signing up from
 an invitation makes the user alone (`create_user`), a member of the organisation that invited
-them (`add_member`, app/invitations.py) and of none of their own.
+them (`add_member`, app/invitations.py) and of none of their own. A user removed from their last
+organisation is given one of their own as at sign-up (`create_workspace`).
 
 For development on one machine, a request without a session can act as the local account
 instead: an organisation of one, created on first use, which has no session to switch in.
@@ -165,7 +166,14 @@ def create_account(
 ) -> Account:
     """A new user who owns a new organisation of their own. The caller commits."""
     user = create_user(session, email, name, password_hash, email_verified, time_zone)
-    stem = name or email.split("@")[0]
+    return create_workspace(session, user)
+
+
+def create_workspace(session: Session, user: User) -> Account:
+    """An organisation of the user's own, named after them, as signing up makes: also what a
+    member removed from their last organisation is given, since an account in none can do
+    nothing. The caller commits."""
+    stem = user.name or user.email.split("@")[0]
     return create_organization(session, user, f"{stem}'s workspace", stem)
 
 

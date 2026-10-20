@@ -67,8 +67,8 @@ PLANS = ("free", "pro", "team", "enterprise")
 NATURAL_ORDER = "natural_order"
 # What the audit log records (app/audit.py): its members' sign-ins and what they did to their
 # accounts, what was done to the organisation itself (its name, its owner, who was invited,
-# joined or left), to its documents and to the sharing of its chats, and what the operator and
-# the app did to it on their own.
+# joined, left or was removed, and the members' roles), to its documents and to the sharing of
+# its chats, and what the operator and the app did to it on their own.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -101,6 +101,7 @@ AUDIT_ACTIONS = (
     "joining_changed",
     "member_joined",
     "member_left",
+    "member_removed",
     "project_deleted",
     "folder_deleted",
     "document_uploaded",

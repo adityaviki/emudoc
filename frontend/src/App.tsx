@@ -13,9 +13,9 @@ import { FinishSignupPage, SignupPage } from './account/SignupPage.tsx'
 import { UserMenu } from './account/UserMenu.tsx'
 import { VerifyPage } from './account/VerifyPage.tsx'
 import { AuthLayout } from './account/shared.tsx'
-import { api, auth, handleSwitched, handleUnauthorized } from './api.ts'
+import { api, auth, handleForbidden, handleSwitched, handleUnauthorized } from './api.ts'
 import type { Me } from './api.ts'
-import { MeContext, forgetUser, loginPath, startAgainInOrganization, useMeQuery } from './auth.ts'
+import { ME_KEY, MeContext, forgetUser, loginPath, startAgainInOrganization, useMeQuery } from './auth.ts'
 import { Floating, Menu } from './components/Menu.tsx'
 import type { MenuItem } from './components/Menu.tsx'
 import { ThemeToggle } from './components/ThemeToggle.tsx'
@@ -50,6 +50,13 @@ function App() {
     return () => handleSwitched(null)
   }, [])
 
+  // A request refused as not the account's to make: its role or standing may have changed since
+  // the page asked, so ask again, and the pages offer only what it may do now.
+  useEffect(() => {
+    handleForbidden(() => void queryClient.invalidateQueries({ queryKey: ME_KEY }))
+    return () => handleForbidden(null)
+  }, [queryClient])
+
   if (me.isPending) {
     return (
       <div className="flex h-dvh items-center justify-center">
@@ -57,7 +64,8 @@ function App() {
       </div>
     )
   }
-  if (me.isError) {
+  // A failure to ask again keeps the answer before: only the first one has nothing to show.
+  if (me.isError && me.data === undefined) {
     return (
       <div className="flex h-dvh items-center justify-center px-6">
         <div className="max-w-sm text-center">
@@ -72,7 +80,7 @@ function App() {
   }
 
   return (
-    <MeContext value={me.data}>
+    <MeContext value={me.data ?? null}>
       <Routes>
         <Route element={<AuthLayout />}>
           <Route path="login" element={<LoginPage />} />

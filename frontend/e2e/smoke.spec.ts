@@ -6,7 +6,8 @@ import { movePlan } from './operator.ts'
 // The member's way through the app, end to end: sign up through the link the app mails, make a
 // project, upload a contract, wait for it to be indexed, find it by searching, ask about it,
 // open the passage the answer cites, start a second organisation and switch back, and invite a
-// colleague, who makes an account from the invitation's link and finds the project. The
+// colleague as a viewer, who makes an account from the invitation's link, finds the project and
+// is offered no change to it until made a member. The
 // answer is the stand-in's (e2e/standin.py): the first sentence of the passage its search
 // found best, with that passage's reference.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
@@ -103,7 +104,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(other.getByText('Lost')).toHaveCount(0)
   })
 
-  await test.step('invite a colleague, who makes an account from the link and joins', async () => {
+  await test.step('invite a viewer, who makes an account from the link, reads, and is made a member', async () => {
     await page.goto('/organization')
     const slug = await page.locator('code').filter({ hasText: /^ada-lovelace/ }).textContent()
     movePlan(slug ?? '', 'team')
@@ -126,10 +127,20 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await grace.getByRole('button', { name: 'Create account' }).click()
     await expect(grace.getByText('Supplier contracts')).toBeVisible()
     await expect(grace.getByRole('button', { name: "Ada Lovelace's workspace" })).toBeVisible()
-    await theirs.close()
+    // A viewer reads and asks: the pages offer no change the server would refuse.
+    await expect(grace.getByRole('button', { name: 'New project' })).toHaveCount(0)
+    await grace.getByText('Supplier contracts').click()
+    await expect(grace.getByRole('img', { name: /^Ready/ })).toBeVisible()
+    await expect(grace.getByRole('button', { name: 'Upload', exact: true })).toHaveCount(0)
 
     await page.reload()
     await expect(page.getByText('Nobody is invited at the moment.')).toBeVisible()
-    await expect(page.getByRole('listitem').filter({ hasText: 'Grace Hopper' })).toContainText('Viewer')
+    const role = page.getByLabel('Role of Grace Hopper')
+    await expect(role).toHaveValue('viewer')
+    await role.selectOption('member')
+    await expect(role).toHaveValue('member')
+    await grace.reload()
+    await expect(grace.getByRole('button', { name: 'Upload', exact: true })).toBeVisible()
+    await theirs.close()
   })
 })

@@ -3,8 +3,9 @@ import { FolderOpen, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { api, isPlanLimit } from '../api.ts'
+import { api, isPlanLimit, mayChange } from '../api.ts'
 import type { Project } from '../api.ts'
+import { useMe } from '../auth.ts'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, EmptyState, FIELD, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
@@ -12,6 +13,8 @@ import { formatDate } from '../format.ts'
 export function ProjectsPage() {
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects })
   const [creating, setCreating] = useState(false)
+  // A viewer reads the projects and asks about them; the page offers no change the server refuses.
+  const changes = mayChange(useMe().role)
 
   return (
     <div className="h-full overflow-y-auto">
@@ -23,7 +26,7 @@ export function ProjectsPage() {
               A project holds a set of documents that are indexed and queried together.
             </p>
           </div>
-          {!creating && (
+          {changes && !creating && (
             <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
               New project
             </Button>
@@ -36,14 +39,16 @@ export function ProjectsPage() {
         {projects.data?.length === 0 && !creating && (
           <div className="rounded-xl border border-dashed border-line">
             <EmptyState icon={<FolderOpen />} title="No projects yet">
-              Create one to start uploading documents and asking questions about them.
+              {changes
+                ? 'Create one to start uploading documents and asking questions about them.'
+                : 'Your role in this organisation is viewer: once a member makes a project, it shows here for you to read and ask about.'}
             </EmptyState>
           </div>
         )}
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {projects.data?.map((project) => (
-            <ProjectCard key={project.id} project={project} />
+            <ProjectCard key={project.id} project={project} deletable={changes} />
           ))}
         </div>
       </div>
@@ -123,7 +128,7 @@ function NewProjectForm({ onClose }: { onClose: () => void }) {
   )
 }
 
-function ProjectCard({ project }: { project: Project }) {
+function ProjectCard({ project, deletable }: { project: Project; deletable: boolean }) {
   const queryClient = useQueryClient()
   const remove = useMutation({
     mutationFn: () => api.deleteProject(project.id),
@@ -156,15 +161,17 @@ function ProjectCard({ project }: { project: Project }) {
           {formatDate(project.created_at)}
         </p>
       </Link>
-      <IconButton
-        label="Delete project"
-        danger
-        className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 focus:opacity-100"
-        onClick={confirmDelete}
-        disabled={remove.isPending}
-      >
-        <Trash2 className="size-4" />
-      </IconButton>
+      {deletable && (
+        <IconButton
+          label="Delete project"
+          danger
+          className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 focus:opacity-100"
+          onClick={confirmDelete}
+          disabled={remove.isPending}
+        >
+          <Trash2 className="size-4" />
+        </IconButton>
+      )}
     </div>
   )
 }

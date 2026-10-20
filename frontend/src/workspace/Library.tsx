@@ -20,10 +20,12 @@ import {
   ACCEPTED_EXTENSIONS,
   ACCEPTED_TYPES_LABEL,
   api,
+  mayChange,
   pageLabel,
   sectionPath,
 } from '../api.ts'
 import type { Document, Folder, SearchHit } from '../api.ts'
+import { useMe } from '../auth.ts'
 import { StatusIcon } from '../components/IndexingStatus.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
@@ -81,13 +83,18 @@ const treeKey = (projectId: number) => `emudoc.tree-open.${projectId}`
 const isIdList = (value: unknown): value is number[] =>
   Array.isArray(value) && value.every((id) => typeof id === 'number')
 
-/** The file manager: a folder's contents, with search over the whole project or the folder. */
+/**
+ * The file manager: a folder's contents, with search over the whole project or the folder. A
+ * viewer reads and searches it; uploading, folders, renaming, moving, deleting and indexing
+ * again are offered only to a role the server lets change them.
+ */
 export function Library() {
   const workspace = useWorkspace()
   const { tree, project } = workspace
   const { folderId, q: query } = workspace.url.library
   const folders = useFolders(project.id)
   const mutations = useLibraryMutations()
+  const changes = mayChange(useMe().role)
   const health = useStatus()
   const fileInput = useRef<HTMLInputElement>(null)
   const dragging = useRef<DragPayload | null>(null)
@@ -117,7 +124,7 @@ export function Library() {
     <div
       className="relative flex h-full min-h-0 flex-col bg-page"
       onDragOver={(event) => {
-        if (!hasFiles(event)) return
+        if (!changes || !hasFiles(event)) return
         event.preventDefault()
         event.dataTransfer.dropEffect = 'copy'
         setOverPane(true)
@@ -127,36 +134,40 @@ export function Library() {
       }}
       onDrop={(event) => {
         setOverPane(false)
-        if (!hasFiles(event)) return
+        if (!changes || !hasFiles(event)) return
         event.preventDefault()
         uploadFiles([...event.dataTransfer.files], folderId)
       }}
     >
       <div className="@container shrink-0 border-b border-line bg-surface">
         <div className="flex h-11 items-center px-3">
-          <Breadcrumb folderId={folderId} mutations={mutations} dragging={dragging} onUpload={uploadFiles} />
+          <Breadcrumb folderId={folderId} mutations={mutations} dragging={dragging} onUpload={changes ? uploadFiles : null} />
         </div>
         <div className="flex items-center gap-2 px-3 pb-2.5">
           <SearchBox query={query} scope={folderId == null ? null : currentName} />
-          <Button
-            icon={<FolderPlus className="size-4" />}
-            onClick={() => setCreating(true)}
-            disabled={!!query}
-            title="New folder"
-            aria-label="New folder"
-            className="px-2"
-          />
-          {/* A narrow pane keeps the icon only. */}
-          <Button
-            icon={mutations.upload.isPending ? <Spinner /> : <Upload className="size-4" />}
-            onClick={() => fileInput.current?.click()}
-            disabled={mutations.upload.isPending}
-            title={ACCEPTED_TYPES_LABEL}
-            aria-label={mutations.upload.isPending ? 'Uploading…' : 'Upload'}
-            className="px-2 @xs:px-3"
-          >
-            <span className="hidden @xs:inline">{mutations.upload.isPending ? 'Uploading…' : 'Upload'}</span>
-          </Button>
+          {changes && (
+            <>
+              <Button
+                icon={<FolderPlus className="size-4" />}
+                onClick={() => setCreating(true)}
+                disabled={!!query}
+                title="New folder"
+                aria-label="New folder"
+                className="px-2"
+              />
+              {/* A narrow pane keeps the icon only. */}
+              <Button
+                icon={mutations.upload.isPending ? <Spinner /> : <Upload className="size-4" />}
+                onClick={() => fileInput.current?.click()}
+                disabled={mutations.upload.isPending}
+                title={ACCEPTED_TYPES_LABEL}
+                aria-label={mutations.upload.isPending ? 'Uploading…' : 'Upload'}
+                className="px-2 @xs:px-3"
+              >
+                <span className="hidden @xs:inline">{mutations.upload.isPending ? 'Uploading…' : 'Upload'}</span>
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -188,7 +199,7 @@ export function Library() {
             </div>
           </Notice>
         )}
-        {health.data?.llm.available && waitingForModel > 0 && !query && (
+        {changes && health.data?.llm.available && waitingForModel > 0 && !query && (
           <Notice tone="info">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span>
@@ -216,6 +227,7 @@ export function Library() {
           creating={creating}
           onCreatingChange={setCreating}
           mutations={mutations}
+          changes={changes}
           dragging={dragging}
           onDragChange={(payload) => {
             dragging.current = payload
@@ -225,18 +237,20 @@ export function Library() {
         />
       )}
 
-      <input
-        ref={fileInput}
-        type="file"
-        multiple
-        hidden
-        accept={ACCEPTED_EXTENSIONS.join(',')}
-        onChange={(event) => {
-          const files = [...(event.target.files ?? [])]
-          if (files.length) uploadFiles(files, folderId)
-          event.target.value = ''
-        }}
-      />
+      {changes && (
+        <input
+          ref={fileInput}
+          type="file"
+          multiple
+          hidden
+          accept={ACCEPTED_EXTENSIONS.join(',')}
+          onChange={(event) => {
+            const files = [...(event.target.files ?? [])]
+            if (files.length) uploadFiles(files, folderId)
+            event.target.value = ''
+          }}
+        />
+      )}
 
       {workspace.draggingFiles && overPane && (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-page/80 p-4 backdrop-blur-xs">
@@ -257,7 +271,8 @@ interface BreadcrumbProps {
   folderId: number | null
   mutations: LibraryMutations
   dragging: DragRef
-  onUpload: (files: File[], targetId: number | null) => void
+  /** Null for a role that may not change the library: then the path takes no drops. */
+  onUpload: ((files: File[], targetId: number | null) => void) | null
 }
 
 /** The path to the current folder. Each part opens that folder and takes drops into it. */
@@ -282,7 +297,7 @@ function Breadcrumb({ folderId, mutations, dragging, onUpload }: BreadcrumbProps
               disabled={last}
               onClick={() => workspace.goToFolder(crumb.id)}
               onDragOver={(event) => {
-                if (last) return
+                if (last || !onUpload) return
                 if (hasItems(event) && !canDropItems(workspace.tree, crumb.id, dragging.current)) return
                 if (!hasItems(event) && !hasFiles(event)) return
                 event.preventDefault()
@@ -293,7 +308,7 @@ function Breadcrumb({ folderId, mutations, dragging, onUpload }: BreadcrumbProps
               onDragLeave={() => setOver('none')}
               onDrop={(event) => {
                 setOver('none')
-                if (last) return
+                if (last || !onUpload) return
                 event.preventDefault()
                 event.stopPropagation()
                 if (hasItems(event)) {
@@ -383,6 +398,8 @@ interface ListingProps {
   creating: boolean
   onCreatingChange: (creating: boolean) => void
   mutations: LibraryMutations
+  /** Whether the member's role may change the library; a viewer opens, downloads and selects only. */
+  changes: boolean
   dragging: DragRef
   onDragChange: (payload: DragPayload | null) => void
   onUploadFiles: (files: File[], targetId: number | null) => void
@@ -395,6 +412,7 @@ function Listing({
   creating,
   onCreatingChange,
   mutations,
+  changes,
   dragging,
   onDragChange,
   onUploadFiles,
@@ -519,24 +537,21 @@ function Listing({
     else mutations.renameDocument.mutate({ id: item.document.id, filename: name })
   }
 
+  /** What can be done to the items; nothing for several at once when the role may not delete them. */
   function itemsMenu(targets: Item[]): MenuItem[] {
     if (targets.length > 1) {
-      return [{ label: `Delete ${targets.length} items`, icon: Trash2, danger: true, onSelect: () => remove(targets) }]
+      return changes ? [{ label: `Delete ${targets.length} items`, icon: Trash2, danger: true, onSelect: () => remove(targets) }] : []
     }
     const [item] = targets
     const rename: MenuItem = { label: 'Rename', icon: Pencil, shortcut: 'F2', onSelect: () => setRenaming(itemKey(item)) }
     const del: MenuItem = { label: 'Delete', icon: Trash2, shortcut: 'Del', danger: true, onSelect: () => remove([item]) }
     if (item.kind === 'folder') {
-      return [
-        { label: 'Open', onSelect: () => open(item) },
-        rename,
-        'separator',
-        del,
-      ]
+      return [{ label: 'Open', onSelect: () => open(item) }, ...(changes ? [rename, 'separator' as const, del] : [])]
     }
+    const reading: MenuItem[] = [{ label: 'Open', onSelect: () => open(item) }, originalFileItem(item.document)]
+    if (!changes) return reading
     return [
-      { label: 'Open', onSelect: () => open(item) },
-      originalFileItem(item.document),
+      ...reading,
       rename,
       {
         // On a quarantined document this scans it again, for signatures that have changed.
@@ -551,9 +566,13 @@ function Listing({
   }
 
   const backgroundMenu: MenuItem[] = [
-    { label: 'New folder', icon: FolderPlus, onSelect: () => onCreatingChange(true) },
-    { label: 'Upload files', icon: Upload, onSelect: onPickFiles },
-    'separator',
+    ...(changes
+      ? ([
+          { label: 'New folder', icon: FolderPlus, onSelect: () => onCreatingChange(true) },
+          { label: 'Upload files', icon: Upload, onSelect: onPickFiles },
+          'separator',
+        ] satisfies MenuItem[])
+      : []),
     { label: 'Select all', shortcut: 'Ctrl+A', disabled: !items.length, onSelect: () => setSelected(new Set(keys)) },
     'separator',
     {
@@ -581,7 +600,8 @@ function Listing({
     const key = itemKey(item)
     if (!liveSelected.has(key)) select(key)
     const targets = liveSelected.has(key) && liveSelected.size > 1 ? selectedItems : [item]
-    menu.open(event, itemsMenu(targets))
+    const offered = itemsMenu(targets)
+    if (offered.length) menu.open(event, offered)
   }
 
   function onKeyDown(event: KeyboardEvent) {
@@ -633,12 +653,13 @@ function Listing({
         event.preventDefault()
         return goUp()
       case 'F2':
-        if (liveSelected.size === 1) {
+        if (changes && liveSelected.size === 1) {
           event.preventDefault()
           setRenaming([...liveSelected][0])
         }
         return
       case 'Delete':
+        if (!changes) return
         event.preventDefault()
         return remove(selectedItems)
       case 'Escape':
@@ -730,9 +751,15 @@ function Listing({
     >
       {empty && (
         <EmptyState icon={<FolderIcon />} title={folderId == null ? 'This library is empty' : 'This folder is empty'}>
-          Upload files or drop them here. Each one is parsed, outlined and indexed in the background.
-          <br />
-          {ACCEPTED_TYPES_LABEL}.
+          {changes ? (
+            <>
+              Upload files or drop them here. Each one is parsed, outlined and indexed in the background.
+              <br />
+              {ACCEPTED_TYPES_LABEL}.
+            </>
+          ) : (
+            'Nothing has been uploaded here yet. Your role is viewer, so the files a member uploads show here for you to read and ask about.'
+          )}
         </EmptyState>
       )}
       {creating && (
@@ -774,6 +801,7 @@ function Listing({
             selected={liveSelected.has(key)}
             isCursor={cursor === key}
             renaming={renaming === key}
+            movable={changes}
             dropping={dropTarget === key}
             onSelect={(event) => select(key, event)}
             onOpen={() => activate(item)}
@@ -791,13 +819,13 @@ function Listing({
               setDropTarget(null)
               cancelExpand()
             }}
-            onDragOver={item.kind === 'folder' ? (event) => onFolderDragOver(event, item.folder) : undefined}
+            onDragOver={changes && item.kind === 'folder' ? (event) => onFolderDragOver(event, item.folder) : undefined}
             onDragLeave={(event) => {
               if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
               if (dropTarget === key) setDropTarget(null)
               if (item.kind === 'folder' && expandTimer.current?.id === item.folder.id) cancelExpand()
             }}
-            onDrop={item.kind === 'folder' ? (event) => onFolderDrop(event, item.folder) : undefined}
+            onDrop={changes && item.kind === 'folder' ? (event) => onFolderDrop(event, item.folder) : undefined}
             folderCount={
               item.kind === 'folder' ? (tree.children.get(item.folder.id)?.length ?? 0) + item.folder.document_count : undefined
             }
@@ -879,6 +907,8 @@ interface RowProps {
   selected: boolean
   isCursor: boolean
   renaming: boolean
+  /** Whether the item may be dragged into another folder. */
+  movable: boolean
   dropping: boolean
   folderCount?: number
   onSelect: (event: MouseEvent) => void
@@ -902,14 +932,14 @@ function ItemIcon({ item, className }: { item: Item; className: string }) {
 }
 
 function Row(props: RowProps) {
-  const { item, depth, expanded, selected, isCursor, renaming, dropping, folderCount } = props
+  const { item, depth, expanded, selected, isCursor, renaming, movable, dropping, folderCount } = props
   const name = itemName(item)
 
   const handlers = {
     role: 'treeitem' as const,
     'aria-selected': selected,
     'data-key': itemKey(item),
-    draggable: !renaming,
+    draggable: movable && !renaming,
     onClick: (event: MouseEvent) => {
       event.stopPropagation()
       if (!renaming) props.onSelect(event)

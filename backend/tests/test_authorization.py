@@ -20,7 +20,7 @@ Route = tuple[str, str, dict]
 class World:
     """A project with a folder, an indexed document and a chat holding one answered question,
     and an invitation to the organisation, all made by the local owner in the local
-    organisation."""
+    organisation, and another member of it."""
 
     org_id: int
     project_id: int
@@ -30,10 +30,11 @@ class World:
     message_id: int
     passage_id: int
     invitation_id: int
+    member_id: int
 
 
 @pytest.fixture
-def world(client, services, sample_pdf, account) -> World:
+def world(client, services, sample_pdf, account, make_account) -> World:
     project = create_project(client)
     folder = make_folder(client, project["id"], "Contracts")
     document = upload(client, project["id"], sample_pdf)["documents"][0]
@@ -44,6 +45,7 @@ def world(client, services, sample_pdf, account) -> World:
     answer(asked["answer"]["id"], services)
     hits = client.get(f"/api/projects/{project['id']}/search", params={"q": "notice"}).json()
     invited = client.post("/api/organization/invitations", json={"email": "ivy@example.com"})
+    member = make_account("mo@example.com", account.organization, role="member")
     return World(
         account.organization.id,
         project["id"],
@@ -53,6 +55,7 @@ def world(client, services, sample_pdf, account) -> World:
         asked["answer"]["id"],
         hits["hits"][0]["passage_id"],
         invited.json()["id"],
+        member.user.id,
     )
 
 
@@ -142,8 +145,24 @@ def invitations(w: World) -> list[Route]:
     ]
 
 
+def members(w: World) -> list[Route]:
+    """Changing a member's role and removing them, which only the owners and admins may."""
+    return [
+        ("PATCH", f"/api/organization/members/{w.member_id}", {"json": {"role": "viewer"}}),
+        ("DELETE", f"/api/organization/members/{w.member_id}", {}),
+    ]
+
+
 def scoped(w: World) -> list[Route]:
-    return reads(w) + writes(w) + chat_routes(w) + starts(w) + switches(w) + invitations(w)
+    return (
+        reads(w)
+        + writes(w)
+        + chat_routes(w)
+        + starts(w)
+        + switches(w)
+        + invitations(w)
+        + members(w)
+    )
 
 
 def statuses(client, routes: list[Route]) -> dict[str, int]:
@@ -207,7 +226,7 @@ def test_a_viewer_can_read_but_not_change(client, world, account, make_account, 
     assert client.post("/api/projects", json={"name": "Mine"}).status_code == 403
     detail = client.delete(f"/api/documents/{world.document_id}").json()["detail"]
     assert detail.startswith("Your role in this organisation is viewer")
-    managed = statuses(client, invitations(world))
+    managed = statuses(client, invitations(world) + members(world))
     assert set(managed.values()) == {403}, managed
 
     # Asking questions is reading: a viewer may start a chat of their own.
@@ -221,8 +240,8 @@ def test_a_member_can_change_things(client, world, account, make_account, act_as
     renamed = client.patch(f"/api/projects/{world.project_id}", json={"name": "Ours"})
     assert renamed.status_code == 200
     assert client.delete(f"/api/folders/{world.folder_id}").status_code == 204
-    # The invitations are the owners' and admins' to manage.
-    managed = statuses(client, invitations(world))
+    # The invitations and the members' roles are the owners' and admins' to manage.
+    managed = statuses(client, invitations(world) + members(world))
     assert set(managed.values()) == {403}, managed
 
 

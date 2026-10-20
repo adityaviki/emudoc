@@ -1,12 +1,12 @@
-// The organisation the user works in: its name, plan and region, its members, handing it over
-// to another of them, the invitations its owners and admins send and the domains whose
-// addresses may join it, and leaving it; the user's other organisations to switch to and those
+// The organisation the user works in: its name, plan and region, its members, their roles and
+// removing them, handing it over to another of them, the invitations its owners and admins send
+// and the domains whose addresses may join it, and leaving it; the user's other organisations to switch to and those
 // open to them; and the page that starts a new one. A switch, a join, a new organisation and
 // leaving one start the app again in the organisation the session then works in
 // (`startAgainInOrganization` in auth.ts).
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, LogOut, Plus, UserPlus } from 'lucide-react'
+import { Check, LogOut, Plus, UserMinus, UserPlus } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
@@ -15,7 +15,7 @@ import type { Invitation, JoinRole, Me, Member, Role } from '../api.ts'
 import { setSignedIn, startAgainInOrganization, useMe } from '../auth.ts'
 import { PasswordField } from '../account/shared.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
-import { Button, Chip, InputField, Loading, Notice, Row, Section, SelectField } from '../components/ui.tsx'
+import { Button, Chip, FIELD, InputField, Loading, Notice, Row, Section, SelectField } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
 
 const MEMBERS_KEY = ['organization', 'members'] as const
@@ -103,50 +103,110 @@ function NameSection({ me }: { me: Me }) {
 
 function MembersSection({ me }: { me: Me }) {
   const members = useQuery({ queryKey: MEMBERS_KEY, queryFn: organizations.members })
-  // The member an owner is handing the organisation to, while the form asks for the password.
-  const [successor, setSuccessor] = useState<Member | null>(null)
+  const handOver = me.role === 'owner' ? ' Handing it over makes another member its owner, and you an admin.' : ''
 
   return (
     <Section
       title="Members"
-      description={
-        me.role === 'owner'
-          ? 'Everyone who works in the organisation. Handing it over makes another member its owner, and you an admin.'
-          : 'Everyone who works in the organisation.'
-      }
+      description={`Everyone who works in the organisation. Viewers read its projects and ask questions, members also change them, admins also manage the members, and owners the owners too.${handOver}`}
     >
       {members.isPending && <Loading />}
       {members.isError && <Notice tone="bad">{members.error.message}</Notice>}
       {members.data && (
         <ul className="divide-y divide-line">
           {members.data.map((member) => (
-            <li key={member.user_id} className="py-2.5 text-[13px]">
-              <div className="flex items-center gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="flex items-center gap-2">
-                    <span className="truncate font-medium">{member.name || member.email}</span>
-                    {member.user_id === me.id && <Chip tone="accent">You</Chip>}
-                  </p>
-                  <p className="truncate text-xs text-muted">
-                    {member.name && <>{member.email} · </>}
-                    Member since {formatDate(member.joined_at)}
-                  </p>
-                </div>
-                <Chip>{ROLE_LABELS[member.role]}</Chip>
-                {me.role === 'owner' && member.role !== 'owner' && successor?.user_id !== member.user_id && (
-                  <Button variant="ghost" onClick={() => setSuccessor(member)}>
-                    Hand over…
-                  </Button>
-                )}
-              </div>
-              {successor?.user_id === member.user_id && (
-                <HandOverForm me={me} successor={member} onClose={() => setSuccessor(null)} />
-              )}
-            </li>
+            <MemberRow key={member.user_id} me={me} member={member} />
           ))}
         </ul>
       )}
     </Section>
+  )
+}
+
+// What the server lets the user do to another member: an owner anything, an admin anything to
+// anyone but an owner (backend/app/api/organizations.py); their own role nobody changes here.
+function MemberRow({ me, member }: { me: Me; member: Member }) {
+  const queryClient = useQueryClient()
+  // Handing the organisation over asks for the password; removing asks to be sure.
+  const [open, setOpen] = useState<'hand over' | 'remove' | null>(null)
+  const refresh = () => queryClient.invalidateQueries({ queryKey: MEMBERS_KEY })
+  const changeRole = useMutation({
+    mutationFn: (role: Role) => organizations.changeRole(member.user_id, role),
+    // Shown at once, and in the list's order once it is fetched again.
+    onSuccess: (changed) =>
+      queryClient.setQueryData<Member[]>(MEMBERS_KEY, (list) => list?.map((m) => (m.user_id === changed.user_id ? changed : m))),
+    onSettled: refresh,
+  })
+  const remove = useMutation({ mutationFn: () => organizations.removeMember(member.user_id), onSuccess: refresh })
+  const yours = member.user_id === me.id
+  const manageable = !yours && isWithin('admin', me.role) && isWithin(member.role, me.role)
+  const name = member.name || member.email
+
+  return (
+    <li className="py-2.5 text-[13px]">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="flex items-center gap-2">
+            <span className="truncate font-medium">{name}</span>
+            {yours && <Chip tone="accent">You</Chip>}
+          </p>
+          <p className="truncate text-xs text-muted">
+            {member.name && <>{member.email} · </>}
+            Member since {formatDate(member.joined_at)}
+          </p>
+        </div>
+        {manageable ? (
+          <select
+            aria-label={`Role of ${name}`}
+            className={`${FIELD} w-auto! py-1 text-[13px]`}
+            value={changeRole.isPending ? changeRole.variables : member.role}
+            disabled={changeRole.isPending || remove.isPending}
+            onChange={(event) => changeRole.mutate(event.target.value as Role)}
+          >
+            {ROLES.filter((option) => isWithin(option, me.role)).map((option) => (
+              <option key={option} value={option}>
+                {ROLE_LABELS[option]}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <Chip>{ROLE_LABELS[member.role]}</Chip>
+        )}
+        {me.role === 'owner' && member.role !== 'owner' && open === null && (
+          <Button variant="ghost" onClick={() => setOpen('hand over')}>
+            Hand over…
+          </Button>
+        )}
+        {manageable && open === null && (
+          <Button variant="ghost" onClick={() => setOpen('remove')}>
+            Remove…
+          </Button>
+        )}
+      </div>
+      {changeRole.isError && (
+        <div className="mt-2">
+          <Notice tone="bad">{changeRole.error.message}</Notice>
+        </div>
+      )}
+      {open === 'hand over' && <HandOverForm me={me} successor={member} onClose={() => setOpen(null)} />}
+      {open === 'remove' && (
+        <div className="mt-3 max-w-md space-y-3">
+          <Notice tone="warn">
+            Remove {name} from {me.organization.name}? Their private chats in its projects go, the chats they shared stay.
+            Only an invitation lets them back in.
+          </Notice>
+          {remove.isError && <Notice tone="bad">{remove.error.message}</Notice>}
+          <div className="flex gap-2">
+            <Button variant="danger" icon={<UserMinus className="size-4" />} onClick={() => remove.mutate()} disabled={remove.isPending}>
+              Remove {name}
+            </Button>
+            <Button variant="ghost" onClick={() => setOpen(null)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+    </li>
   )
 }
 

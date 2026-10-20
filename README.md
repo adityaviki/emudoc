@@ -531,7 +531,16 @@ organisation's page (`/organization`) renames it (owners and admins; the slug th
 commands name it by stays), lists its members, hands it over to another member with the
 password (they become an owner and the one handing it over an admin), and leaves it: the
 member's private chats in its projects go, and the shared ones stay. Nobody leaves an
-organisation that would be left without an owner or with nobody, nor their last one. Each act
+organisation that would be left without an owner or with nobody, nor their last one.
+The roles: a viewer reads the projects and asks about them in chats of their own, a member also
+changes the projects (makes, uploads, organises, deletes), an admin also renames the organisation
+and manages who is in it, and an owner also manages its owners. The page offers each member only
+what their role allows, and the server refuses the rest. On the organisation's page the owners
+and admins change the other members' roles and remove members: an admin anyone's but an
+owner's, and to any role but owner; an owner anyone's, so an owner can make another without
+handing the organisation over. Nobody changes their own role there, so an organisation always
+keeps an owner. A member removed loses what leaving loses, and one removed from their last
+organisation gets an empty one of their own, as at sign-up. Each act
 is in the organisation's audit log; a sign-in is recorded where its session starts and what the
 account does after where the session works then, so one organisation does not see when, or
 from where, a member signs in to another. The routes are `backend/app/api/organizations.py`, the
@@ -862,9 +871,6 @@ CHANGELOG.md    what each day's commits changed for members and operators
 
 ## Not built yet
 
-- Changing a member's role, or removing a member: the roles (viewers read, members change, a
-  chat is private until shared) are enforced, but a member's is the one they joined with, or
-  one an owner handed over, until the role routes exist.
 - Deleting an organisation: one goes only with the account of its only member, who cannot
   leave it either.
 - Billing: plans exist and are enforced, but nothing sells them. The `plan` command moves an

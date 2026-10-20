@@ -366,8 +366,14 @@ export type Role = 'owner' | 'admin' | 'member' | 'viewer'
 export const ROLES: Role[] = ['owner', 'admin', 'member', 'viewer']
 export const ROLE_LABELS: Record<Role, string> = { owner: 'Owner', admin: 'Admin', member: 'Member', viewer: 'Viewer' }
 
-/** Whether `role` grants nothing `granted` does not: the roles someone may invite to (backend/app/api/invitations.py). */
+/**
+ * Whether `role` grants nothing `granted` does not: the roles someone may invite to, and whose
+ * members' roles they may change (backend/app/api/invitations.py, backend/app/api/organizations.py).
+ */
 export const isWithin = (role: Role, granted: Role) => ROLES.indexOf(role) >= ROLES.indexOf(granted)
+
+/** Whether the role may change what the organisation holds: every role but a viewer's (`get_editor` in backend/app/api/deps.py). */
+export const mayChange = (role: Role) => isWithin('member', role)
 
 /** A member of the organisation, as the other members see them. */
 export interface Member {
@@ -471,6 +477,7 @@ export type AuditAction =
   | 'joining_changed'
   | 'member_joined'
   | 'member_left'
+  | 'member_removed'
   | 'project_deleted'
   | 'folder_deleted'
   | 'document_uploaded'
@@ -533,6 +540,7 @@ export const isPlanLimit = (error: unknown): error is ApiError => error instance
 
 let onUnauthorized: (() => void) | null = null
 let onSwitched: (() => void) | null = null
+let onForbidden: (() => void) | null = null
 let shownOrganization: number | null = null
 
 /**
@@ -551,6 +559,17 @@ export function handleUnauthorized(handler: (() => void) | null) {
  */
 export function handleSwitched(handler: (() => void) | null) {
   onSwitched = handler
+}
+
+/**
+ * What happens when the server refused a request as not the account's to make (403): the
+ * account may have changed since the page asked who is signed in, a role lowered by an admin,
+ * terms to accept or a deletion asked for elsewhere, so the app registers a handler that asks
+ * again, and the page stops offering what the server refuses. Sign-in's own routes are left
+ * out, as for a 401.
+ */
+export function handleForbidden(handler: (() => void) | null) {
+  onForbidden = handler
 }
 
 /** The organisation the page shows, which every request names from now on; null for none. */
@@ -573,6 +592,7 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
   if (shownOrganization !== null) headers.set(ORGANIZATION_HEADER, String(shownOrganization))
   const response = await fetch(`/api${path}`, { ...init, headers })
   if (response.status === 401 && !path.startsWith('/auth/')) onUnauthorized?.()
+  if (response.status === 403 && !path.startsWith('/auth/')) onForbidden?.()
   if (response.status === 409 && response.headers.has(ORGANIZATION_HEADER)) onSwitched?.()
   return response
 }
@@ -698,8 +718,8 @@ export function oauthStartUrl(provider: string, next: string, timeZone: string, 
 
 /**
  * The user's organisations: starting, switching and joining one by the domain of the address,
- * which the session keeps for every tab, and the current one's name, members, owner,
- * invitations, who may join it and leaving it. Mirrors backend/app/api/organizations.py and
+ * which the session keeps for every tab, and the current one's name, members and their roles,
+ * owner, invitations, who may join it and leaving it. Mirrors backend/app/api/organizations.py and
  * backend/app/api/invitations.py; each change answers with the account as `auth.me` does.
  */
 export const organizations = {
@@ -708,6 +728,10 @@ export const organizations = {
   /** Owners and admins only. */
   rename: (name: string) => request<Me>('/organization', json('PATCH', { name })),
   members: () => request<Member[]>('/organization/members'),
+  /** Owners and admins only, for another member whose role is within their own, to a role within it. */
+  changeRole: (userId: number, role: Role) => request<Member>(`/organization/members/${userId}`, json('PATCH', { role })),
+  /** As `changeRole`; the member's private chats in its projects go, as when they leave. */
+  removeMember: (userId: number) => request<void>(`/organization/members/${userId}`, { method: 'DELETE' }),
   /** Owners only, confirmed by the password, or by the email address for an account without one. */
   handOver: (body: { user_id: number; password?: string; email?: string }) =>
     request<Me>('/organization/owner', json('POST', body)),

@@ -85,7 +85,7 @@ $region
   organisation is deleted.
 - **Chats**, for as long as the organisation's plan keeps a chat after its last question
   ($chat_retention), unless deleted sooner; the chats you did not share with a project go when
-  you leave the organisation.
+  you leave the organisation or an owner or admin removes you from it.
 - **Audit log entries**, for as long as the organisation's plan keeps them
   ($audit_retention).
 - **Sessions and links**, until $credential_days days after they expired or were ended.
