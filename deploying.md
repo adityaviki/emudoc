@@ -887,6 +887,21 @@ are the operator's decision; a deployment that wants them replaces the header at
 site block, or `proxy_hide_header Strict-Transport-Security;` with an `add_header` of its own
 in the nginx location.
 
+How long a browser keeps the page's own files is the app's word too. The scripts and the
+stylesheet under `/assets/` are named by a hash of what they hold, so a release that changes
+one names it anew, and they carry `Cache-Control: public, max-age=31536000, immutable`: kept a
+year, never asked about again. The page itself, `theme.js` and `favicon.svg` keep their names
+from release to release and carry `no-cache`: kept, but asked about at each visit, which an
+unchanged file answers with a 304 and no body. So a browser loads a release's page at its next
+visit, and its scripts only when the release changed them. The API's answers carry `no-store`
+and are kept by nobody. What the app does not do is compress: the proxy does that, for the
+page's files alone, as both examples do. The script is 605 kB as built and a third of it
+compressed, and CI holds it to a budget (`frontend/scripts/size.ts`). The API's answers are
+left as they are: they are small, an answer's event stream must reach the browser as each
+event is written, and an answer that holds a member's text beside words a visitor chose (a
+search) would let someone watching the connection learn about the text from the compressed
+length (BREACH).
+
 An answer arrives as a stream of server-sent events (`GET
 /api/chats/{id}/messages/{id}/events`), a response that stays open until the answer is
 finished and carries nothing while the model thinks. The proxy must pass it on as it comes
@@ -926,6 +941,10 @@ emudoc.example.com {
     request_body @others {
         max_size 1MB
     }
+    # The page's own files compressed, the script to a third of its size; the API's answers
+    # as the app sends them, an answer's events among them.
+    @page not path /api /api/*
+    encode @page gzip
     # Each request's id, which Caddy's access log names `uuid` and the app's lines
     # `request_id`; one the browser sent is replaced ("Logs" below).
     reverse_proxy 127.0.0.1:8000 {
@@ -971,6 +990,12 @@ server {
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     # Each request's id, in place of any the browser sent.
     proxy_set_header X-Request-ID $request_id;
+    # The page's own files compressed, text/html being always among the types; the API's
+    # answers, JSON and an answer's events, are not among them.
+    gzip on;
+    gzip_vary on;
+    gzip_comp_level 5;
+    gzip_types text/javascript text/css image/svg+xml;
 
     location / {
         proxy_pass http://emudoc;

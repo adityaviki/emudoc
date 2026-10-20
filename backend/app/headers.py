@@ -9,7 +9,9 @@ also what keeps an answer from loading an image from an address a document asked
 
 Nothing the API answers is kept by the browser (`Cache-Control: no-store`, the files and page
 images included, app/storage.py), and signing out has it drop what it holds of the app's
-origin (`Clear-Site-Data`, app/api/auth.py), since a computer may be shared.
+origin (`Clear-Site-Data`, app/api/auth.py), since a computer may be shared. The page's own
+files hold nothing of a member's and are kept: the built scripts and stylesheet for good, the
+page and the files beside it until the browser has asked whether they changed.
 """
 
 from starlette.datastructures import MutableHeaders
@@ -27,6 +29,15 @@ HSTS = "max-age=31536000"
 # would show it to the next person at that computer without asking the app, signed in or not.
 # A route that may be kept says so itself (`setdefault` leaves its header alone).
 API_NOT_KEPT = "no-store"
+
+# What a browser may keep of the built frontend. Vite names each file under assets/ by a hash
+# of what it holds, so a release that changes one gives it a new name, and the old one may be
+# kept for a year without being asked about again. index.html is what names them, and it,
+# theme.js and favicon.svg keep their names from release to release, so a browser that kept
+# them would load the last release's page: it may keep them, but asks first each time, and an
+# unchanged file is a 304 without its body.
+ASSETS_KEPT = "public, max-age=31536000, immutable"
+PAGE_KEPT = "no-cache"
 
 ALWAYS = {
     # A response is what its Content-Type says, never what its bytes look like.

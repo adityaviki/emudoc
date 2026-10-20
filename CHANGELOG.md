@@ -11,6 +11,8 @@ its day, in the same commit.
 
 Members:
 
+- Emudoc opens sooner on every visit after the first: the browser keeps the app's scripts
+  until a release changes them, and asks only whether the page itself changed.
 - In a large project, search finds more of the passages closest in meaning to what you typed:
   in one of 30,000 documents, 93 % of the ten closest where it found 83 %. It also stays as
   quick when many other projects share the deployment, where a large project's searches could
@@ -18,6 +20,15 @@ Members:
 
 Operators:
 
+- The page's scripts and stylesheet (`/assets/`, named by a hash of what they hold) are sent
+  with `Cache-Control: public, max-age=31536000, immutable`, and the page, `theme.js` and
+  `favicon.svg` with `no-cache`, an unchanged one answered with a 304; the API's answers stay
+  `no-store`. The app compresses nothing, so the proxy should: the AWS Caddyfile now gzips
+  what is outside `/api` (the 605 kB script goes out at 192 kB), and a proxy of your own needs
+  the same lines, `encode` for Caddy or `gzip` for nginx, as deploying.md's examples ("TLS at a
+  reverse proxy") give them, the API left as it is.
+- CI's Frontend job fails when the built scripts pass 200 kB gzipped (`pnpm size`,
+  `frontend/scripts/size.ts`, whose `BUDGET` says how to raise it); they are 184 kB today.
 - Every search plans itself for its project (`plan_cache_mode = force_custom_plan`, `SET
   LOCAL`): psycopg prepares a statement on its fifth run on a connection, and Postgres may then
   keep one plan for every project, which in a database of many projects sorts a large

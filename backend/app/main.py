@@ -1,16 +1,18 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx
 from anyio import CapacityLimiter
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from starlette.convertors import PathConvertor, register_url_convertor
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import audit, auth, chats, documents, folders, projects, query
 from app.api.deps import (
@@ -24,7 +26,13 @@ from app.api.deps import (
 from app.config import ROOT_DIR, get_settings
 from app.db import BUSY, TOO_SLOW, canceled, engine
 from app.errors import summary
-from app.headers import SecurityHeaders, content_security_policy, secure
+from app.headers import (
+    ASSETS_KEPT,
+    PAGE_KEPT,
+    SecurityHeaders,
+    content_security_policy,
+    secure,
+)
 from app.indexing.pipeline import Services
 from app.legal import TERMS_VERSION, privacy_policy, published, terms_of_service
 from app.logs import REQUEST_ID_HEADER, RequestIds, configure_logging, current_context
@@ -79,6 +87,26 @@ class PagePath(PathConvertor):
 
 
 register_url_convertor("page", PagePath())
+
+
+class BuiltFiles(StaticFiles):
+    """Files of the frontend's build, each sent with how long a browser may keep it (ASSETS_KEPT
+    and PAGE_KEPT in app/headers.py). A 304 carries it too; a 404 does not, since a name
+    missing now may be served later, as a rollback serves the last release's files again.
+
+    The directory is looked for when a file is asked for, not now: a build empties dist/
+    before it writes it, and a process started meanwhile should serve what the build writes
+    rather than refuse to start."""
+
+    def __init__(self, directory: Path, cache_control: str) -> None:
+        super().__init__(directory=directory, check_dir=False)
+        self.cache_control = cache_control
+
+    def file_response(self, *args, **kwargs) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = self.cache_control
+        return response
+
 
 system = APIRouter(tags=["system"])
 
@@ -371,22 +399,18 @@ def create_app(
 
     if FRONTEND_DIST.is_dir():
         # Serve the built frontend; unknown paths fall back to index.html for client routing.
-        # The assets' directory is looked for when they are asked for, not now: a build empties
-        # dist/ before it writes it, and a process started meanwhile should serve what the
-        # build writes rather than refuse to start.
-        app.mount(
-            "/assets",
-            StaticFiles(directory=FRONTEND_DIST / "assets", check_dir=False),
-            name="assets",
-        )
+        app.mount("/assets", BuiltFiles(FRONTEND_DIST / "assets", ASSETS_KEPT), name="assets")
+        page = BuiltFiles(FRONTEND_DIST, PAGE_KEPT)
 
         # HEAD too, which uptime services often probe the page with.
         @app.api_route("/{path:page}", methods=["GET", "HEAD"], include_in_schema=False)
-        def spa(path: str):
-            file = FRONTEND_DIST / path
-            if path and file.is_file() and FRONTEND_DIST in file.resolve().parents:
-                return FileResponse(file)
-            return FileResponse(FRONTEND_DIST / "index.html")
+        async def spa(path: str, request: Request):
+            try:
+                return await page.get_response(path, request.scope)
+            except StarletteHTTPException as missing:
+                if missing.status_code != 404:
+                    raise
+            return await page.get_response("index.html", request.scope)
 
     return app
 

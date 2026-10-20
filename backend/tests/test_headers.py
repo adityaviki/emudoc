@@ -99,6 +99,45 @@ def test_the_page_and_its_files_carry_the_headers(services, tmp_path, monkeypatc
             carries_the_headers(response)
 
 
+def test_the_browser_keeps_the_built_files_and_asks_again_for_the_page(
+    services, tmp_path, monkeypatch
+):
+    # A script or stylesheet of the build is named by its hash, so it is kept for a year
+    # without a question; the page names them and keeps its name, so a browser asks each time
+    # whether it changed and loads a release's page as soon as it is out.
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html><title>Emudoc</title>")
+    (dist / "theme.js").write_text("")
+    (dist / "assets" / "index-Bk8N2tgi.js").write_text("")
+    monkeypatch.setattr("app.main.FRONTEND_DIST", dist)
+    with TestClient(create_app(services=services), headers=APP_HEADERS) as client:
+        script = client.get("/assets/index-Bk8N2tgi.js")
+        assert script.headers["cache-control"] == "public, max-age=31536000, immutable"
+        for path in ("/", "/index.html", "/projects/1", "/theme.js", "/assets"):
+            response = client.get(path)
+            assert response.status_code == 200, path
+            assert response.headers["cache-control"] == "no-cache", path
+
+        # Asked again, an unchanged file is a 304 without its body, the page as much as the
+        # script, and a client-routed path as its page.
+        for path in ("/assets/index-Bk8N2tgi.js", "/projects/1"):
+            first = client.get(path)
+            again = client.get(path, headers={"If-None-Match": first.headers["etag"]})
+            assert again.status_code == 304 and again.content == b"", path
+            assert again.headers["cache-control"] == first.headers["cache-control"], path
+
+        # A script a page from before a release asks for is not there; nothing keeps the 404,
+        # since a rollback brings it back.
+        missing = client.get("/assets/index-0ld0ne.js")
+        assert missing.status_code == 404
+        assert "cache-control" not in missing.headers
+        # The page's files are the build's alone, whatever the path says.
+        (tmp_path / "secret.txt").write_text("not the page's")
+        for path in ("/../secret.txt", "/%2e%2e/secret.txt", "/assets/../../secret.txt"):
+            assert "not the page's" not in client.get(path).text, path
+
+
 def test_the_policy_allows_images_from_the_bucket(services, mailer):
     # Page images and thumbnails are <img> tags whose URL redirects to one signed for the
     # bucket, and the redirect's final origin must be allowed too.

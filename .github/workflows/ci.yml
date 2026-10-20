@@ -113,6 +113,10 @@ jobs:
       # tsc -b, then vite build.
       - name: Build
         run: pnpm build
+      # The built scripts, gzipped, against their budget (BUDGET in frontend/scripts/size.ts,
+      # which says how to raise it); Vite's own chunk size warning only warns.
+      - name: Bundle size
+        run: pnpm size
 
   # A member's way through the app in a browser (frontend/e2e): sign up, make a project, upload
   # a contract, see it indexed, find it by searching, ask about it and open the passage the

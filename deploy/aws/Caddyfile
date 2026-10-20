@@ -1,7 +1,7 @@
 # Caddy in front of the API on the AWS instance (deploy/aws/compose.yml), as deploying.md's
 # "TLS at a reverse proxy" gives it: the certificate from Let's Encrypt once the domain leads
-# here, the query cut from the access log, and the body limits. EMUDOC_DOMAIN is APP_URL's
-# host, which the release passes in.
+# here, the query cut from the access log, the body limits and the page's files compressed.
+# EMUDOC_DOMAIN is APP_URL's host, which the release passes in.
 
 {$EMUDOC_DOMAIN} {
 	# Caddy keeps no access log without this block; with it, the query is cut from each
@@ -24,6 +24,10 @@
 	request_body @others {
 		max_size 1MB
 	}
+	# The page's own files compressed, the script to a third of its size; the API's answers
+	# as the app sends them, an answer's events among them ("TLS at a reverse proxy").
+	@page not path /api /api/*
+	encode @page gzip
 	# Each request's id, which Caddy's access log names `uuid` and the app's lines
 	# `request_id`; one the browser sent is replaced ("Logs" in deploying.md).
 	reverse_proxy 127.0.0.1:8000 {
