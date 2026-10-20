@@ -24,6 +24,7 @@ from app.api import (
     invitations,
     mail,
     notifications,
+    onboarding,
     organizations,
     projects,
     query,
@@ -447,6 +448,7 @@ def create_app(
         usage.router,
         billing.router,
         notifications.router,
+        onboarding.router,
     ):
         app.include_router(router, prefix="/api", dependencies=[Depends(refuse_cross_site)])
     # Stripe's and Resend's events carry no header of the app's: their signature proves where

@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, CreditCard, LogOut, Plus, UserMinus, UserPlus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { PLAN_LABELS, REGION_NAMES, ROLES, ROLE_LABELS, isPlanLimit, isWithin, organizations } from '../api.ts'
 import type { Allowance, Invitation, JoinRole, Me, Member, PlanChoice, Role, SoldPlan } from '../api.ts'
 import { ME_KEY, setSignedIn, startAgainInOrganization, useMe } from '../auth.ts'
@@ -18,6 +18,7 @@ import { PasswordField } from '../account/shared.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, Chip, FIELD, InputField, Loading, Notice, Radio, Row, Section, SelectField } from '../components/ui.tsx'
 import { formatDate, formatSize } from '../format.ts'
+import { INVITATIONS_SECTION } from '../onboarding.ts'
 
 const MEMBERS_KEY = ['organization', 'members'] as const
 const INVITATIONS_KEY = ['organization', 'invitations'] as const
@@ -27,6 +28,14 @@ const capitalised = (text: string) => text[0].toUpperCase() + text.slice(1)
 
 export function OrganizationPage() {
   const me = useMe()
+  const { hash } = useLocation()
+  // A link to a section opens the page there, with its first field ready to type in.
+  useEffect(() => {
+    const section = hash ? document.getElementById(hash.slice(1)) : null
+    if (!section) return
+    section.scrollIntoView({ block: 'start' })
+    section.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true })
+  }, [hash])
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-2xl px-6 py-10">
@@ -585,6 +594,7 @@ function InvitationsSection({ me }: { me: Me }) {
 
   return (
     <Section
+      id={INVITATIONS_SECTION}
       title="Invitations"
       description="Invite someone by email: the link they are sent lets them join with the role you choose, and makes their account if they have none. An invitation takes a place among the members your plan allows until it is accepted, revoked or runs out after a week."
     >

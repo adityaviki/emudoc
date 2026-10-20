@@ -38,6 +38,7 @@ export function NotificationBell() {
         aria-expanded={anchor !== null}
         aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}
         title="Notifications"
+        data-tour="notifications"
         onClick={(event) => setAnchor(anchor ? null : event.currentTarget.getBoundingClientRect())}
         className="relative inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-sunken hover:text-ink"
       >

@@ -1,18 +1,20 @@
-import { Building2, FileText, Lock, LogOut, ShieldCheck, Users } from 'lucide-react'
+import { Building2, Compass, FileText, Lock, LogOut, ShieldCheck, Users } from 'lucide-react'
 import { useRef, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useMatch, useNavigate } from 'react-router'
 import { useMe, useSignOut } from '../auth.ts'
 import { Floating, Menu } from '../components/Menu.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
 import { useVersion } from '../hooks.ts'
+import { takeTour } from '../tour.ts'
 
 /** The signed-in user's initials in the header, opening the way to the account page, the
- * organisation's, the terms, the privacy policy and the subprocessor list, and out, above the
- * version that runs. */
+ * organisation's, the tour of a project's workspace while one is open, the terms, the privacy
+ * policy and the subprocessor list, and out, above the version that runs. */
 export function UserMenu() {
   const me = useMe()
   const signOut = useSignOut()
   const navigate = useNavigate()
+  const inProject = useMatch('/projects/:projectId/*') !== null
   const [anchor, setAnchor] = useState<DOMRect | null>(null)
   const button = useRef<HTMLButtonElement>(null)
   const close = () => setAnchor(null)
@@ -20,6 +22,8 @@ export function UserMenu() {
   const items: MenuItem[] = [
     { label: 'Account and security', icon: ShieldCheck, onSelect: () => navigate('/account') },
     { label: 'Organisation', icon: Users, onSelect: () => navigate('/organization') },
+    // The tour points at a workspace's parts, so it is offered where they are.
+    ...(inProject ? [{ label: 'Take the tour', icon: Compass, onSelect: takeTour } satisfies MenuItem] : []),
     { label: 'Terms of service', icon: FileText, onSelect: () => navigate('/terms') },
     { label: 'Privacy policy', icon: Lock, onSelect: () => navigate('/privacy') },
     { label: 'Subprocessors', icon: Building2, onSelect: () => navigate('/subprocessors') },
@@ -35,6 +39,7 @@ export function UserMenu() {
         aria-haspopup="menu"
         aria-expanded={anchor !== null}
         title={me.name || me.email}
+        data-tour="account"
         onClick={(event) => setAnchor(anchor ? null : event.currentTarget.getBoundingClientRect())}
         className="flex size-7 shrink-0 items-center justify-center rounded-full bg-accent-soft text-[11px] font-semibold text-accent transition hover:ring-2 hover:ring-accent/30"
       >

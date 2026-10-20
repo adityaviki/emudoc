@@ -51,6 +51,7 @@ export function OrganizationSwitcher() {
         aria-haspopup="menu"
         aria-expanded={anchor !== null}
         title="Your organisation"
+        data-tour="organization"
         onClick={(event) => setAnchor(anchor ? null : event.currentTarget.getBoundingClientRect())}
         className="hidden h-7 min-w-0 items-center gap-1 rounded-md px-2 text-[13px] text-muted transition hover:bg-sunken hover:text-ink sm:flex"
       >

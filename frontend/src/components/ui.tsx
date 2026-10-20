@@ -2,6 +2,8 @@ import { LoaderCircle } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useId } from 'react'
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react'
+import { Link } from 'react-router'
+import type { LinkProps } from 'react-router'
 
 const BUTTON_VARIANTS = {
   primary: 'bg-accent text-accent-ink shadow-xs hover:bg-accent-hover',
@@ -18,9 +20,11 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 const BUTTON_BASE =
   'inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium whitespace-nowrap transition disabled:cursor-not-allowed disabled:opacity-50'
 
+const buttonLook = (variant: keyof typeof BUTTON_VARIANTS) => `${BUTTON_BASE} ${BUTTON_VARIANTS[variant]}`
+
 export function Button({ variant = 'secondary', icon, children, className = '', ...props }: ButtonProps) {
   return (
-    <button type="button" className={`${BUTTON_BASE} ${BUTTON_VARIANTS[variant]} ${className}`} {...props}>
+    <button type="button" className={`${buttonLook(variant)} ${className}`} {...props}>
       {icon}
       {children}
     </button>
@@ -35,11 +39,20 @@ interface ButtonLinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
 /** A link that looks like a button, for what the browser opens or saves itself, such as a download. */
 export function ButtonLink({ variant = 'secondary', icon, children, className = '', ...props }: ButtonLinkProps) {
   return (
-    <a className={`${BUTTON_BASE} ${BUTTON_VARIANTS[variant]} ${className}`} {...props}>
+    <a className={`${buttonLook(variant)} ${className}`} {...props}>
       {icon}
       {children}
     </a>
   )
+}
+
+interface LinkButtonProps extends LinkProps {
+  variant?: keyof typeof BUTTON_VARIANTS
+}
+
+/** A link to another of the app's pages that looks like a button, for the way a step is taken there. */
+export function LinkButton({ variant = 'secondary', className = '', ...props }: LinkButtonProps) {
+  return <Link className={`${buttonLook(variant)} ${className}`} {...props} />
 }
 
 interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -241,10 +254,10 @@ export function Notice({ tone = 'warn', children }: { tone?: 'warn' | 'bad' | 'i
   return <div className={`rounded-md border px-3 py-2 text-[13px] leading-relaxed ${tones[tone]}`}>{children}</div>
 }
 
-/** A titled card of a settings page, such as the account page's. */
-export function Section({ title, description, children }: { title: string; description?: ReactNode; children: ReactNode }) {
+/** A titled card of a settings page, such as the account page's; an `id` lets a link open the page at it. */
+export function Section({ title, description, id, children }: { title: string; description?: ReactNode; id?: string; children: ReactNode }) {
   return (
-    <section className="rounded-xl border border-line bg-surface p-5 shadow-xs">
+    <section id={id} className="scroll-mt-6 rounded-xl border border-line bg-surface p-5 shadow-xs">
       <h2 className="font-semibold">{title}</h2>
       {description && <p className="mt-0.5 text-[13px] leading-relaxed text-muted">{description}</p>}
       <div className="mt-4">{children}</div>

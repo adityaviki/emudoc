@@ -466,6 +466,28 @@ class ProfileIn(BaseModel):
     notices: list[NoticeChoiceIn] | None = Field(None, max_length=20)
 
 
+class OnboardingIn(BaseModel):
+    """Whether the projects page hides its list of first steps, and whether the tour of a
+    project's workspace was seen (app/onboarding.py); a field left out stays as it is."""
+
+    checklist_hidden: bool | None = None
+    tour_seen: bool | None = None
+
+
+class OnboardingStepOut(BaseModel):
+    """One of the organisation's first steps, and whether it is taken."""
+
+    key: Literal["upload", "ask", "invite"]
+    done: bool
+
+
+class OnboardingOut(BaseModel):
+    """The first steps the member's role is offered (app/onboarding.py), in the order the
+    projects page lists them, each with whether the organisation has taken it."""
+
+    steps: list[OnboardingStepOut]
+
+
 class EmailChangeIn(BaseModel):
     """The address to move the account to, confirmed as a deletion is: by the password, or, for
     an account that has none and signs in through a provider, its current address typed out."""
@@ -744,6 +766,10 @@ class MeOut(BaseModel):
     terms_version: str | None
     terms_accepted_at: dt.datetime | None
     terms_due: bool
+    # Whether the user hid the projects page's list of first steps, and whether they ended the
+    # tour of a project's workspace, for every organisation (app/onboarding.py).
+    checklist_hidden: bool
+    tour_seen: bool
 
 
 class OrganizationIn(BaseModel):
@@ -1034,6 +1060,9 @@ class ExportedAccount(BaseModel):
     sign_in_providers: list[ExportedIdentity]
     # How each kind of notice is told (app/notices.py).
     notices: list[NoticeChoiceOut]
+    # When the list of first steps was hidden and the tour seen (app/onboarding.py).
+    checklist_hidden_at: dt.datetime | None
+    tour_seen_at: dt.datetime | None
     # When the mail provider said not to write to the address, and why (app/bounces.py).
     mail_spared: "ExportedSpared | None"
 

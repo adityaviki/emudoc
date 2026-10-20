@@ -11,6 +11,14 @@ its day, in the same commit.
 
 Members:
 
+- The projects page lists your organisation's first steps, uploading your own documents, asking
+  about them and inviting your team, each with a button that takes you where it is done, and
+  ticks each as the organisation takes it, whoever in it does; hide the list with its cross, in
+  every organisation of yours at once. The first project you open shows a short tour of the
+  workspace, card by card: the library, uploading, search, the chat, your organisations, the
+  notices and your account. Skip it, or press Escape; the user menu offers it again inside a
+  project. An empty library offers to upload files, an empty projects page to create a project,
+  and a search of a folder that finds nothing to search the whole project.
 - A new account's organisation starts with a sample project, "Sample: Acme supplier contract": a
   supplier's contract, three of its invoices, the price list, the delivery log, an email and the
   notes of a review meeting, indexed already, so the first question is answered with citations
@@ -29,6 +37,8 @@ Operators:
   are not those its index describes, and a storage that refuses the files leaves the account
   without the sample, logged. `python -m app.maintenance build-sample` indexes the files again
   with the configured models (deploying.md, "The sample project").
+- A migration keeps, per account, when its first steps were hidden and its tour seen, and takes
+  both as done for the accounts from before it, so that only new ones are shown them.
 
 ## 2026-10-20
 

@@ -4,17 +4,18 @@ import type { BrowserContext, Page } from '@playwright/test'
 import { linkMailedTo } from './mail.ts'
 import { movePlan } from './operator.ts'
 
-// The member's way through the app, end to end: sign up through the link the app mails, ask the
-// sample project the organisation starts with one of its questions, make a project, upload a
-// contract, wait for it to be indexed, find it by searching, ask about it,
-// open the passage the answer cites, start a second organisation and switch back, and invite a
-// colleague as a viewer, who makes an account from the invitation's link, finds the project and
-// is offered no change to it until made a member, then make the project private, which she no
-// longer finds until chosen for it, and share the chat, which the colleague then reads but does
-// not ask in, and last ask the question that uses the month's questions, which the bell tells,
-// and open that notice from the other organisation. The answer is the stand-in's
-// (e2e/standin.py): the first sentence of the passage its search found best, with that
-// passage's reference.
+// The member's way through the app, end to end: sign up through the link the app mails, find the
+// organisation's first steps listed, skip the tour the first project shows, ask the sample
+// project the organisation starts with one of its questions, make a project, upload a contract,
+// wait for it to be indexed, find it by searching, ask about it, open the passage the answer
+// cites, start a second organisation, hide its first steps and switch back, and invite a
+// colleague as a viewer, who makes an account from the invitation's link, ends her tour, finds
+// the project and is offered no change to it until made a member, then make the project
+// private, which she no longer finds until chosen for it, and share the chat, which the
+// colleague then reads but does not ask in, and last ask the question that uses the month's
+// questions, which the bell tells, and open that notice from the other organisation. The answer
+// is the stand-in's (e2e/standin.py): the first sentence of the passage its search found best,
+// with that passage's reference.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
 // The project every sign-up's organisation starts with (backend/app/sample).
 const SAMPLE = 'Sample: Acme supplier contract'
@@ -26,6 +27,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   let grace: Page
   // The first organisation's, for the operator's command.
   let slug = ''
+  // The projects page's list of the organisation's first steps.
+  const firstSteps = page.getByRole('region', { name: 'Get started' })
 
   await test.step('sign up', async () => {
     // A new address every run, so that a server kept from an earlier run takes it too.
@@ -42,11 +45,22 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByLabel(/I accept the terms of service/).check()
     await page.getByRole('button', { name: 'Create account' }).click()
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
+    await expect(firstSteps).toContainText('0 of 3 done')
   })
 
-  await test.step('ask the sample project one of its questions', async () => {
+  await test.step('skip the tour, and ask the sample project one of its questions', async () => {
     await page.getByText(SAMPLE).click()
     await expect(page).toHaveURL(/\/projects\/\d+$/)
+    // The first project opened shows the tour: the sample takes no uploads, so it has no card.
+    const tour = page.getByRole('dialog')
+    await expect(tour).toContainText('1 of 6')
+    await expect(tour).toContainText('The library')
+    await page.getByRole('button', { name: 'Next', exact: true }).click()
+    await expect(tour).toContainText('Search')
+    const seen = page.waitForResponse((response) => response.url().endsWith('/api/auth/onboarding'))
+    await page.getByRole('button', { name: 'Skip the tour' }).click()
+    expect((await seen).status()).toBe(200)
+    await expect(tour).toHaveCount(0)
     await expect(page.getByText(/^Emudoc’s sample documents, which count against nothing/)).toBeVisible()
     await expect(page.getByRole('button', { name: 'Upload', exact: true })).toHaveCount(0)
     // Indexed already: the job each document's copy queued makes its vectors alone.
@@ -59,6 +73,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByText('Thinking')).toHaveCount(0)
     await page.getByRole('link', { name: 'Emudoc' }).click()
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
+    await expect(firstSteps).toContainText('1 of 3 done')
   })
 
   await test.step('make a project', async () => {
@@ -77,6 +92,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
       await expect(status).toHaveAccessibleName(new RegExp(`${stage}: done`))
     }
     await expect(status).toHaveAccessibleName(/Malware scan: skipped/)
+    // Seen once, the tour does not come back.
+    await expect(page.getByRole('dialog')).toHaveCount(0)
   })
 
   await test.step('search the project', async () => {
@@ -116,7 +133,13 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('menuitem', { name: 'New organisation' }).click()
     await page.getByLabel('Name', { exact: true }).fill('Lovelace Legal')
     await page.getByRole('button', { name: 'Create organisation' }).click()
+    // A new organisation's first steps, which hidden leave the empty page its own way on.
+    await expect(firstSteps).toContainText('0 of 3 done')
+    await expect(page.getByText('No projects yet')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Hide the first steps' }).click()
+    await expect(firstSteps).toHaveCount(0)
     await expect(page.getByText('No projects yet')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Create a project' })).toBeVisible()
     const other = await page.context().newPage()
     await other.goto('/')
     await expect(other.getByRole('button', { name: 'Lovelace Legal' })).toBeVisible()
@@ -163,6 +186,12 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     // A viewer reads and asks: the pages offer no change the server would refuse.
     await expect(grace.getByRole('button', { name: 'New project' })).toHaveCount(0)
     await grace.getByText('Supplier contracts').click()
+    // Her first project's tour, which Escape ends; a viewer uploads nothing, so it has no card.
+    await expect(grace.getByRole('dialog')).toContainText('1 of 6')
+    const seen = grace.waitForResponse((response) => response.url().endsWith('/api/auth/onboarding'))
+    await grace.keyboard.press('Escape')
+    expect((await seen).status()).toBe(200)
+    await expect(grace.getByRole('dialog')).toHaveCount(0)
     await expect(grace.getByRole('img', { name: /^Ready/ })).toBeVisible()
     await expect(grace.getByRole('button', { name: 'Upload', exact: true })).toHaveCount(0)
 

@@ -3,10 +3,13 @@ import type { UseQueryResult } from '@tanstack/react-query'
 import { FileText, Library as LibraryIcon, MessageSquare } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { api } from '../api.ts'
+import { api, auth } from '../api.ts'
 import type { Document } from '../api.ts'
+import { setSignedIn, useMe } from '../auth.ts'
+import { Tour } from '../components/Tour.tsx'
 import { Loading, Notice, Segmented } from '../components/ui.tsx'
 import { useFolderTree, useFolders, useLocalStorage } from '../hooks.ts'
+import { offerTour, workspaceTour } from '../tour.ts'
 import { ChatPane } from '../workspace/ChatPane.tsx'
 import { DocumentTab } from '../workspace/DocumentTab.tsx'
 import { Library } from '../workspace/Library.tsx'
@@ -48,6 +51,7 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
   const [tabs, setTabs] = useLocalStorage(tabsStorageKey(projectId), EMPTY_TABS, isTabsStore)
   const [mobilePane, setMobilePane] = useState<Pane>('library')
   const draggingFiles = useFilesDragging()
+  const tour = useWorkspaceTour(project.data?.sample ?? false)
 
   const activeDocumentId = url.document?.id ?? null
   const activeFocus = url.document?.focus ?? null
@@ -124,8 +128,8 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
         if (activeDocumentId != null) go({ document: { id: activeDocumentId, focus: null } }, { replace: true })
       },
       goToFolder,
-      setSearch(q) {
-        go({ library: { folderId: url.library.folderId, q } }, { replace: true })
+      setSearch(q, folderId = url.library.folderId) {
+        go({ library: { folderId, q } }, { replace: true })
       },
       openChat(chatId, options) {
         if (chatId === 'new') setMobilePane('chat')
@@ -158,13 +162,24 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
   const panes: SplitPane[] = [
     { key: 'library', node: <Library />, share: hasDocument ? 25 : 55, min: 240 },
     ...(hasDocument ? [{ key: 'document', node: <DocumentPane documentId={activeDocumentId} />, share: 45, min: 360 }] : []),
-    { key: 'chat', node: <ChatPane />, share: hasDocument ? 30 : 45, min: 320 },
+    {
+      key: 'chat',
+      // What the tour points at, there while the chats load too.
+      node: (
+        <div data-tour="chat" className="h-full">
+          <ChatPane />
+        </div>
+      ),
+      share: hasDocument ? 30 : 45,
+      min: 320,
+    },
   ]
 
   return (
     <WorkspaceContext value={workspace}>
       <div className="flex h-full min-h-0 flex-col">
-        <div className="flex justify-center border-b border-line bg-surface px-3 py-1.5 lg:hidden">
+        {/* Where the chat is on a narrow screen, for the tour, which the hidden pane cannot show. */}
+        <div data-tour="chat" className="flex justify-center border-b border-line bg-surface px-3 py-1.5 lg:hidden">
           <Segmented
             value={shown}
             onChange={setMobilePane}
@@ -179,8 +194,35 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
           <SplitPanes storageKey={SPLIT_KEY} shown={shown} panes={panes} />
         </div>
       </div>
+      {tour.steps && <Tour steps={tour.steps} onEnd={tour.end} />}
     </WorkspaceContext>
   )
+}
+
+/**
+ * The tour of the workspace: shown by itself the first time the member opens a project, and
+ * again whenever the user menu's "Take the tour" asks. Its end, however reached, says it was
+ * seen, for every organisation; should saying so fail, it shows again in the next project.
+ */
+function useWorkspaceTour(sample: boolean) {
+  const me = useMe()
+  const queryClient = useQueryClient()
+  const [touring, setTouring] = useState(!me.tour_seen)
+  useEffect(() => {
+    return offerTour(() => setTouring(true))
+  }, [])
+  const seen = me.tour_seen
+  const end = useCallback(() => {
+    setTouring(false)
+    if (!seen) {
+      void auth.chooseOnboarding({ tour_seen: true }).then(
+        (answer) => setSignedIn(queryClient, answer),
+        () => {},
+      )
+    }
+  }, [seen, queryClient])
+  const steps = useMemo(() => (touring ? workspaceTour(sample) : null), [touring, sample])
+  return { steps, end }
 }
 
 /**

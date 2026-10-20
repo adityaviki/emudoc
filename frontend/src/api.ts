@@ -621,6 +621,23 @@ export interface Me {
   terms_accepted_at: string | null
   /** Whether the current edition waits to be accepted; until then the app offers only that, a copy of the data, and leaving. */
   terms_due: boolean
+  /** Whether the user hid the projects page's list of first steps, and ended the workspace's tour, for every organisation. */
+  checklist_hidden: boolean
+  tour_seen: boolean
+}
+
+/** The first steps the projects page lists (backend/app/onboarding.py), in its order. */
+export type OnboardingStepKey = 'upload' | 'ask' | 'invite'
+
+/** One of the organisation's first steps, and whether it took it. */
+export interface OnboardingStep {
+  key: OnboardingStepKey
+  done: boolean
+}
+
+/** The first steps the member's role is offered: none for a viewer. */
+export interface Onboarding {
+  steps: OnboardingStep[]
 }
 
 /** The /terms and /privacy pages (backend/app/legal/), filled in from the deployment's settings. */
@@ -906,6 +923,9 @@ export const auth = {
     time_zone?: string
     notices?: { kind: NoticeKind; app?: boolean; email?: boolean }[]
   }) => request<Me>('/auth/profile', json('PATCH', body)),
+  /** Hide the list of first steps or show it again, or say the tour was seen; a field left out stays as it is. */
+  chooseOnboarding: (body: { checklist_hidden?: boolean; tour_seen?: boolean }) =>
+    request<Me>('/auth/onboarding', json('PATCH', body)),
   /**
    * Stops the email of the kind of notice a notice's link was made for, to its user, signed in
    * or not: the token in the link says whose and which. Mirrors `unsubscribe` in
@@ -1016,6 +1036,8 @@ export const organizations = {
   portalDone: () => request<Me>('/organization/billing/portal/done', { method: 'POST' }),
   /** Every member: what the organisation holds and used of its plan, with the history. */
   usage: () => request<UsagePage>('/organization/usage'),
+  /** The organisation's first steps that the member's role is offered, and which it took. */
+  onboarding: () => request<Onboarding>('/organization/onboarding'),
 }
 
 /**

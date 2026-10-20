@@ -23,6 +23,8 @@
   --color-warn: #9a5b06;
   --color-bad: #b42318;
   --color-mark: #fde68a;
+  /* What dims the page around what the tour points at (components/Tour.tsx). */
+  --color-scrim: rgb(25 25 28 / 0.45);
 
   /* File-type icon colours (frontend/src/workspace/files.ts). */
   --color-file-pdf: #c2410c;
@@ -51,6 +53,7 @@
   --color-warn: #e0a64a;
   --color-bad: #f08a80;
   --color-mark: #6a5a16;
+  --color-scrim: rgb(0 0 0 / 0.6);
   --color-file-pdf: #f1946a;
   --color-file-word: #8db4f5;
   --color-file-sheet: #6cc391;

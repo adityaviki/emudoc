@@ -46,7 +46,8 @@ export interface Workspace {
   clearFocus(): void
   /** Shows a folder in the library; the open document stays where it is. */
   goToFolder(folderId: number | null, options?: { replace?: boolean }): void
-  setSearch(q: string): void
+  /** Searches the folder shown, or the folder given (null for the whole project). */
+  setSearch(q: string, folderId?: number | null): void
   openChat(chatId: number | 'new' | null, options?: { replace?: boolean }): void
   /** Which pane shows on a narrow screen, where only one fits. */
   mobilePane: Pane

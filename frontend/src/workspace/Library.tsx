@@ -131,6 +131,7 @@ export function Library() {
 
   return (
     <div
+      data-tour="library"
       className="relative flex h-full min-h-0 flex-col bg-page"
       onDragOver={(event) => {
         if (!uploads || !hasFiles(event)) return
@@ -167,6 +168,7 @@ export function Library() {
               {/* A narrow pane keeps the icon only. */}
               {uploads && (
                 <Button
+                  data-tour="upload"
                   icon={mutations.upload.isPending ? <Spinner /> : <Upload className="size-4" />}
                   onClick={() => fileInput.current?.click()}
                   disabled={mutations.upload.isPending}
@@ -388,7 +390,7 @@ function SearchBox({ query, scope }: { query: string; scope: string | null }) {
   }, [draft, query, workspace])
 
   return (
-    <div className="relative min-w-0 flex-1">
+    <div data-tour="search" className="relative min-w-0 flex-1">
       <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted" />
       <input
         value={draft}
@@ -777,6 +779,11 @@ function Listing({
               Upload files or drop them here. Each one is parsed, outlined and indexed in the background.
               <br />
               {ACCEPTED_TYPES_LABEL}.
+              <div className="mt-4">
+                <Button variant="primary" icon={<Upload className="size-4" />} onClick={onPickFiles}>
+                  Upload files
+                </Button>
+              </div>
             </>
           ) : (
             'Nothing has been uploaded here yet. Your role is viewer, so the files a member uploads show here for you to read and ask about.'
@@ -1168,6 +1175,14 @@ function SearchResults({ query, folderId, scope }: SearchResultsProps) {
       {results.data?.hits.length === 0 && (
         <EmptyState title={`Nothing found for "${query}"${scope ? ` in ${scope}` : ''}`}>
           Results combine exact word matches with matches on meaning.
+          {/* A folder's search may miss what the rest of the project holds. */}
+          {scope && (
+            <div className="mt-4">
+              <Button icon={<Search className="size-4" />} onClick={() => workspace.setSearch(query, null)}>
+                Search all of {workspace.project.name}
+              </Button>
+            </div>
+          )}
         </EmptyState>
       )}
       {results.data?.hits.map((hit) => (
