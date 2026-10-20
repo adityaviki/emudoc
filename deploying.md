@@ -1332,8 +1332,13 @@ With `STRIPE_SECRET_KEY` set the app sells its Pro and Team plans through Stripe
 moves organisations, as before. An owner buys a plan on the organisation page, which sends them
 to Stripe's Checkout page and back, and behind "Manage billing" changes the plan or the seats,
 the payment method, the billing address and VAT id, cancels and finds the invoices, on
-Stripe's customer portal. Nothing of Stripe's loads on the app's pages, so the content security
-policy is as it was. While it is set, Stripe is on the subprocessor list, the terms of service
+Stripe's customer portal. With `STRIPE_PACKS`, an owner also buys packs of pages or questions on
+Checkout, paid once with an invoice, which add to the organisation's allowance for the calendar
+month (UTC) they are paid in and end with it (`allowance_packs`, counted once whichever of the
+page and the webhook says it was paid; a bank debit counts when its payment arrives, Stripe's
+`checkout.session.async_payment_succeeded`). Packs are offered for the limits the plan has,
+never to an organisation whose terms are agreed. Nothing of Stripe's loads on the app's pages,
+so the content security policy is as it was. While it is set, Stripe is on the subprocessor list, the terms of service
 gain the paid plans' paragraph (the trial, renewal, cancellation, refunds and a failed payment,
 with the days the settings give) and the privacy policy the billing records.
 
@@ -1355,8 +1360,9 @@ still renews cannot be deleted until it is cancelled.
 
 The owners are mailed at each failed payment, with the day the plan stops waiting and the
 invoice's own page to pay it on; three days before a trial ends; and when the organisation moved
-to Free for want of a payment. Each step is in the audit log: `checkout_started` by the owner,
-and by the app `subscription_changed` (the status before and after), `payment_failed` and
+to Free for want of a payment. Each step is in the audit log: `checkout_started` by the owner
+(the plan and seats, or the pack), and by the app `pack_bought`, `subscription_changed` (the
+status before and after), `payment_failed` and
 `plan_changed` and `seats_changed` with `because` (`subscription`, `subscription_ended`,
 `grace_ended`).
 
@@ -1369,11 +1375,13 @@ In Stripe's dashboard, in a sandbox or test mode first (staging), then live:
    them as `pro=price_…,team=price_…`: the first of each plan is what Checkout sells, and the
    others are prices the portal may switch a subscription to, read back as their plan. A
    subscription at a price not listed keeps the organisation's plan as it is, and the log says
-   so.
+   so. A pack is a product of its own with a one-time price, listed in `STRIPE_PACKS` with what
+   it adds, `pages:1000=price_…`; a price is never in both settings.
 2. A webhook endpoint at `{APP_URL}/api/billing/events`, made with the API version the app
    names in every request (`API_VERSION` in `backend/app/payments.py`, `2026-09-30.endive`),
-   sending `checkout.session.completed`, `customer.subscription.created`, `.updated`,
-   `.deleted`, `.paused`, `.resumed` and `.trial_will_end`, and `invoice.payment_failed`. Its
+   sending `checkout.session.completed` and `.async_payment_succeeded`,
+   `customer.subscription.created`, `.updated`, `.deleted`, `.paused`, `.resumed` and
+   `.trial_will_end`, and `invoice.payment_failed`. Its
    signing secret is `STRIPE_WEBHOOK_SECRET`. The route takes no cross-site header and counts no
    rate: Stripe's signature over the body proves it, and a request without it is 400.
 3. The customer portal: let customers update the payment method, the billing address and tax
@@ -3687,6 +3695,7 @@ and the like), named on its models' pages.
 | `STRIPE_SECRET_KEY` | none: nothing is sold | a secret, `sk_…` or `rk_…` | The Stripe account's key ("Billing") |
 | `STRIPE_WEBHOOK_SECRET` | none | needed for billing, a secret, `whsec_…` | The webhook endpoint's signing secret |
 | `STRIPE_PRICES` | none | needed for billing | The prices sold, `plan=price` for pro and team |
+| `STRIPE_PACKS` | none | | The packs sold, `pages:1000=price`, for the month they are paid in |
 | `STRIPE_TRIAL_DAYS` | `14` | | The trial of an organisation's first subscription; 0 is none |
 | `STRIPE_TAX` | `false` | | Whether Checkout works out the tax (Stripe Tax) |
 | `BILLING_GRACE_DAYS` | `14` | | How long a failed payment keeps the plan before the organisation is on Free |

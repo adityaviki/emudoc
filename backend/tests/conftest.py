@@ -110,7 +110,7 @@ os.environ["PWNED_PASSWORDS_URL"] = ""
 # Nothing is sold, whatever `.env` says; tests/test_billing.py turns billing on against
 # `FakeStripe`.
 os.environ["STRIPE_SECRET_KEY"] = os.environ["STRIPE_WEBHOOK_SECRET"] = ""
-os.environ["STRIPE_PRICES"] = ""
+os.environ["STRIPE_PRICES"] = os.environ["STRIPE_PACKS"] = ""
 # The authenticators' secrets are encrypted with development's key, whatever `.env` names;
 # tests/test_encrypted.py sets keys of its own.
 os.environ["ENCRYPTION_KEYS"] = ""
@@ -701,7 +701,13 @@ class FakeStripe:
                 "customer": form.get("customer"),
                 "client_reference_id": form.get("client_reference_id"),
                 "status": "open",
+                "payment_status": "unpaid",
                 "subscription": None,
+                "metadata": {
+                    key[len("metadata[") : -1]: value
+                    for key, value in form.items()
+                    if key.startswith("metadata[")
+                },
                 "form": form,
             }
             found["url"] = f"https://checkout.stripe.test/{found['id']}"
@@ -766,8 +772,15 @@ class FakeStripe:
             status,
             **subscription,
         )
-        checkout.update(status="complete", subscription=bought["id"])
+        checkout.update(status="complete", payment_status="paid", subscription=bought["id"])
         return bought
+
+    def pay(self, checkout_id: str, payment_status: str = "paid") -> dict:
+        """The Checkout session of a payment made: at once, or `unpaid` while a bank debit is
+        on its way."""
+        checkout = self.checkouts[checkout_id]
+        checkout.update(status="complete", payment_status=payment_status)
+        return checkout
 
     def made(self, path: str) -> list[dict[str, str]]:
         """The forms of the requests that posted to `path`."""

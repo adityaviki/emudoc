@@ -18,7 +18,9 @@ Members:
   the VAT id. The page says how the subscription stands: its trial, when it renews or ends, and
   a payment that failed, with the day until which the plan stays. The owners are written to when
   a payment fails, before a trial ends and when the organisation moved to the Free plan for want
-  of a payment; it keeps everything it holds there, and has its plan again once it pays. The
+  of a payment; it keeps everything it holds there, and has its plan again once it pays. Where
+  packs are sold, an owner also buys pages or questions for the month on top of the plan's,
+  paid once with an invoice, and the Plan section shows what was bought for the month. The
   terms say what a paid plan is, and the privacy policy what billing keeps, where plans are
   sold. An account cannot be set to be deleted while an organisation that would go with it pays
   for a subscription that still renews: it is cancelled first.
@@ -115,7 +117,8 @@ Operators:
 
 - Billing through Stripe (deploying.md, "Billing"): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
   (a webhook endpoint at `{APP_URL}/api/billing/events`, API version `2026-09-30.endive`) and
-  `STRIPE_PRICES` (`pro=price_…,team=price_…`) turn it on, `STRIPE_TRIAL_DAYS` (14),
+  `STRIPE_PRICES` (`pro=price_…,team=price_…`) turn it on, `STRIPE_PACKS`
+  (`pages:1000=price_…`, one-time prices, for the month they are paid in), `STRIPE_TRIAL_DAYS` (14),
   `STRIPE_TAX` and `BILLING_GRACE_DAYS` (14) shape it, and `RATE_BILLING` (10 a minute) holds
   each member's requests; production refuses one of the first three without the others, a
   publishable key or a secret that is not a signing secret. Stripe then joins the subprocessor
@@ -126,7 +129,9 @@ Operators:
   past the grace period and forgets Stripe's events after a month. The release's migration adds
   the organisations' Stripe customer and subscription with its status and dates, the
   `billing_events` table, and gives the audit log `checkout_started`, `subscription_changed`
-  and `payment_failed`.
+  and `payment_failed`; a second adds `allowance_packs` and `pack_bought`, and the webhook
+  takes `checkout.session.async_payment_succeeded` too. The `plan` command names the month's
+  packs.
 - `maintenance plan <slug>` sells the Team plan by the seat and agrees figures with an
   organisation in place of its plan's: `--seats N` (`none` for the plan's own, three on Team),
   `--set NAME=VALUE` as the report prints it (`projects=500`, `storage_bytes=1 TB`,

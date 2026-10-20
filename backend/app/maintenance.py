@@ -78,15 +78,18 @@ from app.billing import (
     managed,
     prune_billing_events,
 )
-from app.config import export_env_file, get_settings
+from app.config import PACK_UNITS, export_env_file, get_settings
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine, unbounded
 from app.deadletters import NamedJob, describe, failed_jobs, named_jobs, requeue
 from app.encrypted import describe_encrypted, encrypt_secrets, keys
 from app.entitlements import (
     FIELDS,
+    MONTHS,
     PLANS,
     agreed_with,
+    bought_this_month,
     entitlements_of,
+    month_of,
     over_limits,
     size_label,
 )
@@ -702,6 +705,16 @@ def plan_report(
         lines.append(
             f"It holds more than it allows, {', '.join(beyond)}: it keeps it all, and nothing "
             "more is added until it has room."
+        )
+    start = month_of()[0]
+    if bought := [
+        f"{count:,} {unit}"
+        for unit in PACK_UNITS
+        if (count := bought_this_month(session, organization.id, unit, start))
+    ]:
+        lines.append(
+            f"It bought {' and '.join(bought)} in packs for {MONTHS[start.month - 1]}, on top "
+            "of the month's allowance."
         )
     if organization.subscription_status in BILLED:
         # Stripe's next event about it would undo a move made here, unless its terms are agreed.

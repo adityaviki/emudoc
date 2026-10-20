@@ -447,6 +447,20 @@ class AllowanceOut(BaseModel):
     # Which of them, and of `chat_retention_days` (`retention_days`), were agreed with the
     # organisation in place of its plan's.
     agreed: list[str]
+    # The pages and questions bought in packs for this month, on top of the plan's.
+    pages_bought: int = 0
+    questions_bought: int = 0
+
+
+class PackOut(BaseModel):
+    """A pack of pages or questions for the month, as STRIPE_PACKS sells it."""
+
+    unit: Literal["pages", "questions"]
+    quantity: int
+
+
+class PackIn(PackOut):
+    """The pack an owner buys for the organisation's month."""
 
 
 class BillingOut(BaseModel):
@@ -469,6 +483,8 @@ class BillingOut(BaseModel):
     customer: bool
     # The days of trial a subscription bought now starts with, None for none.
     trial_days: int | None
+    # The packs it may buy for this month: pages or questions, and how many.
+    packs: list[PackOut] = []
 
 
 class CheckoutIn(BaseModel):

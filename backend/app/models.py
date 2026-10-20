@@ -22,7 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, REGCONFIG, TSVECTOR
 from sqlalchemy.orm import Mapped, column_property, mapped_column, relationship
 
-from app.config import REGIONS, get_settings
+from app.config import PACK_UNITS, REGIONS, get_settings
 from app.db import Base
 
 _settings = get_settings()
@@ -101,6 +101,7 @@ AUDIT_ACTIONS = (
     "checkout_started",
     "subscription_changed",
     "payment_failed",
+    "pack_bought",
     "organization_created",
     "organization_renamed",
     "ownership_transferred",
@@ -955,6 +956,32 @@ class RateLimit(Base):
     key: Mapped[str] = mapped_column(String(300), primary_key=True)
     window_start: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
     count: Mapped[int] = mapped_column(Integer)
+
+
+class AllowancePack(Base):
+    """Pages or questions an organisation bought for one calendar month on top of its plan's
+    (app/billing.py; STRIPE_PACKS), by the Checkout session that paid for them, which is
+    recorded once however often Stripe or the page says it was paid. The checks of the month
+    add them (app/entitlements.py); a month's packs end with it, used or not."""
+
+    __tablename__ = "allowance_packs"
+    __table_args__ = (
+        _one_of("unit", PACK_UNITS, "allowance_packs"),
+        CheckConstraint("quantity > 0", name="ck_allowance_packs_quantity"),
+        # A check sums an organisation's packs of one month.
+        Index("ix_allowance_packs_org_id_month", "org_id", "month"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"))
+    unit: Mapped[str] = mapped_column(String(20))
+    quantity: Mapped[int] = mapped_column(Integer)
+    # The start of the month, in UTC, it counts in: the month it was paid in.
+    month: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    checkout_id: Mapped[str] = mapped_column(String(255), unique=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class BillingEvent(Base):

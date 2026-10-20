@@ -292,6 +292,13 @@ def _paid_plans(settings: Settings) -> str:
         if grace
         else "moves to the Free plan at once, and its owners are told"
     )
+    packs = (
+        " An owner may also buy a pack of pages or questions, paid once, which adds to the "
+        "organisation's allowance for the calendar month (in UTC) it is paid in and ends with "
+        "it, used or not; it is not refunded either."
+        if settings.stripe_packs
+        else ""
+    )
     return (
         "\nA paid plan is a subscription that an owner of the organisation buys for it, paid in "
         "advance for each period, a month or a year as chosen, through our payment provider on "
@@ -303,7 +310,7 @@ def _paid_plans(settings: Settings) -> str:
         "organisation moves to the Free plan, keeping everything it holds but adding nothing "
         "past the Free plan's limits. A period begun is not refunded, unless the law requires "
         f"it. If a payment fails, the organisation {failed} in the same way, until the payment "
-        "is made.\n"
+        f"is made.{packs}\n"
     )
 
 
@@ -314,7 +321,8 @@ def _billing_records(settings: Settings) -> str:
     return (
         "- **Billing**: for an organisation that buys a plan, its customer and subscription at "
         "our payment provider and what we last heard of them: whether the subscription is in "
-        "its trial, paid or waiting for a payment, and until when. The provider keeps the "
+        "its trial, paid or waiting for a payment, and until when; and the packs of pages or "
+        "questions it bought, for which month. The provider keeps the "
         "payment details, the billing address and VAT id, and the invoices, with the email "
         "address of the owner who bought it; we never see a card's number. We need them to "
         "bill the organisation under its contract with us."

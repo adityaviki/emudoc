@@ -426,6 +426,8 @@ def test_figures_agreed_with_an_organisation_take_the_place_of_its_plans(session
         "questions_per_month": None,
         "members": None,
         "agreed": ["projects", "storage_bytes"],
+        "pages_bought": 0,
+        "questions_bought": 0,
     }
 
     # On another plan an agreed figure takes the place of that plan's, and the rest are its.

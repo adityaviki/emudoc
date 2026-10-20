@@ -173,6 +173,7 @@ def deployment(tmp_path, monkeypatch) -> dict[str, object]:
         "STRIPE_SECRET_KEY",
         "STRIPE_WEBHOOK_SECRET",
         "STRIPE_PRICES",
+        "STRIPE_PACKS",
     ):
         monkeypatch.delenv(name, raising=False)
     return {
@@ -345,6 +346,27 @@ def test_the_prices_sold_are_read_by_plan_and_a_malformed_entry_is_refused():
             Settings(_env_file=None, stripe_prices=entry)
     with pytest.raises(ValidationError, match="price_a is listed twice"):
         Settings(_env_file=None, stripe_prices="pro=price_a,team=price_a")
+
+
+def test_the_packs_sold_are_read_in_order_and_a_price_sells_one_thing():
+    settings = Settings(
+        _env_file=None,
+        stripe_secret_key="sk_test_x",
+        stripe_prices="pro=price_pro",
+        stripe_packs="pages:1000=price_a, questions:500=price_b,pages:5000=price_c",
+    )
+    assert [tuple(pack) for pack in settings.packs] == [
+        ("pages", 1000, "price_a"),
+        ("questions", 500, "price_b"),
+        ("pages", 5000, "price_c"),
+    ]
+    for entry in ("seats:5=price_x", "pages=price_x", "pages:0=price_x", "pages:ten=price_x"):
+        with pytest.raises(ValidationError, match="STRIPE_PACKS lists the packs sold"):
+            Settings(_env_file=None, stripe_packs=entry)
+    with pytest.raises(ValidationError, match="pages:10 is listed twice"):
+        Settings(_env_file=None, stripe_packs="pages:10=price_a,pages:10=price_b")
+    with pytest.raises(ValidationError, match="STRIPE_PRICES and STRIPE_PACKS both list price_a"):
+        Settings(_env_file=None, stripe_prices="pro=price_a", stripe_packs="pages:10=price_a")
 
 
 def test_production_bills_only_with_the_key_the_webhook_and_something_to_sell(deployment):

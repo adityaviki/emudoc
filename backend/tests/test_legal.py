@@ -248,7 +248,11 @@ def test_the_documents_describe_paid_plans_where_they_are_sold():
     assert "\nA paid plan is a subscription that an owner of the organisation buys" in terms
     assert "starts with a free trial of 14 days" in terms
     assert "keeps its plan for 10 days while the payment is tried again" in terms
-    assert "$" not in terms
+    assert "$" not in terms and "pack" not in terms
+    with_packs = terms_of_service(
+        configured(stripe_secret_key="sk_test_x", stripe_packs="pages:1000=price_p")
+    )
+    assert "a pack of pages or questions, paid once, which adds to the" in with_packs
     plain = terms_of_service(
         configured(stripe_secret_key="sk_test_x", stripe_trial_days=0, billing_grace_days=0)
     )

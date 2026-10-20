@@ -114,9 +114,11 @@ function PlanSection({ me }: { me: Me }) {
         <Chip>Agreed</Chip>
       </span>
     )
-  const sells = billing.sold.length > 0 && billing.managed
+  const sells = (billing.sold.length > 0 || billing.packs.length > 0) && billing.managed
   const standing = describeBilling(billing, formatDate)
   const tones = { good: 'text-good', warn: 'text-warn', bad: 'text-bad' }
+  const extra = (count: number) =>
+    count > 0 && <span className="text-muted">and {count.toLocaleString()} more bought for {thisMonth()}</span>
 
   return (
     <Section
@@ -144,10 +146,12 @@ function PlanSection({ me }: { me: Me }) {
         </Row>
         <Row label="Pages indexed">
           {figure(allowance.pages_per_month, monthly)}
+          {extra(allowance.pages_bought)}
           {agreed('pages_per_month')}
         </Row>
         <Row label="Questions">
           {figure(allowance.questions_per_month, monthly)}
+          {extra(allowance.questions_bought)}
           {agreed('questions_per_month')}
         </Row>
         <Row label="Members">
@@ -164,9 +168,15 @@ function PlanSection({ me }: { me: Me }) {
   )
 }
 
-// Buying a plan on Stripe's Checkout page, managing it on Stripe's customer portal, and the way
-// back from Checkout, whose session the server asks Stripe about (backend/app/api/billing.py).
-// Both pages are Stripe's: the browser goes to the address the server gives.
+/** The month a pack bought now counts in, the calendar month in UTC, as the server counts it. */
+function thisMonth(): string {
+  return new Date().toLocaleString(undefined, { month: 'long', timeZone: 'UTC' })
+}
+
+// Buying a plan or a pack on Stripe's Checkout page, managing them on Stripe's customer portal,
+// and the way back from Checkout, whose session the server asks Stripe about
+// (backend/app/api/billing.py). Both pages are Stripe's: the browser goes to the address the
+// server gives.
 function BillingActions({ me }: { me: Me }) {
   const queryClient = useQueryClient()
   const { billing, seats: bought } = me.organization
@@ -182,6 +192,7 @@ function BillingActions({ me }: { me: Me }) {
     onSuccess: away,
   })
   const manage = useMutation({ mutationFn: organizations.billingPortal, onSuccess: away })
+  const buyPack = useMutation({ mutationFn: organizations.buyPack, onSuccess: away })
   const done = useMutation({
     mutationFn: organizations.checkoutDone,
     onSuccess: (account) => setSignedIn(queryClient, account),
@@ -197,13 +208,13 @@ function BillingActions({ me }: { me: Me }) {
 
   const owner = me.role === 'owner'
   // Stripe's page is loading once an address came back: nothing is offered twice meanwhile.
-  const leaving = buy.isPending || manage.isPending || buy.isSuccess || manage.isSuccess
-  const error = buy.error ?? manage.error
+  const leaving = [buy, manage, buyPack].some((step) => step.isPending || step.isSuccess)
+  const error = buy.error ?? manage.error ?? buyPack.error
 
   return (
     <div className="mt-4 space-y-3">
       {done.isPending && <Notice tone="info">Asking Stripe about the payment…</Notice>}
-      {done.isSuccess && <Notice tone="info">Thank you: the organisation is on the {PLAN_LABELS[done.data.organization.plan]} plan.</Notice>}
+      {done.isSuccess && <Notice tone="info">Thank you: the payment went through, and the plan above shows what it bought.</Notice>}
       {done.isError && <Notice tone="bad">{done.error.message}</Notice>}
       {error && <Notice tone="bad">{error.message}</Notice>}
       {!owner ? (
@@ -245,6 +256,20 @@ function BillingActions({ me }: { me: Me }) {
                 )}
               </div>
             </>
+          )}
+          {billing.packs.length > 0 && (
+            <div>
+              <div className="flex flex-wrap items-center gap-3">
+                {billing.packs.map((pack) => (
+                  <Button key={`${pack.unit}:${pack.quantity}`} disabled={leaving} onClick={() => buyPack.mutate(pack)}>
+                    Buy {pack.quantity.toLocaleString()} {pack.unit} for {thisMonth()}
+                  </Button>
+                ))}
+              </div>
+              <p className="mt-1.5 text-[13px] text-muted">
+                A pack is paid once and adds to this month’s allowance, on top of the plan’s, until the month ends in UTC.
+              </p>
+            </div>
           )}
           {billing.customer && (
             <div>

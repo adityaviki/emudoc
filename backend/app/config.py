@@ -59,6 +59,12 @@ STRIPE_PRICES_FORM = (
 # The plans an organisation may buy for itself (app/billing.py holds them to app/entitlements.py):
 # Free is what every organisation has, and Enterprise's terms are agreed, not bought.
 SOLD_PLANS = ("pro", "team")
+# What a pack adds to an organisation's month (STRIPE_PACKS): pages indexed, or questions asked.
+PACK_UNITS = ("pages", "questions")
+STRIPE_PACKS_FORM = (
+    "STRIPE_PACKS lists the packs sold, as unit:amount=price separated by commas, such as "
+    "pages:1000=price_1Pages,questions:500=price_1Questions, each unit pages or questions"
+)
 CLAMD_PORT = 3310
 # The work a model does: indexing (INDEX_MODEL: sections, summaries, facts, scans) or answering
 # (AGENT_MODEL: the Ask tab's agent), each with its fallback.
@@ -169,6 +175,37 @@ def parse_stripe_prices(text: str) -> dict[str, list[str]]:
         seen.add(price)
         prices.setdefault(plan, []).append(price)
     return prices
+
+
+class Pack(NamedTuple):
+    """A pack of STRIPE_PACKS: how many pages or questions it adds to the month it is paid in,
+    and the Stripe price it is sold at, a one-time one."""
+
+    unit: str
+    quantity: int
+    price: str
+
+
+@lru_cache
+def parse_stripe_packs(text: str) -> tuple[Pack, ...]:
+    """The packs STRIPE_PACKS lists, in the order listed."""
+    packs: list[Pack] = []
+    for entry in filter(None, (part.strip() for part in text.split(","))):
+        size, equals, price = (part.strip() for part in entry.partition("="))
+        unit, colon, amount = (part.strip() for part in size.partition(":"))
+        if (
+            not (equals and colon)
+            or unit not in PACK_UNITS
+            or not (amount.isascii() and amount.isdecimal() and int(amount) > 0)
+            or not re.fullmatch(r"[A-Za-z0-9_]+", price)
+        ):
+            raise ValueError(f"{STRIPE_PACKS_FORM}; {entry!r} is not of that form.")
+        if any(pack.price == price for pack in packs):
+            raise ValueError(f"{STRIPE_PACKS_FORM}; {price} is listed twice.")
+        if any(pack[:2] == (unit, int(amount)) for pack in packs):
+            raise ValueError(f"{STRIPE_PACKS_FORM}; {unit}:{amount} is listed twice.")
+        packs.append(Pack(unit, int(amount), price))
+    return tuple(packs)
 
 
 class Settings(BaseSettings):
@@ -509,6 +546,11 @@ class Settings(BaseSettings):
     # yearly price or one in another currency that the customer portal may switch to goes here
     # too. Team's is a price per seat, the subscription's quantity its seats.
     stripe_prices: str = ""
+    # The packs sold, as unit:amount=price separated by commas, the unit pages or questions and
+    # the price a one-time one: each adds its amount to the organisation's allowance for the
+    # calendar month in UTC it is paid in, on top of its plan's, for an organisation that wants
+    # more this month without a larger plan.
+    stripe_packs: str = ""
     # The days of trial an organisation's first subscription starts with, charged only at its
     # end; zero starts none.
     stripe_trial_days: int = Field(default=14, ge=0)
@@ -604,6 +646,26 @@ class Settings(BaseSettings):
         parse_stripe_prices(value)
         return value
 
+    @field_validator("stripe_packs")
+    @classmethod
+    def _lists_stripe_packs(cls, value: str) -> str:
+        parse_stripe_packs(value)
+        return value
+
+    @model_validator(mode="after")
+    def _a_price_sells_one_thing(self) -> "Settings":
+        # A plan's price is a recurring one and a pack's a one-time one: one listed as both
+        # would be read back as the plan whatever was bought.
+        plans = {
+            price for prices in parse_stripe_prices(self.stripe_prices).values() for price in prices
+        }
+        if shared := sorted(plans & {pack.price for pack in parse_stripe_packs(self.stripe_packs)}):
+            raise ValueError(
+                f"STRIPE_PRICES and STRIPE_PACKS both list {', '.join(shared)}; a plan's price "
+                "recurs and a pack's is paid once, so each is another price."
+            )
+        return self
+
     @field_validator("stripe_secret_key", "stripe_webhook_secret", mode="before")
     @classmethod
     def _trimmed_secret(cls, value: object) -> object:
@@ -613,6 +675,11 @@ class Settings(BaseSettings):
     def stripe_plans(self) -> dict[str, list[str]]:
         """The Stripe prices sold, by plan (STRIPE_PRICES); empty while billing is off."""
         return parse_stripe_prices(self.stripe_prices) if self.stripe_secret_key else {}
+
+    @property
+    def packs(self) -> tuple[Pack, ...]:
+        """The packs sold (STRIPE_PACKS); none while billing is off."""
+        return parse_stripe_packs(self.stripe_packs) if self.stripe_secret_key else ()
 
     @property
     def prices(self) -> dict[str, ModelPrice]:
@@ -926,13 +993,15 @@ class Settings(BaseSettings):
         """What stops billing from working, once any of its settings is given: Checkout needs
         the key and something to sell, and nothing bought reaches the app without the webhook's
         secret. Neither key is quoted, nor its start beyond its kind."""
-        if not (self.stripe_secret_key or self.stripe_webhook_secret or self.stripe_prices):
+        given = (self.stripe_webhook_secret, self.stripe_prices, self.stripe_packs)
+        if not (self.stripe_secret_key or any(given)):
             return []
         problems = []
         if not self.stripe_secret_key:
             problems.append(
-                "STRIPE_WEBHOOK_SECRET or STRIPE_PRICES is set, but STRIPE_SECRET_KEY is not, so "
-                "nothing can be sold; set the Stripe account's secret key, or remove the others."
+                "STRIPE_WEBHOOK_SECRET, STRIPE_PRICES or STRIPE_PACKS is set, but "
+                "STRIPE_SECRET_KEY is not, so nothing can be sold; set the Stripe account's "
+                "secret key, or remove the others."
             )
         elif not self.stripe_secret_key.startswith(("sk_", "rk_")):
             problems.append(

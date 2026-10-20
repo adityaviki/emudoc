@@ -71,9 +71,17 @@ from app.api.deps import (
     refuse_past,
 )
 from app.audit import audit, audit_sign_in
-from app.billing import PAST_DUE, grace_end, managed, sold, subscription_refusal, trial_days
+from app.billing import (
+    PAST_DUE,
+    grace_end,
+    managed,
+    packs_for,
+    sold,
+    subscription_refusal,
+    trial_days,
+)
 from app.config import get_settings
-from app.entitlements import agreed_with, entitlements_of, seats_of
+from app.entitlements import agreed_with, bought_this_month, entitlements_of, month_of, seats_of
 from app.export import account_export
 from app.invitations import find_invitation, is_open, joinable
 from app.legal import TERMS_VERSION, terms_due
@@ -139,6 +147,7 @@ from app.schemas import (
     MfaSetupOut,
     OAuthProviderOut,
     OrganizationOut,
+    PackOut,
     PasswordChangeIn,
     PasswordResetIn,
     ProfileIn,
@@ -1125,7 +1134,7 @@ def me_out(session: Session, account: Account) -> MeOut:
         email_verified=user.email_verified_at is not None,
         mfa_enabled=user.mfa_enabled,
         identities=sorted(identity.provider for identity in user.identities),
-        organization=organization_out(account.organization),
+        organization=organization_out(session, account.organization),
         role=account.role,
         organizations=[
             MembershipOut(id=organization.id, name=organization.name, role=role)
@@ -1144,16 +1153,20 @@ def me_out(session: Session, account: Account) -> MeOut:
 
 
 # The entitlements the organisation page shows, which are what a member may ask about.
-SHOWN = (*AllowanceOut.model_fields.keys() - {"agreed"}, "retention_days")
+SHOWN = (
+    *AllowanceOut.model_fields.keys() - {"agreed", "pages_bought", "questions_bought"},
+    "retention_days",
+)
 
 
-def organization_out(organization: Organization) -> OrganizationOut:
-    """The organisation as the page shows it, with what it may keep and use and how it buys
-    its plan."""
+def organization_out(session: Session, organization: Organization) -> OrganizationOut:
+    """The organisation as the page shows it, with what it may keep and use, the packs bought
+    for the month among it, and how it buys its plan."""
     entitlements = entitlements_of(organization)
     settings = get_settings()
     on_sale = list(sold(settings))
     failed = organization.payment_failed_at
+    start = month_of()[0]
     return OrganizationOut.model_validate(organization).model_copy(
         update={
             "billing": BillingOut(
@@ -1171,6 +1184,10 @@ def organization_out(organization: Organization) -> OrganizationOut:
                 ),
                 customer=organization.stripe_customer_id is not None,
                 trial_days=trial_days(settings, organization) if on_sale else None,
+                packs=[
+                    PackOut(unit=pack.unit, quantity=pack.quantity)
+                    for pack in packs_for(settings, organization)
+                ],
             ),
             "seats": seats_of(organization),
             "chat_retention_days": entitlements.retention_days,
@@ -1182,6 +1199,8 @@ def organization_out(organization: Organization) -> OrganizationOut:
                 questions_per_month=entitlements.questions_per_month,
                 members=entitlements.members,
                 agreed=[name for name in agreed_with(organization) if name in SHOWN],
+                pages_bought=bought_this_month(session, organization.id, "pages", start),
+                questions_bought=bought_this_month(session, organization.id, "questions", start),
             ),
         }
     )

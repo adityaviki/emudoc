@@ -13,6 +13,7 @@ const none: Billing = {
   grace_ends_at: null,
   customer: false,
   trial_days: 14,
+  packs: [],
 }
 const date = (value: string) => value.slice(0, 10)
 const now = new Date('2026-10-20T12:00:00Z')

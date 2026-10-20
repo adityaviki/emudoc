@@ -361,6 +361,14 @@ export interface Billing {
   customer: boolean
   /** The days of trial a plan bought now starts with, null for none. */
   trial_days: number | null
+  /** The packs it may buy for this month: pages or questions, and how many. */
+  packs: Pack[]
+}
+
+/** A pack of pages or questions for the month, paid once. */
+export interface Pack {
+  unit: 'pages' | 'questions'
+  quantity: number
 }
 
 /** What an organisation may keep and use, null for no limit. */
@@ -373,6 +381,9 @@ export interface Allowance {
   members: number | null
   /** Which of them, and of the chats' retention (`retention_days`), were agreed with the organisation in place of its plan's. */
   agreed: string[]
+  /** The pages and questions bought in packs for this month, on top of the plan's. */
+  pages_bought: number
+  questions_bought: number
 }
 
 /** The roles an organisation may let everyone at its domains join with. */
@@ -533,6 +544,7 @@ export type AuditAction =
   | 'checkout_started'
   | 'subscription_changed'
   | 'payment_failed'
+  | 'pack_bought'
   | 'organization_created'
   | 'organization_renamed'
   | 'ownership_transferred'
@@ -816,7 +828,9 @@ export const organizations = {
   /** Owners only: the address of Stripe's Checkout page that sells the plan, with seats on Team. */
   checkout: (body: { plan: SoldPlan; seats?: number }) =>
     request<{ url: string }>('/organization/billing/checkout', json('POST', body)),
-  /** The organisation on the plan the Checkout session it came back from bought. */
+  /** Owners only: the address of Stripe's Checkout page that sells the pack for this month. */
+  buyPack: (pack: Pack) => request<{ url: string }>('/organization/billing/packs', json('POST', pack)),
+  /** The organisation on the plan, or with the pack, the Checkout session it came back from bought. */
   checkoutDone: (checkoutId: string) =>
     request<Me>('/organization/billing/checkout/done', json('POST', { checkout_id: checkoutId })),
   /** Owners only: the address of Stripe's customer portal for the organisation. */

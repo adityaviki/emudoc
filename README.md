@@ -152,8 +152,9 @@ behind "Manage billing", on Stripe's customer portal. The subscription sets the 
 is in its trial (`STRIPE_TRIAL_DAYS`, 14, for an organisation's first) or paid, and for
 `BILLING_GRACE_DAYS` (14) after a payment failed, during which the owners are mailed how to pay;
 once it ends, or the payment is not made, the organisation is on Free, keeping all it holds,
-until it pays again. Checkout asks for the billing address and a business's VAT id, and works
-out the tax with `STRIPE_TAX`. An organisation on Enterprise or with agreed figures is left to
+until it pays again. With `STRIPE_PACKS` an owner also buys packs of pages or questions, paid
+once, which add to the plan's for the calendar month in UTC they are paid in. Checkout asks for
+the billing address and a business's VAT id, and works out the tax with `STRIPE_TAX`. An organisation on Enterprise or with agreed figures is left to
 the operator. Without Stripe, or for those, `uv run python -m app.maintenance plan <slug> [plan]`
 (in `backend/`) shows an organisation's plan and what it allows, or moves it to another, with
 `--seats N`, `--set NAME=VALUE` (`projects=500`, `storage_bytes=1 TB`, `retention_days=none`)
@@ -866,7 +867,7 @@ backend/app/
   usage.py      what each organisation used, recorded as it happens, and the daily rollup
   entitlements.py
                 what each plan allows, and the checks the routes and the parse stage make
-  billing.py    changing a plan, and selling it: Checkout, the portal, Stripe's events, the grace
+  billing.py    changing a plan, and selling it and packs: Checkout, the portal, Stripe's events
   payments.py   Stripe's API, and the signature on its events
   api/          HTTP endpoints
   headers.py    the headers every response carries for the browser
@@ -913,9 +914,8 @@ CHANGELOG.md    what each day's commits changed for members and operators
 
 - Deleting an organisation: one goes only with the account of its only member, who cannot
   leave it either.
-- Billing: the plans are sold through Stripe, but a refusal at a limit does not offer the way
-  to buy yet, there are no packs or metered usage for a month's pages and questions, and a page
-  of usage against the limits is to come; the API keys, the connectors and the model tier the
-  plans declare are not read by anything yet.
+- Billing: the plans and packs are sold through Stripe, but a refusal at a limit does not offer
+  the way to buy yet, and a page of usage against the limits is to come; the API keys, the
+  connectors and the model tier the plans declare are not read by anything yet.
 - A trash: deleting a project, folder, document or chat is immediate and permanent.
 - More file types (slides, email, legacy .doc and .xls), and reading order for multi-column PDFs.

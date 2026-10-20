@@ -1,6 +1,6 @@
-"""Billing's routes (app/billing.py): an owner sent to Stripe's Checkout to buy a plan and to
-its customer portal to manage it, the way back from Checkout, and the webhook Stripe's events
-arrive at.
+"""Billing's routes (app/billing.py): an owner sent to Stripe's Checkout to buy a plan or a
+pack of pages or questions for the month and to its customer portal to manage them, the way back
+from Checkout, and the webhook Stripe's events arrive at.
 
 The two pages are Stripe's, and the app's page goes to them by the address it is given here, so
 nothing of Stripe's loads on the app's pages and the content security policy stays as it is. A
@@ -30,12 +30,13 @@ from app.billing import (
     portal_for,
     send_mail,
     start_checkout,
+    start_pack_checkout,
     stripe_for,
 )
 from app.config import get_settings
 from app.payments import SIGNATURE_HEADER, BadSignature, Stripe, verified_event
 from app.ratelimit import BILLING
-from app.schemas import CheckoutDoneIn, CheckoutIn, MeOut, RedirectOut
+from app.schemas import CheckoutDoneIn, CheckoutIn, MeOut, PackIn, RedirectOut
 
 log = logging.getLogger(__name__)
 
@@ -73,13 +74,29 @@ def checkout(
 
 
 @router.post(
+    "/organization/billing/packs",
+    response_model=RedirectOut,
+    dependencies=[Depends(limited(BILLING))],
+)
+def buy_pack(
+    body: PackIn, account: AccountDep, request: Request, session: SessionDep, http: HttpDep
+):
+    """The address of Stripe's Checkout page, where an owner buys a pack of pages or questions
+    for the organisation's month, paid once."""
+    url = start_pack_checkout(
+        session, _stripe(http), account, request, body.unit, body.quantity, app_url(request)
+    )
+    return RedirectOut(url=url)
+
+
+@router.post(
     "/organization/billing/checkout/done",
     response_model=MeOut,
     dependencies=[Depends(limited(BILLING))],
 )
 def checkout_done(body: CheckoutDoneIn, account: AccountDep, session: SessionDep, http: HttpDep):
-    """The organisation on the plan it just bought, once its owner is back from Checkout:
-    Stripe's event says the same, a moment later or sooner."""
+    """The organisation on the plan, or with the pack, it just bought, once its owner is back
+    from Checkout: Stripe's event says the same, a moment later or sooner."""
     finish_checkout(session, _stripe(http), account, body.checkout_id)
     return me_out(session, account)
 

@@ -21,7 +21,9 @@ returns the sentence the user sees, naming the plan, the limit and what to do, o
 plan allows it; a route refuses with 402, the stage fails the document with it. The counts come
 from the rows (projects, documents and their bytes, memberships), so a deleted document frees
 what it took, or from the month so far in UTC (the pages indexed, by the `upload` usage
-events; the questions, by the answers asked), which starts afresh on the first.
+events; the questions, by the answers asked), which starts afresh on the first. Pages and
+questions bought in packs for the month (`allowance_packs`, app/billing.py) add to the plan's
+until it ends.
 
 `priority` weights the organisation's share of the workers in the job claim (app/jobs.py): an
 organisation's jobs count for a third as much on the team plan as on the free one, so its
@@ -44,6 +46,7 @@ from app.models import (
     PLANS as PLAN_NAMES,
 )
 from app.models import (
+    AllowancePack,
     Chat,
     ChatMessage,
     Document,
@@ -261,11 +264,13 @@ def check_upload(
     if size is None and plan.pages_per_month is not None:
         start, following = month_of()
         used = pages_this_month(session, organization.id, start)
-        if used >= plan.pages_per_month:
+        bought = bought_this_month(session, organization.id, "pages", start)
+        if used >= plan.pages_per_month + bought:
             return (
-                f"The {label} plan indexes {_count(plan.pages_per_month, 'page')} a month, and "
-                f"this organisation has indexed {used:,} in {_month(start)}. "
-                f"{upgrade(organization).capitalize()}, or upload again from 1 {_month(following)}."
+                f"The {label} plan indexes {_count(plan.pages_per_month, 'page')} a month"
+                f"{_and_bought(bought, start)}, and this organisation has indexed {used:,} in "
+                f"{_month(start)}. {upgrade(organization).capitalize()}, or upload again from "
+                f"1 {_month(following)}."
             )
     return None
 
@@ -278,12 +283,14 @@ def check_pages(session: Session, organization: Organization, pages: int) -> str
         return None
     start, following = month_of()
     used = pages_this_month(session, organization.id, start)
-    if used + pages <= cap:
+    bought = bought_this_month(session, organization.id, "pages", start)
+    if used + pages <= cap + bought:
         return None
     return (
-        f"This document has {_count(pages, 'page')}, more than the {max(cap - used, 0):,} "
-        f"left of the {_label(organization)} plan's {cap:,} a month. "
-        f"{upgrade(organization).capitalize()}, or index it again from 1 {_month(following)}."
+        f"This document has {_count(pages, 'page')}, more than the "
+        f"{max(cap + bought - used, 0):,} left of the {_label(organization)} plan's {cap:,} a "
+        f"month{_and_bought(bought, start)}. {upgrade(organization).capitalize()}, or index it "
+        f"again from 1 {_month(following)}."
     )
 
 
@@ -294,12 +301,14 @@ def check_question(session: Session, organization: Organization) -> str | None:
         return None
     start, following = month_of()
     asked = questions_this_month(session, organization.id, start)
-    if asked < cap:
+    bought = bought_this_month(session, organization.id, "questions", start)
+    if asked < cap + bought:
         return None
     return (
-        f"The {_label(organization)} plan answers {_count(cap, 'question')} a month, and this "
-        f"organisation has asked {asked:,} in {_month(start)}. "
-        f"{upgrade(organization).capitalize()}, or ask again from 1 {_month(following)}."
+        f"The {_label(organization)} plan answers {_count(cap, 'question')} a month"
+        f"{_and_bought(bought, start)}, and this organisation has asked {asked:,} in "
+        f"{_month(start)}. {upgrade(organization).capitalize()}, or ask again from 1 "
+        f"{_month(following)}."
     )
 
 
@@ -372,6 +381,22 @@ def questions_this_month(session: Session, org_id: int, start: datetime) -> int:
             ChatMessage.created_at >= start,
         )
     )
+
+
+def bought_this_month(session: Session, org_id: int, unit: str, start: datetime) -> int:
+    """The pages or questions the organisation bought in packs for the month that starts at
+    `start` (app/billing.py)."""
+    return session.scalar(
+        select(func.coalesce(func.sum(AllowancePack.quantity), 0)).where(
+            AllowancePack.org_id == org_id,
+            AllowancePack.unit == unit,
+            AllowancePack.month == start,
+        )
+    )
+
+
+def _and_bought(bought: int, start: datetime) -> str:
+    return f" and {bought:,} more bought for {_month(start)}" if bought else ""
 
 
 def size_label(size: int) -> str:

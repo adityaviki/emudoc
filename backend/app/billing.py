@@ -44,9 +44,17 @@ from sqlalchemy.orm import Session
 
 from app.accounts import Account, zone_of
 from app.audit import audit, audit_event
-from app.config import SOLD_PLANS, Settings, get_settings
+from app.config import PACK_UNITS, SOLD_PLANS, Pack, Settings, get_settings
 from app.db import SessionLocal
-from app.entitlements import BY_THE_SEAT, FIELDS, MODEL_TIERS, PLANS, agreed_with
+from app.entitlements import (
+    BY_THE_SEAT,
+    FIELDS,
+    MODEL_TIERS,
+    PLANS,
+    agreed_with,
+    entitlements_of,
+    month_of,
+)
 from app.mail import Mailer, MailError, payment_failed_email, plan_lapsed_email, trial_ending_email
 from app.models import PLANS as PLAN_NAMES
 from app.models import BillingEvent, Membership, Organization, User
@@ -95,8 +103,14 @@ SUBSCRIPTION_EVENTS = frozenset(
     }
 )
 CHECKOUT_COMPLETED = "checkout.session.completed"
+# A pack paid by a method that takes days, such as a SEPA debit, is paid once this comes.
+PAYMENT_ARRIVED = "checkout.session.async_payment_succeeded"
+CHECKOUTS = frozenset({CHECKOUT_COMPLETED, PAYMENT_ARRIVED})
 PAYMENT_FAILED = "invoice.payment_failed"
-EVENTS = SUBSCRIPTION_EVENTS | {CHECKOUT_COMPLETED, PAYMENT_FAILED}
+EVENTS = SUBSCRIPTION_EVENTS | CHECKOUTS | {PAYMENT_FAILED}
+# How each unit of a pack is said, and which entitlement it adds to.
+PACK_LIMITS = {"pages": "pages_per_month", "questions": "questions_per_month"}
+assert set(PACK_LIMITS) == set(PACK_UNITS), "every unit a pack may be of adds to a limit"
 
 BILLING_OFF = (
     "Plans are not sold on this deployment. Write to the people who run it to change the plan."
@@ -121,6 +135,12 @@ NOT_FINISHED = (
     "The payment is not finished yet. Finish it on Stripe's page, or choose the plan again."
 )
 OTHER_CHECKOUT = "That payment was for another organisation, so nothing changed here."
+NO_PACK = "That pack is not sold here. Choose one the organisation page offers."
+NO_LIMIT = "The {plan} plan has no limit on {unit}, so it needs no pack of them."
+PAYMENT_ON_ITS_WAY = (
+    "The payment is on its way; the pack counts once it arrives, which can take a few days for "
+    "a bank debit."
+)
 
 
 @dataclass(frozen=True)
@@ -389,12 +409,128 @@ def finish_checkout(session: Session, stripe: Stripe, account: Account, checkout
     checkout = stripe.checkout(checkout_id)
     if checkout.get("client_reference_id") != str(org_id):
         raise BillingRefused(404, OTHER_CHECKOUT)
-    if checkout.get("status") != "complete" or not checkout.get("subscription"):
+    if checkout.get("status") != "complete":
         raise BillingRefused(409, NOT_FINISHED)
-    subscription = stripe.subscription(checkout["subscription"])
+    if checkout.get("mode") == "payment":
+        if not paid(checkout):
+            raise BillingRefused(409, PAYMENT_ON_ITS_WAY)
+        record_pack(session, _held(session, org_id), checkout)
+        session.commit()
+        return
+    if not _id_of(checkout.get("subscription")):
+        raise BillingRefused(409, NOT_FINISHED)
+    subscription = stripe.subscription(_id_of(checkout["subscription"]))
     organization = _held(session, org_id)
     apply_subscription(session, organization, subscription)
     session.commit()
+
+
+def packs_for(settings: Settings, organization: Organization) -> list[Pack]:
+    """The packs the organisation may buy: those of a unit its plan limits, while billing moves
+    its plan."""
+    if not managed(organization):
+        return []
+    entitlements = entitlements_of(organization)
+    return [
+        pack for pack in settings.packs if getattr(entitlements, PACK_LIMITS[pack.unit]) is not None
+    ]
+
+
+def start_pack_checkout(
+    session: Session,
+    stripe: Stripe,
+    account: Account,
+    request: Request | None,
+    unit: str,
+    quantity: int,
+    app_url: str,
+    now: datetime | None = None,
+) -> str:
+    """The address of a Checkout page that sells the pack of `quantity` `unit` to the account's
+    organisation, paid once, with an invoice; raises BillingRefused when it may not buy it."""
+    settings = get_settings()
+    organization = account.organization
+    if account.role != "owner":
+        raise BillingRefused(403, OWNERS_ONLY)
+    if not managed(organization):
+        raise BillingRefused(409, AGREED)
+    pack = next((p for p in settings.packs if (p.unit, p.quantity) == (unit, quantity)), None)
+    if pack is None:
+        raise BillingRefused(400, NO_PACK)
+    if pack not in packs_for(settings, organization):
+        raise BillingRefused(409, NO_LIMIT.format(plan=organization.plan.capitalize(), unit=unit))
+    customer = customer_for(session, stripe, account)
+    now = now or datetime.now(UTC)
+    page = f"{app_url}{ORGANIZATION_PAGE}"
+    params: dict[str, object] = {
+        "mode": "payment",
+        "customer": customer,
+        "client_reference_id": str(organization.id),
+        "line_items": [{"price": pack.price, "quantity": 1}],
+        "success_url": page + "?checkout={CHECKOUT_SESSION_ID}",
+        "cancel_url": page,
+        "metadata": {"org_id": organization.id, "pack_unit": unit, "pack_quantity": quantity},
+        # A payment of its own gets no invoice unless asked for one, and a business needs one.
+        "invoice_creation": {"enabled": True},
+        "billing_address_collection": "required",
+        "tax_id_collection": {"enabled": True},
+        "customer_update": {"name": "auto", "address": "auto"},
+        "consent_collection": {"terms_of_service": "required"},
+        "expires_at": int((now + timedelta(minutes=CHECKOUT_MINUTES)).timestamp()),
+    }
+    if settings.stripe_tax:
+        params["automatic_tax"] = {"enabled": True}
+    session.commit()
+    checkout = stripe.create_checkout(params, idempotency=f"checkout-{uuid.uuid4().hex}")
+    audit(
+        session,
+        account,
+        request,
+        "checkout_started",
+        detail={"pack": unit, "quantity": quantity},
+    )
+    session.commit()
+    return checkout["url"]
+
+
+def paid(checkout: Mapping) -> bool:
+    """Whether a Checkout session's payment has arrived."""
+    return checkout.get("payment_status") in ("paid", "no_payment_required")
+
+
+def record_pack(session: Session, organization: Organization, checkout: Mapping) -> bool:
+    """Count the pack a paid Checkout session bought for the month it is paid in, once
+    whichever of the page and Stripe's events says so first; the caller commits. Returns
+    whether this was the first time."""
+    metadata = checkout.get("metadata") or {}
+    unit, quantity = metadata.get("pack_unit"), str(metadata.get("pack_quantity", ""))
+    if unit not in PACK_LIMITS or not (quantity.isascii() and quantity.isdecimal()):
+        log.warning("Checkout session %s names no pack, so nothing is counted", checkout.get("id"))
+        return False
+    month = month_of()[0]
+    recorded = session.execute(
+        text(
+            "INSERT INTO allowance_packs (org_id, unit, quantity, month, checkout_id) "
+            "VALUES (:org_id, :unit, :quantity, :month, :checkout_id) "
+            "ON CONFLICT (checkout_id) DO NOTHING RETURNING id"
+        ),
+        {
+            "org_id": organization.id,
+            "unit": unit,
+            "quantity": int(quantity),
+            "month": month,
+            "checkout_id": checkout["id"],
+        },
+    ).scalar()
+    if recorded is None:
+        return False
+    audit_event(
+        session,
+        "pack_bought",
+        org_id=organization.id,
+        detail={"unit": unit, "quantity": int(quantity), "month": f"{month:%Y-%m}"},
+    )
+    return True
 
 
 def portal_for(session: Session, stripe: Stripe, account: Account, app_url: str) -> str:
@@ -571,8 +707,11 @@ def handle_event(session: Session, stripe: Stripe, event: Mapping, app_url: str)
             log.info("Stripe event %s (%s) is about no organisation here", event["id"], kind)
         return []
     subscription = None
-    if kind == CHECKOUT_COMPLETED:
-        if found.get("mode") != "subscription" or not _id_of(found.get("subscription")):
+    pack = kind in CHECKOUTS and found.get("mode") == "payment"
+    if pack and not paid(found):
+        return []
+    if kind in CHECKOUTS and not pack:
+        if kind != CHECKOUT_COMPLETED or not _id_of(found.get("subscription")):
             return []
         subscription = stripe.subscription(_id_of(found["subscription"]))
     elif kind in SUBSCRIPTION_EVENTS:
@@ -582,7 +721,9 @@ def handle_event(session: Session, stripe: Stripe, event: Mapping, app_url: str)
         return []
     organization = _held(session, org_id)
     mails: list[Mail] = []
-    if subscription is not None:
+    if pack:
+        record_pack(session, organization, found)
+    elif subscription is not None:
         applied = apply_subscription(session, organization, subscription)
         if applied.lapsed:
             mails += _lapsed_mail(session, organization, applied.was_plan, app_url)
@@ -603,7 +744,7 @@ def _organization_of(session: Session, kind: str, found: Mapping) -> int | None:
         if customer
         else None
     )
-    if kind != CHECKOUT_COMPLETED:
+    if kind not in CHECKOUTS:
         return by_customer
     reference = found.get("client_reference_id")
     if not (isinstance(reference, str) and reference.isdecimal()):

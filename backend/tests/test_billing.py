@@ -1,5 +1,6 @@
 """Billing: an owner buys Pro, or Team by the seat, on Stripe's Checkout page and manages it on
-Stripe's portal; the subscription Stripe holds sets the plan, read back from Stripe at each of
+Stripe's portal, and buys packs of pages or questions for the month, counted once paid and in
+that month alone; the subscription Stripe holds sets the plan, read back from Stripe at each of
 its events, which are acted on once and only with Stripe's signature; a failed payment keeps the
 plan for the grace period and tells the owners, then the organisation is on Free, keeping all it
 holds, until it pays; an organisation whose terms are agreed is left to the operator. Stripe is
@@ -9,6 +10,7 @@ import copy
 import itertools
 import json
 import logging
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -19,10 +21,13 @@ from app.billing import (
     AGREED,
     BILLING_OFF,
     NO_CUSTOMER,
+    NO_LIMIT,
+    NO_PACK,
     NOT_FINISHED,
     NOT_SOLD,
     OTHER_CHECKOUT,
     OWNERS_ONLY,
+    PAYMENT_ON_ITS_WAY,
     SEATS_NEEDED,
     SUBSCRIBED,
     end_grace_periods,
@@ -31,16 +36,19 @@ from app.billing import (
 )
 from app.config import get_settings
 from app.db import engine
+from app.entitlements import MONTHS, PLANS, check_question, check_upload, month_of
 from app.maintenance import housekeeping, plan_report
-from app.models import BillingEvent, Organization
+from app.models import AllowancePack, BillingEvent, Organization
 from app.payments import API_VERSION, UNAVAILABLE, BadSignature, form, sign, verified_event
 from app.retention import day
+from app.usage import UPLOAD, record
 from tests.test_audit import actions
 
 # Built at run time, so that nothing in the repository reads as a key.
 STRIPE_KEY = "sk_" + "test_" + "suite"
 SECRET = "whsec_" + "suite"
 PRICES = "pro=price_pro,team=price_team,pro=price_pro_yearly"
+PACKS = "pages:1000=price_pages,questions:500=price_questions"
 APP = "https://emudoc.test"
 _events = itertools.count(1)
 
@@ -48,12 +56,14 @@ _events = itertools.count(1)
 @pytest.fixture
 def billing(monkeypatch):
     """Billing on, as a deployment sets it: Pro and Team on sale, with a yearly Pro price the
-    portal may switch to, a 14-day trial and a 14-day grace period."""
+    portal may switch to, packs of pages and questions, a 14-day trial and a 14-day grace
+    period."""
     settings = get_settings()
     for name, value in (
         ("stripe_secret_key", STRIPE_KEY),
         ("stripe_webhook_secret", SECRET),
         ("stripe_prices", PRICES),
+        ("stripe_packs", PACKS),
         ("stripe_trial_days", 14),
         ("stripe_tax", False),
         ("billing_grace_days", 14),
@@ -364,6 +374,129 @@ def test_stripe_out_of_reach_is_a_503_that_quotes_nothing_of_stripe_s(
     response = client.post("/api/organization/billing/checkout", json={"plan": "pro"})
     assert (response.status_code, response.json()["detail"]) == (503, UNAVAILABLE)
     assert actions(session, ada.organization.id) == []
+
+
+# Packs
+
+
+def buy_pack(client, unit: str = "pages", quantity: int = 1000) -> str:
+    response = client.post(
+        "/api/organization/billing/packs", json={"unit": unit, "quantity": quantity}
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["url"].rsplit("/", 1)[1]
+
+
+def test_an_owner_buys_a_pack_of_pages_for_the_month(client, session, stripe, ada):
+    org_id = ada.organization.id
+    assert billing_of(client)["packs"] == [
+        {"unit": "pages", "quantity": 1000},
+        {"unit": "questions", "quantity": 500},
+    ]
+    used = {"org_id": org_id, "project_id": None, "user_id": None, "kind": UPLOAD}
+    record(session, **used, measures={"pages": 200})
+    session.commit()
+    month = MONTHS[month_of()[0].month - 1]
+    assert "The Free plan indexes 200 pages a month, and this" in check_upload(
+        session, organization(session, org_id)
+    )
+
+    checkout_id = buy_pack(client)
+    sent = stripe.made("/v1/checkout/sessions")[-1]
+    assert sent["mode"] == "payment"
+    assert (sent["line_items[0][price]"], sent["line_items[0][quantity]"]) == ("price_pages", "1")
+    assert (sent["metadata[pack_unit]"], sent["metadata[pack_quantity]"]) == ("pages", "1000")
+    assert sent["invoice_creation[enabled]"] == "true"
+    assert sent["tax_id_collection[enabled]"] == "true"
+    assert not any(key.startswith("subscription_data") for key in sent)
+    assert actions(session, org_id) == [("checkout_started", {"pack": "pages", "quantity": 1000})]
+
+    stripe.pay(checkout_id)
+    me = back(client, checkout_id)
+
+    assert me["organization"]["allowance"]["pages_bought"] == 1000
+    assert me["organization"]["plan"] == "free"
+    held = organization(session, org_id)
+    assert check_upload(session, held) is None
+    # Stripe's event about the same payment counts nothing twice.
+    deliver(client, event("checkout.session.completed", stripe.checkouts[checkout_id]))
+    assert session.query(AllowancePack).count() == 1
+    assert actions(session, org_id)[-1] == (
+        "pack_bought",
+        {"unit": "pages", "quantity": 1000, "month": f"{month_of()[0]:%Y-%m}"},
+    )
+    record(session, **used, measures={"pages": 1000})
+    session.commit()
+    assert check_upload(session, held).startswith(
+        f"The Free plan indexes 200 pages a month and 1,000 more bought for {month}, and this "
+        f"organisation has indexed 1,200 in {month}."
+    )
+
+
+def test_a_pack_paid_by_bank_debit_counts_once_the_payment_arrives(client, session, stripe, ada):
+    checkout_id = buy_pack(client, "questions", 500)
+    stripe.pay(checkout_id, "unpaid")
+    response = client.post(
+        "/api/organization/billing/checkout/done", json={"checkout_id": checkout_id}
+    )
+    assert (response.status_code, response.json()["detail"]) == (409, PAYMENT_ON_ITS_WAY)
+    deliver(client, event("checkout.session.completed", stripe.checkouts[checkout_id]))
+    assert session.query(AllowancePack).count() == 0
+
+    stripe.checkouts[checkout_id]["payment_status"] = "paid"
+    sent = event("checkout.session.async_payment_succeeded", stripe.checkouts[checkout_id])
+    assert deliver(client, sent).status_code == 200
+    me = client.get("/api/auth/me").json()
+    assert me["organization"]["allowance"]["questions_bought"] == 500
+
+
+def test_a_pack_is_sold_only_for_a_limit_the_plan_has(client, session, ada, monkeypatch):
+    monkeypatch.setitem(PLANS, "free", replace(PLANS["free"], questions_per_month=None))
+    assert billing_of(client)["packs"] == [{"unit": "pages", "quantity": 1000}]
+    response = client.post(
+        "/api/organization/billing/packs", json={"unit": "questions", "quantity": 500}
+    )
+    assert (response.status_code, response.json()["detail"]) == (
+        409,
+        NO_LIMIT.format(plan="Free", unit="questions"),
+    )
+    response = client.post("/api/organization/billing/packs", json={"unit": "pages", "quantity": 5})
+    assert (response.status_code, response.json()["detail"]) == (400, NO_PACK)
+
+    held = organization(session, ada.organization.id)
+    held.plan = "enterprise"
+    session.commit()
+    assert billing_of(client)["packs"] == []
+    response = client.post(
+        "/api/organization/billing/packs", json={"unit": "pages", "quantity": 1000}
+    )
+    assert (response.status_code, response.json()["detail"]) == (409, AGREED)
+
+
+def test_a_pack_counts_in_the_month_it_was_paid_in_alone(client, session, ada, monkeypatch):
+    monkeypatch.setitem(PLANS, "free", replace(PLANS["free"], questions_per_month=0))
+    org_id = ada.organization.id
+    start = month_of()[0]
+    last_month = month_of(start - timedelta(days=1))[0]
+    session.add(
+        AllowancePack(
+            org_id=org_id, unit="questions", quantity=5, month=last_month, checkout_id="cs_old"
+        )
+    )
+    session.commit()
+    held = organization(session, org_id)
+    assert check_question(session, held) is not None
+    session.add(
+        AllowancePack(
+            org_id=org_id, unit="questions", quantity=5, month=start, checkout_id="cs_new"
+        )
+    )
+    session.commit()
+    assert check_question(session, held) is None
+    assert plan_report(session, "acme")[-1] == (
+        f"It bought 5 questions in packs for {MONTHS[start.month - 1]}, on top of the month's "
+        "allowance."
+    )
 
 
 # Stripe's events

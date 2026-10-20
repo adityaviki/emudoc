@@ -125,6 +125,7 @@ class Deployment:
             "STRIPE_SECRET_KEY": "",
             "STRIPE_WEBHOOK_SECRET": "",
             "STRIPE_PRICES": "",
+            "STRIPE_PACKS": "",
             **storage,
             **SIZING,
             **LIFTED,
