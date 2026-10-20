@@ -73,9 +73,10 @@ def test_a_link_is_queued_encrypted_and_sent_by_the_worker(client, session, mail
     assert (job.org_id, job.priority) == (None, LIVE)
     assert set(job.payload) == {"email", "subject", "message", "try", "trace_id"}
     assert job.payload["subject"] == "Reset your password" and job.payload["try"] == 1
-    # The link signs in, so the queue holds it encrypted, and nothing of whom it is for.
+    # The link signs in, so the queue holds it encrypted, and nothing of whom it is for: the
+    # value is base64url, which has no "@" of an address nor "#" of a link.
     sealed = job.payload["message"]
-    assert sealed.startswith("v1.") and "ada" not in sealed and "#token=" not in sealed
+    assert sealed.startswith("v1.") and "@" not in sealed and "#" not in sealed
 
     to, subject, body = mailer.sent[-1]
     assert (to, subject) == ("ada@example.com", "Reset your password")
