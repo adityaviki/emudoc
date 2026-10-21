@@ -1,6 +1,7 @@
-"""Help for members: where to write for it (`GET /api/help`, public, since the sign-in pages
-link to help too), and a member's message to support from the app's help menu
-(`POST /api/feedback`), mailed to SUPPORT_EMAIL with what support needs to find what they met.
+"""Help for members: the help pages and where to write for help (`GET /api/help`, public, since
+the sign-in pages link to the help too; the articles are app/help/), and a member's message to
+support from the app's help menu (`POST /api/feedback`), mailed to SUPPORT_EMAIL with what
+support needs to find what they met.
 
 The message is the member's words and goes nowhere but the mail: not into a log line, nor an
 `AppError`, nor the subject, which the mailer logs when a relay refuses it. What is attached is
@@ -11,6 +12,7 @@ changes nothing of the organisation's, so no audit row, and the queue's job give
 up once it is sent (app/postbox.py), so the app keeps none of it.
 """
 
+from dataclasses import asdict
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -19,11 +21,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app.api.auth import app_url
 from app.api.deps import AccountDep, SessionDep, limited
 from app.config import get_settings
+from app.help import articles
 from app.logs import current_context
 from app.mail import compose, support_message_email
 from app.postbox import post
 from app.ratelimit import FEEDBACK
-from app.schemas import FeedbackIn, FeedbackOut, HelpOut
+from app.schemas import FeedbackIn, FeedbackOut, HelpArticleOut, HelpOut
 from app.version import VERSION
 
 router = APIRouter(tags=["help"])
@@ -39,8 +42,12 @@ BROWSER_CHARS = 300
 
 @router.get("/help", response_model=HelpOut)
 def help_offered():
-    """Where members write for help."""
-    return HelpOut(support_email=get_settings().support_address or None)
+    """The help pages, filled in for this deployment, and where members write for help."""
+    settings = get_settings()
+    return HelpOut(
+        articles=[HelpArticleOut(**asdict(article)) for article in articles(settings)],
+        support_email=settings.support_address or None,
+    )
 
 
 @router.post(

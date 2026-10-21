@@ -1211,10 +1211,21 @@ class PageErrorOut(BaseModel):
     reference: str | None
 
 
-class HelpOut(BaseModel):
-    """What the help menu and the help pages offer besides themselves (app/api/help.py): the
-    address members write to for help, which is none only in development."""
+class HelpArticleOut(BaseModel):
+    """A help page (app/help/), filled in for the deployment: the whole article as Markdown, its
+    title the first heading, and the line the contents show of it."""
 
+    slug: str
+    title: str
+    summary: str
+    text: str
+
+
+class HelpOut(BaseModel):
+    """The help pages and the help menu (app/api/help.py): the articles in the contents' order,
+    and the address members write to for help, which is none only in development."""
+
+    articles: list[HelpArticleOut]
     support_email: str | None
 
 

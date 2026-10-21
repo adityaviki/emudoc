@@ -1,13 +1,13 @@
-// The question mark in the header: the way to write to support from wherever the member is, with
-// the page and the last request that failed attached (src/help/feedback.ts,
-// backend/app/api/help.py). What they typed is kept while the panel is closed, which a click
-// elsewhere or a switch to another window does, until it is sent.
+// The question mark in the header: the way to the help pages, and to write to support from
+// wherever the member is, with the page and the last request that failed attached
+// (src/help/feedback.ts, backend/app/api/help.py). What they typed is kept while the panel is
+// closed, which a click elsewhere or a switch to another window does, until it is sent.
 
 import { useMutation } from '@tanstack/react-query'
-import { CircleHelp } from 'lucide-react'
+import { BookOpen, CircleHelp } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { useLocation } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import { api, lastFailedRequest } from '../api.ts'
 import type { FeedbackKind } from '../api.ts'
 import { useMe } from '../auth.ts'
@@ -44,7 +44,17 @@ export function HelpMenu() {
       {anchor && (
         <Floating anchor={anchor} alignEnd onClose={() => setAnchor(null)} ignore={button} className="w-96 max-w-[calc(100vw-16px)]">
           <div role="dialog" aria-label="Help">
-            <p className="border-b border-line px-3 py-2 text-[13px] font-medium">Write to support</p>
+            <div className="border-b border-line p-1">
+              <Link
+                to="/help"
+                onClick={() => setAnchor(null)}
+                className="flex h-8 items-center gap-2.5 rounded-[5px] px-2 text-[13px] outline-none hover:bg-sunken focus-visible:bg-sunken"
+              >
+                <BookOpen className="size-4 shrink-0 opacity-70" />
+                Help pages
+              </Link>
+            </div>
+            <p className="px-3 pt-3 text-[13px] font-medium">Write to support</p>
             {send.isSuccess ? (
               <Sent reference={send.data.reference} to={send.data.to} onAgain={() => send.reset()} />
             ) : (

@@ -33,9 +33,10 @@ export function AuthLayout() {
   )
 }
 
-/** The terms, the privacy policy and the subprocessor list, at the foot of a page. */
+/** The help, the terms, the privacy policy and the subprocessor list, at the foot of a page. */
 export function LegalLinks() {
   const links = [
+    { to: '/help', label: 'Help' },
     { to: '/terms', label: 'Terms of service' },
     { to: '/privacy', label: 'Privacy policy' },
     { to: '/subprocessors', label: 'Subprocessors' },

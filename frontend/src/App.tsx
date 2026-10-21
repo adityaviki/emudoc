@@ -28,6 +28,7 @@ import { ThemeToggle } from './components/ThemeToggle.tsx'
 import { Button, IconButton, Spinner } from './components/ui.tsx'
 import { useLocalStorage, useStatus } from './hooks.ts'
 import { HelpMenu } from './help/HelpMenu.tsx'
+import { HelpPage } from './help/HelpPage.tsx'
 import { AuditPage } from './organization/AuditPage.tsx'
 import { NewOrganizationPage, OrganizationPage } from './organization/OrganizationPage.tsx'
 import { OrganizationSwitcher } from './organization/OrganizationSwitcher.tsx'
@@ -113,6 +114,8 @@ function App() {
           <Route path="subprocessors" element={<SubprocessorsPage />} />
           <Route path="terms" element={<LegalPage document="terms" />} />
           <Route path="privacy" element={<LegalPage document="privacy" />} />
+          <Route path="help" element={<HelpPage />} />
+          <Route path="help/:slug" element={<HelpPage />} />
         </Route>
         <Route element={<Shell />}>
           <Route index element={<ProjectsPage />} />

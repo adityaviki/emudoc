@@ -26,7 +26,7 @@ export function useLegal() {
   return useQuery({ queryKey: ['legal'], queryFn: api.legal, staleTime: Infinity })
 }
 
-/** Where members write for help; it changes only with a deployment. */
+/** The help pages and where members write for help; they change only with a deployment. */
 export function useHelp() {
   return useQuery({ queryKey: ['help'], queryFn: api.help, staleTime: Infinity })
 }

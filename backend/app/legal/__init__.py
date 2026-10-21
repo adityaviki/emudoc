@@ -116,8 +116,8 @@ def privacy_policy(
         settings,
         models=_models(settings, environ),
         region=_region(settings),
-        chat_retention=_by_plan(lambda plan: plan.retention_days, "until deleted"),
-        audit_retention=_by_plan(lambda plan: plan.audit_days, "as long as it exists"),
+        chat_retention=by_plan(lambda plan: plan.retention_days, "until deleted"),
+        audit_retention=by_plan(lambda plan: plan.audit_days, "as long as it exists"),
         held_days=str(RETENTION_HELD.days),
         credential_days=str(CREDENTIAL_HISTORY.days),
         browser_days=str(BROWSER_KNOWN_FOR.days),
@@ -399,9 +399,10 @@ def _region(settings: Settings) -> str:
     )
 
 
-def _by_plan(days_of: Callable[[Entitlements], int | None], forever: str) -> str:
+def by_plan(days_of: Callable[[Entitlements], int | None], forever: str) -> str:
     """How long each plan keeps something, the plans with the same period together:
-    "Free: 30 days; Pro: 365 days; Team and Enterprise: until deleted"."""
+    "Free: 30 days; Pro: 365 days; Team and Enterprise: until deleted"; the help pages say it
+    too (app/help/)."""
     plans: dict[int | None, list[str]] = {}
     for name, entitlements in PLANS.items():
         plans.setdefault(days_of(entitlements), []).append(name.title())

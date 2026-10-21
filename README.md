@@ -830,7 +830,13 @@ on; the browser runs no tracker's script. A 500 answers with a sentence that end
 request's id as the reference to quote. The subprocessor list and the privacy policy name the
 tracker when it is a company's. `deploying.md` ("Error tracking") has the details.
 
-The question mark in the header is the help menu, where a member writes to support: a problem, a
+The question mark in the header is the help menu. It opens the help pages at `/help`, public
+like the terms and linked under every sign-in page: a few articles, from getting started to
+plans, roles and deleting, with a search over them, which the backend fills in as it serves
+them (`backend/app/help/`, `GET /api/help`) from the code and the settings, so that the plans'
+figures, the file types and sizes an upload takes and how long the trash keeps what was deleted
+are the deployment's own, and a sentence about something it does not do (scanning, selling
+plans) is left out. And it is where a member writes to support: a problem, a
 question or an idea, in their own words (`frontend/src/help/`, `POST /api/feedback` in
 `backend/app/api/help.py`). The app mails it to `SUPPORT_EMAIL` with a `Reply-To` of the
 member's address and what support needs to find what they met: the account, the organisation,

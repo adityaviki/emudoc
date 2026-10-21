@@ -3051,7 +3051,17 @@ figures for each 30 days go into the same record.
 
 ## Support
 
-Members write for help from the app's help menu, the question mark in the header: a problem,
+The question mark in the header opens the help pages, `/help`, public like the terms and linked
+under the sign-in pages. The backend fills them in as it serves them (`backend/app/help/`, `GET
+/api/help`) from the code and the settings: the plans' figures, the upload ceilings
+(`MAX_UPLOAD_MB`, `MAX_UPLOAD_FILES`, `MAX_UPLOAD_REQUEST_MB`, `OCR_MAX_PAGES`),
+`SESSION_DAYS`, `RATE_FAILED_SIGN_INS`, `RATE_API_REQUESTS`, and how long the trash, an export
+and a deletion's grace last. What the deployment does not do is left out: malware scanning
+without `SCANNER_URL`, buying a plan without Stripe (the pages say to write to support), the
+breached-password check without `PWNED_PASSWORDS_URL`. Changing what they say is a change to
+the Markdown beside the module; a figure written into them by hand is a bug.
+
+Members write for help from the same menu: a problem,
 a question or an idea, in their own words. The app mails it to `SUPPORT_EMAIL` (or
 `OPERATOR_EMAIL`, where one address answers both), from `MAIL_FROM`, with a `Reply-To` of the
 member's address, so a reply from the support mailbox or a help desk that reads it goes to

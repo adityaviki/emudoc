@@ -11,6 +11,12 @@ its day, in the same commit.
 
 Members:
 
+- Help pages at `/help`, from the question mark in the header or under the sign-in pages: how
+  to get started, upload and organise documents, search and ask, work with an organisation's
+  members and roles, read the plans and their usage, sign in and keep an account safe, and
+  export or delete what you hold, with a search over them. Their figures are the service's
+  own: what each plan allows, the file types and sizes an upload takes, how long the trash
+  keeps what was deleted.
 - The question mark in the header writes to Emudoc's support from wherever you are: a problem, a
   question or an idea, in your own words. The message goes with your name and address, the
   page you wrote from and the reference of the last request that failed there, so support finds
@@ -97,6 +103,10 @@ Members:
 
 Operators:
 
+- The help pages (`backend/app/help/`, Markdown filled in as `GET /api/help` serves them) take
+  their figures from the code and the settings: the plans, `MAX_UPLOAD_MB` and the other upload
+  ceilings, `OCR_MAX_PAGES`, `SESSION_DAYS`, the rates; with `SCANNER_URL`, Stripe or the breach
+  check off, they say nothing of them.
 - Members' messages to support from the app's help menu are mailed to `SUPPORT_EMAIL`, unset
   `OPERATOR_EMAIL`, with replies going to the member, at most `RATE_FEEDBACK` (10) an hour each;
   the mail names the account, the organisation (linked in the operator's area), the page, the

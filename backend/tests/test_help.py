@@ -1,12 +1,17 @@
-"""Help for members (app/api/help.py): where to write for it, and a message to support from the
-app's help menu, mailed with where the member was and nothing of it kept or logged."""
+"""Help for members (app/api/help.py): the help pages, filled in from what the deployment does,
+where to write for help, and a message to support from the app's help menu, mailed with where
+the member was and nothing of it kept or logged."""
+
+import re
 
 import pytest
 from sqlalchemy import func, select
 
 from app.api.help import NO_SUPPORT
-from app.config import get_settings
+from app.config import ROOT_DIR, get_settings
+from app.help import ARTICLES, articles
 from app.models import AuditEvent, Job
+from app.parsing import SUPPORTED_EXTENSIONS
 from app.ratelimit import FEEDBACK
 from tests.test_apikeys import make_key, program
 from tests.test_auth import another_browser, signup
@@ -130,16 +135,95 @@ def test_help_names_where_to_write_and_development_may_name_nowhere(
     client, mailer, monkeypatch, signed_in_only
 ):
     # Anyone may ask, the sign-in pages linking to help too.
-    assert client.get("/api/help").json() == {"support_email": SUPPORT}
+    assert client.get("/api/help").json()["support_email"] == SUPPORT
     settings = get_settings()
     monkeypatch.setattr(settings, "support_email", "")
     monkeypatch.setattr(settings, "operator_email", "privacy@emudoc.example.com")
     # One address answers both, unless the deployment names another for support.
-    assert client.get("/api/help").json() == {"support_email": "privacy@emudoc.example.com"}
+    assert client.get("/api/help").json()["support_email"] == "privacy@emudoc.example.com"
 
     monkeypatch.setattr(settings, "operator_email", "")
-    assert client.get("/api/help").json() == {"support_email": None}
+    assert client.get("/api/help").json()["support_email"] is None
     signup(client)
     refused = write(client)
     assert refused.status_code == 503 and refused.json()["detail"] == NO_SUPPORT
     assert mailer.sent[1:] == []
+
+
+# The help pages (app/help): filled in from the code and the settings, and every link of theirs
+# leads to an article or a page of the app.
+
+# The app's pages, as the router names them (frontend/src/App.tsx), and the articles'.
+ROUTES = re.compile(r'<Route (?:index |path="([^"]*)")')
+
+
+def pages() -> set[str]:
+    paths = ROUTES.findall((ROOT_DIR / "frontend" / "src" / "App.tsx").read_text())
+    named = {f"/{path}" for path in paths if path and ":" not in path and path != "*"}
+    return named | {"/"} | {f"/help/{slug}" for slug, _ in ARTICLES}
+
+
+def said(article: dict) -> str:
+    return " ".join(article["text"].split())
+
+
+def test_the_help_is_filled_in_from_what_the_deployment_allows(client, signed_in_only):
+    # Anyone may read it, before signing in too.
+    help = client.get("/api/help").json()
+    assert [article["slug"] for article in help["articles"]] == [slug for slug, _ in ARTICLES]
+    by = {article["slug"]: article for article in help["articles"]}
+    assert by["documents"]["title"] == "Uploading and organising documents"
+    assert by["documents"]["text"].startswith("# Uploading and organising documents\n")
+    assert by["documents"]["summary"] == dict(ARTICLES)["documents"]
+    documents = said(by["documents"])
+    assert (
+        "PDF, Word (.docx), Excel (.xlsx), CSV, plain text, Markdown files, and images (PNG, "
+        "JPEG, WebP). A file may be up to 100 MB, and one upload up to 100 files and 500 MB"
+    ) in documents
+    assert "in the trash for 30 days" in documents
+    assert "| Pages a month | 200 | 5,000 | 25,000 | No limit |" in by["plans"]["text"]
+    assert "| Members | 1 | 1 | 3, or the seats bought | No limit |" in by["plans"]["text"]
+    assert (
+        "| Chats kept after their last question | 30 days | 365 days | Until deleted"
+        in (by["plans"]["text"])
+    )
+    assert f"write to [{SUPPORT}](mailto:{SUPPORT})" in said(by["support"])
+    for article in help["articles"]:
+        assert "$" not in article["text"], article["slug"]
+
+
+def test_what_a_deployment_does_not_do_the_help_does_not_say(monkeypatch):
+    settings = get_settings()
+
+    def text(slug: str) -> str:
+        return " ".join(next(a for a in articles(settings) if a.slug == slug).text.split())
+
+    # The suite scans nothing, sells nothing and checks no breach list.
+    assert "scanned for malware" not in text("documents")
+    assert "write to support ([Getting help](/help/support))" in text("plans")
+    assert "data breach" not in text("account")
+    monkeypatch.setattr(settings, "scanner_url", "clamd://127.0.0.1:3310")
+    monkeypatch.setattr(settings, "pwned_passwords_url", "https://api.pwnedpasswords.com")
+    monkeypatch.setattr(settings, "rate_failed_sign_ins", 0)
+    monkeypatch.setattr(settings, "ocr_max_pages", 0)
+    monkeypatch.setattr(settings, "max_upload_mb", 250)
+    assert "Every upload is first scanned for malware" in text("documents")
+    assert "as an image." in text("documents") and "A file may be up to 250 MB" in text("documents")
+    assert "data breach is refused." in text("account") and "pause" not in text("account")
+    # The figures are the code's, never typed in.
+    monkeypatch.setattr("app.help.TRASH_DAYS", 45)
+    assert "in the trash for 45 days" in text("documents")
+
+
+def test_the_help_names_every_file_type_an_upload_takes(monkeypatch):
+    monkeypatch.setattr("app.help.SUPPORTED_EXTENSIONS", {*SUPPORTED_EXTENSIONS, ".rtf"})
+    with pytest.raises(RuntimeError, match=r"\.rtf"):
+        articles(get_settings())
+
+
+def test_every_link_of_the_help_leads_to_an_article_or_a_page():
+    known = pages()
+    assert {"/account", "/organization/usage", "/privacy", "/help"} <= known
+    for article in articles(get_settings()):
+        for link in re.findall(r"\]\((/[^)]*)\)", article.text):
+            assert link in known, (article.slug, link)

@@ -276,8 +276,18 @@ export interface PageError {
   path: string
 }
 
-/** Where members write for help (backend/app/api/help.py): none only in development. */
+/** A help page (backend/app/help), filled in for the deployment: Markdown, its title the first heading. */
+export interface HelpArticle {
+  slug: string
+  title: string
+  /** The line the contents show of it. */
+  summary: string
+  text: string
+}
+
+/** The help pages, and where members write for help (backend/app/api/help.py): none only in development. */
 export interface Help {
+  articles: HelpArticle[]
   support_email: string | null
 }
 

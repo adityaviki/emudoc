@@ -15,7 +15,7 @@ import { makeOperator, movePlan } from './operator.ts'
 // steps, delete it and keep it, and switch back, and, on Team, invite a colleague as a
 // viewer from under that answer, who makes an account from the invitation's link, ends her tour, finds
 // the project and is offered no change to it until made a member, write to support from the
-// help menu, which mails the page written from, then make the project
+// help menu, which mails the page written from, read the help pages, then make the project
 // private, which she no longer finds until chosen for it, and share the chat, which the
 // colleague then reads but does not ask in, and last ask the question that uses the month's
 // questions, which the bell tells, and open that notice from the other organisation; then, made
@@ -368,6 +368,21 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     expect(mail).toContain('Can one project hold two price lists?')
     expect(mail).toContain('/organization/usage')
     await page.keyboard.press('Escape')
+  })
+
+  await test.step('read the help pages from the help menu, find one by a word and follow its link into the app', async () => {
+    await page.getByRole('button', { name: 'Help', exact: true }).click()
+    await page.getByRole('dialog', { name: 'Help' }).getByRole('link', { name: 'Help pages' }).click()
+    await expect(page.getByRole('heading', { name: 'Help', exact: true })).toBeVisible()
+    await page.getByLabel('Search the help').fill('zip file')
+    await expect(page.getByRole('link', { name: /^Getting started/ })).toHaveCount(0)
+    await page.getByRole('link', { name: /^Your data/ }).click()
+    const article = page.getByRole('article')
+    await expect(article.getByRole('heading', { name: 'Your data: exports, the trash and deletion' })).toBeVisible()
+    // Its figures are the deployment's own (backend/app/help).
+    await expect(article).toContainText('kept 7 days for whoever asked for it')
+    await article.getByRole('link', { name: 'account page' }).click()
+    await expect(page).toHaveURL(/\/account$/)
   })
 
   await test.step('make a read key, which a program lists the projects with and changes nothing by', async () => {
