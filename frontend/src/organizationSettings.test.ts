@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import type { Languages, Organization } from './api.ts'
-import { chatDayChoices, chosenLanguage, deletes, keptWords, languageChoices, languageName } from './organizationSettings.ts'
+import type { Languages, Member, Organization } from './api.ts'
+import {
+  chatDayChoices,
+  chosenLanguage,
+  deletes,
+  heldByTwoFactor,
+  keptWords,
+  languageChoices,
+  languageName,
+  sessionDayChoices,
+  signInWords,
+} from './organizationSettings.ts'
 
 const pro = {
   allowance: { retention_days: 365 },
@@ -69,5 +79,40 @@ describe('chats kept', () => {
     // A hold of the audit log alone keeps no chat.
     const audit = { ...held, retention_held: { ...held.retention_held, chat_days: 30 } }
     expect(deletes(audit, 30)).toBeNull()
+  })
+})
+
+describe('security', () => {
+  const deployment = { ...pro, max_session_days: 30, session_days: null } as Organization
+
+  it('offers the sessions shorter than the deployment keeps one, with the organisation’s own among them', () => {
+    expect(signInWords(1)).toBe('Every day')
+    expect(signInWords(14)).toBe('Every 14 days')
+    expect(sessionDayChoices(deployment).map((choice) => choice.value)).toEqual(['', '1', '7', '14'])
+    expect(sessionDayChoices(deployment)[0].label).toBe('As often as Emudoc asks: every 30 days')
+    expect(sessionDayChoices({ ...deployment, session_days: 3 }).map((choice) => choice.value)).toEqual(['', '1', '3', '7', '14'])
+    expect(sessionDayChoices({ ...deployment, max_session_days: 90 }).map((choice) => choice.value)).toEqual(['', '1', '7', '14', '30', '60'])
+  })
+
+  it('names whom requiring two-factor would hold', () => {
+    const member = (name: string, mfa_enabled: boolean | null): Member => ({
+      user_id: name.length,
+      name,
+      email: `${name.toLowerCase()}@example.com`,
+      role: 'member',
+      joined_at: '2026-10-20T12:00:00Z',
+      mfa_enabled,
+    })
+    expect(heldByTwoFactor([member('Ada', true)])).toBeNull()
+    // A member the page was not told about is no member held.
+    expect(heldByTwoFactor([member('Ada', true), member('Ann', null)])).toBeNull()
+    expect(heldByTwoFactor([member('Ada', true), member('Bob', false)])).toBe(
+      'One member signs in without it: Bob. They set it up before working in the organisation again.',
+    )
+    const many = ['Bob', 'Cat', 'Dan', 'Eve', 'Fay'].map((name) => member(name, false))
+    expect(heldByTwoFactor(many)).toBe(
+      '5 members sign in without it: Bob, Cat, Dan and 2 more. Each sets it up before working in the organisation again.',
+    )
+    expect(heldByTwoFactor([{ ...member('', false), email: 'zed@example.com' }])).toContain(': zed@example.com.')
   })
 })

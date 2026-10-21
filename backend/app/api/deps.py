@@ -9,6 +9,13 @@ user has not accepted the current terms of service (app/legal/), except by those
 two that take `LiveAccountDep`: accepting them, and asking for the account to be deleted
 instead. Signing out needs no account.
 
+An organisation's security settings (app/security.py) are held here too, since a session works
+in whichever of its user's organisations it switched to. One that signed in longer ago than its
+organisation allows ends at its next request, as an expired one; and in an organisation that
+requires two-factor sign-in, an account without it is refused everything that takes
+`AccountDep`, the routes it needs to set it up, switch, leave or sign out taking the
+dependencies before it.
+
 Every tab of a browser shares its session, and so the organisation it works in: once one tab
 switches, another still shows the organisation before, and whatever it asked would be done in
 the new one. So the app's own requests name the organisation the page shows (ORGANIZATION_HEADER)
@@ -54,7 +61,7 @@ from sqlalchemy.orm import Session
 
 from app.access import sees, visible_to
 from app.accounts import Account, account_for_user, local_account, zone_of
-from app.auth import SESSION_COOKIE, find_session, touch_session
+from app.auth import SESSION_COOKIE, find_session, now, touch_session
 from app.config import get_settings
 from app.db import get_session
 from app.entitlements import PlanRefused, read_only
@@ -64,6 +71,7 @@ from app.logs import about
 from app.models import Chat, Document, Folder, Passage, Project, User
 from app.ratelimit import Key, Limit, by_user, hit
 from app.retention import deletion_pending
+from app.security import mfa_due, mfa_pending, sign_in_again, signed_in_too_long
 from app.trash import DOCUMENT_IN_TRASH, NOT_IN_TRASH, PASSAGE_IN_TRASH
 from app.worker import Worker
 
@@ -158,6 +166,10 @@ def get_account(request: Request, session: SessionDep) -> Account:
             if account is None:
                 raise HTTPException(403, NO_ORGANISATION)
             about(org_id=account.organization.id)
+            if signed_in_too_long(account.organization, user_session):
+                user_session.revoked_at = now()
+                session.commit()
+                raise HTTPException(401, sign_in_again(account.organization))
             touch_session(session, user_session)
             return account
     if get_settings().local_account:
@@ -206,7 +218,18 @@ def get_current_account(request: Request, account: UsableAccountDep) -> Account:
     return account
 
 
-AccountDep = Annotated[Account, Depends(get_current_account)]
+CurrentAccountDep = Annotated[Account, Depends(get_current_account)]
+
+
+def get_secured_account(account: CurrentAccountDep) -> Account:
+    """The account, provided it signs in as its organisation requires: with two-factor, where
+    the organisation asks for it."""
+    if mfa_due(account):
+        raise HTTPException(403, mfa_pending(account.organization))
+    return account
+
+
+AccountDep = Annotated[Account, Depends(get_secured_account)]
 
 
 def get_editor(account: AccountDep, session: SessionDep) -> Account:

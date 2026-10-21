@@ -81,6 +81,9 @@ const free: Organization = {
   language: null,
   chat_days: null,
   notice_defaults: [],
+  mfa_required: false,
+  session_days: null,
+  max_session_days: 30,
   join_domains: [],
   join_role: 'member',
 }

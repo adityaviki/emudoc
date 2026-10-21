@@ -178,6 +178,7 @@ from app.schemas import (
     SignupLinkOut,
     TermsIn,
 )
+from app.security import mfa_due
 from app.storage import Storage, content_disposition
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -901,8 +902,9 @@ def export_account(
 
 
 @router.post("/mfa/setup", response_model=MfaSetupOut)
-def setup_mfa(account: AccountDep, session: SessionDep):
-    """Start adding an authenticator: a new secret, which a correct code then turns on."""
+def setup_mfa(account: UsableAccountDep, session: SessionDep):
+    """Start adding an authenticator: a new secret, which a correct code then turns on. Open to
+    an account its organisation holds until it has one (app/security.py), as is turning it on."""
     user = account.user
     if user.mfa_enabled:
         raise HTTPException(
@@ -916,7 +918,7 @@ def setup_mfa(account: AccountDep, session: SessionDep):
 
 
 @router.post("/mfa/enable", response_model=RecoveryCodesOut)
-def enable_mfa(body: CodeIn, account: AccountDep, request: Request, session: SessionDep):
+def enable_mfa(body: CodeIn, account: UsableAccountDep, request: Request, session: SessionDep):
     """Turn two-factor sign-in on once the app shows the right code; returns the recovery codes."""
     user = account.user
     if user.mfa_enabled:
@@ -1143,6 +1145,7 @@ def me_out(session: Session, account: Account) -> MeOut:
         notices=choices(user, account.organization.notices),
         email_verified=user.email_verified_at is not None,
         mfa_enabled=user.mfa_enabled,
+        mfa_due=mfa_due(account),
         identities=sorted(identity.provider for identity in user.identities),
         organization=organization_out(session, account.organization),
         role=account.role,
@@ -1201,6 +1204,7 @@ def organization_out(session: Session, organization: Organization) -> Organizati
                 ],
             ),
             "seats": seats_of(organization),
+            "max_session_days": settings.session_days,
             "chat_retention_days": chosen(kept_by(entitlements), organization).chat_days,
             "audit_retention_days": entitlements.audit_days,
             "retention_held": held_out(hold_in_force(organization)),

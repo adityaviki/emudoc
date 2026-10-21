@@ -770,6 +770,12 @@ class OrganizationOut(_FromORM):
     language: str | None
     chat_days: int | None
     notice_defaults: list[NoticeChoiceOut] = []
+    # Its security settings (app/security.py): whether everyone who works in it signs in with
+    # two-factor, and the days a session may work in it after signing in, None for as long as
+    # the deployment keeps one, which is the most it may choose (`max_session_days`).
+    mfa_required: bool
+    session_days: int | None
+    max_session_days: int | None = None
     # The domains whose confirmed addresses may join it, and the role they join with
     # (app/invitations.py).
     join_domains: list[str]
@@ -806,6 +812,10 @@ class MeOut(BaseModel):
     notices: list[NoticeChoiceOut]
     email_verified: bool
     mfa_enabled: bool
+    # Whether the organisation requires two-factor sign-in and the account signs in without
+    # it: until it is set up, the app offers nothing there but that, a switch, leaving, and
+    # signing out (app/security.py).
+    mfa_due: bool
     # Providers the account can sign in through, such as "google".
     identities: list[str]
     organization: OrganizationOut
@@ -850,6 +860,10 @@ class OrganizationChangeIn(BaseModel):
     # Never more than the plan keeps a chat.
     chat_days: int | None = Field(None, ge=1, le=36500)
     notices: list[NoticeChoiceIn] | None = Field(None, max_length=20)
+    # Turned on only by someone who signs in with two-factor themselves.
+    mfa_required: bool | None = None
+    # Never more than the deployment's SESSION_DAYS.
+    session_days: int | None = Field(None, ge=1, le=36500)
 
 
 class LanguagesOut(BaseModel):
@@ -868,6 +882,9 @@ class MemberOut(BaseModel):
     email: str
     role: str
     joined_at: dt.datetime
+    # Whether they sign in with two-factor, which the owners and admins are shown, to know whom
+    # requiring it would hold; None for anyone else.
+    mfa_enabled: bool | None = None
 
 
 # ROLES in app/models.py, which the database's check constraints hold.
@@ -972,6 +989,8 @@ class AuditEventOut(BaseModel):
     user_email: str | None
     ip: str | None
     project_id: int | None
+    # The project's name as it is now, None once it is gone.
+    project_name: str | None = None
     # What it was done to: "document" and its id. The object may be gone since.
     target_type: str | None
     target_id: int | None

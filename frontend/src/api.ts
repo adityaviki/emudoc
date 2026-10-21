@@ -408,6 +408,10 @@ export interface Organization {
   language: string | null
   chat_days: number | null
   notice_defaults: NoticeChoice[]
+  /** Its security settings (backend/app/security.py): whether everyone who works in it signs in with two-factor, and the days a session may work in it after signing in, null for as long as the deployment keeps one, which is the most it may choose. */
+  mfa_required: boolean
+  session_days: number | null
+  max_session_days: number
   /** The domains whose confirmed addresses may join it, and the role they join with (backend/app/invitations.py). */
   join_domains: string[]
   join_role: JoinRole
@@ -419,6 +423,9 @@ export interface OrganizationChange {
   language?: string | null
   chat_days?: number | null
   notices?: { kind: NoticeKind; app?: boolean; email?: boolean }[]
+  /** Turned on only by someone who signs in with two-factor themselves. */
+  mfa_required?: boolean
+  session_days?: number | null
 }
 
 /** The text search configurations the database has, which an organisation may search its documents in, and the deployment's. */
@@ -616,6 +623,8 @@ export interface Member {
   email: string
   role: Role
   joined_at: string
+  /** Whether they sign in with two-factor, shown to the owners and admins alone; null for anyone else. */
+  mfa_enabled: boolean | null
 }
 
 /** The kinds of notice (NOTICE_KINDS in backend/app/models.py, backend/app/notices.py). */
@@ -662,6 +671,8 @@ export interface Me {
   notices: NoticeChoice[]
   email_verified: boolean
   mfa_enabled: boolean
+  /** Whether the organisation requires two-factor sign-in and the account signs in without it; until it is set up, the app offers only that, a switch, leaving, and signing out. */
+  mfa_due: boolean
   /** Providers the account can sign in through, such as "google". */
   identities: string[]
   organization: Organization
@@ -766,6 +777,7 @@ export type AuditAction =
   | 'organization_created'
   | 'organization_renamed'
   | 'settings_changed'
+  | 'audit_exported'
   | 'ownership_transferred'
   | 'invitation_sent'
   | 'invitation_revoked'
@@ -807,11 +819,39 @@ export interface AuditEvent {
   user_email: string | null
   ip: string | null
   project_id: number | null
+  /** The project's name as it is now, null once it is gone. */
+  project_name: string | null
   /** What it was done to, which may be gone since. */
   target_type: string | null
   target_id: number | null
   /** Names and settings as they were, such as `{ filename: 'invoice.pdf' }`, and the users a change let in or left out by id. */
-  detail: Record<string, string | number | boolean | number[] | null>
+  detail: Record<string, string | number | boolean | number[] | string[] | null>
+}
+
+/** Which rows of the audit log to read: of these actions (any, when none), by this member, about this project, from `since` until before `until` (ISO times). */
+export interface AuditFilter {
+  actions: AuditAction[]
+  userId: number | null
+  projectId: number | null
+  since: string | null
+  until: string | null
+}
+
+/** The query that asks for the rows a filter picks (`audit_filter` in backend/app/api/audit.py). */
+export function auditQuery(filter: AuditFilter): URLSearchParams {
+  const params = new URLSearchParams()
+  for (const action of filter.actions) params.append('action', action)
+  if (filter.userId !== null) params.set('user_id', String(filter.userId))
+  if (filter.projectId !== null) params.set('project_id', String(filter.projectId))
+  if (filter.since) params.set('since', filter.since)
+  if (filter.until) params.set('until', filter.until)
+  return params
+}
+
+/** The rows a filter picks as a CSV file to save, the newest first; a link, not a fetch, and the download is in the log. */
+export const auditExportUrl = (filter: AuditFilter) => {
+  const query = auditQuery(filter).toString()
+  return `/api/audit/export${query ? `?${query}` : ''}`
 }
 
 /** A page of the audit log, the newest row first. */
@@ -1132,9 +1172,10 @@ export const api = {
   /** Public, since a sign-in page can fail too: the reference is the id the app logged the report under. */
   reportPageError: (report: PageError) =>
     request<{ reference: string | null }>('/page-errors', json('POST', report)),
-  /** Owners and admins only; anyone else gets a 403. */
-  audit: (before: number | null = null, limit = 50) => {
-    const params = new URLSearchParams({ limit: String(limit) })
+  /** Owners and admins only; anyone else gets a 403. The page older than the row `before`, of the rows the filter picks. */
+  audit: (filter: AuditFilter, before: number | null = null, limit = 50) => {
+    const params = auditQuery(filter)
+    params.set('limit', String(limit))
     if (before != null) params.set('before', String(before))
     return request<AuditPage>(`/audit?${params}`)
   },

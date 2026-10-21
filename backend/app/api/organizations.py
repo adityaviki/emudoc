@@ -11,8 +11,11 @@ Renaming and the organisation's settings are for owners and admins. Renaming kee
 which the operator's commands name the organisation by (`usage <slug>`, `plan <slug>`). The
 settings are the language its documents are searched in (app/languages.py), which moves the
 passages indexed before to it by a job; how long it keeps a chat, never longer than its plan
-does (app/retention.py); and how its members are told each kind of notice until they choose
-for themselves (app/notices.py). Each change is a row of the audit log of its own.
+does (app/retention.py); how its members are told each kind of notice until they choose
+for themselves (app/notices.py); and its security settings (app/security.py), whether everyone
+who works in it signs in with two-factor, which only someone who does may turn on, and how
+many days after signing in a session may work in it. Each change is a row of the audit log of
+its own. The owners and admins also see which members sign in with two-factor.
 
 Handing it over makes another member an owner and its owner an admin, confirmed as deleting the
 account is, by the password or the address typed out, since a browser left signed in should not
@@ -44,7 +47,7 @@ from app.accounts import (
     free_organizations_owned,
 )
 from app.api.auth import confirm_account, me_out
-from app.api.deps import AccountDep, SessionDep, UsableAccountDep, limited
+from app.api.deps import AccountDep, CurrentAccountDep, SessionDep, UsableAccountDep, limited
 from app.audit import audit, audit_event
 from app.config import get_settings
 from app.entitlements import entitlements_of
@@ -62,6 +65,7 @@ from app.schemas import (
     OrganizationIn,
     OwnershipIn,
 )
+from app.security import MFA_YOURS_FIRST, longer_than_sessions
 
 router = APIRouter(tags=["organizations"])
 
@@ -187,6 +191,18 @@ def change_organization(
                 detail = {"setting": "notices", "kind": choice.kind, "way": way}
                 changes.append(("settings_changed", {**detail, "from": not on, "to": on}))
                 organization.choose(choice.kind, way, on)
+    if body.mfa_required is not None and body.mfa_required != organization.mfa_required:
+        if body.mfa_required and not account.user.mfa_enabled:
+            raise HTTPException(409, MFA_YOURS_FIRST)
+        changes.append(("settings_changed", _setting("mfa_required", not body.mfa_required, body)))
+        organization.mfa_required = body.mfa_required
+    if "session_days" in given and body.session_days != organization.session_days:
+        most = get_settings().session_days
+        if body.session_days is not None and body.session_days > most:
+            raise HTTPException(400, longer_than_sessions(most))
+        was = organization.session_days
+        changes.append(("settings_changed", _setting("session_days", was, body)))
+        organization.session_days = body.session_days
     for action, detail in changes:
         audit(session, account, request, action, detail=detail)
     if changes:
@@ -209,7 +225,8 @@ def list_members(account: AccountDep, session: SessionDep):
         .join(User, User.id == Membership.user_id)
         .where(Membership.org_id == account.organization.id)
     ).all()
-    members = [_member_out(membership, user) for membership, user in rows]
+    managing = account.is_at_least("admin")
+    members = [_member_out(membership, user, managing) for membership, user in rows]
     return sorted(members, key=lambda m: (ROLES.index(m.role), m.joined_at, m.user_id))
 
 
@@ -313,8 +330,9 @@ def hand_over(body: OwnershipIn, account: AccountDep, request: Request, session:
 
 
 @router.post("/organization/leave", response_model=MeOut)
-def leave_organization(account: AccountDep, request: Request, session: SessionDep):
-    """Stop being a member of the organisation, and work in another of the user's from now on."""
+def leave_organization(account: CurrentAccountDep, request: Request, session: SessionDep):
+    """Stop being a member of the organisation, and work in another of the user's from now on:
+    also the way out of one that holds the account until it signs in with two-factor."""
     if account.session_id is None:
         raise HTTPException(409, NO_SESSION)
     account = _held(session, account)
@@ -433,13 +451,16 @@ def _part(session: Session, org_id: int, user_id: int) -> int:
     return chats
 
 
-def _member_out(membership: Membership, user: User) -> MemberOut:
+def _member_out(membership: Membership, user: User, managing: bool = True) -> MemberOut:
+    """The member as the page shows them, with whether they sign in with two-factor to an owner
+    or admin (`managing`)."""
     return MemberOut(
         user_id=user.id,
         name=user.name,
         email=user.email,
         role=membership.role,
         joined_at=membership.created_at,
+        mfa_enabled=user.mfa_enabled if managing else None,
     )
 
 

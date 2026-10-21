@@ -57,11 +57,13 @@ interface AuthCardProps {
   children: ReactNode
   /** A line under the card, usually the way to the other page: sign in or sign up. */
   footer?: ReactNode
+  /** Room for a QR code beside its instructions. */
+  wide?: boolean
 }
 
-export function AuthCard({ title, intro, children, footer }: AuthCardProps) {
+export function AuthCard({ title, intro, children, footer, wide = false }: AuthCardProps) {
   return (
-    <div className="w-full max-w-sm">
+    <div className={`w-full ${wide ? 'max-w-xl' : 'max-w-sm'}`}>
       <div className="rounded-xl border border-line bg-surface p-6 shadow-xs">
         <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
         {intro && <p className="mt-1 text-[13px] leading-relaxed text-muted">{intro}</p>}

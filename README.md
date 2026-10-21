@@ -633,7 +633,15 @@ or counting a page, and answers fall back to when a question does not show a lan
 (`backend/app/languages.py`); how long it keeps a chat after its last question, never longer
 than its plan, which deletes the older chats of every member at the next housekeeping round,
 as the page says before it is saved; and how its members are told each kind of notice until
-they choose for themselves on their account page.
+they choose for themselves on their account page. Its security settings are theirs too
+(`backend/app/security.py`): requiring two-factor sign-in of everyone who works in it, which
+only someone who signs in with it may turn on, and which holds a member without it, in that
+organisation alone, at a page that sets up an authenticator app, offers their other
+organisations and leaving this one, and signs out (an account that signs in through Google or
+Microsoft sets one up too, since the provider's own second factor is not seen); and signing its
+members in again sooner than the deployment's `SESSION_DAYS`, which ends a session that signed
+in longer ago at its next request there. The owners and admins see which members sign in with
+two-factor, and the page names whom requiring it would hold before it is turned on.
 The roles: a viewer reads the projects and asks about them in chats of their own, a member also
 changes the projects (makes, uploads, organises, deletes), an admin also renames the organisation
 and manages who is in it, and an owner also manages its owners. The page offers each member only
@@ -793,8 +801,11 @@ requeue) and the app (a quarantine, an account purge with the owner it promoted)
 own. A row names the member, the project and the object, the client's address, and names or
 settings as they were (a file's name, a role before and after), never what a document, a
 question or a chat's title says, nor what a name or an address was changed to. Its owners and
-admins read it page by page through `GET /api/audit`; the view with filters is still to come. A row is kept 90 days on Free, a year on Pro and Team, and for good
-on Enterprise. A purged account's rows stay with an organisation that keeps other members,
+admins read it on its page (`/organization/audit`, from the organisation page's Security
+section), the newest first, by what was done, by whom, in which project and on which days, and
+download what they picked as a CSV file, which the log records too (`GET /api/audit`, `GET
+/api/audit/export`). A row is kept 90 days on Free, a year on Pro and Team, and for good on
+Enterprise. A purged account's rows stay with an organisation that keeps other members,
 without their addresses, and the account export includes the rows that name its user.
 
 `/subprocessors` lists the companies the deployment sends data to, what for and what each

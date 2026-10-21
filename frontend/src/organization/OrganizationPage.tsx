@@ -1,12 +1,12 @@
-// The organisation the user works in: its name and region, what its plan lets it keep and use (what it holds and used
-// of it is the usage page's, UsagePage.tsx) and buying one, its members, their roles and removing them, handing it
-// over to another of them, the invitations its owners and admins send and the domains whose addresses may join it,
-// and leaving it; the user's other organisations to switch to and those open to them; and the page that starts a new
+// The organisation the user works in: its name and region, its settings and security settings (its audit log is
+// AuditPage.tsx), what its plan lets it keep and use (what it holds and used of it is the usage page's, UsagePage.tsx)
+// and buying one, its members, their roles and removing them, handing it over to another of them, the invitations its
+// owners and admins send and the domains whose addresses may join it, and leaving it; the user's other organisations to switch to and those open to them; and the page that starts a new
 // one. A switch, a join, a new organisation and leaving one start the app again in the organisation the session then
 // works in (`startAgainInOrganization` in auth.ts).
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, CreditCard, LogOut, Plus, UserMinus, UserPlus } from 'lucide-react'
+import { Check, CreditCard, History, LogOut, Plus, UserMinus, UserPlus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
@@ -17,10 +17,20 @@ import { describeBilling, describeChange, describeExcess, describeHeld, mayBuy, 
 import { PasswordField } from '../account/shared.tsx'
 import { NoticeChoices } from '../components/NoticeChoices.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
-import { Button, Chip, FIELD, InputField, Loading, Notice, Radio, Row, Section, SelectField } from '../components/ui.tsx'
+import { Button, Checkbox, Chip, FIELD, InputField, LinkButton, Loading, Notice, Radio, Row, Section, SelectField } from '../components/ui.tsx'
 import { formatDate, formatSize } from '../format.ts'
 import { INVITATIONS_SECTION, JOINING_SECTION } from '../onboarding.ts'
-import { chatDayChoices, chosenLanguage, deletes, keptWords, languageChoices, languageName } from '../organizationSettings.ts'
+import {
+  chatDayChoices,
+  chosenLanguage,
+  deletes,
+  heldByTwoFactor,
+  keptWords,
+  languageChoices,
+  languageName,
+  sessionDayChoices,
+  signInWords,
+} from '../organizationSettings.ts'
 
 const MEMBERS_KEY = ['organization', 'members'] as const
 const LANGUAGES_KEY = ['organization', 'languages'] as const
@@ -44,11 +54,12 @@ export function OrganizationPage() {
       <div className="mx-auto max-w-2xl px-6 py-10">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold tracking-tight">{me.organization.name}</h1>
-          <p className="mt-1 text-[13px] text-muted">The organisation you work in: its name and settings, its plan, its members, who may join it, and leaving it.</p>
+          <p className="mt-1 text-[13px] text-muted">The organisation you work in: its name and settings, how its members sign in, its plan, its members, who may join it, and leaving it.</p>
         </div>
         <div className="space-y-5">
           <NameSection me={me} />
           <SettingsSection me={me} />
+          <SecuritySection me={me} />
           <PlanSection me={me} />
           <MembersSection me={me} />
           {isWithin('admin', me.role) && (
@@ -205,6 +216,142 @@ function ChatDays({ me }: { me: Me }) {
         </Button>
       </div>
       {warning && chosen !== organization.chat_days && <Notice tone="warn">{warning}</Notice>}
+      {save.isError && <Notice tone="bad">{save.error.message}</Notice>}
+    </div>
+  )
+}
+
+// How its members sign in (backend/app/security.py): whether two-factor is required, which only someone who signs in
+// with it may turn on, and how often they sign in again; and the way to its audit log. Owners and admins change them;
+// the others read them.
+function SecuritySection({ me }: { me: Me }) {
+  const organization = me.organization
+  const signIn = signInWords(organization.session_days ?? organization.max_session_days)
+  if (!isWithin('admin', me.role)) {
+    return (
+      <Section title="Security" description="Chosen by its owners and admins for everyone in the organisation.">
+        <dl className="divide-y divide-line border-t border-line">
+          <Row label="Two-factor sign-in">{organization.mfa_required ? 'Required' : 'Up to each member'}</Row>
+          <Row label="Sign in again">{signIn}</Row>
+        </dl>
+      </Section>
+    )
+  }
+
+  return (
+    <Section title="Security" description="How everyone in the organisation signs in, and what was done in it.">
+      <div className="max-w-md space-y-4">
+        <RequireTwoFactor me={me} />
+        <SessionDays me={me} />
+      </div>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4 text-[13px]">
+        <span className="text-muted">Who signed in, changed, shared or deleted what, and when.</span>
+        <LinkButton to="/organization/audit">
+          <History className="size-4" />
+          Audit log
+        </LinkButton>
+      </div>
+    </Section>
+  )
+}
+
+// Turning it on holds every member without two-factor until they set it up, so the page names them first; it cannot
+// be turned on by someone who would be held themselves.
+function RequireTwoFactor({ me }: { me: Me }) {
+  const queryClient = useQueryClient()
+  const organization = me.organization
+  const [asking, setAsking] = useState(false)
+  const members = useQuery({ queryKey: MEMBERS_KEY, queryFn: organizations.members })
+  const save = useMutation({
+    mutationFn: (on: boolean) => organizations.change({ mfa_required: on }),
+    onSuccess: (account) => {
+      setAsking(false)
+      setSignedIn(queryClient, account)
+    },
+  })
+  const held = members.data ? heldByTwoFactor(members.data) : null
+  const checked = save.isPending ? save.variables : organization.mfa_required
+
+  function toggle(on: boolean) {
+    if (asking) setAsking(false)
+    else if (on && held) setAsking(true)
+    else save.mutate(on)
+  }
+
+  return (
+    <div className="space-y-2">
+      <Checkbox
+        label={
+          <>
+            <span className="font-medium">Require two-factor sign-in</span>
+            <span className="block text-muted">
+              Everyone signs in with a code from an authenticator app as well, those who sign in through Google or
+              Microsoft too.
+            </span>
+          </>
+        }
+        checked={checked || asking}
+        disabled={save.isPending || members.isPending || (!organization.mfa_required && !me.mfa_enabled)}
+        onChange={(event) => toggle(event.target.checked)}
+      />
+      {!organization.mfa_required && !me.mfa_enabled && (
+        <p className="pl-6.5 text-[13px] text-muted">
+          <Link to="/account" className="font-medium text-accent hover:underline">
+            Turn it on for your own account
+          </Link>{' '}
+          first: once it is required, nobody works in the organisation without it.
+        </p>
+      )}
+      {asking && held && (
+        <div className="space-y-2 pl-6.5">
+          <Notice tone="warn">{held}</Notice>
+          <div className="flex gap-2">
+            <Button variant="primary" onClick={() => save.mutate(true)} disabled={save.isPending}>
+              Require it
+            </Button>
+            <Button variant="ghost" onClick={() => setAsking(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+      {save.isError && <Notice tone="bad">{save.error.message}</Notice>}
+    </div>
+  )
+}
+
+// A shorter time signs out every member who signed in longer ago at their next request, so it is saved by a button.
+function SessionDays({ me }: { me: Me }) {
+  const queryClient = useQueryClient()
+  const organization = me.organization
+  const [days, setDays] = useState(organization.session_days === null ? '' : String(organization.session_days))
+  const save = useMutation({
+    mutationFn: organizations.change,
+    onSuccess: (account) => setSignedIn(queryClient, account),
+  })
+  const chosen = days === '' ? null : Number(days)
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-end gap-3">
+        <SelectField
+          label="Sign in again"
+          className="min-w-0 flex-1"
+          value={days}
+          disabled={save.isPending}
+          onChange={(event) => setDays(event.target.value)}
+        >
+          {sessionDayChoices(organization).map((choice) => (
+            <option key={choice.value} value={choice.value}>
+              {choice.label}
+            </option>
+          ))}
+        </SelectField>
+        <Button onClick={() => save.mutate({ session_days: chosen })} disabled={chosen === organization.session_days || save.isPending}>
+          Save
+        </Button>
+      </div>
+      <p className="text-xs text-muted">A member who signed in longer ago is asked to sign in again at their next step in the organisation.</p>
       {save.isError && <Notice tone="bad">{save.error.message}</Notice>}
     </div>
   )
@@ -554,6 +701,7 @@ function MemberRow({ me, member }: { me: Me; member: Member }) {
           <p className="flex items-center gap-2">
             <span className="truncate font-medium">{name}</span>
             {yours && <Chip tone="accent">You</Chip>}
+            {member.mfa_enabled === false && <Chip>No two-factor</Chip>}
           </p>
           <p className="truncate text-xs text-muted">
             {member.name && <>{member.email} · </>}

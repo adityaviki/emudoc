@@ -2,15 +2,20 @@
 changes are recorded with who did them and from where, in the transaction of the action; what
 the operator and the app do on their own is recorded as nobody's; no row holds what a document,
 a question or a title says; the owners and admins of an organisation read its rows and no one
-else's; an account's deletion clears its addresses from the rows its organisations keep; and
-the rows go after their plan's days."""
+else's, in the order things happened, by action, member, project and span, and download them as
+a file, which is recorded too; an account's deletion clears its addresses from the rows its
+organisations keep; and the rows go after their plan's days."""
 
+import csv
+import io
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select, update
 from starlette.requests import Request
 
+import app.api.audit
 from app.api.audit import ADMINS_ONLY
 from app.audit import audit_event
 from app.auth import totp_code, totp_step
@@ -414,6 +419,187 @@ def test_only_the_owners_and_admins_read_their_organisations_rows(
     (theirs,) = page(client)["events"]
     assert theirs["user_id"] is None and theirs["user_name"] is None
     assert client.get("/api/audit", params={"limit": 500}).status_code == 422
+
+
+def recorded(session, org_id: int, action: str, at: datetime, **fields) -> int:
+    """A row of the organisation's log recorded at `at`; returns its id."""
+    row = AuditEvent(org_id=org_id, action=action, occurred_at=at, **fields)
+    session.add(row)
+    session.commit()
+    return row.id
+
+
+def shown(client, **params) -> list[int]:
+    """The ids of every row the filters pick, the newest first, read page by page."""
+    ids, before = [], None
+    while True:
+        response = page(client, **params, limit=2, **({"before": before} if before else {}))
+        ids += [event["id"] for event in response["events"]]
+        if (before := response["next_before"]) is None:
+            return ids
+
+
+def test_the_log_is_read_by_action_member_project_and_span(client, session, make_account, act_as):
+    owner = make_account("una@acme.example")
+    member = make_account("mia@acme.example", owner.organization, "member")
+    other = make_account("ann@globex.example")
+    org_id = owner.organization.id
+    contracts = Project(org_id=org_id, name="Contracts")
+    invoices = Project(org_id=org_id, name="Invoices")
+    session.add_all([contracts, invoices])
+    session.commit()
+    day = datetime(2026, 10, 1, 12, tzinfo=UTC)
+
+    upload = recorded(
+        session,
+        org_id,
+        "document_uploaded",
+        day,
+        user_id=member.user.id,
+        project_id=contracts.id,
+        detail={"filename": "msa.pdf"},
+    )
+    sign_in = recorded(session, org_id, "sign_in", day + timedelta(days=1), user_id=member.user.id)
+    deleted = recorded(
+        session,
+        org_id,
+        "document_deleted",
+        day + timedelta(days=2),
+        user_id=owner.user.id,
+        project_id=invoices.id,
+        detail={"filename": "inv-7.pdf"},
+    )
+    # Recorded after the others but dated before them, as a row of a long transaction is: the
+    # log is in the order things happened.
+    late = recorded(
+        session, org_id, "role_changed", day - timedelta(hours=1), user_id=owner.user.id
+    )
+    recorded(session, other.organization.id, "sign_in", day)
+
+    act_as(owner)
+    assert shown(client) == [deleted, sign_in, upload, late]
+    first = page(client)["events"]
+    assert [event["project_name"] for event in first] == ["Invoices", None, "Contracts", None]
+    assert shown(client, action=["document_uploaded", "document_deleted"]) == [deleted, upload]
+    assert shown(client, user_id=member.user.id) == [sign_in, upload]
+    assert shown(client, project_id=contracts.id) == [upload]
+    # A span runs from its start until before its end, a time without a zone in UTC.
+    span = {"since": (day + timedelta(days=1)).isoformat(), "until": "2026-10-03T12:00:00"}
+    assert shown(client, **span) == [sign_in]
+    assert shown(client, **span, user_id=owner.user.id) == []
+    assert shown(client, action=["sign_in"], user_id=member.user.id, since=day.isoformat()) == [
+        sign_in
+    ]
+    # Another organisation's row is no page to go on from.
+    theirs = page(client, before=recorded(session, other.organization.id, "sign_out", day))
+    assert theirs == {"events": [], "next_before": None}
+    assert client.get("/api/audit", params={"action": "signed_in"}).status_code == 422
+
+    act_as(member)
+    assert client.get("/api/audit", params={"action": "sign_in"}).status_code == 403
+
+
+def read_csv(response) -> list[dict[str, str]]:
+    assert response.status_code == 200, response.text
+    text = response.content.decode("utf-8")
+    assert text.startswith("\ufeff")
+    return list(csv.DictReader(io.StringIO(text[1:])))
+
+
+def test_the_log_downloads_as_a_file_of_the_rows_the_filters_pick(
+    client, session, make_account, act_as, monkeypatch
+):
+    monkeypatch.setattr(app.api.audit, "BATCH", 2)
+    owner = make_account("una@acme.example")
+    member = make_account("mia@acme.example", owner.organization, "member")
+    org_id = owner.organization.id
+    day = datetime(2026, 10, 1, 9, 30, tzinfo=UTC)
+    names = ["msa.pdf", "=SUM(A1).pdf", "Zoë.pdf", "+1.pdf", "@sum.pdf"]
+    # A name a spreadsheet would run, as anyone may call themselves.
+    member.user.name = '=HYPERLINK("https://example.com")'
+    session.commit()
+    for number, name in enumerate(names):
+        recorded(
+            session,
+            org_id,
+            "document_downloaded",
+            day + timedelta(minutes=number),
+            user_id=member.user.id,
+            ip="203.0.113.7",
+            detail={"filename": name},
+        )
+    recorded(session, org_id, "sign_in", day - timedelta(minutes=1), user_id=owner.user.id)
+
+    act_as(owner)
+    response = client.get("/api/audit/export", params={"action": "document_downloaded"})
+    rows = read_csv(response)
+    assert response.headers["content-type"] == "text/csv; charset=utf-8"
+    assert response.headers["content-disposition"] == (
+        f'attachment; filename="emudoc-audit-acme-{datetime.now(UTC):%Y-%m-%d}.csv"'
+    )
+    assert response.headers["cache-control"] == "no-store"
+    # Read two at a time, every row comes once, the newest first.
+    assert [json.loads(row["detail"])["filename"] for row in rows] == names[::-1]
+    newest = rows[0]
+    assert newest == {
+        "occurred_at": "2026-10-01T09:34:00Z",
+        "action": "document_downloaded",
+        "user_id": str(member.user.id),
+        "user_name": """'=HYPERLINK("https://example.com")""",
+        "user_email": "mia@acme.example",
+        "ip": "203.0.113.7",
+        "project_id": "",
+        "project_name": "",
+        "target_type": "",
+        "target_id": "",
+        "detail": '{"filename": "@sum.pdf"}',
+    }
+    # The detail is JSON, which a spreadsheet takes for text, its names as they were written.
+    assert {row["detail"][0] for row in rows} == {"{"}
+    assert "Zoë" in rows[2]["detail"]
+
+    # The download is in the log, with what it asked for.
+    exported = rows_of_action(session, org_id, "audit_exported")
+    assert exported == [{"actions": ["document_downloaded"]}]
+    everything = read_csv(client.get("/api/audit/export"))
+    assert [row["action"] for row in everything] == ["audit_exported"] * 2 + [
+        "document_downloaded"
+    ] * 5 + ["sign_in"]
+    assert rows_of_action(session, org_id, "audit_exported")[-1] == {}
+    span = read_csv(
+        client.get(
+            "/api/audit/export",
+            params={"user_id": owner.user.id, "since": "2026-10-01T00:00:00+02:00"},
+        )
+    )
+    # Its own row is recorded before the file is read, and is in it.
+    assert [row["action"] for row in span] == ["audit_exported"] * 3 + ["sign_in"]
+    assert rows_of_action(session, org_id, "audit_exported")[-1] == {
+        "user_id": owner.user.id,
+        "since": "2026-09-30T22:00:00Z",
+    }
+
+    act_as(member)
+    refused = client.get("/api/audit/export")
+    assert refused.status_code == 403 and refused.json()["detail"] == ADMINS_ONLY
+    assert len(rows_of_action(session, org_id, "audit_exported")) == 3
+
+
+def test_a_cell_a_spreadsheet_would_run_is_quoted():
+    assert app.api.audit._cell("=SUM(A1)") == "'=SUM(A1)"
+    assert [app.api.audit._cell(text) for text in ("+1", "-1", "@a", "\tx", "\rx")] == [
+        "'+1",
+        "'-1",
+        "'@a",
+        "'\tx",
+        "'\rx",
+    ]
+    assert app.api.audit._cell("Ada") == "Ada"
+    assert app.api.audit._cell(7) == 7
+
+
+def rows_of_action(session, org_id: int, action: str) -> list[dict]:
+    return [detail for name, detail in actions(session, org_id) if name == action]
 
 
 def test_rows_go_after_their_plans_days(session, services, make_account):

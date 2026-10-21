@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { BrowserContext, Page } from '@playwright/test'
@@ -9,7 +10,8 @@ import { movePlan } from './operator.ts'
 // project the organisation starts with one of its questions, make a project, upload a contract,
 // wait for it to be indexed, find it by searching, ask about it, open the passage the answer
 // cites, which the Free plan's chat follows with the way to a plan for a team, start a second
-// organisation, hide its first steps and switch back, and, on Team, invite a colleague as a
+// organisation, choose its settings, read them in its audit log and download it, hide its first
+// steps and switch back, and, on Team, invite a colleague as a
 // viewer from under that answer, who makes an account from the invitation's link, ends her tour, finds
 // the project and is offered no change to it until made a member, then make the project
 // private, which she no longer finds until chosen for it, and share the chat, which the
@@ -201,9 +203,28 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(language).toHaveValue('german')
     await page.getByLabel('Chats kept').selectOption('7')
     await expect(page.getByText(/more than 7 days old are deleted within six hours/)).toBeVisible()
-    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    // The page saves a sign-in's days by a button of the same name: this is the one beside the select.
+    const save = page.getByRole('button', { name: 'Save', exact: true })
+    const chatDays = page.locator('div').filter({ has: page.getByLabel('Chats kept') }).filter({ has: save }).last()
+    await chatDays.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(page.getByText('The organisation keeps them 7 days, in its settings.')).toBeVisible()
     await expect(page.getByLabel('Chats kept')).toHaveValue('7')
+    // Each change is in its audit log, which an owner reads by what was done, and downloads.
+    await page.getByRole('link', { name: 'Audit log' }).click()
+    await expect(page.getByRole('heading', { name: 'Audit log' })).toBeVisible()
+    await page.getByLabel('What').selectOption('settings_changed')
+    const changes = page.getByRole('listitem').filter({ hasText: 'Changed a setting' })
+    await expect(changes).toHaveCount(2)
+    await expect(changes.first()).toContainText('Chats kept: as long as the plan → 7 days after the last question')
+    await expect(changes.last()).toContainText('Language: the default → German')
+    const downloading = page.waitForEvent('download')
+    await page.getByRole('link', { name: 'Download CSV' }).click()
+    const csv = await readFile(await (await downloading).path(), 'utf8')
+    // With the byte order mark Excel needs to read its names, which trim() takes off.
+    expect(csv.startsWith('\ufeffoccurred_at,action,')).toBe(true)
+    const [header, ...rows] = csv.trim().split(/\r?\n/)
+    expect(header).toBe('occurred_at,action,user_id,user_name,user_email,ip,project_id,project_name,target_type,target_id,detail')
+    expect(rows.map((row) => row.split(',')[1])).toEqual(['settings_changed', 'settings_changed'])
     await page.goto('/')
     const other = await page.context().newPage()
     await other.goto('/')

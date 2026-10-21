@@ -9,6 +9,7 @@ import { InvitationPage } from './account/InvitationPage.tsx'
 import { NotificationBell } from './account/NotificationBell.tsx'
 import { TermsPending } from './account/TermsPending.tsx'
 import { LoginPage } from './account/LoginPage.tsx'
+import { MfaPending } from './account/MfaPending.tsx'
 import { ForgotPasswordPage, ResetPasswordPage } from './account/PasswordPages.tsx'
 import { FinishSignupPage, SignupPage } from './account/SignupPage.tsx'
 import { UnsubscribePage } from './account/UnsubscribePage.tsx'
@@ -24,6 +25,7 @@ import type { MenuItem } from './components/Menu.tsx'
 import { ThemeToggle } from './components/ThemeToggle.tsx'
 import { Button, IconButton, Spinner } from './components/ui.tsx'
 import { useLocalStorage, useStatus } from './hooks.ts'
+import { AuditPage } from './organization/AuditPage.tsx'
 import { NewOrganizationPage, OrganizationPage } from './organization/OrganizationPage.tsx'
 import { OrganizationSwitcher } from './organization/OrganizationSwitcher.tsx'
 import { UsagePage } from './organization/UsagePage.tsx'
@@ -113,6 +115,7 @@ function App() {
           <Route path="account" element={<AccountPage />} />
           <Route path="organization" element={<OrganizationPage />} />
           <Route path="organization/usage" element={<UsagePage />} />
+          <Route path="organization/audit" element={<AuditPage />} />
           <Route path="organizations/new" element={<NewOrganizationPage />} />
           <Route path="projects/:projectId/*" element={<Workspace />} />
           <Route path="*" element={<p className="py-16 text-center text-muted">Page not found.</p>} />
@@ -124,8 +127,9 @@ function App() {
 
 /**
  * The header and the page below it, for a signed-in user only; an account set to be deleted
- * sees only the way to keep it, and one that has not accepted the current terms only the way
- * to accept them, since the server refuses either everything else.
+ * sees only the way to keep it, one that has not accepted the current terms only the way to
+ * accept them, and one whose organisation requires two-factor sign-in that it lacks only the way
+ * to set it up or go elsewhere, since the server refuses each everything else.
  */
 function Shell() {
   const me = useContext(MeContext)
@@ -133,6 +137,7 @@ function Shell() {
   if (!me) return <Navigate to={loginPath(location.pathname + location.search)} replace />
   if (me.deletion_due_at) return <DeletionPending me={me} />
   if (me.terms_due) return <TermsPending me={me} />
+  if (me.mfa_due) return <MfaPending me={me} />
   const linked = linkedOrganization(location.pathname, location.search, location.hash)
   if (linked) return <OpenLinked me={me} id={linked.id} rest={linked.rest} />
 

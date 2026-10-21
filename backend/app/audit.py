@@ -27,8 +27,9 @@ one the session works in by then; so a member of several organisations does not 
 when, or from where, they sign in, and a user in no organisation leaves no row. Switching is
 not recorded: it is a view, and what is done after it is.
 
-Admins and owners read their organisation's rows page by page through `GET /api/audit`
-(app/api/audit.py); the view with filters and an export is the organisation settings' (2.7).
+Admins and owners read their organisation's rows page by page through `GET /api/audit`, by
+action, member, project and span, and download them as a CSV file (app/api/audit.py), which the
+log records as well.
 The housekeeper (app/maintenance.py) deletes the rows older than the plan's `audit_days`
 (app/entitlements.py) with `prune_audit`, every organisation in one statement, keeping them
 longer for a while after a move to a plan that keeps them for less time (app/retention.py).

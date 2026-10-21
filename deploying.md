@@ -3834,7 +3834,7 @@ the roots' `settings` the others ("The settings").
 | `SENTRY_ENVIRONMENT` | `ENVIRONMENT` | | What the tracker files the reports under |
 | `LOCAL_ACCOUNT` | `false` | refused when true | Requests without a session act as a local owner, for development |
 | `APP_URL` | the request's origin | required | Where members reach the app: the links in mail, the OAuth redirect |
-| `SESSION_DAYS` | `30` | | How long a sign-in lasts |
+| `SESSION_DAYS` | `30` | | How long a sign-in lasts; an organisation may sign its members in again sooner |
 | `SAMPLE_PROJECT` | `true` | | Whether the organisation an account signs up with starts with the sample project ("The sample project") |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | the proxy's address | uvicorn's: whose `X-Forwarded-*` headers are believed ("TLS at a reverse proxy") |
 | `TMPDIR` | `/tmp` | | Where uploads pass through and a worker copies an original to ("The image") |

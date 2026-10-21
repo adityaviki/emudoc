@@ -41,9 +41,9 @@ organisation uploaded a document about you, ask the organisation first; we help 
   each with the member it was for, to hold the organisation to its plan and, on a paid plan,
   to bill it.
 - **The audit log**: who signed in, uploaded, downloaded, deleted or shared what, and when,
-  with the IP address of the request. Your organisation's owners and admins can read it, to see
-  what happens to their documents, which is their and our legitimate interest. It never holds
-  what a document, a question or an answer says.
+  with the IP address of the request. Your organisation's owners and admins can read it and
+  download it as a file, to see what happens to their documents, which is their and our
+  legitimate interest. It never holds what a document, a question or an answer says.
 - **Abuse protection**: how many requests each account, each IP address, each email address
   (as a hash only) and each browser you signed in with made in a minute, and how many wrong
   passwords and codes they were tried with in an hour, to slow down password guessing and
@@ -77,8 +77,8 @@ of you.
 - **The other members of your organisation** see your name, your email address and your role
   in its list of members, its projects and documents and the chats you share with a project,
   though a private project only the members chosen for it and the organisation's owners and
-  admins see, and its owners and admins see the IP addresses of your requests in its audit
-  log. An
+  admins see, and its owners and admins see whether you sign in with two-factor and the IP
+  addresses of your requests in its audit log. An
   organisation that lets everyone with an address at a domain join it is offered to you once
   you confirm an address there; it learns of you only if you join.
 - **Authorities**, only where the law obliges us to hand data over.
@@ -122,7 +122,8 @@ $more_retention
 ## Cookies and storage in your browser
 
 Emudoc sets three cookies, all needed for the service to work and its accounts to stay secure:
-`$session_cookie`, which keeps you signed in for up to $session_days days; `$oauth_cookie`, which
+`$session_cookie`, which keeps you signed in for up to $session_days days, or fewer while you work
+in an organisation that asks its members to sign in more often; `$oauth_cookie`, which
 lasts $oauth_minutes minutes while you sign in with Google or Microsoft; and `$browser_cookie`, a
 random code that tells a browser you signed in with from others for $browser_days days after its
 last sign-in, also once you have signed out, and goes with no request but those about signing in
@@ -136,7 +137,8 @@ $third_parties so there is nothing to consent to.
 - Connections to the service are encrypted, and so are its connections to anything outside its
   own network.
 - Passwords are kept only as hashes, and two-factor sign-in is available, its authenticators'
-  secrets encrypted with a key the database does not hold. After many wrong passwords or
+  secrets encrypted with a key the database does not hold; an organisation may require it of
+  everyone who works in it. After many wrong passwords or
   codes, sign-ins from the browsers that have never signed in to the account pause for the
   rest of the hour, and the account's owner is told.
 - Every request is checked against the organisation it is for, so no organisation can reach

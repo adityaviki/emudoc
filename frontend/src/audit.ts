@@ -1,0 +1,179 @@
+// The audit log as its page words it (backend/app/audit.py, backend/app/api/audit.py): each action, filed under the
+// kind of thing it was done to as the filter offers them; a row's detail in a few words; and the filter the page's
+// choices ask for, its days in the browser's own zone.
+
+import { PLAN_LABELS, ROLE_LABELS } from './api.ts'
+import type { AuditAction, AuditEvent, AuditFilter, NoticeKind, Plan, Role } from './api.ts'
+import { NOTICE_KINDS } from './notifications.ts'
+import { keptWords, languageName, signInWords } from './organizationSettings.ts'
+
+/** The kinds the filter groups the actions under, in its order, as it names them. */
+export const KINDS = {
+  sign_ins: 'Signing in',
+  account: 'Accounts',
+  members: 'Members and access',
+  organization: 'The organisation',
+  billing: 'Plan and billing',
+  files: 'Projects and documents',
+  chats: 'Chats',
+} as const
+
+export type AuditKind = keyof typeof KINDS
+
+/** What each action is called and the kind it is filed under: every action of AUDIT_ACTIONS, which the type holds to. */
+export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
+  sign_up: ['Signed up', 'sign_ins'],
+  sign_in: ['Signed in', 'sign_ins'],
+  sign_in_failed: ['Sign-in failed', 'sign_ins'],
+  sign_in_paused: ['Sign-ins paused', 'sign_ins'],
+  sign_out: ['Signed out', 'sign_ins'],
+  session_revoked: ['Signed out a session', 'sign_ins'],
+  other_sessions_revoked: ['Signed out everywhere else', 'sign_ins'],
+  password_changed: ['Changed their password', 'account'],
+  password_reset_requested: ['Asked to reset their password', 'account'],
+  password_reset: ['Reset their password', 'account'],
+  profile_changed: ['Changed their profile', 'account'],
+  email_change_requested: ['Asked to change their address', 'account'],
+  email_changed: ['Changed their address', 'account'],
+  mfa_enabled: ['Turned on two-factor sign-in', 'account'],
+  mfa_disabled: ['Turned off two-factor sign-in', 'account'],
+  account_exported: ['Downloaded their data', 'account'],
+  terms_accepted: ['Accepted the terms', 'account'],
+  account_deletion_requested: ['Asked to delete their account', 'account'],
+  account_deletion_cancelled: ['Kept their account', 'account'],
+  account_purged: ['Account deleted', 'account'],
+  role_changed: ['Changed a role', 'members'],
+  ownership_transferred: ['Handed over the organisation', 'members'],
+  invitation_sent: ['Sent an invitation', 'members'],
+  invitation_revoked: ['Revoked an invitation', 'members'],
+  invitation_accepted: ['Accepted an invitation', 'members'],
+  joining_changed: ['Changed who may join', 'members'],
+  member_joined: ['Joined by their address', 'members'],
+  member_left: ['Left the organisation', 'members'],
+  member_removed: ['Removed a member', 'members'],
+  project_access_changed: ['Changed who sees a project', 'members'],
+  organization_created: ['Started the organisation', 'organization'],
+  organization_renamed: ['Renamed the organisation', 'organization'],
+  settings_changed: ['Changed a setting', 'organization'],
+  audit_exported: ['Downloaded the audit log', 'organization'],
+  sample_added: ['Sample project added', 'organization'],
+  database_restored: ['Database restored', 'organization'],
+  plan_changed: ['Plan changed', 'billing'],
+  seats_changed: ['Seats changed', 'billing'],
+  entitlements_changed: ['Agreed limit changed', 'billing'],
+  checkout_started: ['Started a checkout', 'billing'],
+  subscription_changed: ['Subscription changed', 'billing'],
+  subscription_cancelled: ['Subscription cancelled', 'billing'],
+  cancellation_withdrawn: ['Cancellation withdrawn', 'billing'],
+  payment_failed: ['Payment failed', 'billing'],
+  pack_bought: ['Bought a pack', 'billing'],
+  project_deleted: ['Deleted a project', 'files'],
+  project_restored: ['Restored a project', 'files'],
+  project_purged: ['Deleted a project for good', 'files'],
+  folder_deleted: ['Deleted a folder', 'files'],
+  folder_restored: ['Restored a folder', 'files'],
+  folder_purged: ['Deleted a folder for good', 'files'],
+  document_uploaded: ['Uploaded a document', 'files'],
+  document_downloaded: ['Downloaded a document', 'files'],
+  document_deleted: ['Deleted a document', 'files'],
+  document_restored: ['Restored a document', 'files'],
+  document_purged: ['Deleted a document for good', 'files'],
+  document_quarantined: ['Document quarantined', 'files'],
+  document_requeued: ['Document queued again', 'files'],
+  chat_shared: ['Shared a chat', 'chats'],
+  chat_unshared: ['Made a chat private', 'chats'],
+  chat_deleted: ['Deleted a chat', 'chats'],
+  chat_restored: ['Restored a chat', 'chats'],
+  chat_purged: ['Deleted a chat for good', 'chats'],
+}
+
+/** The actions filed under a kind, in the order above. */
+export const actionsOf = (kind: AuditKind) => (Object.keys(ACTIONS) as AuditAction[]).filter((action) => ACTIONS[action][1] === kind)
+
+/** What the page's choices are: a kind or an action ('' for any, `kind:files` for a kind), a member's id and a project's ('' for any), and the first and last day ('YYYY-MM-DD', '' for none). */
+export interface AuditChoices {
+  what: string
+  who: string
+  project: string
+  from: string
+  to: string
+}
+
+export const NO_CHOICES: AuditChoices = { what: '', who: '', project: '', from: '', to: '' }
+
+/** The filter the choices ask for: the days run from the first's midnight in the browser's zone until the midnight after the last. */
+export function filterOf({ what, who, project, from, to }: AuditChoices): AuditFilter {
+  const kind = what.startsWith('kind:') ? (what.slice(5) as AuditKind) : null
+  return {
+    actions: kind ? actionsOf(kind) : what ? [what as AuditAction] : [],
+    userId: who ? Number(who) : null,
+    projectId: project ? Number(project) : null,
+    since: from ? midnight(from) : null,
+    until: to ? midnight(to, 1) : null,
+  }
+}
+
+/** The midnight that starts the day, or one `later` days after, in the browser's zone, as an ISO time. */
+function midnight(day: string, later = 0): string {
+  const [year, month, date] = day.split('-').map(Number)
+  return new Date(year, month - 1, date + later).toISOString()
+}
+
+/** Who did it, as a row says: the member as their account is now, the app or the operator, or a member whose account is gone. */
+export function whoDid(event: AuditEvent): string {
+  if (event.user_id === null) return 'Emudoc'
+  return event.user_name || event.user_email || 'A former member'
+}
+
+/**
+ * A row's detail in a few words: the name of the file, folder or project it was about, the member it was done to (by
+ * `names`, the members' names by id), and what changed. Never more than the row holds, which is names and settings,
+ * never what a document or a question says.
+ */
+export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, string> = new Map()): string {
+  const detail = event.detail
+  const parts: string[] = []
+  const name = detail.filename ?? detail.name
+  // A project's own rows name it in their detail, as the row's project does already.
+  if (typeof name === 'string' && name !== event.project_name) parts.push(name)
+  if (event.target_type === 'user' && event.target_id !== null) parts.push(names.get(event.target_id) ?? 'a former member')
+  if (typeof detail.entitlement === 'string') parts.push(detail.entitlement.replaceAll('_', ' '))
+  if (event.action === 'settings_changed') parts.push(describeSetting(detail))
+  else if ('to' in detail) parts.push(`${word(detail.from)} → ${word(detail.to)}`)
+  else if ('from' in detail) parts.push(`was ${word(detail.from)}`)
+  if (typeof detail.role === 'string' && !('to' in detail)) parts.push(word(detail.role))
+  if (typeof detail.plan === 'string') parts.push(word(detail.plan))
+  const unit = detail.unit ?? detail.pack
+  if (typeof detail.quantity === 'number') parts.push(`${detail.quantity.toLocaleString()} ${unit ?? ''}`.trim())
+  if (typeof detail.seats === 'number') parts.push(`${detail.seats} seat${detail.seats === 1 ? '' : 's'}`)
+  if (typeof detail.domains === 'string') parts.push(detail.domains || 'no domains')
+  if (typeof detail.method === 'string') parts.push(detail.method === 'password' ? 'with a password' : `through ${word(detail.method)}`)
+  if (detail.second_factor === 'recovery_code') parts.push('with a recovery code')
+  if (detail.reason === 'password' || detail.reason === 'code') parts.push(`wrong ${detail.reason}`)
+  return parts.join(' · ')
+}
+
+function describeSetting(detail: AuditEvent['detail']): string {
+  const { setting, from, to } = detail
+  if (setting === 'language') return `Language: ${language(from)} → ${language(to)}`
+  if (setting === 'chat_days') return `Chats kept: ${days(from)} → ${days(to)}`
+  if (setting === 'session_days') return `Sign in again: ${typeof to === 'number' ? signInWords(to).toLowerCase() : 'as Emudoc asks'}`
+  if (setting === 'mfa_required') return to ? 'Two-factor sign-in required' : 'Two-factor sign-in no longer required'
+  if (setting === 'notices') {
+    const kind = NOTICE_KINDS[detail.kind as NoticeKind]?.label ?? String(detail.kind)
+    return `${kind}, ${detail.way === 'email' ? 'by email' : 'in the app'}: ${to ? 'on' : 'off'}`
+  }
+  return `${String(setting)}: ${word(from)} → ${word(to)}`
+}
+
+const language = (value: unknown) => (typeof value === 'string' ? languageName(value) : 'the default')
+const days = (value: unknown) => (typeof value === 'number' ? keptWords(value).toLowerCase() : 'as long as the plan')
+
+/** A value of a detail as a row says it: a role or a plan by its name, nothing as none. */
+function word(value: unknown): string {
+  if (value === null || value === undefined || value === '') return 'none'
+  if (typeof value === 'boolean') return value ? 'on' : 'off'
+  if (typeof value === 'number') return value.toLocaleString()
+  const text = String(value)
+  return ROLE_LABELS[text as Role] ?? PLAN_LABELS[text as Plan] ?? text[0].toUpperCase() + text.slice(1)
+}

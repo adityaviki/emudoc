@@ -60,7 +60,7 @@ DEVELOPMENT = {
 }
 DIRECTORY = LocalStorage(Path("unused"))
 # The SHA-256 of terms.md and privacy.md as the edition TERMS_VERSION names was settled.
-SETTLED = "93500e49f40b7bbdd6915dcb0cb9336096fac8438b4657d3e483ad6b2b890d86"
+SETTLED = "8a9230f6c50e487a2add1e2ae8b9935e7593e6c6eec91c9a0886bcf5194bdca8"
 OLDER = "2026-01-01"
 
 
@@ -214,7 +214,9 @@ def test_the_privacy_policy_says_what_the_settings_do():
     assert "- **Server logs**, 1 day." in policy(server_log_days=1)
 
     # The cookies, by the names the code sets them under.
-    assert "`emudoc_session`, which keeps you signed in for up to 7 days;" in policy(session_days=7)
+    assert "`emudoc_session`, which keeps you signed in for up to 7 days, or fewer" in policy(
+        session_days=7
+    )
     assert "`emudoc_oauth`, which\nlasts 10 minutes" in text
     assert (
         "`emudoc_browser`, a\nrandom code that tells a browser you signed in with from others "

@@ -11,6 +11,16 @@ its day, in the same commit.
 
 Members:
 
+- An organisation's owners and admins choose how its members sign in, in the new Security
+  section of the organisation page: requiring two-factor sign-in of everyone who works in it,
+  once they sign in with it themselves, after the page names who does not yet; a member without
+  it is asked to set up an authenticator app before working in that organisation again, and may
+  switch to another of theirs, leave it or sign out instead. They can also sign everyone in
+  again sooner than Emudoc does, every day or every week. The member list shows them who signs
+  in without two-factor.
+- The audit log has a page of its own, opened from the Security section: who did what and when,
+  filtered by the kind of action or one action, a member, a project and a span of days, and
+  downloaded as a CSV file for a spreadsheet. The download is in the log too.
 - An organisation's owners and admins choose its settings on the organisation page: the
   language its documents are searched in, which the documents indexed before move to within
   minutes and which answers fall back to when a question does not show a language; keeping
@@ -52,6 +62,13 @@ Members:
 
 Operators:
 
+- The migration adds `mfa_required` and `session_days` to `organizations`, the audit log's
+  action `audit_exported`, and four indexes of `audit_events` led by the organisation and its
+  action, its project, and time, and by the member, in place of the two by id and by user; on a
+  large log it takes a write lock on the table while they are built. A session older than an
+  organisation's `session_days` ends at its next request there, a 401 like an expired one's.
+  The privacy policy says organisations may require two-factor and sign their members in again
+  sooner, and that their owners and admins download the audit log; no new edition is asked.
 - A new kind of job, `apply_language`, moves an organisation's passages to the language its
   owners or admins chose, 500 a transaction at the priority of bulk work, asking no model;
   `FTS_LANGUAGE` is now the language of an organisation that chose none. The audit log has a

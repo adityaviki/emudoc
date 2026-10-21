@@ -121,6 +121,7 @@ AUDIT_ACTIONS = (
     "organization_created",
     "organization_renamed",
     "settings_changed",
+    "audit_exported",
     "ownership_transferred",
     "invitation_sent",
     "invitation_revoked",
@@ -347,6 +348,7 @@ class Organization(Base):
         CheckConstraint("jsonb_typeof(overrides) = 'object'", name="ck_organizations_overrides"),
         CheckConstraint("chat_days > 0", name="ck_organizations_chat_days"),
         CheckConstraint("jsonb_typeof(notices) = 'object'", name="ck_organizations_notices"),
+        CheckConstraint("session_days > 0", name="ck_organizations_session_days"),
         # Which organisations a confirmed address's domain may join is asked at every `/me`.
         Index("ix_organizations_join_domains", "join_domains", postgresql_using="gin"),
     )
@@ -386,6 +388,11 @@ class Organization(Base):
     # How its members are told each kind of notice until they choose for themselves, as
     # `User.notices` holds a member's choices: a kind or a way not named is on.
     notices: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    # Its security settings (app/security.py): whether everyone who works in it signs in with
+    # two-factor, and how many days after signing in a session may work in it, when that is less
+    # than SESSION_DAYS; null for as long as the deployment keeps one.
+    mfa_required: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    session_days: Mapped[int | None] = mapped_column(Integer)
     # Its customer at Stripe (app/billing.py), made at its first checkout and kept, so that its
     # invoices, payment details and tax ids stay together; null until then.
     stripe_customer_id: Mapped[str | None] = mapped_column(String(255), unique=True)
@@ -1268,17 +1275,29 @@ class AuditEvent(Base):
         CheckConstraint(
             "(target_type IS NULL) = (target_id IS NULL)", name="ck_audit_events_target"
         ),
-        # What the audit route reads: one organisation's rows, the newest first, page by page.
-        Index("ix_audit_events_org_newest", "org_id", "id"),
+        # What the audit route reads (app/api/audit.py): one organisation's rows, the newest
+        # first, page by page, of one action, project or member, or a span of time. Each filter
+        # has an index that ends in the order of the rows, so that a rare action in a large
+        # organisation is a range of an index rather than a walk through all of its rows.
+        Index("ix_audit_events_org_time", "org_id", "occurred_at", "id"),
+        Index("ix_audit_events_org_action", "org_id", "action", "occurred_at", "id"),
+        Index(
+            "ix_audit_events_org_project",
+            "org_id",
+            "project_id",
+            "occurred_at",
+            "id",
+            postgresql_where=text("project_id IS NOT NULL"),
+        ),
+        # A member's rows, which the account purge also clears the addresses of.
+        Index("ix_audit_events_user", "user_id", "occurred_at", "id"),
         # What the housekeeper prunes by: every organisation's rows older than its plan keeps.
         Index("ix_audit_events_occurred", "occurred_at"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"))
-    user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), index=True
-    )
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     action: Mapped[str] = mapped_column(String(40))
     project_id: Mapped[int | None] = mapped_column(Integer)
     # project | folder | document | chat | session | user

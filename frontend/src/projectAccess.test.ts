@@ -8,6 +8,7 @@ const member = (user_id: number, role: Role): Member => ({
   email: `user${user_id}@example.com`,
   role,
   joined_at: '2026-10-20T12:00:00Z',
+  mfa_enabled: null,
 })
 
 const members = [member(1, 'owner'), member(2, 'admin'), member(3, 'member'), member(4, 'viewer')]
