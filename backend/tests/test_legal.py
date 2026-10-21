@@ -60,7 +60,7 @@ DEVELOPMENT = {
 }
 DIRECTORY = LocalStorage(Path("unused"))
 # The SHA-256 of terms.md and privacy.md as the edition TERMS_VERSION names was settled.
-SETTLED = "9e19fa9ec4939e27540dd9a7c6ea400ea5ad214ca4659c47aaeb80e7be7cb949"
+SETTLED = "10e87686659292e4fbee522780b8943d4c9188e59a83721d9cc115e7cfd583a0"
 OLDER = "2026-01-01"
 
 

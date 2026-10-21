@@ -1,18 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Circle, CircleCheck, FolderOpen, Lock, Plus, RotateCcw, Sparkles, Trash2, Users, X } from 'lucide-react'
+import { Circle, CircleCheck, Download, FolderOpen, Lock, Plus, RotateCcw, Sparkles, Trash2, Users, X } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { api, auth, isPlanLimit, mayChange, organizations } from '../api.ts'
 import type { PlanRefusal, Project, TrashedProject } from '../api.ts'
 import { ME_KEY, setSignedIn, useMe } from '../auth.ts'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, Checkbox, EmptyState, FIELD, IconButton, LinkButton, Loading, Notice } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
+import { EXPORT_QUERY } from '../exports.ts'
 import { checklistOf } from '../onboarding.ts'
 import type { ChecklistStep } from '../onboarding.ts'
 import { describeTrashedProject, TRASHED_PROJECTS_KEY } from '../trash.ts'
 import { ProjectAccessForm } from './ProjectAccessForm.tsx'
+import { ProjectExports } from './ProjectExports.tsx'
 
 export function ProjectsPage() {
   const me = useMe()
@@ -27,16 +29,22 @@ export function ProjectsPage() {
   const [creating, setCreating] = useState(false)
   // The project whose access the form above the projects shows, by id.
   const [managing, setManaging] = useState<number | null>(null)
+  // The project whose exports the panel above them shows: in the address, which the notice that
+  // an export is ready leads to (EXPORT_QUERY in backend/app/export.py).
+  const [params, setParams] = useSearchParams()
+  const exporting = Number(params.get(EXPORT_QUERY)) || null
   // A viewer reads the projects and asks about them; the page offers no change the server refuses.
   // Whoever may change a project chooses who sees it, as the server lets them.
   const changes = mayChange(me.role)
   const managed = projects.data?.find((project) => project.id === managing)
+  const exported = changes ? projects.data?.find((project) => project.id === exporting) : undefined
   const checklist =
     me.checklist_hidden || !onboarding.data || !projects.data ? null : checklistOf(onboarding.data.steps, projects.data)
   // The list says what to do first, so an empty page says nothing more while it shows or may.
   const listing = checklist !== null || (!me.checklist_hidden && onboarding.isPending)
   const create = () => {
     setManaging(null)
+    setParams({}, { replace: true })
     setCreating(true)
   }
 
@@ -60,6 +68,7 @@ export function ProjectsPage() {
         {checklist && <GettingStarted steps={checklist} onCreate={create} />}
         {creating && <NewProjectForm onClose={() => setCreating(false)} />}
         {managed && <ProjectAccessForm key={managed.id} project={managed} me={me} onClose={() => setManaging(null)} />}
+        {exported && <ProjectExports key={exported.id} project={exported} onClose={() => setParams({}, { replace: true })} />}
         {projects.isPending && <Loading />}
         {projects.isError && <Notice tone="bad">Could not load projects: {projects.error.message}</Notice>}
         {projects.data?.length === 0 && !creating && !listing && (
@@ -89,7 +98,13 @@ export function ProjectsPage() {
               changes={changes}
               onManage={() => {
                 setCreating(false)
+                setParams({}, { replace: true })
                 setManaging(project.id)
+              }}
+              onExport={() => {
+                setCreating(false)
+                setManaging(null)
+                setParams({ [EXPORT_QUERY]: String(project.id) }, { replace: true })
               }}
             />
           ))}
@@ -295,7 +310,7 @@ function NewProjectForm({ onClose }: { onClose: () => void }) {
   )
 }
 
-function ProjectCard({ project, changes, onManage }: { project: Project; changes: boolean; onManage: () => void }) {
+function ProjectCard({ project, changes, onManage, onExport }: { project: Project; changes: boolean; onManage: () => void; onExport: () => void }) {
   const queryClient = useQueryClient()
   // Into the trash below the projects, from which it is restored as it was.
   const remove = useMutation({
@@ -350,6 +365,9 @@ function ProjectCard({ project, changes, onManage }: { project: Project; changes
         <div className="absolute top-3 right-3 flex gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
           <IconButton label="Who sees it" onClick={onManage}>
             <Users className="size-4" />
+          </IconButton>
+          <IconButton label="Export" onClick={onExport}>
+            <Download className="size-4" />
           </IconButton>
           <IconButton label="Delete project" danger onClick={() => remove.mutate()} disabled={remove.isPending}>
             <Trash2 className="size-4" />

@@ -484,7 +484,7 @@ class AccountDeletionIn(BaseModel):
 
 
 # The kinds of notice (NOTICE_KINDS in app/models.py, app/notices.py).
-NoticeKind = Literal["upload_indexed", "quota"]
+NoticeKind = Literal["upload_indexed", "quota", "project_export"]
 
 
 class NoticeChoiceIn(BaseModel):
@@ -1315,3 +1315,132 @@ class AccountExport(BaseModel):
     notifications: list[ExportedNotification]
     usage: list[ExportedUsage]
     activity: list[ExportedActivity]
+
+
+# A project's export (app/export.py): the export as the projects page lists it, and the JSON its
+# ZIP file holds, `project.json` and one `documents/<id>.json` a document.
+
+# queued (being made), ready (to download until `expires_at`), failed (`error` says why).
+ExportStatus = Literal["queued", "ready", "failed"]
+
+
+class ProjectExportOut(_FromORM):
+    id: int
+    status: ExportStatus
+    # How many originals and bytes the file holds; 0 until it is ready.
+    documents: int
+    size_bytes: int
+    # Why it could not be made, in the member's words.
+    error: str | None
+    created_at: dt.datetime
+    # Until when it can be downloaded; None until it is ready.
+    expires_at: dt.datetime | None
+
+
+class ExportedProject(BaseModel):
+    name: str
+    description: str
+    visibility: str
+    created_at: dt.datetime
+
+
+class ExportedBy(BaseModel):
+    name: str
+    email: str
+
+
+class ExportedDocument(BaseModel):
+    """A document as `project.json` lists it, with where the archive holds its original and
+    what was read from it."""
+
+    id: int
+    filename: str
+    # The folder's path from the project's root, "" for the root.
+    folder: str
+    # The original's path in the archive; None when the malware scan has not passed it.
+    original: str | None
+    data: str
+    mime_type: str
+    size_bytes: int
+    sha256: str
+    status: str
+    title: str | None
+    doc_type: str | None
+    doc_date: dt.date | None
+    summary: str | None
+    page_count: int | None
+    uploaded_at: dt.datetime
+
+
+class ExportedSection(BaseModel):
+    """A node of a document's outline; `parent_id` names another of its sections."""
+
+    id: int
+    parent_id: int | None
+    level: int
+    title: str
+    path: str
+    summary: str | None
+    page_start: int | None
+    page_end: int | None
+
+
+class ExportedPassage(BaseModel):
+    """A passage, which answers cite as [P<id>], in the section `section_id` names."""
+
+    id: int
+    section_id: int
+    text: str
+    context: str
+    page_start: int | None
+    page_end: int | None
+
+
+class ExportedFact(BaseModel):
+    name: str
+    value_type: str
+    value: str
+    number: float | None
+    date: dt.date | None
+    currency: str | None
+    quote: str | None
+    page: int | None
+    passage_id: int | None
+    # Whether the quote was found in the document as the model gave it.
+    verified: bool
+
+
+class ExportedDocumentData(BaseModel):
+    """What was read from one document: `documents/<id>.json` in the archive."""
+
+    id: int
+    filename: str
+    title: str | None
+    sections: list[ExportedSection]
+    passages: list[ExportedPassage]
+    facts: list[ExportedFact]
+
+
+class ExportedProjectChat(BaseModel):
+    title: str
+    visibility: str
+    # The name of the member who started it, as it is now.
+    started_by: str
+    created_at: dt.datetime
+    last_question_at: dt.datetime
+    messages: list[ExportedMessage]
+
+
+class ProjectExportFile(BaseModel):
+    """`project.json` in the archive."""
+
+    exported_at: dt.datetime
+    # What the archive holds and what it leaves out, in words, for whoever reads it.
+    about: str
+    organization: str
+    project: ExportedProject
+    exported_by: ExportedBy
+    # Every folder's path from the project's root, an empty one too.
+    folders: list[str]
+    documents: list[ExportedDocument]
+    chats: list[ExportedProjectChat]

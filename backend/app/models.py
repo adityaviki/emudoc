@@ -52,6 +52,7 @@ JOB_KINDS = (
     "render_pages",
     "send_email",
     "apply_language",
+    "export_project",
     "sync_connector",
     "run_workflow",
 )
@@ -59,6 +60,9 @@ JOB_STATUSES = ("queued", "running", "done", "failed")
 # Why an address is sent no notices (app/bounces.py): mail to it bounced for good, or its reader
 # marked a message as spam.
 MAIL_SUPPRESSIONS = ("bounce", "complaint")
+# How far a project's export is (app/export.py): being made by the worker, ready to download
+# until it expires, or failed.
+EXPORT_STATUSES = ("queued", "ready", "failed")
 # How far an answer is: being written by the worker (app/answers.py), finished, stopped by the
 # user, or failed. A question is always `done`.
 MESSAGE_STATUSES = ("streaming", "done", "stopped", "failed")
@@ -76,7 +80,7 @@ QUOTA_FIGURES = ("pages_per_month", "questions_per_month")
 # The kinds of notice the app tells members about their work (app/notices.py), and the ways each
 # reaches them: the notification centre in the app, and email. A member chooses each way of
 # each kind (`User.notices`).
-NOTICE_KINDS = ("upload_indexed", "quota")
+NOTICE_KINDS = ("upload_indexed", "quota", "project_export")
 NOTICE_CHANNELS = ("app", "email")
 # The order the library lists a folder's files in, which the database keeps an index in: by
 # name, with the numbers in a name compared as numbers ("invoice 2" before "invoice 10") and
@@ -141,6 +145,7 @@ AUDIT_ACTIONS = (
     "member_left",
     "member_removed",
     "project_access_changed",
+    "project_exported",
     "project_deleted",
     "project_restored",
     "project_purged",
@@ -622,6 +627,35 @@ class Project(Base):
     documents: Mapped[list["Document"]] = relationship(
         back_populates="project", cascade="all, delete-orphan", passive_deletes=True
     )
+
+
+class ProjectExport(Base):
+    """A copy of a project a member asked for: its originals, what was read from them and the
+    chats they may read, as one ZIP file the worker makes (app/export.py) and they download until
+    it expires. Their private chats are in it, so it is theirs alone and goes with them."""
+
+    __tablename__ = "project_exports"
+    __table_args__ = (
+        _one_of("status", EXPORT_STATUSES, "project_exports"),
+        # A member's exports of a project, which the projects page lists.
+        Index("ix_project_exports_project_user", "project_id", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    # Indexed for the account purge, whose foreign key would otherwise scan the table.
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="queued", server_default="queued")
+    # How many originals and bytes the file holds, once it is ready.
+    documents: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    size_bytes: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    # Why it could not be made, in the member's words.
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # Until when it is served, EXPORT_DAYS after it was ready; null until then.
+    expires_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class ProjectMember(Base):

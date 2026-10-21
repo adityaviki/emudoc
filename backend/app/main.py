@@ -21,6 +21,7 @@ from app.api import (
     billing,
     chats,
     documents,
+    exports,
     folders,
     invitations,
     mail,
@@ -369,6 +370,7 @@ def _request_id() -> str | None:
 # a session alone.
 KEYED = (
     projects.router,
+    exports.router,
     folders.router,
     documents.router,
     query.router,

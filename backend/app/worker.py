@@ -76,6 +76,7 @@ from app.config import MAIL_THREADS, Settings, get_settings
 from app.db import SessionLocal, connection_lost
 from app.deadletters import alert_failed_jobs
 from app.errors import summary
+from app.export import abandon_export, make_export
 from app.indexing.pipeline import (
     Services,
     StageFailure,
@@ -86,6 +87,7 @@ from app.indexing.pipeline import (
 from app.jobs import (
     ANSWER_QUESTION,
     APPLY_LANGUAGE,
+    EXPORT_PROJECT,
     INDEX_DOCUMENT,
     LEASE,
     RENDER_PAGES,
@@ -306,6 +308,14 @@ def _abandon_render(job: Job, services: Services) -> None:
     pass
 
 
+def _run_export(job: Job, services: Services) -> str | None:
+    return make_export(job.payload["export_id"], services.storage, Lease(job.id, job.worker_id))
+
+
+def _abandon_export(job: Job, services: Services) -> None:
+    abandon_export(job.payload["export_id"])
+
+
 def _run_language(job: Job, services: Services) -> str | None:
     apply_language(job.org_id, Lease(job.id, job.worker_id))
     return None
@@ -326,6 +336,7 @@ HANDLERS: dict[str, Handler] = {
     RENDER_PAGES: Handler(_run_render, _abandon_render),
     SEND_EMAIL: Handler(run_email, abandon_email),
     APPLY_LANGUAGE: Handler(_run_language, _abandon_language),
+    EXPORT_PROJECT: Handler(_run_export, _abandon_export),
 }
 LANE_KINDS = {ANSWERER: [ANSWER_QUESTION], MAILER: [SEND_EMAIL]}
 

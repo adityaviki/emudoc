@@ -6,10 +6,12 @@ backends:
     orgs/{org}/projects/{project}/documents/{document}/original.pdf
     orgs/{org}/projects/{project}/documents/{document}/pages/{n}.png
     orgs/{org}/projects/{project}/documents/{document}/thumbnail.png
+    orgs/{org}/projects/{project}/exports/{export}.zip
 
 Everything a document owns sits under its prefix and every document of a project under the
-project's, so deleting either is deleting a prefix. The database holds the original's key
-(`documents.storage_key`) and the other keys derive from it (`Document.storage_prefix`).
+project's, with the project's exports (app/export.py), so deleting either is deleting a prefix.
+The database holds the original's key (`documents.storage_key`) and the other keys derive from
+it (`Document.storage_prefix`).
 
 The pages and the thumbnail are a cache: rendered from the original the first time they are
 asked for (a PDF's first pages once it is parsed, app/rendering.py), and removed again once
@@ -17,7 +19,8 @@ they are older than PAGE_IMAGE_DAYS (`sweep_storage` in app/maintenance.py), sin
 PDF would otherwise stay 500 pictures of a few megabytes each for good. `is_rendered` tells
 those keys apart; a listing carries each object's age for it. The same walk finds what a delete
 left behind when the storage failed after the rows were gone: a prefix whose document or
-project has no row is removed, once it is old enough not to be an upload still in flight.
+project has no row is removed, once it is old enough not to be an upload still in flight; and
+an export past EXPORT_DAYS goes too (`is_export`).
 
 The parsers open files by path, so `localize` gives the parse stage a local copy of an object
 for as long as it needs one; the local storage hands out the file itself. A reader that comes
@@ -82,6 +85,7 @@ DELETE_BATCH = 1000
 # The prefix every key sits under, for a sweep that walks the whole storage.
 ROOT_PREFIX = "orgs/"
 _RENDERED = re.compile(r"orgs/\d+/projects/\d+/documents/\d+/(pages/\d+|thumbnail)\.png")
+_EXPORT = re.compile(r"orgs/\d+/projects/\d+/exports/\d+\.zip")
 # The policy of a file the app sends from its own origin, in place of the page's. A browser that
 # shows the file in a tab after all, a PDF in its viewer, gives it an origin of its own and lets
 # it run no script, submit no form and open no window, so an uploaded file cannot act as the app.
@@ -120,6 +124,16 @@ def document_prefix(org_id: int, project_id: int, document_id: int) -> str:
 def original_key(org_id: int, project_id: int, document_id: int, suffix: str) -> str:
     """The key of an uploaded file; `suffix` is its lower-cased extension with the dot."""
     return f"{document_prefix(org_id, project_id, document_id)}original{suffix}"
+
+
+def export_key(org_id: int, project_id: int, export_id: int) -> str:
+    """The key of a project's export, a ZIP file (app/export.py)."""
+    return f"{project_prefix(org_id, project_id)}exports/{export_id}.zip"
+
+
+def is_export(key: str) -> bool:
+    """Whether the key names a project's export, which the storage walk removes by its age."""
+    return _EXPORT.fullmatch(key) is not None
 
 
 def is_rendered(key: str) -> bool:

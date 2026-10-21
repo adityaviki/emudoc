@@ -37,6 +37,7 @@ class World:
     trashed_document_id: int
     trashed_chat_id: int
     trashed_project_id: int
+    export_id: int
 
 
 @pytest.fixture
@@ -60,6 +61,7 @@ def world(client, services, sample_pdf, account, make_account) -> World:
     ).json()["documents"][0]
     trashed_chat = new_chat(client, project["id"])
     trashed_project = create_project(client, "Archive")
+    exported = client.post(f"/api/projects/{project['id']}/exports")
     for path in (
         f"/api/folders/{trashed_folder['id']}",
         f"/api/documents/{note['id']}",
@@ -82,6 +84,7 @@ def world(client, services, sample_pdf, account, make_account) -> World:
         note["id"],
         trashed_chat["id"],
         trashed_project["id"],
+        exported.json()["id"],
     )
 
 
@@ -191,6 +194,16 @@ def starts(w: World) -> list[Route]:
     return [("POST", f"/api/projects/{w.project_id}/chats", {})]
 
 
+def exports(w: World) -> list[Route]:
+    """A project's exports, each its member's alone (test_exports.py): asking for one, which a
+    viewer may not, the member's list, and the file."""
+    return [
+        ("GET", f"/api/projects/{w.project_id}/exports", {}),
+        ("POST", f"/api/projects/{w.project_id}/exports", {}),
+        ("GET", f"/api/projects/{w.project_id}/exports/{w.export_id}/file", {}),
+    ]
+
+
 def switches(w: World) -> list[Route]:
     """Switching to the organisation, which only its members may, and joining it, which only
     someone whose confirmed address is at one of its domains may; the local account, which
@@ -235,6 +248,7 @@ def scoped(w: World) -> list[Route]:
         + trashed_project(w)
         + chat_trash(w)
         + starts(w)
+        + exports(w)
         + switches(w)
         + invitations(w)
         + keys(w)

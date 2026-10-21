@@ -731,15 +731,23 @@ rows and files; in an organisation with other members only the user's membership
 and the last owner of one is refused until another member is an owner (`backend/app/retention.py`).
 Each purge leaves a record under `erasures/` in the storage (the account's id and creation time,
 nothing else), so an account that a restored backup brings back is purged again at the next round.
-An owner deletes the organisation the same way, at the foot of the organisation page, confirmed
-by the password or the address typed out, once its subscription no longer renews (the local
-organisation never). Every member is mailed the day, 14 days on, and until then a banner under
-the header says it on every page: nothing can be added to its projects or changed in them,
-nobody new joins it and it buys nothing, while what it holds can still be read, asked about,
-downloaded and deleted, and any owner keeps it from the page or the banner, which mails every
-member again. Then the housekeeping deletes it with everything in it, its audit log too, and a
-member it was the only organisation of is given one of their own; its record goes under
-`erasures/organizations/`.
+A member (not a viewer) exports a whole project from its card on the projects page: the worker
+writes one ZIP file with every document's original in its folders, `project.json` listing the
+project, its folders, its documents and the chats the member may read (those shared with the
+project and their own), and `documents/<id>.json` with each document's outline, passages (the
+`[P<id>]` an answer cites) and facts, leaving out the trash, quarantined files and other
+members' private chats (`backend/app/export.py`, `POST|GET /api/projects/{id}/exports`). The
+member is told when it is ready, in the app and by email as they chose, downloads it from the
+same panel, and it is kept 7 days for them alone, then goes from the storage.
+An owner deletes the organisation as an account is deleted, at the foot of the organisation
+page, confirmed by the password or the address typed out, once its subscription no longer
+renews (the local organisation never). Every member is mailed the day, 14 days on, and until
+then a banner under the header says it on every page: nothing can be added to its projects or
+changed in them, nobody new joins it and it buys nothing, while what it holds can still be read,
+asked about, downloaded, exported and deleted, and any owner keeps it from the page or the
+banner, which mails every member again. Then the housekeeping deletes it with everything in it,
+its audit log too, and a member it was the only organisation of is given one of their own; its
+record goes under `erasures/organizations/`.
 After the database is restored to an earlier point, `python -m app.maintenance after-restore
 <time>` brings back from a versioned bucket the files deleted since, moves the ids past every id
 the storage holds, signs everyone out, expires the open invitations and records the restore in

@@ -9,7 +9,8 @@ import { movePlan } from './operator.ts'
 // organisation's first steps listed, skip the tour the first project shows, ask the sample
 // project the organisation starts with one of its questions, make a project, upload a contract,
 // wait for it to be indexed, find it by searching, ask about it, open the passage the answer
-// cites, which the Free plan's chat follows with the way to a plan for a team, start a second
+// cites, which the Free plan's chat follows with the way to a plan for a team, export the project,
+// download it and open the bell's notice that it is ready, start a second
 // organisation, choose its settings, read them in its audit log and download it, hide its first
 // steps, delete it and keep it, and switch back, and, on Team, invite a colleague as a
 // viewer from under that answer, who makes an account from the invitation's link, ends her tour, finds
@@ -178,9 +179,35 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(contract).toBeVisible()
   })
 
+  await test.step('export the project, which the worker makes, and download it', async () => {
+    await page.getByRole('link', { name: 'Emudoc' }).click()
+    await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
+    // The card is the innermost block that holds the project's link, the last of those in the page's order.
+    const card = page.locator('div').filter({ has: page.getByRole('link', { name: /^Supplier contracts/ }) }).last()
+    await card.getByRole('button', { name: 'Export' }).click()
+    const panel = page.getByRole('region', { name: 'Export Supplier contracts' })
+    await panel.getByRole('button', { name: 'Make an export' }).click()
+    const file = panel.getByRole('link', { name: 'Download' })
+    await expect(file).toBeVisible({ timeout: 15_000 })
+    await expect(panel).toContainText(/1 document, [\d.]+ kB, until /)
+    const downloading = page.waitForEvent('download')
+    await file.click()
+    const zip = await readFile(await (await downloading).path())
+    expect(zip.subarray(0, 4).toString('latin1')).toBe('PK\u0003\u0004')
+    await panel.getByRole('button', { name: 'Close' }).click()
+    await expect(panel).toHaveCount(0)
+    // The bell, which asks again as the page loads, tells it is ready, and its notice opens the panel.
+    await page.reload()
+    await page.getByRole('button', { name: 'Notifications, 1 unread' }).click()
+    await page.getByRole('dialog', { name: 'Notifications' }).getByRole('button', { name: /Your project export is ready/ }).click()
+    await expect(panel.getByRole('link', { name: 'Download' })).toBeVisible()
+    await panel.getByRole('button', { name: 'Close' }).click()
+    await expect(page.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible()
+  })
+
   await test.step('start a second organisation, choose its settings, delete it and keep it, and switch back while another tab shows it', async () => {
     // From the projects page: a menu closes when anything scrolls, as the passage still may.
-    await page.getByRole('link', { name: 'Emudoc' }).click()
+    await page.getByRole('link', { name: 'Emudoc', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
     await page.getByRole('button', { name: "Ada Lovelace's workspace" }).click()
     await page.getByRole('menuitem', { name: 'New organisation' }).click()

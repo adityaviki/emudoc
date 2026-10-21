@@ -1148,7 +1148,9 @@ launch. Where the deployment keeps what it was sent:
 - **A directory** (`STORAGE_URL=file:///…`) is as encrypted as the disk under it.
 - **Temporary files**: the API writes each upload to the temporary directory before storing
   it, and the API and the worker copy an original there from a bucket to render, scan and parse
-  it, removing each copy when done. The temporary directory (`TMPDIR`, `/tmp` unless set) needs
+  it, removing each copy when done. A project's export is written there whole before it is
+  stored, so the worker's temporary directory needs room for the largest project's originals
+  (a `tmpfs` is memory: size it, or point `TMPDIR` at an encrypted disk). The temporary directory (`TMPDIR`, `/tmp` unless set) needs
   the encryption the storage has, or to be a `tmpfs`, which keeps it in memory and in the swap,
   so encrypt the swap or turn it off; the image runs with one. Python passes over a `TMPDIR` it
   cannot write in for `/tmp`, so the API and the worker say at start where the files go
@@ -3739,7 +3741,10 @@ repository's policy among them.
     its record under `erasures/users/`. Likewise start an organisation, delete it from the foot
     of its page: the banner says the day, a new project is refused, "Keep it" undoes it; delete
     it again, move `organizations.deletion_due_at` into the past, and after a round its files
-    are gone and its record is under `erasures/organizations/`.
+    are gone and its record is under `erasures/organizations/`. Export a project from its card
+    on the projects page: the notice comes, and the ZIP file holds `project.json`, the
+    originals and `documents/<id>.json`; the bucket or directory holds it under the project's
+    `exports/`.
 12. Signed out, `/terms` and `/privacy` name `OPERATOR_NAME` and `OPERATOR_EMAIL`, and the
     privacy policy says `BACKUP_DAYS`, `SERVER_LOG_DAYS`, the region and whether uploads are
     scanned as the deployment has them, and whatever collects the logs deletes them by

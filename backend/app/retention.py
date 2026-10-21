@@ -63,7 +63,8 @@ confirmed as the account's is and refused while its subscription renews, since n
 end it. It is due DELETION_GRACE later, every member is told by mail, and until then any owner
 may keep it. Meanwhile it is held as it stands (`held_for_deletion`): nothing is added to its
 projects or changed in them and nobody new joins it or buys it a plan, while what it holds can
-still be read, asked about, downloaded and deleted, so that its members can take what they need.
+still be read, asked about, downloaded, exported (app/export.py) and deleted, so that its members
+can take what they need.
 Then the housekeeper deletes it with everything in it (`purge_due_organizations`), its audit log
 too, which is why the request's mail is its record; a member it was the only organisation of is
 given one of their own, as one removed from their last organisation is, since an account in
@@ -419,8 +420,8 @@ def held_for_deletion(organization: Organization, zone: tzinfo = UTC) -> str | N
     return (
         f"{organization.name} is set to be deleted on {day(due, zone)}, so until then nothing "
         "can be added to its projects or changed in them and nobody new can join it: what it "
-        "holds can still be read, asked about, downloaded and deleted. An owner can keep it on "
-        "the organisation page."
+        "holds can still be read, asked about, downloaded, exported and deleted. An owner can "
+        "keep it on the organisation page."
     )
 
 

@@ -86,6 +86,23 @@ export interface ProjectTrash {
   days: number
 }
 
+/** A project's export the member asked for (ProjectExportOut in backend/app/schemas.py): being made, ready to download until it expires, or failed. */
+export interface ProjectExport {
+  id: number
+  status: 'queued' | 'ready' | 'failed'
+  /** How many originals and bytes the file holds; 0 until it is ready. */
+  documents: number
+  size_bytes: number
+  /** Why it could not be made. */
+  error: string | null
+  created_at: string
+  /** Until when it can be downloaded; null until it is ready. */
+  expires_at: string | null
+}
+
+/** The file of a ready export, for a download link: the member's own alone, until it expires. */
+export const exportFileUrl = (projectId: number, exportId: number) => `/api/projects/${projectId}/exports/${exportId}/file`
+
 /** Who sees a project: the members chosen for a private one, by user id; none for an open one. */
 export interface ProjectAccess {
   visibility: ProjectVisibility
@@ -633,7 +650,7 @@ export interface Member {
 }
 
 /** The kinds of notice (NOTICE_KINDS in backend/app/models.py, backend/app/notices.py). */
-export type NoticeKind = 'upload_indexed' | 'quota'
+export type NoticeKind = 'upload_indexed' | 'quota' | 'project_export'
 
 /** How one kind of notice is told: in the notification centre, by email, both or neither. */
 export interface NoticeChoice {
@@ -1250,6 +1267,10 @@ export const api = {
     request<ProjectAccess>(`/projects/${id}/access`, json('PUT', access)),
   /** Into the organisation's trash, with everything in it. */
   deleteProject: (id: number) => request<void>(`/projects/${id}`, { method: 'DELETE' }),
+  /** The member's own exports of the project that have not expired, the newest first. */
+  projectExports: (id: number) => request<ProjectExport[]>(`/projects/${id}/exports`),
+  /** A member or better asks; the worker makes it and tells them. A 409 while one is being made. */
+  exportProject: (id: number) => request<ProjectExport>(`/projects/${id}/exports`, { method: 'POST' }),
   /** The organisation's projects in the trash, and how many days it keeps them. */
   trashedProjects: () => request<{ projects: TrashedProject[]; days: number }>('/trash'),
   projectTrash: (projectId: number) => request<ProjectTrash>(`/projects/${projectId}/trash`),

@@ -100,6 +100,7 @@ from app.entitlements import (
     over_limits,
     size_label,
 )
+from app.export import EXPORT_DAYS, EXPORT_KEPT, prune_exports
 from app.jobs import (
     ANSWER_QUESTION,
     BULK,
@@ -134,6 +135,7 @@ from app.storage import (
     LocalStorage,
     Storage,
     StorageError,
+    is_export,
     is_rendered,
     project_prefix,
     storage_from_settings,
@@ -349,6 +351,8 @@ class Sweep:
     # The rendered pages and thumbnails past their age, removed during the walk.
     images: int = 0
     image_bytes: int = 0
+    # The projects' exports past theirs, removed likewise.
+    exports: int = 0
     # The prefixes with no row, in key order, for the caller to remove with `delete_prefix`;
     # a list of prefixes, not of objects, so a storage of any size takes bounded memory.
     orphans: list[Orphan] = field(default_factory=list)
@@ -370,12 +374,15 @@ def sweep_storage(
     storage: Storage,
     connection: Connection | None = None,
     keep_images: timedelta | None = None,
+    keep_exports: timedelta | None = None,
 ) -> Sweep:
-    """Walk the whole storage once, for both of the things the app tidies.
+    """Walk the whole storage once, for the things the app tidies.
 
     The rendered pages and thumbnails older than `keep_images` are deleted as they are found,
     in batches, so nothing waits for the end of the walk; they are a cache of the originals and
-    a page asked for again is rendered again. Every other object is matched to the document or
+    a page asked for again is rendered again. So are the projects' exports older than
+    `keep_exports`, which are served no longer (app/export.py). Every other object is matched to
+    the document or
     project its key names, and the prefixes whose row is gone from the database `connection`
     reaches are returned as orphans: what a delete left behind when the storage failed after
     the rows were gone. Each part is skipped when its argument is None.
@@ -386,6 +393,7 @@ def sweep_storage(
     """
     now = datetime.now(UTC)
     image_cutoff = now - keep_images if keep_images else None
+    export_cutoff = now - keep_exports if keep_exports else None
     settled = now - UPLOAD_GRACE
     sweep = Sweep()
     stale: list[str] = []
@@ -393,23 +401,26 @@ def sweep_storage(
 
     for entry in storage.list(ROOT_PREFIX):
         if image_cutoff and is_rendered(entry.key) and entry.modified_at < image_cutoff:
-            stale.append(entry.key)
             sweep.images += 1
             sweep.image_bytes += entry.size
-            if len(stale) == DELETE_BATCH:
-                storage.delete(stale)
-                stale.clear()
+        elif export_cutoff and is_export(entry.key) and entry.modified_at < export_cutoff:
+            sweep.exports += 1
+        elif connection is None or (owner := _OWNER.match(entry.key)) is None:
             continue
-        if connection is None or (owner := _OWNER.match(entry.key)) is None:
+        else:
+            # A listing comes in key order, so a document's objects arrive together: a batch
+            # is only checked between two owners, never in the middle of one.
+            if owner.group() not in pending and len(pending) == CHECK_BATCH:
+                _find_orphans(connection, pending, sweep.orphans)
+            owned = pending.setdefault(owner.group(), _Owned())
+            owned.objects += 1
+            owned.size += entry.size
+            owned.recent |= entry.modified_at >= settled
             continue
-        # A listing comes in key order, so a document's objects arrive together: a batch is
-        # only checked between two owners, never in the middle of one.
-        if owner.group() not in pending and len(pending) == CHECK_BATCH:
-            _find_orphans(connection, pending, sweep.orphans)
-        owned = pending.setdefault(owner.group(), _Owned())
-        owned.objects += 1
-        owned.size += entry.size
-        owned.recent |= entry.modified_at >= settled
+        stale.append(entry.key)
+        if len(stale) == DELETE_BATCH:
+            storage.delete(stale)
+            stale.clear()
     storage.delete(stale)
     if connection is not None:
         _find_orphans(connection, pending, sweep.orphans)
@@ -482,7 +493,7 @@ def housekeeping(storage: Storage) -> None:
         if not taken:
             log.info("Housekeeping skipped: another process is on it")
             return
-        sweep = sweep_storage(storage, connection, keep)
+        sweep = sweep_storage(storage, connection, keep, EXPORT_KEPT)
         if sweep.refusal:
             log.warning("Housekeeping: %s", sweep.refusal)
         else:
@@ -497,6 +508,7 @@ def housekeeping(storage: Storage) -> None:
         spared = prune_suppressions(connection)
         prune_quota_notices(connection)
         notifications = prune_notifications(connection)
+        exports = prune_exports(connection)
         emptied = purge_trash(connection)
     storage.discard(*emptied.prefixes)
     reapply_erasures(storage)
@@ -522,6 +534,14 @@ def housekeeping(storage: Storage) -> None:
         )
     if billing_events:
         log.info("Housekeeping: forgot %s Stripe events acted on long ago", billing_events)
+    if exports or sweep.exports:
+        log.info(
+            "Housekeeping: forgot %s project exports and removed %s export files older than %s "
+            "days",
+            exports,
+            sweep.exports,
+            EXPORT_DAYS,
+        )
     if notifications:
         log.info(
             "Housekeeping: removed %s notices older than %s days from notification centres",

@@ -95,6 +95,9 @@ $region
 - **Documents**, and everything read from them, until a member deletes them or the
   organisation is deleted, which happens $deletion_days days after an owner asks, with
   everything else it holds, its usage records and audit log among them.
+- **Project exports**: the file of a project's documents and chats that a member asks for is
+  kept $export_days days after it is made, for that member alone, and goes sooner with the
+  project, or with the member's place in the organisation.
 - **The trash**: a project, folder, document or chat a member deletes is kept in its trash for
   $trash_days days, where it can be restored, and is then deleted for good, unless a member
   deletes it there sooner; a chat goes sooner when its plan keeps it for less time.
@@ -156,8 +159,9 @@ $more_security
 You can ask us for a copy of your personal data, to correct it, to delete it, to restrict or
 object to how we use it, and to have it in a machine-readable form to take elsewhere. Three of
 these you can do yourself on the account page: you can correct your name and email address
-there, "Download your data" gives you a copy as a file, and "Delete account" deletes it. For
-anything else, write to $contact. You can also complain to
+there, "Download your data" gives you a copy as a file, and "Delete account" deletes it; the
+documents of a project, with what was read from them and its chats, you export from the projects
+page as a member of its organisation. For anything else, write to $contact. You can also complain to
 the data protection authority where you live or work, or where we are established.
 
 Emudoc is a tool for work and is not meant for children under 16.

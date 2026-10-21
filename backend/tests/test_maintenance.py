@@ -35,7 +35,14 @@ from app.maintenance import (
     sweep_storage,
 )
 from app.models import Job, Passage, Project
-from app.storage import LocalStorage, S3Storage, Storage, document_prefix, project_prefix
+from app.storage import (
+    LocalStorage,
+    S3Storage,
+    Storage,
+    document_prefix,
+    export_key,
+    project_prefix,
+)
 from tests.conftest import STORAGE_ROOT, FakeS3Client
 
 
@@ -276,6 +283,21 @@ def test_the_sweep_removes_old_rendered_pages_and_never_originals(any_storage, m
     # Nothing left to do the second time, and without a database nothing is an orphan.
     sweep = sweep_storage(storage, keep_images=timedelta(days=30))
     assert (sweep.images, sweep.image_bytes, sweep.orphans) == (0, 0, [])
+
+
+def test_the_sweep_removes_exports_past_their_days(any_storage):
+    storage = any_storage
+    old, fresh = export_key(1, 2, 3), export_key(1, 2, 4)
+    for key in (old, fresh, f"{document_prefix(1, 2, 5)}original.pdf"):
+        storage.put(key, b"x" * 10)
+        age(storage, key, days=8)
+    age(storage, fresh, days=6)
+    sweep = sweep_storage(storage, keep_exports=timedelta(days=7))
+    assert sweep.exports == 1
+    assert [entry.key for entry in storage.list("orgs/")] == [
+        f"{document_prefix(1, 2, 5)}original.pdf",
+        fresh,
+    ]
 
 
 def test_the_sweep_finds_what_a_failed_delete_left_behind(

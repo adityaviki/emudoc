@@ -490,7 +490,8 @@ def organization_deletion_email(
             "everything in it: its projects, documents, chats, usage and audit log. Your "
             "account stays, with any other organisation you belong to.",
             "Until then nothing can be added to its projects or changed in them, and what it "
-            "holds can still be read, asked about and downloaded: save what you need.",
+            "holds can still be read, asked about, downloaded and exported, a project at a "
+            "time on the projects page: save what you need.",
             keep,
             Link(link, "Open the organisation page"),
         ),
@@ -802,6 +803,32 @@ def upload_indexed_email(
             Link(link, "Open the project"),
         ),
         f"{said}\n{listed}",
+    )
+
+
+def project_export_email(
+    name: str, project: str, organization: str, link: str, until: str | None
+) -> Content:
+    """To the member who asked for a project's export (app/export.py): that it is ready to
+    download until the day `until` names, or, without one, that it could not be made. The
+    subject names neither, since the log repeats it."""
+    if until is None:
+        said = (
+            f"The export of {project} in {organization} you asked for could not be made. Ask for "
+            "another on the projects page; if that one fails too, write to support."
+        )
+        return Content(
+            "Your project export could not be made",
+            (_greeting(name), said, Link(link, "Open the projects page")),
+            said,
+        )
+    said = (
+        f"The export of {project} in {organization} you asked for is ready: one ZIP file with "
+        f"its documents, what was read from them and its chats. Download it on the projects "
+        f"page until {until}."
+    )
+    return Content(
+        "Your project export is ready", (_greeting(name), said, Link(link, "Download it")), said
     )
 
 

@@ -11,6 +11,11 @@ its day, in the same commit.
 
 Members:
 
+- A member exports a whole project from its card on the projects page: one ZIP file with every
+  document as it was uploaded, in its folders, what was read from each (its outline, passages
+  and facts) and the chats shared with the project and their own. It is made in the background,
+  the member is told when it is ready, and it is kept 7 days for them alone. An organisation set
+  to be deleted can still be exported, a project at a time.
 - An owner deletes the organisation at the foot of its page, confirmed by the password, once its
   subscription no longer renews. It goes 14 days later with everything in it, and every member
   is mailed the day. Until then a banner says so on every page: nothing can be added to its
@@ -75,6 +80,12 @@ Members:
 
 Operators:
 
+- Project exports: the migration adds `project_exports`, the job kind `export_project` (run by
+  the indexers), the notice kind `project_export` and the audit log's action `project_exported`.
+  The worker writes each export whole into its temporary directory before it puts it under
+  `orgs/<org>/projects/<project>/exports/<id>.zip`, so `TMPDIR` needs room for the largest
+  project's originals; the housekeeping forgets an export 7 days after it was ready and its walk
+  removes the file by its age. A failed export is a dead letter, mailed with the others.
 - Deleting an organisation: the migration adds `organizations.deletion_due_at` and the audit
   log's actions `organization_deletion_requested` and `organization_deletion_cancelled`. The
   housekeeping round deletes a due organisation after the due accounts ("Deleted organisation
