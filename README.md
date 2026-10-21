@@ -121,9 +121,10 @@ sentence as its error. With `ALERT_EMAIL` set, the worker mails a warning once a
 day's spending reaches 80 % of a limit. The limits count nothing without `MODEL_PRICES`, and
 they hold the next piece of work rather than the ones running, so a day can run past a limit
 by what was in flight: a document's summaries and facts by `ENRICH_MAX_REQUESTS` requests at
-most. The brake for a bill that cannot wait for midnight is
-`DISABLED_PROVIDERS`: at the next restart it switches a provider's models off, and the app
-runs as it does without a key, saying why. Set a budget at each provider as well (Google Cloud
+most. The brake for a bill that cannot wait for midnight is a provider switched off: from the
+operator's area, which every process heeds within seconds, or with `DISABLED_PROVIDERS` at the
+next restart; its models are asked no more, and the app runs as it does without a key, saying
+why. Set a budget at each provider as well (Google Cloud
 billing budgets for the Gemini key, the Anthropic console's spend limits, OpenRouter's credit
 limit): the app counts what it knows the price of, the provider counts the bill.
 
@@ -184,7 +185,11 @@ usage, members and costs, the users, the costs across organisations, the job que
 failed jobs, and how the models and services stand. `uv run python -m app.maintenance operators
 add <address>` (in `backend/`) lets an account in, from an address `OPERATOR_NETWORKS` lists
 (this machine alone in development) and, in production, with two-factor sign-in on; to anyone
-else the area is not there. It reads; changes stay the commands'. A
+else the area is not there. From there an operator also moves an organisation to another plan
+with its seats and agreed figures, as the `plan` command does, queues failed documents again
+from the stage each stopped at, and switches a model provider off or on again without a
+restart; a plan's change and a document queued again are rows of the organisation's audit
+log, by Emudoc's operators. A
 paying plan's jobs also count for less in the claim's share of the workers, so its backlog
 is indexed sooner next to a free organisation's.
 
@@ -388,7 +393,9 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   `provider:model` name, separated by commas (`google,anthropic`). A model of a provider named
   here cannot be used until the name is removed and the backend and the worker restarted;
   meanwhile the app runs as it does without a key, and says why in its log (and, in
-  development, in the header). Production starts with it, unlike with a missing key.
+  development, in the header). Production starts with it, unlike with a missing key. The
+  operator's area switches a provider off the same way without a restart, and on again; one
+  this setting names stays off whatever the area says.
 - `ENVIRONMENT` is `development` (the default) or `production`. In development the backend
   copies the model keys from `.env` into its environment, where the model libraries read them.
   A production deployment injects every secret through the environment or a secret manager
@@ -1052,8 +1059,8 @@ CHANGELOG.md    what each day's commits changed for members and operators
 
 ## Not built yet
 
-- The operator's area changes nothing yet: a plan, a failed document queued again and the kill
-  switch are the maintenance commands' and the settings'.
+- The operator's area does not act as a member yet (impersonation, with the member's consent),
+  nor turn features on per organisation.
 - Billing: the connectors and the model tier the plans declare are not read by anything yet.
 - The public API: keys call today's routes, which may change; versioned routes under
   `/api/v1`, webhooks for a document ready or failed, and a hosted reference are to come.

@@ -1,19 +1,36 @@
 // The `jobs` and `failed-jobs` commands' report: each kind's jobs by state, the running ones
-// with their leases, and the dead letters with why each failed.
+// with their leases, and the dead letters with why each failed, whose documents are queued
+// again from here as `failed-jobs --requeue` queues them.
 
-import { useQuery } from '@tanstack/react-query'
-import { RefreshCw } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { RefreshCw, RotateCcw } from 'lucide-react'
 import { Button, Loading, Notice, Section } from '../components/ui.tsx'
 import { operatorApi } from './api.ts'
 import { Cell, Heading, Table } from './Table.tsx'
 import { ago, count, lease, span } from './words.ts'
 
+// The one kind of job that runs again: an index job, from the stage its document stopped at.
+const RUNS_AGAIN = 'index_document'
+
 export function JobsPage() {
+  const queryClient = useQueryClient()
   const jobs = useQuery({ queryKey: ['operator', 'jobs'], queryFn: operatorApi.jobs, refetchInterval: 15_000 })
+  const requeue = useMutation({
+    mutationFn: operatorApi.requeue,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['operator', 'jobs'] }),
+  })
+  const runAgain = (jobIds: number[] | null) => {
+    const asked =
+      jobIds === null
+        ? 'Queue the document of every failed index job again, from the stage each stopped at? The jobs of other kinds are left as they are.'
+        : 'Queue its document again, from the stage it stopped at?'
+    if (window.confirm(asked)) requeue.mutate(jobIds)
+  }
   return (
     <>
       <Heading title="Jobs" command="jobs">
-        The queue as it stands, asked again every 15 seconds. To run failed documents again, use <code>failed-jobs --requeue</code>.
+        The queue as it stands, asked again every 15 seconds. A failed index job's document is queued again from the stage it stopped at, as{' '}
+        <code>failed-jobs --requeue</code> does, once its cause is fixed.
       </Heading>
       {jobs.isPending ? (
         <Loading />
@@ -72,6 +89,19 @@ export function JobsPage() {
               </Table>
             </Section>
           )}
+          {requeue.isError && <Notice tone="bad">{requeue.error.message}</Notice>}
+          {requeue.isSuccess && (
+            <Notice tone="info">
+              {count(requeue.data.queued, 'document')} queued again; the worker indexes them while it runs.
+              {requeue.data.lines.length > 0 && (
+                <ul className="mt-1 list-disc pl-4">
+                  {requeue.data.lines.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              )}
+            </Notice>
+          )}
           {jobs.data.failed.length > 0 && (
             <Section
               title="Failed"
@@ -79,7 +109,12 @@ export function JobsPage() {
                 jobs.data.failed_total > jobs.data.failed.length ? `: ${jobs.data.failed.length} of ${count(jobs.data.failed_total, 'job')}` : ''
               }. Each one's members see the failure; the reason here is the operator's.`}
             >
-              <Table columns={[{ label: 'Job' }, { label: 'Kind' }, { label: 'About' }, { label: 'Ended' }, { label: 'Why' }]}>
+              {jobs.data.failed.some((job) => job.kind === RUNS_AGAIN) && (
+                <Button className="mb-3" icon={<RotateCcw className="size-3.5" />} onClick={() => runAgain(null)} disabled={requeue.isPending}>
+                  Run every failed document again
+                </Button>
+              )}
+              <Table columns={[{ label: 'Job' }, { label: 'Kind' }, { label: 'About' }, { label: 'Ended' }, { label: 'Why' }, { label: '' }]}>
                 {jobs.data.failed.map((job) => (
                   <tr key={job.id}>
                     <Cell>{job.id}</Cell>
@@ -90,6 +125,13 @@ export function JobsPage() {
                       {!job.reported && <div className="text-xs text-muted">not mailed yet</div>}
                     </Cell>
                     <Cell className="text-xs break-words">{job.last_error}</Cell>
+                    <Cell>
+                      {job.kind === RUNS_AGAIN && (
+                        <Button variant="ghost" onClick={() => runAgain([job.id])} disabled={requeue.isPending} aria-label={`Run job ${job.id} again`}>
+                          Run again
+                        </Button>
+                      )}
+                    </Cell>
                   </tr>
                 ))}
               </Table>

@@ -122,7 +122,7 @@ def scripted_llm(model: Model, **settings) -> LLM:
     return llm
 
 
-def fallback_llm(primary: Model, backup: Model, **settings) -> LLM:
+def fallback_llm(primary: Model, backup: Model, switched_off=frozenset, **settings) -> LLM:
     """An LLM whose every kind of work is SCRIPTED's, with BACKUP as its fallback."""
     llm = LLM(
         Settings(
@@ -132,7 +132,8 @@ def fallback_llm(primary: Model, backup: Model, **settings) -> LLM:
             index_fallback_model=BACKUP,
             agent_fallback_model=BACKUP,
             **settings,
-        )
+        ),
+        switched_off,
     )
     llm._models.update({SCRIPTED: primary, BACKUP: backup})
     return llm

@@ -35,6 +35,7 @@ from app.scanning import check_scanner, scanner_from_settings
 from app.search import check_fts_language
 from app.spending import warn_without_prices
 from app.storage import Storage, check_versions, report_encryption, storage_from_settings
+from app.switches import switched_off
 from app.version import VERSION
 
 log = logging.getLogger(__name__)
@@ -78,7 +79,7 @@ def prepare(settings: Settings, services: Services | None = None) -> Services:
     if services is None:
         export_env_file(settings)
         services = Services(
-            LLM(settings),
+            LLM(settings, switched_off),
             Embedder(settings),
             storage_from_settings(settings),
             scanner_from_settings(settings),

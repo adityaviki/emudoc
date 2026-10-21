@@ -1,19 +1,22 @@
 // The organisations, the newest first and found by name, slug, id or a member's address, and
 // one of them as the `plan` and `usage` commands show it, with its usage page as its members
-// read it, its members and what its work cost.
+// read it, its members and what its work cost; and its plan, seats and agreed figures changed
+// as the `plan` command changes them.
 
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
+import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
-import { PLAN_LABELS } from '../api.ts'
-import type { Figure, Figured } from '../api.ts'
-import { Button, Chip, FIELD, Loading, Notice, Row, Section } from '../components/ui.tsx'
+import { PLAN_LABELS, PLANS } from '../api.ts'
+import type { Figure, Figured, Plan } from '../api.ts'
+import { billed } from '../billing.ts'
+import { Button, Chip, FIELD, Loading, Notice, Row, Section, SelectField } from '../components/ui.tsx'
 import { formatDate, formatDateTime, formatSize } from '../format.ts'
 import { operatorApi } from './api.ts'
 import type { OrganizationDetail } from './api.ts'
 import { Cell, Heading, Table } from './Table.tsx'
-import { amount, count, known, tokensOf, topDay } from './words.ts'
+import { agreedOf, amount, count, known, seatsOf, tokensOf, topDay } from './words.ts'
 
 export function OrganizationsPage({ currency }: { currency: string }) {
   const [search, setSearch] = useSearchParams()
@@ -141,6 +144,7 @@ export function OrganizationPage({ currency }: { currency: string }) {
 function Organization({ detail, currency }: { detail: OrganizationDetail; currency: string }) {
   const { organization, usage, cost } = detail
   const billing = organization.billing
+  const [changing, setChanging] = useState(false)
   return (
     <>
       <Heading title={organization.name} command={`plan ${organization.slug}`}>
@@ -158,17 +162,26 @@ function Organization({ detail, currency }: { detail: OrganizationDetail; curren
         )}
         <div className="grid gap-4 lg:grid-cols-2">
           <Section title="Plan" description="What it is held to: its plan's figures, its seats, and what was agreed with it in their place.">
-            <Table columns={[{ label: 'Figure' }, { label: 'Held to' }, { label: 'The plan’s' }]}>
-              {detail.entitlements.map((figure) => (
-                <tr key={figure.name}>
-                  <Cell className="font-mono text-xs">{figure.name}</Cell>
-                  <Cell>
-                    {figure.value} {figure.agreed && <Chip tone="accent">agreed</Chip>}
-                  </Cell>
-                  <Cell className="text-muted">{figure.plan_value}</Cell>
-                </tr>
-              ))}
-            </Table>
+            {changing ? (
+              <PlanForm detail={detail} onDone={() => setChanging(false)} />
+            ) : (
+              <>
+                <Table columns={[{ label: 'Figure' }, { label: 'Held to' }, { label: 'The plan’s' }]}>
+                  {detail.entitlements.map((figure) => (
+                    <tr key={figure.name}>
+                      <Cell className="font-mono text-xs">{figure.name}</Cell>
+                      <Cell>
+                        {figure.value} {figure.agreed && <Chip tone="accent">agreed</Chip>}
+                      </Cell>
+                      <Cell className="text-muted">{figure.plan_value}</Cell>
+                    </tr>
+                  ))}
+                </Table>
+                <Button className="mt-3" onClick={() => setChanging(true)}>
+                  Change the plan
+                </Button>
+              </>
+            )}
           </Section>
           <div className="space-y-4">
             <Section title="This month" description={`Counted as the plan's checks count them, from ${formatDate(usage.month)}.`}>
@@ -237,5 +250,100 @@ function Organization({ detail, currency }: { detail: OrganizationDetail; curren
         </Section>
       </div>
     </>
+  )
+}
+
+/**
+ * The organisation's plan, seats and agreed figures as a whole, as the `plan` command sets them: a figure left empty is the
+ * plan's own, one written is agreed in its place, in the words the table shows. Every change is a row of its audit log.
+ */
+function PlanForm({ detail, onDone }: { detail: OrganizationDetail; onDone: () => void }) {
+  const { organization } = detail
+  const queryClient = useQueryClient()
+  const [plan, setPlan] = useState<Plan>(organization.plan)
+  const [seats, setSeats] = useState(organization.seats === null ? '' : String(organization.seats))
+  const [written, setWritten] = useState<Record<string, string>>(detail.overrides)
+  const offered = detail.plans.find((candidate) => candidate.name === plan) ?? detail.plans[0]
+  const save = useMutation({
+    mutationFn: () =>
+      operatorApi.changePlan(organization.id, {
+        plan,
+        seats: seatsOf(seats, offered.by_the_seat),
+        agreed: agreedOf(written, offered.by_the_seat),
+      }),
+    onSuccess: (changed) => {
+      queryClient.setQueryData(['operator', 'organization', organization.id], changed)
+      queryClient.invalidateQueries({ queryKey: ['operator', 'organizations'] })
+      onDone()
+    },
+  })
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    save.mutate()
+  }
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      {/* Stripe's next event about a subscription it bills sets the plan again, unless its terms are agreed. */}
+      {billed(organization.billing) && organization.billing.managed && (
+        <Notice>
+          Stripe bills its subscription ({organization.billing.status}), which sets its plan: a change made here lasts until Stripe's next event about it,
+          unless figures are agreed with it. Change the subscription in Stripe's dashboard instead.
+        </Notice>
+      )}
+      <SelectField label="Plan" value={plan} onChange={(event) => setPlan(event.target.value as Plan)} className="max-w-xs">
+        {PLANS.map((name) => (
+          <option key={name} value={name}>
+            {PLAN_LABELS[name]}
+          </option>
+        ))}
+      </SelectField>
+      <p className="text-xs leading-relaxed text-muted">
+        Leave a figure empty for the plan's own, shown in grey. Write an agreed one as the table shows it: 500, 2 GB, {offered.figures.daily_spend_micros}, yes,
+        or none for no limit.
+      </p>
+      <Table columns={[{ label: 'Figure' }, { label: 'Agreed' }]}>
+        {detail.entitlements.map(({ name }) =>
+          name === 'members' && offered.by_the_seat ? (
+            <tr key={name}>
+              <Cell className="font-mono text-xs">seats</Cell>
+              <Cell>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  aria-label="seats"
+                  value={seats}
+                  onChange={(event) => setSeats(event.target.value)}
+                  placeholder={offered.figures.members}
+                  className={FIELD}
+                />
+              </Cell>
+            </tr>
+          ) : (
+            <tr key={name}>
+              <Cell className="font-mono text-xs">{name}</Cell>
+              <Cell>
+                <input
+                  aria-label={name}
+                  value={written[name] ?? ''}
+                  onChange={(event) => setWritten({ ...written, [name]: event.target.value })}
+                  placeholder={offered.figures[name]}
+                  className={FIELD}
+                />
+              </Cell>
+            </tr>
+          ),
+        )}
+      </Table>
+      {save.isError && <Notice tone="bad">{save.error.message}</Notice>}
+      <div className="flex gap-2">
+        <Button type="submit" variant="primary" disabled={save.isPending}>
+          Save
+        </Button>
+        <Button onClick={onDone} disabled={save.isPending}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   )
 }

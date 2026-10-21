@@ -1,16 +1,27 @@
 // How the models and services stand: the models the settings name, whether they can be used,
 // and what the worker's watch sees wrong now, asked afresh (backend/app/watch.py), with since
-// when it has been mailing each.
+// when it has been mailing each; and the kill switches, a model provider switched off in every
+// process or on again without a restart (backend/app/switches.py).
 
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw } from 'lucide-react'
 import { Button, Chip, Loading, Notice, Row, Section } from '../components/ui.tsx'
 import { formatDateTime } from '../format.ts'
 import { operatorApi } from './api.ts'
+import type { Provider } from './api.ts'
 import { Cell, Heading, Table } from './Table.tsx'
 
 export function ServicesPage() {
+  const queryClient = useQueryClient()
   const services = useQuery({ queryKey: ['operator', 'services'], queryFn: operatorApi.services })
+  const toggle = useMutation({
+    mutationFn: ({ name, off }: { name: string; off: boolean }) => operatorApi.switchProvider(name, off),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['operator', 'services'] }),
+  })
+  const flip = (provider: Provider) => {
+    const asked = `Switch ${provider.name} off? No process of the deployment asks its models from a few seconds on, until it is switched on again here; a fallback of another provider answers in their place.`
+    if (provider.off || window.confirm(asked)) toggle.mutate({ name: provider.name, off: !provider.off })
+  }
   return (
     <>
       <Heading title="Services" command="database">
@@ -47,7 +58,33 @@ export function ServicesPage() {
               <Notice>The watch could not look at {services.data.unchecked.join(', ')}: the server's log says why.</Notice>
             )}
           </Section>
-          <Section title="Models" description="DISABLED_PROVIDERS switches a provider off; a fallback is asked when its primary cannot answer.">
+          <Section
+            title="Providers"
+            description="A provider switched off here stops in every process within seconds, with no restart; one DISABLED_PROVIDERS names stays off until the setting changes and the app restarts."
+          >
+            {toggle.isError && (
+              <div className="mb-3">
+                <Notice tone="bad">{toggle.error.message}</Notice>
+              </div>
+            )}
+            <Table columns={[{ label: 'Provider' }, { label: 'Its models' }, { label: 'State' }, { label: '' }]}>
+              {services.data.providers.map((provider) => (
+                <tr key={provider.name}>
+                  <Cell className="font-mono text-xs">{provider.name}</Cell>
+                  <Cell className="font-mono text-xs">{provider.variables.join(', ') || 'none any more'}</Cell>
+                  <Cell>{switchWords(provider)}</Cell>
+                  <Cell>
+                    {!provider.by_setting && (
+                      <Button variant={provider.off ? 'secondary' : 'danger'} onClick={() => flip(provider)} disabled={toggle.isPending}>
+                        {provider.off ? `Switch ${provider.name} on` : `Switch ${provider.name} off`}
+                      </Button>
+                    )}
+                  </Cell>
+                </tr>
+              ))}
+            </Table>
+          </Section>
+          <Section title="Models" description="A fallback is asked when its primary cannot answer, its provider switched off included.">
             {services.data.model_problem && (
               <div className="mb-3">
                 <Notice tone="bad">{services.data.model_problem}</Notice>
@@ -89,4 +126,12 @@ export function ServicesPage() {
       )}
     </>
   )
+}
+
+/** Whether a provider is on, and what holds it off: the setting, or an operator, by whom and since when. */
+function switchWords(provider: Provider): string {
+  if (provider.by_setting) return 'off by DISABLED_PROVIDERS'
+  if (!provider.off) return 'on'
+  const since = provider.switched_at ? ` since ${formatDateTime(provider.switched_at)}` : ''
+  return `switched off${since}${provider.switched_by ? ` by ${provider.switched_by}` : ''}`
 }

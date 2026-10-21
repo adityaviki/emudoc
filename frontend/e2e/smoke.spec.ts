@@ -18,7 +18,8 @@ import { makeOperator, movePlan } from './operator.ts'
 // private, which she no longer finds until chosen for it, and share the chat, which the
 // colleague then reads but does not ask in, and last ask the question that uses the month's
 // questions, which the bell tells, and open that notice from the other organisation; then, made
-// an operator, read the organisation in the operator's area, which nobody else is sent. The answer
+// an operator, read the organisation in the operator's area, which nobody else is sent, raise its
+// agreed questions there, and switch the model's provider off and on again. The answer
 // is the stand-in's (e2e/standin.py): the first sentence of the passage its search found best,
 // with that passage's reference.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
@@ -436,7 +437,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible()
   })
 
-  await test.step("be made an operator, and read the organisation in the operator's area", async () => {
+  await test.step("be made an operator, read the organisation in the operator's area and change its plan, and switch a provider", async () => {
     // A member is sent the members' page at the area's address, as for any page there is not.
     await page.goto('/operator')
     await expect(page.getByText('Page not found.')).toBeVisible()
@@ -451,14 +452,30 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const members = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Members', exact: true }) })
     await expect(members.getByRole('row').filter({ hasText: address })).toContainText('owner')
     await expect(members.getByRole('row').filter({ hasText: 'Grace Hopper' })).toContainText('member')
-    // The month's three questions, which the figure agreed with it allows.
+    // The month's three questions, which the figure agreed with it allows, raised from the page.
     const plan = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Plan', exact: true }) })
-    await expect(plan.getByRole('row').filter({ hasText: 'questions_per_month' })).toContainText('agreed')
+    const questions = plan.getByRole('row').filter({ hasText: 'questions_per_month' })
+    await expect(questions).toContainText('agreed')
+    await plan.getByRole('button', { name: 'Change the plan' }).click()
+    await expect(plan.getByLabel('questions_per_month')).toHaveValue('3')
+    await plan.getByLabel('questions_per_month').fill('10')
+    await plan.getByRole('button', { name: 'Save' }).click()
+    await expect(questions).toContainText('10')
+    await expect(questions).toContainText('agreed')
 
     await page.getByRole('navigation', { name: 'Views' }).getByRole('link', { name: 'Jobs' }).click()
     await expect(page.getByRole('heading', { name: 'Jobs', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Ask again' })).toBeVisible()
     await page.getByRole('navigation', { name: 'Views' }).getByRole('link', { name: 'Services' }).click()
     await expect(page.getByRole('heading', { name: 'What the watch sees' })).toBeVisible()
+    // The stand-in's provider switched off, which asks first, and on again: last, since nothing asks a model after it.
+    const ollama = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Providers' }) }).getByRole('row').filter({ hasText: 'ollama' })
+    page.once('dialog', (dialog) => dialog.accept())
+    await ollama.getByRole('button', { name: 'Switch ollama off' }).click()
+    await expect(ollama).toContainText('switched off since')
+    await expect(page.getByText('is switched off: an operator switched its provider, ollama, off').first()).toBeVisible()
+    await ollama.getByRole('button', { name: 'Switch ollama on' }).click()
+    await expect(ollama.getByRole('cell').nth(2)).toHaveText('on')
+    await expect(ollama.getByRole('button', { name: 'Switch ollama off' })).toBeVisible()
   })
 })

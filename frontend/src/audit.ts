@@ -163,6 +163,8 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   // What a member did through an API key is theirs, with the key named as it was.
   const key = detail.api_key
   if (key && typeof key === 'object' && 'name' in key) parts.push(`with the API key ${key.name}`)
+  // What one of the deployment's operators did from the operator's area, by the id the deployment's records keep.
+  if (typeof detail.operator === 'number') parts.push("by Emudoc's operators")
   return parts.join(' · ')
 }
 

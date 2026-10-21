@@ -1,33 +1,41 @@
 """The operator's area's routes (app/operators.py), each the page's view of what a maintenance
 command prints (app/maintenance.py): `plan` and `usage` for one organisation, `costs` across
 them, `jobs` and `failed-jobs`, and the worker's watch (app/watch.py) for the services. They
-read through the same functions as the commands, so a page and a command never disagree, and
-they change nothing: changing a plan, queuing failed documents again or switching a provider
-off is the commands' still.
+read through the same functions as the commands, so a page and a command never disagree.
+
+Three of them act, as the commands do: a plan, its seats and its agreed figures changed
+(`change_plan`, whose audit rows name the operator by id in the organisation's own log), failed
+documents queued again (`requeue`, likewise), and a model provider switched off or on again
+without a restart (app/switches.py), which belongs to no organisation and is logged instead.
 
 Every route sits behind `get_operator`, which answers anyone but an operator as if the route
 were not there (404, as for a path no route takes); `everything_else` does the same for a path
 or method under /api/operator that no route takes, so that 405 tells nobody a route is there.
-The router takes no API key and no header of the app's for what it reads; a route that changes
-something will ask for that header after the operator is known (`refuse_cross_site`), so that
-the refusal too says nothing to anyone else.
+The router takes no API key, and a route that changes something asks for the app's header
+after the operator is known (`refuse_cross_site`), so that the refusal too says nothing to
+anyone else.
 """
 
 from datetime import UTC, date, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import Select, exists, func, or_, select
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel, ValidationError
+from sqlalchemy import Select, and_, exists, func, or_, select
+from sqlalchemy.orm import Session
 
 from app.api.auth import organization_out
 from app.api.deps import ServicesDep, SessionDep, refuse_cross_site
+from app.api.organizations import locked
 from app.api.usage import usage_page
+from app.billing import change_plan
 from app.config import get_settings, model_provider
-from app.deadletters import NamedJob, named_jobs
+from app.deadletters import NamedJob, named_jobs, requeue
 from app.entitlements import BY_THE_SEAT, FIELDS, PLANS, agreed_with, entitlements_of
 from app.jobs import HISTORY, JOB_STATES, QUEUE_BY_STATE
 from app.logs import about
-from app.maintenance import entitlement_words
+from app.maintenance import entitlement_words, figure_of
 from app.models import (
     JOB_KINDS,
     Job,
@@ -56,13 +64,20 @@ from app.schemas import (
     OperatorOrganizationRow,
     OperatorOrganizationsOut,
     OperatorOut,
+    OperatorPlanIn,
+    OperatorPlanOut,
+    OperatorProviderOut,
     OperatorServicesOut,
     OperatorUserMembershipOut,
     OperatorUserOut,
     OperatorUsersOut,
     OrganizationCostOut,
+    ProviderSwitchIn,
     QueueOut,
+    RequeueIn,
+    RequeueOut,
 )
+from app.switches import switch_off, switch_on, switched_off, switches
 from app.usage import OrganizationCost, model_costs, organization_costs, summed
 from app.version import VERSION
 from app.watch import look
@@ -75,6 +90,8 @@ COST_DAYS = 30
 # The rows of a page of organisations or users, and the dead letters shown at once.
 PAGE = 50
 FAILED_SHOWN = 200
+# A provider as DISABLED_PROVIDERS names one, the prefix of a `provider:model` name.
+PROVIDER = r"^[a-z0-9_-]+$"
 
 
 def get_operator(request: Request, session: SessionDep) -> User:
@@ -90,6 +107,24 @@ def get_operator(request: Request, session: SessionDep) -> User:
 
 
 OperatorDep = Annotated[User, Depends(get_operator)]
+
+
+def given[M: BaseModel](model: type[M]) -> Any:
+    """A dependency that reads the request's JSON body as `model` once the operator is known.
+    FastAPI reads a body parameter before any dependency runs, so a malformed body would be
+    answered 422 to anyone, telling them a route is there; read here, it is answered so to an
+    operator alone."""
+
+    async def read(request: Request, _: OperatorDep) -> M:
+        try:
+            return model.model_validate_json(await request.body())
+        except ValidationError as error:
+            raise RequestValidationError(
+                [{**found, "loc": ("body", *found["loc"])} for found in error.errors()]
+            ) from None
+
+    return Depends(read)
+
 
 # The operator first, then the app's header for a change: in that order, so that a request
 # refused for its missing header was an operator's.
@@ -209,6 +244,15 @@ def show_organization(org_id: int, session: SessionDep):
             )
             for name in FIELDS
         ],
+        overrides={name: entitlement_words(name, value) for name, value in agreed.items()},
+        plans=[
+            OperatorPlanOut(
+                name=plan,
+                by_the_seat=plan in BY_THE_SEAT,
+                figures={name: entitlement_words(name, getattr(figures, name)) for name in FIELDS},
+            )
+            for plan, figures in PLANS.items()
+        ],
         members=[
             OperatorMemberOut(
                 user_id=user.id,
@@ -229,6 +273,50 @@ def show_organization(org_id: int, session: SessionDep):
             DayCostOut(day=day, cost_micros=spent) for day, spent in sorted(cost.days.items())
         ],
     )
+
+
+@router.put("/organizations/{org_id}/plan", response_model=OperatorOrganizationOut)
+def change_organization_plan(
+    org_id: int,
+    operator: OperatorDep,
+    session: SessionDep,
+    change: Annotated[OperatorPlanIn, given(OperatorPlanIn)],
+):
+    """Put the organisation on a plan with its seats and agreed figures, as the `plan` command
+    does (`change_plan`), the three as a whole: the page sends what its form shows. Every part
+    that changed is a row of the organisation's audit log naming the operator. A subscription
+    Stripe bills still sets the plan at its next event, unless figures are agreed, which the
+    page says before the change."""
+    organization = locked(session, org_id)
+    if organization is None:
+        raise HTTPException(404, "No organisation has this id; it may have been deleted.")
+    about(org_id=organization.id)
+    try:
+        change_plan(
+            session,
+            organization,
+            change.plan,
+            seats=change.seats,
+            overrides=_agreed(organization, change.agreed),
+            operator=operator.id,
+        )
+    except RuntimeError as error:
+        raise HTTPException(400, str(error)) from None
+    session.commit()
+    return show_organization(org_id, session)
+
+
+def _agreed(organization: Organization, written: dict[str, str]) -> dict[str, object]:
+    """The figures to agree with the organisation, read from the words the page sends
+    (`figure_of`). A figure sent as the page shows it keeps the value it has, which its words
+    may round (a size, an amount), so that saving the form changes only what was edited."""
+    was = agreed_with(organization)
+    return {
+        name: was[name]
+        if name in was and words.strip() == entitlement_words(name, was[name])
+        else figure_of(name, words)
+        for name, words in written.items()
+    }
 
 
 @router.get("/users", response_model=OperatorUsersOut)
@@ -361,6 +449,25 @@ def jobs(session: SessionDep):
     )
 
 
+@router.post("/jobs/requeue", response_model=RequeueOut)
+def requeue_failed(
+    operator: OperatorDep, session: SessionDep, asked: Annotated[RequeueIn, given(RequeueIn)]
+):
+    """Queue failed documents again from the stage each stopped at, as `failed-jobs --requeue`
+    does: the failed jobs `job_ids` names, or every one. Only index jobs run again; the others
+    are left as they are. Each document queued is a row of its organisation's audit log naming
+    the operator."""
+    failed = Job.status == "failed"
+    if asked.job_ids is not None:
+        failed = and_(failed, Job.id.in_(asked.job_ids))
+    # Held first, so that two asking at once take turns: the second finds the jobs the first
+    # ran again gone.
+    held = session.scalars(select(Job.id).where(failed).order_by(Job.id).with_for_update()).all()
+    outcome = requeue(session, named_jobs(session, Job.id.in_(held)), operator=operator.id)
+    session.commit()
+    return RequeueOut(queued=outcome.queued, lines=outcome.lines)
+
+
 @router.get("/services", response_model=OperatorServicesOut)
 def services_status(services: ServicesDep, session: SessionDep):
     """How the models and services stand: the models the settings name, whether they can be
@@ -370,6 +477,8 @@ def services_status(services: ServicesDep, session: SessionDep):
     found, unchecked = look(services, settings)
     raised = dict(session.execute(select(WatchAlert.key, WatchAlert.raised_at)).all())
     report = server(session.connection())
+    providers = _providers(session)
+    off = {provider.name for provider in providers if provider.off}
     return OperatorServicesOut(
         models=[
             OperatorModelOut(
@@ -377,10 +486,11 @@ def services_status(services: ServicesDep, session: SessionDep):
                 name=model.name,
                 role=model.role,
                 fallback=model.fallback,
-                disabled=model_provider(model.name) in settings.disabled,
+                disabled=model_provider(model.name) in off,
             )
             for model in settings.models
         ],
+        providers=providers,
         model_problem=services.llm.problem(),
         embedding_model=settings.embedding_model,
         embedding_address=services.embedder.address,
@@ -401,6 +511,68 @@ def services_status(services: ServicesDep, session: SessionDep):
             timeouts=report.timeouts,
         ),
     )
+
+
+@router.put("/providers/{provider}", response_model=list[OperatorProviderOut])
+def switch_provider(
+    operator: OperatorDep,
+    session: SessionDep,
+    switch: Annotated[ProviderSwitchIn, given(ProviderSwitchIn)],
+    provider: str = Path(max_length=40, pattern=PROVIDER),
+):
+    """Switch a model provider off for every process, or on again, without a restart
+    (app/switches.py): off only one the settings name a model of, on again only one the area
+    switched off, since DISABLED_PROVIDERS is the deployment's and stays as it is."""
+    settings = get_settings()
+    if switch.off:
+        if provider not in _configured():
+            raise HTTPException(
+                400, f"No model the settings name is of {provider}, so there is nothing to switch."
+            )
+        switch_off(session, provider, operator)
+    else:
+        if provider in settings.disabled:
+            raise HTTPException(
+                409,
+                f"DISABLED_PROVIDERS switches {provider} off: remove it there and restart the "
+                "app to switch it on.",
+            )
+        switch_on(session, provider, operator)
+    session.commit()
+    # This process at once; the others within SWITCH_SECONDS.
+    switched_off.forget()
+    return _providers(session)
+
+
+def _configured() -> dict[str, list[str]]:
+    """The providers the settings name a model of, each with the settings that name one."""
+    named: dict[str, list[str]] = {}
+    for model in get_settings().models:
+        if model.name:
+            named.setdefault(model_provider(model.name), []).append(model.variable)
+    return named
+
+
+def _providers(session: Session) -> list[OperatorProviderOut]:
+    """The providers the settings name a model of, then any other the area holds switched off,
+    each with whether it is off and by what."""
+    disabled = get_settings().disabled
+    held = {switch.provider: (switch, user) for switch, user in switches(session)}
+    named = _configured()
+    shown = []
+    for name in [*named, *sorted(held.keys() - named.keys())]:
+        switch, user = held.get(name, (None, None))
+        shown.append(
+            OperatorProviderOut(
+                name=name,
+                variables=named.get(name, []),
+                off=name in disabled or switch is not None,
+                by_setting=name in disabled,
+                switched_at=switch.switched_at if switch else None,
+                switched_by=(user.name or user.email) if user else None,
+            )
+        )
+    return shown
 
 
 @router.api_route(

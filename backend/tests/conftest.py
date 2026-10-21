@@ -166,6 +166,7 @@ from app.parsing import MIME_TYPES  # noqa: E402
 from app.postbox import deliver  # noqa: E402
 from app.scanning import ScanError  # noqa: E402
 from app.storage import original_key, storage_from_settings  # noqa: E402
+from app.switches import switched_off  # noqa: E402
 
 # The standard test string every scanner flags, in two halves so that this file itself is not
 # flagged by one; a test writes it whole into a file to have that file quarantined.
@@ -926,15 +927,18 @@ def session():
     with SessionLocal() as session_:
         # The platform's spending warnings belong to no organisation, so they are named too,
         # and so are the request counts of the rate limits, which the test client's one
-        # address would otherwise carry from test to test, the watch's alerts and the addresses
-        # the mail provider said to spare. The jobs go with the organisations they reference.
+        # address would otherwise carry from test to test, the watch's alerts, the addresses
+        # the mail provider said to spare and the providers an operator switched off. The jobs
+        # go with the organisations they reference.
         session_.execute(
             text(
                 "TRUNCATE projects, organizations, users, spend_alerts, rate_limits, "
-                "watch_alerts, billing_events, mail_suppressions RESTART IDENTITY CASCADE"
+                "watch_alerts, billing_events, mail_suppressions, provider_switches "
+                "RESTART IDENTITY CASCADE"
             )
         )
         session_.commit()
+        switched_off.forget()
         # Ids start over, so the files and rendered pages of an earlier test's documents would
         # be served for a new test's; the storage is emptied with the tables.
         shutil.rmtree(STORAGE_ROOT, ignore_errors=True)

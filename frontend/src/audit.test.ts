@@ -85,6 +85,8 @@ describe('a row', () => {
     const due = '2026-11-04T12:00:00+00:00'
     expect(describeDetail(event('organization_deletion_requested', { due_at: due }))).toBe(`for ${formatDate(due)}`)
     expect(describeDetail(event('plan_changed', { from: 'free', to: 'team' }))).toBe('Free → Team')
+    expect(describeDetail(event('plan_changed', { from: 'free', to: 'team', operator: 7 }))).toBe("Free → Team · by Emudoc's operators")
+    expect(describeDetail(event('document_requeued', { filename: 'msa.pdf', stage: 'parse', operator: 7 }))).toBe("msa.pdf · by Emudoc's operators")
     expect(describeDetail(event('sign_in', { method: 'google' }))).toBe('through Google')
     expect(describeDetail(event('sign_in', { second_factor: 'recovery_code' }))).toBe('with a recovery code')
     expect(describeDetail(event('sign_in_failed', { reason: 'code' }))).toBe('wrong code')

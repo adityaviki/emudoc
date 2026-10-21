@@ -154,9 +154,10 @@ class Requeue:
     lines: list[str] = field(default_factory=list)
 
 
-def requeue(session: Session, failures: list[NamedJob]) -> Requeue:
+def requeue(session: Session, failures: list[NamedJob], operator: int | None = None) -> Requeue:
     """Queue each failed index job's document again from the stage it stopped at, as "Index
-    again" does, and remove the failed jobs from the list.
+    again" does, and remove the failed jobs from the list. Each document's audit row names
+    `operator`, the user's id, when an operator asked from the operator's area.
 
     A job whose document was deleted, or has a newer job queued or running already, has
     nothing left to run and is removed too: the newer job carries the document's fate. The
@@ -190,7 +191,8 @@ def requeue(session: Session, failures: list[NamedJob]) -> Requeue:
                 org_id=job.org_id,
                 project_id=document.project_id,
                 target=("document", document.id),
-                detail={"filename": document.filename, "stage": stage},
+                detail={"filename": document.filename, "stage": stage}
+                | ({} if operator is None else {"operator": operator}),
             )
             outcome.queued += 1
             outcome.lines.append(f"Queued {failure.about} again from stage {stage} (job {job.id}).")

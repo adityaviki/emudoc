@@ -1,7 +1,7 @@
 import datetime as dt
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 
 class _FromORM(BaseModel):
@@ -1523,10 +1523,24 @@ class DayCostOut(BaseModel):
     cost_micros: int
 
 
+class OperatorPlanOut(BaseModel):
+    """A plan the organisation may be put on, with its own figures as `entitlements` words them,
+    for the form that changes the organisation's."""
+
+    name: str
+    # Whether it is sold by the seat, whose members are its seats rather than a figure.
+    by_the_seat: bool
+    figures: dict[str, str]
+
+
 class OperatorOrganizationOut(BaseModel):
     organization: OrganizationOut
     usage: UsagePageOut
     entitlements: list[EntitlementOut]
+    # The figures agreed with it in place of its plan's, worded as `entitlements` words them,
+    # which is how a change takes them back; its seats are `organization.seats`.
+    overrides: dict[str, str]
+    plans: list[OperatorPlanOut]
     members: list[OperatorMemberOut]
     stripe_customer_id: str | None
     stripe_subscription_id: str | None
@@ -1535,6 +1549,18 @@ class OperatorOrganizationOut(BaseModel):
     cost: CostOut
     # The known cost of each day of the span that has one, the oldest first.
     cost_days: list[DayCostOut]
+
+
+class OperatorPlanIn(BaseModel):
+    """What the organisation is to be held to, as a whole: the plan, the seats bought on a plan
+    sold by the seat (None for the plan's own members) and every figure agreed with it, each in
+    the words the area shows (`figure_of` reads them), any left out being the plan's own."""
+
+    plan: str = Field(max_length=40)
+    seats: int | None = Field(None, le=1_000_000)
+    agreed: dict[str, Annotated[str, StringConstraints(max_length=100)]] = Field(
+        default_factory=dict, max_length=40
+    )
 
 
 class OperatorUserMembershipOut(BaseModel):
@@ -1635,13 +1661,45 @@ class OperatorJobsOut(BaseModel):
     history_days: int
 
 
+class RequeueIn(BaseModel):
+    """The failed jobs to run again, by id; None for every one the queue keeps, as the
+    `failed-jobs --requeue` command runs them."""
+
+    job_ids: list[int] | None = Field(None, max_length=1000)
+
+
+class RequeueOut(BaseModel):
+    # How many documents were queued again, and what was done with each job, one line each.
+    queued: int
+    lines: list[str]
+
+
 class OperatorModelOut(BaseModel):
     variable: str
     name: str
     role: str
     fallback: bool
-    # Whether DISABLED_PROVIDERS switches its provider off.
+    # Whether its provider is switched off, by DISABLED_PROVIDERS or from the area.
     disabled: bool
+
+
+class OperatorProviderOut(BaseModel):
+    """A model provider the settings name a model of, or that the area holds switched off,
+    and whether it is: by DISABLED_PROVIDERS, which the area cannot switch back on, or from the
+    area, by whom and since when."""
+
+    name: str
+    # The settings that name a model of it (AGENT_MODEL, …), none for one no longer named.
+    variables: list[str]
+    off: bool
+    by_setting: bool
+    switched_at: dt.datetime | None
+    # The operator who switched it off, by name or address; None for none, or one since gone.
+    switched_by: str | None
+
+
+class ProviderSwitchIn(BaseModel):
+    off: bool
 
 
 class ConcernOut(BaseModel):
@@ -1665,6 +1723,7 @@ class DatabaseOut(BaseModel):
 
 class OperatorServicesOut(BaseModel):
     models: list[OperatorModelOut]
+    providers: list[OperatorProviderOut]
     # What stops the models, in the operator's words, None while they can be used.
     model_problem: str | None
     embedding_model: str

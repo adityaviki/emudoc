@@ -758,7 +758,7 @@ def plan_report(
         name, equals, value = figure.partition("=")
         if not equals:
             raise RuntimeError(f"--set takes NAME=VALUE, such as projects=500, not {figure!r}.")
-        agreed[name.strip()] = _figure_of(name.strip(), value)
+        agreed[name.strip()] = figure_of(name.strip(), value)
     dropped = (organization.seats, agreed_with(organization)) if moving else (None, {})
     change_plan(session, organization, plan or was, seats=bought, overrides=agreed)
 
@@ -1051,11 +1051,11 @@ def entitlement_words(name: str, value: int | str | bool | None) -> str:
     return f"{value:,}" if isinstance(value, int) else value
 
 
-def _figure_of(name: str, given: str) -> object:
-    """A figure as the operator gives it after `--set NAME=`, read as the report prints it:
-    "none" for no limit, yes or no, a count (1,000), a size (500 GB) or an amount of
-    PRICE_CURRENCY a day (25.00). What it cannot read is returned as it was, for
-    `change_plan` to refuse with what the figure should be."""
+def figure_of(name: str, given: str) -> object:
+    """A figure as the operator gives it after `--set NAME=` or in the operator's area, read as
+    `entitlement_words` prints it: "none" for no limit, yes or no, a count (1,000), a size
+    (500 GB) or an amount of PRICE_CURRENCY a day (25.00, or USD 25.00 a day). What it cannot
+    read is returned as it was, for `change_plan` to refuse with what the figure should be."""
     value = given.strip()
     if value.lower() in ("none", "no limit"):
         return None
@@ -1068,7 +1068,8 @@ def _figure_of(name: str, given: str) -> object:
             number, unit = size.groups()
             return int(Decimal(number.replace(",", "")) * _UNITS[(unit or "bytes").lower()])
         if name == "daily_spend_micros":
-            amount = value.removeprefix(get_settings().price_currency).strip()
+            amount = value.removeprefix(get_settings().price_currency).removesuffix("a day")
+            amount = amount.strip()
             return int(Decimal(amount.replace(",", "")) * 1_000_000)
         return int(value.replace(",", "").replace("_", ""))
     except (InvalidOperation, ValueError):

@@ -64,10 +64,20 @@ export interface Cost {
   days_at_limit: number | null
 }
 
+/** A plan an organisation may be put on, with its own figures worded as the entitlements are. */
+export interface PlanOffered {
+  name: Plan
+  by_the_seat: boolean
+  figures: Record<string, string>
+}
+
 export interface OrganizationDetail {
   organization: Organization
   usage: UsagePage
   entitlements: Entitlement[]
+  /** The figures agreed with it in place of its plan's, worded as the entitlements are; its seats are the organisation's. */
+  overrides: Record<string, string>
+  plans: PlanOffered[]
   members: Member[]
   stripe_customer_id: string | null
   stripe_subscription_id: string | null
@@ -75,6 +85,13 @@ export interface OrganizationDetail {
   until: string
   cost: Cost
   cost_days: { day: string; cost_micros: number }[]
+}
+
+/** What an organisation is to be held to, as a whole: each agreed figure in the words the area shows, the rest the plan's own. */
+export interface PlanChange {
+  plan: Plan
+  seats: number | null
+  agreed: Record<string, string>
 }
 
 export interface User {
@@ -155,6 +172,22 @@ export interface Jobs {
   history_days: number
 }
 
+/** What running failed jobs again did: how many documents it queued, and a line for each job. */
+export interface Requeued {
+  queued: number
+  lines: string[]
+}
+
+/** A model provider the settings name a model of, or that the area holds switched off, and what holds it off. */
+export interface Provider {
+  name: string
+  variables: string[]
+  off: boolean
+  by_setting: boolean
+  switched_at: string | null
+  switched_by: string | null
+}
+
 export interface Concern {
   key: string
   title: string
@@ -164,6 +197,7 @@ export interface Concern {
 
 export interface Services {
   models: { variable: string; name: string; role: string; fallback: boolean; disabled: boolean }[]
+  providers: Provider[]
   model_problem: string | null
   embedding_model: string
   embedding_address: string
@@ -174,13 +208,20 @@ export interface Services {
   database: { version: string; role: string; vector: string | null; iterative_scans: boolean; timeouts: Record<string, string> }
 }
 
-async function request<T>(path: string): Promise<T> {
-  const response = await fetch(`/api/operator${path}`, { headers: { 'X-Requested-With': 'fetch' } })
+// Every request carries the app's header, which the server asks of a change (`refuse_cross_site`), and a change its body as JSON.
+async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+  const response = await fetch(`/api/operator${path}`, {
+    method,
+    headers: { 'X-Requested-With': 'fetch', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
   if (!response.ok) {
     let detail = response.statusText
     try {
       const body = await response.json()
       if (typeof body.detail === 'string') detail = body.detail
+      // A body the server could not read: what was wrong with each part.
+      else if (Array.isArray(body.detail)) detail = body.detail.map((error: { msg: string }) => error.msg).join('; ')
     } catch {
       // Not JSON: keep the status's words.
     }
@@ -204,4 +245,8 @@ export const operatorApi = {
   costs: (days: number) => request<Costs>(`/costs${query({ days })}`),
   jobs: () => request<Jobs>('/jobs'),
   services: () => request<Services>('/services'),
+  changePlan: (id: number, change: PlanChange) => request<OrganizationDetail>(`/organizations/${id}/plan`, 'PUT', change),
+  /** Run failed jobs again by id, or every one for null. */
+  requeue: (jobIds: number[] | null) => request<Requeued>('/jobs/requeue', 'POST', { job_ids: jobIds }),
+  switchProvider: (name: string, off: boolean) => request<Provider[]>(`/providers/${encodeURIComponent(name)}`, 'PUT', { off }),
 }

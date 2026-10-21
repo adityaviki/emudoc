@@ -3058,13 +3058,37 @@ page as its members read it, its billing, its members and what its work cost ove
 organisations and when they were last seen; the costs across organisations over 7, 30 or 90 days
 against each plan's daily limit and `DAILY_SPEND_CAP` (`costs`); the job queue, the running jobs
 with their leases and the dead letters with why each failed (`jobs`, `failed-jobs`); and the
-models and services: the models each variable names and which `DISABLED_PROVIDERS` switches
-off, the embeddings endpoint, the scanner, the storage, the database, and everything the
-worker's watch sees wrong now, asked afresh, with since when it has been mailing each ("What
-the worker mails"). It reads, and changes nothing: a plan, a failed document queued again and
-the kill switch are still the commands' and the settings'. What it shows is what the commands
-print, a member's name and address among it, never what a document, a question or an answer
-says.
+models and services: the models each variable names, the providers and which are switched off,
+the embeddings endpoint, the scanner, the storage, the database, and everything the worker's
+watch sees wrong now, asked afresh, with since when it has been mailing each ("What the worker
+mails"). What it shows is what the commands print, a member's name and address among it, never
+what a document, a question or an answer says.
+
+It changes three things, as the commands do:
+
+- **An organisation's plan.** "Change the plan" under its Plan shows the plan, the seats on a
+  plan sold by the seat, and every figure, empty for the plan's own (shown in grey) or written
+  as the table words it to agree it in the plan's place: `500`, `2 GB`, `USD 25.00 a day`,
+  `yes`, `none` for no limit. Save puts the three on the organisation as a whole, as `plan
+  <slug> [plan] --seats --set --unset` does (a figure left as it is shown keeps its value,
+  though the words round it), and each part that changed is a row of the organisation's audit
+  log, which its owners and admins read as "by Emudoc's operators" (`detail.operator` holds the
+  operator's id). A subscription Stripe bills sets the plan again at its next event unless
+  figures are agreed: the form says so, and the subscription is changed in Stripe's dashboard.
+- **Failed documents queued again.** Under Jobs, "Run again" on a failed index job, or "Run
+  every failed document again", queues each document from the stage it stopped at, as
+  `failed-jobs --requeue` does, once the cause is fixed; the jobs of other kinds are left. Each
+  document queued is a row of its organisation's log, likewise.
+- **A model provider switched off.** Under Services, "Switch google off" stops every process of
+  the deployment asking `google:` models within five seconds (`SWITCH_SECONDS`), API and worker
+  alike, with no restart, and "Switch google on" lifts it: the app runs meanwhile as it does
+  with `DISABLED_PROVIDERS` ("A fallback"), and the members' status and the watch say so. A
+  provider `DISABLED_PROVIDERS` names stays off whatever the page says, since the setting is the
+  deployment's own floor; a provider the page switched off whose models the settings no longer
+  name is listed to switch on. The switches (`provider_switches`, with who and since when)
+  belong to no organisation: each is a line of the log naming the operator's id, `Operator 7
+  switched the model provider google off`. `maintenance models` asks every model whatever the
+  page says, which is how to try a provider before switching it on.
 
 An operator is an account the `operators` command made one, by its id, whatever organisations it
 is a member of; nobody becomes one from a page, and an address that changes hands grants
@@ -3103,8 +3127,8 @@ respond @operator 404
 The page is a bundle of its own, `frontend/operator.html` built by `pnpm build` beside the
 members' page, sent to an operator alone; nothing of it reaches a member's browser, and its
 scripts have a budget apart (`frontend/scripts/size.ts`). Each request the area answers is an
-access line with the operator's `user_id` ("Logs"); it writes nothing into an organisation's
-audit log, since nothing in the organisation changes.
+access line with the operator's `user_id` ("Logs"); reading writes nothing into an
+organisation's audit log, since nothing in the organisation changes.
 
 ## Runbooks
 
@@ -3217,9 +3241,10 @@ fails over to its fallback" (or `INDEX_MODEL`), or the provider's status page:
    wait for their retries, and questions fail. Name a fallback of another provider (its
    variable, its key, its price), run `maintenance models` and release the same tag again
    ("The models").
-3. A provider that bills while it fails, or a key that leaked: `DISABLED_PROVIDERS=<prefix>` and
-   a release, after which the fallback answers, or the app runs as it does without a key, until
-   the name is removed.
+3. A provider that bills while it fails, or a key that leaked: switch it off under the
+   operator's area's Services, which every process heeds within seconds, after which the
+   fallback answers, or the app runs as it does without a key, until it is switched on; for
+   good, `DISABLED_PROVIDERS=<prefix>` and a release.
 4. Once it is over, the stages that gave up meanwhile are dead letters: `maintenance failed-jobs
    --requeue`.
 
@@ -3271,7 +3296,7 @@ of the same tag (the Release workflow).
 
 | Key | The new one | Then |
 | --- | --- | --- |
-| A model provider's (`GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`, …) | The provider's console | `maintenance models`; for a leak, `DISABLED_PROVIDERS` first |
+| A model provider's (`GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`, …) | The provider's console | `maintenance models`; for a leak, the provider switched off in the operator's area first |
 | `EMBEDDING_API_KEY` | The endpoint's provider | The start's line "Passages are embedded by …", then a search by meaning |
 | The database's password | `ALTER ROLE emudoc PASSWORD '…'` and the new `DATABASE_URL`, with `DATABASE_LISTEN_URL` and a pooler's `userlist.txt`; on AWS `tofu apply -replace=module.emudoc.random_password.database`, which writes the new URL | Release at once: the processes keep the connections they hold, and new ones fail until then; `/api/health` |
 | `SMTP_URL`'s password | The relay; on AWS `tofu apply -replace='module.emudoc.aws_iam_access_key.smtp[0]'` | A password reset's mail |
@@ -3328,8 +3353,8 @@ budget alert:
    midnight UTC); `maintenance plan <slug>` says what it allows and moves it to another plan,
    from its next request on, or agrees a day's limit of its own (`--set
    daily_spend_micros=25.00`, an amount of `PRICE_CURRENCY`).
-3. `DAILY_SPEND_CAP` holds every organisation together, and `DISABLED_PROVIDERS` stops a
-   provider's bill at once, for everyone.
+3. `DAILY_SPEND_CAP` holds every organisation together, and a provider switched off in the
+   operator's area (or `DISABLED_PROVIDERS`) stops its bill at once, for everyone.
 4. A model without a price counts toward neither: the end of `costs` lists the tokens recorded
    without one, and `MODEL_PRICES` takes the price from the next request on.
 

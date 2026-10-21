@@ -265,10 +265,12 @@ def change_plan(
     seats: int | None = None,
     overrides: Mapping[str, object] | None = None,
     because: str | None = None,
+    operator: int | None = None,
 ) -> None:
     """Put the organisation on `plan` with `seats` and the `overrides` agreed with it, the three
     as a whole (None and nothing: the plan's own), and write an audit row for each part that
-    changed, one per agreed figure, with `because` in each when billing moved it. Chats and
+    changed, one per agreed figure, with `because` in each when billing moved it and
+    `operator`, the user's id, when an operator did from the operator's area. Chats and
     audit rows the new ones keep for less time are held as before for a while
     (`hold_retention`). Raises RuntimeError with the reason for a plan, seats or a figure that
     cannot be. The caller commits."""
@@ -288,6 +290,8 @@ def change_plan(
     def changed(action: str, detail: dict[str, object]) -> None:
         if because:
             detail["because"] = because
+        if operator is not None:
+            detail["operator"] = operator
         audit_event(session, action, org_id=organization.id, detail=detail)
 
     if plan != was_plan:

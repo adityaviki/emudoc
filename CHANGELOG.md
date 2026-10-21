@@ -11,6 +11,8 @@ its day, in the same commit.
 
 Members:
 
+- The audit log says when Emudoc's operators changed the organisation's plan, seats or agreed
+  figures, or queued a failed document again: "by Emudoc's operators".
 - A member exports a whole project from its card on the projects page: one ZIP file with every
   document as it was uploaded, in its folders, what was read from each (its outline, passages
   and facts) and the chats shared with the project and their own. It is made in the background,
@@ -86,6 +88,15 @@ Operators:
   (Go 1.26.10) is not yet in Caddy 2.11.7, Prometheus 3.15.0 or Alertmanager 0.34.1, and is
   accepted until 20 November in `deploy/.trivyignore.yaml`, each with where its binary verifies
   a chain. Pillow is 13.0.0, which closes six advisories about malformed images.
+- The operator's area acts: under an organisation's Plan, "Change the plan" moves it to another
+  plan with its seats and agreed figures as the `plan` command does, each figure written as the
+  table words it; under Jobs, "Run again" queues a failed index job's document from the stage it
+  stopped at, or every one, as `failed-jobs --requeue` does; and under Services a model provider
+  is switched off for every process within five seconds, with no restart, and on again. The
+  first two are rows of the organisation's audit log, read there as "by Emudoc's operators"
+  with the operator's id kept in the row; a switch is a log line naming the operator.
+  `DISABLED_PROVIDERS` stays the deployment's own switch, which the page cannot switch back on.
+  The migration adds `provider_switches` ("The operator's area" in deploying.md).
 - The operator's area at `/operator`: the organisations with their plans, usage, members and
   costs, the users, the costs across organisations, the job queue with its dead letters, and the
   models and services as the worker's watch sees them, each what a maintenance command prints. It

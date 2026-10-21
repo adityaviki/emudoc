@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Cost, Job } from './api.ts'
-import { ago, amount, count, known, lease, span, topDay } from './words.ts'
+import { agreedOf, ago, amount, count, known, lease, seatsOf, span, topDay } from './words.ts'
 
 const cost = (top: number | null, limit: number | null): Cost => ({
   cost_micros: 0,
@@ -56,5 +56,20 @@ describe('time', () => {
   it('counts with the noun that fits', () => {
     expect(count(1, 'member')).toBe('1 member')
     expect(count(1200, 'job')).toBe('1,200 jobs')
+  })
+})
+
+describe("a plan's form", () => {
+  it('agrees the figures written, leaving the rest to the plan', () => {
+    expect(agreedOf({ projects: ' 500 ', documents: '', storage_bytes: '2 GB' }, false)).toEqual({ projects: '500', storage_bytes: '2 GB' })
+    // On a plan sold by the seat, its members are its seats.
+    expect(agreedOf({ members: '9', projects: '500' }, true)).toEqual({ projects: '500' })
+    expect(agreedOf({ members: '9' }, false)).toEqual({ members: '9' })
+  })
+
+  it('buys seats only on a plan sold by the seat', () => {
+    expect(seatsOf('5', true)).toBe(5)
+    expect(seatsOf(' ', true)).toBeNull()
+    expect(seatsOf('5', false)).toBeNull()
   })
 })

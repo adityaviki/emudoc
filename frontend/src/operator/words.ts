@@ -49,3 +49,13 @@ export function lease(job: Job, takenAt: string): string {
 
 /** How long ago a moment was, from when the figures were taken. */
 export const ago = (moment: string, takenAt: string) => `${span(seconds(moment, takenAt))} ago`
+
+/** The figures a plan's form agrees with the organisation, as the server takes them: those written, but members on a plan sold by the seat, whose members are its seats. */
+export function agreedOf(written: Record<string, string>, byTheSeat: boolean): Record<string, string> {
+  const agreed: Record<string, string> = {}
+  for (const [name, words] of Object.entries(written)) if (words.trim() && !(byTheSeat && name === 'members')) agreed[name] = words.trim()
+  return agreed
+}
+
+/** The seats a plan's form buys: on a plan sold by the seat, the number written, or null for the plan's own members. */
+export const seatsOf = (written: string, byTheSeat: boolean) => (byTheSeat && written.trim() ? Number(written) : null)

@@ -490,6 +490,25 @@ class Operator(Base):
     )
 
 
+class ProviderSwitch(Base):
+    """A model provider an operator switched off from the operator's area (app/switches.py),
+    named as DISABLED_PROVIDERS names one, by the prefix of a `provider:model` name: while its
+    row is there no process asks a model of it. Switching it on again deletes the row, and a
+    provider DISABLED_PROVIDERS names stays off whatever the table says."""
+
+    __tablename__ = "provider_switches"
+    __table_args__ = (
+        CheckConstraint("provider ~ '^[a-z0-9_-]+$'", name="ck_provider_switches_provider"),
+    )
+
+    provider: Mapped[str] = mapped_column(Text, primary_key=True)
+    # The operator who switched it off; null once their account is gone.
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    switched_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class Invitation(Base):
     """An invitation to join an organisation, open until it is accepted, revoked or expires
     (app/invitations.py). Accepting or revoking it deletes it, so a row is an invitation still
