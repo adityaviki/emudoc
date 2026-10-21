@@ -23,7 +23,7 @@ const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
 // The project every sign-up's organisation starts with (backend/app/sample).
 const SAMPLE = 'Sample: Acme supplier contract'
 
-test('a new member uploads a contract, finds it, asks about it and opens the cited passage', async ({ page, browser }) => {
+test('a new member uploads a contract, finds it, asks about it and opens the cited passage', async ({ page, browser, request }) => {
   test.setTimeout(120_000)
   // The colleague's browser, from the invitation on.
   let theirs: BrowserContext
@@ -309,6 +309,26 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(section('Held now').getByRole('definition').nth(0)).toContainText('Not counted: the sample project.')
     await expect(section('Held now').getByRole('definition').nth(3)).toContainText('2 of 2')
     await expect(section('Day by day').getByRole('figure', { name: /^Questions/ })).toContainText('2 questions in all')
+  })
+
+  await test.step('make a read key, which a program lists the projects with and changes nothing by', async () => {
+    await page.goto('/organization')
+    const keys = page.locator('section').filter({ has: page.getByRole('heading', { name: 'API keys', exact: true }) })
+    await keys.getByLabel('Name', { exact: true }).fill('Invoices sync')
+    await keys.getByRole('button', { name: 'Make a key' }).click()
+    const key = (await keys.locator('code').first().textContent()) ?? ''
+    expect(key).toMatch(/^emk_/)
+    // A program sends the key alone, with no cookie and none of the app's headers.
+    const bearer = { Authorization: `Bearer ${key}` }
+    const listed = await request.get('/api/projects', { headers: bearer })
+    expect(listed.status()).toBe(200)
+    expect((await listed.json()).map((project: { name: string }) => project.name)).toContain('Supplier contracts')
+    expect((await request.post('/api/projects', { headers: bearer, data: { name: 'Mine' } })).status()).toBe(403)
+    expect((await request.get('/api/organization/keys', { headers: bearer })).status()).toBe(403)
+    await keys.getByRole('button', { name: 'I have saved it' }).click()
+    await expect(keys.locator('code')).toHaveCount(0)
+    await page.reload()
+    await expect(keys.getByRole('listitem').filter({ hasText: 'Invoices sync' })).toContainText('last used')
   })
 
   await test.step('make the project private, which a member not chosen no longer finds, then choose her', async () => {

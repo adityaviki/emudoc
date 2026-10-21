@@ -368,6 +368,7 @@ export type PlanLimit =
   | 'questions_per_month'
   | 'members'
   | 'daily_spend_micros'
+  | 'api_access'
 
 /** What the organisation's plan turned down: the sentence, and the figure it is held to, null when the server named none. */
 export interface PlanRefusal {
@@ -506,6 +507,8 @@ export interface Allowance {
   members: number | null
   /** How many days the plan, or the terms agreed in its place, keeps a chat after its last question, null for good. */
   retention_days: number | null
+  /** Whether its members may make API keys and call the API with them (backend/app/apikeys.py). */
+  api_access: boolean
   /** Which of them were agreed with the organisation in place of its plan's. */
   agreed: string[]
   /** The pages and questions bought in packs for this month, on top of the plan's. */
@@ -778,6 +781,9 @@ export type AuditAction =
   | 'organization_renamed'
   | 'settings_changed'
   | 'audit_exported'
+  | 'api_key_created'
+  | 'api_key_rolled'
+  | 'api_key_revoked'
   | 'ownership_transferred'
   | 'invitation_sent'
   | 'invitation_revoked'
@@ -824,8 +830,40 @@ export interface AuditEvent {
   /** What it was done to, which may be gone since. */
   target_type: string | null
   target_id: number | null
-  /** Names and settings as they were, such as `{ filename: 'invoice.pdf' }`, and the users a change let in or left out by id. */
-  detail: Record<string, string | number | boolean | number[] | string[] | null>
+  /** Names and settings as they were, such as `{ filename: 'invoice.pdf' }`, the users a change let in or left out by id, and the API key a member acted through. */
+  detail: Record<string, string | number | boolean | number[] | string[] | AuditKey | null>
+}
+
+/** The API key a row's member acted through, as it was then. */
+export interface AuditKey {
+  id: number
+  name: string
+}
+
+/** What an API key may do (API_KEY_SCOPES in backend/app/models.py): read, or read and change, within its member's role. */
+export type ApiKeyScope = 'read' | 'write'
+
+/** One of the organisation's API keys, as its owners and admins see it (ApiKeyOut in backend/app/schemas.py). */
+export interface ApiKey {
+  id: number
+  name: string
+  scope: ApiKeyScope
+  /** Its first characters, to tell it from the others; the key itself is shown once. */
+  hint: string
+  /** The member it acts as, by name or address as they are now. */
+  user_id: number
+  made_by: string
+  created_at: string
+  rolled_at: string | null
+  last_used_at: string | null
+  /** Null for a key that runs until it is revoked. */
+  expires_at: string | null
+  expired: boolean
+}
+
+/** A key just made or rolled, with the key itself, which nothing shows again. */
+export interface ApiKeyMade extends ApiKey {
+  key: string
 }
 
 /** Which rows of the audit log to read: of these actions (any, when none), by this member, about this project, from `since` until before `until` (ISO times). */
@@ -1095,8 +1133,9 @@ export function oauthStartUrl(provider: string, next: string, timeZone: string, 
 /**
  * The user's organisations: starting, switching and joining one by the domain of the address,
  * which the session keeps for every tab, and the current one's name, members and their roles,
- * owner, invitations, who may join it and leaving it. Mirrors backend/app/api/organizations.py and
- * backend/app/api/invitations.py; each change answers with the account as `auth.me` does.
+ * owner, invitations, API keys, who may join it and leaving it. Mirrors backend/app/api/organizations.py,
+ * backend/app/api/invitations.py and backend/app/api/apikeys.py; each change of the organisation answers with the
+ * account as `auth.me` does.
  */
 export const organizations = {
   start: (name: string) => request<Me>('/organizations', json('POST', { name })),
@@ -1121,6 +1160,14 @@ export const organizations = {
   /** Mails a new link, which stops the one before. */
   resendInvitation: (id: number) => request<Invitation>(`/organization/invitations/${id}/resend`, { method: 'POST' }),
   revokeInvitation: (id: number) => request<void>(`/organization/invitations/${id}`, { method: 'DELETE' }),
+  /** Owners and admins only, as is everything about API keys; none of these takes a key. */
+  keys: () => request<ApiKey[]>('/organization/keys'),
+  /** A key that acts as the member who makes it; a 402 when the plan does not include the API. */
+  makeKey: (body: { name: string; scope: ApiKeyScope; days: number | null }) =>
+    request<ApiKeyMade>('/organization/keys', json('POST', body)),
+  /** The member's own key with a new secret; the one before stops at once. */
+  rollKey: (id: number) => request<ApiKeyMade>(`/organization/keys/${id}/roll`, { method: 'POST' }),
+  revokeKey: (id: number) => request<void>(`/organization/keys/${id}`, { method: 'DELETE' }),
   /** A domain is added only by someone whose own confirmed address is at it. */
   setJoining: (body: { domains: string[]; role: JoinRole }) => request<Me>('/organization/joining', json('PUT', body)),
   /** One of `me.joinable`. */

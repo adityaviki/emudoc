@@ -642,6 +642,25 @@ Microsoft sets one up too, since the provider's own second factor is not seen); 
 members in again sooner than the deployment's `SESSION_DAYS`, which ends a session that signed
 in longer ago at its next request there. The owners and admins see which members sign in with
 two-factor, and the page names whom requiring it would hold before it is turned on.
+Its owners and admins also make its API keys (`backend/app/apikeys.py`), on a plan that includes
+the API (every plan but Free). A program sends a key in a header, needing none of the app's:
+
+```bash
+curl -H "Authorization: Bearer emk_…" https://emudoc.example.org/api/projects
+```
+
+A key acts as the member who made it, in the organisation it was made in: it reads what they may
+in the organisation's projects (their folders, documents, search, facts, chats and trash), and
+with the write scope changes it as their role allows, never more. It does less as soon as they
+may, goes when they leave or are removed, and is refused whenever they would be (terms not
+accepted, two-factor required and not set up, the account set to be deleted). It reaches nothing
+of the accounts or of the organisation itself, so no key signs in, makes another key, invites
+anyone or touches billing. A key is shown once, as it is made or rolled (only its own member
+rolls it, and the secret before stops at once), runs 30, 90 or 365 days or until it is revoked,
+and is held to 300 requests a minute of its own (`RATE_API_REQUESTS`) as well as its member's
+rates. Each key made, rolled or revoked is a row of the audit log, and so is what a key does, as
+its member's with the key named. On a plan without the API, the keys made before are kept and
+refused until the organisation is on one with it again.
 The roles: a viewer reads the projects and asks about them in chats of their own, a member also
 changes the projects (makes, uploads, organises, deletes), an admin also renames the organisation
 and manages who is in it, and an owner also manages its owners. The page offers each member only
@@ -949,6 +968,7 @@ backend/app/
   invitations.py
                 invitations to an organisation, and joining one by an address's domain
   auth.py       passwords, sessions, one-time links and authenticator codes
+  apikeys.py    the API keys a program calls the API with, as the member who made them
   keyring.py    the keys of ENCRYPTION_KEYS and the cipher the database's secrets are kept in
   encrypted.py  the columns kept encrypted, the start's check and the encrypt-secrets command
   oidc.py       sign-in with Google and Microsoft
@@ -1011,6 +1031,7 @@ CHANGELOG.md    what each day's commits changed for members and operators
 
 - Deleting an organisation: one goes only with the account of its only member, who cannot
   leave it either.
-- Billing: a page of usage against the limits is to come; the API keys, the connectors and the
-  model tier the plans declare are not read by anything yet.
+- Billing: the connectors and the model tier the plans declare are not read by anything yet.
+- The public API: keys call today's routes, which may change; versioned routes under
+  `/api/v1`, webhooks for a document ready or failed, and a hosted reference are to come.
 - More file types (slides, email, legacy .doc and .xls), and reading order for multi-column PDFs.

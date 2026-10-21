@@ -9,13 +9,14 @@ authenticator code). The limits are settings, the same for every organisation (`
 app/config.py, each the requests a minute, zero for none); a rate that differs by plan is an
 entitlement.
 
-A request is counted under a limit for a key: the user when there is an account, and for
-the sign-in routes, which have none yet, the email address the request names under one limit
-and the client's address (what uvicorn read from the proxy's X-Forwarded-For, see
-deploying.md) under another, larger one, since an office shares an address and an account
-does not; so a password guessed from many addresses is held as well as many guessed from
-one. An email address is counted by its SHA-256, never as it is: the address a sign-in names may
-be anyone's, an account's or not, and neither the table nor the line the refusal logs keeps it.
+A request is counted under a limit for a key: the user when there is an account (and the API
+key, when it came with one, under a limit of its own), and for the sign-in routes, which have
+none yet, the email address the request names under one limit and the client's address (what
+uvicorn read from the proxy's X-Forwarded-For, see deploying.md) under another, larger one,
+since an office shares an address and an account does not; so a password guessed from many
+addresses is held as well as many guessed from one. An email address is counted by its
+SHA-256, never as it is: the address a sign-in names may be anyone's, an account's or not, and
+neither the table nor the line the refusal logs keeps it.
 The count is one row per scope, key and minute, raised with one `INSERT … ON CONFLICT
 DO UPDATE` and committed at once, before the route runs: a sign-in that fails for the wrong
 password counts all the same, which is the point. The minute is a fixed window, so a caller
@@ -119,6 +120,8 @@ FAILED_SIGN_INS = Limit("failed_sign_in", "rate_failed_sign_ins", "failed sign-i
 PAGE_ERRORS = Limit("page_error", "rate_page_errors", "error reports")
 # A member's requests to billing (app/api/billing.py), each a session made or read at Stripe.
 BILLING = Limit("billing", "rate_billing", "billing requests")
+# Every request an API key makes (app/apikeys.py), on top of its member's own rates.
+API_REQUESTS = Limit("api_key", "rate_api_requests", "requests")
 # Each limit's refusals are counted from zero in the metrics (app/metrics.py).
 for _limit in (
     UPLOADS,
@@ -129,6 +132,7 @@ for _limit in (
     FAILED_SIGN_INS,
     PAGE_ERRORS,
     BILLING,
+    API_REQUESTS,
 ):
     RATE_LIMITED.labels(_limit.scope)
 
@@ -155,6 +159,11 @@ def by_email(email: str) -> Key:
     every browser that has not signed in to its account together."""
     digest = hashlib.sha256(email.strip().lower().encode()).hexdigest()
     return Key(f"email:{digest}", "for this email address")
+
+
+def by_key(key_id: int) -> Key:
+    """An API key, by itself, whichever program holds it."""
+    return Key(f"key:{key_id}", "with this API key")
 
 
 def by_browser(browser_id: int) -> Key:

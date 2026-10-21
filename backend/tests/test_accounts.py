@@ -82,10 +82,11 @@ def test_deleting_a_user_or_organisation_removes_what_hangs_off_it(session):
             ),
             ApiKey(
                 org_id=organization.id,
-                created_by_id=user.id,
+                user_id=user.id,
                 name="CI",
-                key_prefix="emk_ab12",
-                key_hash="k" * 64,
+                scope="read",
+                hint="emk_ab12",
+                token_hash="k" * 64,
             ),
         ]
     )
@@ -95,16 +96,14 @@ def test_deleting_a_user_or_organisation_removes_what_hangs_off_it(session):
     session.commit()
     assert session.scalars(select(UserSession)).all() == []
     assert session.scalars(select(Membership)).all() == []
-    # What the user created for the organisation outlives their account.
+    # An invitation the user sent outlives their account; a key, which acted as them, does not.
     invitation = session.scalars(select(Invitation)).one()
-    key = session.scalars(select(ApiKey)).one()
     assert invitation.invited_by_id is None
-    assert key.created_by_id is None
+    assert session.scalars(select(ApiKey)).all() == []
 
     session.delete(organization)
     session.commit()
     assert session.scalars(select(Invitation)).all() == []
-    assert session.scalars(select(ApiKey)).all() == []
 
 
 def test_a_project_belongs_to_an_organisation(session):

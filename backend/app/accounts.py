@@ -29,7 +29,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import PLANS, ROLES, Membership, Organization, User, UserSession
+from app.models import PLANS, ROLES, ApiKey, Membership, Organization, User, UserSession
 
 LOCAL_ORG_SLUG = "local"
 # A reserved domain, so the address can never receive mail or clash with a real account.
@@ -43,12 +43,23 @@ class Account:
     organization: Organization
     user: User
     role: str
-    # The session the request came with; None for the local account.
+    # The session the request came with; None for the local account and for an API key's.
     session_id: int | None = None
+    # The API key the request came with instead (app/apikeys.py), which acts as its member.
+    key: ApiKey | None = None
 
     def is_at_least(self, role: str) -> bool:
         """Whether the account's role grants everything `role` grants."""
         return ROLES.index(self.role) <= ROLES.index(role)
+
+    @property
+    def is_local(self) -> bool:
+        """Whether this is the local account of development, held to none of what a member's
+        account is: a request with neither a session nor a key, or with a key the local owner
+        made, which acts as them."""
+        if self.session_id is not None:
+            return False
+        return self.key is None or self.user.email == LOCAL_OWNER_EMAIL
 
 
 def account_for_user(

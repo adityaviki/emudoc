@@ -11,6 +11,12 @@ its day, in the same commit.
 
 Members:
 
+- On a paid plan, an organisation's owners and admins make API keys on the organisation page,
+  each with a name, read or read-and-write, and 30, 90 or 365 days or until revoked. A program
+  calls the API with a key as the member who made it, in the organisation's projects alone and
+  never beyond that member's role. The key is shown once; the page lists each key's first
+  characters, whom it acts as and when it was last used, rolls one's own for a new secret and
+  revokes any. Each is in the audit log, and so is what a key does, with the key named.
 - An organisation's owners and admins choose how its members sign in, in the new Security
   section of the organisation page: requiring two-factor sign-in of everyone who works in it,
   once they sign in with it themselves, after the page names who does not yet; a member without
@@ -62,6 +68,13 @@ Members:
 
 Operators:
 
+- API keys: a request with `Authorization: Bearer emk_…` acts as the key's member, needs no
+  `X-Requested-With`, and is held to `RATE_API_REQUESTS` (300 a minute) per key on top of its
+  member's rates; the proxy passes the header as it is. The migration reshapes the unused
+  `api_keys` table of the first schema (keys now go with their member's membership) and adds the
+  audit log's actions `api_key_created`, `api_key_rolled` and `api_key_revoked`; the log's lines
+  of a request made with a key carry `api_key_id`. Keys that ran out 30 days ago are pruned with
+  the sessions.
 - The migration adds `mfa_required` and `session_days` to `organizations`, the audit log's
   action `audit_exported`, and four indexes of `audit_events` led by the organisation and its
   action, its project, and time, and by the member, in place of the two by id and by user; on a

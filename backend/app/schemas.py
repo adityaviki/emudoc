@@ -19,6 +19,7 @@ PlanLimit = Literal[
     "questions_per_month",
     "members",
     "daily_spend_micros",
+    "api_access",
 ]
 
 
@@ -567,6 +568,8 @@ class AllowanceOut(BaseModel):
     # How many days the plan, or the terms agreed in its place, keeps a chat after its last
     # question.
     retention_days: int | None = None
+    # Whether its members may make API keys and call the API with them (app/apikeys.py).
+    api_access: bool = False
     # Which of them were agreed with the organisation in place of its plan's.
     agreed: list[str]
     # The pages and questions bought in packs for this month, on top of the plan's.
@@ -916,6 +919,42 @@ class InvitationOut(BaseModel):
     created_at: dt.datetime
     expires_at: dt.datetime
     expired: bool
+
+
+# API_KEY_SCOPES in app/models.py, which the database's check constraint holds.
+ApiKeyScope = Literal["read", "write"]
+
+
+class ApiKeyIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    scope: ApiKeyScope = "read"
+    # How many days it runs, a year at most; None runs until it is revoked.
+    days: int | None = Field(None, ge=1, le=366)
+
+
+class ApiKeyOut(BaseModel):
+    """An API key of the organisation, as its owners and admins see it (app/apikeys.py): never
+    the key itself, which is shown once, as it is made or rolled."""
+
+    id: int
+    name: str
+    scope: ApiKeyScope
+    # Its first characters, to tell it from the others.
+    hint: str
+    # The member it acts as, and their name or address as it is now.
+    user_id: int
+    made_by: str
+    created_at: dt.datetime
+    rolled_at: dt.datetime | None
+    last_used_at: dt.datetime | None
+    expires_at: dt.datetime | None
+    expired: bool
+
+
+class ApiKeyMadeOut(ApiKeyOut):
+    """A key just made or rolled, with the key itself, which nothing shows again."""
+
+    key: str
 
 
 class InvitationLinkOut(BaseModel):

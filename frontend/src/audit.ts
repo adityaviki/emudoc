@@ -56,6 +56,9 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   organization_renamed: ['Renamed the organisation', 'organization'],
   settings_changed: ['Changed a setting', 'organization'],
   audit_exported: ['Downloaded the audit log', 'organization'],
+  api_key_created: ['Made an API key', 'organization'],
+  api_key_rolled: ['Rolled an API key', 'organization'],
+  api_key_revoked: ['Revoked an API key', 'organization'],
   sample_added: ['Sample project added', 'organization'],
   database_restored: ['Database restored', 'organization'],
   plan_changed: ['Plan changed', 'billing'],
@@ -150,6 +153,11 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   if (typeof detail.method === 'string') parts.push(detail.method === 'password' ? 'with a password' : `through ${word(detail.method)}`)
   if (detail.second_factor === 'recovery_code') parts.push('with a recovery code')
   if (detail.reason === 'password' || detail.reason === 'code') parts.push(`wrong ${detail.reason}`)
+  if (detail.scope === 'read' || detail.scope === 'write') parts.push(detail.scope === 'write' ? 'reads and writes' : 'reads only')
+  if (event.action === 'api_key_created') parts.push(typeof detail.days === 'number' ? `for ${detail.days} days` : 'until revoked')
+  // What a member did through an API key is theirs, with the key named as it was.
+  const key = detail.api_key
+  if (key && typeof key === 'object' && 'name' in key) parts.push(`with the API key ${key.name}`)
   return parts.join(' · ')
 }
 

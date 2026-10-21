@@ -19,9 +19,9 @@ Route = tuple[str, str, dict]
 @dataclass
 class World:
     """A project with a folder, an indexed document and a chat holding one answered question,
-    and in its trash a folder, a document and a chat; another project in the trash; and an
-    invitation to the organisation, all made by the local owner in the local organisation, and
-    another member of it."""
+    and in its trash a folder, a document and a chat; another project in the trash; an
+    invitation to the organisation and an API key of it, all made by the local owner in the
+    local organisation, and another member of it."""
 
     org_id: int
     project_id: int
@@ -31,6 +31,7 @@ class World:
     message_id: int
     passage_id: int
     invitation_id: int
+    key_id: int
     member_id: int
     trashed_folder_id: int
     trashed_document_id: int
@@ -50,6 +51,7 @@ def world(client, services, sample_pdf, account, make_account) -> World:
     answer(asked["answer"]["id"], services)
     hits = client.get(f"/api/projects/{project['id']}/search", params={"q": "notice"}).json()
     invited = client.post("/api/organization/invitations", json={"email": "ivy@example.com"})
+    key = client.post("/api/organization/keys", json={"name": "CI"})
     member = make_account("mo@example.com", account.organization, role="member")
     trashed_folder = make_folder(client, project["id"], "Old")
     note = client.post(
@@ -74,6 +76,7 @@ def world(client, services, sample_pdf, account, make_account) -> World:
         asked["answer"]["id"],
         hits["hits"][0]["passage_id"],
         invited.json()["id"],
+        key.json()["id"],
         member.user.id,
         trashed_folder["id"],
         note["id"],
@@ -206,6 +209,14 @@ def invitations(w: World) -> list[Route]:
     ]
 
 
+def keys(w: World) -> list[Route]:
+    """The organisation's API keys, which only its owners and admins manage (test_apikeys.py)."""
+    return [
+        ("POST", f"/api/organization/keys/{w.key_id}/roll", {}),
+        ("DELETE", f"/api/organization/keys/{w.key_id}", {}),
+    ]
+
+
 def members(w: World) -> list[Route]:
     """Changing a member's role and removing them, which only the owners and admins may."""
     return [
@@ -226,6 +237,7 @@ def scoped(w: World) -> list[Route]:
         + starts(w)
         + switches(w)
         + invitations(w)
+        + keys(w)
         + members(w)
     )
 
@@ -326,7 +338,7 @@ def test_a_viewer_can_read_but_not_change(client, world, account, make_account, 
     assert client.post("/api/projects", json={"name": "Mine"}).status_code == 403
     detail = client.delete(f"/api/documents/{world.document_id}").json()["detail"]
     assert detail.startswith("Your role in this organisation is viewer")
-    managed = statuses(client, invitations(world) + members(world))
+    managed = statuses(client, invitations(world) + keys(world) + members(world))
     assert set(managed.values()) == {403}, managed
 
     # Asking questions is reading: a viewer may start a chat of their own.
@@ -340,8 +352,8 @@ def test_a_member_can_change_things(client, world, account, make_account, act_as
     renamed = client.patch(f"/api/projects/{world.project_id}", json={"name": "Ours"})
     assert renamed.status_code == 200
     assert client.delete(f"/api/folders/{world.folder_id}").status_code == 204
-    # The invitations and the members' roles are the owners' and admins' to manage.
-    managed = statuses(client, invitations(world) + members(world))
+    # The invitations, the API keys and the members' roles are the owners' and admins' to manage.
+    managed = statuses(client, invitations(world) + keys(world) + members(world))
     assert set(managed.values()) == {403}, managed
 
 

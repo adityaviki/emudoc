@@ -96,6 +96,18 @@ describe('a row', () => {
     expect(describeDetail(event('project_deleted', { name: 'Old', documents: 3 }))).toBe('Old')
   })
 
+  it('words an API key, and names the key a member acted through', () => {
+    expect(describeDetail(event('api_key_created', { name: 'Sync', scope: 'write', days: 90 }))).toBe(
+      'Sync · reads and writes · for 90 days',
+    )
+    expect(describeDetail(event('api_key_created', { name: 'Sync', scope: 'read', days: null }))).toBe(
+      'Sync · reads only · until revoked',
+    )
+    expect(describeDetail(event('api_key_rolled', { name: 'Sync' }))).toBe('Sync')
+    const through = { filename: 'msa.pdf', api_key: { id: 3, name: 'Sync' } }
+    expect(describeDetail(event('document_uploaded', through))).toBe('msa.pdf · with the API key Sync')
+  })
+
   it('words a setting by what it is', () => {
     const setting = (detail: AuditEvent['detail']) => describeDetail(event('settings_changed', detail))
     expect(setting({ setting: 'language', from: null, to: 'german' })).toBe('Language: the default → German')

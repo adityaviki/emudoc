@@ -80,9 +80,9 @@ def published() -> str:
 
 
 def terms_due(account: Account) -> bool:
-    """Whether the account's user has yet to accept the current edition. The local account
-    of development, which has no session, never has to."""
-    return account.session_id is not None and account.user.terms_version != TERMS_VERSION
+    """Whether the account's user has yet to accept the current edition, which holds the API
+    keys they made too. The local account of development, which has no session, never has to."""
+    return not account.is_local and account.user.terms_version != TERMS_VERSION
 
 
 def terms_pending() -> str:

@@ -46,6 +46,15 @@ A request that changes something must also carry the header the app's own reques
 The browser attaches the session cookie to a request from any site, so without that proof a
 page elsewhere could act as the signed-in user; `refuse_cross_site` runs on every route.
 
+A program calls the API with an API key instead of a session (app/apikeys.py): a request that
+names one in its `Authorization: Bearer` header acts as the member who made the key, in the
+organisation it was made in, and is judged by the key alone. It needs no header of the app's,
+since a browser sends a Bearer token with no request by itself. The key reaches only the routes
+that read and change what the projects hold (KEYED in app/main.py), only by the methods that
+change nothing unless its scope is `write`, only while the organisation's plan includes the API,
+and it is held to a rate of its own, besides its member's; past that it is its member's account,
+held to everything above as they are.
+
 The routes that cost something or guard an account are held to a rate per caller
 (app/ratelimit.py): `limited(limit)` is the dependency for a route with an account, counted
 per user, and `refuse_past` is what a sign-in route calls with the keys it has.
@@ -61,15 +70,26 @@ from sqlalchemy.orm import Session
 
 from app.access import sees, visible_to
 from app.accounts import Account, account_for_user, local_account, zone_of
+from app.apikeys import (
+    CHALLENGE,
+    ELSEWHERE,
+    KEY_UNKNOWN,
+    READ_ONLY_KEY,
+    bearer,
+    expired,
+    find_key,
+    key_expired,
+    touch_key,
+)
 from app.auth import SESSION_COOKIE, find_session, now, touch_session
 from app.config import get_settings
 from app.db import get_session
-from app.entitlements import PlanRefused, read_only
+from app.entitlements import PlanRefused, check_api, read_only
 from app.indexing.pipeline import Services
 from app.legal import terms_due, terms_pending
 from app.logs import about
 from app.models import Chat, Document, Folder, Passage, Project, User
-from app.ratelimit import Key, Limit, by_user, hit
+from app.ratelimit import API_REQUESTS, Key, Limit, by_key, by_user, hit
 from app.retention import deletion_pending
 from app.security import mfa_due, mfa_pending, sign_in_again, signed_in_too_long
 from app.trash import DOCUMENT_IN_TRASH, NOT_IN_TRASH, PASSAGE_IN_TRASH
@@ -99,7 +119,8 @@ SAME_APP_HEADER = "X-Requested-With"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 CROSS_SITE = (
     "This request would change something but did not come from the Emudoc app: it lacks the "
-    f"{SAME_APP_HEADER} header. If you call the API yourself, send that header with any value."
+    f"{SAME_APP_HEADER} header. If you call the API yourself, call it with an API key, which "
+    "needs no such header."
 )
 # The id of the organisation the page that sent a request shows, which the app's own requests
 # carry (`send` in frontend/src/api.ts), and of the one the session works in on a refusal.
@@ -148,13 +169,19 @@ async def refuse_cross_site(request: Request) -> None:
     Async, so that it runs on the event loop: a synchronous dependency waits for a thread, and
     the liveness route (`alive` in app/main.py) must answer while every thread is busy.
     """
-    if request.method not in SAFE_METHODS and SAME_APP_HEADER not in request.headers:
+    if (
+        request.method not in SAFE_METHODS
+        and SAME_APP_HEADER not in request.headers
+        and bearer(request) is None
+    ):
         raise HTTPException(403, CROSS_SITE)
 
 
 def get_account(request: Request, session: SessionDep) -> Account:
-    """The organisation and user a request acts as: the session's user, or the local account.
-    What the request logs from here on names them."""
+    """The organisation and user a request acts as: the API key's member, the session's user,
+    or the local account. What the request logs from here on names them."""
+    if (secret := bearer(request)) is not None:
+        return _key_account(request, session, secret)
     token = request.cookies.get(SESSION_COOKIE)
     if token:
         user_session = find_session(session, token)
@@ -177,6 +204,27 @@ def get_account(request: Request, session: SessionDep) -> Account:
         about(user_id=account.user.id, org_id=account.organization.id)
         return account
     raise HTTPException(401, SIGN_IN)
+
+
+def _key_account(request: Request, session: SessionDep, secret: str) -> Account:
+    """The account an API key acts as, counted for the key, provided the route is one a key
+    reaches and the key's scope and the organisation's plan allow the request."""
+    found = find_key(session, secret)
+    if found is None:
+        raise HTTPException(401, KEY_UNKNOWN, headers=CHALLENGE)
+    key, organization, user, role = found
+    about(user_id=user.id, org_id=organization.id, api_key_id=key.id)
+    if expired(key):
+        raise HTTPException(401, key_expired(key, user), headers=CHALLENGE)
+    refuse_past(session, (API_REQUESTS, by_key(key.id)))
+    if request.scope.get("endpoint") not in getattr(request.app.state, "keyed", ()):
+        raise HTTPException(403, ELSEWHERE)
+    if key.scope == "read" and request.method not in SAFE_METHODS:
+        raise HTTPException(403, READ_ONLY_KEY)
+    if refusal := check_api(organization):
+        raise PlanRefused(refusal)
+    touch_key(session, key)
+    return Account(organization, user, role, key=key)
 
 
 AnyAccountDep = Annotated[Account, Depends(get_account)]

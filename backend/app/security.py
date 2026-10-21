@@ -15,15 +15,17 @@ Microsoft sets one up too, since the provider's own second factor, if it asks on
 by the app. Nobody turns the requirement on without signing in with two-factor themselves, so
 the owner or admin who asks is never held by their own choice; and every session of an account
 with two-factor on has had its code, since turning it on ends the others (`enable_mfa` in
-app/api/auth.py). The local account of development has no session and is never held. The
-notification centre leaves out the notices of an organisation that holds its user, which name
-its documents (app/api/notifications.py); their mail cannot be held back and still goes.
+app/api/auth.py). An API key is held with its member (app/apikeys.py). The local account of
+development has no session and is never held. The notification centre leaves out the notices
+of an organisation that holds its user, which name its documents (app/api/notifications.py);
+their mail cannot be held back and still goes.
 
 Sessions: a session that signed in longer ago than the organisation it works in allows ends at
 its next request, which is answered with 401 as an expired session's is, and its user signs in
 again (`get_account` in app/api/deps.py). One that works in another organisation goes on,
 whatever this one allows. The deployment's SESSION_DAYS is the most an organisation may choose,
-since no session lasts longer.
+since no session lasts longer. An API key has no session to end: it runs out on its own day,
+or is rolled or revoked.
 """
 
 import datetime as dt
@@ -41,9 +43,7 @@ def mfa_due(account: Account) -> bool:
     """Whether the account's organisation requires two-factor sign-in and its user signs in
     without it, so that the account may do nothing there but set it up, leave or go elsewhere."""
     return (
-        account.session_id is not None
-        and account.organization.mfa_required
-        and not account.user.mfa_enabled
+        not account.is_local and account.organization.mfa_required and not account.user.mfa_enabled
     )
 
 

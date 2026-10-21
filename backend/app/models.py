@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -40,6 +41,9 @@ CHAT_VISIBILITIES = ("private", "project")
 # A project is seen by everyone in its organisation, or, when private, by the members chosen
 # for it and the organisation's owners and admins (app/access.py).
 PROJECT_VISIBILITIES = ("organization", "private")
+# What an API key may do (app/apikeys.py): read, by the methods that change nothing, or write,
+# which reads too; either within the role of the member who made it.
+API_KEY_SCOPES = ("read", "write")
 # What a background job can be (app/jobs.py). A worker only claims the kinds it has a handler
 # for, so a kind can be queued by a newer API before an older worker knows it.
 JOB_KINDS = (
@@ -81,12 +85,12 @@ NOTICE_CHANNELS = ("app", "email")
 # still have an order, so a page boundary between them is exact).
 NATURAL_ORDER = "natural_order"
 # What the audit log records (app/audit.py): its members' sign-ins and what they did to their
-# accounts, what was done to the organisation itself (its name and settings, its owner, who was
-# invited, joined, left or was removed, and the members' roles), to its projects, its documents
-# and the sharing of its chats, and what the operator and the app did to it on their own (a
-# quarantine, the sample project a new account's organisation starts with). A project, folder,
-# document or chat `_deleted` went into the trash (app/trash.py), `_restored` came out of it, and
-# `_purged` was deleted for good from it by a member.
+# accounts, what was done to the organisation itself (its name and settings, its owner, its API
+# keys, who was invited, joined, left or was removed, and the members' roles), to its projects,
+# its documents and the sharing of its chats, and what the operator and the app did to it on
+# their own (a quarantine, the sample project a new account's organisation starts with). A
+# project, folder, document or chat `_deleted` went into the trash (app/trash.py), `_restored`
+# came out of it, and `_purged` was deleted for good from it by a member.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -122,6 +126,9 @@ AUDIT_ACTIONS = (
     "organization_renamed",
     "settings_changed",
     "audit_exported",
+    "api_key_created",
+    "api_key_rolled",
+    "api_key_revoked",
     "ownership_transferred",
     "invitation_sent",
     "invitation_revoked",
@@ -482,6 +489,44 @@ class Invitation(Base):
     )
 
 
+class ApiKey(Base):
+    """A key a program calls the API with in place of a member's session (app/apikeys.py). It
+    acts as the member who made it, in the organisation it was made in, within their role there
+    and its scope; so it goes with their membership, by the database's cascade, when they leave
+    or are removed or the organisation or the account goes."""
+
+    __tablename__ = "api_keys"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["org_id", "user_id"],
+            ["memberships.org_id", "memberships.user_id"],
+            ondelete="CASCADE",
+        ),
+        _one_of("scope", API_KEY_SCOPES, "api_keys"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(100))
+    scope: Mapped[str] = mapped_column(String(10))
+    # Only the key's SHA-256 is stored, as for sessions, so a copy of the database calls nothing.
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    # The key's first characters, which the page shows to tell keys apart.
+    hint: Mapped[str] = mapped_column(String(12))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # When it was last given a new secret (`roll`), the one before ending then.
+    rolled_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    # Kept to LAST_SEEN_RESOLUTION, as a session's last sight is (app/auth.py).
+    last_used_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    # None for a key that runs until it is revoked.
+    expires_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class UserSession(Base):
     """A signed-in browser or device. The cookie holds a random token; only its hash is stored."""
 
@@ -529,32 +574,6 @@ class Browser(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     signed_in_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-
-
-class ApiKey(Base):
-    """A key for programmatic access to an organisation's projects.
-
-    Only the hash is stored; the prefix is shown in the UI so one key can be told from another.
-    """
-
-    __tablename__ = "api_keys"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    org_id: Mapped[int] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
-    )
-    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
-    name: Mapped[str] = mapped_column(String(200))
-    key_prefix: Mapped[str] = mapped_column(String(12))
-    key_hash: Mapped[str] = mapped_column(String(64), unique=True)
-    # Scope names the key is limited to; empty means the whole API its organisation may use.
-    scopes: Mapped[list] = mapped_column(JSONB, default=list)
-    last_used_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
-    expires_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
-    revoked_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 

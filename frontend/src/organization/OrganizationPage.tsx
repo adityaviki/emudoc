@@ -1,22 +1,36 @@
 // The organisation the user works in: its name and region, its settings and security settings (its audit log is
-// AuditPage.tsx), what its plan lets it keep and use (what it holds and used of it is the usage page's, UsagePage.tsx)
+// AuditPage.tsx), the API keys its owners and admins make for its programs, what its plan lets it keep and use (what it holds and used of it is the usage page's, UsagePage.tsx)
 // and buying one, its members, their roles and removing them, handing it over to another of them, the invitations its
 // owners and admins send and the domains whose addresses may join it, and leaving it; the user's other organisations to switch to and those open to them; and the page that starts a new
 // one. A switch, a join, a new organisation and leaving one start the app again in the organisation the session then
 // works in (`startAgainInOrganization` in auth.ts).
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, CreditCard, History, LogOut, Plus, UserMinus, UserPlus } from 'lucide-react'
+import { Check, Copy, CreditCard, History, KeyRound, LogOut, Plus, UserMinus, UserPlus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { PLAN_LABELS, REGION_NAMES, ROLES, ROLE_LABELS, isPlanLimit, isWithin, organizations } from '../api.ts'
-import type { Allowance, Invitation, JoinRole, Languages, Me, Member, PlanChoice, Role, SoldPlan } from '../api.ts'
+import type {
+  Allowance,
+  ApiKey,
+  ApiKeyMade,
+  ApiKeyScope,
+  Invitation,
+  JoinRole,
+  Languages,
+  Me,
+  Member,
+  PlanChoice,
+  Role,
+  SoldPlan,
+} from '../api.ts'
+import { KEY_DAYS, SCOPES, callWith, daysOf, describeKey, mayRoll } from '../apiKeys.ts'
 import { ME_KEY, setSignedIn, startAgainInOrganization, useMe } from '../auth.ts'
 import { describeBilling, describeChange, describeExcess, describeHeld, mayBuy, mayChange, thisMonth } from '../billing.ts'
 import { PasswordField } from '../account/shared.tsx'
 import { NoticeChoices } from '../components/NoticeChoices.tsx'
-import { PlanLimitNotice } from '../components/PlanLimit.tsx'
+import { PlanLimitNotice, PlanOffer } from '../components/PlanLimit.tsx'
 import { Button, Checkbox, Chip, FIELD, InputField, LinkButton, Loading, Notice, Radio, Row, Section, SelectField } from '../components/ui.tsx'
 import { formatDate, formatSize } from '../format.ts'
 import { INVITATIONS_SECTION, JOINING_SECTION } from '../onboarding.ts'
@@ -35,6 +49,7 @@ import {
 const MEMBERS_KEY = ['organization', 'members'] as const
 const LANGUAGES_KEY = ['organization', 'languages'] as const
 const INVITATIONS_KEY = ['organization', 'invitations'] as const
+const KEYS_KEY = ['organization', 'keys'] as const
 const JOIN_ROLES: JoinRole[] = ['member', 'viewer']
 
 const capitalised = (text: string) => text[0].toUpperCase() + text.slice(1)
@@ -54,12 +69,13 @@ export function OrganizationPage() {
       <div className="mx-auto max-w-2xl px-6 py-10">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold tracking-tight">{me.organization.name}</h1>
-          <p className="mt-1 text-[13px] text-muted">The organisation you work in: its name and settings, how its members sign in, its plan, its members, who may join it, and leaving it.</p>
+          <p className="mt-1 text-[13px] text-muted">The organisation you work in: its name and settings, how its members sign in, its API keys, its plan, its members, who may join it, and leaving it.</p>
         </div>
         <div className="space-y-5">
           <NameSection me={me} />
           <SettingsSection me={me} />
           <SecuritySection me={me} />
+          {isWithin('admin', me.role) && <ApiKeysSection me={me} />}
           <PlanSection me={me} />
           <MembersSection me={me} />
           {isWithin('admin', me.role) && (
@@ -354,6 +370,205 @@ function SessionDays({ me }: { me: Me }) {
       <p className="text-xs text-muted">A member who signed in longer ago is asked to sign in again at their next step in the organisation.</p>
       {save.isError && <Notice tone="bad">{save.error.message}</Notice>}
     </div>
+  )
+}
+
+// Owners and admins only. A key acts as the member who makes it, within their role and its scope, and reaches the
+// projects alone (backend/app/apikeys.py). It is shown once, as it is made or rolled; the list shows its first
+// characters after that. Only its own member rolls a key, since the new one acts as them; any owner or admin revokes.
+function ApiKeysSection({ me }: { me: Me }) {
+  const queryClient = useQueryClient()
+  const keys = useQuery({ queryKey: KEYS_KEY, queryFn: organizations.keys })
+  const [name, setName] = useState('')
+  const [scope, setScope] = useState<ApiKeyScope>('read')
+  const [days, setDays] = useState(KEY_DAYS[0].value)
+  const [shown, setShown] = useState<ApiKeyMade | null>(null)
+  const make = useMutation({
+    mutationFn: () => organizations.makeKey({ name: name.trim(), scope, days: daysOf(days) }),
+    onSuccess: (made) => {
+      setName('')
+      setShown(made)
+      void queryClient.invalidateQueries({ queryKey: KEYS_KEY })
+    },
+  })
+
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    if (name.trim()) make.mutate()
+  }
+
+  return (
+    <Section
+      id="api-keys"
+      title="API keys"
+      description="A program calls Emudoc with a key as the member who made it: it reads what you may in the organisation's projects, and with the write scope changes it, but nothing of the accounts or the organisation itself."
+    >
+      {shown && <NewKey made={shown} onDone={() => setShown(null)} />}
+      {me.organization.allowance.api_access ? (
+        <form onSubmit={submit} className="space-y-3">
+          <div className="flex flex-wrap items-end gap-2">
+            <InputField
+              label="Name"
+              required
+              maxLength={100}
+              autoComplete="off"
+              placeholder="Invoices sync"
+              className="min-w-48 flex-1"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+            <SelectField label="Runs for" value={days} onChange={(event) => setDays(event.target.value)}>
+              {KEY_DAYS.map((choice) => (
+                <option key={choice.value} value={choice.value}>
+                  {choice.label}
+                </option>
+              ))}
+            </SelectField>
+          </div>
+          <fieldset className="space-y-2">
+            <legend className="sr-only">What it may do</legend>
+            {(Object.keys(SCOPES) as ApiKeyScope[]).map((option) => (
+              <Radio
+                key={option}
+                name="api-key-scope"
+                label={SCOPES[option].label}
+                hint={SCOPES[option].hint}
+                checked={scope === option}
+                onChange={() => setScope(option)}
+              />
+            ))}
+          </fieldset>
+          <Button type="submit" variant="primary" icon={<KeyRound className="size-4" />} disabled={!name.trim() || make.isPending}>
+            Make a key
+          </Button>
+        </form>
+      ) : (
+        <Notice tone="info">
+          <p className="text-ink">The organisation's plan does not include the API.</p>
+          <PlanOffer limit="api_access" />
+        </Notice>
+      )}
+      {make.isError && (
+        <div className="mt-3">
+          {isPlanLimit(make.error) ? (
+            <PlanLimitNotice refusal={make.error} onDismiss={() => make.reset()} />
+          ) : (
+            <Notice tone="bad">{make.error.message}</Notice>
+          )}
+        </div>
+      )}
+      {keys.isPending && <Loading />}
+      {keys.isError && <Notice tone="bad">{keys.error.message}</Notice>}
+      {keys.data &&
+        (keys.data.length ? (
+          <ul className="mt-4 divide-y divide-line border-t border-line">
+            {keys.data.map((apiKey) => (
+              <ApiKeyRow key={apiKey.id} me={me} apiKey={apiKey} onRolled={setShown} />
+            ))}
+          </ul>
+        ) : (
+          me.organization.allowance.api_access && <p className="mt-3 text-[13px] text-muted">The organisation has no API keys yet.</p>
+        ))}
+    </Section>
+  )
+}
+
+/** A key just made or rolled, which nothing shows again, with how a program sends it. */
+function NewKey({ made, onDone }: { made: ApiKeyMade; onDone: () => void }) {
+  const [copied, setCopied] = useState(false)
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(made.key)
+      setCopied(true)
+    } catch {
+      // The clipboard can be unavailable; the key is on screen to copy by hand.
+    }
+  }
+
+  return (
+    <div className="mb-4 space-y-3 text-[13px]">
+      <Notice tone="warn">
+        Copy the key “{made.name}” now: it is not shown again. Whoever holds it acts as you in the organisation's
+        projects, so keep it where you keep passwords.
+      </Notice>
+      <code className="block rounded-md border border-line bg-sunken px-3 py-2 font-mono text-xs break-all select-all">{made.key}</code>
+      <p className="text-muted">
+        A program sends it in a header, as in{' '}
+        <code className="font-mono text-xs break-all">{callWith(made.key, window.location.origin)}</code>
+      </p>
+      <div className="flex gap-2">
+        <Button icon={copied ? <Check className="size-4" /> : <Copy className="size-4" />} onClick={copy}>
+          {copied ? 'Copied' : 'Copy the key'}
+        </Button>
+        <Button variant="primary" onClick={onDone}>
+          I have saved it
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// Rolling and revoking each stop the program that holds the key at once, so each asks first.
+function ApiKeyRow({ me, apiKey, onRolled }: { me: Me; apiKey: ApiKey; onRolled: (made: ApiKeyMade) => void }) {
+  const queryClient = useQueryClient()
+  const [asking, setAsking] = useState<'roll' | 'revoke' | null>(null)
+  const done = () => {
+    setAsking(null)
+    void queryClient.invalidateQueries({ queryKey: KEYS_KEY })
+  }
+  const roll = useMutation({
+    mutationFn: () => organizations.rollKey(apiKey.id),
+    onSuccess: (made) => {
+      done()
+      onRolled(made)
+    },
+  })
+  const revoke = useMutation({ mutationFn: () => organizations.revokeKey(apiKey.id), onSuccess: done })
+  const busy = roll.isPending || revoke.isPending
+  const error = roll.error ?? revoke.error
+
+  return (
+    <li className="py-2.5 text-[13px]">
+      {/* The key's line is what tells keys apart, so it wraps rather than being cut, the buttons below it on a phone. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <div className="min-w-56 flex-1">
+          <p className="font-medium break-words">{apiKey.name}</p>
+          <p className={`text-xs ${apiKey.expired ? 'text-warn' : 'text-muted'}`}>{describeKey(apiKey)}</p>
+        </div>
+        <Chip>{SCOPES[apiKey.scope].label}</Chip>
+        {mayRoll(apiKey, me) && (
+          <Button variant="ghost" onClick={() => setAsking('roll')} disabled={busy}>
+            Roll
+          </Button>
+        )}
+        <Button variant="ghost" onClick={() => setAsking('revoke')} disabled={busy}>
+          Revoke
+        </Button>
+      </div>
+      {asking && (
+        <div className="mt-2 space-y-2">
+          <Notice tone="warn">
+            {asking === 'roll'
+              ? `Roll “${apiKey.name}”? You get a new key at once, and programs using this one stop until they are given it.`
+              : `Revoke “${apiKey.name}”? Programs using it stop at once.`}
+          </Notice>
+          <div className="flex gap-2">
+            <Button variant="primary" onClick={() => (asking === 'roll' ? roll.mutate() : revoke.mutate())} disabled={busy}>
+              {asking === 'roll' ? 'Roll it' : 'Revoke it'}
+            </Button>
+            <Button variant="ghost" onClick={() => setAsking(null)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+      {error && (
+        <div className="mt-2">
+          {isPlanLimit(error) ? <PlanLimitNotice refusal={error} /> : <Notice tone="bad">{error.message}</Notice>}
+        </div>
+      )}
+    </li>
   )
 }
 

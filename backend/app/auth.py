@@ -167,15 +167,16 @@ _PRUNE_LINKS = text("DELETE FROM auth_tokens WHERE expires_at < :before")
 # kept as long as a one-time link, for its inviter to send again.
 _PRUNE_INVITATIONS = text("DELETE FROM invitations WHERE expires_at < :before")
 _PRUNE_BROWSERS = text("DELETE FROM browsers WHERE signed_in_at < :before")
+_PRUNE_KEYS = text("DELETE FROM api_keys WHERE expires_at < :before")
 
 
 def prune_credentials(connection: Connection, age: dt.timedelta = CREDENTIAL_HISTORY) -> int:
-    """Remove the sessions, one-time links and invitations that ended longer ago than `age`,
-    and the browsers that have not signed in for BROWSER_KNOWN_FOR; returns how many."""
+    """Remove the sessions, one-time links, invitations and API keys that ended longer ago than
+    `age`, and the browsers that have not signed in for BROWSER_KNOWN_FOR; returns how many."""
     before = now() - age
     pruned = sum(
         connection.execute(statement, {"before": before}).rowcount
-        for statement in (_PRUNE_SESSIONS, _PRUNE_LINKS, _PRUNE_INVITATIONS)
+        for statement in (_PRUNE_SESSIONS, _PRUNE_LINKS, _PRUNE_INVITATIONS, _PRUNE_KEYS)
     )
     browsers = connection.execute(_PRUNE_BROWSERS, {"before": now() - BROWSER_KNOWN_FOR})
     return pruned + browsers.rowcount

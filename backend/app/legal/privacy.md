@@ -37,6 +37,9 @@ organisation uploaded a document about you, ask the organisation first; we help 
   offered and who sent it, to mail the invitation and let whoever holds the address join; the
   organisation's owners and admins see it until it is accepted or revoked. We need it to
   provide the service to the organisation.
+- **API keys**: for each key an organisation's owner or admin makes for its programs, its name,
+  what it may do, who made it (it acts as them), when it was made, last used and runs out, and
+  the key itself as a hash only. We need them to provide the service to the organisation.
 - **Usage**: the pages, questions and model use your organisation counted, and what they cost,
   each with the member it was for, to hold the organisation to its plan and, on a paid plan,
   to bill it.
@@ -45,9 +48,9 @@ organisation uploaded a document about you, ask the organisation first; we help 
   download it as a file, to see what happens to their documents, which is their and our
   legitimate interest. It never holds what a document, a question or an answer says.
 - **Abuse protection**: how many requests each account, each IP address, each email address
-  (as a hash only) and each browser you signed in with made in a minute, and how many wrong
-  passwords and codes they were tried with in an hour, to slow down password guessing and
-  floods.
+  (as a hash only), each browser you signed in with and each API key made in a minute, and how
+  many wrong passwords and codes they were tried with in an hour, to slow down password
+  guessing and floods.
 - **Server logs**: the IP address, time and path of each request and the account and project it
   was for, and the service's own record of what it did, to keep it running and to find faults.
   They never hold what a document, a question or an answer says, nor an email address.
@@ -106,6 +109,8 @@ $region
 - **Sessions and links**, until $credential_days days after they expired or were ended.
 - **Invitations**, until they are accepted or revoked, or $credential_days days after they
   expired.
+- **API keys**, until they are revoked or the member who made them leaves the organisation, or
+  $credential_days days after they ran out.
 - **The browsers you signed in with**, until $browser_days days after their last sign-in.
 - **The notices in your notification centre**, $notification_days days, read or not; those
   about an organisation go when you leave it or an owner or admin removes you from it.

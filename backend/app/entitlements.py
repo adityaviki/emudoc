@@ -49,8 +49,9 @@ use may cost, by the prices the usage rows are costed with; app/spending.py hold
 beside the platform's own daily limit, since the two are read together. `retention_days` is
 how long a chat is kept after its last question, which the housekeeper holds it to
 (app/retention.py), and `audit_days` how long a row of the audit log is (app/audit.py).
-`model_tier`, `api_access` and `connectors` are declared for the features that will read them
-(the organisation settings, the API keys, the connectors) and enforced by nothing yet.
+`api_access` is whether its members may make API keys and call the API with them (`check_api`,
+app/apikeys.py); `model_tier` and `connectors` are declared for the features that will read them
+(the model tiers, the connectors) and enforced by nothing yet.
 """
 
 from collections.abc import Iterable
@@ -280,6 +281,23 @@ def check_project(session: Session, organization: Organization) -> Refusal | Non
         "projects",
         f"The {_label(organization)} plan allows {_count(cap, 'project')}, and this "
         f"organisation has {count}. {upgrade(organization).capitalize()} to create another.",
+    )
+
+
+def check_api(organization: Organization) -> Refusal | None:
+    """Why the plan refuses the API, an API key made, rolled or used, or None when it includes
+    it."""
+    if entitlements_of(organization).api_access:
+        return None
+    way = (
+        "Ask for it in the organisation's terms"
+        if organization.plan == PLAN_NAMES[-1]
+        else "Upgrade your plan"
+    )
+    return Refusal(
+        "api_access",
+        f"The {_label(organization)} plan does not include the API. {way} to make and use API "
+        "keys.",
     )
 
 

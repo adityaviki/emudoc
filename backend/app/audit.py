@@ -27,6 +27,9 @@ one the session works in by then; so a member of several organisations does not 
 when, or from where, they sign in, and a user in no organisation leaves no row. Switching is
 not recorded: it is a view, and what is done after it is.
 
+What a member does with an API key (app/apikeys.py) is theirs, with the key's id and name as
+it was in the detail's `api_key`, so the log tells a program's acts from the member's own.
+
 Admins and owners read their organisation's rows page by page through `GET /api/audit`, by
 action, member, project and span, and download them as a CSV file (app/api/audit.py), which the
 log records as well.
@@ -109,7 +112,10 @@ def audit(
     target: Target | None = None,
     detail: dict[str, Any] | None = None,
 ) -> None:
-    """Add a row for what the account's member did through the request; the caller commits."""
+    """Add a row for what the account's member did through the request, naming the API key it
+    came with, if any, as it was then; the caller commits."""
+    if account.key is not None:
+        detail = {**(detail or {}), "api_key": {"id": account.key.id, "name": account.key.name}}
     audit_event(
         session,
         action,

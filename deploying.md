@@ -2072,7 +2072,8 @@ shown here on four lines. `time` is UTC, and the ids say what the line was logge
 far as that was known when it was written; an id not known is left out:
 
 - **A request's** `request_id` and `trace_id`, and once the session was read its `user_id` and
-  `org_id`, and once the project was found in that organisation its `project_id` (and a
+  `org_id` (and `api_key_id` for a request made with an API key, which acts as that user), and
+  once the project was found in that organisation its `project_id` (and a
   document's `document_id`, a question's or a followed answer's `message_id`). The id is the
   proxy's `X-Request-ID` when it sends a well-formed one (letters, digits and `-_.:`, 8 to 128
   of them), which both examples above do, so the proxy's access log and the app's lines name
@@ -3272,7 +3273,10 @@ from `X-Forwarded-For`. The request past a rate is refused with 429, a sentence 
 every API replica counts the same. The proxy needs no rate limit of its own. One added anyway
 (nginx's `limit_req`, Caddy's rate-limit plugin) sees addresses, not users, so it must allow
 more than `RATE_SIGN_INS_PER_ADDRESS` a minute, or an office behind one address is held
-before the app would hold it.
+before the app would hold it, and more than `RATE_API_REQUESTS`: a request made with an API
+key (README, "The API") is counted for its key as well, every request it makes, 300 a minute
+unless set, on top of the rates of the member who made the key, which its uploads, questions
+and searches count against as their own.
 
 A minute's rate still lets a patient guesser try thousands of passwords a day at one account,
 so the wrong passwords and authenticator codes are also counted over the hour
@@ -3937,6 +3941,7 @@ and the like), named on its models' pages.
 | `RATE_FAILED_SIGN_INS` | `20` | | Wrong passwords and codes an hour, past which those sign-ins pause ("Rates") |
 | `RATE_PAGE_ERRORS` | `10` | | The page's error reports a minute, per client address |
 | `RATE_BILLING` | `10` | | Billing requests a minute, per member: Checkout, the portal, a payment asked about ("Billing") |
+| `RATE_API_REQUESTS` | `300` | | Requests a minute, per API key, on top of its member's rates ("Rates") |
 
 ### Mail and sign-in
 

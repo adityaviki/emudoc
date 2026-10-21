@@ -100,6 +100,8 @@ class Context:
     job_kind: str | None = None
     org_id: int | None = None
     user_id: int | None = None
+    # The API key a request came with (app/apikeys.py), which acts as `user_id`.
+    api_key_id: int | None = None
     project_id: int | None = None
     document_id: int | None = None
     message_id: int | None = None

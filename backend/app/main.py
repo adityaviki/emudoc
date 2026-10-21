@@ -15,6 +15,7 @@ from starlette.convertors import PathConvertor, register_url_convertor
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import (
+    apikeys,
     audit,
     auth,
     billing,
@@ -363,6 +364,19 @@ def _request_id() -> str | None:
     return str(request_id) if request_id is not None else None
 
 
+# The routers whose routes an API key reaches (app/apikeys.py): what the projects hold, which a
+# program reads and changes; every other route, the accounts' and the organisation's own, takes
+# a session alone.
+KEYED = (
+    projects.router,
+    folders.router,
+    documents.router,
+    query.router,
+    chats.router,
+    trash.router,
+)
+
+
 def create_app(
     services: Services | None = None,
     mailer: Mailer | None = None,
@@ -440,12 +454,8 @@ def create_app(
         auth.router,
         organizations.router,
         invitations.router,
-        projects.router,
-        folders.router,
-        documents.router,
-        query.router,
-        chats.router,
-        trash.router,
+        apikeys.router,
+        *KEYED,
         audit.router,
         usage.router,
         billing.router,
@@ -453,6 +463,9 @@ def create_app(
         onboarding.router,
     ):
         app.include_router(router, prefix="/api", dependencies=[Depends(refuse_cross_site)])
+    # The routes an API key reaches (`_key_account` in app/api/deps.py), by their functions,
+    # which the request's scope names once its route is matched.
+    app.state.keyed = frozenset(route.endpoint for router in KEYED for route in router.routes)
     # Stripe's and Resend's events carry no header of the app's: their signature proves where
     # they came from (app/api/billing.py, app/api/mail.py); nor does a mail program's one-click
     # unsubscribe, whose token says whose notices stop.
