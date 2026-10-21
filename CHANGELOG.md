@@ -11,6 +11,9 @@ its day, in the same commit.
 
 Members:
 
+- The audit log opens again for an organisation that exported a project: the export's row,
+  "Exported a project", made the page fail. It also says when Emudoc's operators turned a
+  feature being rolled out on or off for the organisation.
 - A member who asks Emudoc's support for help lets it see their account in the organisation they
   work in, for a day or a week, under "Emudoc's support" on the account page, and withdraws that
   whenever they like. Support then sees what the member sees there, read only, an hour at a
@@ -88,6 +91,13 @@ Members:
 
 Operators:
 
+- Features being rolled out are behind feature flags (`backend/app/flags.py`, none yet): each is
+  on for the share of organisations the code names and for those an operator turns it on for.
+  The organisation's page in the operator's area turns each on or off for it, or back to the
+  rollout, a new Flags view lists every flag with how many organisations it is on for and those
+  chosen by hand, and `maintenance flags [<slug> [<flag> on|off|rollout]]` does the same from a
+  shell; each choice is a row of the organisation's audit log. Migration 4cf254f44ec1 adds
+  `organizations.flags`.
 - In the operator's area, an organisation's Members table offers "View as <member>" for each
   member who lets support see their account: the operator's own session then shows the app as
   that member sees it in that organisation, read only, under a banner, until the operator ends it

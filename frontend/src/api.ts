@@ -435,7 +435,12 @@ export interface Organization {
   join_role: JoinRole
   /** When it is deleted with everything in it, as an owner asked; until then it is held as it stands and an owner may keep it (backend/app/retention.py). Null when nobody asked. */
   deletion_due_at: string | null
+  /** The feature flags on for it (backend/app/flags.py): a page shows a feature being rolled out where its flag is here. */
+  flags_on: Flag[]
 }
+
+/** The names of the feature flags (FLAGS in backend/app/flags.py), so that a page that reads a misspelt one fails the build: none yet. */
+export type Flag = never
 
 /** What the organisation page changes about the organisation (OrganizationChangeIn in backend/app/schemas.py). */
 export interface OrganizationChange {
@@ -809,6 +814,7 @@ export type AuditAction =
   | 'organization_deletion_requested'
   | 'organization_deletion_cancelled'
   | 'settings_changed'
+  | 'flag_changed'
   | 'audit_exported'
   | 'api_key_created'
   | 'api_key_rolled'
@@ -822,6 +828,7 @@ export type AuditAction =
   | 'member_left'
   | 'member_removed'
   | 'project_access_changed'
+  | 'project_exported'
   | 'project_deleted'
   | 'project_restored'
   | 'project_purged'

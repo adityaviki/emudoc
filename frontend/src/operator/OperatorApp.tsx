@@ -1,6 +1,6 @@
 // The operator's area: who opened it and its views, each what a maintenance command prints
-// (backend/app/api/operator.py), from which an operator also changes an organisation's plan,
-// queues failed documents again and switches a model provider off or on.
+// (backend/app/api/operator.py), from which an operator also changes an organisation's plan and
+// feature flags, queues failed documents again and switches a model provider off or on.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
@@ -11,6 +11,7 @@ import { formatDateTime } from '../format.ts'
 import { operatorApi } from './api.ts'
 import type { Operator } from './api.ts'
 import { CostsPage } from './Costs.tsx'
+import { FlagsPage } from './Flags.tsx'
 import { JobsPage } from './Jobs.tsx'
 import { OrganizationPage, OrganizationsPage } from './Organizations.tsx'
 import { ServicesPage } from './Services.tsx'
@@ -22,6 +23,7 @@ const VIEWS = [
   { path: 'costs', label: 'Costs' },
   { path: 'jobs', label: 'Jobs' },
   { path: 'services', label: 'Services' },
+  { path: 'flags', label: 'Flags' },
 ]
 
 export function OperatorApp() {
@@ -41,6 +43,7 @@ export function OperatorApp() {
           <Route path="/operator/costs" element={<CostsPage />} />
           <Route path="/operator/jobs" element={<JobsPage />} />
           <Route path="/operator/services" element={<ServicesPage />} />
+          <Route path="/operator/flags" element={<FlagsPage />} />
           <Route path="*" element={<Notice tone="info">The operator's area has no such page.</Notice>} />
         </Routes>
       </main>

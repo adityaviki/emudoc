@@ -88,6 +88,7 @@ const free: Organization = {
   join_domains: [],
   join_role: 'member',
   deletion_due_at: null,
+  flags_on: [],
 }
 const team: Organization = { ...free, plan: 'team', seats: 3, billing: { ...none, status: 'active', customer: true } }
 

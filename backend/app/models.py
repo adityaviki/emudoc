@@ -137,6 +137,7 @@ AUDIT_ACTIONS = (
     "organization_deletion_requested",
     "organization_deletion_cancelled",
     "settings_changed",
+    "flag_changed",
     "audit_exported",
     "api_key_created",
     "api_key_rolled",
@@ -369,6 +370,7 @@ class Organization(Base):
         CheckConstraint("chat_days > 0", name="ck_organizations_chat_days"),
         CheckConstraint("jsonb_typeof(notices) = 'object'", name="ck_organizations_notices"),
         CheckConstraint("session_days > 0", name="ck_organizations_session_days"),
+        CheckConstraint("jsonb_typeof(flags) = 'object'", name="ck_organizations_flags"),
         # Which organisations a confirmed address's domain may join is asked at every `/me`.
         Index("ix_organizations_join_domains", "join_domains", postgresql_using="gin"),
     )
@@ -413,6 +415,9 @@ class Organization(Base):
     # than SESSION_DAYS; null for as long as the deployment keeps one.
     mfa_required: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     session_days: Mapped[int | None] = mapped_column(Integer)
+    # The feature flags an operator turned on or off for it (app/flags.py), by name; a flag not
+    # named here is on as the share of organisations it is rolled out to takes it.
+    flags: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     # Its customer at Stripe (app/billing.py), made at its first checkout and kept, so that its
     # invoices, payment details and tax ids stay together; null until then.
     stripe_customer_id: Mapped[str | None] = mapped_column(String(255), unique=True)

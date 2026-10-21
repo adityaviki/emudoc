@@ -9,6 +9,7 @@ organisations keep; and the rows go after their plan's days."""
 import csv
 import io
 import json
+import re
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -20,11 +21,11 @@ from app.api.audit import ADMINS_ONLY
 from app.audit import audit_event
 from app.auth import totp_code, totp_step
 from app.billing import change_plan
-from app.config import get_settings
+from app.config import ROOT_DIR, get_settings
 from app.indexing.pipeline import process_document
 from app.legal import TERMS_VERSION
 from app.maintenance import housekeeping, main
-from app.models import AuditEvent, Document, Organization, Project, User
+from app.models import AUDIT_ACTIONS, AuditEvent, Document, Organization, Project, User
 from app.retention import purge_due_accounts
 from tests.conftest import EICAR_NAME
 from tests.test_api import create_project, upload
@@ -67,6 +68,15 @@ def page(client, **params) -> dict:
 
 
 # Documents and chats
+
+
+def test_the_page_knows_every_action():
+    # The page words each action by `ACTIONS`, a Record of the `AuditAction` union, which the
+    # build holds to the union; this holds the union to the server's, so that a new action is
+    # never a row the page cannot show.
+    source = (ROOT_DIR / "frontend" / "src" / "api.ts").read_text()
+    union = source[source.index("export type AuditAction =") :].split("\n\n", 1)[0]
+    assert sorted(re.findall(r"\| '(\w+)'", union)) == sorted(AUDIT_ACTIONS)
 
 
 def test_uploads_downloads_and_deletions_are_recorded_with_who_and_where(

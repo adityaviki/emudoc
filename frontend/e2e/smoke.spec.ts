@@ -19,8 +19,9 @@ import { makeOperator, movePlan } from './operator.ts'
 // colleague then reads but does not ask in, and last ask the question that uses the month's
 // questions, which the bell tells, and open that notice from the other organisation; then, made
 // an operator, read the organisation in the operator's area, which nobody else is sent, raise its
-// agreed questions there, view the colleague's account, which she let support see, and switch the
-// model's provider off and on again. The answer
+// agreed questions there, turn a feature flag on for it, which its audit log keeps, view the
+// colleague's account, which she let support see, and switch the model's provider off and on
+// again. The answer
 // is the stand-in's (e2e/standin.py): the first sentence of the passage its search found best,
 // with that passage's reference.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
@@ -446,7 +447,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible()
   })
 
-  await test.step("be made an operator, read the organisation in the operator's area and change its plan, and switch a provider", async () => {
+  await test.step("be made an operator, read the organisation in the operator's area, change its plan and its flags, and switch a provider", async () => {
     // A member is sent the members' page at the area's address, as for any page there is not.
     await page.goto('/operator')
     await expect(page.getByText('Page not found.')).toBeVisible()
@@ -471,6 +472,14 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await plan.getByRole('button', { name: 'Save' }).click()
     await expect(questions).toContainText('10')
     await expect(questions).toContainText('agreed')
+    // A feature being rolled out to none, behind the run's own flag (e2e/served.py), turned on for it alone.
+    const flags = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Feature flags', exact: true }) })
+    const preview = flags.getByRole('row').filter({ hasText: 'e2e_preview' })
+    await expect(preview).toContainText('off, as rolled out')
+    const chosen = page.waitForResponse((response) => response.url().endsWith('/flags/e2e_preview') && response.ok())
+    await preview.getByLabel('Feature flag e2e_preview').selectOption('on')
+    await chosen
+    await expect(preview).toContainText('on, chosen here')
 
     // Grace let support in: her account, as she sees it, read only, until the view ends.
     await members.getByRole('button', { name: 'View as Grace Hopper' }).click()
@@ -479,7 +488,16 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('button', { name: 'End the view' }).click()
     await expect(page.getByRole('heading', { name: 'Organisations', exact: true })).toBeVisible()
 
-    await page.getByRole('navigation', { name: 'Views' }).getByRole('link', { name: 'Jobs' }).click()
+    // The flag across the deployment: on for this organisation alone, which its owner reads in its audit log.
+    await page.getByRole('navigation', { name: 'Views' }).getByRole('link', { name: 'Flags' }).click()
+    const rollout = page.getByRole('row').filter({ hasText: 'e2e_preview' })
+    await expect(rollout.getByRole('link', { name: "Ada Lovelace's workspace" })).toBeVisible()
+    await page.goto('/organization/audit')
+    // The whole log first, which holds every kind of row this organisation has, its export's among them.
+    await expect(page.getByRole('listitem').filter({ hasText: 'Exported a project' })).toContainText('Supplier contracts')
+    await page.getByLabel('What').selectOption('flag_changed')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Feature flag changed' })).toContainText("e2e preview: on · by Emudoc's operators")
+    await page.goto('/operator/jobs')
     await expect(page.getByRole('heading', { name: 'Jobs', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Ask again' })).toBeVisible()
     await page.getByRole('navigation', { name: 'Views' }).getByRole('link', { name: 'Services' }).click()

@@ -3,8 +3,9 @@ command prints (app/maintenance.py): `plan` and `usage` for one organisation, `c
 them, `jobs` and `failed-jobs`, and the worker's watch (app/watch.py) for the services. They
 read through the same functions as the commands, so a page and a command never disagree.
 
-Three of them act, as the commands do: a plan, its seats and its agreed figures changed
-(`change_plan`, whose audit rows name the operator by id in the organisation's own log), failed
+Four of them act, as the commands do: a plan, its seats and its agreed figures changed
+(`change_plan`, whose audit rows name the operator by id in the organisation's own log), a
+feature flag turned on or off for an organisation (`choose`, app/flags.py, likewise), failed
 documents queued again (`requeue`, likewise), and a model provider switched off or on again
 without a restart (app/switches.py), which belongs to no organisation and is logged instead.
 One has no command: viewing a member's account as support, with the member's leave
@@ -29,13 +30,14 @@ from sqlalchemy.orm import Session
 
 from app.accounts import zone_of
 from app.api.auth import ACCOUNT_PAGE, app_url, organization_out
-from app.api.deps import ServicesDep, SessionDep, refuse_cross_site
+from app.api.deps import NOT_FOUND, ServicesDep, SessionDep, refuse_cross_site
 from app.api.organizations import locked
 from app.api.usage import usage_page
 from app.billing import change_plan
 from app.config import get_settings, model_provider
 from app.deadletters import NamedJob, named_jobs, requeue
 from app.entitlements import BY_THE_SEAT, FIELDS, PLANS, agreed_with, entitlements_of
+from app.flags import FLAGS, choose, chosen, flag_on, rollouts
 from app.jobs import HISTORY, JOB_STATES, QUEUE_BY_STATE
 from app.logs import about
 from app.mail import support_view_email
@@ -63,6 +65,10 @@ from app.schemas import (
     EntitlementOut,
     ModelCostOut,
     OperatorCostsOut,
+    OperatorFlagChoiceOut,
+    OperatorFlagIn,
+    OperatorFlagOut,
+    OperatorFlagSummaryOut,
     OperatorJobOut,
     OperatorJobsOut,
     OperatorMemberOut,
@@ -93,9 +99,6 @@ from app.usage import OrganizationCost, model_costs, organization_costs, summed
 from app.version import VERSION
 from app.watch import look
 
-# What anyone the area does not let in is answered: FastAPI's own words for a path no route
-# takes, so that the two cannot be told apart.
-NOT_FOUND = "Not Found"
 # How many days the costs look back unless asked, as the `costs` command does.
 COST_DAYS = 30
 # The rows of a page of organisations or users, and the dead letters shown at once.
@@ -293,6 +296,16 @@ def show_organization(org_id: int, session: SessionDep):
         cost_days=[
             DayCostOut(day=day, cost_micros=spent) for day, spent in sorted(cost.days.items())
         ],
+        flags=[
+            OperatorFlagOut(
+                name=name,
+                title=flag.title,
+                share=flag.share,
+                chosen=chosen(organization, name),
+                on=flag_on(organization, name),
+            )
+            for name, flag in FLAGS.items()
+        ],
     )
 
 
@@ -338,6 +351,50 @@ def _agreed(organization: Organization, written: dict[str, str]) -> dict[str, ob
         else figure_of(name, words)
         for name, words in written.items()
     }
+
+
+@router.put("/organizations/{org_id}/flags/{name}", response_model=OperatorOrganizationOut)
+def choose_flag(
+    org_id: int,
+    operator: OperatorDep,
+    session: SessionDep,
+    choice: Annotated[OperatorFlagIn, given(OperatorFlagIn)],
+    name: str = Path(max_length=63),
+):
+    """Turn a feature flag on or off for the organisation, whatever its rollout, or back to its
+    rollout (None), as the `flags` command does: a row of the organisation's audit log naming
+    the operator, unless that was the choice already."""
+    if name not in FLAGS:
+        raise HTTPException(
+            404, f"There is no feature flag {name!r}; FLAGS in app/flags.py names them."
+        )
+    organization = locked(session, org_id)
+    if organization is None:
+        raise HTTPException(404, "No organisation has this id; it may have been deleted.")
+    about(org_id=organization.id)
+    choose(session, organization, name, choice.on, operator=operator.id)
+    session.commit()
+    return show_organization(org_id, session)
+
+
+@router.get("/flags", response_model=list[OperatorFlagSummaryOut])
+def list_flags(session: SessionDep):
+    """Every feature flag across the deployment, as the `flags` command prints them: its
+    rollout, how many organisations it is on for now, and those an operator chose for."""
+    return [
+        OperatorFlagSummaryOut(
+            name=standing.name,
+            title=standing.flag.title,
+            share=standing.flag.share,
+            on=standing.on,
+            organizations=standing.organizations,
+            chosen=[
+                OperatorFlagChoiceOut(org_id=org_id, slug=slug, name=named, on=on)
+                for org_id, slug, named, on in standing.chosen
+            ],
+        )
+        for standing in rollouts(session)
+    ]
 
 
 @router.post("/organizations/{org_id}/members/{user_id}/support", response_model=OperatorViewOut)

@@ -98,6 +98,27 @@ export interface OrganizationDetail {
   until: string
   cost: Cost
   cost_days: { day: string; cost_micros: number }[]
+  /** Every feature flag as it stands for the organisation, in the order of FLAGS. */
+  flags: FlagState[]
+}
+
+/** A feature flag as it stands for one organisation (backend/app/flags.py): its rollout's share of organisations in percent, an operator's choice for this one (null for the rollout's) and whether it is on. */
+export interface FlagState {
+  name: string
+  title: string
+  share: number
+  chosen: boolean | null
+  on: boolean
+}
+
+/** A feature flag across the deployment: how many organisations it is on for of all of them, and those an operator chose for. */
+export interface FlagRollout {
+  name: string
+  title: string
+  share: number
+  on: number
+  organizations: number
+  chosen: { org_id: number; slug: string; name: string; on: boolean }[]
 }
 
 /** What an organisation is to be held to, as a whole: each agreed figure in the words the area shows, the rest the plan's own. */
@@ -259,6 +280,9 @@ export const operatorApi = {
   jobs: () => request<Jobs>('/jobs'),
   services: () => request<Services>('/services'),
   changePlan: (id: number, change: PlanChange) => request<OrganizationDetail>(`/organizations/${id}/plan`, 'PUT', change),
+  /** Turn a feature flag on or off for the organisation whatever its rollout, or back to its rollout for null. */
+  chooseFlag: (id: number, name: string, on: boolean | null) => request<OrganizationDetail>(`/organizations/${id}/flags/${encodeURIComponent(name)}`, 'PUT', { on }),
+  flags: () => request<FlagRollout[]>('/flags'),
   /** Run failed jobs again by id, or every one for null. */
   requeue: (jobIds: number[] | null) => request<Requeued>('/jobs/requeue', 'POST', { job_ids: jobIds }),
   switchProvider: (name: string, off: boolean) => request<Provider[]>(`/providers/${encodeURIComponent(name)}`, 'PUT', { off }),

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { auditExportUrl, auditQuery } from './api.ts'
 import type { AuditAction, AuditEvent } from './api.ts'
-import { ACTIONS, KINDS, NO_CHOICES, actionsOf, describeDetail, filterOf, whoDid } from './audit.ts'
+import { ACTIONS, KINDS, NO_CHOICES, actionLabel, actionsOf, describeDetail, filterOf, whoDid } from './audit.ts'
 import { formatDate, formatDateTime } from './format.ts'
 import type { AuditKind } from './audit.ts'
 
@@ -28,6 +28,11 @@ describe('the actions', () => {
     expect(filed.toSorted()).toEqual(Object.keys(ACTIONS).toSorted())
     expect(new Set(filed).size).toBe(filed.length)
     for (const kind of kinds) expect(actionsOf(kind).length).toBeGreaterThan(0)
+  })
+
+  it('names an action a page loaded before a release does not know by its name', () => {
+    expect(actionLabel('project_exported')).toBe('Exported a project')
+    expect(actionLabel('report_scheduled' as AuditAction)).toBe('report scheduled')
   })
 })
 
@@ -87,6 +92,13 @@ describe('a row', () => {
     expect(describeDetail(event('plan_changed', { from: 'free', to: 'team' }))).toBe('Free → Team')
     expect(describeDetail(event('plan_changed', { from: 'free', to: 'team', operator: 7 }))).toBe("Free → Team · by Emudoc's operators")
     expect(describeDetail(event('document_requeued', { filename: 'msa.pdf', stage: 'parse', operator: 7 }))).toBe("msa.pdf · by Emudoc's operators")
+    // A feature flag turned on for the organisation, then back to its rollout, which leaves it off.
+    expect(describeDetail(event('flag_changed', { flag: 'extraction_templates', from: null, to: true, on: true, operator: 7 }))).toBe(
+      "extraction templates: on · by Emudoc's operators",
+    )
+    expect(describeDetail(event('flag_changed', { flag: 'extraction_templates', from: true, to: null, on: false }))).toBe(
+      'extraction templates: as Emudoc rolls it out, off',
+    )
     // A member's leave for support, support's view of their account, and what was done in it.
     const until = '2026-10-28T09:30:00+00:00'
     expect(describeDetail(event('support_access_granted', { days: 7, until }))).toBe(`until ${formatDateTime(until)}`)

@@ -3062,10 +3062,12 @@ with their leases and the dead letters with why each failed (`jobs`, `failed-job
 models and services: the models each variable names, the providers and which are switched off,
 the embeddings endpoint, the scanner, the storage, the database, and everything the worker's
 watch sees wrong now, asked afresh, with since when it has been mailing each ("What the worker
-mails"). What it shows is what the commands print, a member's name and address among it, never
-what a document, a question or an answer says.
+mails"); and the feature flags, each with how far it is rolled out, how many organisations it is
+on for and those it was turned on or off for (`flags`). What it shows is what the commands
+print, a member's name and address among it, never what a document, a question or an answer
+says.
 
-It changes three things, as the commands do:
+It changes four things, as the commands do:
 
 - **An organisation's plan.** "Change the plan" under its Plan shows the plan, the seats on a
   plan sold by the seat, and every figure, empty for the plan's own (shown in grey) or written
@@ -3076,6 +3078,27 @@ It changes three things, as the commands do:
   log, which its owners and admins read as "by Emudoc's operators" (`detail.operator` holds the
   operator's id). A subscription Stripe bills sets the plan again at its next event unless
   figures are agreed: the form says so, and the subscription is changed in Stripe's dashboard.
+- **A feature flag, for one organisation.** A feature being rolled out is behind a flag
+  (`FLAGS` in `backend/app/flags.py`: its name, what it turns on, and its share, the percentage
+  of organisations it is on for), and the organisation's page lists each under "Feature flags",
+  on or off for it and why, with a choice: "On" or "Off" whatever the rollout, or "As rolled
+  out". The choice takes effect at the organisation's next request, and its next page load for
+  what the page shows; each change is a row of its audit log ("Feature flag changed", by
+  Emudoc's operators), as `flags <slug> <flag> on|off|rollout` does. The share is the code's,
+  moved by a release: which organisations it takes is a hash of the flag's name and the
+  organisation's id, so raising it keeps those it took. A rollout goes: the flag at 0 and on
+  for the organisations that asked for the feature, then a share that grows release by
+  release, then 100, then the flag taken out of the code with its reads. "Off" holds an
+  organisation back whatever the share, and is the way to take a feature away from one at once;
+  from every organisation at once, the share back to 0 in a release. A flag's route answers
+  404 where the flag is off, as a path no route takes. The Flags view and `flags` list every
+  flag across the deployment:
+
+  ```bash
+  maintenance flags                           # each flag: its rollout, on for how many, chosen for whom
+  maintenance flags acme                      # how each stands for one organisation
+  maintenance flags acme extraction_templates on      # or off, or rollout for the share's again
+  ```
 - **Failed documents queued again.** Under Jobs, "Run again" on a failed index job, or "Run
   every failed document again", queues each document from the stage it stopped at, as
   `failed-jobs --requeue` does, once the cause is fixed; the jobs of other kinds are left. Each

@@ -800,6 +800,9 @@ class OrganizationOut(_FromORM):
     # When it is deleted with everything in it, as an owner asked, until when it is read-only
     # and an owner may keep it (app/retention.py); None when nobody asked.
     deletion_due_at: dt.datetime | None = None
+    # The feature flags on for it (app/flags.py), by name: the features being rolled out that
+    # the page shows it.
+    flags_on: list[str] = []
 
 
 class MembershipOut(BaseModel):
@@ -1570,6 +1573,45 @@ class OperatorPlanOut(BaseModel):
     figures: dict[str, str]
 
 
+class OperatorFlagOut(BaseModel):
+    """A feature flag as it stands for one organisation (app/flags.py): what it turns on, the
+    percentage of organisations it is rolled out to, what an operator chose for this one (None
+    for the rollout's), and whether it is on for it now."""
+
+    name: str
+    title: str
+    share: int
+    chosen: bool | None
+    on: bool
+
+
+class OperatorFlagIn(BaseModel):
+    """A feature flag turned on or off for an organisation, or None back to its rollout."""
+
+    on: bool | None
+
+
+class OperatorFlagChoiceOut(BaseModel):
+    """An organisation an operator turned a flag on or off for."""
+
+    org_id: int
+    slug: str
+    name: str
+    on: bool
+
+
+class OperatorFlagSummaryOut(BaseModel):
+    """A feature flag across the deployment: its rollout, how many organisations it is on for
+    of all of them, and those an operator chose for, by name."""
+
+    name: str
+    title: str
+    share: int
+    on: int
+    organizations: int
+    chosen: list[OperatorFlagChoiceOut]
+
+
 class OperatorOrganizationOut(BaseModel):
     organization: OrganizationOut
     usage: UsagePageOut
@@ -1586,6 +1628,8 @@ class OperatorOrganizationOut(BaseModel):
     cost: CostOut
     # The known cost of each day of the span that has one, the oldest first.
     cost_days: list[DayCostOut]
+    # Every feature flag, as it stands for the organisation, in the order of FLAGS.
+    flags: list[OperatorFlagOut]
 
 
 class OperatorPlanIn(BaseModel):

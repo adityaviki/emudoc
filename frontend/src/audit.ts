@@ -62,6 +62,7 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   organization_deletion_requested: ['Asked to delete the organisation', 'organization'],
   organization_deletion_cancelled: ['Kept the organisation', 'organization'],
   settings_changed: ['Changed a setting', 'organization'],
+  flag_changed: ['Feature flag changed', 'organization'],
   audit_exported: ['Downloaded the audit log', 'organization'],
   api_key_created: ['Made an API key', 'organization'],
   api_key_rolled: ['Rolled an API key', 'organization'],
@@ -77,6 +78,7 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   cancellation_withdrawn: ['Cancellation withdrawn', 'billing'],
   payment_failed: ['Payment failed', 'billing'],
   pack_bought: ['Bought a pack', 'billing'],
+  project_exported: ['Exported a project', 'files'],
   project_deleted: ['Deleted a project', 'files'],
   project_restored: ['Restored a project', 'files'],
   project_purged: ['Deleted a project for good', 'files'],
@@ -96,6 +98,9 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   chat_restored: ['Restored a chat', 'chats'],
   chat_purged: ['Deleted a chat for good', 'chats'],
 }
+
+/** What a row's action is called: by ACTIONS, or for one a page loaded before a release does not know, by its name. */
+export const actionLabel = (action: AuditAction) => ACTIONS[action]?.[0] ?? action.replaceAll('_', ' ')
 
 /** The actions filed under a kind, in the order above. */
 export const actionsOf = (kind: AuditKind) => (Object.keys(ACTIONS) as AuditAction[]).filter((action) => ACTIONS[action][1] === kind)
@@ -149,6 +154,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   if (event.target_type === 'user' && event.target_id !== null) parts.push(names.get(event.target_id) ?? 'a former member')
   if (typeof detail.entitlement === 'string') parts.push(detail.entitlement.replaceAll('_', ' '))
   if (event.action === 'settings_changed') parts.push(describeSetting(detail))
+  else if (event.action === 'flag_changed') parts.push(describeFlag(detail))
   else if ('to' in detail) parts.push(`${word(detail.from)} → ${word(detail.to)}`)
   else if ('from' in detail) parts.push(`was ${word(detail.from)}`)
   if (typeof detail.role === 'string' && !('to' in detail)) parts.push(word(detail.role))
@@ -188,6 +194,13 @@ function describeSetting(detail: AuditEvent['detail']): string {
     return `${kind}, ${detail.way === 'email' ? 'by email' : 'in the app'}: ${to ? 'on' : 'off'}`
   }
   return `${String(setting)}: ${word(from)} → ${word(to)}`
+}
+
+/** A feature flag turned on or off for the organisation whatever its rollout, or back to it, and whether it is on now. */
+function describeFlag(detail: AuditEvent['detail']): string {
+  const flag = String(detail.flag).replaceAll('_', ' ')
+  const now = detail.on ? 'on' : 'off'
+  return detail.to === null ? `${flag}: as Emudoc rolls it out, ${now}` : `${flag}: ${now}`
 }
 
 const language = (value: unknown) => (typeof value === 'string' ? languageName(value) : 'the default')

@@ -6,7 +6,8 @@
 # setting the run depends on is set here, so that a developer's .env changes none of them.
 # Everything the server says goes to LOG as well as to standard error, which Playwright shows:
 # the run has no mail relay, so the app logs each message it sends, and the test follows a
-# sign-up's link from there (e2e/mail.ts).
+# sign-up's link from there (e2e/mail.ts). The app is app.main's with a feature flag of the
+# test's own (e2e/served.py), since the registry holds none of its own yet.
 #
 #   e2e/serve.sh PORT STANDIN_PORT LOG
 #
@@ -73,4 +74,5 @@ export STRIPE_PRICES=
 export STRIPE_PACKS=
 
 uv --directory "$root/backend" run --locked alembic upgrade head
-exec uv --directory "$root/backend" run --locked uvicorn app.main:app --host 127.0.0.1 --port "$port"
+export PYTHONPATH=$root/frontend/e2e
+exec uv --directory "$root/backend" run --locked uvicorn served:app --host 127.0.0.1 --port "$port"

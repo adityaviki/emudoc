@@ -91,6 +91,7 @@ from app.entitlements import (
     seats_of,
 )
 from app.export import account_export
+from app.flags import flags_on
 from app.invitations import find_invitation, is_open, joinable
 from app.legal import TERMS_VERSION, terms_due
 from app.mail import (
@@ -1233,6 +1234,7 @@ def organization_out(session: Session, organization: Organization) -> Organizati
             "audit_retention_days": entitlements.audit_days,
             "retention_held": held_out(hold_in_force(organization)),
             "notice_defaults": organization_choices(organization),
+            "flags_on": flags_on(organization),
             "allowance": AllowanceOut(
                 projects=entitlements.projects,
                 documents=entitlements.documents,

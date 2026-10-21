@@ -1,7 +1,7 @@
 // How the operator's area words its figures, as the maintenance commands print them
 // (backend/app/maintenance.py): costs in the deployment's currency, spans of time, counts.
 
-import type { Cost, Job } from './api.ts'
+import type { Cost, FlagState, Job } from './api.ts'
 
 /** An amount of millionths of the currency: to the cent, or to four places below a cent, as a cheap model's answer costs a tenth of one. */
 export function amount(micros: number, currency: string): string {
@@ -59,3 +59,17 @@ export function agreedOf(written: Record<string, string>, byTheSeat: boolean): R
 
 /** The seats a plan's form buys: on a plan sold by the seat, the number written, or null for the plan's own members. */
 export const seatsOf = (written: string, byTheSeat: boolean) => (byTheSeat && written.trim() ? Number(written) : null)
+
+/** How far a feature flag is rolled out, as the `flags` command words it: to none, to every organisation, or to a share of them. */
+export function rolledOut(share: number): string {
+  if (share === 0) return 'none'
+  if (share === 100) return 'every organisation'
+  return `${share} % of organisations`
+}
+
+/** Whether a flag is on for an organisation, and why: an operator's choice, or its rollout. */
+export const flagWords = (flag: FlagState) => `${flag.on ? 'on' : 'off'}, ${flag.chosen === null ? 'as rolled out' : 'chosen here'}`
+
+/** A flag's choice as the area's select holds it, and back: 'rollout' for none. */
+export const choiceOf = (chosen: boolean | null) => (chosen === null ? 'rollout' : chosen ? 'on' : 'off')
+export const chosenOf = (choice: string) => (choice === 'rollout' ? null : choice === 'on')

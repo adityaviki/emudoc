@@ -8,7 +8,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { api, auditExportUrl, isWithin, organizations } from '../api.ts'
 import type { AuditEvent } from '../api.ts'
-import { ACTIONS, KINDS, NO_CHOICES, actionsOf, describeDetail, filterOf, whoDid } from '../audit.ts'
+import { ACTIONS, KINDS, NO_CHOICES, actionLabel, actionsOf, describeDetail, filterOf, whoDid } from '../audit.ts'
 import type { AuditChoices, AuditKind } from '../audit.ts'
 import { useMe } from '../auth.ts'
 import { Button, ButtonLink, FIELD, Loading, Notice } from '../components/ui.tsx'
@@ -132,7 +132,7 @@ function EventRow({ event, names }: { event: AuditEvent; names: ReadonlyMap<numb
     <li className="py-2.5 text-[13px]">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4">
         <p className="min-w-0">
-          <span className="font-medium">{whoDid(event)}</span> <span className="text-muted">·</span> {ACTIONS[event.action][0]}
+          <span className="font-medium">{whoDid(event)}</span> <span className="text-muted">·</span> {actionLabel(event.action)}
         </p>
         <time dateTime={event.occurred_at} className="shrink-0 text-xs text-muted">
           {formatDateTime(event.occurred_at)}

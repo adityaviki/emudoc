@@ -65,6 +65,9 @@ on ends at the request that finds it so, which is refused as a tab left behind b
 The routes that cost something or guard an account are held to a rate per caller
 (app/ratelimit.py): `limited(limit)` is the dependency for a route with an account, counted
 per user, and `refuse_past` is what a sign-in route calls with the keys it has.
+
+A feature being rolled out is behind a flag (app/flags.py): `flagged(name)` is the dependency of
+its routes, which answers them as if they were not there for an organisation the flag is off for.
 """
 
 from collections.abc import Callable
@@ -92,6 +95,7 @@ from app.auth import SESSION_COOKIE, find_session, now, touch_session
 from app.config import get_settings
 from app.db import get_session
 from app.entitlements import PlanRefused, check_api, read_only
+from app.flags import flag, flag_on
 from app.indexing.pipeline import Services
 from app.legal import terms_due, terms_pending
 from app.logs import about
@@ -109,6 +113,9 @@ SessionDep = Annotated[Session, Depends(get_session)]
 Stage = Literal["scan", "parse", "structure", "enrich", "embed"]
 
 SIGN_IN = "Sign in to continue."
+# What a route nobody may find is answered: FastAPI's own words for a path no route takes, so
+# that the two cannot be told apart.
+NOT_FOUND = "Not Found"
 # How long a request refused because the process is full (every database connection in use,
 # every answer it may stream in flight) tells the client to wait, in seconds, in the
 # Retry-After header of its 503 or 429.
@@ -350,6 +357,21 @@ def limited(limit: Limit) -> Callable[..., None]:
 
     def dependency(session: SessionDep, account: LiveAccountDep) -> None:
         refuse_past(session, (limit, by_user(account.user)))
+
+    return dependency
+
+
+def flagged(name: str) -> Callable[..., None]:
+    """The dependency that hides a route behind the feature flag `name` (app/flags.py): for an
+    organisation the flag is off for, the route answers as a path no route takes. It goes in the
+    route's or its router's `dependencies`. A name FLAGS does not hold raises UnknownFlag here,
+    as the route's module is imported, so that a misspelt flag stops the app rather than hide
+    the feature from everyone."""
+    flag(name)
+
+    def dependency(account: AccountDep) -> None:
+        if not flag_on(account.organization, name):
+            raise HTTPException(404, NOT_FOUND)
 
     return dependency
 

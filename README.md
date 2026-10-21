@@ -187,8 +187,11 @@ add <address>` (in `backend/`) lets an account in, from an address `OPERATOR_NET
 (this machine alone in development) and, in production, with two-factor sign-in on; to anyone
 else the area is not there. From there an operator also moves an organisation to another plan
 with its seats and agreed figures, as the `plan` command does, queues failed documents again
-from the stage each stopped at, and switches a model provider off or on again without a
-restart; a plan's change and a document queued again are rows of the organisation's audit
+from the stage each stopped at, switches a model provider off or on again without a
+restart, and turns a feature being rolled out on or off for one organisation
+(`backend/app/flags.py`: each flag is on for a share of the organisations the code names, which
+grows release by release, and for those turned on here; `maintenance flags` does the same); a
+plan's change, a document queued again and a flag's choice are rows of the organisation's audit
 log, by Emudoc's operators. And when a member asks for help, the member lets Emudoc's support see
 their account in the organisation they work in for a day or a week from their account page
 (`backend/app/support.py`), and the operator opens it from the organisation's members, as the
@@ -1021,6 +1024,7 @@ backend/app/
   entitlements.py
                 what each plan allows, and the checks the routes and the parse stage make
   billing.py    changing a plan, and selling it and packs: Checkout, the portal, Stripe's events
+  flags.py      the feature flags: what is being rolled out, to how many organisations, and to which
   payments.py   Stripe's API, and the signature on its events
   api/          HTTP endpoints
   headers.py    the headers every response carries for the browser

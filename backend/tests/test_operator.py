@@ -25,9 +25,10 @@ from app.operators import TWO_FACTOR_FIRST, grant
 from app.switches import SWITCH_SECONDS, Switches, switched_off
 from app.usage import ModelUsage
 from tests.conftest import APP_HEADERS
-from tests.test_audit import rows
+from tests.test_audit import actions, rows
 from tests.test_auth import signup
 from tests.test_deadletters import fail, job_of
+from tests.test_flags import registered
 from tests.test_jobs import hold
 from tests.test_llm import ANALYSIS, BACKUP, SCRIPTED, Script, fallback_llm, text_reply
 from tests.test_usage import charge
@@ -43,10 +44,12 @@ ROUTES = (
     "/api/operator/costs",
     "/api/operator/jobs",
     "/api/operator/services",
+    "/api/operator/flags",
 )
 # What the area changes, each with a body it takes.
 ACTIONS = (
     ("PUT", "/api/operator/organizations/1/plan", {"plan": "free"}),
+    ("PUT", "/api/operator/organizations/1/flags/early", {"on": True}),
     ("POST", "/api/operator/jobs/requeue", {"job_ids": []}),
     ("PUT", "/api/operator/providers/google", {"off": False}),
 )
@@ -488,6 +491,60 @@ def test_an_operator_changes_the_plan_its_seats_and_its_agreed_figures(
     assert (organization.plan, organization.seats) == ("team", 5)
 
     gone = operator.put("/api/operator/organizations/999999/plan", json={"plan": "free"})
+    assert gone.status_code == 404 and "No organisation has this id" in gone.json()["detail"]
+
+
+def test_an_operator_turns_a_flag_on_or_off_for_an_organisation(
+    operator, session, make_account, monkeypatch
+):
+    organization = make_account("ann@globex.example").organization
+    shown = operator.get(f"/api/operator/organizations/{organization.id}").json()
+    assert shown["flags"] == []
+    assert operator.get("/api/operator/flags").json() == []
+
+    early = registered(monkeypatch, share=100)
+    path = f"/api/operator/organizations/{organization.id}/flags/{early}"
+    off = operator.put(path, json={"on": False})
+    assert off.status_code == 200, off.text
+    assert off.json()["flags"] == [
+        {"name": early, "title": "Early access", "share": 100, "chosen": False, "on": False}
+    ]
+    assert off.json()["organization"]["flags_on"] == []
+    # Asked again, nothing changes and nothing is written.
+    operator.put(path, json={"on": False})
+    back = operator.put(path, json={"on": None}).json()
+    assert back["flags"][0] | {"title": None} == {
+        "name": early,
+        "title": None,
+        "share": 100,
+        "chosen": None,
+        "on": True,
+    }
+    choices = [detail for action, detail in actions(session, organization.id) if "flag" in detail]
+    assert choices == [
+        {"flag": early, "from": None, "to": False, "on": False, "operator": olga(session).id},
+        {"flag": early, "from": False, "to": None, "on": True, "operator": olga(session).id},
+    ]
+
+    operator.put(path, json={"on": False})
+    (listed,) = operator.get("/api/operator/flags").json()
+    # Olga's own organisation, from her sign-up, follows the rollout.
+    assert listed == {
+        "name": early,
+        "title": "Early access",
+        "share": 100,
+        "on": 1,
+        "organizations": 2,
+        "chosen": [{"org_id": organization.id, "slug": "globex", "name": "Globex", "on": False}],
+    }
+
+    unknown = operator.put(
+        f"/api/operator/organizations/{organization.id}/flags/erly", json={"on": True}
+    )
+    assert unknown.status_code == 404 and "no feature flag 'erly'" in unknown.json()["detail"]
+    # The choice must be said, even as none.
+    assert operator.put(path, json={}).status_code == 422
+    gone = operator.put(f"/api/operator/organizations/999999/flags/{early}", json={"on": True})
     assert gone.status_code == 404 and "No organisation has this id" in gone.json()["detail"]
 
 

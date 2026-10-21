@@ -48,6 +48,10 @@ organisation (app/metrics.py), and prints organisations by slug and name, never 
 and `operators add|remove <address>` grants it or takes it back: the area's one way in, from a
 shell on the deployment, as the plan's changes are.
 
+`flags` lists the features behind a flag (app/flags.py), how far each is rolled out and the
+organisations an operator turned it on or off for, and `flags <slug> <flag> on|off|rollout`
+makes or takes back that choice for one, as the operator's area does.
+
 `encrypt-secrets` encrypts with the first key of ENCRYPTION_KEYS what the database keeps
 encrypted (app/encrypted.py) and is not yet: the values from before a column was encrypted, and
 those of an earlier key, which is a key's rotation. It runs beside the app.
@@ -105,6 +109,7 @@ from app.entitlements import (
     size_label,
 )
 from app.export import EXPORT_DAYS, EXPORT_KEPT, prune_exports
+from app.flags import FLAGS, choose, chosen, flag_on, rollouts
 from app.jobs import (
     ANSWER_QUESTION,
     BULK,
@@ -823,6 +828,64 @@ def plan_report(
     return lines
 
 
+def flags_report(
+    session: Session, slug: str | None = None, name: str | None = None, state: str | None = None
+) -> list[str]:
+    """The lines the `flags` command prints: every feature flag across the deployment, or with
+    `slug` how each stands for that organisation, after turning the flag `name` on or off for
+    it, or back to its rollout (`state` on, off or rollout), through `choose` (app/flags.py),
+    which writes a row of its audit log. The caller commits."""
+    if not FLAGS:
+        return ["No feature is behind a flag: FLAGS in app/flags.py names none."]
+    if slug is None:
+        lines = []
+        for rollout in rollouts(session):
+            lines.append(
+                f"{rollout.name}, {rollout.flag.title}: {_rolled_out(rollout.flag.share)}, on "
+                f"for {rollout.on:,} of {_count(rollout.organizations, 'organisation')}."
+            )
+            for on in (True, False):
+                if picked := [slug for _, slug, _, chose in rollout.chosen if chose is on]:
+                    lines.append(f"  Turned {'on' if on else 'off'} for {', '.join(picked)}.")
+        return lines
+    organization = _organization(session, slug)
+    lines = []
+    if name is not None:
+        if name not in FLAGS:
+            raise RuntimeError(
+                f"There is no feature flag {name!r}; the flags are {', '.join(FLAGS)}."
+            )
+        on = {"on": True, "off": False, "rollout": None}[state or ""]
+        changed = choose(session, organization, name, on)
+        said = "follows its rollout" if on is None else f"is {'on' if on else 'off'}"
+        lines.append(
+            f"{name} {said} for {organization.name} "
+            + ("now." if changed else "already, so nothing changed.")
+        )
+    lines.append(f"{organization.name} ({slug}) has these feature flags:")
+    rows = []
+    for flag_name, entry in FLAGS.items():
+        choice = chosen(organization, flag_name)
+        rows.append(
+            (
+                flag_name,
+                "on" if flag_on(organization, flag_name) else "off",
+                _rolled_out(entry.share)
+                if choice is None
+                else f"turned {'on' if choice else 'off'} for it",
+            )
+        )
+    return lines + _table(rows, left={0, 1, 2})
+
+
+def _rolled_out(share: int) -> str:
+    if share == 0:
+        return "rolled out to none"
+    if share == 100:
+        return "rolled out to every organisation"
+    return f"rolled out to {share} % of organisations"
+
+
 def operators_report(session: Session, action: str | None = None, email: str = "") -> list[str]:
     """The lines the `operators` command prints: every operator, after granting the area to the
     account with the address `email` (`action` "add") or taking it back ("remove"), and where
@@ -1342,6 +1405,23 @@ def main(argv: list[str] | None = None) -> None:
         metavar="NAME",
         help="make an agreed figure the plan's again; again for each",
     )
+    flagging = commands.add_parser(
+        "flags",
+        help="list the feature flags, or turn one on or off for an organisation",
+        description="List the features behind a flag (app/flags.py), each with the share of "
+        "organisations it is rolled out to, how many it is on for and those it was turned on "
+        "or off for by hand. With an organisation's slug, how each stands for it; with a flag "
+        "and on, off or rollout, turn it on or off for it whatever its rollout, or back to its "
+        "rollout. Each change is a row of the organisation's audit log.",
+    )
+    flagging.add_argument("organization", nargs="?", help="the organisation's slug")
+    flagging.add_argument("flag", nargs="?", help="the flag to turn on or off for it")
+    flagging.add_argument(
+        "state",
+        nargs="?",
+        choices=("on", "off", "rollout"),
+        help="on or off whatever the rollout, or back to the rollout",
+    )
     granting = commands.add_parser(
         "operators",
         help="list the operators, or make an account one or no longer one",
@@ -1607,6 +1687,15 @@ def main(argv: list[str] | None = None) -> None:
                     figures=args.figures,
                     unset=args.unset,
                 )
+                session.commit()
+                for line in lines:
+                    print(line)
+        elif args.command == "flags":
+            if (args.flag is None) != (args.state is None):
+                parser.error("flags takes a flag with on, off or rollout, or neither")
+            check_schema()
+            with SessionLocal() as session:
+                lines = flags_report(session, args.organization, args.flag, args.state)
                 session.commit()
                 for line in lines:
                     print(line)
