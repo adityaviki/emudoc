@@ -1211,6 +1211,51 @@ class PageErrorOut(BaseModel):
     reference: str | None
 
 
+class HelpOut(BaseModel):
+    """What the help menu and the help pages offer besides themselves (app/api/help.py): the
+    address members write to for help, which is none only in development."""
+
+    support_email: str | None
+
+
+# What a member writes to support about (`SUPPORT_SUBJECTS` in app/mail.py).
+FeedbackKind = Literal["problem", "question", "idea"]
+# The longest message to support: a page of a letter or two, whatever they pasted into it.
+MAX_FEEDBACK_CHARS = 10_000
+
+
+class FailedRequestIn(BaseModel):
+    """The last request of the page's that the API refused or failed, by the id its answer
+    carried (X-Request-ID, app/logs.py), under which the log keeps it, and its status."""
+
+    reference: str = Field(max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$")
+    status: int = Field(ge=400, le=599)
+
+
+class FeedbackIn(BaseModel):
+    """A member's message to support from the help menu: what about, their words, and what the
+    page attaches of where they were. The page is its path with the ids its query names (an
+    open chat's, a folder's), never the query's words (`feedbackPage` in
+    frontend/src/help/feedback.ts)."""
+
+    kind: FeedbackKind
+    message: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_FEEDBACK_CHARS)
+    ]
+    page: str = Field(
+        max_length=400,
+        pattern=r"^/[A-Za-z0-9/_.~*-]*(?:\?[a-z]+=[0-9a-z]*(?:&[a-z]+=[0-9a-z]*)*)?$",
+    )
+    failed: FailedRequestIn | None = None
+
+
+class FeedbackOut(BaseModel):
+    # The id the message was sent under, which its subject names, for the member to quote.
+    reference: str
+    # Where it went, and so where an answer comes from.
+    to: str
+
+
 # The account export (app/export.py): what the app keeps about a person, as the file the
 # account page downloads. The app itself never reads it back.
 

@@ -11,6 +11,12 @@ its day, in the same commit.
 
 Members:
 
+- The question mark in the header writes to Emudoc's support from wherever you are: a problem, a
+  question or an idea, in your own words. The message goes with your name and address, the
+  page you wrote from and the reference of the last request that failed there, so support finds
+  what you met; the answer comes to your address, and the menu gives you a reference to quote.
+  The privacy policy says what a message holds and where it goes; nobody needs to accept it
+  again.
 - The audit log opens again for an organisation that exported a project: the export's row,
   "Exported a project", made the page fail. It also says when Emudoc's operators turned a
   feature being rolled out on or off for the organisation.
@@ -91,6 +97,12 @@ Members:
 
 Operators:
 
+- Members' messages to support from the app's help menu are mailed to `SUPPORT_EMAIL`, unset
+  `OPERATOR_EMAIL`, with replies going to the member, at most `RATE_FEEDBACK` (10) an hour each;
+  the mail names the account, the organisation (linked in the operator's area), the page, the
+  version, the browser and the reference of the last request that failed there, which the log
+  is searched by (deploying.md, "Support"). The mail about a changed address now names the
+  support address for help.
 - Features being rolled out are behind feature flags (`backend/app/flags.py`, none yet): each is
   on for the share of organisations the code names and for those an operator turns it on for.
   The organisation's page in the operator's area turns each on or off for it, or back to the

@@ -225,7 +225,8 @@ ADDRESS_TAKEN = (
     "That address became another Emudoc account's after the link was sent, so it cannot be "
     "this account's. Sign in with it, or ask for the change again with another address."
 )
-# Whom the old address is told to write to when its account moved without its owner asking.
+# Whom the old address is told to write to when its account moved without its owner asking,
+# where the deployment names no support address (SUPPORT_EMAIL, OPERATOR_EMAIL).
 NO_CONTACT = "the people who run this Emudoc service"
 SIGNED_UP_ALREADY = (
     "An Emudoc account was made with this address after the link was sent, so the link cannot "
@@ -687,7 +688,7 @@ def confirm_email_change(body: LinkTokenIn, request: Request, session: SessionDe
     # no longer the account's, and a second change waiting would undo this one.
     auth.void_link_tokens(session, user.id)
     audit_sign_in(session, user, request, "email_changed")
-    post(session, old, email_changed_email(user.name, get_settings().operator_email or NO_CONTACT))
+    post(session, old, email_changed_email(user.name, get_settings().support_address or NO_CONTACT))
     session.commit()
 
 

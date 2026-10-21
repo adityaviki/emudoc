@@ -466,7 +466,7 @@ def test_an_account_moves_to_a_new_address_through_a_link_sent_there(
     # and it signs in nowhere.
     to, subject, body = mailer.sent[-1]
     assert to == "ada@example.com" and subject == "Your email address was changed"
-    assert "analytical" not in body and "write to the people who run" in body
+    assert "analytical" not in body and "write to support@emudoc.example.com at once" in body
     for path, token_ in (("/api/auth/verify", unconfirmed), ("/api/auth/password/reset", reset)):
         void = stranger.post(path, json={"token": token_, "password": NEW_PASSWORD})
         assert void.status_code == 400 and void.json()["detail"] == LINK_INVALID
@@ -483,7 +483,7 @@ def test_an_account_moves_to_a_new_address_through_a_link_sent_there(
 def test_a_taken_address_is_answered_alike_and_told_instead(
     client, mailer, monkeypatch, signed_in_only
 ):
-    monkeypatch.setattr(get_settings(), "operator_email", "privacy@emudoc.example")
+    monkeypatch.setattr(get_settings(), "support_email", "help@emudoc.example")
     signup(another_browser(client), "bob@example.com", name="Bob")
     signup(client)
 
@@ -511,8 +511,8 @@ def test_a_taken_address_is_answered_alike_and_told_instead(
     assert confirm_email(client, first).status_code == 400
     assert confirm_email(client, mailer.token()).status_code == 204
     assert me(client).json()["email"] == "ada@two.org"
-    # With an operator's address set, the old address is told to write there.
-    assert "write to privacy@emudoc.example at once" in mailer.sent[-1][2]
+    # The old address is told to write to support.
+    assert "write to help@emudoc.example at once" in mailer.sent[-1][2]
 
 
 def test_an_address_is_asked_for_at_a_rate(client, mailer, monkeypatch, signed_in_only):

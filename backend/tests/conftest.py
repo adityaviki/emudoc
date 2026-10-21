@@ -127,6 +127,9 @@ os.environ["PRERENDER_PAGES"] = "0"
 # A sign-up's organisation starts without the sample project, whose documents and index jobs
 # would be in every test that signs up; tests/test_sample.py turns it on.
 os.environ["SAMPLE_PROJECT"] = "false"
+# Members write to support at one address, whatever `.env` names; tests/test_help.py changes it.
+os.environ["OPERATOR_EMAIL"] = ""
+os.environ["SUPPORT_EMAIL"] = "support@emudoc.example.com"
 
 from alembic import command  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

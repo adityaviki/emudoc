@@ -3002,7 +3002,7 @@ the rules and, on AWS, CloudWatch back up:
 | The account, on AWS | The trail's alarms (`root`, `iam`, `keys` and the others of "The account's records") | `account_alert_email` |
 | The uptime service | `/api/health` missed from outside | Its own notifications |
 | GitHub | A scheduled workflow that failed: Audit's scans, the Models workflow's requests | Whoever last changed the schedule |
-| The members | A failure they met, with its reference: the request's id, or the error screen's | `OPERATOR_EMAIL`, which the terms and the privacy policy name |
+| The members | A problem, a question or an idea from the app's help menu, with the page and the reference of the request that failed there; or by mail, quoting the error screen's reference ("Support") | `SUPPORT_EMAIL`, else `OPERATOR_EMAIL` |
 
 How soon:
 
@@ -3048,6 +3048,37 @@ Every alert says where to look; the runbooks below say what to do for those that
 a sentence. Each incident that called someone gets a short record: when it began and ended, what
 the members saw, the cause, and what changes so that it does not come back. The service levels'
 figures for each 30 days go into the same record.
+
+## Support
+
+Members write for help from the app's help menu, the question mark in the header: a problem,
+a question or an idea, in their own words. The app mails it to `SUPPORT_EMAIL` (or
+`OPERATOR_EMAIL`, where one address answers both), from `MAIL_FROM`, with a `Reply-To` of the
+member's address, so a reply from the support mailbox or a help desk that reads it goes to
+them. The subject is the app's own words and a reference, "A member reports a problem,
+reference 3f9c…", and the body their words with what support needs to find what they met:
+
+- their name and address, whether the address is confirmed, their user id and role;
+- the organisation's name, slug, id and plan, and a link to it in the operator's area;
+- the page they wrote from, as its path with the ids its query names (an open chat's, a
+  folder's), never a search's words;
+- the reference of the last request the page saw refused or failed, and its status;
+- the version the API runs, the browser's description of itself, when it was sent, and the
+  message's own reference, the id of the request that sent it.
+
+A reference is a request's id, so the log finds the request it names, with the user, the
+organisation and anything it logged ("Logs"): `jq 'select(.request_id == "3f9c…")'`, and the
+same over `trace_id` for the job it queued. The message goes through the mail queue like the
+rest of the members' mail ("Mail"), and the queue gives it up once it is sent, so the app keeps
+nothing of it: no table, no audit row, no log line holds the member's words. The help menu
+answers with the reference and the address; a member writes `RATE_FEEDBACK` messages an hour
+(10), past which the menu says when to try again. Without either address (development alone,
+since production requires `OPERATOR_EMAIL`) the menu says where to set one. The privacy
+policy says what a message holds and where it goes.
+
+A member who needs support to see what they see lets it in from their account page, for a day
+or a week ("The operator's area" below): ask for that in the reply rather than for screenshots
+of their documents.
 
 ## The operator's area
 
@@ -4088,6 +4119,7 @@ and the like), named on its models' pages.
 | `RATE_SIGN_INS_PER_ADDRESS` | `60` | | Sign-in requests a minute, per client address |
 | `RATE_FAILED_SIGN_INS` | `20` | | Wrong passwords and codes an hour, past which those sign-ins pause ("Rates") |
 | `RATE_PAGE_ERRORS` | `10` | | The page's error reports a minute, per client address |
+| `RATE_FEEDBACK` | `10` | | Messages to support an hour, per member ("Support") |
 | `RATE_BILLING` | `10` | | Billing requests a minute, per member: Checkout, the portal, a payment asked about ("Billing") |
 | `RATE_API_REQUESTS` | `300` | | Requests a minute, per API key, on top of its member's rates ("Rates") |
 
@@ -4126,6 +4158,7 @@ and the like), named on its models' pages.
 | `HOSTING_PROVIDER` | none | required | Who runs the servers, first on `/subprocessors` |
 | `OPERATOR_NAME` | none | required | Who runs the deployment, as the terms name them |
 | `OPERATOR_EMAIL` | none | required | Where people write about their account and data |
+| `SUPPORT_EMAIL` | `OPERATOR_EMAIL` | | Where members write for help, from the app's help menu and the help pages ("Support") |
 | `BACKUP_DAYS` | none | required | How long the backups are kept ("Backups") |
 | `SERVER_LOG_DAYS` | none | required | How long the server logs are kept ("How long they are kept") |
 | `ACCESS_LOG_DAYS` | none | | How long the infrastructure's connection records are kept, when it keeps any |

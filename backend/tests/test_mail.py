@@ -236,6 +236,15 @@ def test_resend_sends_a_message_once_by_its_key(resend):
     }
 
 
+def test_resend_takes_the_address_replies_go_to_as_its_own_field(resend):
+    # A message to support (app/api/help.py), whose replies go to the member who wrote it.
+    message = compose("support@example.com", reset(), headers={"Reply-To": "ada@example.com"})
+    resend_mailer(resend).send(message)
+    body = httpx.Response(200, content=resend.requests[0].content).json()
+    assert body["reply_to"] == "ada@example.com" and "headers" not in body
+    assert message.headers == {"Reply-To": "ada@example.com"}
+
+
 @pytest.mark.parametrize(
     ("status", "body", "later", "said"),
     [

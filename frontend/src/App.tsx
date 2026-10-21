@@ -27,6 +27,7 @@ import type { MenuItem } from './components/Menu.tsx'
 import { ThemeToggle } from './components/ThemeToggle.tsx'
 import { Button, IconButton, Spinner } from './components/ui.tsx'
 import { useLocalStorage, useStatus } from './hooks.ts'
+import { HelpMenu } from './help/HelpMenu.tsx'
 import { AuditPage } from './organization/AuditPage.tsx'
 import { NewOrganizationPage, OrganizationPage } from './organization/OrganizationPage.tsx'
 import { OrganizationSwitcher } from './organization/OrganizationSwitcher.tsx'
@@ -159,6 +160,7 @@ function Shell() {
           </div>
           <div className="flex shrink-0 items-center gap-3">
             <ServiceStatus />
+            <HelpMenu />
             <NotificationBell />
             <ThemeToggle />
             <UserMenu />

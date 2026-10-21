@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 from dotenv import dotenv_values
 from psycopg import pq
-from pydantic import Field, ValidationError, field_validator, model_validator
+from pydantic import Field, ValidationError, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -423,6 +423,11 @@ class Settings(BaseSettings):
     # since the privacy policy must say who answers for the data and how to reach them.
     operator_name: str = ""
     operator_email: str = ""
+    # Where members' messages to support go: what they write from the app's help menu, with
+    # the page and the request it was about (app/api/help.py), and the address the help pages
+    # and the mail about an account's address name for help. Empty is OPERATOR_EMAIL's, for a
+    # deployment whose one address answers both.
+    support_email: str = ""
     # How many days the deployment keeps the backups of its database and bucket, zero for
     # none. The app makes none itself; the privacy policy names this as the outer bound of a
     # deletion, since a purged account stays in a backup until it expires (app/retention.py
@@ -527,6 +532,9 @@ class Settings(BaseSettings):
     # a page that fails again on every load reports each time, and nothing else holds a script
     # back from filling the log and the tracker with reports.
     rate_page_errors: int = Field(default=10, ge=0)
+    # Messages an hour per member to support (app/api/help.py): each is a mail to
+    # SUPPORT_EMAIL, which nothing else holds a script back from filling.
+    rate_feedback: int = Field(default=10, ge=0)
     # Requests a minute per member to billing (app/api/billing.py): each starts a Checkout or a
     # customer portal session at Stripe, or reads one back.
     rate_billing: int = Field(default=10, ge=0)
@@ -731,6 +739,12 @@ class Settings(BaseSettings):
         return value.strip() if isinstance(value, str) else value
 
     @property
+    def support_address(self) -> str:
+        """Where members write to for help: SUPPORT_EMAIL, else OPERATOR_EMAIL; empty for
+        none, which only development runs with."""
+        return self.support_email or self.operator_email
+
+    @property
     def stripe_plans(self) -> dict[str, list[str]]:
         """The Stripe prices sold, by plan (STRIPE_PRICES); empty while billing is off."""
         return parse_stripe_prices(self.stripe_prices) if self.stripe_secret_key else {}
@@ -797,14 +811,14 @@ class Settings(BaseSettings):
             raise ValueError("fts_language must be a Postgres text search configuration name")
         return value
 
-    @field_validator("operator_email")
+    @field_validator("operator_email", "support_email")
     @classmethod
-    def _an_address(cls, value: str) -> str:
+    def _an_address(cls, value: str, info: ValidationInfo) -> str:
         value = value.strip()
         if value and ("@" not in value or any(char.isspace() for char in value)):
             raise ValueError(
-                "OPERATOR_EMAIL is the address people write to about their data, such as "
-                "privacy@example.com"
+                f"{info.field_name.upper()} is an address people write to, such as "
+                "support@example.com"
             )
         return value
 

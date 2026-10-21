@@ -24,6 +24,7 @@ from app.api import (
     documents,
     exports,
     folders,
+    help,
     invitations,
     mail,
     notifications,
@@ -483,6 +484,7 @@ def create_app(
         notifications.router,
         onboarding.router,
         support.router,
+        help.router,
     ):
         app.include_router(router, prefix="/api", dependencies=[Depends(refuse_cross_site)])
     # The routes an API key reaches (`_key_account` in app/api/deps.py), by their functions,

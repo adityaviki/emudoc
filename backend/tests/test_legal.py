@@ -46,6 +46,7 @@ DEVELOPMENT = {
     "data_region": "",
     "operator_name": "",
     "operator_email": "",
+    "support_email": "",
     "backup_days": None,
     "access_log_days": None,
     "server_log_days": None,
@@ -60,7 +61,7 @@ DEVELOPMENT = {
 }
 DIRECTORY = LocalStorage(Path("unused"))
 # The SHA-256 of terms.md and privacy.md as the edition TERMS_VERSION names was settled.
-SETTLED = "93871f3f341a8cc4cab3ab6c6b8d77cfb0a546ccdb989b47a1e2da346a3e95ec"
+SETTLED = "13c86cc137c0b7a3e2ef143b18a11ce2102a439f8f4024c208f5dfcf6cbc6841"
 OLDER = "2026-01-01"
 
 
@@ -126,6 +127,18 @@ def test_the_documents_name_who_runs_the_deployment():
     # Development shows what to set; production refuses to start without it.
     unset = terms_of_service(configured())
     assert "OPERATOR_NAME is not set" in unset and "OPERATOR_EMAIL is not set" in unset
+
+
+def test_the_policy_says_where_messages_to_support_go():
+    def said(**changes: object) -> str:
+        return " ".join(privacy_policy(configured(**changes), DIRECTORY, {}).split())
+
+    apart = said(operator_email="privacy@example.com", support_email="help@example.com")
+    assert "They are sent to [help@example.com](mailto:help@example.com) by email" in apart
+    # One address answers both, unless the deployment names another for support.
+    alike = said(operator_email="privacy@example.com")
+    assert "They are sent to [privacy@example.com](mailto:privacy@example.com) by email" in alike
+    assert "They are sent to [OPERATOR_EMAIL is not set] by email" in said()
 
 
 def test_the_terms_say_how_a_document_without_pages_counts(monkeypatch):

@@ -127,6 +127,7 @@ def privacy_policy(
         # A count is pruned at the first housekeeping after it is HISTORY old.
         count_hours=str(round((HISTORY.total_seconds() + HOUSEKEEPING_INTERVAL) / 3600)),
         deletion_days=str(DELETION_GRACE.days),
+        support=_address(settings.support_address, "OPERATOR_EMAIL"),
         backups=_backups(settings.backup_days),
         server_logs=_server_logs(settings.server_log_days),
         session_cookie=SESSION_COOKIE,
@@ -194,10 +195,14 @@ def _fill(name: str, settings: Settings, **values: str) -> str:
     where to write to them. A setting that is not there reads as a note to set it, which only
     development can show, since production refuses to start without them."""
     operator = settings.operator_name.strip() or "[OPERATOR_NAME is not set]"
-    email = settings.operator_email
-    contact = f"[{email}](mailto:{email})" if email else "[OPERATOR_EMAIL is not set]"
+    contact = _address(settings.operator_email, "OPERATOR_EMAIL")
     template = Template((TEMPLATES / name).read_text())
     return template.substitute(published=published(), operator=operator, contact=contact, **values)
+
+
+def _address(email: str, variable: str) -> str:
+    """An address to write to, as a link that opens a message to it."""
+    return f"[{email}](mailto:{email})" if email else f"[{variable} is not set]"
 
 
 def _models(settings: Settings, environ: Mapping[str, str]) -> str:

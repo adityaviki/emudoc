@@ -10,9 +10,11 @@ output "settings" {
   description = "Settings by their names in .env.example."
   value = {
     # Who runs the deployment, as the terms of service and the privacy policy name them: the
-    # company or person with a postal address, and the address people write to.
+    # company or person with a postal address, and the address people write to; and where
+    # members write for help from the app, empty for OPERATOR_EMAIL.
     OPERATOR_NAME  = ""
     OPERATOR_EMAIL = ""
+    SUPPORT_EMAIL  = ""
 
     # The models, each named by its version, and a fallback of another provider for each
     # (deploying.md, "The models"); every one of them priced in MODEL_PRICES, so that the

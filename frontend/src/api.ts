@@ -276,6 +276,37 @@ export interface PageError {
   path: string
 }
 
+/** Where members write for help (backend/app/api/help.py): none only in development. */
+export interface Help {
+  support_email: string | null
+}
+
+/** What a member writes to support about, which the mail's subject says. */
+export type FeedbackKind = 'problem' | 'question' | 'idea'
+
+/** A request the API refused or failed, by the reference its answer carried, under which the log keeps it. */
+export interface FailedRequest {
+  reference: string
+  status: number
+}
+
+/**
+ * A message to support from the help menu: the member's words, and where they were, as the page's
+ * path with the ids its query names, never its words (src/help/feedback.ts).
+ */
+export interface Feedback {
+  kind: FeedbackKind
+  message: string
+  page: string
+  failed: FailedRequest | null
+}
+
+/** A message posted to support: the reference it went under, for the member to quote, and the address an answer comes from. */
+export interface FeedbackSent {
+  reference: string
+  to: string
+}
+
 /** A company the deployment sends data to, as the server reads it from its settings. */
 export interface Subprocessor {
   name: string
@@ -966,6 +997,7 @@ let onSwitched: (() => void) | null = null
 let onForbidden: (() => void) | null = null
 let onPlanLimit: (() => void) | null = null
 let shownOrganization: number | null = null
+let lastFailure: FailedRequest | null = null
 
 /**
  * What happens when the server no longer accepts the session: the app registers a handler
@@ -1005,6 +1037,15 @@ export function handlePlanLimit(handler: (() => void) | null) {
   onPlanLimit = handler
 }
 
+/**
+ * The last request of this page's that the API refused or failed, by the id its answer carried
+ * (X-Request-ID, backend/app/logs.py): what a message to support attaches, for support to find
+ * in the log what the member met. Null until one did.
+ */
+export function lastFailedRequest(): FailedRequest | null {
+  return lastFailure
+}
+
 /** The organisation the page shows, which every request names from now on; null for none. */
 export function showOrganization(id: number | null) {
   shownOrganization = id
@@ -1024,6 +1065,8 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
   headers.set('X-Requested-With', 'fetch')
   if (shownOrganization !== null) headers.set(ORGANIZATION_HEADER, String(shownOrganization))
   const response = await fetch(`/api${path}`, { ...init, headers })
+  const reference = response.headers.get('X-Request-ID')
+  if (response.status >= 400 && reference) lastFailure = { reference, status: response.status }
   if (response.status === 401 && !path.startsWith('/auth/')) onUnauthorized?.()
   if (response.status === 403 && !path.startsWith('/auth/')) onForbidden?.()
   if (response.status === 402) onPlanLimit?.()
@@ -1265,6 +1308,10 @@ export const api = {
   /** Public, since a sign-in page can fail too: the reference is the id the app logged the report under. */
   reportPageError: (report: PageError) =>
     request<{ reference: string | null }>('/page-errors', json('POST', report)),
+  /** Public, since the sign-in pages lead to help too. */
+  help: () => request<Help>('/help'),
+  /** Mails the member's message to support; a 429 says when they may write again. */
+  sendFeedback: (feedback: Feedback) => request<FeedbackSent>('/feedback', json('POST', feedback)),
   /** Owners and admins only; anyone else gets a 403. The page older than the row `before`, of the rows the filter picks. */
   audit: (filter: AuditFilter, before: number | null = null, limit = 50) => {
     const params = auditQuery(filter)

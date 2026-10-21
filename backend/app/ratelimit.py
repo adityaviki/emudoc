@@ -98,6 +98,11 @@ class Limit:
         return self.setting.upper()
 
     def refusal(self, allowed: int, who: str) -> str:
+        if self.window == HOUR:
+            return (
+                f"There have been {allowed} {self.what} {who} in the last hour, as many as the "
+                "app allows. Try again in an hour."
+            )
         return (
             f"There have been {allowed} {self.what} {who} in the last minute, as many as the "
             "app allows. Wait a minute and try again."
@@ -122,6 +127,8 @@ PAGE_ERRORS = Limit("page_error", "rate_page_errors", "error reports")
 BILLING = Limit("billing", "rate_billing", "billing requests")
 # Every request an API key makes (app/apikeys.py), on top of its member's own rates.
 API_REQUESTS = Limit("api_key", "rate_api_requests", "requests")
+# A member's messages to support (app/api/help.py), each a mail to the support address, an hour.
+FEEDBACK = Limit("feedback", "rate_feedback", "messages to support", HOUR)
 # Each limit's refusals are counted from zero in the metrics (app/metrics.py).
 for _limit in (
     UPLOADS,
@@ -133,6 +140,7 @@ for _limit in (
     PAGE_ERRORS,
     BILLING,
     API_REQUESTS,
+    FEEDBACK,
 ):
     RATE_LIMITED.labels(_limit.scope)
 
@@ -202,7 +210,7 @@ def hit(session: Session, *hits: tuple[Limit, Key], now: datetime | None = None)
     for limit, key, allowed, start, count in counts:
         if count > allowed:
             _refused(limit, key, count, start, "more than")
-            return Refusal(limit.refusal(allowed, key.who), seconds_left(now, start))
+            return Refusal(limit.refusal(allowed, key.who), seconds_left(now, start, limit.window))
     return None
 
 

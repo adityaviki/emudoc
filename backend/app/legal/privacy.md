@@ -47,14 +47,20 @@ organisation uploaded a document about you, ask the organisation first; we help 
   and each time support opened it, so that it sees your account only while you allow it and you
   and the organisation's owners and admins can tell when it did. While it has it open, support
   sees what you see in that organisation, your account page included, and changes nothing.
+- **Messages to support**: what you write to us from the app's help menu, with your name, email
+  address and role, the ids of your account and organisation, the page you wrote from, the
+  version of the service, your browser's description of itself and the reference of the last
+  request the page saw fail, so that we can answer you and find what went wrong. They are sent
+  to $support by email, where our support keeps them as long as it needs to answer you and
+  follow up; the service itself keeps none of it once the mail is sent.
 - **The audit log**: who signed in, uploaded, downloaded, deleted or shared what, and when,
   with the IP address of the request. Your organisation's owners and admins can read it and
   download it as a file, to see what happens to their documents, which is their and our
   legitimate interest. It never holds what a document, a question or an answer says.
 - **Abuse protection**: how many requests each account, each IP address, each email address
-  (as a hash only), each browser you signed in with and each API key made in a minute, and how
-  many wrong passwords and codes they were tried with in an hour, to slow down password
-  guessing and floods.
+  (as a hash only), each browser you signed in with and each API key made in a minute, how
+  many wrong passwords and codes they were tried with in an hour, and how many messages each
+  account sent to support in an hour, to slow down password guessing and floods.
 - **Server logs**: the IP address, time and path of each request and the account and project it
   was for, and the service's own record of what it did, to keep it running and to find faults.
   They never hold what a document, a question or an answer says, nor an email address.

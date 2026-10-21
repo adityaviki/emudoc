@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { BrowserContext, Page } from '@playwright/test'
-import { linkMailedTo } from './mail.ts'
+import { linkMailedTo, messageTo } from './mail.ts'
 import { makeOperator, movePlan } from './operator.ts'
 
 // The member's way through the app, end to end: sign up through the link the app mails, find the
@@ -14,7 +14,8 @@ import { makeOperator, movePlan } from './operator.ts'
 // organisation, choose its settings, read them in its audit log and download it, hide its first
 // steps, delete it and keep it, and switch back, and, on Team, invite a colleague as a
 // viewer from under that answer, who makes an account from the invitation's link, ends her tour, finds
-// the project and is offered no change to it until made a member, then make the project
+// the project and is offered no change to it until made a member, write to support from the
+// help menu, which mails the page written from, then make the project
 // private, which she no longer finds until chosen for it, and share the chat, which the
 // colleague then reads but does not ask in, and last ask the question that uses the month's
 // questions, which the bell tells, and open that notice from the other organisation; then, made
@@ -353,6 +354,20 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(section('Held now').getByRole('definition').nth(0)).toContainText('Not counted: the sample project.')
     await expect(section('Held now').getByRole('definition').nth(3)).toContainText('2 of 2')
     await expect(section('Day by day').getByRole('figure', { name: /^Questions/ })).toContainText('2 questions in all')
+  })
+
+  await test.step('write to support from the help menu, which mails the page the member wrote from', async () => {
+    await page.getByRole('button', { name: 'Help', exact: true }).click()
+    const help = page.getByRole('dialog', { name: 'Help' })
+    await help.getByRole('button', { name: 'A question' }).click()
+    await help.getByLabel('Message').fill('Can one project hold two price lists?')
+    await help.getByRole('button', { name: 'Send' }).click()
+    await expect(help.getByRole('status')).toContainText(`Sent to support@example.com. The answer comes to ${address}`)
+    const mail = await messageTo('support@example.com')
+    expect(mail).toContain('A member asks a question, reference ')
+    expect(mail).toContain('Can one project hold two price lists?')
+    expect(mail).toContain('/organization/usage')
+    await page.keyboard.press('Escape')
   })
 
   await test.step('make a read key, which a program lists the projects with and changes nothing by', async () => {

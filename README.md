@@ -430,6 +430,8 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   `/terms` and `/privacy` name them (Accounts, below). Production refuses to start without them,
   and with a versioned bucket that keeps a deleted file's earlier versions longer than
   `BACKUP_DAYS` (`deploying.md`, "Backups").
+- `SUPPORT_EMAIL` is where members write for help, from the app's help menu (Accounts, below);
+  unset, it is `OPERATOR_EMAIL`, for a deployment whose one address answers both.
 - `ACCESS_LOG_DAYS` says how long the infrastructure keeps its records of connections, which
   hold members' addresses: a network's flow logs, and the access logs of the bucket their
   browsers fetch page images and downloads from. Set, the privacy policy names them and the
@@ -827,6 +829,16 @@ a reference, and is reported to the app (`POST /api/page-errors`), which logs it
 on; the browser runs no tracker's script. A 500 answers with a sentence that ends with the
 request's id as the reference to quote. The subprocessor list and the privacy policy name the
 tracker when it is a company's. `deploying.md` ("Error tracking") has the details.
+
+The question mark in the header is the help menu, where a member writes to support: a problem, a
+question or an idea, in their own words (`frontend/src/help/`, `POST /api/feedback` in
+`backend/app/api/help.py`). The app mails it to `SUPPORT_EMAIL` with a `Reply-To` of the
+member's address and what support needs to find what they met: the account, the organisation,
+the page's path with the ids of what was open, the version, the browser, and the reference of
+the last request the page saw refused or failed, which the log is searched by. The member's
+words go into the mail alone, never into the log, the subject or a table; the menu answers with
+the message's reference. A member writes 10 messages an hour (`RATE_FEEDBACK`). `deploying.md`
+("Support") says what the message holds and how to find its request.
 
 The API and the worker serve metrics in Prometheus's format on a port of their own
 (`METRICS_ADDRESS`; the image's containers on 9464, which the compose file publishes nowhere):

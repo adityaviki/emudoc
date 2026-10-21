@@ -8,7 +8,8 @@ the notices about a member's work, which they choose how to be told of, kind by 
 (app/notices.py): that an upload which took a while to index is done, with what could not be
 indexed and why, and to an organisation's owners and admins that its month's pages or questions
 are mostly or all used; a notice's `brief` is what the app's notification centre shows of it.
-Stripe sends the receipts and the invoices itself (deploying.md, "Billing"). A link into an
+And to the support address, what a member wrote to it from the app (app/api/help.py). Stripe
+sends the receipts and the invoices itself (deploying.md, "Billing"). A link into an
 organisation's pages names it (`in_organization`), since its reader may work in another.
 
 A template writes `Content`: the subject, and the body as paragraphs and links. Both the plain
@@ -114,7 +115,8 @@ class Message:
     subject: str
     text: str
     html: str | None = None
-    # Headers besides From, To and Subject: a notice's List-Unsubscribe (app/postbox.py).
+    # Headers besides From, To and Subject: a notice's List-Unsubscribe (app/postbox.py), a
+    # message to support's Reply-To (app/api/help.py).
     headers: dict[str, str] = field(default_factory=dict)
     # The same on every try of one message, for a provider that sends a key once (Resend).
     key: str = field(default_factory=lambda: uuid.uuid4().hex)
@@ -297,8 +299,12 @@ class ResendMailer:
         }
         if message.html is not None:
             body["html"] = message.html
-        if message.headers:
-            body["headers"] = message.headers
+        headers = dict(message.headers)
+        # Resend takes the address replies go to as a field of its own.
+        if reply_to := headers.pop("Reply-To", None):
+            body["reply_to"] = reply_to
+        if headers:
+            body["headers"] = headers
         try:
             answer = self.http.post(
                 f"{RESEND_API}/emails",
@@ -522,6 +528,35 @@ def support_view_email(name: str, organization: str, ends: str, until: str, link
             f"Your leave for support lasts until {until}. If you did not expect this, or no "
             "longer need help, withdraw it on your account page, which ends the view at once:",
             Link(link, "Open your account page"),
+        ),
+    )
+
+
+# What a member's message to support is about, as its subject says it: the app's words, since
+# the mailer logs a subject, never the member's.
+SUPPORT_SUBJECTS = {
+    "problem": "A member reports a problem",
+    "question": "A member asks a question",
+    "idea": "A member suggests an idea",
+}
+
+
+def support_message_email(
+    kind: str, words: str, reference: str, sender: str, details: tuple[str, ...], area: str
+) -> Content:
+    """To the support address (SUPPORT_EMAIL): what a member wrote from the app's help menu,
+    and what support needs to find what they met, one detail a line (the account, the
+    organisation, the page, the request that failed). The member's words are in the body alone;
+    a reply goes to them (the message's Reply-To, app/api/help.py)."""
+    return Content(
+        f"{SUPPORT_SUBJECTS[kind]}, reference {reference}",
+        (
+            f"{sender} wrote from the app:",
+            words,
+            "\n".join(details),
+            "Reply to this message to answer them, and quote the reference if you write to "
+            "anyone else about it.",
+            Link(area, "Open the organisation in the operator's area"),
         ),
     )
 
