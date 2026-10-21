@@ -4,6 +4,7 @@
 
 import { PLAN_LABELS, ROLE_LABELS } from './api.ts'
 import type { AuditAction, AuditEvent, AuditFilter, NoticeKind, Plan, Role } from './api.ts'
+import { formatDate } from './format.ts'
 import { NOTICE_KINDS } from './notifications.ts'
 import { keptWords, languageName, signInWords } from './organizationSettings.ts'
 
@@ -54,6 +55,8 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   project_access_changed: ['Changed who sees a project', 'members'],
   organization_created: ['Started the organisation', 'organization'],
   organization_renamed: ['Renamed the organisation', 'organization'],
+  organization_deletion_requested: ['Asked to delete the organisation', 'organization'],
+  organization_deletion_cancelled: ['Kept the organisation', 'organization'],
   settings_changed: ['Changed a setting', 'organization'],
   audit_exported: ['Downloaded the audit log', 'organization'],
   api_key_created: ['Made an API key', 'organization'],
@@ -150,6 +153,8 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   if (typeof detail.quantity === 'number') parts.push(`${detail.quantity.toLocaleString()} ${unit ?? ''}`.trim())
   if (typeof detail.seats === 'number') parts.push(`${detail.seats} seat${detail.seats === 1 ? '' : 's'}`)
   if (typeof detail.domains === 'string') parts.push(detail.domains || 'no domains')
+  // An account's or the organisation's deletion asked for, and the day it was set for.
+  if (typeof detail.due_at === 'string') parts.push(`for ${formatDate(detail.due_at)}`)
   if (typeof detail.method === 'string') parts.push(detail.method === 'password' ? 'with a password' : `through ${word(detail.method)}`)
   if (detail.second_factor === 'recovery_code') parts.push('with a recovery code')
   if (detail.reason === 'password' || detail.reason === 'code') parts.push(`wrong ${detail.reason}`)

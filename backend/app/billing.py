@@ -91,6 +91,7 @@ from app.retention import (
     Kept,
     chosen,
     day,
+    held_for_deletion,
     hold_in_force,
     hold_retention,
     kept_by,
@@ -384,6 +385,8 @@ def checkout_refusal(
     organization = account.organization
     if account.role != "owner":
         return BillingRefused(403, OWNERS_ONLY)
+    if refusal := _deleting(account):
+        return refusal
     if not managed(organization):
         return BillingRefused(409, AGREED)
     if organization.subscription_status in BILLED:
@@ -535,6 +538,8 @@ def start_pack_checkout(
     organization = account.organization
     if account.role != "owner":
         raise BillingRefused(403, OWNERS_ONLY)
+    if refusal := _deleting(account):
+        raise refusal
     if not managed(organization):
         raise BillingRefused(409, AGREED)
     pack = next((p for p in settings.packs if (p.unit, p.quantity) == (unit, quantity)), None)
@@ -630,6 +635,8 @@ def portal_for(
     owner back to the organisation page, which then asks for the subscription as it stands."""
     if account.role != "owner":
         raise BillingRefused(403, OWNERS_ONLY)
+    if refusal := _deleting(account):
+        raise refusal
     organization = account.organization
     customer = organization.stripe_customer_id
     if not customer:
@@ -1224,10 +1231,35 @@ def prune_billing_events(connection: Connection) -> int:
     ).rowcount
 
 
+def renews(organization: Organization) -> bool:
+    """Whether the organisation's subscription will charge it again: billed, and not
+    cancelled. Cancelled, it ends with its period, and nothing more is charged."""
+    return organization.subscription_status in BILLED and organization.ends_at is None
+
+
+def renewal_refusal(organization: Organization) -> str | None:
+    """Why the organisation may not be set to be deleted for its subscription's sake, or None:
+    it still renews, and deleting the organisation would not end it."""
+    if not renews(organization):
+        return None
+    return (
+        f"The subscription of {organization.name} to the {organization.plan.capitalize()} plan "
+        "still renews. Cancel it under Manage billing first, then delete the organisation: it "
+        "ends with the period paid for, and nothing more is charged."
+    )
+
+
+def _deleting(account: Account) -> BillingRefused | None:
+    """An organisation set to be deleted buys nothing and changes no subscription, which could
+    renew one the deletion would leave charging: an owner keeps it first."""
+    sentence = held_for_deletion(account.organization, zone_of(account.user.time_zone))
+    return BillingRefused(409, sentence) if sentence else None
+
+
 def subscription_refusal(session: Session, user: User) -> str | None:
     """Why the user may not have their account deleted for a subscription's sake, or None: an
     organisation they are the only member of, which goes with the account, still has one that
-    renews. Cancelled, it ends with its period, and nothing more is charged."""
+    renews."""
     for organization in session.scalars(
         select(Organization)
         .join(Membership, Membership.org_id == Organization.id)

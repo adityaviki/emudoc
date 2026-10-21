@@ -416,6 +416,8 @@ export interface Organization {
   /** The domains whose confirmed addresses may join it, and the role they join with (backend/app/invitations.py). */
   join_domains: string[]
   join_role: JoinRole
+  /** When it is deleted with everything in it, as an owner asked; until then it is held as it stands and an owner may keep it (backend/app/retention.py). Null when nobody asked. */
+  deletion_due_at: string | null
 }
 
 /** What the organisation page changes about the organisation (OrganizationChangeIn in backend/app/schemas.py). */
@@ -779,6 +781,8 @@ export type AuditAction =
   | 'pack_bought'
   | 'organization_created'
   | 'organization_renamed'
+  | 'organization_deletion_requested'
+  | 'organization_deletion_cancelled'
   | 'settings_changed'
   | 'audit_exported'
   | 'api_key_created'
@@ -902,7 +906,7 @@ export interface AuditPage {
 // The password rules the server applies (backend/app/schemas.py), so forms can say so first.
 export const PASSWORD_MIN_LENGTH = 8
 export const PASSWORD_MAX_LENGTH = 200
-// How long a deleted account can still be kept (DELETION_GRACE in backend/app/retention.py),
+// How long a deleted account, or organisation, can still be kept (DELETION_GRACE in backend/app/retention.py),
 // so the page can say so before the server sets the day.
 export const DELETION_GRACE_DAYS = 14
 
@@ -1153,6 +1157,10 @@ export const organizations = {
   handOver: (body: { user_id: number; password?: string; email?: string }) =>
     request<Me>('/organization/owner', json('POST', body)),
   leave: () => request<Me>('/organization/leave', { method: 'POST' }),
+  /** Owners only, confirmed as `handOver` is: deleted with everything in it once the grace period is over, every member told; a 409 while its subscription renews. */
+  delete: (body: { password?: string; email?: string }) => request<Me>('/organization/deletion', json('POST', body)),
+  /** Owners only: kept, as though nobody had asked. */
+  keep: () => request<Me>('/organization/deletion', { method: 'DELETE' }),
   /** Owners and admins only, as is everything about invitations and joining. */
   invitations: () => request<Invitation[]>('/organization/invitations'),
   /** Mails the address its link; a 402 when the plan has no room, a 409 for a member or one invited already. */

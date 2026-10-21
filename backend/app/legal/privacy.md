@@ -93,7 +93,8 @@ $region
 ## How long it is kept
 
 - **Documents**, and everything read from them, until a member deletes them or the
-  organisation is deleted.
+  organisation is deleted, which happens $deletion_days days after an owner asks, with
+  everything else it holds, its usage records and audit log among them.
 - **The trash**: a project, folder, document or chat a member deletes is kept in its trash for
   $trash_days days, where it can be restored, and is then deleted for good, unless a member
   deletes it there sooner; a chat goes sooner when its plan keeps it for less time.

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { auditExportUrl, auditQuery } from './api.ts'
 import type { AuditAction, AuditEvent } from './api.ts'
 import { ACTIONS, KINDS, NO_CHOICES, actionsOf, describeDetail, filterOf, whoDid } from './audit.ts'
+import { formatDate } from './format.ts'
 import type { AuditKind } from './audit.ts'
 
 const event = (action: AuditAction, detail: AuditEvent['detail'] = {}, fields: Partial<AuditEvent> = {}): AuditEvent => ({
@@ -81,6 +82,8 @@ describe('a row', () => {
       'a former member · was Admin',
     )
     expect(describeDetail(event('invitation_sent', { role: 'viewer', again: true }))).toBe('Viewer')
+    const due = '2026-11-04T12:00:00+00:00'
+    expect(describeDetail(event('organization_deletion_requested', { due_at: due }))).toBe(`for ${formatDate(due)}`)
     expect(describeDetail(event('plan_changed', { from: 'free', to: 'team' }))).toBe('Free → Team')
     expect(describeDetail(event('sign_in', { method: 'google' }))).toBe('through Google')
     expect(describeDetail(event('sign_in', { second_factor: 'recovery_code' }))).toBe('with a recovery code')

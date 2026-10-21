@@ -157,7 +157,7 @@ def joining_refusal(domain: str, user: User) -> str | None:
 
 def joinable(session: Session, user: User) -> list[Organization]:
     """The organisations the user may join by the domain of their address, by name: none until
-    they have confirmed it."""
+    they have confirmed it, and none set to be deleted (app/retention.py)."""
     if user.email_verified_at is None:
         return []
     member_of = select(Membership.org_id).where(Membership.user_id == user.id)
@@ -167,6 +167,7 @@ def joinable(session: Session, user: User) -> list[Organization]:
             .where(
                 Organization.join_domains.contains([domain_of(user.email)]),
                 Organization.id.not_in(member_of),
+                Organization.deletion_due_at.is_(None),
             )
             .order_by(func.lower(Organization.name), Organization.id)
         )

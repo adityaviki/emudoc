@@ -1699,6 +1699,15 @@ must leave `erasures/` as it is: restored to an older point, it forgets the purg
 ("Backups", below). The records are kept for good. They say nothing about the person, and
 backups may be kept for any length of time.
 
+An organisation an owner deletes goes the same way, 14 days after the request, which every
+member is mailed: the housekeeping round deletes it with its rows and files ("Deleted
+organisation …" in the worker's log), gives each member it was the only organisation of one of
+their own, and leaves `erasures/organizations/<id>-<created>.json`, which `after-restore` reads
+like the accounts' ("Organisations […] were deleted before and are back"). The request is
+refused while the organisation's subscription renews; one renewed at Stripe after the request
+is kept and logged at ERROR every round ("… its subscription renews again"), until someone
+cancels it there, since deleting the organisation would leave the subscription charging.
+
 Logs carry no email address of the app's making: a refused sign-in names the address by its
 SHA-256, as the rate limits count it, and a mail that fails is logged with its subject and the
 relay's answer, every address in it replaced by `<address>`. The log mailer of development
@@ -3727,7 +3736,10 @@ repository's policy among them.
     in elsewhere shows the same. Keep it, delete it again, and check after the 14 days (or move
     `users.deletion_due_at` into the past and wait for a housekeeping round) that signing in
     with it fails, the worker's log says "Deleted account", and the bucket or directory holds
-    its record under `erasures/users/`.
+    its record under `erasures/users/`. Likewise start an organisation, delete it from the foot
+    of its page: the banner says the day, a new project is refused, "Keep it" undoes it; delete
+    it again, move `organizations.deletion_due_at` into the past, and after a round its files
+    are gone and its record is under `erasures/organizations/`.
 12. Signed out, `/terms` and `/privacy` name `OPERATOR_NAME` and `OPERATOR_EMAIL`, and the
     privacy policy says `BACKUP_DAYS`, `SERVER_LOG_DAYS`, the region and whether uploads are
     scanned as the deployment has them, and whatever collects the logs deletes them by

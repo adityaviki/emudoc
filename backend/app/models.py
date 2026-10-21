@@ -86,7 +86,8 @@ NOTICE_CHANNELS = ("app", "email")
 NATURAL_ORDER = "natural_order"
 # What the audit log records (app/audit.py): its members' sign-ins and what they did to their
 # accounts, what was done to the organisation itself (its name and settings, its owner, its API
-# keys, who was invited, joined, left or was removed, and the members' roles), to its projects,
+# keys, who was invited, joined, left or was removed, the members' roles, and a request to
+# delete it, which its owners' mail outlives, since the log goes with it), to its projects,
 # its documents and the sharing of its chats, and what the operator and the app did to it on
 # their own (a quarantine, the sample project a new account's organisation starts with). A
 # project, folder, document or chat `_deleted` went into the trash (app/trash.py), `_restored`
@@ -124,6 +125,8 @@ AUDIT_ACTIONS = (
     "pack_bought",
     "organization_created",
     "organization_renamed",
+    "organization_deletion_requested",
+    "organization_deletion_cancelled",
     "settings_changed",
     "audit_exported",
     "api_key_created",
@@ -420,6 +423,9 @@ class Organization(Base):
     retention_held_until: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     held_chat_days: Mapped[int | None] = mapped_column(Integer)
     held_audit_days: Mapped[int | None] = mapped_column(Integer)
+    # When the organisation is deleted with everything in it, as an owner asked; until then it
+    # is read-only and an owner may keep it (app/retention.py). Null when nobody asked.
+    deletion_due_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

@@ -1,9 +1,10 @@
 // The organisation's settings as its page offers them (backend/app/api/organizations.py): the
 // languages its documents may be searched in, the times it may keep a chat within its plan, and
-// what choosing a shorter one deletes; and its security settings (backend/app/security.py), how
-// often its members sign in again and whom requiring two-factor would hold.
+// what choosing a shorter one deletes; its security settings (backend/app/security.py), how
+// often its members sign in again and whom requiring two-factor would hold; and what the pages
+// say of it once an owner set it to be deleted (backend/app/retention.py).
 
-import type { Languages, Member, Organization } from './api.ts'
+import type { Languages, Member, Organization, Role } from './api.ts'
 
 /** The configuration that stems nothing (WORDS_AS_WRITTEN in backend/app/languages.py). */
 const WORDS_AS_WRITTEN = 'simple'
@@ -89,4 +90,17 @@ export function heldByTwoFactor(members: Member[]): string | null {
   const names = without.length <= 3 ? without.join(', ') : `${without.slice(0, 3).join(', ')} and ${without.length - 3} more`
   const they = without.length === 1 ? 'They set it up' : 'Each sets it up'
   return `${without.length === 1 ? 'One member signs' : `${without.length} members sign`} in without it: ${names}. ${they} before working in the organisation again.`
+}
+
+/** The organisation page's section that deletes the organisation or keeps it, by its anchor. */
+export const DELETION_SECTION = 'deletion'
+
+/**
+ * What the banner and the organisation page say of an organisation set to be deleted on `day`,
+ * as the reader may act on it: an owner keeps it, anyone else asks one to; null for one that is not.
+ */
+export function deletionWords(organization: Organization, role: Role, day: string): string | null {
+  if (!organization.deletion_due_at) return null
+  const then = `${organization.name} is set to be deleted on ${day}, with everything in it. Until then nothing can be added to its projects or changed in them, and what it holds can still be read and downloaded`
+  return role === 'owner' ? `${then}; an owner can keep it.` : `${then}; ask an owner to keep it if it should stay.`
 }

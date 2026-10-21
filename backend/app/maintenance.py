@@ -18,8 +18,9 @@ projects that no longer exist, which a delete leaves behind when the storage fai
 are gone; the pruning of jobs that finished longer ago than the queue keeps them, of the
 events of old answers, of the request counts behind the rate limits (app/ratelimit.py), of the
 chats past their plan's retention (app/retention.py), and of the sessions and one-time links
-that ended a month ago (app/auth.py); and the purge of the accounts whose deletion is due,
-after setting those that a restore brought back to be purged again (app/retention.py).
+that ended a month ago (app/auth.py); and the purge of the accounts and the organisations
+whose deletion is due, after setting those that a restore brought back to be purged again
+(app/retention.py).
 `sweep-page-images` runs the first part by hand, after lowering the setting; `sweep-orphans`
 lists the second part and removes it with `--delete`.
 
@@ -81,6 +82,7 @@ from app.billing import (
     end_grace_periods,
     managed,
     prune_billing_events,
+    renews,
 )
 from app.bounces import SUPPRESSED_FOR, prune_suppressions
 from app.config import PACK_UNITS, export_env_file, get_settings
@@ -120,7 +122,9 @@ from app.retention import (
     day,
     prune_chats,
     purge_due_accounts,
+    purge_due_organizations,
     reapply_erasures,
+    reapply_organization_erasures,
     retention_held,
 )
 from app.sample import INDEX, build_sample, written
@@ -460,9 +464,11 @@ def housekeeping(storage: Storage) -> None:
     TRASH_DAYS is deleted for good in it, and its files once it has committed (app/trash.py),
     as a delete for good does them. The accounts due for purging go
     after it, each in a transaction of its own, since their files are discarded only once their
-    rows are gone for good, and so do the organisations whose payment has failed for longer than
-    the grace period, whose owners are mailed (app/billing.py), and the uploads whose members
-    were not told they were indexed (app/notices.py).
+    rows are gone for good, then the organisations whose owners asked for them to be deleted
+    (app/retention.py), after the accounts so that no member about to go is given an
+    organisation of their own, and so do the organisations whose payment has failed for longer
+    than the grace period, whose owners are mailed (app/billing.py), and the uploads whose
+    members were not told they were indexed (app/notices.py).
     """
     settings = get_settings()
     keep = timedelta(days=settings.page_image_days) if settings.page_image_days else None
@@ -494,11 +500,15 @@ def housekeeping(storage: Storage) -> None:
         emptied = purge_trash(connection)
     storage.discard(*emptied.prefixes)
     reapply_erasures(storage)
+    reapply_organization_erasures(storage)
     accounts = purge_due_accounts(storage)
+    organizations = purge_due_organizations(storage, renews=renews)
     lapsed = end_grace_periods()
     uploads = settle_uploads()
     if accounts:
         log.info("Housekeeping: deleted %s accounts whose deletion was due", accounts)
+    if organizations:
+        log.info("Housekeeping: deleted %s organisations whose deletion was due", organizations)
     if lapsed:
         log.info(
             "Housekeeping: moved %s organisations to the Free plan, their payment failed for "

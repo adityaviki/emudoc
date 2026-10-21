@@ -1,16 +1,16 @@
 // The organisation the user works in: its name and region, its settings and security settings (its audit log is
 // AuditPage.tsx), the API keys its owners and admins make for its programs, what its plan lets it keep and use (what it holds and used of it is the usage page's, UsagePage.tsx)
 // and buying one, its members, their roles and removing them, handing it over to another of them, the invitations its
-// owners and admins send and the domains whose addresses may join it, and leaving it; the user's other organisations to switch to and those open to them; and the page that starts a new
+// owners and admins send and the domains whose addresses may join it, leaving it, and its owners deleting it or keeping it; the user's other organisations to switch to and those open to them; and the page that starts a new
 // one. A switch, a join, a new organisation and leaving one start the app again in the organisation the session then
 // works in (`startAgainInOrganization` in auth.ts).
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Copy, CreditCard, History, KeyRound, LogOut, Plus, UserMinus, UserPlus } from 'lucide-react'
+import { Check, Copy, CreditCard, History, KeyRound, LogOut, Plus, Trash2, UserMinus, UserPlus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
-import { PLAN_LABELS, REGION_NAMES, ROLES, ROLE_LABELS, isPlanLimit, isWithin, organizations } from '../api.ts'
+import { DELETION_GRACE_DAYS, PLAN_LABELS, REGION_NAMES, ROLES, ROLE_LABELS, isPlanLimit, isWithin, organizations } from '../api.ts'
 import type {
   Allowance,
   ApiKey,
@@ -35,9 +35,11 @@ import { Button, Checkbox, Chip, FIELD, InputField, LinkButton, Loading, Notice,
 import { formatDate, formatSize } from '../format.ts'
 import { INVITATIONS_SECTION, JOINING_SECTION } from '../onboarding.ts'
 import {
+  DELETION_SECTION,
   chatDayChoices,
   chosenLanguage,
   deletes,
+  deletionWords,
   heldByTwoFactor,
   keptWords,
   languageChoices,
@@ -69,7 +71,7 @@ export function OrganizationPage() {
       <div className="mx-auto max-w-2xl px-6 py-10">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold tracking-tight">{me.organization.name}</h1>
-          <p className="mt-1 text-[13px] text-muted">The organisation you work in: its name and settings, how its members sign in, its API keys, its plan, its members, who may join it, and leaving it.</p>
+          <p className="mt-1 text-[13px] text-muted">The organisation you work in: its name and settings, how its members sign in, its API keys, its plan, its members, who may join it, leaving it, and deleting it.</p>
         </div>
         <div className="space-y-5">
           <NameSection me={me} />
@@ -86,6 +88,7 @@ export function OrganizationPage() {
           )}
           <OrganizationsSection me={me} />
           <LeaveSection me={me} />
+          {(me.role === 'owner' || me.organization.deletion_due_at) && <DeleteSection me={me} />}
         </div>
       </div>
     </div>
@@ -1298,6 +1301,89 @@ function LeaveSection({ me }: { me: Me }) {
       ) : (
         <Button variant="danger" onClick={() => setConfirming(true)}>
           Leave…
+        </Button>
+      )}
+    </Section>
+  )
+}
+
+/**
+ * An owner deletes the organisation, confirmed as handing it over is: it goes with everything in it once the grace
+ * period is over, and until then any owner keeps it here. Anyone else reads when, and asks an owner.
+ */
+function DeleteSection({ me }: { me: Me }) {
+  const queryClient = useQueryClient()
+  const [confirming, setConfirming] = useState(false)
+  const [confirmation, setConfirmation] = useState('')
+  const name = me.organization.name
+  const remove = useMutation({
+    mutationFn: () => organizations.delete(me.has_password ? { password: confirmation } : { email: confirmation }),
+    onSuccess: (account) => {
+      setSignedIn(queryClient, account)
+      setConfirming(false)
+      setConfirmation('')
+    },
+  })
+  const keep = useMutation({ mutationFn: organizations.keep, onSuccess: (account) => setSignedIn(queryClient, account) })
+  const due = me.organization.deletion_due_at
+  const owner = me.role === 'owner'
+
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    if (confirmation.trim()) remove.mutate()
+  }
+
+  return (
+    <Section
+      id={DELETION_SECTION}
+      title="Delete the organisation"
+      description={`Everything in it goes: its projects, documents and chats, its members' places in it, its usage and its audit log. It is deleted ${DELETION_GRACE_DAYS} days after an owner asks, every member is told by email, and until then any owner can keep it. A subscription that still renews is cancelled first, under Manage billing.`}
+    >
+      {due ? (
+        <div className="space-y-3">
+          <Notice tone="warn">{deletionWords(me.organization, me.role, formatDate(due))}</Notice>
+          {keep.isError && <Notice tone="bad">{keep.error.message}</Notice>}
+          {owner && (
+            <Button variant="primary" onClick={() => keep.mutate()} disabled={keep.isPending}>
+              Keep {name}
+            </Button>
+          )}
+        </div>
+      ) : confirming ? (
+        <form onSubmit={submit} className="max-w-sm space-y-3">
+          <Notice tone="warn">
+            Delete {name}? Its members can read and download what it holds for {DELETION_GRACE_DAYS} days, and then it is gone for good.
+          </Notice>
+          {me.has_password ? (
+            <PasswordField
+              label="Your password"
+              autoComplete="current-password"
+              required
+              value={confirmation}
+              onChange={(event) => setConfirmation(event.target.value)}
+            />
+          ) : (
+            <InputField
+              label={`Type ${me.email} to confirm`}
+              autoComplete="off"
+              required
+              value={confirmation}
+              onChange={(event) => setConfirmation(event.target.value)}
+            />
+          )}
+          {remove.isError && <Notice tone="bad">{remove.error.message}</Notice>}
+          <div className="flex gap-2">
+            <Button type="submit" variant="danger" icon={<Trash2 className="size-4" />} disabled={!confirmation.trim() || remove.isPending}>
+              Delete {name}
+            </Button>
+            <Button variant="ghost" onClick={() => setConfirming(false)}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <Button variant="danger" onClick={() => setConfirming(true)}>
+          Delete…
         </Button>
       )}
     </Section>

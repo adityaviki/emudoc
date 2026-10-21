@@ -471,6 +471,44 @@ def account_deletion_email(name: str, due: str, link: str) -> Content:
     )
 
 
+def organization_deletion_email(
+    name: str, asker: str, organization: str, due: str, link: str, owner: bool
+) -> Content:
+    """To every member of an organisation an owner asked to delete: when it goes and what with,
+    what they can do until then, and how it is kept, which an owner does on the organisation
+    page and anyone else asks an owner to. Its audit log goes with it, so this is the record."""
+    keep = (
+        "To keep it, open the organisation page before then and choose to keep it:"
+        if owner
+        else "If it should stay, ask one of its owners to keep it before then:"
+    )
+    return Content(
+        "An organisation you belong to is set to be deleted",
+        (
+            _greeting(name),
+            f"{asker} asked for {organization} to be deleted. On {due} it goes for good with "
+            "everything in it: its projects, documents, chats, usage and audit log. Your "
+            "account stays, with any other organisation you belong to.",
+            "Until then nothing can be added to its projects or changed in them, and what it "
+            "holds can still be read, asked about and downloaded: save what you need.",
+            keep,
+            Link(link, "Open the organisation page"),
+        ),
+    )
+
+
+def organization_kept_email(name: str, keeper: str, organization: str) -> Content:
+    """To every member of an organisation that was set to be deleted, once an owner kept it."""
+    return Content(
+        "An organisation you belong to is kept",
+        (
+            _greeting(name),
+            f"{keeper} chose to keep {organization}, which was set to be deleted. Nothing of it "
+            "is deleted, and its projects can be changed again.",
+        ),
+    )
+
+
 def email_change_email(name: str, link: str) -> Content:
     """To the address an account asked to move to: the link that makes it the account's."""
     return Content(

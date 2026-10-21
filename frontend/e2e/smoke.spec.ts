@@ -11,7 +11,7 @@ import { movePlan } from './operator.ts'
 // wait for it to be indexed, find it by searching, ask about it, open the passage the answer
 // cites, which the Free plan's chat follows with the way to a plan for a team, start a second
 // organisation, choose its settings, read them in its audit log and download it, hide its first
-// steps and switch back, and, on Team, invite a colleague as a
+// steps, delete it and keep it, and switch back, and, on Team, invite a colleague as a
 // viewer from under that answer, who makes an account from the invitation's link, ends her tour, finds
 // the project and is offered no change to it until made a member, then make the project
 // private, which she no longer finds until chosen for it, and share the chat, which the
@@ -178,7 +178,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(contract).toBeVisible()
   })
 
-  await test.step('start a second organisation, choose its settings, and switch back while another tab shows it', async () => {
+  await test.step('start a second organisation, choose its settings, delete it and keep it, and switch back while another tab shows it', async () => {
     // From the projects page: a menu closes when anything scrolls, as the passage still may.
     await page.getByRole('link', { name: 'Emudoc' }).click()
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
@@ -225,6 +225,18 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const [header, ...rows] = csv.trim().split(/\r?\n/)
     expect(header).toBe('occurred_at,action,user_id,user_name,user_email,ip,project_id,project_name,target_type,target_id,detail')
     expect(rows.map((row) => row.split(',')[1])).toEqual(['settings_changed', 'settings_changed'])
+    // An owner deletes it, confirmed by the password, which every page then says, until an owner keeps it.
+    await page.goto('/organization')
+    const deletion = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Delete the organisation' }) })
+    await deletion.getByRole('button', { name: 'Delete…' }).click()
+    await deletion.getByLabel('Your password').fill('a sentence to remember')
+    await deletion.getByRole('button', { name: 'Delete Lovelace Legal' }).click()
+    await expect(page.getByText(/^Lovelace Legal is set to be deleted on .+; an owner can keep it\.$/)).toHaveCount(2)
+    await page.getByRole('link', { name: 'Emudoc' }).click()
+    await expect(page.getByRole('link', { name: 'Keep it' })).toBeVisible()
+    await page.getByRole('link', { name: 'Keep it' }).click()
+    await deletion.getByRole('button', { name: 'Keep Lovelace Legal' }).click()
+    await expect(page.getByText(/is set to be deleted/)).toHaveCount(0)
     await page.goto('/')
     const other = await page.context().newPage()
     await other.goto('/')

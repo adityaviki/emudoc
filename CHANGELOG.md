@@ -11,6 +11,13 @@ its day, in the same commit.
 
 Members:
 
+- An owner deletes the organisation at the foot of its page, confirmed by the password, once its
+  subscription no longer renews. It goes 14 days later with everything in it, and every member
+  is mailed the day. Until then a banner says so on every page: nothing can be added to its
+  projects or changed in them and nobody new joins it, while what it holds can still be read,
+  asked about, downloaded and deleted, and any owner keeps it from the page or the banner, which
+  every member is mailed too. A member it was the only organisation of is given one of their
+  own.
 - On a paid plan, an organisation's owners and admins make API keys on the organisation page,
   each with a name, read or read-and-write, and 30, 90 or 365 days or until revoked. A program
   calls the API with a key as the member who made it, in the organisation's projects alone and
@@ -68,6 +75,13 @@ Members:
 
 Operators:
 
+- Deleting an organisation: the migration adds `organizations.deletion_due_at` and the audit
+  log's actions `organization_deletion_requested` and `organization_deletion_cancelled`. The
+  housekeeping round deletes a due organisation after the due accounts ("Deleted organisation
+  …"), and leaves its record under `erasures/organizations/`, which a bucket restore keeps as it
+  keeps `erasures/users/`, and which `after-restore` reads to delete again one a restore brings
+  back. One whose subscription was renewed at Stripe after the request is kept and logged at
+  ERROR every round until it is cancelled there.
 - API keys: a request with `Authorization: Bearer emk_…` acts as the key's member, needs no
   `X-Requested-With`, and is held to `RATE_API_REQUESTS` (300 a minute) per key on top of its
   member's rates; the proxy passes the header as it is. The migration reshapes the unused

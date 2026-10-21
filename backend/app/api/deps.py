@@ -37,7 +37,9 @@ Reading needs any role; changing something needs the member role or better, whic
 `Editable...` dependencies check after the object itself is found. They also hold the change
 to the organisation's plan: one that holds more than its plan allows, since the plan, its seats
 or its terms were lowered, is read-only until it is within it again (`read_only` in
-app/entitlements.py), and the change is refused with 402. Deleting is what such an
+app/entitlements.py), and the change is refused with 402. An organisation an owner set to be
+deleted is held as it stands until the day, or until an owner keeps it (`held_for_deletion` in
+app/retention.py), and the change is refused with 409. Deleting is what such an
 organisation may still do, to get within its plan, so the `Deletable...` dependencies check
 the role alone, as the `Trashed...` ones do for deleting for good from the trash; a restore
 from it adds to what the organisation holds, so its routes take `EditorDep` as well.
@@ -90,7 +92,7 @@ from app.legal import terms_due, terms_pending
 from app.logs import about
 from app.models import Chat, Document, Folder, Passage, Project, User
 from app.ratelimit import API_REQUESTS, Key, Limit, by_key, by_user, hit
-from app.retention import deletion_pending
+from app.retention import deletion_pending, held_for_deletion
 from app.security import mfa_due, mfa_pending, sign_in_again, signed_in_too_long
 from app.trash import DOCUMENT_IN_TRASH, NOT_IN_TRASH, PASSAGE_IN_TRASH
 from app.worker import Worker
@@ -281,9 +283,11 @@ AccountDep = Annotated[Account, Depends(get_secured_account)]
 
 
 def get_editor(account: AccountDep, session: SessionDep) -> Account:
-    """The account, provided its role allows changing what the organisation holds and the
-    organisation holds no more than its plan allows."""
+    """The account, provided its role allows changing what the organisation holds, the
+    organisation is not set to be deleted and it holds no more than its plan allows."""
     _refuse_viewer(account)
+    if held := held_for_deletion(account.organization, zone_of(account.user.time_zone)):
+        raise HTTPException(409, held)
     if refusal := read_only(session, account.organization):
         raise PlanRefused(refusal)
     return account

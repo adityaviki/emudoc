@@ -20,6 +20,8 @@ import { api, auth, handleForbidden, handlePlanLimit, handleSwitched, handleUnau
 import type { Me } from './api.ts'
 import { ME_KEY, MeContext, forgetUser, loginPath, openInOrganization, startAgainInOrganization, useMeQuery } from './auth.ts'
 import { describeExcess } from './billing.ts'
+import { formatDate } from './format.ts'
+import { DELETION_SECTION, deletionWords } from './organizationSettings.ts'
 import { Floating, Menu } from './components/Menu.tsx'
 import type { MenuItem } from './components/Menu.tsx'
 import { ThemeToggle } from './components/ThemeToggle.tsx'
@@ -162,6 +164,7 @@ function Shell() {
           </div>
         </div>
         <VerifyBanner me={me} />
+        <DeletionBanner me={me} />
         <PlanBanner me={me} />
       </header>
       <main className="min-h-0 flex-1">
@@ -289,6 +292,24 @@ function VerifyBanner({ me }: { me: Me }) {
  * until it is within it, with the way to its plan; it goes once a deletion or a purchase brings
  * it within.
  */
+/** Under the header while an owner set the organisation to be deleted: when, and the way to keep it. */
+function DeletionBanner({ me }: { me: Me }) {
+  const location = useLocation()
+  const words = deletionWords(me.organization, me.role, formatDate(me.organization.deletion_due_at))
+  if (!words) return null
+
+  return (
+    <div className="flex items-center justify-center gap-3 border-t border-line bg-bad/5 px-4 py-1.5 text-[13px] text-bad">
+      <span className="min-w-0">{words}</span>
+      {me.role === 'owner' && location.pathname !== '/organization' && (
+        <Link to={`/organization#${DELETION_SECTION}`} className="shrink-0 font-medium text-accent hover:underline">
+          Keep it
+        </Link>
+      )}
+    </div>
+  )
+}
+
 function PlanBanner({ me }: { me: Me }) {
   const location = useLocation()
   const past = describeExcess(me.organization)

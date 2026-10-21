@@ -30,9 +30,15 @@ themselves here, so the owner who asks is still one after. These two, handing ov
 hold the organisation until they commit and read the asker's role again under it, so that two
 owners cannot take each other's role at once. A member removed loses what leaving loses; one
 removed from their last organisation is given one of their own, as at sign-up.
+
+An owner may delete the organisation, confirmed as handing it over is, once its subscription
+no longer renews: it goes with everything in it DELETION_GRACE later, every member is told by
+mail, and until then it is held as it stands and any owner may keep it (app/retention.py).
 """
 
+from collections.abc import Callable
 from dataclasses import replace
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import delete, func, select, update
@@ -45,23 +51,33 @@ from app.accounts import (
     create_organization,
     create_workspace,
     free_organizations_owned,
+    zone_of,
 )
-from app.api.auth import confirm_account, me_out
+from app.api.auth import app_url, confirm_account, me_out
 from app.api.deps import AccountDep, CurrentAccountDep, SessionDep, UsableAccountDep, limited
 from app.audit import audit, audit_event
+from app.billing import ORGANIZATION_PAGE, renewal_refusal
 from app.config import get_settings
 from app.entitlements import entitlements_of
 from app.languages import known_languages, language_of, queue_language
+from app.mail import (
+    Content,
+    in_organization,
+    organization_deletion_email,
+    organization_kept_email,
+)
 from app.models import PLANS, ROLES, Chat, Membership, Organization, Project, User, UserSession
 from app.notices import IN_APP, forget_notifications
-from app.postbox import BY_EMAIL
+from app.postbox import BY_EMAIL, post
 from app.ratelimit import SIGN_INS
+from app.retention import DELETION_GRACE, day, organization_deletion_refusal
 from app.schemas import (
     LanguagesOut,
     MemberOut,
     MemberRoleIn,
     MeOut,
     OrganizationChangeIn,
+    OrganizationDeletionIn,
     OrganizationIn,
     OwnershipIn,
 )
@@ -98,6 +114,10 @@ REMOVE_YOURSELF = "To stop being a member of the organisation yourself, leave it
 LAST_ORGANISATION = (
     "This is the only organisation you are a member of, and an account in none can do "
     "nothing. Join or start another first, or delete your account instead."
+)
+OWNERS_DELETE = (
+    "Only an owner of the organisation can delete it, or keep it once it is set to be deleted. "
+    "Ask one of them to."
 )
 
 
@@ -349,6 +369,95 @@ def leave_organization(account: CurrentAccountDep, request: Request, session: Se
     session.commit()
     user_session = session.get(UserSession, account.session_id)
     return me_out(session, account_for_user(session, account.user, user_session))
+
+
+@router.post(
+    "/organization/deletion", response_model=MeOut, dependencies=[Depends(limited(SIGN_INS))]
+)
+def delete_organization(
+    body: OrganizationDeletionIn, account: AccountDep, request: Request, session: SessionDep
+):
+    """Set the organisation to be deleted with everything in it once the grace period is over,
+    and tell every member. The password confirms it, or the address typed out for an account
+    without one, so that a browser left signed in is not enough by itself. Asked again while
+    it is due, it changes nothing."""
+    if account.role != "owner":
+        raise HTTPException(403, OWNERS_DELETE)
+    confirm_account(session, account, request, body.password, body.email)
+    account = _owner_held(session, account)
+    organization = account.organization
+    if organization.deletion_due_at is None:
+        if refusal := organization_deletion_refusal(organization) or renewal_refusal(organization):
+            raise HTTPException(409, refusal)
+        organization.deletion_due_at = datetime.now(UTC) + DELETION_GRACE
+        audit(
+            session,
+            account,
+            request,
+            "organization_deletion_requested",
+            detail={"due_at": organization.deletion_due_at.isoformat()},
+        )
+        asker = account.user.name or account.user.email
+        link = in_organization(f"{app_url(request)}{ORGANIZATION_PAGE}", organization.id)
+        _tell_members(
+            session,
+            organization,
+            lambda user, role: organization_deletion_email(
+                user.name,
+                asker,
+                organization.name,
+                day(organization.deletion_due_at, zone_of(user.time_zone)),
+                link,
+                owner=role == "owner",
+            ),
+        )
+        session.commit()
+    return me_out(session, account)
+
+
+@router.delete("/organization/deletion", response_model=MeOut)
+def keep_organization(account: AccountDep, request: Request, session: SessionDep):
+    """Keep an organisation that was set to be deleted, and tell every member: nothing of it is
+    removed, and it can be changed again."""
+    if account.role != "owner":
+        raise HTTPException(403, OWNERS_DELETE)
+    account = _owner_held(session, account)
+    organization = account.organization
+    if organization.deletion_due_at is not None:
+        organization.deletion_due_at = None
+        audit(session, account, request, "organization_deletion_cancelled")
+        keeper = account.user.name or account.user.email
+        _tell_members(
+            session,
+            organization,
+            lambda user, role: organization_kept_email(user.name, keeper, organization.name),
+        )
+        session.commit()
+    return me_out(session, account)
+
+
+def _owner_held(session: Session, account: Account) -> Account:
+    """The account as `_held` reads it, refused unless it is an owner's, with its organisation
+    as it stands under the hold: another owner may have asked for its deletion, or kept it."""
+    account = _held(session, account)
+    if account.role != "owner":
+        raise HTTPException(403, OWNERS_DELETE)
+    session.refresh(account.organization)
+    return account
+
+
+def _tell_members(
+    session: Session, organization: Organization, content: Callable[[User, str], Content]
+) -> None:
+    """Post each member of the organisation the mail `content` writes for them and their role,
+    in the caller's session."""
+    for user, role in session.execute(
+        select(User, Membership.role)
+        .join(Membership, Membership.user_id == User.id)
+        .where(Membership.org_id == organization.id)
+        .order_by(User.id)
+    ):
+        post(session, user.email, content(user, role), org_id=organization.id)
 
 
 def leaving_refusal(session: Session, account: Account) -> str | None:

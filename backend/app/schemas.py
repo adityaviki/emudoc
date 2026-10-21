@@ -783,6 +783,9 @@ class OrganizationOut(_FromORM):
     # (app/invitations.py).
     join_domains: list[str]
     join_role: str
+    # When it is deleted with everything in it, as an owner asked, until when it is read-only
+    # and an owner may keep it (app/retention.py); None when nobody asked.
+    deletion_due_at: dt.datetime | None = None
 
 
 class MembershipOut(BaseModel):
@@ -988,6 +991,14 @@ class JoiningIn(BaseModel):
 
     domains: list[Annotated[str, Field(max_length=253)]] = Field(max_length=20)
     role: Literal["member", "viewer"] = "member"
+
+
+class OrganizationDeletionIn(BaseModel):
+    """What confirms an owner's request to delete the organisation, as a deletion of the account
+    is confirmed: by the password, or, for an account that has none, its address typed out."""
+
+    password: str | None = Field(None, max_length=PASSWORD_MAX_LENGTH)
+    email: str | None = Field(None, max_length=320)
 
 
 class OwnershipIn(BaseModel):

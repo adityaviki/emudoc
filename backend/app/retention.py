@@ -57,17 +57,31 @@ id, never its creation time as well. A database restored on its own heals within
 the worker's start; a bucket restored with it must keep ERASURES as it is (deploying.md). The
 records are kept for good, since backups may be kept for any time and the records say nothing
 of anyone.
+
+An organisation is deleted the same way, at an owner's request (app/api/organizations.py),
+confirmed as the account's is and refused while its subscription renews, since nothing would
+end it. It is due DELETION_GRACE later, every member is told by mail, and until then any owner
+may keep it. Meanwhile it is held as it stands (`held_for_deletion`): nothing is added to its
+projects or changed in them and nobody new joins it or buys it a plan, while what it holds can
+still be read, asked about, downloaded and deleted, so that its members can take what they need.
+Then the housekeeper deletes it with everything in it (`purge_due_organizations`), its audit log
+too, which is why the request's mail is its record; a member it was the only organisation of is
+given one of their own, as one removed from their last organisation is, since an account in
+none can do nothing. Its purge leaves a record under ORGANIZATION_ERASURES, read back after a
+restore like the accounts' (`reapply_organization_erasures`).
 """
 
 import json
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 
-from sqlalchemy import Connection, and_, delete, func, select, text
+from sqlalchemy import Connection, and_, delete, exists, func, select, text
 from sqlalchemy.orm import Session, aliased
 
+from app.accounts import LOCAL_ORG_SLUG, create_workspace
 from app.audit import audit_event, forget_addresses
 from app.auth import forget_sign_ups
 from app.db import SessionLocal, engine, unbounded
@@ -91,20 +105,26 @@ LOCAL_ACCOUNT = (
     "in. Reset the database to start over."
 )
 
-# Where the purge leaves its record of each account it deleted: `erasure_key` names one.
-ERASURES = "erasures/users/"
-_STAMP = "%Y%m%dT%H%M%S.%fZ"
-_ERASURE = re.compile(rf"{ERASURES}(\d+)-(\d{{8}}T\d{{6}}\.\d{{6}}Z)\.json")
-# The accounts of the records that are back in the database, and not due already, made due now.
-_BACK = text(
-    """
-    UPDATE users SET deletion_due_at = now()
-    FROM unnest(CAST(:ids AS integer[]), CAST(:created AS timestamptz[])) AS erased (id, created_at)
-    WHERE users.id = erased.id AND users.created_at = erased.created_at
-      AND (users.deletion_due_at IS NULL OR users.deletion_due_at > now())
-    RETURNING users.id
-    """
+LOCAL_ORGANISATION = (
+    "The local organisation cannot be deleted: it is what this machine works in without "
+    "signing in. Reset the database to start over."
 )
+
+# Where the purge leaves its record of each account it deleted: `erasure_key` names one; and of
+# each organisation, `organization_erasure_key`.
+ERASURES = "erasures/users/"
+ORGANIZATION_ERASURES = "erasures/organizations/"
+_STAMP = "%Y%m%dT%H%M%S.%fZ"
+_RECORD = r"(\d+)-(\d{8}T\d{6}\.\d{6}Z)\.json"
+# The accounts, or organisations, of the records that are back in the database, and not due
+# already, made due now.
+_BACK = """
+    UPDATE {table} SET deletion_due_at = now()
+    FROM unnest(CAST(:ids AS integer[]), CAST(:created AS timestamptz[])) AS erased (id, created_at)
+    WHERE {table}.id = erased.id AND {table}.created_at = erased.created_at
+      AND ({table}.deletion_due_at IS NULL OR {table}.deletion_due_at > now())
+    RETURNING {table}.id
+"""
 
 # Each plan joins as a row of `kept`, so one statement prunes every organisation: by the days
 # agreed with it when `overrides` names them (a null there keeps a chat for good), else by its
@@ -278,13 +298,16 @@ def deletion_pending(due: datetime, zone: tzinfo = UTC) -> str:
 
 def deletion_refusal(session: Session, user: User) -> str | None:
     """Why the user's account cannot be set to be deleted, or None when it can: they are the
-    only owner of an organisation whose other members would be left without one."""
+    only owner of an organisation whose other members would be left without one, unless it is
+    set to be deleted itself."""
     for membership, members, owners in _memberships(session, user.id):
         if membership.role == "owner" and members and not owners:
-            name = session.get(Organization, membership.org_id).name
+            organization = session.get(Organization, membership.org_id)
+            if organization.deletion_due_at is not None:
+                continue
             return (
-                f"You are the only owner of {name}, which has other members. Make one of them "
-                "an owner, or remove them, before deleting your account."
+                f"You are the only owner of {organization.name}, which has other members. Make "
+                "one of them an owner, or remove them, before deleting your account."
             )
     return None
 
@@ -331,35 +354,162 @@ def erasure_key(user_id: int, created_at: datetime) -> str:
     return f"{ERASURES}{user_id}-{format(created_at.astimezone(UTC), _STAMP)}.json"
 
 
+def organization_erasure_key(org_id: int, created_at: datetime) -> str:
+    """The key of the record the purge leaves of the organisation with this id and creation
+    time."""
+    return f"{ORGANIZATION_ERASURES}{org_id}-{format(created_at.astimezone(UTC), _STAMP)}.json"
+
+
 def reapply_erasures(storage: Storage, *, dry_run: bool = False) -> list[int]:
     """Set every account that was purged and is back in the database, as a restore from an
     older backup brings it, to be purged at once; returns their ids. A dry run only finds them:
     it rolls the change back."""
-    erased = [
-        (int(found[1]), datetime.strptime(found[2], _STAMP).replace(tzinfo=UTC))
-        for entry in storage.list(ERASURES)
-        if (found := _ERASURE.fullmatch(entry.key))
-    ]
-    if not erased:
-        return []
-    with engine.connect() as connection:
-        back = sorted(
-            connection.scalars(
-                _BACK,
-                {"ids": [user_id for user_id, _ in erased], "created": [at for _, at in erased]},
-            )
-        )
-        if dry_run:
-            connection.rollback()
-            return back
-        connection.commit()
-    if back:
+    back = _reapply(storage, ERASURES, "users", dry_run)
+    if back and not dry_run:
         log.warning(
             "Accounts %s were purged before and are back in the database, as a restore from a "
             "backup made before their purge brings them; they are purged again now",
             back,
         )
     return back
+
+
+def reapply_organization_erasures(storage: Storage, *, dry_run: bool = False) -> list[int]:
+    """`reapply_erasures` for the organisations deleted at their owners' request."""
+    back = _reapply(storage, ORGANIZATION_ERASURES, "organizations", dry_run)
+    if back and not dry_run:
+        log.warning(
+            "Organisations %s were deleted before and are back in the database, as a restore "
+            "from a backup made before their deletion brings them; they are deleted again now",
+            back,
+        )
+    return back
+
+
+def _reapply(storage: Storage, prefix: str, table: str, dry_run: bool) -> list[int]:
+    """Make due now the rows of `table` the records under `prefix` name, by id and creation
+    time; returns their ids."""
+    pattern = re.compile(re.escape(prefix) + _RECORD)
+    erased = [
+        (int(found[1]), datetime.strptime(found[2], _STAMP).replace(tzinfo=UTC))
+        for entry in storage.list(prefix)
+        if (found := pattern.fullmatch(entry.key))
+    ]
+    if not erased:
+        return []
+    with engine.connect() as connection:
+        back = sorted(
+            connection.scalars(
+                text(_BACK.format(table=table)),
+                {"ids": [row_id for row_id, _ in erased], "created": [at for _, at in erased]},
+            )
+        )
+        if dry_run:
+            connection.rollback()
+        else:
+            connection.commit()
+    return back
+
+
+def held_for_deletion(organization: Organization, zone: tzinfo = UTC) -> str | None:
+    """What a change to the organisation is refused with while it is set to be deleted, the day
+    in the zone of the user who asks; None when it is not."""
+    if (due := organization.deletion_due_at) is None:
+        return None
+    return (
+        f"{organization.name} is set to be deleted on {day(due, zone)}, so until then nothing "
+        "can be added to its projects or changed in them and nobody new can join it: what it "
+        "holds can still be read, asked about, downloaded and deleted. An owner can keep it on "
+        "the organisation page."
+    )
+
+
+def organization_deletion_refusal(organization: Organization) -> str | None:
+    """Why the organisation cannot be set to be deleted, or None when it can; its subscription
+    is billing's to judge (`renewal_refusal` in app/billing.py)."""
+    if organization.slug == LOCAL_ORG_SLUG:
+        return LOCAL_ORGANISATION
+    return None
+
+
+def purge_due_organizations(storage: Storage, *, renews: Callable[[Organization], bool]) -> int:
+    """Delete every organisation whose deletion is due, one transaction each, and returns how
+    many. One whose subscription `renews` again, which an owner could have chosen at Stripe
+    after asking, is left due and logged, since deleting it would leave its subscription
+    charging nobody's organisation."""
+    purged = 0
+    skipped: set[int] = set()
+    while True:
+        with SessionLocal() as session:
+            # Deleting an organisation deletes every passage of its documents with it.
+            unbounded(session)
+            organization = session.scalar(
+                select(Organization)
+                .where(Organization.deletion_due_at <= func.now(), Organization.id.not_in(skipped))
+                .order_by(Organization.deletion_due_at, Organization.id)
+                .limit(1)
+                .with_for_update(skip_locked=True)
+            )
+            if organization is None:
+                return purged
+            org_id, created_at = organization.id, organization.created_at
+            if renews(organization):
+                log.error(
+                    "Organisation %s is due to be deleted, but its subscription renews again: "
+                    "it is kept until the subscription is cancelled",
+                    org_id,
+                )
+                skipped.add(org_id)
+                continue
+            housed = purge_organization(session, organization)
+            record = {
+                "org_id": org_id,
+                "created_at": created_at.isoformat(),
+                "purged_at": datetime.now(UTC).isoformat(),
+            }
+            # Before the commit: a purge whose record cannot be kept waits for the next round.
+            storage.put(
+                organization_erasure_key(org_id, created_at),
+                json.dumps(record).encode(),
+                "application/json",
+            )
+            session.commit()
+        storage.discard(organization_prefix(org_id))
+        purged += 1
+        log.info(
+            "Deleted organisation %s as an owner asked; %s of its members were given an "
+            "organisation of their own",
+            org_id,
+            housed,
+        )
+
+
+def purge_organization(session: Session, organization: Organization) -> int:
+    """Delete the organisation, everything in it cascading from it, and give each member it was
+    the only organisation of one of their own; returns how many were given one. The caller
+    commits, then discards the organisation's prefix in the storage."""
+    other = aliased(Membership)
+    alone = session.scalars(
+        select(User)
+        .join(Membership, Membership.user_id == User.id)
+        .where(
+            Membership.org_id == organization.id,
+            ~exists().where(other.user_id == User.id, other.org_id != organization.id),
+        )
+        .order_by(User.id)
+    ).all()
+    session.execute(delete(Organization).where(Organization.id == organization.id))
+    for user in alone:
+        own = create_workspace(session, user).organization
+        # The app made it, so the row names no member as its maker.
+        audit_event(
+            session,
+            "organization_created",
+            org_id=own.id,
+            target=("user", user.id),
+            detail={"name": own.name},
+        )
+    return len(alone)
 
 
 def purge_account(session: Session, user: User) -> list[str]:

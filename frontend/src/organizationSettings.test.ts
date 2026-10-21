@@ -4,6 +4,7 @@ import {
   chatDayChoices,
   chosenLanguage,
   deletes,
+  deletionWords,
   heldByTwoFactor,
   keptWords,
   languageChoices,
@@ -114,5 +115,20 @@ describe('security', () => {
       '5 members sign in without it: Bob, Cat, Dan and 2 more. Each sets it up before working in the organisation again.',
     )
     expect(heldByTwoFactor([{ ...member('', false), email: 'zed@example.com' }])).toContain(': zed@example.com.')
+  })
+})
+
+describe('a deletion', () => {
+  const due = { ...pro, name: 'Lovelace Legal', deletion_due_at: '2026-11-04T12:00:00Z' }
+
+  it('says when, and that an owner keeps it or anyone else asks one to', () => {
+    expect(deletionWords(due, 'owner', '4 Nov 2026')).toBe(
+      'Lovelace Legal is set to be deleted on 4 Nov 2026, with everything in it. Until then nothing can be added to its projects or changed in them, and what it holds can still be read and downloaded; an owner can keep it.',
+    )
+    expect(deletionWords(due, 'viewer', '4 Nov 2026')).toMatch(/downloaded; ask an owner to keep it if it should stay\.$/)
+  })
+
+  it('says nothing of an organisation nobody asked to delete', () => {
+    expect(deletionWords({ ...due, deletion_due_at: null }, 'owner', '4 Nov 2026')).toBeNull()
   })
 })

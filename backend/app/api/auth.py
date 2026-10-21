@@ -140,6 +140,7 @@ from app.retention import (
     chosen,
     day,
     deletion_refusal,
+    held_for_deletion,
     hold_in_force,
     kept_by,
 )
@@ -430,6 +431,8 @@ def accept_invitation(
             Membership.org_id == organization.id, Membership.user_id == user.id
         )
     )
+    if role is None and (held := held_for_deletion(organization, zone_of(user.time_zone))):
+        raise HTTPException(409, held)
     # A member already, who joined by the domain since it was sent, keeps their role.
     if role is None:
         joined = add_member(session, organization, user, invitation.role, user_session)
@@ -461,6 +464,9 @@ def sign_up_invited(
     invitation = _open_invitation(session, body.token, lock=True)
     if session.scalar(select(User.id).where(User.email == invitation.email)) is not None:
         raise HTTPException(409, INVITATION_HAS_ACCOUNT)
+    organization = session.get(Organization, invitation.org_id)
+    if held := held_for_deletion(organization, zone_of(body.time_zone)):
+        raise HTTPException(409, held)
     _refuse_breached(http, body.password)
     try:
         user = create_user(
@@ -480,7 +486,6 @@ def sign_up_invited(
         raise
     auth.forget_sign_ups(session, user.email)
     user_session, token = auth.start_session(session, user, request)
-    organization = session.get(Organization, invitation.org_id)
     joined = add_member(session, organization, user, invitation.role, user_session)
     browser = auth.remember_browser(session, user, request)
     audit(session, joined, request, "sign_up", detail={"method": "password"})

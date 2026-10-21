@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.accounts import Account, add_member
+from app.accounts import Account, add_member, zone_of
 from app.api.auth import INVITATION_PAGE, mailed_link, me_out
 from app.api.deps import (
     AccountDep,
@@ -38,6 +38,7 @@ from app.mail import invitation_email
 from app.models import Invitation, Membership, User, UserSession
 from app.postbox import post
 from app.ratelimit import SIGN_INS, by_email
+from app.retention import held_for_deletion
 from app.schemas import InvitationIn, InvitationOut, JoiningIn, MeOut
 
 router = APIRouter(tags=["invitations"])
@@ -92,6 +93,8 @@ def invite(body: InvitationIn, account: AccountDep, request: Request, session: S
         raise HTTPException(
             409, f"{member.name or member.email} is a member of {organization.name} already."
         )
+    if held := held_for_deletion(organization, zone_of(account.user.time_zone)):
+        raise HTTPException(409, held)
     invitation = session.scalar(
         select(Invitation).where(Invitation.org_id == organization.id, Invitation.email == email)
     )
@@ -140,6 +143,8 @@ def resend_invitation(
     email = _invitation(session, account, invitation_id).email
     refuse_past(session, (SIGN_INS, by_email(email)))
     organization = locked(session, account.organization.id)
+    if held := held_for_deletion(organization, zone_of(account.user.time_zone)):
+        raise HTTPException(409, held)
     # Held, so that one accepted meanwhile is found gone rather than sent again.
     invitation = _invitation(session, account, invitation_id, lock=True)
     if not account.is_at_least(invitation.role):
@@ -220,6 +225,7 @@ def join_organization(
         organization is None
         or user.email_verified_at is None
         or domain not in organization.join_domains
+        or organization.deletion_due_at is not None
     ):
         raise HTTPException(404, NOT_FOUND)
     if account.session_id is None:
