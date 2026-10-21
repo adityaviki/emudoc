@@ -38,8 +38,16 @@ FROM base
 # file:// storage keeps its files in, which a named volume mounted there takes over with its
 # owner and mode: the group may list it, as the restore drill does (deploying.md, "The drill").
 # Without the base's pip, which nothing here runs (uv built the environment) and whose own
-# copies of urllib3 and msgpack would be the image's to keep patched.
+# copies of urllib3 and msgpack would be the image's to keep patched. Without emSign's ECC root
+# G3 in the system's bundle, which SSL_CERT_FILE names below for the mail relay and every other
+# connection Python's ssl makes: eight intermediates under it lost their keys (October 2026),
+# certifi 2026.10.19 dropped it and Go's x509 refuses the intermediates, while Debian's
+# ca-certificates 20250419 still trusts it. Once Debian's package leaves it out, the sed finds
+# nothing and the check still holds.
 RUN python -m pip uninstall --yes --quiet --root-user-action ignore pip \
+  && sed -i 's|^mozilla/emSign_ECC_Root_CA_-_G3\.crt$|!&|' /etc/ca-certificates.conf \
+  && update-ca-certificates --fresh > /dev/null \
+  && test ! -e /etc/ssl/certs/emSign_ECC_Root_CA_-_G3.pem \
   && groupadd --system --gid 10001 emudoc \
   && useradd --system --uid 10001 --gid emudoc --home-dir /nonexistent --no-create-home \
       --shell /usr/sbin/nologin emudoc \

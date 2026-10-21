@@ -80,6 +80,12 @@ Members:
 
 Operators:
 
+- eMudhra's compromised intermediates (October 2026): the image leaves `emSign ECC Root CA - G3`
+  out of Debian's bundle, which `SSL_CERT_FILE` names for the mail relay and every other TLS
+  connection Python makes, as certifi 2026.10.19 does for the HTTP clients; Go's fix of the same
+  (Go 1.26.10) is not yet in Caddy 2.11.7, Prometheus 3.15.0 or Alertmanager 0.34.1, and is
+  accepted until 20 November in `deploy/.trivyignore.yaml`, each with where its binary verifies
+  a chain. Pillow is 13.0.0, which closes six advisories about malformed images.
 - The operator's area at `/operator`: the organisations with their plans, usage, members and
   costs, the users, the costs across organisations, the job queue with its dead letters, and the
   models and services as the worker's watch sees them, each what a maintenance command prints. It
