@@ -2,11 +2,12 @@
 // (backend/app/api/operator.py), from which an operator also changes an organisation's plan,
 // queues failed documents again and switches a model provider off or on.
 
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { NavLink, Navigate, Route, Routes } from 'react-router'
 import { ApiError } from '../api.ts'
 import { Chip, Loading, Notice } from '../components/ui.tsx'
+import { formatDateTime } from '../format.ts'
 import { operatorApi } from './api.ts'
 import type { Operator } from './api.ts'
 import { CostsPage } from './Costs.tsx'
@@ -30,6 +31,7 @@ export function OperatorApp() {
   return (
     <div className="min-h-dvh bg-page text-ink">
       <Header operator={me.data} />
+      {me.data.viewing && <Viewing operator={me.data} />}
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
         <Routes>
           <Route path="/operator" element={<Navigate to="/operator/organizations" replace />} />
@@ -78,6 +80,32 @@ function Header({ operator }: { operator: Operator }) {
         </div>
       </div>
     </header>
+  )
+}
+
+/** The member's account the operator's session views as support: the app shows it until the view ends, here or there. */
+function Viewing({ operator }: { operator: Operator }) {
+  const queryClient = useQueryClient()
+  const end = useMutation({
+    mutationFn: operatorApi.endView,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['operator', 'me'] }),
+  })
+  const viewing = operator.viewing!
+  return (
+    <div className="border-b border-line bg-warn/5 text-[13px] text-warn">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-1.5 sm:px-6">
+        <span>
+          Your session views {viewing.name || viewing.email}'s account in {viewing.organization} as support until {formatDateTime(viewing.ends_at)}: the
+          app shows it, read only.
+        </span>
+        <a href="/" className="font-medium text-accent hover:underline">
+          Open it
+        </a>
+        <button type="button" onClick={() => end.mutate()} disabled={end.isPending} className="font-medium text-accent hover:underline">
+          End the view
+        </button>
+      </div>
+    </div>
   )
 }
 

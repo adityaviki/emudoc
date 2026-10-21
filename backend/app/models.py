@@ -93,7 +93,8 @@ NATURAL_ORDER = "natural_order"
 # keys, who was invited, joined, left or was removed, the members' roles, and a request to
 # delete it, which its owners' mail outlives, since the log goes with it), to its projects,
 # its documents and the sharing of its chats, and what the operator and the app did to it on
-# their own (a quarantine, the sample project a new account's organisation starts with). A
+# their own (a quarantine, the sample project a new account's organisation starts with), and a
+# member's leave for Emudoc's support to see their account and support's views of it. A
 # project, folder, document or chat `_deleted` went into the trash (app/trash.py), `_restored`
 # came out of it, and `_purged` was deleted for good from it by a member.
 AUDIT_ACTIONS = (
@@ -117,6 +118,10 @@ AUDIT_ACTIONS = (
     "account_deletion_requested",
     "account_deletion_cancelled",
     "account_purged",
+    "support_access_granted",
+    "support_access_revoked",
+    "support_session_started",
+    "support_session_ended",
     "role_changed",
     "plan_changed",
     "seats_changed",
@@ -573,10 +578,44 @@ class ApiKey(Base):
     expires_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class SupportGrant(Base):
+    """A member's leave for Emudoc's support to see their account in one of their organisations
+    (app/support.py), until `expires_at`. Granting it again moves the time; withdrawing it
+    deletes it, which ends a view resting on it; it goes with the membership, by the database's
+    cascade, when they leave or are removed or the organisation or the account goes. One a
+    member at most per organisation."""
+
+    __tablename__ = "support_grants"
+    __table_args__ = (
+        UniqueConstraint("org_id", "user_id"),
+        ForeignKeyConstraint(
+            ["org_id", "user_id"],
+            ["memberships.org_id", "memberships.user_id"],
+            ondelete="CASCADE",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+
+
 class UserSession(Base):
     """A signed-in browser or device. The cookie holds a random token; only its hash is stored."""
 
     __tablename__ = "sessions"
+    __table_args__ = (
+        # What withdrawing a member's leave for support clears: the few sessions viewing it.
+        Index(
+            "ix_sessions_support_grant_id",
+            "support_grant_id",
+            postgresql_where=text("support_grant_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -602,6 +641,14 @@ class UserSession(Base):
     )
     expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    # While the session's user, an operator, views a member's account as support from it
+    # (app/support.py): the member's leave the view rests on, and when the view ends whatever
+    # the leave says. The session stays the operator's: `support_ends_at` set marks the view,
+    # and a leave withdrawn, which clears the first, ends it at the next request.
+    support_grant_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("support_grants.id", ondelete="SET NULL")
+    )
+    support_ends_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Browser(Base):

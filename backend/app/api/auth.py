@@ -177,10 +177,13 @@ from app.schemas import (
     SignupFinishIn,
     SignupIn,
     SignupLinkOut,
+    SupportViewOut,
     TermsIn,
 )
 from app.security import mfa_due
 from app.storage import Storage, content_disposition
+from app.support import NOT_IN_A_VIEW, leave_of
+from app.support import end as end_view
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -193,6 +196,7 @@ FORGOT_PAGE = "/forgot-password"
 EMAIL_PAGE = "/confirm-email"
 SIGNUP_PAGE = "/finish-signup"
 INVITATION_PAGE = "/invitation"
+ACCOUNT_PAGE = "/account"
 
 SIGN_IN_FAILED = "The email or password is not right."
 LINK_INVALID = "This link has expired or was already used. Request a new one."
@@ -570,6 +574,9 @@ def logout(request: Request, response: Response, session: SessionDep):
         user_session.revoked_at = auth.now()
         if not user_session.needs_mfa:
             user = session.get(User, user_session.user_id)
+            # An operator signing out of a view by support ends the view too.
+            if user_session.support_ends_at is not None:
+                end_view(session, user_session, user, request)
             audit_sign_in(session, user, request, "sign_out", user_session=user_session)
         session.commit()
     auth.clear_session_cookie(response)
@@ -893,7 +900,10 @@ def keep_account(account: AnyAccountDep, request: Request, session: SessionDep):
 def export_account(
     account: AnyAccountDep, request: Request, session: SessionDep, response: Response
 ):
-    """Everything kept about the user as a person, as a file to save (app/export.py)."""
+    """Everything kept about the user as a person, as a file to save (app/export.py); never to
+    support, since it holds every organisation of theirs."""
+    if account.operator_id is not None:
+        raise HTTPException(403, NOT_IN_A_VIEW)
     export = account_export(session, account.user)
     audit(session, account, request, "account_exported")
     session.commit()
@@ -1140,8 +1150,12 @@ def _safe_path(path: str) -> str:
 
 
 def me_out(session: Session, account: Account) -> MeOut:
-    """The account as the page shows it, with every organisation its user may switch to."""
+    """The account as the page shows it, with every organisation its user may switch to; in a
+    view by support, the organisation the view is of alone."""
     user = account.user
+    viewing = account.operator_id is not None
+    leave = leave_of(session, account.organization.id, user.id)
+    view = session.get(UserSession, account.session_id) if viewing else None
     return MeOut(
         id=user.id,
         email=user.email,
@@ -1157,8 +1171,11 @@ def me_out(session: Session, account: Account) -> MeOut:
         organizations=[
             MembershipOut(id=organization.id, name=organization.name, role=role)
             for organization, role in organizations_of(session, user)
+            if not viewing or organization.id == account.organization.id
         ],
-        joinable=[
+        joinable=[]
+        if viewing
+        else [
             JoinableOut(id=organization.id, name=organization.name, role=organization.join_role)
             for organization in joinable(session, user)
         ],
@@ -1170,6 +1187,8 @@ def me_out(session: Session, account: Account) -> MeOut:
         checklist_hidden=user.checklist_hidden_at is not None,
         tour_seen=user.tour_seen_at is not None,
         invite_hidden=user.invite_hidden_at is not None,
+        support_until=leave.expires_at if leave is not None else None,
+        support_view=SupportViewOut(ends_at=view.support_ends_at) if view else None,
     )
 
 

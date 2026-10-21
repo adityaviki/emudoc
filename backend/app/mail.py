@@ -510,6 +510,22 @@ def organization_kept_email(name: str, keeper: str, organization: str) -> Conten
     )
 
 
+def support_view_email(name: str, organization: str, ends: str, until: str, link: str) -> Content:
+    """To a member whose account Emudoc's support opened with their leave: in which
+    organisation, until when, and how to take the leave back, which also ends the view."""
+    return Content(
+        "Emudoc's support opened your account",
+        (
+            _greeting(name),
+            f"Emudoc's support opened your account in {organization}, as you let it, and sees "
+            f"it as you do until {ends}, without changing anything.",
+            f"Your leave for support lasts until {until}. If you did not expect this, or no "
+            "longer need help, withdraw it on your account page, which ends the view at once:",
+            Link(link, "Open your account page"),
+        ),
+    )
+
+
 def email_change_email(name: str, link: str) -> Content:
     """To the address an account asked to move to: the link that makes it the account's."""
     return Content(

@@ -716,6 +716,10 @@ export interface Me {
   checklist_hidden: boolean
   tour_seen: boolean
   invite_hidden: boolean
+  /** Until when the user lets Emudoc's support see their account in this organisation (backend/app/support.py), null while they do not. */
+  support_until: string | null
+  /** Set while one of Emudoc's operators views the account as support rather than the user signed in: read only, this organisation alone, until `ends_at`. */
+  support_view: { ends_at: string } | null
 }
 
 /** The first steps the projects page lists (backend/app/onboarding.py), in its order. */
@@ -786,6 +790,10 @@ export type AuditAction =
   | 'account_deletion_requested'
   | 'account_deletion_cancelled'
   | 'account_purged'
+  | 'support_access_granted'
+  | 'support_access_revoked'
+  | 'support_session_started'
+  | 'support_session_ended'
   | 'role_changed'
   | 'plan_changed'
   | 'seats_changed'
@@ -1093,6 +1101,12 @@ export const auth = {
   /** Hide the list of first steps or show it again, or say the tour was seen; a field left out stays as it is. */
   chooseOnboarding: (body: { checklist_hidden?: boolean; tour_seen?: boolean; invite_hidden?: boolean }) =>
     request<Me>('/auth/onboarding', json('PATCH', body)),
+  /** Let Emudoc's support see the account in the organisation it works in for `days` from now, in place of a leave given before. */
+  letSupportIn: (days: number) => request<Me>('/auth/support-access', json('PUT', { days })),
+  /** Withdraw that leave, which also ends a view of the account by support. */
+  keepSupportOut: () => request<Me>('/auth/support-access', { method: 'DELETE' }),
+  /** Ends the view of a member's account the operator's session holds (backend/app/api/operator.py), from the banner the view shows. */
+  endSupportView: () => request<void>('/operator/support', { method: 'DELETE' }),
   /**
    * Stops the email of the kind of notice a notice's link was made for, to its user, signed in
    * or not: the token in the link says whose and which. Mirrors `unsubscribe` in

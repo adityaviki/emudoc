@@ -39,6 +39,11 @@ provider use them, to train AI models.
 
 The documents in an organisation's projects belong to the organisation, and its members can
 see them. A chat is private to the member who started it until they share it with the project.
+Nobody who runs the service looks at your account, or at what you see in an organisation, unless
+you let us: on your account page you may let our support see your account in the organisation
+you work in, as you see it and without changing anything, for a day or a week, and withdraw that
+whenever you like. We email you each time support opens it, and the organisation's audit log
+records it.
 
 You must have the right to upload what you upload, the personal data of other people in it
 included.

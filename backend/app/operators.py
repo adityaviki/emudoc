@@ -21,6 +21,8 @@ told why they are refused, since the address and the session already show who th
 
 What the area shows is what the commands print: names, settings and figures, a member's name
 and address where support needs them, never what a document, a question or an answer says.
+What a member sees is shown only when they let support see their account, from the operator's
+own session, read only (app/support.py), which these same rules hold.
 Reading changes nothing, so it writes nothing to an organisation's audit log; the access log
 names the operator by id with every path they read.
 """
@@ -36,7 +38,7 @@ from sqlalchemy.orm import Session
 from app.apikeys import bearer
 from app.auth import SESSION_COOKIE, find_session, touch_session
 from app.config import get_settings
-from app.models import Operator, User
+from app.models import Operator, User, UserSession
 
 log = logging.getLogger(__name__)
 
@@ -59,9 +61,9 @@ def from_operator_network(request: Request) -> bool:
     return any(address in network for network in get_settings().operator_nets)
 
 
-def operator_of(session: Session, request: Request) -> User | None:
-    """The operator the request is from, provided it comes from an operator's network with a
-    session; None for anyone else, who is shown nothing of the area."""
+def operator_session(session: Session, request: Request) -> UserSession | None:
+    """The session the request came with, provided it is an operator's from an operator's
+    network; None for anyone else, who is shown nothing of the area."""
     if not from_operator_network(request) or bearer(request) is not None:
         return None
     token = request.cookies.get(SESSION_COOKIE)
@@ -69,7 +71,15 @@ def operator_of(session: Session, request: Request) -> User | None:
     # A session that still waits for the authenticator code grants nothing yet.
     if user_session is None or user_session.needs_mfa:
         return None
-    if session.get(Operator, user_session.user_id) is None:
+    if not is_operator(session, user_session.user_id):
+        return None
+    return user_session
+
+
+def operator_of(session: Session, request: Request) -> User | None:
+    """The operator the request is from, as `operator_session` lets one in."""
+    user_session = operator_session(session, request)
+    if user_session is None:
         return None
     touch_session(session, user_session)
     return session.get(User, user_session.user_id)

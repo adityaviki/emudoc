@@ -7,6 +7,8 @@ Three of them act, as the commands do: a plan, its seats and its agreed figures 
 (`change_plan`, whose audit rows name the operator by id in the organisation's own log), failed
 documents queued again (`requeue`, likewise), and a model provider switched off or on again
 without a restart (app/switches.py), which belongs to no organisation and is logged instead.
+One has no command: viewing a member's account as support, with the member's leave
+(app/support.py), from the operator's own session, which the app then shows as the member's.
 
 Every route sits behind `get_operator`, which answers anyone but an operator as if the route
 were not there (404, as for a path no route takes); `everything_else` does the same for a path
@@ -25,7 +27,8 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import Select, and_, exists, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.api.auth import organization_out
+from app.accounts import zone_of
+from app.api.auth import ACCOUNT_PAGE, app_url, organization_out
 from app.api.deps import ServicesDep, SessionDep, refuse_cross_site
 from app.api.organizations import locked
 from app.api.usage import usage_page
@@ -35,6 +38,7 @@ from app.deadletters import NamedJob, named_jobs, requeue
 from app.entitlements import BY_THE_SEAT, FIELDS, PLANS, agreed_with, entitlements_of
 from app.jobs import HISTORY, JOB_STATES, QUEUE_BY_STATE
 from app.logs import about
+from app.mail import support_view_email
 from app.maintenance import entitlement_words, figure_of
 from app.models import (
     JOB_KINDS,
@@ -42,11 +46,14 @@ from app.models import (
     Membership,
     Operator,
     Organization,
+    SupportGrant,
     User,
     UserSession,
     WatchAlert,
 )
-from app.operators import TWO_FACTOR_FIRST, operator_of, two_factor_due
+from app.notices import moment_words
+from app.operators import TWO_FACTOR_FIRST, operator_of, operator_session, two_factor_due
+from app.postbox import post
 from app.postgres import server
 from app.schemas import (
     ConcernOut,
@@ -71,12 +78,16 @@ from app.schemas import (
     OperatorUserMembershipOut,
     OperatorUserOut,
     OperatorUsersOut,
+    OperatorViewOut,
     OrganizationCostOut,
     ProviderSwitchIn,
     QueueOut,
     RequeueIn,
     RequeueOut,
 )
+from app.support import NO_LEAVE, leave_of, viewed
+from app.support import end as end_support
+from app.support import start as start_view
 from app.switches import switch_off, switch_on, switched_off, switches
 from app.usage import OrganizationCost, model_costs, organization_costs, summed
 from app.version import VERSION
@@ -136,8 +147,9 @@ router = APIRouter(
 
 
 @router.get("/me", response_model=OperatorOut)
-def who(operator: OperatorDep):
-    """Who opened the area, for its header, and which deployment it is."""
+def who(operator: OperatorDep, request: Request, session: SessionDep):
+    """Who opened the area, for its header, which deployment it is, and the member's account
+    their session views as support, if one."""
     settings = get_settings()
     return OperatorOut(
         user_id=operator.id,
@@ -146,6 +158,7 @@ def who(operator: OperatorDep):
         environment=settings.environment,
         version=VERSION,
         currency=settings.price_currency,
+        viewing=_viewing(session, request),
     )
 
 
@@ -232,6 +245,13 @@ def show_organization(org_id: int, session: SessionDep):
         .where(Membership.org_id == org_id)
         .order_by(Membership.created_at, User.id)
     ).all()
+    leaves = dict(
+        session.execute(
+            select(SupportGrant.user_id, SupportGrant.expires_at).where(
+                SupportGrant.org_id == org_id, SupportGrant.expires_at > func.now()
+            )
+        ).all()
+    )
     return OperatorOrganizationOut(
         organization=organization_out(session, organization),
         usage=usage_page(session, organization),
@@ -261,6 +281,7 @@ def show_organization(org_id: int, session: SessionDep):
                 role=membership.role,
                 mfa_enabled=user.mfa_enabled,
                 joined_at=membership.created_at,
+                support_until=leaves.get(user.id),
             )
             for membership, user in members
         ],
@@ -317,6 +338,66 @@ def _agreed(organization: Organization, written: dict[str, str]) -> dict[str, ob
         else figure_of(name, words)
         for name, words in written.items()
     }
+
+
+@router.post("/organizations/{org_id}/members/{user_id}/support", response_model=OperatorViewOut)
+def view_as_member(
+    org_id: int, user_id: int, operator: OperatorDep, request: Request, session: SessionDep
+):
+    """Open the member's account in the organisation as support, read only, from the
+    operator's own session, while the member lets support see it (app/support.py): a row of
+    the organisation's audit log, and the member mailed at once. The page then opens the app,
+    which shows their account until the view ends."""
+    leave = leave_of(session, org_id, user_id)
+    if leave is None:
+        raise HTTPException(409, NO_LEAVE)
+    about(org_id=org_id)
+    user_session = operator_session(session, request)
+    member = session.get(User, user_id)
+    zone = zone_of(member.time_zone)
+    ends_at = start_view(session, user_session, leave, operator, request)
+    post(
+        session,
+        member.email,
+        support_view_email(
+            member.name,
+            session.get(Organization, org_id).name,
+            moment_words(ends_at, zone),
+            moment_words(leave.expires_at, zone),
+            f"{app_url(request)}{ACCOUNT_PAGE}",
+        ),
+        org_id,
+    )
+    session.commit()
+    return _viewing(session, request)
+
+
+@router.delete("/support", status_code=204)
+def end_view(operator: OperatorDep, request: Request, session: SessionDep):
+    """End the view of a member's account the operator's session holds, if one: their session
+    is their own again."""
+    user_session = operator_session(session, request)
+    if user_session.support_ends_at is not None:
+        end_support(session, user_session, operator, request)
+        session.commit()
+
+
+def _viewing(session: Session, request: Request) -> OperatorViewOut | None:
+    """The member's account the operator's session views, while it may: one that may no
+    longer go on ends at the app's next request, and is shown as none here meanwhile."""
+    user_session = operator_session(session, request)
+    operator = session.get(User, user_session.user_id)
+    account = viewed(session, request, user_session, operator)
+    if account is None:
+        return None
+    return OperatorViewOut(
+        org_id=account.organization.id,
+        organization=account.organization.name,
+        user_id=account.user.id,
+        name=account.user.name,
+        email=account.user.email,
+        ends_at=user_session.support_ends_at,
+    )
 
 
 @router.get("/users", response_model=OperatorUsersOut)

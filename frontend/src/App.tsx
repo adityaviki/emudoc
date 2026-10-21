@@ -37,6 +37,7 @@ import { SubprocessorsPage } from './pages/SubprocessorsPage.tsx'
 import { Workspace } from './pages/Workspace.tsx'
 import { linkedOrganization } from './notifications.ts'
 import { describeServices } from './status.ts'
+import { viewWords } from './support.ts'
 
 /**
  * Asks who is signed in before showing anything. The sign-in pages render on their own; every
@@ -163,6 +164,7 @@ function Shell() {
             <UserMenu />
           </div>
         </div>
+        <SupportBanner me={me} />
         <VerifyBanner me={me} />
         <DeletionBanner me={me} />
         <PlanBanner me={me} />
@@ -249,6 +251,29 @@ function ProjectSwitcher() {
         </Floating>
       )}
     </>
+  )
+}
+
+/**
+ * Says on every page that Emudoc's support views a member's account rather than its member, read only, and ends the view,
+ * back to the operator's area: the page there, whatever the end answered, finds the session the operator's own again.
+ */
+function SupportBanner({ me }: { me: Me }) {
+  const words = viewWords(me)
+  if (!words) return null
+  const end = () =>
+    void auth
+      .endSupportView()
+      .catch(() => undefined)
+      .then(() => window.location.assign('/operator'))
+
+  return (
+    <div className="flex items-center justify-center gap-3 border-t border-line bg-warn/5 px-4 py-1.5 text-[13px] text-warn">
+      <span className="min-w-0">{words}</span>
+      <button type="button" onClick={end} className="shrink-0 font-medium text-accent hover:underline">
+        End the view
+      </button>
+    </div>
   )
 }
 

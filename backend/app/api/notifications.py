@@ -7,7 +7,8 @@ is the user's across their organisations, and a tab left in one by a switch in a
 every minute, which must not start that tab again as a change it made would. A notice is found
 by its user alone, so another's id among those to mark read marks nothing. The notices of an
 organisation that requires two-factor sign-in are left out until the user signs in with it,
-since they name what its projects hold (app/security.py).
+since they name what its projects hold (app/security.py), and in a view by Emudoc's support
+(app/support.py), every organisation's but the one viewed.
 """
 
 from fastapi import APIRouter, Query
@@ -83,8 +84,11 @@ def mark_read(body: NotificationsReadIn, account: UsableAccountDep, session: Ses
 
 def _shown(account: Account) -> list[ColumnElement[bool]]:
     """The conditions that pick the user's notices, without those of the organisations that
-    hold them until they sign in with two-factor."""
+    hold them until they sign in with two-factor, and in a view by support, of the organisation
+    viewed alone."""
     conditions = [Notification.user_id == account.user.id]
     if account.session_id is not None and not account.user.mfa_enabled:
         conditions.append(Organization.mfa_required.is_(False))
+    if account.operator_id is not None:
+        conditions.append(Notification.org_id == account.organization.id)
     return conditions

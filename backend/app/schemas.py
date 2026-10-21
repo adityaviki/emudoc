@@ -525,6 +525,20 @@ class OnboardingIn(BaseModel):
     invite_hidden: bool | None = None
 
 
+class SupportAccessIn(BaseModel):
+    """How many days from now the member lets Emudoc's support see their account in the
+    organisation they work in (app/support.py), a week at most, SUPPORT_DAYS."""
+
+    days: int = Field(ge=1, le=7)
+
+
+class SupportViewOut(BaseModel):
+    """The view of a member's account an operator holds as support, which the page says on
+    every page while it lasts."""
+
+    ends_at: dt.datetime
+
+
 class OnboardingStepOut(BaseModel):
     """One of the organisation's first steps, and whether it is taken."""
 
@@ -847,6 +861,12 @@ class MeOut(BaseModel):
     checklist_hidden: bool
     tour_seen: bool
     invite_hidden: bool
+    # Until when the user lets Emudoc's support see their account in this organisation, None
+    # while they do not (app/support.py).
+    support_until: dt.datetime | None
+    # Set while an operator views the account as support rather than the user signed in: read
+    # only, the organisation alone.
+    support_view: SupportViewOut | None
 
 
 class OrganizationIn(BaseModel):
@@ -1232,6 +1252,8 @@ class ExportedMembership(BaseModel):
     joined_at: dt.datetime
     # The organisation's private projects the user was chosen to see, by name.
     private_projects: list[str]
+    # Until when the user lets Emudoc's support see their account there, if they do.
+    support_until: dt.datetime | None
 
 
 class ExportedSession(BaseModel):
@@ -1451,8 +1473,20 @@ class ProjectExportFile(BaseModel):
 # them; a figure of a plan is worded as the `plan` command prints it, which is how `--set` takes it.
 
 
+class OperatorViewOut(BaseModel):
+    """The member's account the operator's session views as support (app/support.py)."""
+
+    org_id: int
+    organization: str
+    user_id: int
+    name: str
+    email: str
+    ends_at: dt.datetime
+
+
 class OperatorOut(BaseModel):
-    """Who opened the area, and the deployment it is about."""
+    """Who opened the area, the deployment it is about, and the member's account their session
+    views as support, if one."""
 
     user_id: int
     name: str
@@ -1460,6 +1494,7 @@ class OperatorOut(BaseModel):
     environment: str
     version: str
     currency: str
+    viewing: OperatorViewOut | None
 
 
 class OperatorOrganizationRow(BaseModel):
@@ -1500,6 +1535,8 @@ class OperatorMemberOut(BaseModel):
     role: str
     mfa_enabled: bool
     joined_at: dt.datetime
+    # Until when the member lets support see their account here, None while they do not.
+    support_until: dt.datetime | None
 
 
 class CostOut(BaseModel):

@@ -32,6 +32,7 @@ from app.api import (
     organizations,
     projects,
     query,
+    support,
     trash,
     usage,
 )
@@ -481,6 +482,7 @@ def create_app(
         billing.router,
         notifications.router,
         onboarding.router,
+        support.router,
     ):
         app.include_router(router, prefix="/api", dependencies=[Depends(refuse_cross_site)])
     # The routes an API key reaches (`_key_account` in app/api/deps.py), by their functions,

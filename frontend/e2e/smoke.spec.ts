@@ -19,7 +19,8 @@ import { makeOperator, movePlan } from './operator.ts'
 // colleague then reads but does not ask in, and last ask the question that uses the month's
 // questions, which the bell tells, and open that notice from the other organisation; then, made
 // an operator, read the organisation in the operator's area, which nobody else is sent, raise its
-// agreed questions there, and switch the model's provider off and on again. The answer
+// agreed questions there, view the colleague's account, which she let support see, and switch the
+// model's provider off and on again. The answer
 // is the stand-in's (e2e/standin.py): the first sentence of the passage its search found best,
 // with that passage's reference.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
@@ -411,6 +412,14 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(grace.getByText('Ada Lovelace shared this chat with the project.', { exact: false })).toBeVisible()
     await expect(grace.getByPlaceholder('Ask a question about these documents')).toHaveCount(0)
     await expect(grace.getByRole('button', { name: 'Share', exact: true })).toHaveCount(0)
+
+    // She asks for help, and lets Emudoc's support see her account here for a day.
+    await grace.goto('/account')
+    const support = grace.locator('section').filter({ has: grace.getByRole('heading', { name: "Emudoc's support" }) })
+    await expect(support).toContainText("Emudoc's support cannot see your account in Ada Lovelace's workspace.")
+    await support.getByRole('button', { name: 'Let support in for a day' }).click()
+    await expect(support).toContainText("Emudoc's support may see your account in Ada Lovelace's workspace until")
+    await expect(support.getByRole('button', { name: 'Withdraw' })).toBeVisible()
     await theirs.close()
   })
 
@@ -462,6 +471,13 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await plan.getByRole('button', { name: 'Save' }).click()
     await expect(questions).toContainText('10')
     await expect(questions).toContainText('agreed')
+
+    // Grace let support in: her account, as she sees it, read only, until the view ends.
+    await members.getByRole('button', { name: 'View as Grace Hopper' }).click()
+    await expect(page.getByText(/^You are viewing Grace Hopper's account in Ada Lovelace's workspace as Emudoc's support, read only/)).toBeVisible()
+    await expect(page.getByText('Supplier contracts')).toBeVisible()
+    await page.getByRole('button', { name: 'End the view' }).click()
+    await expect(page.getByRole('heading', { name: 'Organisations', exact: true })).toBeVisible()
 
     await page.getByRole('navigation', { name: 'Views' }).getByRole('link', { name: 'Jobs' }).click()
     await expect(page.getByRole('heading', { name: 'Jobs', exact: true })).toBeVisible()

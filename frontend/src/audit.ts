@@ -4,7 +4,7 @@
 
 import { PLAN_LABELS, ROLE_LABELS } from './api.ts'
 import type { AuditAction, AuditEvent, AuditFilter, NoticeKind, Plan, Role } from './api.ts'
-import { formatDate } from './format.ts'
+import { formatDate, formatDateTime } from './format.ts'
 import { NOTICE_KINDS } from './notifications.ts'
 import { keptWords, languageName, signInWords } from './organizationSettings.ts'
 
@@ -43,6 +43,10 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   account_deletion_requested: ['Asked to delete their account', 'account'],
   account_deletion_cancelled: ['Kept their account', 'account'],
   account_purged: ['Account deleted', 'account'],
+  support_access_granted: ['Let support see their account', 'account'],
+  support_access_revoked: ["Withdrew support's access", 'account'],
+  support_session_started: ['Support opened an account', 'sign_ins'],
+  support_session_ended: ['Support closed an account', 'sign_ins'],
   role_changed: ['Changed a role', 'members'],
   ownership_transferred: ['Handed over the organisation', 'members'],
   invitation_sent: ['Sent an invitation', 'members'],
@@ -160,11 +164,16 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   if (detail.reason === 'password' || detail.reason === 'code') parts.push(`wrong ${detail.reason}`)
   if (detail.scope === 'read' || detail.scope === 'write') parts.push(detail.scope === 'write' ? 'reads and writes' : 'reads only')
   if (event.action === 'api_key_created') parts.push(typeof detail.days === 'number' ? `for ${detail.days} days` : 'until revoked')
+  // A member's leave for support, and a view of their account, until when.
+  if (event.action === 'support_access_granted' && typeof detail.until === 'string') parts.push(`until ${formatDateTime(detail.until)}`)
+  if (event.action === 'support_session_started' && typeof detail.ends_at === 'string') parts.push(`until ${formatDateTime(detail.ends_at)}`)
   // What a member did through an API key is theirs, with the key named as it was.
   const key = detail.api_key
   if (key && typeof key === 'object' && 'name' in key) parts.push(`with the API key ${key.name}`)
   // What one of the deployment's operators did from the operator's area, by the id the deployment's records keep.
   if (typeof detail.operator === 'number') parts.push("by Emudoc's operators")
+  // What was done while Emudoc's support viewed the member's account with their leave.
+  if (typeof detail.support === 'number') parts.push("by Emudoc's support, viewing their account")
   return parts.join(' · ')
 }
 

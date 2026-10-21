@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { auditExportUrl, auditQuery } from './api.ts'
 import type { AuditAction, AuditEvent } from './api.ts'
 import { ACTIONS, KINDS, NO_CHOICES, actionsOf, describeDetail, filterOf, whoDid } from './audit.ts'
-import { formatDate } from './format.ts'
+import { formatDate, formatDateTime } from './format.ts'
 import type { AuditKind } from './audit.ts'
 
 const event = (action: AuditAction, detail: AuditEvent['detail'] = {}, fields: Partial<AuditEvent> = {}): AuditEvent => ({
@@ -87,6 +87,14 @@ describe('a row', () => {
     expect(describeDetail(event('plan_changed', { from: 'free', to: 'team' }))).toBe('Free → Team')
     expect(describeDetail(event('plan_changed', { from: 'free', to: 'team', operator: 7 }))).toBe("Free → Team · by Emudoc's operators")
     expect(describeDetail(event('document_requeued', { filename: 'msa.pdf', stage: 'parse', operator: 7 }))).toBe("msa.pdf · by Emudoc's operators")
+    // A member's leave for support, support's view of their account, and what was done in it.
+    const until = '2026-10-28T09:30:00+00:00'
+    expect(describeDetail(event('support_access_granted', { days: 7, until }))).toBe(`until ${formatDateTime(until)}`)
+    const view = event('support_session_started', { operator: 3, ends_at: until }, { user_id: null, target_type: 'user', target_id: 9 })
+    expect(describeDetail(view, bob)).toBe(`Bob · until ${formatDateTime(until)} · by Emudoc's operators`)
+    expect(describeDetail(event('document_downloaded', { filename: 'msa.pdf', support: 3 }))).toBe(
+      "msa.pdf · by Emudoc's support, viewing their account",
+    )
     expect(describeDetail(event('sign_in', { method: 'google' }))).toBe('through Google')
     expect(describeDetail(event('sign_in', { second_factor: 'recovery_code' }))).toBe('with a recovery code')
     expect(describeDetail(event('sign_in_failed', { reason: 'code' }))).toBe('wrong code')

@@ -2083,8 +2083,9 @@ shown here on four lines. `time` is UTC, and the ids say what the line was logge
 far as that was known when it was written; an id not known is left out:
 
 - **A request's** `request_id` and `trace_id`, and once the session was read its `user_id` and
-  `org_id` (and `api_key_id` for a request made with an API key, which acts as that user), and
-  once the project was found in that organisation its `project_id` (and a
+  `org_id` (and `api_key_id` for a request made with an API key, which acts as that user, or
+  `operator_id` for an operator's view of that user's account as support, "The operator's
+  area"), and once the project was found in that organisation its `project_id` (and a
   document's `document_id`, a question's or a followed answer's `message_id`). The id is the
   proxy's `X-Request-ID` when it sends a well-formed one (letters, digits and `-_.:`, 8 to 128
   of them), which both examples above do, so the proxy's access log and the app's lines name
@@ -3090,6 +3091,27 @@ It changes three things, as the commands do:
   switched the model provider google off`. `maintenance models` asks every model whatever the
   page says, which is how to try a provider before switching it on.
 
+And it opens a member's account as support, which no command does:
+
+- **A member's account, as they see it.** A member lets Emudoc's support see their account in
+  the organisation they work in, for a day or a week, under "Emudoc's support" on their account
+  page, and withdraws it there whenever they like; each is a row of that organisation's audit
+  log. While the leave stands, the organisation's Members table offers "View as <member>",
+  which turns the operator's own session (never the member's) into a view of the member's
+  account in that organisation, and opens the app as they see it: their projects, chats,
+  documents and account page, the organisation alone, under a banner that says so. It changes
+  nothing: every request but a read is refused, the account's export too, since it holds every
+  organisation of theirs. A download is the member's row of the log with the operator's id in
+  `detail.support`; the view's start, with whom and until when, and its end by the operator are
+  rows of the organisation's log ("by Emudoc's operators"), and the member is mailed at once
+  that support opened their account, with the way to withdraw the leave. Every line the view
+  logs carries `operator_id` beside the member's `user_id` ("Logs"). A view lasts an hour at
+  most; it ends sooner when the operator ends it (the banner's "End the view", or the area's
+  header) or signs out, and at the first request after the member withdraws the leave, the leave
+  runs out, the member leaves the organisation, or the request would no longer be let into the
+  area (another address, no longer an operator, two-factor off in production), which starts
+  the page again as the operator's own. "View as" again opens a new view, and mails again.
+
 An operator is an account the `operators` command made one, by its id, whatever organisations it
 is a member of; nobody becomes one from a page, and an address that changes hands grants
 nothing:
@@ -3128,7 +3150,8 @@ The page is a bundle of its own, `frontend/operator.html` built by `pnpm build` 
 members' page, sent to an operator alone; nothing of it reaches a member's browser, and its
 scripts have a budget apart (`frontend/scripts/size.ts`). Each request the area answers is an
 access line with the operator's `user_id` ("Logs"); reading writes nothing into an
-organisation's audit log, since nothing in the organisation changes.
+organisation's audit log, since nothing in the organisation changes. A view of a member's account
+is the members' page, under the member's `user_id` with the operator's `operator_id`.
 
 ## Runbooks
 

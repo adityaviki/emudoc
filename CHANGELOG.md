@@ -11,6 +11,12 @@ its day, in the same commit.
 
 Members:
 
+- A member who asks Emudoc's support for help lets it see their account in the organisation they
+  work in, for a day or a week, under "Emudoc's support" on the account page, and withdraws that
+  whenever they like. Support then sees what the member sees there, read only, an hour at a
+  time; the member is mailed each time it opens their account, and the organisation's audit log
+  records the leave, its withdrawal and each view. The terms of service and the privacy policy
+  say so; nobody needs to accept them again.
 - The audit log says when Emudoc's operators changed the organisation's plan, seats or agreed
   figures, or queued a failed document again: "by Emudoc's operators".
 - A member exports a whole project from its card on the projects page: one ZIP file with every
@@ -82,6 +88,12 @@ Members:
 
 Operators:
 
+- In the operator's area, an organisation's Members table offers "View as <member>" for each
+  member who lets support see their account: the operator's own session then shows the app as
+  that member sees it in that organisation, read only, under a banner, until the operator ends it
+  or an hour passes, the member withdraws the leave or the session leaves the operators'
+  networks. Every log line of a view carries `operator_id`; migration f6d05e27c762 adds
+  `support_grants` and two columns of `sessions`.
 - eMudhra's compromised intermediates (October 2026): the image leaves `emSign ECC Root CA - G3`
   out of Debian's bundle, which `SSL_CERT_FILE` names for the mail relay and every other TLS
   connection Python makes, as certifi 2026.10.19 does for the HTTP clients; Go's fix of the same

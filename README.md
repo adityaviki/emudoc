@@ -189,7 +189,11 @@ else the area is not there. From there an operator also moves an organisation to
 with its seats and agreed figures, as the `plan` command does, queues failed documents again
 from the stage each stopped at, and switches a model provider off or on again without a
 restart; a plan's change and a document queued again are rows of the organisation's audit
-log, by Emudoc's operators. A
+log, by Emudoc's operators. And when a member asks for help, the member lets Emudoc's support see
+their account in the organisation they work in for a day or a week from their account page
+(`backend/app/support.py`), and the operator opens it from the organisation's members, as the
+member sees it and read only, an hour at a time, under a banner saying so: the member is mailed,
+and the leave, its withdrawal and each view are rows of the organisation's audit log. A
 paying plan's jobs also count for less in the claim's share of the workers, so its backlog
 is indexed sooner next to a free organisation's.
 
@@ -730,7 +734,10 @@ so it shows no cookie banner. The chat pane says that answers are written by an 
 can be wrong, and a link in an answer shows its address without leading anywhere, since a
 document can steer what the model writes.
 
-The account page also downloads "your data": one JSON file with everything kept about the user
+The account page also lets Emudoc's support see the account in the organisation it works in, for
+a day or a week, as the member sees it and without changing anything, and withdraws that leave,
+which ends a view at once; the member is mailed each time support opens it (`backend/app/support.py`,
+`PUT|DELETE /api/auth/support-access`). It downloads "your data": one JSON file with everything kept about the user
 as a person (the account, how it signs in, its organisations, the sessions of the last month,
 the chats it started with every message, the usage counted to it, and the audit log's rows that
 name it), without the password
@@ -845,9 +852,10 @@ Each organisation keeps an audit log (`backend/app/audit.py`): its members' sign
 failed ones for their accounts), profile, address, password, two-factor and session changes,
 exports and deletion requests, every upload, download and deletion of a document, folder or
 project and its restore from the trash or deletion for good there, who sees a project, chats
-shared, taken private, deleted or restored, and what the operator (a plan change, a
-requeue) and the app (a quarantine, an account purge with the owner it promoted) did on their
-own. A row names the member, the project and the object, the client's address, and names or
+shared, taken private, deleted or restored, a member's leave for support to see their account
+and each view of it, and what the operator (a plan change, a requeue) and the app (a quarantine,
+an account purge with the owner it promoted) did on their own; what was downloaded in support's
+view names the operator too. A row names the member, the project and the object, the client's address, and names or
 settings as they were (a file's name, a role before and after), never what a document, a
 question or a chat's title says, nor what a name or an address was changed to. Its owners and
 admins read it on its page (`/organization/audit`, from the organisation page's Security
@@ -1059,8 +1067,8 @@ CHANGELOG.md    what each day's commits changed for members and operators
 
 ## Not built yet
 
-- The operator's area does not act as a member yet (impersonation, with the member's consent),
-  nor turn features on per organisation.
+- The operator's area views a member's account read only, with their leave; it does not act as
+  them, nor turn features on per organisation.
 - Billing: the connectors and the model tier the plans declare are not read by anything yet.
 - The public API: keys call today's routes, which may change; versioned routes under
   `/api/v1`, webhooks for a document ready or failed, and a hosted reference are to come.

@@ -295,7 +295,7 @@ def _tell(session: Session, settled: Row, app_url: str) -> None:
         user.name,
         project.organization.name,
         project.name,
-        _moment(settled.created_at, zone_of(user.time_zone)),
+        moment_words(settled.created_at, zone_of(user.time_zone)),
         len(documents) - len(failed),
         failed,
         in_organization(f"{app_url}{page}", project.org_id),
@@ -303,7 +303,7 @@ def _tell(session: Session, settled: Row, app_url: str) -> None:
     tell(session, user, project.org_id, UPLOAD_INDEXED, content, page, app_url)
 
 
-def _moment(moment: datetime, zone: tzinfo) -> str:
+def moment_words(moment: datetime, zone: tzinfo) -> str:
     """A time as a notice names it, 14:05 CEST on 20 October 2026, in the reader's zone."""
     moment = moment.astimezone(zone)
     return f"{moment:%H:%M %Z} on {moment.day} {MONTHS[moment.month - 1]} {moment.year}"
