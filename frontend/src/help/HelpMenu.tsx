@@ -1,10 +1,10 @@
-// The question mark in the header: the way to the help pages, and to write to support from
-// wherever the member is, with the page and the last request that failed attached
-// (src/help/feedback.ts, backend/app/api/help.py). What they typed is kept while the panel is
-// closed, which a click elsewhere or a switch to another window does, until it is sent.
+// The question mark in the header: the way to the help pages and the status page, and to write
+// to support from wherever the member is, with the page and the last request that failed
+// attached (src/help/feedback.ts, backend/app/api/help.py). What they typed is kept while the
+// panel is closed, which a click elsewhere or a switch to another window does, until it is sent.
 
 import { useMutation } from '@tanstack/react-query'
-import { BookOpen, CircleHelp } from 'lucide-react'
+import { Activity, BookOpen, CircleHelp } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useLocation } from 'react-router'
@@ -53,6 +53,7 @@ export function HelpMenu() {
                 <BookOpen className="size-4 shrink-0 opacity-70" />
                 Help pages
               </Link>
+              <StatusPageLink />
             </div>
             <p className="px-3 pt-3 text-[13px] font-medium">Write to support</p>
             {send.isSuccess ? (
@@ -72,6 +73,23 @@ export function HelpMenu() {
         </Floating>
       )}
     </>
+  )
+}
+
+/** The status page, where the deployment names one: it says whether Emudoc is up from outside it. */
+function StatusPageLink() {
+  const help = useHelp()
+  if (!help.data?.status_page) return null
+  return (
+    <a
+      href={help.data.status_page}
+      target="_blank"
+      rel="noreferrer"
+      className="flex h-8 items-center gap-2.5 rounded-[5px] px-2 text-[13px] outline-none hover:bg-sunken focus-visible:bg-sunken"
+    >
+      <Activity className="size-4 shrink-0 opacity-70" />
+      Service status
+    </a>
   )
 }
 

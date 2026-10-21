@@ -65,6 +65,7 @@ export MAIL_EVENTS_QUEUE=
 export PWNED_PASSWORDS_URL=
 export OPERATOR_EMAIL=
 export SUPPORT_EMAIL=support@example.com
+export STATUS_PAGE_URL=https://status.example.com
 export SAMPLE_PROJECT=true
 export MODEL_PRICES=
 export DAILY_SPEND_CAP=0

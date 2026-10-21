@@ -42,11 +42,14 @@ BROWSER_CHARS = 300
 
 @router.get("/help", response_model=HelpOut)
 def help_offered():
-    """The help pages, filled in for this deployment, and where members write for help."""
+    """The help pages, filled in for this deployment, where members write for help and the
+    status page. It reads no database, so that the page that cannot reach its server, a database
+    being down, still learns where the status page is."""
     settings = get_settings()
     return HelpOut(
         articles=[HelpArticleOut(**asdict(article)) for article in articles(settings)],
         support_email=settings.support_address or None,
+        status_page=settings.status_page_url or None,
     )
 
 

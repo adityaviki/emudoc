@@ -432,6 +432,8 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   `BACKUP_DAYS` (`deploying.md`, "Backups").
 - `SUPPORT_EMAIL` is where members write for help, from the app's help menu (Accounts, below);
   unset, it is `OPERATOR_EMAIL`, for a deployment whose one address answers both.
+  `STATUS_PAGE_URL` names the status page outside the deployment that the help menu and the
+  help pages link to (`deploying.md`, "The status page").
 - `ACCESS_LOG_DAYS` says how long the infrastructure keeps its records of connections, which
   hold members' addresses: a network's flow logs, and the access logs of the bucket their
   browsers fetch page images and downloads from. Set, the privacy policy names them and the
@@ -838,7 +840,8 @@ figures, the file types and sizes an upload takes and how long the trash keeps w
 are the deployment's own, and a sentence about something it does not do (scanning, selling
 plans) is left out. And it is where a member writes to support: a problem, a
 question or an idea, in their own words (`frontend/src/help/`, `POST /api/feedback` in
-`backend/app/api/help.py`). The app mails it to `SUPPORT_EMAIL` with a `Reply-To` of the
+`backend/app/api/help.py`). With `STATUS_PAGE_URL` it also leads to the status page, which the
+page that cannot reach its server links to as well. The app mails it to `SUPPORT_EMAIL` with a `Reply-To` of the
 member's address and what support needs to find what they met: the account, the organisation,
 the page's path with the ids of what was open, the version, the browser, and the reference of
 the last request the page saw refused or failed, which the log is searched by. The member's

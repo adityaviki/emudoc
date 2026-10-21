@@ -289,6 +289,8 @@ export interface HelpArticle {
 export interface Help {
   articles: HelpArticle[]
   support_email: string | null
+  /** The status page outside the deployment, which says whether it is up; none where it names none. */
+  status_page: string | null
 }
 
 /** What a member writes to support about, which the mail's subject says. */

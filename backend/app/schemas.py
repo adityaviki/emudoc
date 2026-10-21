@@ -1223,10 +1223,13 @@ class HelpArticleOut(BaseModel):
 
 class HelpOut(BaseModel):
     """The help pages and the help menu (app/api/help.py): the articles in the contents' order,
-    and the address members write to for help, which is none only in development."""
+    the address members write to for help, which is none only in development, and the status
+    page, where the deployment has one."""
 
     articles: list[HelpArticleOut]
     support_email: str | None
+    # The public status page (STATUS_PAGE_URL), outside the deployment.
+    status_page: str | None
 
 
 # What a member writes to support about (`SUPPORT_SUBJECTS` in app/mail.py).

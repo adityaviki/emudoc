@@ -119,7 +119,18 @@ def _values(settings: Settings) -> dict[str, str]:
         "export_days": str(EXPORT_DAYS),
         "deletion_days": str(DELETION_GRACE.days),
         "support": f"[{support}](mailto:{support})" if support else "[SUPPORT_EMAIL is not set]",
+        "status_page": _status_page(settings.status_page_url),
     }
+
+
+def _status_page(url: str) -> str:
+    if not url:
+        return ""
+    return (
+        "\nWhether Emudoc is up, and what we are doing about a fault, is on "
+        f"[our status page]({url}), which runs apart from Emudoc, so that it answers when Emudoc "
+        "does not.\n"
+    )
 
 
 def _sample(on: bool) -> str:

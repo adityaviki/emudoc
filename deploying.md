@@ -3000,7 +3000,7 @@ the rules and, on AWS, CloudWatch back up:
 | The watchdog | Its silence | The dead man's switch; on AWS the alarm `emudoc-<environment>-alerts-silent`, on the alerts topic and the pages topic |
 | The host, on AWS | A container in trouble, a failed drill or renewal of the credentials, the instance's status checks | The alerts topic; a container in trouble and the status checks the pages topic too |
 | The account, on AWS | The trail's alarms (`root`, `iam`, `keys` and the others of "The account's records") | `account_alert_email` |
-| The uptime service | `/api/health` missed from outside | Its own notifications |
+| The uptime service | `/api/health` missed from outside | Its own notifications, and its status page for the members ("The status page") |
 | GitHub | A scheduled workflow that failed: Audit's scans, the Models workflow's requests | Whoever last changed the schedule |
 | The members | A problem, a question or an idea from the app's help menu, with the page and the reference of the request that failed there; or by mail, quoting the error screen's reference ("Support") | `SUPPORT_EMAIL`, else `OPERATOR_EMAIL` |
 
@@ -3089,6 +3089,33 @@ policy says what a message holds and where it goes.
 A member who needs support to see what they see lets it in from their account page, for a day
 or a week ("The operator's area" below): ask for that in the reply rather than for screenshots
 of their documents.
+
+### The status page
+
+A status page tells members whether Emudoc is up when Emudoc itself cannot, so it runs outside
+the deployment, on another provider's servers: never on the machine, the database or the proxy
+it reports on. `STATUS_PAGE_URL` names it, and the help menu, the help pages ("Getting help")
+and the page a member sees when the app cannot reach its server link to it; `GET /api/help`,
+which tells the page the address, reads no database, so it answers while the database is down
+(when the API itself is down, nothing of the app loads, and members find the page by its
+address). Three things fill it:
+
+- **The uptime service** of "On call" and "Service levels", which already asks
+  `https://<domain>/api/health` every minute from outside. Most of them (the hosted ones, or
+  Uptime Kuma, Gatus or Upptime run elsewhere) publish their checks as a public status page;
+  show the `/api/health` check, which answers 200 only while the API reaches its database, not
+  `/api/livez`, which answers through a database outage.
+- **The person on call**, who posts an incident when members are affected ("On call"): what they
+  see, what is being done and when the next word is due, and closes it with the incident's
+  record.
+- **The alerts**, where the service takes them: a receiver of `critical` alerts with the
+  service's own webhook (`webhook_configs`) beside the pages route in Alertmanager's
+  configuration ("Rules on the metrics"; on AWS `deploy/aws/alertmanager.yml`), its address and
+  key in the deployment's secrets. A rule's summary names the app's parts, never a member's
+  data.
+
+The service receives nothing of the members' data, so it is not on the subprocessor list; the
+link opens its site in a tab of its own, and the app's pages load nothing from it.
 
 ## The operator's area
 
@@ -4169,6 +4196,7 @@ and the like), named on its models' pages.
 | `OPERATOR_NAME` | none | required | Who runs the deployment, as the terms name them |
 | `OPERATOR_EMAIL` | none | required | Where people write about their account and data |
 | `SUPPORT_EMAIL` | `OPERATOR_EMAIL` | | Where members write for help, from the app's help menu and the help pages ("Support") |
+| `STATUS_PAGE_URL` | none | | The status page outside the deployment that the help menu and the help pages link to ("The status page") |
 | `BACKUP_DAYS` | none | required | How long the backups are kept ("Backups") |
 | `SERVER_LOG_DAYS` | none | required | How long the server logs are kept ("How long they are kept") |
 | `ACCESS_LOG_DAYS` | none | | How long the infrastructure's connection records are kept, when it keeps any |

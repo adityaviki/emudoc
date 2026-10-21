@@ -9,3 +9,4 @@ write to $support.
 A page that ran into an error shows a reference: give it when you write, and we find what
 happened. When we need to see what you see, we ask you to let support see your account for a
 while ([Your account and sign-in](/help/account)).
+$status_page

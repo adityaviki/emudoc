@@ -5,10 +5,11 @@ the member was and nothing of it kept or logged."""
 import re
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import func, select
 
 from app.api.help import NO_SUPPORT
-from app.config import ROOT_DIR, get_settings
+from app.config import ROOT_DIR, Settings, get_settings
 from app.help import ARTICLES, articles
 from app.models import AuditEvent, Job
 from app.parsing import SUPPORTED_EXTENSIONS
@@ -17,6 +18,7 @@ from tests.test_apikeys import make_key, program
 from tests.test_auth import another_browser, signup
 from tests.test_logs import logged  # noqa: F401 (a fixture)
 from tests.test_organizations import join, switch
+from tests.test_probes import database_down  # noqa: F401 (a fixture)
 
 SUPPORT = "support@emudoc.example.com"
 FAILED = "0123456789abcdef0123456789abcdef"
@@ -227,3 +229,35 @@ def test_every_link_of_the_help_leads_to_an_article_or_a_page():
     for article in articles(get_settings()):
         for link in re.findall(r"\]\((/[^)]*)\)", article.text):
             assert link in known, (article.slug, link)
+
+
+def test_the_help_names_the_status_page_where_there_is_one(client, monkeypatch):
+    def support() -> str:
+        found = client.get("/api/help").json()
+        return next(a["text"] for a in found["articles"] if a["slug"] == "support")
+
+    assert client.get("/api/help").json()["status_page"] is None
+    assert "status page" not in support()
+    monkeypatch.setattr(get_settings(), "status_page_url", "https://status.emudoc.example.com")
+    assert client.get("/api/help").json()["status_page"] == "https://status.emudoc.example.com"
+    assert "[our status page](https://status.emudoc.example.com)" in support()
+
+
+def test_the_page_that_cannot_reach_the_database_still_finds_the_status_page(
+    client,
+    database_down,  # noqa: F811
+    monkeypatch,
+):
+    monkeypatch.setattr(get_settings(), "status_page_url", "https://status.emudoc.example.com")
+    assert client.get("/api/health").status_code == 503
+    answer = client.get("/api/help")
+    assert answer.status_code == 200
+    assert answer.json()["status_page"] == "https://status.emudoc.example.com"
+
+
+@pytest.mark.parametrize(
+    "url", ["status.example.com", "ftp://status.example.com", "https://", "https://a b"]
+)
+def test_a_status_page_is_a_web_address(url):
+    with pytest.raises(ValidationError, match="STATUS_PAGE_URL"):
+        Settings(_env_file=None, database_url="postgresql+psycopg://db/emudoc", status_page_url=url)

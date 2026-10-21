@@ -11,6 +11,9 @@ its day, in the same commit.
 
 Members:
 
+- Where the service has a status page, the help menu, the help pages and the screen that says
+  Emudoc cannot reach its server link to it, to see whether Emudoc is down and what is being
+  done about it.
 - Help pages at `/help`, from the question mark in the header or under the sign-in pages: how
   to get started, upload and organise documents, search and ask, work with an organisation's
   members and roles, read the plans and their usage, sign in and keep an account safe, and
@@ -103,6 +106,9 @@ Members:
 
 Operators:
 
+- `STATUS_PAGE_URL` names the deployment's status page, run outside it, which the help menu,
+  the help pages and the page that cannot reach its server link to; deploying.md ("The status
+  page") says how the uptime service, the person on call and the alerts fill it.
 - The help pages (`backend/app/help/`, Markdown filled in as `GET /api/help` serves them) take
   their figures from the code and the settings: the plans, `MAX_UPLOAD_MB` and the other upload
   ceilings, `OCR_MAX_PAGES`, `SESSION_DAYS`, the rates; with `SCANNER_URL`, Stripe or the breach

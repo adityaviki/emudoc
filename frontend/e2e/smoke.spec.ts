@@ -372,7 +372,10 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
 
   await test.step('read the help pages from the help menu, find one by a word and follow its link into the app', async () => {
     await page.getByRole('button', { name: 'Help', exact: true }).click()
-    await page.getByRole('dialog', { name: 'Help' }).getByRole('link', { name: 'Help pages' }).click()
+    const menu = page.getByRole('dialog', { name: 'Help' })
+    // The status page is outside the deployment (STATUS_PAGE_URL in e2e/serve.sh).
+    await expect(menu.getByRole('link', { name: 'Service status' })).toHaveAttribute('href', 'https://status.example.com')
+    await menu.getByRole('link', { name: 'Help pages' }).click()
     await expect(page.getByRole('heading', { name: 'Help', exact: true })).toBeVisible()
     await page.getByLabel('Search the help').fill('zip file')
     await expect(page.getByRole('link', { name: /^Getting started/ })).toHaveCount(0)

@@ -428,6 +428,10 @@ class Settings(BaseSettings):
     # and the mail about an account's address name for help. Empty is OPERATOR_EMAIL's, for a
     # deployment whose one address answers both.
     support_email: str = ""
+    # The public status page that says whether the service is up, run outside the deployment
+    # it reports on (deploying.md, "The status page"): the help menu, the help pages and the
+    # page that cannot reach its server link to it. Empty links to none.
+    status_page_url: str = ""
     # How many days the deployment keeps the backups of its database and bucket, zero for
     # none. The app makes none itself; the privacy policy names this as the outer bound of a
     # deletion, since a purged account stays in a backup until it expires (app/retention.py
@@ -801,6 +805,17 @@ class Settings(BaseSettings):
             if value and value not in REGIONS:
                 codes = " or ".join(REGIONS)
                 raise ValueError(f"DATA_REGION is {codes}, or empty for no region; not {value!r}")
+        return value
+
+    @field_validator("status_page_url")
+    @classmethod
+    def _a_page(cls, value: str) -> str:
+        value = value.strip()
+        if value and not re.fullmatch(r"https?://[^\s/?#@]+(?:[/?#]\S*)?", value):
+            raise ValueError(
+                "STATUS_PAGE_URL is the address of the status page, such as "
+                "https://status.example.com"
+            )
         return value
 
     @field_validator("fts_language")

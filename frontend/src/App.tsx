@@ -26,7 +26,7 @@ import { Floating, Menu } from './components/Menu.tsx'
 import type { MenuItem } from './components/Menu.tsx'
 import { ThemeToggle } from './components/ThemeToggle.tsx'
 import { Button, IconButton, Spinner } from './components/ui.tsx'
-import { useLocalStorage, useStatus } from './hooks.ts'
+import { useHelp, useLocalStorage, useStatus } from './hooks.ts'
 import { HelpMenu } from './help/HelpMenu.tsx'
 import { HelpPage } from './help/HelpPage.tsx'
 import { AuditPage } from './organization/AuditPage.tsx'
@@ -93,6 +93,7 @@ function App() {
           <Button className="mt-4" onClick={() => me.refetch()}>
             Try again
           </Button>
+          <StatusPageNote />
         </div>
       </div>
     )
@@ -199,6 +200,24 @@ function OpenLinked({ me, id, rest }: { me: Me; id: number; rest: string }) {
     <div className="flex h-dvh items-center justify-center">
       <Spinner className="size-5" />
     </div>
+  )
+}
+
+/**
+ * Where the service says whether it is up, under the screen that cannot reach the server: the
+ * help reads no database, so it answers while the database is down.
+ */
+function StatusPageNote() {
+  const help = useHelp()
+  if (!help.data?.status_page) return null
+  return (
+    <p className="mt-4 text-[13px] text-muted">
+      See whether Emudoc is down on{' '}
+      <a href={help.data.status_page} target="_blank" rel="noreferrer" className="text-ink underline">
+        its status page
+      </a>
+      .
+    </p>
   )
 }
 
