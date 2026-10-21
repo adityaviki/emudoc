@@ -272,7 +272,7 @@ def test_every_route_that_names_what_it_acts_on_is_tried(client, world):
     untried = [
         f"{method.upper()} {template}"
         for template, operations in client.app.openapi()["paths"].items()
-        if "{" in template and not template.startswith("/api/auth/")
+        if "{" in template and not template.startswith(("/api/auth/", "/api/operator/"))
         for method in operations
         if not any(
             method.upper() == used and re.fullmatch(re.sub(r"\{\w+\}", r"[^/]+", template), path)

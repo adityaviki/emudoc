@@ -3048,6 +3048,64 @@ a sentence. Each incident that called someone gets a short record: when it began
 the members saw, the cause, and what changes so that it does not come back. The service levels'
 figures for each 30 days go into the same record.
 
+## The operator's area
+
+The people who run the deployment read at `/operator` what the maintenance commands print, in a
+browser and without a shell on the machine: the organisations, newest first and found by name,
+slug, id or a member's address, each with its plan and the figures agreed with it, its usage
+page as its members read it, its billing, its members and what its work cost over 30 days
+(`plan`, `usage`); the users, found by a part of their address or name, with their
+organisations and when they were last seen; the costs across organisations over 7, 30 or 90 days
+against each plan's daily limit and `DAILY_SPEND_CAP` (`costs`); the job queue, the running jobs
+with their leases and the dead letters with why each failed (`jobs`, `failed-jobs`); and the
+models and services: the models each variable names and which `DISABLED_PROVIDERS` switches
+off, the embeddings endpoint, the scanner, the storage, the database, and everything the
+worker's watch sees wrong now, asked afresh, with since when it has been mailing each ("What
+the worker mails"). It reads, and changes nothing: a plan, a failed document queued again and
+the kill switch are still the commands' and the settings'. What it shows is what the commands
+print, a member's name and address among it, never what a document, a question or an answer
+says.
+
+An operator is an account the `operators` command made one, by its id, whatever organisations it
+is a member of; nobody becomes one from a page, and an address that changes hands grants
+nothing:
+
+```bash
+maintenance operators                       # who, since when, with or without two-factor
+maintenance operators add ops@example.com   # the account signs up first
+maintenance operators remove ops@example.com
+```
+
+The area answers an operator alone: from an address `OPERATOR_NETWORKS` lists, with a session
+(never an API key, never the local account), and in production with two-factor sign-in on,
+which it asks for by name. Anyone else, a member or a stranger, a session from another address
+or an operator's stolen cookie off those networks, gets 404 for every path under `/api/operator`
+whatever the method, and the members' page at `/operator`, as for any page there is not. Unset,
+`OPERATOR_NETWORKS` is this machine in development and nobody in production: name the operators'
+own addresses or their VPN's, `OPERATOR_NETWORKS=203.0.113.7/32,2001:db8::/48`, in the settings'
+file, or on AWS in the root's `settings` ("The settings").
+
+The address is the client's as uvicorn believes the proxy ("TLS at a reverse proxy"), so it
+holds only while `FORWARDED_ALLOW_IPS` names the proxy and nothing else: a proxy that uvicorn
+does not believe makes every request come from the proxy's own address, and a network that holds
+it, such as the image network's `10.73.0.0/24` on one machine, would let every operator's
+session in from anywhere. Never list the proxy's address or its network. The proxy may refuse
+the area by address too, before the app, as Caddy does with a matcher in the site block:
+
+```caddyfile
+@operator {
+	path /operator /operator/* /operator.html /api/operator/*
+	not remote_ip 203.0.113.7/32
+}
+respond @operator 404
+```
+
+The page is a bundle of its own, `frontend/operator.html` built by `pnpm build` beside the
+members' page, sent to an operator alone; nothing of it reaches a member's browser, and its
+scripts have a budget apart (`frontend/scripts/size.ts`). Each request the area answers is an
+access line with the operator's `user_id` ("Logs"); it writes nothing into an organisation's
+audit log, since nothing in the organisation changes.
+
 ## Runbooks
 
 What to do, step by step, for what goes wrong most often, pointing at the sections that say
@@ -3074,7 +3132,8 @@ When an alert or a member says something is wrong, and it is not yet clear what:
    `trace_id` the jobs the request queued ("Traces").
 4. `maintenance jobs` for the queue and the running jobs, `maintenance database` for the
    server, Prometheus's alerts page for what else fires ("On AWS" under "Alerts" for the way to
-   it on the instance).
+   it on the instance). The operator's area shows the queue, the dead letters and what the
+   worker's watch sees in one place, from a browser ("The operator's area").
 
 ### Members get server errors
 
@@ -3856,6 +3915,7 @@ the roots' `settings` the others ("The settings").
 | `LOCAL_ACCOUNT` | `false` | refused when true | Requests without a session act as a local owner, for development |
 | `APP_URL` | the request's origin | required | Where members reach the app: the links in mail, the OAuth redirect |
 | `SESSION_DAYS` | `30` | | How long a sign-in lasts; an organisation may sign its members in again sooner |
+| `OPERATOR_NETWORKS` | `127.0.0.1/32,::1/128` in development, none in production | the operators' addresses | Where the operator's area answers from ("The operator's area") |
 | `SAMPLE_PROJECT` | `true` | | Whether the organisation an account signs up with starts with the sample project ("The sample project") |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | the proxy's address | uvicorn's: whose `X-Forwarded-*` headers are believed ("TLS at a reverse proxy") |
 | `TMPDIR` | `/tmp` | | Where uploads pass through and a worker copies an original to ("The image") |

@@ -1444,3 +1444,235 @@ class ProjectExportFile(BaseModel):
     folders: list[str]
     documents: list[ExportedDocument]
     chats: list[ExportedProjectChat]
+
+
+# The operator's area (app/operators.py, app/api/operator.py): what the maintenance commands
+# print, as the page shows it. Amounts are millionths of PRICE_CURRENCY, as the usage rows hold
+# them; a figure of a plan is worded as the `plan` command prints it, which is how `--set` takes it.
+
+
+class OperatorOut(BaseModel):
+    """Who opened the area, and the deployment it is about."""
+
+    user_id: int
+    name: str
+    email: str
+    environment: str
+    version: str
+    currency: str
+
+
+class OperatorOrganizationRow(BaseModel):
+    id: int
+    name: str
+    slug: str
+    plan: str
+    seats: int | None
+    members: int
+    created_at: dt.datetime
+    subscription_status: str | None
+    deletion_due_at: dt.datetime | None
+    # Its known model cost over the list's `cost_days`, None while none is known.
+    cost_micros: int | None
+
+
+class OperatorOrganizationsOut(BaseModel):
+    organizations: list[OperatorOrganizationRow]
+    # The id to ask `before` for the next page, None on the last.
+    next_before: int | None
+    cost_days: int
+
+
+class EntitlementOut(BaseModel):
+    """One figure the organisation is held to, its plan's own beside it, and whether it was
+    agreed with the organisation in place of the plan's (or its seats bought, for members)."""
+
+    name: str
+    value: str
+    plan_value: str
+    agreed: bool
+
+
+class OperatorMemberOut(BaseModel):
+    user_id: int
+    name: str
+    email: str
+    role: str
+    mfa_enabled: bool
+    joined_at: dt.datetime
+
+
+class CostOut(BaseModel):
+    """What one organisation's work, or every organisation's, cost over a span of days, against
+    the daily limit it is held to (None for none): its costliest day, and the days that reached
+    the limit."""
+
+    cost_micros: int | None
+    calls: int
+    input_tokens: int
+    output_tokens: int
+    answers: int
+    pages: int
+    top_day_micros: int | None
+    limit_micros: int | None
+    days_at_limit: int | None
+
+
+class DayCostOut(BaseModel):
+    day: dt.date
+    cost_micros: int
+
+
+class OperatorOrganizationOut(BaseModel):
+    organization: OrganizationOut
+    usage: UsagePageOut
+    entitlements: list[EntitlementOut]
+    members: list[OperatorMemberOut]
+    stripe_customer_id: str | None
+    stripe_subscription_id: str | None
+    since: dt.date
+    until: dt.date
+    cost: CostOut
+    # The known cost of each day of the span that has one, the oldest first.
+    cost_days: list[DayCostOut]
+
+
+class OperatorUserMembershipOut(BaseModel):
+    org_id: int
+    slug: str
+    name: str
+    role: str
+
+
+class OperatorUserOut(BaseModel):
+    id: int
+    name: str
+    email: str
+    created_at: dt.datetime
+    email_verified: bool
+    mfa_enabled: bool
+    operator: bool
+    deletion_due_at: dt.datetime | None
+    # When one of its sessions was last seen, to LAST_SEEN_RESOLUTION; None without one.
+    last_seen_at: dt.datetime | None
+    memberships: list[OperatorUserMembershipOut]
+
+
+class OperatorUsersOut(BaseModel):
+    users: list[OperatorUserOut]
+    # Whether more users matched than are shown.
+    more: bool
+
+
+class OrganizationCostOut(CostOut):
+    org_id: int
+    slug: str
+    name: str
+    plan: str
+
+
+class ModelCostOut(BaseModel):
+    kind: str
+    model: str
+    cost_micros: int | None
+    calls: int
+    input_tokens: int
+    output_tokens: int
+    # The tokens recorded without a price, which no cost counts.
+    unpriced_tokens: int
+
+
+class OperatorCostsOut(BaseModel):
+    since: dt.date
+    until: dt.date
+    currency: str
+    # Every organisation that used anything, the costliest first.
+    organizations: list[OrganizationCostOut]
+    # Theirs together, against DAILY_SPEND_CAP.
+    platform: CostOut
+    # The organisations that used nothing.
+    idle: int
+    models: list[ModelCostOut]
+
+
+class QueueOut(BaseModel):
+    """One kind of job by state (JOB_STATES in app/jobs.py), and how long the oldest due one
+    has waited for a worker."""
+
+    kind: str
+    due: int
+    waiting: int
+    running: int
+    failed: int
+    oldest_due_seconds: float | None
+
+
+class OperatorJobOut(BaseModel):
+    id: int
+    kind: str
+    status: str
+    attempts: int
+    max_attempts: int
+    run_at: dt.datetime
+    lease_until: dt.datetime | None
+    finished_at: dt.datetime | None
+    worker_id: str | None
+    # What it is for, as "acme / Contracts / invoice.pdf" (`NamedJob.about`).
+    about: str
+    # Why it failed, for the operator; None for one that did not.
+    last_error: str | None
+    # Whether the alerter mailed its failure to ALERT_EMAIL.
+    reported: bool
+
+
+class OperatorJobsOut(BaseModel):
+    taken_at: dt.datetime
+    queue: list[QueueOut]
+    running: list[OperatorJobOut]
+    # The dead letters of the last `history_days`, the newest first, `failed_shown` at most.
+    failed: list[OperatorJobOut]
+    failed_total: int
+    history_days: int
+
+
+class OperatorModelOut(BaseModel):
+    variable: str
+    name: str
+    role: str
+    fallback: bool
+    # Whether DISABLED_PROVIDERS switches its provider off.
+    disabled: bool
+
+
+class ConcernOut(BaseModel):
+    """What the worker's watch sees wrong now (app/watch.py), with since when it was raised and
+    mailed, None for one the watch has not looked at yet."""
+
+    key: str
+    title: str
+    message: str
+    raised_at: dt.datetime | None
+
+
+class DatabaseOut(BaseModel):
+    version: str
+    role: str
+    vector: str | None
+    iterative_scans: bool
+    # The role's statement_timeout and idle_in_transaction_session_timeout, "0" for none.
+    timeouts: dict[str, str]
+
+
+class OperatorServicesOut(BaseModel):
+    models: list[OperatorModelOut]
+    # What stops the models, in the operator's words, None while they can be used.
+    model_problem: str | None
+    embedding_model: str
+    embedding_address: str
+    scanner: bool
+    # Where the files are kept: the bucket's origin, or None for a directory.
+    storage_origin: str | None
+    concerns: list[ConcernOut]
+    # The checks that could not look, whose concerns are unknown (the watch's key prefixes).
+    unchecked: list[str]
+    database: DatabaseOut

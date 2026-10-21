@@ -7,6 +7,7 @@ on the organisation page; it names no member and nothing that was asked."""
 from datetime import UTC, date, datetime, time, timedelta
 
 from fastapi import APIRouter
+from sqlalchemy.orm import Session
 
 from app.api.deps import AccountDep, SessionDep
 from app.entitlements import (
@@ -18,6 +19,7 @@ from app.entitlements import (
     month_of,
     sample_documents,
 )
+from app.models import Organization
 from app.schemas import FigureOut, MeteredMonthOut, MeteredOut, UsagePageOut
 from app.usage import metered
 
@@ -32,7 +34,12 @@ MONTHS = 12
 def organization_usage(account: AccountDep, session: SessionDep):
     """What the organisation holds and has used this month of what its plan allows, and its
     pages and questions by day and by month."""
-    organization = account.organization
+    return usage_page(session, account.organization)
+
+
+def usage_page(session: Session, organization: Organization) -> UsagePageOut:
+    """The usage page of the organisation, which the operator's area shows as its members read
+    it (app/api/operator.py)."""
     entitlements = entitlements_of(organization)
     now = datetime.now(UTC)
     start, following = month_of(now)

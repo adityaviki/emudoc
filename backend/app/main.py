@@ -1,9 +1,10 @@
 import logging
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
-from anyio import CapacityLimiter
+from anyio import CapacityLimiter, to_thread
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
@@ -27,6 +28,7 @@ from app.api import (
     mail,
     notifications,
     onboarding,
+    operator,
     organizations,
     projects,
     query,
@@ -43,7 +45,7 @@ from app.api.deps import (
 )
 from app.billing import BillingRefused
 from app.config import ROOT_DIR, get_settings
-from app.db import BUSY, TOO_SLOW, canceled, engine
+from app.db import BUSY, TOO_SLOW, SessionLocal, canceled, engine
 from app.entitlements import PlanRefused
 from app.errors import shown, summary
 from app.headers import (
@@ -58,6 +60,7 @@ from app.legal import TERMS_VERSION, privacy_policy, published, terms_of_service
 from app.logs import REQUEST_ID_HEADER, RequestIds, configure_logging, current_context
 from app.mail import Mailer, mailer_from_settings
 from app.metrics import POOL_TIMEOUTS, HttpMetrics, export_metrics
+from app.operators import operator_of
 from app.payments import PaymentsError
 from app.ratelimit import PAGE_ERRORS, by_address
 from app.schemas import (
@@ -109,6 +112,13 @@ class PagePath(PathConvertor):
 
 
 register_url_convertor("page", PagePath())
+
+
+# The operator's area's page (app/operators.py): a page of its own, `frontend/operator.html`, with
+# a bundle of its own, served at /operator and below it to an operator alone. Its own name is
+# taken too, so that the file is reached by no other way.
+OPERATOR_PAGE = "operator.html"
+_OPERATOR_PATH = re.compile(r"operator(?:/.*)?|operator\.html")
 
 
 class BuiltFiles(StaticFiles):
@@ -360,6 +370,14 @@ async def unexpected_error(request: Request, error: Exception) -> JSONResponse:
     return response
 
 
+def _from_operator(request: Request) -> bool:
+    """Whether the operator's page may be sent: to an operator, from an operator's network. One
+    whom the area still refuses, for want of two-factor sign-in, is sent it, and told why by
+    the routes."""
+    with SessionLocal() as session:
+        return operator_of(session, request) is not None
+
+
 def _request_id() -> str | None:
     request_id = current_context().get("request_id")
     return str(request_id) if request_id is not None else None
@@ -473,6 +491,9 @@ def create_app(
     # unsubscribe, whose token says whose notices stop.
     app.include_router(billing.events, prefix="/api")
     app.include_router(mail.events, prefix="/api")
+    # The operator's area asks for the app's header itself, once the operator is known, so that
+    # a refusal tells nobody else that a route is there (app/api/operator.py).
+    app.include_router(operator.router, prefix="/api")
 
     if FRONTEND_DIST.is_dir():
         # Serve the built frontend; unknown paths fall back to index.html for client routing.
@@ -482,6 +503,11 @@ def create_app(
         # HEAD too, which uptime services often probe the page with.
         @app.api_route("/{path:page}", methods=["GET", "HEAD"], include_in_schema=False)
         async def spa(path: str, request: Request):
+            if _OPERATOR_PATH.fullmatch(path):
+                # Anyone but an operator gets the members' page, as for a path nobody serves.
+                if await to_thread.run_sync(_from_operator, request):
+                    return await page.get_response(OPERATOR_PAGE, request.scope)
+                return await page.get_response("index.html", request.scope)
             try:
                 return await page.get_response(path, request.scope)
             except StarletteHTTPException as missing:

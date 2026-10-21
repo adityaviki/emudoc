@@ -474,6 +474,22 @@ class Membership(Base):
     user: Mapped[User] = relationship(back_populates="memberships")
 
 
+class Operator(Base):
+    """A user who may open the operator's area (app/operators.py): someone who runs the
+    deployment, whatever organisations they are a member of. Granted and taken back only by the
+    `operators` maintenance command, from a shell on the deployment, and by the user's id, so
+    an address that changes hands grants nothing; the row goes with the account."""
+
+    __tablename__ = "operators"
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class Invitation(Base):
     """An invitation to join an organisation, open until it is accepted, revoked or expires
     (app/invitations.py). Accepting or revoking it deletes it, so a row is an invitation still

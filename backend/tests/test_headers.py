@@ -2,6 +2,7 @@
 
 import re
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.config import ROOT_DIR, get_settings
@@ -155,13 +156,15 @@ def test_the_policy_allows_images_from_the_bucket(services, mailer):
     assert s3.calls.count("generate_presigned_url") == 1
 
 
-def test_the_page_needs_no_inline_code():
-    # The policy allows no inline script or style; the frontend's page must keep to that, or
-    # the browser refuses the theme script and the page stays light for everyone.
-    html = (ROOT_DIR / "frontend" / "index.html").read_text()
+@pytest.mark.parametrize("page", ["index.html", "operator.html"])
+def test_the_page_needs_no_inline_code(page):
+    # The policy allows no inline script or style; the frontend's pages, the members' and the
+    # operator's area's, must keep to that, or the browser refuses the theme script and the
+    # page stays light for everyone.
+    html = (ROOT_DIR / "frontend" / page).read_text()
     for body in re.findall(r"<script\b[^>]*>(.*?)</script>", html, re.S):
-        assert not body.strip(), "index.html has an inline script; move it to public/ as a file"
-    assert not re.search(r"\bstyle=|\bon\w+=", html), "index.html has inline style or handlers"
+        assert not body.strip(), f"{page} has an inline script; move it to public/ as a file"
+    assert not re.search(r"\bstyle=|\bon\w+=", html), f"{page} has inline style or handlers"
     assert '<script src="/theme.js"></script>' in html
     assert (ROOT_DIR / "frontend" / "public" / "theme.js").is_file()
 

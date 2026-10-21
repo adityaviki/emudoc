@@ -178,7 +178,13 @@ mails the receipts and invoices itself, once its customer emails are on. An orga
 the operator. Without Stripe, or for those, `uv run python -m app.maintenance plan <slug> [plan]`
 (in `backend/`) shows an organisation's plan and what it allows, or moves it to another, with
 `--seats N`, `--set NAME=VALUE` (`projects=500`, `storage_bytes=1 TB`, `retention_days=none`)
-and `--unset NAME` for its seats and agreed figures. A
+and `--unset NAME` for its seats and agreed figures. The people who run the deployment read the
+same in a browser at `/operator`, the operator's area: the organisations with their plans,
+usage, members and costs, the users, the costs across organisations, the job queue with its
+failed jobs, and how the models and services stand. `uv run python -m app.maintenance operators
+add <address>` (in `backend/`) lets an account in, from an address `OPERATOR_NETWORKS` lists
+(this machine alone in development) and, in production, with two-factor sign-in on; to anyone
+else the area is not there. It reads; changes stay the commands'. A
 paying plan's jobs also count for less in the claim's share of the workers, so its backlog
 is indexed sooner next to a free organisation's.
 
@@ -1046,8 +1052,8 @@ CHANGELOG.md    what each day's commits changed for members and operators
 
 ## Not built yet
 
-- Deleting an organisation: one goes only with the account of its only member, who cannot
-  leave it either.
+- The operator's area changes nothing yet: a plan, a failed document queued again and the kill
+  switch are the maintenance commands' and the settings'.
 - Billing: the connectors and the model tier the plans declare are not read by anything yet.
 - The public API: keys call today's routes, which may change; versioned routes under
   `/api/v1`, webhooks for a document ready or failed, and a hosted reference are to come.

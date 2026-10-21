@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { BrowserContext, Page } from '@playwright/test'
 import { linkMailedTo } from './mail.ts'
-import { movePlan } from './operator.ts'
+import { makeOperator, movePlan } from './operator.ts'
 
 // The member's way through the app, end to end: sign up through the link the app mails, find the
 // organisation's first steps listed, skip the tour the first project shows, ask the sample
@@ -17,7 +17,8 @@ import { movePlan } from './operator.ts'
 // the project and is offered no change to it until made a member, then make the project
 // private, which she no longer finds until chosen for it, and share the chat, which the
 // colleague then reads but does not ask in, and last ask the question that uses the month's
-// questions, which the bell tells, and open that notice from the other organisation. The answer
+// questions, which the bell tells, and open that notice from the other organisation; then, made
+// an operator, read the organisation in the operator's area, which nobody else is sent. The answer
 // is the stand-in's (e2e/standin.py): the first sentence of the passage its search found best,
 // with that passage's reference.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
@@ -29,8 +30,9 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   // The colleague's browser, from the invitation on.
   let theirs: BrowserContext
   let grace: Page
-  // The first organisation's, for the operator's command.
+  // The first organisation's, for the operator's command, and the first member's address.
   let slug = ''
+  let address = ''
   // The projects page's list of the organisation's first steps.
   const firstSteps = page.getByRole('region', { name: 'Get started' })
   // The chat's suggestion to invite the team, under an answer about the organisation's documents.
@@ -38,7 +40,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
 
   await test.step('sign up', async () => {
     // A new address every run, so that a server kept from an earlier run takes it too.
-    const address = `ada.${Date.now()}@example.com`
+    address = `ada.${Date.now()}@example.com`
     await page.goto('/signup')
     await page.getByLabel('Email', { exact: true }).fill(address)
     await page.getByRole('button', { name: 'Continue' }).click()
@@ -432,5 +434,31 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page).toHaveURL(/\/organization\/usage$/)
     await expect(page.getByRole('button', { name: "Ada Lovelace's workspace" })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible()
+  })
+
+  await test.step("be made an operator, and read the organisation in the operator's area", async () => {
+    // A member is sent the members' page at the area's address, as for any page there is not.
+    await page.goto('/operator')
+    await expect(page.getByText('Page not found.')).toBeVisible()
+
+    makeOperator(address)
+    await page.goto('/operator')
+    await expect(page.getByRole('heading', { name: 'Organisations', exact: true })).toBeVisible()
+    await page.getByLabel('Find organisations').fill(slug)
+    await page.getByLabel('Find organisations').press('Enter')
+    await page.getByRole('link', { name: "Ada Lovelace's workspace" }).click()
+    await expect(page.getByRole('heading', { name: "Ada Lovelace's workspace" })).toBeVisible()
+    const members = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Members', exact: true }) })
+    await expect(members.getByRole('row').filter({ hasText: address })).toContainText('owner')
+    await expect(members.getByRole('row').filter({ hasText: 'Grace Hopper' })).toContainText('member')
+    // The month's three questions, which the figure agreed with it allows.
+    const plan = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Plan', exact: true }) })
+    await expect(plan.getByRole('row').filter({ hasText: 'questions_per_month' })).toContainText('agreed')
+
+    await page.getByRole('navigation', { name: 'Views' }).getByRole('link', { name: 'Jobs' }).click()
+    await expect(page.getByRole('heading', { name: 'Jobs', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Ask again' })).toBeVisible()
+    await page.getByRole('navigation', { name: 'Views' }).getByRole('link', { name: 'Services' }).click()
+    await expect(page.getByRole('heading', { name: 'What the watch sees' })).toBeVisible()
   })
 })

@@ -1,3 +1,4 @@
+import ipaddress
 import os
 import re
 from collections.abc import Mapping
@@ -70,6 +71,13 @@ STRIPE_PACKS_FORM = (
     "pages:1000=price_1Pages,questions:500=price_1Questions, each unit pages or questions"
 )
 CLAMD_PORT = 3310
+OPERATOR_NETWORKS_FORM = (
+    "OPERATOR_NETWORKS lists the addresses the operator's area answers, as networks or single "
+    "addresses separated by commas, such as 203.0.113.0/24,2001:db8::7"
+)
+# Where the operator's area answers in development while OPERATOR_NETWORKS is unset: this
+# machine alone, which the dev server's proxy and a browser on it both come from.
+LOOPBACK_NETWORKS = "127.0.0.1/32,::1/128"
 # The work a model does: indexing (INDEX_MODEL: sections, summaries, facts, scans) or answering
 # (AGENT_MODEL: the Ask tab's agent), each with its fallback.
 INDEX = "index"
@@ -102,6 +110,23 @@ def parse_metrics_address(value: str) -> tuple[str, int] | None:
     if host and port.isascii() and port.isdigit() and 0 < int(port) < 65536:
         return host, int(port)
     raise ValueError(f"{METRICS_ADDRESS_FORM}; {value!r} is not.")
+
+
+type Network = ipaddress.IPv4Network | ipaddress.IPv6Network
+
+
+def parse_operator_networks(value: str) -> tuple[Network, ...]:
+    """The networks OPERATOR_NETWORKS lists, an address alone being a network of one. Raises
+    `ValueError` naming the form for anything else, such as a network with host bits set."""
+    networks = []
+    for entry in value.split(","):
+        if not (entry := entry.strip()):
+            continue
+        try:
+            networks.append(ipaddress.ip_network(entry))
+        except ValueError:
+            raise ValueError(f"{OPERATOR_NETWORKS_FORM}; {entry!r} is not one.") from None
+    return tuple(networks)
 
 
 def parse_scanner_url(value: str) -> tuple[str, int] | str | None:
@@ -529,6 +554,13 @@ class Settings(BaseSettings):
     # the origin of the request that needs it, which is right in development.
     app_url: str = ""
     session_days: int = 30
+    # The client addresses the operator's area (app/operators.py) answers, as networks or single
+    # addresses separated by commas, read from the proxy's X-Forwarded-For as uvicorn believes
+    # it (FORWARDED_ALLOW_IPS). From anywhere else it answers 404, whoever is signed in, so a
+    # stolen operator's session is of no use off these networks. Unset, it answers this machine
+    # alone in development and nobody in production, until the deployment names the operators'
+    # own addresses or its VPN's.
+    operator_networks: str | None = None
     # Where a new password is checked against the passwords exposed in data breaches: a
     # service with Have I Been Pwned's range API (app/passwords.py), which is sent the first five
     # characters of the password's SHA-1 alone. Its own, by default; one run on the deployment's
@@ -719,6 +751,18 @@ class Settings(BaseSettings):
         no limit."""
         return int(self.daily_spend_cap * 1_000_000)
 
+    @field_validator("operator_networks")
+    @classmethod
+    def _lists_networks(cls, value: str | None) -> str | None:
+        if value is not None:
+            parse_operator_networks(value)
+        return value
+
+    @property
+    def operator_nets(self) -> tuple[Network, ...]:
+        """The networks the operator's area answers (OPERATOR_NETWORKS), none for nobody."""
+        return parse_operator_networks(self.operator_networks or "")
+
     @field_validator("disabled_providers")
     @classmethod
     def _names_providers(cls, value: str) -> str:
@@ -770,6 +814,7 @@ class Settings(BaseSettings):
         "access_log_days",
         "server_log_days",
         "log_format",
+        "operator_networks",
         mode="before",
     )
     @classmethod
@@ -789,6 +834,12 @@ class Settings(BaseSettings):
     def _log_json_when_deployed(self) -> "Settings":
         if self.log_format is None:
             self.log_format = "text" if self.environment == "development" else "json"
+        return self
+
+    @model_validator(mode="after")
+    def _operators_on_this_machine_in_development(self) -> "Settings":
+        if self.operator_networks is None:
+            self.operator_networks = LOOPBACK_NETWORKS if self.environment == "development" else ""
         return self
 
     @model_validator(mode="after")

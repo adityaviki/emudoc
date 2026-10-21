@@ -44,6 +44,10 @@ against its plan's daily limit, then the platform's total against DAILY_SPEND_CA
 by kind of work and model. It reads the usage rows, since the metrics carry no label per
 organisation (app/metrics.py), and prints organisations by slug and name, never an address.
 
+`operators` lists the users who may open the operator's area at /operator (app/operators.py),
+and `operators add|remove <address>` grants it or takes it back: the area's one way in, from a
+shell on the deployment, as the plan's changes are.
+
 `encrypt-secrets` encrypts with the first key of ENCRYPTION_KEYS what the database keeps
 encrypted (app/encrypted.py) and is not yet: the values from before a column was encrypted, and
 those of an earlier key, which is a key's rotation. It runs beside the app.
@@ -112,9 +116,10 @@ from app.jobs import (
     queue_index_by_id,
 )
 from app.logs import configure_logging
-from app.models import JOB_KINDS, STAGES, Document, Job, Organization
+from app.models import JOB_KINDS, STAGES, Document, Job, Organization, User
 from app.models import PLANS as PLAN_NAMES
 from app.notices import NOTIFICATION_DAYS, prune_notifications, prune_quota_notices, settle_uploads
+from app.operators import grant, operators, revoke
 from app.parsing import MIME_TYPES
 from app.postgres import concerns, database_report, describe_database, span
 from app.ratelimit import prune_rate_limits
@@ -765,11 +770,11 @@ def plan_report(
     ]
     entitlements, own = entitlements_of(organization), PLANS[organization.plan]
     for name in FIELDS:
-        line = f"  {name:<20}{_entitlement(name, getattr(entitlements, name))}"
+        line = f"  {name:<20}{entitlement_words(name, getattr(entitlements, name))}"
         if name in agreed:
-            line += f" (agreed; the plan's {_entitlement(name, getattr(own, name))})"
+            line += f" (agreed; the plan's {entitlement_words(name, getattr(own, name))})"
         elif name == "members" and bought is not None:
-            line += f" (its seats; the plan's {_entitlement(name, own.members)})"
+            line += f" (its seats; the plan's {entitlement_words(name, own.members)})"
         lines.append(line)
     if dropped[0] is not None:
         lines.append(
@@ -815,6 +820,63 @@ def plan_report(
                 else " no longer, since its terms are agreed."
             )
         )
+    return lines
+
+
+def operators_report(session: Session, action: str | None = None, email: str = "") -> list[str]:
+    """The lines the `operators` command prints: every operator, after granting the area to the
+    account with the address `email` (`action` "add") or taking it back ("remove"), and where
+    the area answers from. The caller commits."""
+    settings = get_settings()
+    lines = []
+    if action is not None:
+        user = session.scalar(select(User).where(User.email == email.strip().lower()))
+        if user is None:
+            raise RuntimeError(
+                f"No account has the address {email!r}; its owner signs up first, then is made "
+                "an operator."
+            )
+        if action == "add":
+            done = grant(session, user)
+            lines.append(
+                f"{user.name or user.email} is an operator now."
+                if done
+                else f"{user.name or user.email} was an operator already."
+            )
+            if settings.environment == "production" and not user.mfa_enabled:
+                lines.append(
+                    "They turn two-factor sign-in on under their account before the area opens."
+                )
+        else:
+            done = revoke(session, user)
+            lines.append(
+                f"{user.name or user.email} is no longer an operator."
+                if done
+                else f"{user.name or user.email} was no operator."
+            )
+        session.flush()
+    listed = operators(session)
+    if listed:
+        lines.append(f"{_count(len(listed), 'operator')}, who open the area at /operator:")
+        rows = [
+            (
+                str(user.id),
+                user.name,
+                user.email,
+                f"since {granted.astimezone(UTC):%Y-%m-%d}",
+                "two-factor" if user.mfa_enabled else "no two-factor",
+            )
+            for user, granted in listed
+        ]
+        lines += _table(rows, left={1, 2, 3, 4})
+    else:
+        lines.append("Nobody is an operator; `operators add <address>` makes one.")
+    networks = ", ".join(str(network) for network in settings.operator_nets)
+    lines.append(
+        f"The area answers requests from {networks} (OPERATOR_NETWORKS)."
+        if networks
+        else "The area answers nobody until OPERATOR_NETWORKS names the operators' addresses."
+    )
     return lines
 
 
@@ -974,8 +1036,9 @@ def _at(moment: datetime) -> str:
     return f"{moment.astimezone(UTC):%Y-%m-%d %H:%M} UTC"
 
 
-def _entitlement(name: str, value: int | str | bool | None) -> str:
-    """A figure as the `plan` command prints it, which is also how `--set` takes it."""
+def entitlement_words(name: str, value: int | str | bool | None) -> str:
+    """A figure as the `plan` command prints it, which is also how `--set` takes it, and as the
+    operator's area shows it (app/api/operator.py)."""
     if value is None:
         return "no limit"
     if isinstance(value, bool):
@@ -1278,6 +1341,19 @@ def main(argv: list[str] | None = None) -> None:
         metavar="NAME",
         help="make an agreed figure the plan's again; again for each",
     )
+    granting = commands.add_parser(
+        "operators",
+        help="list the operators, or make an account one or no longer one",
+        description="List the users who may open the operator's area at /operator, where the "
+        "people who run the deployment read the organisations, users, costs, jobs and "
+        "services. With add or remove and an account's address, grant it or take it back. An "
+        "operator opens the area only from an address OPERATOR_NETWORKS lists and, in "
+        "production, with two-factor sign-in on.",
+    )
+    granting.add_argument(
+        "action", nargs="?", choices=("add", "remove"), help="grant the area, or take it back"
+    )
+    granting.add_argument("email", nargs="?", metavar="ADDRESS", help="the account's address")
     jobs = commands.add_parser(
         "jobs",
         help="show what the queue holds now, or where one document's indexing stands",
@@ -1530,6 +1606,15 @@ def main(argv: list[str] | None = None) -> None:
                     figures=args.figures,
                     unset=args.unset,
                 )
+                session.commit()
+                for line in lines:
+                    print(line)
+        elif args.command == "operators":
+            if (args.action is None) != (args.email is None):
+                parser.error("operators takes add or remove with an address, or neither")
+            check_schema()
+            with SessionLocal() as session:
+                lines = operators_report(session, args.action, args.email or "")
                 session.commit()
                 for line in lines:
                     print(line)

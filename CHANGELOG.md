@@ -80,6 +80,15 @@ Members:
 
 Operators:
 
+- The operator's area at `/operator`: the organisations with their plans, usage, members and
+  costs, the users, the costs across organisations, the job queue with its dead letters, and the
+  models and services as the worker's watch sees them, each what a maintenance command prints. It
+  reads; plan changes, requeues and the kill switch stay the commands'. `python -m app.maintenance
+  operators add <address>` makes an account an operator (the migration adds `operators`), who
+  opens the area from an address `OPERATOR_NETWORKS` lists (unset: this machine in development,
+  nobody in production) and, in production, with two-factor sign-in on; anyone else gets 404.
+  `pnpm build` now builds the page as a second bundle beside the members', which it leaves as it
+  was ("The operator's area" in deploying.md).
 - Project exports: the migration adds `project_exports`, the job kind `export_project` (run by
   the indexers), the notice kind `project_export` and the audit log's action `project_exported`.
   The worker writes each export whole into its temporary directory before it puts it under
