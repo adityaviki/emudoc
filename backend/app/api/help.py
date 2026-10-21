@@ -1,7 +1,9 @@
 """Help for members: the help pages and where to write for help (`GET /api/help`, public, since
-the sign-in pages link to the help too; the articles are app/help/), and a member's message to
-support from the app's help menu (`POST /api/feedback`), mailed to SUPPORT_EMAIL with what
-support needs to find what they met.
+the sign-in pages link to the help too; the articles are app/help/), what's new (`GET
+/api/changelog`, public likewise, and `POST /api/auth/changelog/read`, the account's; the
+entries are the changelog's, app/changelog.py), and a member's message to support from the app's
+help menu (`POST /api/feedback`), mailed to SUPPORT_EMAIL with what support needs to find what
+they met.
 
 The message is the member's words and goes nowhere but the mail: not into a log line, nor an
 `AppError`, nor the subject, which the mailer logs when a relay refuses it. What is attached is
@@ -13,20 +15,29 @@ up once it is sent (app/postbox.py), so the app keeps none of it.
 """
 
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.api.auth import app_url
-from app.api.deps import AccountDep, SessionDep, limited
+from app.api.auth import app_url, me_out
+from app.api.deps import AccountDep, SessionDep, UsableAccountDep, limited
+from app.changelog import news, page, read_through
 from app.config import get_settings
 from app.help import articles
 from app.logs import current_context
 from app.mail import compose, support_message_email
 from app.postbox import post
 from app.ratelimit import FEEDBACK
-from app.schemas import FeedbackIn, FeedbackOut, HelpArticleOut, HelpOut
+from app.schemas import (
+    ChangelogOut,
+    ChangesDayOut,
+    FeedbackIn,
+    FeedbackOut,
+    HelpArticleOut,
+    HelpOut,
+    MeOut,
+)
 from app.version import VERSION
 
 router = APIRouter(tags=["help"])
@@ -51,6 +62,30 @@ def help_offered():
         support_email=settings.support_address or None,
         status_page=settings.status_page_url or None,
     )
+
+
+@router.get("/changelog", response_model=ChangelogOut)
+def changelog(before: date | None = None):
+    """What changed for members, a page of days at a time, the newest first: the changelog's
+    entries for them, the same for every deployment of a release. Public and without the
+    database, like the help pages."""
+    days, next_before = page(news(), before)
+    return ChangelogOut(
+        days=[
+            ChangesDayOut(first=day.first, last=day.last, entries=list(day.members)) for day in days
+        ],
+        next_before=next_before,
+    )
+
+
+@router.post("/auth/changelog/read", response_model=MeOut)
+def read_changelog(account: UsableAccountDep, session: SessionDep):
+    """Say the user has read what's new as it stands, for every organisation, and answer the
+    account with nothing left unread. Not the organisation's business, so not audited; support's
+    view of the account cannot say it (`READ_ONLY_VIEW`)."""
+    read_through(news(), account.user)
+    session.commit()
+    return me_out(session, account)
 
 
 @router.post(

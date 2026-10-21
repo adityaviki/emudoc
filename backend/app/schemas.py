@@ -864,6 +864,9 @@ class MeOut(BaseModel):
     checklist_hidden: bool
     tour_seen: bool
     invite_hidden: bool
+    # How many of what's new's entries the user has not read (app/changelog.py), the newest,
+    # which the help menu marks.
+    changes_unread: int
     # Until when the user lets Emudoc's support see their account in this organisation, None
     # while they do not (app/support.py).
     support_until: dt.datetime | None
@@ -1232,6 +1235,23 @@ class HelpOut(BaseModel):
     status_page: str | None
 
 
+class ChangesDayOut(BaseModel):
+    """A day of what's new, or days told as one, and what changed for members then, the newest
+    first, each entry a line of Markdown (app/changelog.py)."""
+
+    first: dt.date
+    last: dt.date
+    entries: list[str]
+
+
+class ChangelogOut(BaseModel):
+    """A page of what's new, the newest days first, and the day to ask before for the next page,
+    None once the oldest is among them."""
+
+    days: list[ChangesDayOut]
+    next_before: dt.date | None
+
+
 # What a member writes to support about (`SUPPORT_SUBJECTS` in app/mail.py).
 FeedbackKind = Literal["problem", "question", "idea"]
 # The longest message to support: a page of a letter or two, whatever they pasted into it.
@@ -1298,6 +1318,10 @@ class ExportedAccount(BaseModel):
     checklist_hidden_at: dt.datetime | None
     tour_seen_at: dt.datetime | None
     invite_hidden_at: dt.datetime | None
+    # How far what's new was read: its newest day then, and how many entries it held
+    # (app/changelog.py).
+    changes_seen_on: dt.date | None
+    changes_seen_entries: int | None
     # When the mail provider said not to write to the address, and why (app/bounces.py).
     mail_spared: "ExportedSpared | None"
 

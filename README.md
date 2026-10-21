@@ -841,7 +841,11 @@ are the deployment's own, and a sentence about something it does not do (scannin
 plans) is left out. And it is where a member writes to support: a problem, a
 question or an idea, in their own words (`frontend/src/help/`, `POST /api/feedback` in
 `backend/app/api/help.py`). With `STATUS_PAGE_URL` it also leads to the status page, which the
-page that cannot reach its server links to as well. The app mails it to `SUPPORT_EMAIL` with a `Reply-To` of the
+page that cannot reach its server links to as well. It leads to what's new, `/whats-new`, also
+public: what changed for members, the **Members** entries of `CHANGELOG.md` a week of days at a
+time (`backend/app/changelog.py`, `GET /api/changelog`), with a dot on the question mark while a
+member has entries they have not read since they last opened it, which is kept on their account
+(`POST /api/auth/changelog/read`). The app mails a message to support to `SUPPORT_EMAIL` with a `Reply-To` of the
 member's address and what support needs to find what they met: the account, the organisation,
 the page's path with the ids of what was open, the version, the browser, and the reference of
 the last request the page saw refused or failed, which the log is searched by. The member's

@@ -293,6 +293,20 @@ export interface Help {
   status_page: string | null
 }
 
+/** A day of what's new, or days told as one, and what changed for members then, the newest first, each entry a line of Markdown (backend/app/changelog.py). */
+export interface ChangesDay {
+  /** ISO dates, the same for a single day. */
+  first: string
+  last: string
+  entries: string[]
+}
+
+/** A page of what's new, the newest days first, and the day to ask before for the next, null once the oldest is shown. */
+export interface Changelog {
+  days: ChangesDay[]
+  next_before: string | null
+}
+
 /** What a member writes to support about, which the mail's subject says. */
 export type FeedbackKind = 'problem' | 'question' | 'idea'
 
@@ -764,6 +778,8 @@ export interface Me {
   checklist_hidden: boolean
   tour_seen: boolean
   invite_hidden: boolean
+  /** How many of what's new's entries the user has not read, the newest ones, which the help menu marks. */
+  changes_unread: number
   /** Until when the user lets Emudoc's support see their account in this organisation (backend/app/support.py), null while they do not. */
   support_until: string | null
   /** Set while one of Emudoc's operators views the account as support rather than the user signed in: read only, this organisation alone, until `ends_at`. */
@@ -1163,6 +1179,8 @@ export const auth = {
   /** Hide the list of first steps or show it again, or say the tour was seen; a field left out stays as it is. */
   chooseOnboarding: (body: { checklist_hidden?: boolean; tour_seen?: boolean; invite_hidden?: boolean }) =>
     request<Me>('/auth/onboarding', json('PATCH', body)),
+  /** Say the user has read what's new as it stands, for every organisation. */
+  readChanges: () => request<Me>('/auth/changelog/read', { method: 'POST' }),
   /** Let Emudoc's support see the account in the organisation it works in for `days` from now, in place of a leave given before. */
   letSupportIn: (days: number) => request<Me>('/auth/support-access', json('PUT', { days })),
   /** Withdraw that leave, which also ends a view of the account by support. */
@@ -1322,6 +1340,9 @@ export const api = {
     request<{ reference: string | null }>('/page-errors', json('POST', report)),
   /** Public, since the sign-in pages lead to help too. */
   help: () => request<Help>('/help'),
+  /** Public: what changed for members, the page of days before `before`, the newest first. */
+  changelog: (before: string | null) =>
+    request<Changelog>(`/changelog${before ? `?${new URLSearchParams({ before })}` : ''}`),
   /** Mails the member's message to support; a 429 says when they may write again. */
   sendFeedback: (feedback: Feedback) => request<FeedbackSent>('/feedback', json('POST', feedback)),
   /** Owners and admins only; anyone else gets a 403. The page older than the row `before`, of the rows the filter picks. */

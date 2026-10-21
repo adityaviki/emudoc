@@ -7,10 +7,20 @@ full SHA is the image's tag, the version `/api/health` reports and the user menu
 they change. A commit that changes what a member or an operator sees adds its line here, under
 its day, in the same commit.
 
+The **Members** entries are what the app's "What's new" shows (`backend/app/changelog.py`), so
+they are written for members, as Markdown. The file keeps one shape, which the suite holds it
+to: `## YYYY-MM-DD` a day (or `## YYYY-MM-DD to YYYY-MM-DD`), the newest first, then `Members:`
+and `Operators:`, each a list of `- ` entries whose lines go on indented by two spaces, a day's
+newest entry first.
+
 ## 2026-10-21
 
 Members:
 
+- What's new, from the question mark in the header: what changed in Emudoc, the newest first,
+  a week at a time. The question mark carries a dot while there are changes you have not read
+  since you last looked, counting from the day your account was made. The privacy policy says
+  how far you read is kept; nobody needs to accept it again.
 - Where the service has a status page, the help menu, the help pages and the screen that says
   Emudoc cannot reach its server link to it, to see whether Emudoc is down and what is being
   done about it.
@@ -106,6 +116,9 @@ Members:
 
 Operators:
 
+- The image carries `CHANGELOG.md`, whose **Members** entries the app serves as what's new
+  (`GET /api/changelog`, public; deploying.md, "What's new"); without it the page has nothing to
+  tell and the log says why. A migration keeps how far each member read it.
 - `STATUS_PAGE_URL` names the deployment's status page, run outside it, which the help menu,
   the help pages and the page that cannot reach its server link to; deploying.md ("The status
   page") says how the uptime service, the person on call and the alerts fill it.

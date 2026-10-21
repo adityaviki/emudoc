@@ -15,7 +15,7 @@ import { makeOperator, movePlan } from './operator.ts'
 // steps, delete it and keep it, and switch back, and, on Team, invite a colleague as a
 // viewer from under that answer, who makes an account from the invitation's link, ends her tour, finds
 // the project and is offered no change to it until made a member, write to support from the
-// help menu, which mails the page written from, read the help pages, then make the project
+// help menu, which mails the page written from, read the help pages and what's new, then make the project
 // private, which she no longer finds until chosen for it, and share the chat, which the
 // colleague then reads but does not ask in, and last ask the question that uses the month's
 // questions, which the bell tells, and open that notice from the other organisation; then, made
@@ -386,6 +386,20 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(article).toContainText('kept 7 days for whoever asked for it')
     await article.getByRole('link', { name: 'account page' }).click()
     await expect(page).toHaveURL(/\/account$/)
+  })
+
+  await test.step("read what's new from the help menu: the changelog's newest entries for members", async () => {
+    const changelog = await readFile(join(import.meta.dirname, '..', '..', 'CHANGELOG.md'), 'utf8')
+    // The newest entry's first words, before any code in it, which the page sets apart.
+    const newest = /^Members:\n\n- ([^`\n]+)/m.exec(changelog)?.[1].split(' ').slice(0, 6).join(' ') ?? ''
+    expect(newest).not.toBe('')
+    await page.getByRole('button', { name: 'Help', exact: true }).click()
+    await page.getByRole('dialog', { name: 'Help' }).getByRole('link', { name: /^What's new/ }).click()
+    await expect(page.getByRole('heading', { name: "What's new", exact: true })).toBeVisible()
+    await expect(page.getByRole('region').first()).toContainText(newest)
+    // Read, so the help menu marks nothing, whatever it marked before.
+    await page.getByRole('link', { name: 'Emudoc', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Help', exact: true })).not.toHaveAttribute('aria-describedby')
   })
 
   await test.step('make a read key, which a program lists the projects with and changes nothing by', async () => {

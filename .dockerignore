@@ -4,6 +4,7 @@
 # frontend's build needs, is added here, as is one a release on AWS runs from the image
 # (deploy/aws/host/release).
 *
+!CHANGELOG.md
 !backend/pyproject.toml
 !backend/uv.lock
 !backend/.python-version

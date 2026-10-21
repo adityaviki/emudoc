@@ -96,7 +96,8 @@ with a tmpfs at `/tmp` as below, and checks the probes, the page and the files t
 CI does the same for every change.
 
 It holds Python 3.13 on Debian's slim image with the backend's locked dependencies (`uv sync
---frozen --no-dev`, compiled ahead), the app and its migrations, and the frontend's build, under
+--frozen --no-dev`, compiled ahead), the app and its migrations, the frontend's build, and
+`CHANGELOG.md`, whose entries for members the app serves as what's new ("What's new"), under
 `/app` as in a checkout, so the API serves the frontend from its own origin as "TLS at a reverse
 proxy" asks. It holds no `.env`, no uploads, no tests, and neither uv nor Node: `.dockerignore`
 names what goes into the build and leaves out everything else. Nor pip, which the base brings
@@ -3089,6 +3090,22 @@ policy says what a message holds and where it goes.
 A member who needs support to see what they see lets it in from their account page, for a day
 or a week ("The operator's area" below): ask for that in the reply rather than for screenshots
 of their documents.
+
+### What's new
+
+The help menu also leads to what's new, `/whats-new`, public like the help pages: the
+**Members** entries of `CHANGELOG.md`, the newest days first, a week of days a page (`GET
+/api/changelog`, `backend/app/changelog.py`), which are what a release changed for members and
+the same for every deployment of it. The image carries the file at `/app/CHANGELOG.md`
+(`docker run --rm emudoc:<sha> cat /app/CHANGELOG.md`); without it, or with a line out of the
+file's shape, the page says there is nothing to tell and the log says why, once a process, at
+ERROR ("What's new shows nothing, since CHANGELOG.md cannot be read: …"), which error tracking
+reports. CI's image check asks for it. The question mark carries a dot while a member has
+entries they have not read: how far each read is kept on their account (the newest day and how
+many entries it held, since a day gains entries with each release made that day), and a new
+account starts with every day up to the one it was made on read. Opening the page reads it;
+support's view of an account reads it without saying so. The **Operators** entries are for
+whoever runs the deployment and are served to nobody.
 
 ### The status page
 

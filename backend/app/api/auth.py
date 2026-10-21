@@ -81,6 +81,7 @@ from app.billing import (
     trial_days,
 )
 from app.bounces import forget
+from app.changelog import news, unread
 from app.config import get_settings
 from app.entitlements import (
     agreed_with,
@@ -1189,6 +1190,7 @@ def me_out(session: Session, account: Account) -> MeOut:
         checklist_hidden=user.checklist_hidden_at is not None,
         tour_seen=user.tour_seen_at is not None,
         invite_hidden=user.invite_hidden_at is not None,
+        changes_unread=unread(news(), user),
         support_until=leave.expires_at if leave is not None else None,
         support_view=SupportViewOut(ends_at=view.support_ends_at) if view else None,
     )

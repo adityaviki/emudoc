@@ -1,11 +1,12 @@
-// The question mark in the header: the way to the help pages and the status page, and to write
-// to support from wherever the member is, with the page and the last request that failed
-// attached (src/help/feedback.ts, backend/app/api/help.py). What they typed is kept while the
-// panel is closed, which a click elsewhere or a switch to another window does, until it is sent.
+// The question mark in the header: the way to the help pages, what's new, marked while some of
+// it is unread (src/help/WhatsNew.tsx), and the status page, and to write to support from
+// wherever the member is, with the page and the last request that failed attached
+// (src/help/feedback.ts, backend/app/api/help.py). What they typed is kept while the panel is
+// closed, which a click elsewhere or a switch to another window does, until it is sent.
 
 import { useMutation } from '@tanstack/react-query'
-import { Activity, BookOpen, CircleHelp } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { Activity, BookOpen, CircleHelp, Sparkles } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useLocation } from 'react-router'
 import { api, lastFailedRequest } from '../api.ts'
@@ -14,6 +15,7 @@ import { useMe } from '../auth.ts'
 import { Floating } from '../components/Menu.tsx'
 import { Button, FIELD, Notice, Segmented } from '../components/ui.tsx'
 import { useHelp } from '../hooks.ts'
+import { unreadWords } from './changes.ts'
 import { FEEDBACK_KINDS, MAX_FEEDBACK_CHARS, attachedWords, feedbackOf } from './feedback.ts'
 
 export function HelpMenu() {
@@ -22,6 +24,8 @@ export function HelpMenu() {
   const [kind, setKind] = useState<FeedbackKind>('problem')
   const [message, setMessage] = useState('')
   const location = useLocation()
+  const unread = useMe().changes_unread
+  const told = useId()
   const send = useMutation({
     mutationFn: () => api.sendFeedback(feedbackOf(kind, message, location.pathname, location.search, lastFailedRequest())),
     onSuccess: () => setMessage(''),
@@ -35,11 +39,17 @@ export function HelpMenu() {
         aria-haspopup="dialog"
         aria-expanded={anchor !== null}
         aria-label="Help"
+        aria-describedby={unread ? told : undefined}
         title="Help"
         onClick={(event) => setAnchor(anchor ? null : event.currentTarget.getBoundingClientRect())}
-        className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-sunken hover:text-ink"
+        className="relative inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-sunken hover:text-ink"
       >
         <CircleHelp className="size-4" />
+        {unread > 0 && (
+          <span id={told} className="absolute top-1 right-1 size-1.5 rounded-full bg-accent">
+            <span className="sr-only">What's new: {unreadWords(unread)}</span>
+          </span>
+        )}
       </button>
       {anchor && (
         <Floating anchor={anchor} alignEnd onClose={() => setAnchor(null)} ignore={button} className="w-96 max-w-[calc(100vw-16px)]">
@@ -52,6 +62,15 @@ export function HelpMenu() {
               >
                 <BookOpen className="size-4 shrink-0 opacity-70" />
                 Help pages
+              </Link>
+              <Link
+                to="/whats-new"
+                onClick={() => setAnchor(null)}
+                className="flex h-8 items-center gap-2.5 rounded-[5px] px-2 text-[13px] outline-none hover:bg-sunken focus-visible:bg-sunken"
+              >
+                <Sparkles className="size-4 shrink-0 opacity-70" />
+                What's new
+                {unread > 0 && <span className="ml-auto rounded-full bg-accent-soft px-1.5 text-xs font-medium text-accent">{unreadWords(unread)}</span>}
               </Link>
               <StatusPageLink />
             </div>

@@ -1,4 +1,4 @@
-import { ArrowLeft, Search } from 'lucide-react'
+import { ArrowLeft, Search, Sparkles } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import type { HelpArticle } from '../api.ts'
@@ -49,7 +49,13 @@ function Contents({ articles, address }: { articles: HelpArticle[]; address: str
   const found = matching(articles, query)
   return (
     <div className="w-full max-w-2xl">
-      <h1 className="text-lg font-semibold tracking-tight">Help</h1>
+      <div className="flex items-baseline justify-between gap-4">
+        <h1 className="text-lg font-semibold tracking-tight">Help</h1>
+        <Link to="/whats-new" className="inline-flex items-center gap-1 text-[13px] text-muted hover:text-ink">
+          <Sparkles className="size-3.5" />
+          What's new
+        </Link>
+      </div>
       <div className="relative mt-4">
         <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted" />
         <input
