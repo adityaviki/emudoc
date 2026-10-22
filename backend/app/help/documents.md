@@ -17,7 +17,8 @@ is checked, its text is read, its sections are found, each section is summarised
 (dates, amounts, parties) are noted, and its passages are indexed for search by meaning. Hover
 over the ring to see where it stands. A document can be searched and asked about once it is
 read; the summaries and the search by meaning follow. If a step fails, the ring says why;
-Emudoc tries again by itself when the cause may pass, and "Index again" in the file's menu
+Emudoc tries again by itself when the cause may pass, and says when (its step turns amber in the
+ring until then), and "Index again" in the file's menu
 (right-click it in the library) starts it again at once. An upload that takes $notice_minutes minutes or more is followed by a
 notice under the bell when it is done, naming any file that could not be read.
 

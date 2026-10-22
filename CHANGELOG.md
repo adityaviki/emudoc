@@ -13,6 +13,22 @@ to: `## YYYY-MM-DD` a day (or `## YYYY-MM-DD to YYYY-MM-DD`), the newest first, 
 and `Operators:`, each a list of `- ` entries whose lines go on indented by two spaces, a day's
 newest entry first.
 
+## 2026-10-23
+
+Members:
+
+- A document whose indexing failed for a passing reason, such as the AI model being busy, says
+  when Emudoc tries again: "Retrying at 14:32" in its status, or "Paused until 02:00" when the
+  day's spending limit holds it, with an amber mark on its ring in the library. A ready
+  document whose summaries or search by meaning wait says so under its status, and the library
+  follows the retry when it runs. "Index again" starts it at once, as before.
+
+Operators:
+
+- A document's stages carry `retry_at` and `deferred` while a retry waits (`StageOut`), and the
+  page asks about such a document when its retry is due, at most once a minute, rather than
+  every 1.5 seconds.
+
 ## 2026-10-22
 
 Members:

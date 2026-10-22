@@ -220,6 +220,9 @@ def test_an_indexing_stage_that_needs_the_model_waits_for_midnight_when_the_day_
         "embed": "pending",
     }
     assert document.stages["enrich"]["detail"] == f"{plan_refusal('1.00')} {continues()}"
+    # The page words the wait as the day's limit and not a retry after a failure.
+    assert document.stages["enrich"]["retry_at"] == day_of()[1].isoformat()
+    assert document.stages["enrich"]["deferred"] is True
     assert services.llm.calls == []
     # The handler leaves the first job to the worker to finish; the next waits for midnight.
     _, deferred = all_jobs(session)
@@ -246,6 +249,8 @@ def test_an_indexing_stage_that_needs_the_model_waits_for_midnight_when_the_day_
     assert scan.stages["parse"] == {
         "status": "failed",
         "detail": f"{plan_refusal('1.50')} {continues()}",
+        "retry_at": day_of()[1].isoformat(),
+        "deferred": True,
     }
     assert "OcrPage" not in [name for name, _ in services.llm.calls]
     assert all_jobs(session)[-1].run_at == day_of()[1]

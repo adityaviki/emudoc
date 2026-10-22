@@ -246,6 +246,8 @@ def test_documents_from_before_scanning_are_served_as_they_were(
     assert shown["stages"]["scan"] == {
         "status": "skipped",
         "detail": "Uploaded before uploads were scanned.",
+        "retry_at": None,
+        "deferred": False,
     }
     assert client.get(f"/api/documents/{document_id}/file").status_code == 200
 

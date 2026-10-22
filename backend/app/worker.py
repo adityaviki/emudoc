@@ -250,7 +250,7 @@ def _retry_index(job: Job, failure: StageFailure) -> str | None:
             wait = FIRST_BACKOFF * 2 ** (retry - 1)
             run_at = datetime.now(UTC) + wait
             notice = f"Retrying in {_minutes(wait)} ({retry} of {MAX_RETRIES})."
-        await_retry(document, failure, notice)
+        await_retry(document, failure, notice, run_at)
         queue_index(session, document, job.priority, run_at=run_at, retry=retry)
         session.commit()
     if deferred:

@@ -359,7 +359,12 @@ def test_without_a_scanner_the_stage_is_skipped_and_the_file_is_served(
     process_document(document["id"], services)
     shown = client.get(f"/api/documents/{document['id']}").json()
     assert shown["status"] == "ready"
-    assert shown["stages"]["scan"] == {"status": "skipped", "detail": NOT_SCANNED}
+    assert shown["stages"]["scan"] == {
+        "status": "skipped",
+        "detail": NOT_SCANNED,
+        "retry_at": None,
+        "deferred": False,
+    }
     assert NOT_SCANNED == (
         "No malware scanner is configured (SCANNER_URL), so this file was not scanned."
     )

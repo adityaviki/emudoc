@@ -8,9 +8,34 @@ import { queryOptions, useQueries, useQueryClient } from '@tanstack/react-query'
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
 import { api, ApiError, isIndexing } from '../api.ts'
 import type { Document } from '../api.ts'
+import { waitingRetry } from '../indexing.ts'
 
 /** How often a folder or a document being indexed is asked about again, in milliseconds. */
 export const REFRESH = 1500
+/**
+ * The longest a folder or a document waiting for a retry goes unasked, in milliseconds: the
+ * day's spending limit may hold it for hours, while another member's "Index again" or a
+ * deletion would change it sooner.
+ */
+export const WAITING_REFRESH = 60_000
+
+/**
+ * When to ask again about a folder or a document that shows these documents, in milliseconds,
+ * or false for not until something else asks: every REFRESH while one is indexed or queued
+ * without a known retry, else just after the soonest retry is due (when the worker takes it),
+ * at most WAITING_REFRESH from now. A ready document whose optional stage waits counts, so its
+ * retry is seen when it runs.
+ */
+export function refreshAfter(documents: Document[], now = Date.now()): number | false {
+  let soonest = Infinity
+  for (const document of documents) {
+    const retry = waitingRetry(document)
+    if (retry) soonest = Math.min(soonest, retry.at.getTime())
+    else if (isIndexing(document)) return REFRESH
+  }
+  if (soonest === Infinity) return false
+  return Math.min(Math.max(soonest - now + REFRESH, REFRESH), WAITING_REFRESH)
+}
 
 export interface ListedPage {
   /** The cursor the page was asked for with; null for the first. */
@@ -72,7 +97,7 @@ export const hasMore = (listing: Listing | undefined) => listing?.pages.at(-1)?.
 /** Whether the next page has been asked for and not yet come. */
 export const growing = (listing: Listing | undefined) => listing != null && listing.wanted > listing.pages.length
 
-/** The listings of these folders, in the same order; each is asked again while it shows a document being indexed. */
+/** The listings of these folders, in the same order; each is asked again while it shows a document being indexed or waiting for a retry. */
 export function useListings(projectId: number, folderIds: (number | null)[]) {
   const queryClient = useQueryClient()
   return useQueries({
@@ -81,22 +106,23 @@ export function useListings(projectId: number, folderIds: (number | null)[]) {
         queryKey: listingKey(projectId, folderId),
         queryFn: ({ signal }) =>
           fetchListing(projectId, folderId, queryClient.getQueryData<Listing>(listingKey(projectId, folderId)), signal),
-        refetchInterval: (query) => (listed(query.state.data).some(isIndexing) ? REFRESH : false),
+        refetchInterval: (query) => refreshAfter(listed(query.state.data)),
       }),
     ),
   })
 }
 
 /**
- * One document, asked again while it is being indexed. A listing that holds it shows it at
- * once while it is fetched, so a document opened from the library opens without a wait.
+ * One document, asked again while it is being indexed or waits for a retry. A listing that
+ * holds it shows it at once while it is fetched, so a document opened from the library opens
+ * without a wait.
  */
 export function documentQuery(queryClient: QueryClient, projectId: number, id: number) {
   return queryOptions({
     queryKey: documentKey(id),
     queryFn: () => api.document(id),
     placeholderData: () => findListed(queryClient, projectId, id),
-    refetchInterval: (query) => (query.state.data && isIndexing(query.state.data) ? REFRESH : false),
+    refetchInterval: (query) => refreshAfter(query.state.data ? [query.state.data] : []),
   })
 }
 

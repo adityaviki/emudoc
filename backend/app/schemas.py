@@ -157,6 +157,11 @@ class UsageOut(BaseModel):
 class StageOut(BaseModel):
     status: Literal["pending", "running", "done", "skipped", "failed"] = "pending"
     detail: str = ""
+    # While a failed stage waits to run again by itself (app/worker.py): when, and whether for
+    # the day's spending limit to reset rather than after a backoff. None once it runs or
+    # "Index again" overtakes it, and for a wait from before the field.
+    retry_at: dt.datetime | None = None
+    deferred: bool = False
 
 
 class DocumentPatch(BaseModel):

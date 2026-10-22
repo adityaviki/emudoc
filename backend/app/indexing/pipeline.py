@@ -308,23 +308,37 @@ def _quarantine(
     _commit(session, lease)
 
 
+# What a failed stage's mark holds besides its status and detail while a retry waits for it
+# (`await_retry`): when the worker runs it again, in UTC, and whether that moment is the day's
+# spending limit resetting rather than a backoff after the failure. The pages word the wait
+# from them (frontend/src/indexing.ts) and ask again at that moment; every other mark of the
+# stage leaves them out, since nothing waits once it runs or "Index again" overtakes it.
+WAITING = ("retry_at", "deferred")
+
+
+def _unwaited(stage: dict) -> dict:
+    return {key: value for key, value in stage.items() if key not in WAITING}
+
+
 def reset_stages(document: Document, from_stage: str = "parse") -> None:
     """Queue a document to run again from the given stage. A stage before it that is not done
-    runs too, so a quarantined document asked to run from parse is scanned again first."""
+    runs too, so a quarantined document asked to run from parse is scanned again first. The job
+    queued with the reset replaces any retry that waited (`queue_index`), so a stage kept as it
+    was no longer says when that retry runs."""
     rerun = STAGES[STAGES.index(from_stage) :]
     document.stages = {
         name: {"status": "pending", "detail": ""}
         if name in rerun
-        else document.stages.get(name, {})
+        else _unwaited(document.stages.get(name, {}))
         for name in STAGES
     }
     document.status = "queued"
     document.error = None
 
 
-def await_retry(document: Document, failure: StageFailure, notice: str) -> None:
-    """Set the document up to run again from the failed stage, with the notice in that stage's
-    detail for as long as the retry waits.
+def await_retry(document: Document, failure: StageFailure, notice: str, run_at: datetime) -> None:
+    """Set the document up to run again from the failed stage at `run_at`, with the notice in
+    that stage's detail and the moment in its mark for as long as the retry waits.
 
     The stage keeps saying it failed, and why, with the notice after it; the stages behind it
     run again too, as they do for "Index again". Without a required stage the document is
@@ -335,7 +349,12 @@ def await_retry(document: Document, failure: StageFailure, notice: str) -> None:
     reset_stages(document, failure.stage)
     document.stages = {
         **document.stages,
-        failure.stage: {"status": "failed", "detail": f"{failure.detail} {notice}"},
+        failure.stage: {
+            "status": "failed",
+            "detail": f"{failure.detail} {notice}",
+            "retry_at": run_at.astimezone(UTC).isoformat(),
+            "deferred": failure.retry_at is not None,
+        },
     }
     if ready:
         document.status = "ready"

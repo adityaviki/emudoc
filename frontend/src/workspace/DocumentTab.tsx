@@ -9,7 +9,7 @@ import { PipeTable } from '../components/Markdown.tsx'
 import { Chip, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { formatDate, parsePipeTable } from '../format.ts'
 import { useStatus } from '../hooks.ts'
-import { scanPassed } from '../indexing.ts'
+import { notIndexedWords, scanPassed } from '../indexing.ts'
 import { describeDocumentUsage } from '../usage.ts'
 import { originalFile } from './files.ts'
 import { useWorkspace } from './state.ts'
@@ -152,7 +152,7 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
               ? (document.error ?? 'The malware scan flagged this file. It is quarantined: not indexed, and nobody can open it.')
               : document.status === 'failed'
                 ? (document.error ?? 'Indexing failed.')
-                : 'This document is being indexed. Its text will appear here in a moment.'}
+                : notIndexedWords(document)}
           </Notice>
           {isImage(document) && openable && <ImagePreview document={document} />}
         </div>

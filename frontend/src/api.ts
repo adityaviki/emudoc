@@ -7,6 +7,13 @@ export const STAGES: StageName[] = ['scan', 'parse', 'structure', 'enrich', 'emb
 export interface Stage {
   status: 'pending' | 'running' | 'done' | 'skipped' | 'failed'
   detail: string
+  /**
+   * While a failed stage waits to run again by itself (backend/app/worker.py): when; null once
+   * it runs or "Index again" overtakes it.
+   */
+  retry_at: string | null
+  /** Whether that wait is for the day's spending limit to reset rather than a backoff after the failure. */
+  deferred: boolean
 }
 
 export type UsageKind = 'answer' | 'upload' | 'ocr' | 'infer_sections' | 'enrich' | 'embed' | 'render'

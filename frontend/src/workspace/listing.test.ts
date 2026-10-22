@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { editListings, fetchListing, findListed, listed, listingKey, showMore } from './listing.ts'
+import { REFRESH, WAITING_REFRESH, editListings, fetchListing, findListed, listed, listingKey, refreshAfter, showMore } from './listing.ts'
 import type { ListedPage, Listing } from './listing.ts'
 import type { Document } from '../api.ts'
 
@@ -142,5 +142,36 @@ describe('editListings', () => {
     expect(listed(client.getQueryData<Listing>(listingKey(4, null)))).toHaveLength(1)
     expect(findListed(client, 3, 3)).toEqual(c)
     expect(findListed(client, 3, 2)).toBeUndefined()
+  })
+})
+
+describe('refreshAfter', () => {
+  const NOW = Date.parse('2026-10-23T12:00:00Z')
+  const inMinutes = (minutes: number) => new Date(NOW + minutes * 60_000).toISOString()
+  const waiting = (id: number, status: Document['status'], retryAt: string, stage: 'parse' | 'enrich' = 'enrich'): Document => ({
+    ...doc(id, `${id}.pdf`),
+    status,
+    stages: { [stage]: { status: 'failed', detail: 'The model is busy.', retry_at: retryAt, deferred: false } },
+  })
+
+  it('asks every REFRESH while a document is indexed or queued, and not at all once they are settled', () => {
+    expect(refreshAfter([a, { ...b, status: 'processing' }], NOW)).toBe(REFRESH)
+    expect(refreshAfter([{ ...a, status: 'queued' }], NOW)).toBe(REFRESH)
+    expect(refreshAfter([a, { ...b, status: 'failed' }], NOW)).toBe(false)
+    expect(refreshAfter([], NOW)).toBe(false)
+  })
+
+  it('waits for the soonest retry to come due, ready documents among them, under a ceiling', () => {
+    expect(refreshAfter([waiting(1, 'queued', inMinutes(2), 'parse'), a], NOW)).toBe(WAITING_REFRESH)
+    expect(refreshAfter([waiting(1, 'ready', inMinutes(0.5)), waiting(2, 'queued', inMinutes(8), 'parse')], NOW)).toBe(30_000 + REFRESH)
+    // Due and not taken yet: the worker takes it any moment.
+    expect(refreshAfter([waiting(1, 'ready', inMinutes(-1))], NOW)).toBe(REFRESH)
+    // Anything indexed meanwhile is asked about as often as ever.
+    expect(refreshAfter([waiting(1, 'ready', inMinutes(8)), { ...b, status: 'processing' }], NOW)).toBe(REFRESH)
+  })
+
+  it('takes a queued document without a known retry, from before the server said when, for one indexed', () => {
+    const untimed = { ...waiting(1, 'queued', inMinutes(2), 'parse'), stages: { parse: { status: 'failed', detail: 'Busy.', retry_at: null, deferred: false } } } satisfies Document
+    expect(refreshAfter([untimed], NOW)).toBe(REFRESH)
   })
 })

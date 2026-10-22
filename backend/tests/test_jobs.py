@@ -807,6 +807,17 @@ def test_a_passing_failure_queues_the_stage_again_with_a_growing_backoff(
     assert retry.priority == 0 and retry.attempts == 0
     assert retry.run_at - datetime.now(UTC) > timedelta(seconds=50)
     assert claim("w:1", INDEX) is None
+    # The page reads when the retry runs from the stage itself, a backoff's and not the day's
+    # spending limit's, and asks again then (frontend/src/workspace/listing.ts).
+    stages = client.get(f"/api/documents/{document.id}").json()["stages"]
+    assert datetime.fromisoformat(stages["enrich"]["retry_at"]) == retry.run_at
+    assert stages["enrich"]["deferred"] is False
+    assert stages["scan"] == {
+        "status": "done",
+        "detail": "clean",
+        "retry_at": None,
+        "deferred": False,
+    }
 
     # The second retry waits twice as long.
     session.execute(text("UPDATE jobs SET run_at = now() WHERE id = :id"), {"id": retry.id})
@@ -821,8 +832,21 @@ def test_a_passing_failure_queues_the_stage_again_with_a_growing_backoff(
     second = all_jobs(session)[-1]
     assert second.payload == {"document_id": document.id, "retry": 2}
     assert second.run_at - datetime.now(UTC) > timedelta(seconds=110)
+    assert datetime.fromisoformat(document.stages["enrich"]["retry_at"]) == second.run_at
 
-    # "Index again" meanwhile overtakes the waiting retry: one job, now, from the start.
+    # "Index again" from a later stage overtakes the retry too: the waiting stage keeps its
+    # failure, which the run takes first, and no longer says when a retry runs.
+    assert (
+        client.post(f"/api/documents/{document.id}/reprocess?from_stage=embed").status_code == 202
+    )
+    session.refresh(document)
+    assert document.stages["enrich"] == {
+        "status": "failed",
+        "detail": f"{RATE_LIMITED} Retrying in 2 minutes (2 of {MAX_RETRIES}).",
+    }
+    assert all_jobs(session)[-1].run_at <= datetime.now(UTC)
+
+    # "Index again" from the start likewise: one job, now.
     assert client.post(f"/api/documents/{document.id}/reprocess").status_code == 202
     assert [job.status for job in all_jobs(session)] == ["running", "running", "queued"]
     manual = all_jobs(session)[-1]
@@ -878,6 +902,9 @@ def test_a_required_stage_waits_for_its_retry_as_queued_and_gives_up_as_failed(
     assert document.stages["parse"]["detail"].endswith(
         f"Retrying in 1 minute (1 of {MAX_RETRIES})."
     )
+    retry = all_jobs(session)[-1]
+    assert datetime.fromisoformat(document.stages["parse"]["retry_at"]) == retry.run_at
+    assert document.stages["parse"]["deferred"] is False
 
     # The last retry fails too: the document is failed, and its error says it was tried. The
     # job that gave up ends failed with the reason, where the operator's dead-letter listing
@@ -896,7 +923,8 @@ def test_a_required_stage_waits_for_its_retry_as_queued_and_gives_up_as_failed(
         f'{RATE_LIMITED} Tried {MAX_RETRIES + 1} times over 15 minutes; use "Index again" '
         "once the service is back."
     )
-    assert document.stages["parse"]["detail"] == document.error
+    # Nothing waits any more.
+    assert document.stages["parse"] == {"status": "failed", "detail": document.error}
     first, last = all_jobs(session)
     assert (first.status, last.status) == ("running", "failed")
     assert last.last_error == (
@@ -931,6 +959,8 @@ def test_the_worker_retries_until_the_outage_passes(
     session.refresh(document)
     assert document.status == "ready"
     assert set(stage_statuses(document).values()) == {"done"}
+    # The run's own mark says nothing of the retry it was.
+    assert set(document.stages["enrich"]) == {"status", "detail"}
     assert "Retrying" not in document.stages["enrich"]["detail"]
     assert [job.payload.get("retry", 0) for job in all_jobs(session)] == [0, 1]
 

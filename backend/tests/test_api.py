@@ -251,6 +251,8 @@ def test_document_views_after_indexing(client, services, sample_pdf):
     assert document["stages"]["enrich"] == {
         "status": "done",
         "detail": "5 section summaries, 3 facts",
+        "retry_at": None,
+        "deferred": False,
     }
 
     outline = client.get(f"/api/documents/{document_id}/outline").json()

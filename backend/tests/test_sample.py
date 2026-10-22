@@ -107,9 +107,15 @@ def test_a_sign_up_starts_with_the_sample_ready_to_ask_about(
         # Ready, with everything but its vectors, which its index job makes.
         assert document["status"] == "ready"
         assert document["title"] == entry["title"] and document["doc_type"] == entry["doc_type"]
-        assert document["stages"]["scan"] == {"status": "skipped", "detail": NOTHING_TO_SCAN}
+        # No stage waits for a retry.
+        settled = {"retry_at": None, "deferred": False}
+        assert document["stages"]["scan"] == {
+            "status": "skipped",
+            "detail": NOTHING_TO_SCAN,
+            **settled,
+        }
         for name in ("parse", "structure", "enrich"):
-            assert document["stages"][name] == entry["stages"][name]
+            assert document["stages"][name] == entry["stages"][name] | settled
         assert document["stages"]["embed"]["status"] == "pending"
         # The file is served, as an upload's is once scanned.
         served = client.get(f"/api/documents/{document['id']}/file")

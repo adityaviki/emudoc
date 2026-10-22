@@ -22,8 +22,9 @@ project reprocess regardless. Each stage stores its output, so any stage can be 
 its own. A stage
 that failed because the model, the embedding endpoint or the bucket was out of reach (down,
 rate limiting, a dropped connection) is run again by itself after 1, 2, 4 and 8 minutes; the
-stage says so in the document's status until it succeeds, and after the last try it stays
-failed until "Index again". A stage that failed for a reason that will not pass on its own, such
+document's status says when ("Retrying at 14:32", or "Paused until 02:00" for the day's
+spending limit, with the stage's arc amber), the page asks about it again at that moment rather
+than every second and a half, and after the last try it stays failed until "Index again". A stage that failed for a reason that will not pass on its own, such
 as a rejected key or a file nothing can be read from, is not retried. In development the
 stage's words are the operator's (the model, the endpoint's address, the setting to change); a
 deployment's members read what it means for them ("The AI model is unavailable just now.", a

@@ -1,7 +1,7 @@
 import { CircleAlert, CircleCheck, ShieldAlert } from 'lucide-react'
 import { STAGES, isIndexing } from '../api.ts'
 import type { Document, Stage } from '../api.ts'
-import { STAGE_LABELS, STATUS_LABELS, missingStages, stageOf, statusLabel, statusTitle } from '../indexing.ts'
+import { missingStages, missingWords, stageOf, statusLabel, statusTitle, waitingRetry } from '../indexing.ts'
 
 // Each stage's arc in the ring while the document is indexed. Every arc but a pending one, the
 // faint track the others fill, stands out from the row under it by 3:1 or more (WCAG's non-text
@@ -13,6 +13,9 @@ const ARC_TONES: Record<Stage['status'], string> = {
   skipped: 'text-muted',
   pending: 'text-line',
 }
+// A failed stage that waits to run again by itself: amber, since it is no failure for good, and
+// as plain against the row as the others.
+const WAITING_TONE = 'text-warn'
 // The ring is a circle of circumference 100 with an arc per stage, starting at the top: each
 // arc takes its share less a gap on either side.
 const ARC = 100 / STAGES.length
@@ -20,18 +23,20 @@ const GAP = 3
 
 /**
  * The document's indexing state as one icon: while it is indexed, a ring with an arc per stage that
- * fills in as they finish; once ready, a check, green with every stage done and grey without one
- * of them; an alert when it failed, and a shield when the malware scan quarantined it.
+ * fills in as they finish, a stage that waits for a retry in amber, which keeps the ring on a
+ * ready document until the retry; once ready, a check, green with every stage done and grey
+ * without one of them; an alert when it failed, and a shield when the malware scan quarantined it.
  */
 export function StatusIcon({ id, document, className = 'size-3.5' }: { id?: string; document: Document; className?: string }) {
   const title = statusTitle(document)
+  const retry = waitingRetry(document)
   return (
     <span id={id} role="img" aria-label={title} title={title} className="inline-flex shrink-0">
       {document.status === 'quarantined' ? (
         <ShieldAlert className={`text-bad ${className}`} />
       ) : document.status === 'failed' ? (
         <CircleAlert className={`text-bad ${className}`} />
-      ) : document.status === 'ready' ? (
+      ) : document.status === 'ready' && !retry ? (
         <CircleCheck className={`${missingStages(document).length ? 'text-muted' : 'text-good'} ${className}`} />
       ) : (
         <svg viewBox="0 0 16 16" fill="none" strokeWidth={2} className={`-rotate-90 ${className}`}>
@@ -45,7 +50,7 @@ export function StatusIcon({ id, document, className = 'size-3.5' }: { id?: stri
               strokeDasharray={`${ARC - 2 * GAP} ${100 - ARC + 2 * GAP}`}
               strokeDashoffset={-(index * ARC + GAP)}
               strokeLinecap="round"
-              className={`stroke-current ${ARC_TONES[stageOf(document, name).status]}`}
+              className={`stroke-current ${retry?.stage === name ? WAITING_TONE : ARC_TONES[stageOf(document, name).status]}`}
             />
           ))}
         </svg>
@@ -54,11 +59,17 @@ export function StatusIcon({ id, document, className = 'size-3.5' }: { id?: stri
   )
 }
 
-/** The status icon with the document's state beside it, and what went wrong or was left out. */
+/**
+ * The status icon with the document's state beside it, and what went wrong, was left out, or
+ * waits for a retry, and why.
+ */
 export function IndexingStatus({ document }: { document: Document }) {
-  const missing = missingStages(document)
+  const missing = missingWords(document)
   const wrong = document.status === 'failed' || document.status === 'quarantined'
-  const tone = wrong ? 'text-bad' : isIndexing(document) ? 'text-accent' : 'text-muted'
+  const retry = waitingRetry(document)
+  // A queued document's retry is its whole state; a ready one's is the line under it.
+  const retrying = document.status === 'queued' && retry
+  const tone = wrong ? 'text-bad' : retrying ? WAITING_TONE : isIndexing(document) ? 'text-accent' : 'text-muted'
 
   return (
     <div>
@@ -69,11 +80,10 @@ export function IndexingStatus({ document }: { document: Document }) {
       {wrong && document.error && (
         <p className="mt-0.5 max-w-xs text-xs text-bad">{document.error}</p>
       )}
-      {document.status === 'ready' && missing.length > 0 && (
-        <p className="mt-0.5 text-xs text-muted">
-          Without {missing.map((name) => STAGE_LABELS[name].toLowerCase()).join(', ')}
-        </p>
+      {retrying && stageOf(document, retry.stage).detail && (
+        <p className="mt-0.5 max-w-xs text-xs text-muted">{stageOf(document, retry.stage).detail}</p>
       )}
+      {document.status === 'ready' && missing && <p className="mt-0.5 text-xs text-muted">{missing}</p>}
     </div>
   )
 }
@@ -83,8 +93,11 @@ export function StatusDot({ document, className = 'size-1.5' }: { document: Docu
   const tone =
     document.status === 'failed' || document.status === 'quarantined'
       ? 'bg-bad'
-      : isIndexing(document)
-        ? 'bg-accent animate-pulse'
-        : 'bg-good'
-  return <span title={STATUS_LABELS[document.status]} className={`inline-block shrink-0 rounded-full ${tone} ${className}`} />
+      : waitingRetry(document)
+        ? 'bg-warn'
+        : isIndexing(document)
+          ? 'bg-accent animate-pulse'
+          : 'bg-good'
+  const title = [statusLabel(document), document.status === 'ready' && missingWords(document)].filter(Boolean).join('. ')
+  return <span title={title} className={`inline-block shrink-0 rounded-full ${tone} ${className}`} />
 }
