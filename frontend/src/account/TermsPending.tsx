@@ -84,11 +84,11 @@ export function TermsPending({ me }: { me: Me }) {
                 label={
                   <>
                     I accept the{' '}
-                    <a href="/terms" target="_blank" className="font-medium text-accent hover:underline">
+                    <a href="/terms" target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
                       terms of service
                     </a>{' '}
                     and have read the{' '}
-                    <a href="/privacy" target="_blank" className="font-medium text-accent hover:underline">
+                    <a href="/privacy" target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
                       privacy policy
                     </a>
                     .
