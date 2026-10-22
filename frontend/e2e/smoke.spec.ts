@@ -128,6 +128,9 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   await test.step('upload the contract, begun offline, and wait for it to be indexed', async () => {
     // Offline, the upload waits for the connection and says so, as the header does.
     const offline = page.getByRole('status').filter({ hasText: 'Offline' })
+    // The project must have loaded first: offline, its query waits for the connection and the
+    // library, with the upload's input, is never drawn.
+    await expect(page.locator('input[name="files"]')).toBeAttached()
     await page.context().setOffline(true)
     await expect(offline).toBeVisible()
     await page.locator('input[name="files"]').setInputFiles(CONTRACT)
