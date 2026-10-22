@@ -126,6 +126,119 @@ describe('a request that reached no server', () => {
   })
 })
 
+/** XMLHttpRequest as far as an upload uses it, answered by the test. */
+class FakeRequest {
+  static made: FakeRequest[] = []
+  method = ''
+  url = ''
+  headers = new Headers()
+  body: unknown = null
+  responseType = ''
+  status = 0
+  statusText = ''
+  response: Blob | null = null
+  upload: { onprogress: ((event: { loaded: number; total: number }) => void) | null } = { onprogress: null }
+  onload: (() => void) | null = null
+  onerror: (() => void) | null = null
+  onabort: (() => void) | null = null
+  private answered = ''
+
+  constructor() {
+    FakeRequest.made.push(this)
+  }
+
+  open(method: string, url: string) {
+    this.method = method
+    this.url = url
+  }
+
+  setRequestHeader(name: string, value: string) {
+    this.headers.set(name, value)
+  }
+
+  getAllResponseHeaders() {
+    return this.answered
+  }
+
+  send(body: unknown) {
+    this.body = body
+  }
+
+  abort() {
+    this.onabort?.()
+  }
+
+  answer(status: number, body: unknown, headers: Record<string, string> = {}) {
+    this.status = status
+    this.response = new Blob([JSON.stringify(body)])
+    this.answered = Object.entries({ 'Content-Type': 'application/json', ...headers })
+      .map(([name, value]) => `${name}: ${value}\r\n`)
+      .join('')
+    this.onload?.()
+  }
+}
+
+const file = (name: string, text = 'text') => new File([text], name)
+
+describe('an upload, which says how far it has gone', () => {
+  const sending = () => {
+    FakeRequest.made = []
+    vi.stubGlobal('XMLHttpRequest', FakeRequest)
+  }
+
+  it('is sent with the headers of every request, and each file its folder when one is in one', async () => {
+    sending()
+    showOrganization(7)
+    const progress = vi.fn()
+    const items = [
+      { file: file('a.md'), folder: '' },
+      { file: file('b.md'), folder: 'Invoices/2026' },
+    ]
+    const answer = api.upload(3, items, 12, { onProgress: progress })
+    const [request] = FakeRequest.made
+    expect([request.method, request.url]).toEqual(['POST', '/api/projects/3/documents?folder_id=12'])
+    expect(request.headers.get('X-Requested-With')).toBe('fetch')
+    expect(request.headers.get('X-Organization')).toBe('7')
+    const form = request.body as FormData
+    expect((form.getAll('files') as File[]).map((sent) => sent.name)).toEqual(['a.md', 'b.md'])
+    expect(form.getAll('paths')).toEqual(['', 'Invoices/2026'])
+    request.upload.onprogress?.({ loaded: 50, total: 200 })
+    expect(progress).toHaveBeenCalledWith(50, 200)
+    request.answer(201, { documents: [], rejected: [] })
+    await expect(answer).resolves.toEqual({ documents: [], rejected: [] })
+
+    // Files of no folder of their own carry no paths, as before folders could be uploaded.
+    void api.upload(3, [{ file: file('c.md'), folder: '' }], null, { onProgress: progress })
+    const form2 = FakeRequest.made[1].body as FormData
+    expect(form2.getAll('paths')).toEqual([])
+    expect(FakeRequest.made[1].url).toBe('/api/projects/3/documents')
+  })
+
+  it('is refused as any request is', async () => {
+    sending()
+    const asked = vi.fn()
+    handlePlanLimit(asked)
+    const answer = api.upload(3, [{ file: file('a.md'), folder: '' }], null, { onProgress: vi.fn() })
+    FakeRequest.made[0].answer(402, { detail: 'The plan is full.', limit: 'documents' }, { 'X-Request-ID': 'abc' })
+    const refusal = await answer.catch((error: unknown) => error)
+    expect(refusal).toBeInstanceOf(ApiError)
+    expect(refusal).toMatchObject({ status: 402, message: 'The plan is full.', limit: 'documents' })
+    expect(asked).toHaveBeenCalledOnce()
+  })
+
+  it('is cut off by a network that drops it, and stopped by the page', async () => {
+    sending()
+    const cut = api.upload(3, [{ file: file('a.md'), folder: '' }], null, { onProgress: vi.fn() })
+    FakeRequest.made[0].onerror?.()
+    await expect(cut).rejects.toBeInstanceOf(Unreachable)
+
+    const stop = new AbortController()
+    const stopped = api.upload(3, [{ file: file('a.md'), folder: '' }], null, { onProgress: vi.fn(), signal: stop.signal })
+    stop.abort()
+    await expect(stopped).rejects.toMatchObject({ name: 'AbortError' })
+  })
+})
+
 describe('a sign-in through a provider', () => {
   it('carries the zone and the invitation only when there are some', () => {
     expect(oauthStartUrl('google', '/', '')).toBe('/api/auth/oauth/google/start?next=%2F')

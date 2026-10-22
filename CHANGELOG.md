@@ -17,6 +17,13 @@ newest entry first.
 
 Members:
 
+- A folder can be uploaded whole, with the folders in it: drop it on the library or on a folder
+  there, or choose it with "Upload a folder". Its folders are made as they were, and where a
+  folder of the same name is there already its files go into that one. An upload now shows how
+  far it has gone, as a whole and file by file under "Each file", and Stop ends it. A large
+  upload goes in parts, one after another, so a folder of hundreds of files goes whole; files of
+  a type Emudoc does not read and files too large are left out before anything is sent, and
+  listed with why, and a folder's hidden files are left out too.
 - Emudoc works by the keyboard alone and reads better aloud. A menu or panel takes the keyboard
   as it opens and gives it back to its button on Escape; Tab goes on past it. The library's
   files are one stop: a screen reader reads out each file as the arrows reach it, with its
@@ -42,6 +49,13 @@ Members:
 
 Operators:
 
+- The upload route takes `paths`, each file's folder below the one it goes into, and makes the
+  folders where none of their names is (`folder_at` in `backend/app/folders.py`, under an
+  advisory lock per project); a path it cannot make (".", "..", a name past 200 characters,
+  past 32 folders deep) rejects its file alone, counted as `folder` in
+  `emudoc_upload_rejections_total`. `GET /api/status` gives `uploads`, the request limits by
+  which the page splits a large upload into several requests, each an upload with its own
+  notice. The members' page's scripts grow to 228.5 kB gzipped, under a budget raised to 231.
 - The browser test checks each kind of page, panel and dialog against axe-core's rules for
   WCAG 2.2 AA in both themes (`frontend/e2e/axe.ts`, `@axe-core/playwright`), and fails on any
   violation. The members' page's scripts grow to 225.6 kB gzipped, under a budget raised to 228.

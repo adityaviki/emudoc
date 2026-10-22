@@ -1143,11 +1143,21 @@ class EmbeddingStatus(BaseModel):
     error: str | None
 
 
+class UploadLimitsOut(BaseModel):
+    """What one upload request may carry (MAX_UPLOAD_FILES, MAX_UPLOAD_REQUEST_MB, MAX_UPLOAD_MB),
+    so that the page sends a folder of more in several and leaves a file of more unsent."""
+
+    files: int
+    request_bytes: int
+    file_bytes: int
+
+
 class StatusOut(BaseModel):
     llm: LLMStatus
     embeddings: EmbeddingStatus
     # The currency the costs on usage are in (PRICE_CURRENCY), an ISO 4217 code.
     currency: str
+    uploads: UploadLimitsOut
 
 
 class SubprocessorOut(_FromORM):

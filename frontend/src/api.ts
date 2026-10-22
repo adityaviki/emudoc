@@ -153,6 +153,22 @@ export interface UploadResult {
   rejected: { filename: string; reason: string; limit: PlanLimit | null }[]
 }
 
+/** A file to upload, with the folders it is in below the one it goes into ("Invoices/2024"), '' for that one itself. */
+export interface UploadItem {
+  file: File
+  folder: string
+}
+
+/** What one upload request may carry (UploadLimitsOut in backend/app/schemas.py). */
+export interface UploadLimits {
+  files: number
+  request_bytes: number
+  file_bytes: number
+}
+
+/** How far a request's body has gone, in bytes, multipart's own lines included. */
+export type Progress = (loaded: number, total: number) => void
+
 export interface Section {
   id: number
   title: string
@@ -246,6 +262,7 @@ export interface SystemStatus {
   embeddings: { ok: boolean; model: string | null; error: string | null }
   /** The currency the costs on usage are in, an ISO 4217 code. */
   currency: string
+  uploads: UploadLimits
 }
 
 /** Whether the API can serve, and which version it runs (backend/app/version.py). */
@@ -1110,13 +1127,14 @@ const ORGANIZATION_HEADER = 'X-Organization'
  * what keeps a page on another site from making one with the user's cookie, and anything a tab
  * asks in an organisation other than the one the session works in now (backend/app/api/deps.py).
  */
-async function send(path: string, init?: RequestInit): Promise<Response> {
+async function send(path: string, init?: RequestInit, onProgress?: Progress): Promise<Response> {
   const headers = new Headers(init?.headers)
   headers.set('X-Requested-With', 'fetch')
   if (shownOrganization !== null) headers.set(ORGANIZATION_HEADER, String(shownOrganization))
   let response: Response
   try {
-    response = await fetch(`/api${path}`, { ...init, headers })
+    const sent = { ...init, headers }
+    response = await (onProgress ? sendReporting(`/api${path}`, sent, onProgress) : fetch(`/api${path}`, sent))
   } catch (error) {
     // An abort (a stop, a query no longer wanted) is the page's own doing and stays as it is.
     if (error instanceof TypeError) throw new Unreachable(globalThis.navigator?.onLine === false)
@@ -1129,6 +1147,36 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
   if (response.status === 402) onPlanLimit?.()
   if (response.status === 409 && response.headers.has(ORGANIZATION_HEADER)) onSwitched?.()
   return response
+}
+
+/**
+ * A request that reports how far its body has gone, which fetch does not (a streamed body needs
+ * HTTP/2 and Chromium): sent through XMLHttpRequest, and answered as fetch would answer, with a
+ * Response, a TypeError for one that reached no server and an AbortError for an abort.
+ */
+function sendReporting(url: string, init: RequestInit & { headers: Headers }, onProgress: Progress): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    const aborted = () => reject(new DOMException('The request was stopped.', 'AbortError'))
+    xhr.open(init.method ?? 'GET', url)
+    init.headers.forEach((value, name) => xhr.setRequestHeader(name, value))
+    xhr.responseType = 'blob'
+    xhr.upload.onprogress = (event) => onProgress(event.loaded, event.total)
+    xhr.onload = () => {
+      const headers = new Headers()
+      for (const line of xhr.getAllResponseHeaders().split('\r\n')) {
+        const colon = line.indexOf(':')
+        if (colon > 0) headers.append(line.slice(0, colon), line.slice(colon + 1).trim())
+      }
+      const body = xhr.status === 204 || xhr.status === 304 ? null : (xhr.response as Blob)
+      resolve(new Response(body, { status: xhr.status, statusText: xhr.statusText, headers }))
+    }
+    xhr.onerror = () => reject(new TypeError('The request reached no server.'))
+    xhr.onabort = aborted
+    if (init.signal?.aborted) return aborted()
+    init.signal?.addEventListener('abort', () => xhr.abort(), { once: true })
+    xhr.send(init.body as XMLHttpRequestBodyInit | null)
+  })
 }
 
 /**
@@ -1146,8 +1194,8 @@ async function refusal(response: Response, fallback: string): Promise<ApiError> 
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await send(path, init)
+async function request<T>(path: string, init?: RequestInit, onProgress?: Progress): Promise<T> {
+  const response = await send(path, init, onProgress)
   if (!response.ok) throw await refusal(response, response.statusText)
   return response.status === 204 ? (undefined as T) : response.json()
 }
@@ -1445,11 +1493,24 @@ export const api = {
     const page: DocumentPage = await response.json()
     return { ...page, etag: response.headers.get('ETag') }
   },
-  upload: (projectId: number, files: File[], folderId: number | null) => {
+  /**
+   * One request of an upload into a folder (`sendInBatches` in workspace/uploads.ts makes several
+   * of one that is more than a request may carry), each file into the folder its `folder` names
+   * below it, which the server makes where none of its name is.
+   */
+  upload: (
+    projectId: number,
+    items: UploadItem[],
+    folderId: number | null,
+    sending: { onProgress?: Progress; signal?: AbortSignal } = {},
+  ) => {
     const form = new FormData()
-    for (const file of files) form.append('files', file)
+    for (const { file } of items) form.append('files', file)
+    // Each file's folder, sent when any is in one, as the files of an uploaded folder are.
+    if (items.some(({ folder }) => folder)) for (const { folder } of items) form.append('paths', folder)
     const query = folderId == null ? '' : `?folder_id=${folderId}`
-    return request<UploadResult>(`/projects/${projectId}/documents${query}`, { method: 'POST', body: form })
+    const init = { method: 'POST', body: form, signal: sending.signal }
+    return request<UploadResult>(`/projects/${projectId}/documents${query}`, init, sending.onProgress)
   },
   document: (id: number) => request<Document>(`/documents/${id}`),
   updateDocument: (id: number, body: { filename?: string; folder_id?: number | null }) =>

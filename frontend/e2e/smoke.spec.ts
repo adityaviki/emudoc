@@ -10,7 +10,8 @@ import { makeOperator, movePlan } from './operator.ts'
 // organisation's first steps listed, skip the tour the first project shows, ask the sample
 // project the organisation starts with one of its questions, make a project, upload a contract,
 // begun offline and waiting for the connection, wait for it to be indexed, find it by searching, ask about it, open the passage the answer
-// cites, which the Free plan's chat follows with the way to a plan for a team, export the project,
+// cites, which the Free plan's chat follows with the way to a plan for a team, upload a folder,
+// whose panel follows each file while its request is held, and put it in the trash, export the project,
 // download it and open the bell's notice that it is ready, start a second
 // organisation, choose its settings, read them in its audit log and download it, hide its first
 // steps, delete it and keep it, and switch back, and, on Team, invite a colleague as a
@@ -29,6 +30,8 @@ import { makeOperator, movePlan } from './operator.ts'
 // against axe-core's rules for WCAG 2.2 AA in both themes (e2e/axe.ts), and the keyboard's focus
 // is followed where something it was on goes away.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
+// A folder of two delivery notes, one of them in a folder of its own.
+const DELIVERIES = join(import.meta.dirname, 'fixtures', 'deliveries')
 // The project every sign-up's organisation starts with (backend/app/sample).
 const SAMPLE = 'Sample: Acme supplier contract'
 
@@ -127,7 +130,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const offline = page.getByRole('status').filter({ hasText: 'Offline' })
     await page.context().setOffline(true)
     await expect(offline).toBeVisible()
-    await page.locator('input[type="file"]').setInputFiles(CONTRACT)
+    await page.locator('input[name="files"]').setInputFiles(CONTRACT)
     await expect(page.getByText('Your browser is offline: the upload of 1 file starts once the connection is back.')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Waiting for the connection' })).toBeDisabled()
     await page.context().setOffline(false)
@@ -278,6 +281,42 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('button', { name: 'Back to the library' }).click()
     await expect(contract).toBeVisible()
     await expect(folder).toHaveCount(0)
+  })
+
+  await test.step('upload a folder, following each file as it goes, and put it in the trash', async () => {
+    // The request is held while the panel that follows it is read.
+    let release = () => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const uploads = '**/api/projects/*/documents*'
+    await page.route(uploads, async (route) => {
+      if (route.request().method() === 'POST') await held
+      await route.continue()
+    })
+    await page.locator('input[name="folder"]').setInputFiles(DELIVERIES)
+    const panel = page.getByRole('region', { name: 'Upload' })
+    await expect(panel.getByRole('progressbar', { name: 'Uploading 2 files into Supplier contracts' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Upload a folder' })).toBeDisabled()
+    await panel.getByText('Each file', { exact: true }).click()
+    const each = panel.getByRole('list', { name: 'Each file' })
+    await expect(each.getByRole('listitem')).toHaveCount(2)
+    await expect(each).toContainText('deliveries/march.md')
+    await expect(each).toContainText('deliveries/april/week-1.md')
+    await expectAccessible(page, 'the library while an upload is sent')
+    release()
+    await expect(panel).toHaveCount(0)
+    await page.unroute(uploads)
+    // Its folders are made as they were, the one in it with its file.
+    const folder = page.getByRole('treeitem', { name: /deliveries/ })
+    await folder.click()
+    await page.keyboard.press('ArrowRight')
+    await expect(page.getByRole('treeitem', { name: /march\.md/ })).toBeVisible()
+    await expect(page.getByRole('treeitem', { name: /april/ })).toBeVisible()
+    await folder.click()
+    await page.keyboard.press('Delete')
+    await expect(folder).toHaveCount(0)
+    await expect(page.getByText('“deliveries” is in the trash.')).toBeVisible()
   })
 
   await test.step('export the project, which the worker makes, and download it', async () => {

@@ -2,9 +2,13 @@
 
 ## What you can upload
 
-$formats. A file may be up to $max_upload_mb MB, and one upload up to $max_upload_files files and
-$max_request_mb MB together. A file saved with a password cannot be read: save it again without
-one. A scanned page is read by the AI model as an image$ocr_pages. $scanning
+$formats. A file may be up to $max_upload_mb MB. Upload files with Upload, or a folder with the
+folders in it with "Upload a folder", or drop either on the library or on a folder in it. A larger
+upload is sent $max_upload_files files or $max_request_mb MB at a time, and a panel under the
+toolbar shows how far it has gone, file by file under "Each file", until Stop. A file Emudoc does
+not read is left out before anything is sent, and so are a folder's hidden files. A file saved
+with a password cannot be read: save it again without one. A scanned page is read by the AI model
+as an image$ocr_pages. $scanning
 
 ## How a document is read
 
@@ -20,7 +24,8 @@ notice under the bell when it is done, naming any file that could not be read.
 ## Folders
 
 Make folders with New folder, drag files and folders into them, and rename an item with F2 or
-from its menu. A move or a rename can be undone at once from the notice under the library's
+from its menu. A folder uploaded is filed as it was, inside the folder it goes into; where that
+holds a folder of the same name already, its files go into that one. A move or a rename can be undone at once from the notice under the library's
 toolbar. Two files of the same project cannot hold the same bytes: uploading one again says
 where it is.
 

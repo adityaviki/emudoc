@@ -6,7 +6,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
 
-// 224 kB: 200 kB, with room for some growth above the 184 kB of 2026-10-20, was passed the same
+// 231 kB: 200 kB, with room for some growth above the 184 kB of 2026-10-20, was passed the same
 // day by the notification centre (202.4 kB), whose bell is on every page, 205 kB on 2026-10-21
 // by the first steps and the tour of a workspace (205.8 kB), which every new member is shown,
 // made by hand since no tour library fits, 210 kB the same day by the organisation's settings
@@ -17,10 +17,12 @@ import { gzipSync } from 'node:zlib'
 // kB), whose text the API sends, and 224 kB on 2026-10-22 by the accessibility pass (224.9 kB):
 // menus, panels, tabs and the library's listing worked by the keyboard alone, and the focus
 // given back where what held it goes, in the parts of every page, each of which a code split
-// could not hold back without a reload after a release (frontend conventions). A
-// change that passes it makes the scripts smaller (a dependency left out, a page loaded only
+// could not hold back without a reload after a release (frontend conventions), then 228 kB
+// (225.6 kB), and 231 kB the same day by an upload's progress and folders uploaded (228.5 kB):
+// the panel that follows each file, the requests a folder is sent in and its reading, in the
+// library of every project. A change that passes it makes the scripts smaller (a dependency left out, a page loaded only
 // when it is opened) or raises this number, saying why in its commit.
-const BUDGET = 228_000
+const BUDGET = 231_000
 // The operator's area (operator.html), a build of its own that only operators are sent: React
 // and the rest again, 102.0 kB on 2026-10-21. Its size costs no member anything, so its budget
 // only catches a dependency pulled in by mistake.

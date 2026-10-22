@@ -5,23 +5,41 @@
 // A deletion puts things in the project's trash (backend/app/trash.py). The library offers to
 // take back the last deletion, move or rename at once (changes.ts) through the mutation that made
 // it, so that an undo shows at once too and is put back if the server refuses it. An upload
-// begun offline waits for the connection, and one cut off on its way is offered again
-// (`uploadCutOff` in connection.ts) rather than shown as a refusal.
+// goes in as many requests as the server's limits ask (uploads.ts), its progress kept apart for
+// its panel; begun offline it waits for the connection, and one cut off on its way offers the
+// files not sent again (`uploadCutOff` in connection.ts) rather than show a refusal.
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Unreachable, api, isPlanLimit } from '../api.ts'
-import type { Document, Folder, PlanRefusal, UploadResult } from '../api.ts'
+import type { Document, Folder, PlanRefusal, UploadItem, UploadResult } from '../api.ts'
 import { ME_KEY } from '../auth.ts'
+import { useStatus } from '../hooks.ts'
 import { trashKey } from '../trash.ts'
 import { moved, renamed } from './changes.ts'
 import type { Change, MoveItems, TrashItems } from './changes.ts'
 import { documentKey, editListings, findListed, listed, listingsKey, restore, snapshotListings } from './listing.ts'
 import { useWorkspace } from './state.ts'
+import {
+  DEFAULT_LIMITS,
+  NOTHING_TO_UPLOAD,
+  UPLOAD_UNDER_WAY,
+  UploadProgress,
+  UploadStopped,
+  isAbort,
+  screen,
+  sendInBatches,
+} from './uploads.ts'
 
 /** An undo puts things back and offers no undo of its own. */
 interface Undoing {
   undoing?: boolean
+}
+
+/** What an upload sends, and the folder it goes into. */
+export interface UploadRequest {
+  items: UploadItem[]
+  folderId: number | null
 }
 
 export function useLibraryMutations() {
@@ -204,16 +222,54 @@ export function useLibraryMutations() {
     onSuccess: (_data, change) => setLast((current) => (current === change ? null : current)),
   })
 
+  const limits = useStatus().data?.uploads ?? DEFAULT_LIMITS
+  const [progress] = useState(() => new UploadProgress())
+  // The upload's requests, which Stop aborts, and whether one is under way: a drop's folders are
+  // read before it starts, by when the render's `isPending` may be old.
+  const sending = useRef<AbortController | null>(null)
+  const underWay = useRef(false)
   const upload = useMutation({
-    mutationFn: ({ files, folderId }: { files: File[]; folderId: number | null }) =>
-      api.upload(projectId, files, folderId),
-    onSuccess: (result) => setRejected(result.rejected),
-    // One that reached no server stays the mutation's error, which the library offers to send again.
-    onError: (error) => {
-      if (!(error instanceof Unreachable)) fail(error)
+    mutationFn: ({ items, folderId }: UploadRequest) => {
+      const controller = new AbortController()
+      sending.current = controller
+      const send = (batch: UploadItem[], onProgress: (loaded: number, total: number) => void) =>
+        api.upload(projectId, batch, folderId, { onProgress, signal: controller.signal })
+      return sendInBatches(items, limits, send, progress.set)
     },
-    onSettled: () => invalidate(documentsKey, foldersKey, projectKey),
+    onMutate: () => {
+      underWay.current = true
+    },
+    onSuccess: (result) => setRejected((left) => [...left, ...result.rejected]),
+    // One that reached no server, or that its member stopped, stays the mutation's error, which
+    // the library offers to send again or says was stopped.
+    onError: (error) => {
+      const stopped = error instanceof UploadStopped ? error : null
+      if (stopped) setRejected((left) => [...left, ...stopped.result.rejected])
+      const cause = stopped?.error ?? error
+      if (!(cause instanceof Unreachable) && !isAbort(cause)) fail(cause)
+    },
+    onSettled: () => {
+      underWay.current = false
+      sending.current = null
+      progress.set(null)
+      invalidate(documentsKey, foldersKey, projectKey)
+    },
   })
+
+  /**
+   * Uploads what was dropped or chosen into the folder: what cannot go is listed at once, in
+   * place of what an upload before left out, and the rest is sent. Answers why nothing was when
+   * another upload is under way, which this one does not join, or nothing is left to send.
+   */
+  const startUpload = (items: UploadItem[], folderId: number | null, unread: string[] = []): string | null => {
+    if (underWay.current) return UPLOAD_UNDER_WAY
+    const screened = screen(items, limits, unread)
+    setRejected(screened.left)
+    if (!screened.items.length) return screened.left.length ? null : NOTHING_TO_UPLOAD
+    underWay.current = true
+    upload.mutate({ items: screened.items, folderId })
+    return null
+  }
 
   const reprocess = useMutation({
     mutationFn: (id: number) => api.reprocessDocument(id, 'parse'),
@@ -243,6 +299,9 @@ export function useLibraryMutations() {
     trashItems,
     undo,
     upload,
+    startUpload,
+    uploadProgress: progress,
+    stopUpload: () => sending.current?.abort(),
     reprocess,
     enrichAll,
   }

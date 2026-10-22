@@ -180,8 +180,9 @@ def test_the_help_is_filled_in_from_what_the_deployment_allows(client, signed_in
     documents = said(by["documents"])
     assert (
         "PDF, Word (.docx), Excel (.xlsx), CSV, plain text, Markdown files, and images (PNG, "
-        "JPEG, WebP). A file may be up to 100 MB, and one upload up to 100 files and 500 MB"
+        "JPEG, WebP). A file may be up to 100 MB."
     ) in documents
+    assert "A larger upload is sent 100 files or 500 MB at a time" in documents
     assert "in the trash for 30 days" in documents
     assert "| Pages a month | 200 | 5,000 | 25,000 | No limit |" in by["plans"]["text"]
     assert "| Members | 1 | 1 | 3, or the seats bought | No limit |" in by["plans"]["text"]

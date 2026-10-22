@@ -1,6 +1,14 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import pytest
+from sqlalchemy import func, select, text
+
+from app.api.documents import ONE_PATH_A_FILE, UNMAKEABLE_FOLDER
+from app.db import engine
+from app.folders import FOLDERS_LOCK, MAX_DEPTH
 from app.indexing.pipeline import process_document
+from app.models import Document, Folder, Upload
 from tests.test_api import create_project, listed, storage_key, upload
 
 
@@ -19,6 +27,33 @@ def upload_into(client, project_id, folder_id, *paths):
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+def upload_folder(client, project_id, files, folder_id=None):
+    """Upload {path: text} as an upload of a folder does: each file with the folder it is in."""
+    response = client.post(
+        f"/api/projects/{project_id}/documents",
+        params={} if folder_id is None else {"folder_id": folder_id},
+        files=[("files", (Path(path).name, body.encode())) for path, body in files.items()],
+        data={"paths": [path.rpartition("/")[0] for path in files]},
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def tree(client, project_id):
+    """Each folder's path, with the names of the files directly in it."""
+    folders = client.get(f"/api/projects/{project_id}/folders").json()
+    by_id = {folder["id"]: folder for folder in folders}
+
+    def path(folder):
+        parent = by_id.get(folder["parent_id"])
+        return f"{path(parent)}/{folder['name']}" if parent else folder["name"]
+
+    return {
+        path(folder): [d["filename"] for d in listed(client, project_id, folder["id"])]
+        for folder in folders
+    }
 
 
 def test_folder_tree_crud(client):
@@ -135,3 +170,115 @@ def test_search_within_a_folder(client, services, sample_pdf, sample_docx):
     assert {hit["document_id"] for hit in scoped["hits"]} == {docx["id"]}
     assert client.get(search, params={"q": "days", "folder_id": empty["id"]}).json()["hits"] == []
     assert client.get(search, params={"q": "days", "folder_id": 999}).status_code == 404
+
+
+def test_an_uploaded_folder_is_filed_as_it_was_into_the_folders_of_its_names(client, session):
+    project = create_project(client)
+    contracts = make_folder(client, project["id"], "Contracts")
+    make_folder(client, project["id"], "signed", contracts["id"])
+
+    result = upload_folder(
+        client,
+        project["id"],
+        {
+            "Signed/acme.txt": "Acme's contract",
+            "Signed/2026/globex.txt": "Globex's contract",
+            "notes.txt": "Notes",
+            "  Drafts /  /initech.txt": "Initech's draft",
+        },
+        contracts["id"],
+    )
+    assert result["rejected"] == []
+    # A folder of a name already there, whatever its case, takes the files; the others are made,
+    # their names' spaces tidied as a new folder's are.
+    assert tree(client, project["id"]) == {
+        "Contracts": ["notes.txt"],
+        "Contracts/signed": ["acme.txt"],
+        "Contracts/signed/2026": ["globex.txt"],
+        "Contracts/Drafts": ["initech.txt"],
+    }
+    # One upload, whose notice is about all of them (app/notices.py).
+    assert session.scalar(select(func.count()).select_from(Upload)) == 1
+    assert session.scalar(select(func.count(func.distinct(Document.upload_id)))) == 1
+
+    # The same folder again goes into the folders it made, and a file it holds already is named
+    # by its path in the folder.
+    again = upload_folder(
+        client,
+        project["id"],
+        {"Signed/acme.txt": "Acme's contract", "Drafts/hooli.txt": "Hooli's draft"},
+        contracts["id"],
+    )
+    assert again["rejected"] == [
+        {
+            "filename": "Signed/acme.txt",
+            "reason": "Already in this project as 'acme.txt' in Contracts/signed.",
+            "limit": None,
+        }
+    ]
+    assert tree(client, project["id"])["Contracts/Drafts"] == ["hooli.txt", "initech.txt"]
+
+    # A folder in the trash holds no name: the upload makes the folder afresh.
+    drafts = next(
+        f
+        for f in client.get(f"/api/projects/{project['id']}/folders").json()
+        if f["name"] == "Drafts"
+    )
+    assert client.delete(f"/api/folders/{drafts['id']}").status_code == 204
+    upload_folder(client, project["id"], {"Drafts/umbrella.txt": "Umbrella's"}, contracts["id"])
+    assert tree(client, project["id"])["Contracts/Drafts"] == ["umbrella.txt"]
+    # Nothing but the files uploaded made a folder: none was made for a file that did not go in.
+    assert session.scalar(select(func.count()).select_from(Folder)) == 5
+
+
+def test_a_path_that_cannot_be_made_rejects_its_file_alone(client):
+    project = create_project(client)
+    deep = "/".join(f"level {n}" for n in range(MAX_DEPTH + 1))
+    result = upload_folder(
+        client,
+        project["id"],
+        {
+            "../escape.txt": "Up",
+            f"{'x' * 201}/long.txt": "Long",
+            f"{deep}/deep.txt": "Deep",
+            "Fine/kept.txt": "Kept",
+        },
+    )
+    assert [d["filename"] for d in result["documents"]] == ["kept.txt"]
+    assert result["rejected"] == [
+        {"filename": name, "reason": UNMAKEABLE_FOLDER, "limit": None}
+        for name in ("escape.txt", "long.txt", "deep.txt")
+    ]
+    assert tree(client, project["id"]) == {"Fine": ["kept.txt"]}
+    # Exactly as deep as an upload may go is made.
+    within = "/".join(f"level {n}" for n in range(MAX_DEPTH))
+    assert upload_folder(client, project["id"], {f"{within}/deep.txt": "Deep"})["rejected"] == []
+
+    # A path for each file, or none: a list of another length cannot be matched up.
+    response = client.post(
+        f"/api/projects/{project['id']}/documents",
+        files=[("files", ("a.txt", b"A")), ("files", ("b.txt", b"B"))],
+        data={"paths": ["Somewhere"]},
+    )
+    assert (response.status_code, response.json()["detail"]) == (422, ONE_PATH_A_FILE)
+
+
+def test_two_uploads_of_one_folder_at_once_make_it_once(client):
+    project = create_project(client)
+    with engine.connect() as holder, ThreadPoolExecutor(1) as pool:
+        # Another upload holds the project's folders and is making "Scans"...
+        holder.execute(
+            text("SELECT pg_advisory_xact_lock(:key, :project)"),
+            {"key": FOLDERS_LOCK, "project": project["id"]},
+        )
+        holder.execute(
+            text("INSERT INTO folders (project_id, name) VALUES (:project, 'Scans')"),
+            {"project": project["id"]},
+        )
+        # ...while this one, which found no "Scans", waits for it.
+        waiting = pool.submit(upload_folder, client, project["id"], {"Scans/a.txt": "A scan"})
+        with pytest.raises(TimeoutError):
+            waiting.result(timeout=0.5)
+        holder.commit()
+        assert waiting.result(timeout=10)["rejected"] == []
+    assert tree(client, project["id"]) == {"Scans": ["a.txt"]}

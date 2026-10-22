@@ -445,6 +445,13 @@ def test_status_reports_what_is_missing(client, services, monkeypatch):
     assert health["embeddings"]["ok"] is True
     # The currency the costs on usage are in (PRICE_CURRENCY).
     assert health["currency"] == "USD"
+    # What one upload may carry, by which the page sends a folder of more in several.
+    monkeypatch.setattr(get_settings(), "max_upload_files", 3)
+    assert client.get("/api/status").json()["uploads"] == {
+        "files": 3,
+        "request_bytes": 500 * 1024 * 1024,
+        "file_bytes": 100 * 1024 * 1024,
+    }
 
     # In development whoever reads the status runs the app: what stops it, and what to do.
     services.embedder.fail = True
@@ -477,6 +484,7 @@ def test_a_deployments_status_names_nothing_of_how_it_is_set_up(client, services
         },
         "embeddings": {"ok": True, "model": None, "error": None},
         "currency": "USD",
+        "uploads": {"files": 100, "request_bytes": 500 * 1024**2, "file_bytes": 100 * 1024**2},
     }
 
     services.embedder.fail = True

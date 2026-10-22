@@ -6,6 +6,7 @@ import {
   Folder as FolderIcon,
   FolderInput,
   FolderPlus,
+  FolderUp,
   MoreHorizontal,
   Pencil,
   RefreshCw,
@@ -26,7 +27,7 @@ import {
   pageLabel,
   sectionPath,
 } from '../api.ts'
-import type { Document, Folder, SearchHit } from '../api.ts'
+import type { Document, Folder, SearchHit, UploadItem } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
 import { StatusIcon } from '../components/IndexingStatus.tsx'
@@ -41,6 +42,7 @@ import { cursorAfter } from '../focus.ts'
 import { useFolders, useLocalStorage, useStatus } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
 import { describeChange } from './changes.ts'
+import { chosenFolder, droppedEntries, readEntries } from './dropped.ts'
 import { fileKind, originalFileItem } from './files.ts'
 import { growing, hasMore, listed, showMore, useListings } from './listing.ts'
 import type { Listing } from './listing.ts'
@@ -48,6 +50,8 @@ import { useLibraryMutations } from './mutations.ts'
 import type { LibraryMutations } from './mutations.ts'
 import { useWorkspace } from './state.ts'
 import { TrashView } from './Trash.tsx'
+import { UploadPanel } from './UploadPanel.tsx'
+import { UploadStopped, isAbort, uploadStopped } from './uploads.ts'
 
 type Item = { kind: 'folder'; folder: Folder } | { kind: 'file'; document: Document }
 
@@ -88,6 +92,11 @@ const hasItems = (event: DragEvent) => event.dataTransfer.types.includes(ITEMS_T
 const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files')
 // What a drop of files onto the sample project's folders says (backend/app/sample, SAMPLE_UPLOADS).
 const SAMPLE_UPLOADS = 'This is the sample project, which holds Emudoc’s sample documents alone. Create a project of your own to upload yours.'
+// What a browser without the entries API hands over for a dropped folder: an empty, typeless file.
+const NO_FOLDER_DROPS = 'This browser cannot upload a folder dropped on the page: use “Upload a folder”.'
+
+/** How a drop or a picker hands the library what to upload into a folder. */
+type Uploads = (transfer: DataTransfer, targetId: number | null) => void
 
 // The folders left open in the tree, per project.
 const treeKey = (projectId: number) => `emudoc.tree-open.${projectId}`
@@ -108,14 +117,17 @@ export function Library() {
   const byPlan = mutations.rejected.find((file) => file.limit !== null)
   const { upload } = mutations
   // Offline, TanStack Query holds the upload until the browser is back; one cut off on its way
-  // keeps its files to send again.
-  const waiting = upload.isPaused ? uploadWaiting(upload.variables?.files.length ?? 0) : null
-  const cutOff = upload.variables ? uploadCutOff(upload.error, upload.variables.files.length) : null
+  // keeps the files it did not send, to send again, and one stopped says what did not go in.
+  const waiting = upload.isPaused ? uploadWaiting(upload.variables?.items.length ?? 0) : null
+  const stopped = upload.error instanceof UploadStopped ? upload.error : null
+  const cutOff = stopped && uploadCutOff(stopped.error, stopped.unsent.length)
+  const stoppedByMember = stopped && isAbort(stopped.error) ? uploadStopped(stopped.unsent.length) : null
   const changes = mayChange(useMe().role)
   // The sample project takes no uploads: it counts against nothing on the plan (backend/app/sample).
   const uploads = changes && !project.sample
   const health = useStatus()
   const fileInput = useRef<HTMLInputElement>(null)
+  const folderInput = useRef<HTMLInputElement>(null)
   const dragging = useRef<DragPayload | null>(null)
   const [creating, setCreating] = useState(false)
   const [overPane, setOverPane] = useState(false)
@@ -129,15 +141,22 @@ export function Library() {
   const current = folderId == null ? null : tree.byId.get(folderId)
   const currentName = current?.name ?? project.name
 
-  function uploadFiles(files: File[], targetId: number | null) {
-    if (project.sample) {
-      mutations.setNotice(SAMPLE_UPLOADS)
+  function uploadItems(items: UploadItem[], targetId: number | null, unread: string[] = []) {
+    const refusal = project.sample ? SAMPLE_UPLOADS : mutations.startUpload(items, targetId, unread)
+    if (refusal) mutations.setNotice(refusal)
+  }
+
+  // A drop's folders are read through before anything is sent, each file with the folders it is in.
+  function uploadDropped(transfer: DataTransfer, targetId: number | null) {
+    const entries = droppedEntries(transfer)
+    if (entries) {
+      void readEntries(entries).then(({ items, unread }) => uploadItems(items, targetId, unread))
       return
     }
-    // Dropped directories arrive as empty, typeless files.
+    const files = [...transfer.files]
     const accepted = files.filter((file) => file.size > 0 || file.type !== '')
-    if (accepted.length < files.length) mutations.setNotice('Folders cannot be uploaded; drop files instead.')
-    if (accepted.length) mutations.upload.mutate({ files: accepted, folderId: targetId })
+    if (accepted.length < files.length) mutations.setNotice(NO_FOLDER_DROPS)
+    if (accepted.length) uploadItems(accepted.map((file) => ({ file, folder: '' })), targetId)
   }
 
   // Documents indexed before a model was configured can catch up in one go.
@@ -161,12 +180,12 @@ export function Library() {
         setOverPane(false)
         if (!uploads || !hasFiles(event)) return
         event.preventDefault()
-        uploadFiles([...event.dataTransfer.files], folderId)
+        uploadDropped(event.dataTransfer, folderId)
       }}
     >
       <div className="@container shrink-0 border-b border-line bg-surface">
         <div className="flex h-11 items-center px-3">
-          <Breadcrumb folderId={folderId} mutations={mutations} dragging={dragging} onUpload={uploads ? uploadFiles : null} />
+          <Breadcrumb folderId={folderId} mutations={mutations} dragging={dragging} onUpload={uploads ? uploadDropped : null} />
         </div>
         <div className="flex items-center gap-2 px-3 pb-2.5">
           <SearchBox query={query} scope={folderId == null ? null : currentName} />
@@ -205,6 +224,16 @@ export function Library() {
                   </span>
                 </Button>
               )}
+              {uploads && (
+                <Button
+                  icon={<FolderUp className="size-4" />}
+                  onClick={() => folderInput.current?.click()}
+                  disabled={upload.isPending}
+                  title="Upload a folder, with the folders in it"
+                  aria-label="Upload a folder"
+                  className="px-2"
+                />
+              )}
             </>
           )}
         </div>
@@ -229,6 +258,21 @@ export function Library() {
         )}
         {mutations.planLimit && <PlanLimitNotice refusal={mutations.planLimit} onDismiss={mutations.clearPlanLimit} />}
         {waiting && <Notice tone="info">{waiting}</Notice>}
+        <UploadPanel
+          progress={mutations.uploadProgress}
+          into={tree.byId.get(upload.variables?.folderId ?? -1)?.name ?? project.name}
+          onStop={mutations.stopUpload}
+        />
+        {stoppedByMember && (
+          <Notice tone="info">
+            <div className="flex items-start justify-between gap-3">
+              <span>{stoppedByMember}</span>
+              <IconButton label="Dismiss" onClick={() => upload.reset()} className="p-0.5!">
+                <X className="size-3.5" />
+              </IconButton>
+            </div>
+          </Notice>
+        )}
         {cutOff && (
           <Notice tone="bad">
             <div className="flex items-start justify-between gap-3">
@@ -237,7 +281,7 @@ export function Library() {
                 <Button
                   variant="ghost"
                   className="h-6 px-2"
-                  onClick={() => upload.variables && upload.mutate(upload.variables)}
+                  onClick={() => upload.variables && upload.mutate({ ...upload.variables, items: stopped.unsent })}
                 >
                   Upload again
                 </Button>
@@ -323,25 +367,44 @@ export function Library() {
             onDragChange={(payload) => {
               dragging.current = payload
             }}
-            onUploadFiles={uploadFiles}
+            onUploadDropped={uploadDropped}
             onPickFiles={() => fileInput.current?.click()}
+            onPickFolder={() => folderInput.current?.click()}
           />
         )}
       </ErrorBoundary>
 
       {uploads && (
-        <input
-          ref={fileInput}
-          type="file"
-          multiple
-          hidden
-          accept={ACCEPTED_EXTENSIONS.join(',')}
-          onChange={(event) => {
-            const files = [...(event.target.files ?? [])]
-            if (files.length) uploadFiles(files, folderId)
-            event.target.value = ''
-          }}
-        />
+        <>
+          <input
+            ref={fileInput}
+            type="file"
+            name="files"
+            multiple
+            hidden
+            accept={ACCEPTED_EXTENSIONS.join(',')}
+            onChange={(event) => {
+              const files = [...(event.target.files ?? [])]
+              if (files.length) uploadItems(files.map((file) => ({ file, folder: '' })), folderId)
+              event.target.value = ''
+            }}
+          />
+          {/* A folder's files, each with its path from the folder chosen, which the browser asks the member to allow. */}
+          <input
+            ref={(input) => {
+              folderInput.current = input
+              if (input) input.webkitdirectory = true
+            }}
+            type="file"
+            name="folder"
+            hidden
+            onChange={(event) => {
+              const files = [...(event.target.files ?? [])]
+              if (files.length) uploadItems(chosenFolder(files), folderId)
+              event.target.value = ''
+            }}
+          />
+        </>
       )}
 
       {workspace.draggingFiles && overPane && (
@@ -364,7 +427,7 @@ interface BreadcrumbProps {
   mutations: LibraryMutations
   dragging: DragRef
   /** Null for a role that may not change the library: then the path takes no drops. */
-  onUpload: ((files: File[], targetId: number | null) => void) | null
+  onUpload: Uploads | null
 }
 
 /** The path to the current folder. Each part opens that folder and takes drops into it. */
@@ -407,7 +470,7 @@ function Breadcrumb({ folderId, mutations, dragging, onUpload }: BreadcrumbProps
                   const payload = JSON.parse(event.dataTransfer.getData(ITEMS_TYPE)) as DragPayload
                   mutations.moveItems.mutate({ ...payload, targetId: crumb.id })
                 } else if (hasFiles(event)) {
-                  onUpload([...event.dataTransfer.files], crumb.id)
+                  onUpload(event.dataTransfer, crumb.id)
                 }
               }}
               // When the path does not fit, the folders above give way before the current one. The factor
@@ -494,8 +557,9 @@ interface ListingProps {
   changes: boolean
   dragging: DragRef
   onDragChange: (payload: DragPayload | null) => void
-  onUploadFiles: (files: File[], targetId: number | null) => void
+  onUploadDropped: Uploads
   onPickFiles: () => void
+  onPickFolder: () => void
 }
 
 /** The folders and files in one folder, with selection, renaming, drag and drop and a menu. */
@@ -507,8 +571,9 @@ function Listing({
   changes,
   dragging,
   onDragChange,
-  onUploadFiles,
+  onUploadDropped,
   onPickFiles,
+  onPickFolder,
 }: ListingProps) {
   const workspace = useWorkspace()
   const queryClient = useQueryClient()
@@ -685,6 +750,7 @@ function Listing({
       ? ([
           { label: 'New folder', icon: FolderPlus, onSelect: () => onCreatingChange(true) },
           { label: 'Upload files', icon: Upload, onSelect: onPickFiles },
+          { label: 'Upload a folder', icon: FolderUp, onSelect: onPickFolder },
           'separator',
         ] satisfies MenuItem[])
       : []),
@@ -844,7 +910,7 @@ function Listing({
     } else if (hasFiles(event)) {
       event.preventDefault()
       event.stopPropagation()
-      onUploadFiles([...event.dataTransfer.files], folder.id)
+      onUploadDropped(event.dataTransfer, folder.id)
     }
   }
 
@@ -878,9 +944,12 @@ function Listing({
                 Upload files or drop them here. Each one is parsed, outlined and indexed in the background.
                 <br />
                 {ACCEPTED_TYPES_LABEL}.
-                <div className="mt-4">
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
                   <Button variant="primary" icon={<Upload className="size-4" />} onClick={onPickFiles}>
                     Upload files
+                  </Button>
+                  <Button icon={<FolderUp className="size-4" />} onClick={onPickFolder}>
+                    Upload a folder
                   </Button>
                 </div>
               </>

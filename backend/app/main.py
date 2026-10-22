@@ -46,7 +46,7 @@ from app.api.deps import (
     refuse_past,
 )
 from app.billing import BillingRefused
-from app.config import ROOT_DIR, get_settings
+from app.config import ROOT_DIR, Settings, get_settings
 from app.db import BUSY, TOO_SLOW, SessionLocal, canceled, engine
 from app.entitlements import PlanRefused
 from app.errors import shown, summary
@@ -75,6 +75,7 @@ from app.schemas import (
     PlanRefusalOut,
     StatusOut,
     SubprocessorsOut,
+    UploadLimitsOut,
 )
 from app.shutdown import Stop, heard_stop
 from app.startup import prepare
@@ -202,6 +203,7 @@ def status(services: ServicesDep, account: AccountDep):
             llm=LLMStatus(available=problem is None, error=MODELS_UNAVAILABLE if problem else None),
             embeddings=EmbeddingStatus(ok=reason is None, error=KEYWORDS_ONLY if reason else None),
             currency=settings.price_currency,
+            uploads=upload_limits(settings),
         )
     if problem:
         # The settings are read once, at the start: a key added to .env is used by the backend
@@ -220,6 +222,16 @@ def status(services: ServicesDep, account: AccountDep):
         ),
         embeddings=EmbeddingStatus(ok=reason is None, model=settings.embedding_model, error=reason),
         currency=settings.price_currency,
+        uploads=upload_limits(settings),
+    )
+
+
+def upload_limits(settings: Settings) -> UploadLimitsOut:
+    megabyte = 1024 * 1024
+    return UploadLimitsOut(
+        files=settings.max_upload_files,
+        request_bytes=settings.max_upload_request_mb * megabyte,
+        file_bytes=settings.max_upload_mb * megabyte,
     )
 
 

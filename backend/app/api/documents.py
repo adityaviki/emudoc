@@ -6,10 +6,10 @@ import tempfile
 from collections.abc import Callable, Sequence
 from functools import partial
 from pathlib import Path
-from typing import BinaryIO
+from typing import Annotated, BinaryIO
 
 from anyio import to_thread
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from PIL import ImageOps, UnidentifiedImageError
 from sqlalchemy import func, literal_column, select, tuple_
@@ -36,7 +36,14 @@ from app.api.folders import folder_paths, resolve_folder
 from app.audit import audit
 from app.config import Settings, get_settings
 from app.entitlements import PlanRefused, check_upload, size_label
-from app.folders import unique_filename
+from app.folders import (
+    MAX_DEPTH,
+    NAME_LENGTH,
+    PATH_SEPARATOR,
+    folder_at,
+    folder_names,
+    unique_filename,
+)
 from app.indexing.pipeline import reset_stages
 from app.jobs import queue_index
 from app.metrics import UPLOAD_BYTES, UPLOAD_REJECTIONS
@@ -85,6 +92,13 @@ DUPLICATE_CONSTRAINT = "documents_project_id_sha256_key"
 # When the copy that won the race is gone again before it can be named.
 LOST_RACE = (
     "Another upload of this file finished first. Upload it again if it is not in the project."
+)
+# An upload's `paths` are each file's folder, so a list of another length cannot be matched up.
+ONE_PATH_A_FILE = "Give one path for each file uploaded, or none."
+UNMAKEABLE_FOLDER = (
+    f"Its folders cannot be made: a folder's name cannot be '.' or '..' or longer than "
+    f"{NAME_LENGTH} characters, and an upload goes at most {MAX_DEPTH} folders deep. Move it "
+    "into a folder that can, then upload it again."
 )
 # How many documents a page of a folder holds unless the request asks for another number.
 PAGE_SIZE = 100
@@ -188,8 +202,12 @@ def upload_documents(
     account: AccountDep,
     request: Request,
     folder_id: int | None = None,
+    paths: Annotated[list[str] | None, Form()] = None,
 ):
-    """Upload files into a folder of the project (the root when no folder is given).
+    """Upload files into a folder of the project (the root when no folder is given), each
+    into the folder below it that its entry of `paths` names ("Invoices/2024", "" for that folder
+    itself) when the request gives one per file, as an upload of a folder does: a folder is made
+    where none of its name is, and one that is goes on holding what it held.
 
     The request is refused whole, before anything is stored, when it carries more files or
     more bytes than one upload may (413, naming the limit), and when the organisation's plan
@@ -206,17 +224,29 @@ def upload_documents(
     if reason := too_many(files, settings):
         UPLOAD_REJECTIONS.labels("too_many").inc()
         raise HTTPException(413, reason)
+    if paths is not None and len(paths) != len(files):
+        raise HTTPException(422, ONE_PATH_A_FILE)
     organization = account.organization
     if refusal := check_upload(session, organization):
         UPLOAD_REJECTIONS.labels("plan").inc(len(files))
         raise PlanRefused(refusal)
     folder = resolve_folder(session, project, folder_id)
+    target = folder.id if folder else None
     documents: list[Document] = []
     rejected: list[RejectedFile] = []
+    # The folders this request found or made, by their names below the target.
+    made: dict[tuple[str, ...], int | None] = {(): target}
 
-    for upload in files:
-        filename = Path(upload.filename or "unnamed").name
-        suffix = Path(filename).suffix.lower()
+    for index, upload in enumerate(files):
+        name = Path(upload.filename or "unnamed").name
+        names = folder_names(paths[index]) if paths is not None else []
+        if names is None:
+            rejected.append(RejectedFile(filename=name, reason=UNMAKEABLE_FOLDER))
+            UPLOAD_REJECTIONS.labels("folder").inc()
+            continue
+        # A file in a folder is named by its path, so that two of one name are told apart.
+        filename = PATH_SEPARATOR.join([*names, name])
+        suffix = Path(name).suffix.lower()
         if suffix not in SUPPORTED_EXTENSIONS:
             supported = ", ".join(sorted(SUPPORTED_EXTENSIONS))
             rejected.append(
@@ -256,12 +286,13 @@ def upload_documents(
                 UPLOAD_REJECTIONS.labels("plan").inc()
                 continue
 
+            if tuple(names) not in made:
+                made[tuple(names)] = folder_at(session, project.id, target, names)
+            folder_of = made[tuple(names)]
             document = Document(
                 project_id=project.id,
-                folder_id=folder.id if folder else None,
-                filename=unique_filename(
-                    session, project.id, folder.id if folder else None, filename
-                ),
+                folder_id=folder_of,
+                filename=unique_filename(session, project.id, folder_of, name),
                 mime_type=MIME_TYPES[suffix],
                 size_bytes=size,
                 sha256=sha256,

@@ -34,10 +34,11 @@ export function uploadWaiting(count: number): string {
 }
 
 /**
- * An upload cut off on its way, which the member may send again: a file the server stored before
- * the cut comes back as already in the project (`_already_present` in
- * backend/app/api/documents.py), so sending the whole of it again is safe. Null for an upload
- * the server refused, which the library's notice shows as it does any other refusal.
+ * An upload cut off on its way, whose files not sent the member may send again (`unsent` of
+ * `UploadStopped` in workspace/uploads.ts): a file of the request cut off that the server stored
+ * before the cut comes back as already in the project (`_already_present` in
+ * backend/app/api/documents.py), so sending them again is safe. Null for an upload the server
+ * refused, which the library's notice shows as it does any other refusal.
  */
 export function uploadCutOff(error: Error | null, count: number): string | null {
   if (!(error instanceof Unreachable)) return null

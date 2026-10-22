@@ -14,6 +14,7 @@ const development: SystemStatus = {
   },
   embeddings: { ok: true, model: 'nomic-embed-text', error: null },
   currency: 'USD',
+  uploads: { files: 100, request_bytes: 500 * 1024 * 1024, file_bytes: 100 * 1024 * 1024 },
 }
 
 // As a deployment answers its members: no names, and a problem as what cannot be done.
@@ -28,6 +29,7 @@ const deployment: SystemStatus = {
   },
   embeddings: { ok: true, model: null, error: null },
   currency: 'USD',
+  uploads: { files: 100, request_bytes: 500 * 1024 * 1024, file_bytes: 100 * 1024 * 1024 },
 }
 
 describe('describeServices', () => {
