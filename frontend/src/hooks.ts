@@ -1,5 +1,5 @@
-import { useQuery } from '@tanstack/react-query'
-import { useCallback, useMemo, useState } from 'react'
+import { onlineManager, useQuery } from '@tanstack/react-query'
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
 import { api } from './api.ts'
 import type { Folder } from './api.ts'
 
@@ -10,6 +10,15 @@ import type { Folder } from './api.ts'
  */
 export function useStatus() {
   return useQuery({ queryKey: ['status'], queryFn: api.status, staleTime: 60_000, refetchInterval: 60_000 })
+}
+
+/**
+ * Whether the browser is online, as TanStack Query's `onlineManager` has it from the browser's
+ * `online` and `offline` events: while it is not, the queries and mutations wait, an upload among
+ * them, and the page says so.
+ */
+export function useOnline(): boolean {
+  return useSyncExternalStore(onlineManager.subscribe, () => onlineManager.isOnline())
 }
 
 /** The version the API runs, for the user menu: asked as the menu opens, since a release changes it. */

@@ -15,6 +15,7 @@ import {
   Table2,
   Trash2,
   Users,
+  WifiOff,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -29,8 +30,9 @@ import { Markdown, SourceText } from '../components/Markdown.tsx'
 import { Floating } from '../components/Menu.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, IconButton, Loading, Notice, Spinner } from '../components/ui.tsx'
+import { ANSWER_OFFLINE, QUESTION_OFFLINE } from '../connection.ts'
 import { formatDate } from '../format.ts'
-import { useStatus } from '../hooks.ts'
+import { useOnline, useStatus } from '../hooks.ts'
 import { inviteNudgeOf, mayInvite } from '../onboarding.ts'
 import type { InviteNudge } from '../onboarding.ts'
 import { trashKey } from '../trash.ts'
@@ -334,6 +336,7 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
   const me = useMe()
   const queryClient = useQueryClient()
   const health = useStatus()
+  const online = useOnline()
   const chat = useQuery({
     queryKey: chatKey(chatId),
     queryFn: () => api.chat(chatId!).then(loadChat),
@@ -388,7 +391,7 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
 
   function send(text: string) {
     const question = text.trim()
-    if (!question || streaming || loading || chat.isError || create.isPending || starter) return
+    if (!question || !online || streaming || loading || chat.isError || create.isPending || starter) return
     if (chatId == null) {
       create.mutate(question)
       return
@@ -406,6 +409,11 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
 
   function openSource(source: Source) {
     workspace.openDocument(source.document_id, { passage: source.id })
+  }
+
+  // An answer the page gave up following is read again from its first event, as after a reload.
+  function reconnect(message: Message) {
+    if (chatId != null && message.id != null) resume(queryClient, chatId, message.id)
   }
 
   const unavailable = health.data && !health.data.llm.available
@@ -461,7 +469,13 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
                 </p>
               </div>
             ) : (
-              <Answer key={index} message={message} currency={health.data?.currency} onOpen={openSource} />
+              <Answer
+                key={index}
+                message={message}
+                currency={health.data?.currency}
+                onOpen={openSource}
+                onReconnect={message.lost ? () => reconnect(message) : undefined}
+              />
             ),
           )}
           {nudge && <InviteTeam room={nudge.room} onInvited={() => setInvitedFrom(nudge)} />}
@@ -474,6 +488,11 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
           {create.isError && (
             <div className="mb-2">
               <Notice tone="bad">Could not start a chat: {create.error.message}</Notice>
+            </div>
+          )}
+          {!online && !starter && (
+            <div className="mb-2">
+              <Notice>{QUESTION_OFFLINE}</Notice>
             </div>
           )}
           {starter ? (
@@ -500,7 +519,7 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
                 <button
                   type="button"
                   aria-label="Send"
-                  disabled={!draft.trim() || unavailable || loading || chat.isError || create.isPending}
+                  disabled={!draft.trim() || !online || unavailable || loading || chat.isError || create.isPending}
                   onClick={() => send(draft)}
                   className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-ink shadow-xs transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
                 >
@@ -551,9 +570,11 @@ interface AnswerProps {
   // The currency the cost is in; unknown until the status has loaded, and the cost waits.
   currency: string | undefined
   onOpen: (source: Source) => void
+  // Offered on an answer the page gave up following, which the worker may still be writing.
+  onReconnect?: () => void
 }
 
-function Answer({ message, currency, onOpen }: AnswerProps) {
+function Answer({ message, currency, onOpen, onReconnect }: AnswerProps) {
   // Number the cited passages in the order the answer first mentions them.
   const cited = [...new Set([...message.content.matchAll(/\[P(\d+)\]/g)].map((match) => Number(match[1])))]
     .filter((id) => message.sources[id])
@@ -568,10 +589,16 @@ function Answer({ message, currency, onOpen }: AnswerProps) {
           ))}
         </ul>
       )}
-      {message.thinking && (
+      {message.offline ? (
         <p className="flex items-center gap-2 text-sm text-muted">
-          <Spinner /> Thinking
+          <WifiOff className="size-3.5 shrink-0" /> {ANSWER_OFFLINE}
         </p>
+      ) : (
+        message.thinking && (
+          <p className="flex items-center gap-2 text-sm text-muted">
+            <Spinner /> Thinking
+          </p>
+        )
       )}
       {message.content && (
         <Markdown
@@ -588,7 +615,20 @@ function Answer({ message, currency, onOpen }: AnswerProps) {
       )}
       {message.notice && <p className="text-sm text-muted">{message.notice}</p>}
       {message.error &&
-        (message.refusedByPlan ? <PlanLimitNotice refusal={message.refusedByPlan} /> : <Notice tone="bad">{message.error}</Notice>)}
+        (message.refusedByPlan ? (
+          <PlanLimitNotice refusal={message.refusedByPlan} />
+        ) : (
+          <Notice tone="bad">
+            <div className="flex items-start justify-between gap-3">
+              <span>{message.error}</span>
+              {onReconnect && (
+                <Button variant="ghost" className="h-6 shrink-0 px-2" onClick={onReconnect}>
+                  Reconnect
+                </Button>
+              )}
+            </div>
+          </Notice>
+        ))}
       {cited.length > 0 && (
         <div className="border-t border-line pt-2.5">
           <p className="mb-1 text-[11px] font-medium tracking-wide text-muted uppercase">Sources</p>

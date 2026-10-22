@@ -8,7 +8,7 @@ import { makeOperator, movePlan } from './operator.ts'
 // The member's way through the app, end to end: sign up through the link the app mails, find the
 // organisation's first steps listed, skip the tour the first project shows, ask the sample
 // project the organisation starts with one of its questions, make a project, upload a contract,
-// wait for it to be indexed, find it by searching, ask about it, open the passage the answer
+// begun offline and waiting for the connection, wait for it to be indexed, find it by searching, ask about it, open the passage the answer
 // cites, which the Free plan's chat follows with the way to a plan for a team, export the project,
 // download it and open the bell's notice that it is ready, start a second
 // organisation, choose its settings, read them in its audit log and download it, hide its first
@@ -97,8 +97,16 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page).toHaveURL(/\/projects\/\d+$/)
   })
 
-  await test.step('upload the contract and wait for it to be indexed', async () => {
+  await test.step('upload the contract, begun offline, and wait for it to be indexed', async () => {
+    // Offline, the upload waits for the connection and says so, as the header does.
+    const offline = page.getByRole('status').filter({ hasText: 'Offline' })
+    await page.context().setOffline(true)
+    await expect(offline).toBeVisible()
     await page.locator('input[type="file"]').setInputFiles(CONTRACT)
+    await expect(page.getByText('Your browser is offline: the upload of 1 file starts once the connection is back.')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Waiting for the connection' })).toBeDisabled()
+    await page.context().setOffline(false)
+    await expect(offline).toHaveCount(0)
     // Every stage done but the malware scan, which has no scanner here.
     const status = page.getByRole('img', { name: /^Ready/ })
     await expect(status).toBeVisible({ timeout: 60_000 })

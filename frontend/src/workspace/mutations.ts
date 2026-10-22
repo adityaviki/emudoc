@@ -4,11 +4,13 @@
 // asks again what the organisation holds past its plan, since deleting is how it gets within it.
 // A deletion puts things in the project's trash (backend/app/trash.py). The library offers to
 // take back the last deletion, move or rename at once (changes.ts) through the mutation that made
-// it, so that an undo shows at once too and is put back if the server refuses it.
+// it, so that an undo shows at once too and is put back if the server refuses it. An upload
+// begun offline waits for the connection, and one cut off on its way is offered again
+// (`uploadCutOff` in connection.ts) rather than shown as a refusal.
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { api, isPlanLimit } from '../api.ts'
+import { Unreachable, api, isPlanLimit } from '../api.ts'
 import type { Document, Folder, PlanRefusal, UploadResult } from '../api.ts'
 import { ME_KEY } from '../auth.ts'
 import { trashKey } from '../trash.ts'
@@ -206,7 +208,10 @@ export function useLibraryMutations() {
     mutationFn: ({ files, folderId }: { files: File[]; folderId: number | null }) =>
       api.upload(projectId, files, folderId),
     onSuccess: (result) => setRejected(result.rejected),
-    onError: fail,
+    // One that reached no server stays the mutation's error, which the library offers to send again.
+    onError: (error) => {
+      if (!(error instanceof Unreachable)) fail(error)
+    },
     onSettled: () => invalidate(documentsKey, foldersKey, projectKey),
   })
 

@@ -17,6 +17,11 @@ newest entry first.
 
 Members:
 
+- Emudoc says when your browser is offline, in the header, and waits for the connection rather
+  than failing. An answer cut off goes on being written and shows in full once you are back; an
+  upload begun offline starts by itself then, and one cut off on its way offers "Upload again".
+  An answer whose connection stays lost offers "Reconnect" instead of a reload, and a request
+  that reached no server says so in plain words.
 - A part of the page that runs into an error no longer takes the whole page with it. The header
   stays, with the help menu, the notifications and the way to your other organisations and
   projects; in a project, the library, a document and a chat each break alone, the other two

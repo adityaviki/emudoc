@@ -1,4 +1,4 @@
-import { QueryClient } from '@tanstack/react-query'
+import { QueryClient, onlineManager } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { applyEvent, ask, chatKey, isStreaming, loadChat, resume, settle, splitChats, stop } from './chat.ts'
 import type { ChatData, Message } from './chat.ts'
@@ -142,6 +142,10 @@ type Reply = (init: RequestInit) => Response
 const json = (body: unknown, status = 200): Reply => () => Response.json(body, { status })
 const events = (...chunks: string[]): Reply => (init) => new Response(stream(chunks, init.signal))
 const pending = (...chunks: string[]): Reply => (init) => new Response(stream(chunks, init.signal, true))
+// A request that reached no server, as fetch rejects it.
+const dropped: Reply = () => {
+  throw new TypeError('Failed to fetch')
+}
 
 let calls: Call[]
 let replies: Reply[]
@@ -173,6 +177,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
+  onlineManager.setOnline(true)
 })
 
 /** Wait for `promise`, moving the clock through the waits between reconnections. */
@@ -187,6 +192,14 @@ async function through<T>(promise: Promise<T>): Promise<T> {
     await vi.advanceTimersByTimeAsync(1000)
   }
   return promise
+}
+
+/** Move the clock through the waits between reconnections until the page has made `count` requests. */
+async function untilCalls(count: number) {
+  for (let step = 0; calls.length < count; step++) {
+    if (step > 100) throw new Error(`${calls.length} requests after 100 seconds, not ${count}.`)
+    await vi.advanceTimersByTimeAsync(1000)
+  }
 }
 
 const messages = () => client.getQueryData<ChatData>(chatKey(1))!.messages
@@ -245,16 +258,84 @@ describe('ask', () => {
     expect(calls.slice(2).map((call) => call.headers.get('Last-Event-ID'))).toEqual(['1', '1'])
   })
 
-  it('gives up after five drops in a row', async () => {
+  it('gives up after five drops in a row, and follows the answer again from its first event when asked to', async () => {
     serve(json(asked(), 201), ...Array.from({ length: 6 }, () => events()))
     await through(ask(client, 1, 'Notice period?'))
 
     expect(messages()[1]).toMatchObject({
-      error: 'The connection to the answer was lost. Reload the page to see it.',
+      error: 'The connection to the answer was lost. Reconnect to follow it again.',
       status: 'failed',
+      lost: true,
       thinking: false,
     })
     expect(calls).toHaveLength(7)
+
+    serve(events(sse([0, { type: 'text', text: 'Ninety days.' }], [null, { type: 'end', status: 'done' }])))
+    resume(client, 1, 11)
+    expect(messages()[1]).toMatchObject({ status: 'streaming', error: null, lost: false, thinking: true })
+    await vi.waitFor(() => expect(messages()[1].status).toBe('done'))
+
+    expect(messages()[1]).toMatchObject({ content: 'Ninety days.', error: null, lost: false })
+    expect(calls).toHaveLength(8)
+    expect(calls[7].headers.has('Last-Event-ID')).toBe(false)
+  })
+
+  it('waits while the browser is offline, however long, and follows on from the last event once it is back', async () => {
+    serve(json(asked(), 201), pending(sse([0, { type: 'text', text: 'Ninety ' }])))
+    const asking = ask(client, 1, 'Notice period?')
+    await vi.waitFor(() => expect(messages()[1].content).toBe('Ninety '))
+
+    // Going offline ends the open connection, which the network might otherwise leave hanging.
+    onlineManager.setOnline(false)
+    await vi.waitFor(() => expect(messages()[1]).toMatchObject({ offline: true, status: 'streaming' }))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(calls).toHaveLength(2)
+
+    serve(events(sse([1, { type: 'text', text: 'days.' }], [null, { type: 'end', status: 'done' }])))
+    onlineManager.setOnline(true)
+    await through(asking)
+
+    expect(messages()[1]).toMatchObject({ content: 'Ninety days.', status: 'done', offline: false, error: null })
+    expect(calls[2].headers.get('Last-Event-ID')).toBe('0')
+  })
+
+  it('counts none of the drops while the browser is offline', async () => {
+    // Four drops in a row; then, offline, a connection that cannot be made waits too.
+    serve(json(asked(), 201), ...Array.from({ length: 4 }, () => events()))
+    const asking = ask(client, 1, 'Notice period?')
+    await untilCalls(5)
+    onlineManager.setOnline(false)
+    serve(dropped)
+    await untilCalls(6)
+    await vi.waitFor(() => expect(messages()[1].offline).toBe(true))
+
+    // Back online, five more drops in a row are borne before the answer would be lost.
+    serve(...Array.from({ length: 5 }, () => events()), events(sse([0, { type: 'text', text: 'Ninety days.' }], [null, { type: 'end', status: 'done' }])))
+    onlineManager.setOnline(true)
+    await through(asking)
+
+    expect(messages()[1]).toMatchObject({ content: 'Ninety days.', status: 'done', error: null })
+    expect(calls).toHaveLength(12)
+  })
+
+  it('stops an answer waiting for the connection', async () => {
+    serve(json(asked(), 201), pending(sse([0, { type: 'text', text: 'Ninety' }])))
+    const asking = ask(client, 1, 'Notice period?')
+    await vi.waitFor(() => expect(messages()[1].content).toBe('Ninety'))
+    onlineManager.setOnline(false)
+    await vi.waitFor(() => expect(messages()[1].offline).toBe(true))
+
+    // The stop's request reaches nothing; the answer stops here all the same.
+    serve(dropped)
+    stop(1)
+    await through(asking)
+
+    expect(messages()[1]).toMatchObject({ content: 'Ninety', notice: 'Stopped.', status: 'stopped', offline: false })
+    expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual([
+      'POST /api/chats/1/messages',
+      'GET /api/chats/1/messages/11/events',
+      'POST /api/chats/1/messages/11/stop',
+    ])
   })
 
   it('takes a refusal while following as final', async () => {
@@ -263,6 +344,20 @@ describe('ask', () => {
 
     expect(messages()[1]).toMatchObject({ error: 'Chat not found', status: 'failed' })
     expect(calls).toHaveLength(2)
+  })
+
+  it("shows a question that reached no server in the app's words, the question kept on screen", async () => {
+    serve(dropped)
+    await through(ask(client, 1, 'Notice period?'))
+
+    const [question, answer] = messages()
+    expect(question.content).toBe('Notice period?')
+    expect(answer).toMatchObject({
+      error: 'Emudoc did not answer. Check your connection, then try again.',
+      status: 'failed',
+      thinking: false,
+    })
+    expect(answer.lost).toBeUndefined()
   })
 
   it('shows a refusal of the question where the answer would be, a plan limit as such', async () => {

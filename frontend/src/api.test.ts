@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ApiError,
   ROLES,
+  Unreachable,
   api,
   auth,
   handleForbidden,
@@ -94,6 +95,34 @@ describe('a request the plan refused', () => {
     serve(() => refused(409))
     await expect(api.projects()).rejects.toMatchObject({ status: 409, limit: null })
     expect(planned).toHaveBeenCalledOnce()
+  })
+})
+
+describe('a request that reached no server', () => {
+  const failing = (error: Error) => vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(error)))
+
+  it("says so in the app's words, whether the browser knew it was offline or not", async () => {
+    failing(new TypeError('Failed to fetch'))
+    const unreachable = api.projects()
+    await expect(unreachable).rejects.toBeInstanceOf(Unreachable)
+    await expect(unreachable).rejects.toMatchObject({
+      offline: false,
+      message: 'Emudoc did not answer. Check your connection, then try again.',
+    })
+    // Not an ApiError, which the queries' rule would never retry below 500.
+    await expect(unreachable).rejects.not.toBeInstanceOf(ApiError)
+
+    vi.stubGlobal('navigator', { onLine: false })
+    await expect(api.projects()).rejects.toMatchObject({
+      offline: true,
+      message: 'Your browser is offline. Try again once the connection is back.',
+    })
+  })
+
+  it('leaves an abort as it is', async () => {
+    const abort = new DOMException('The operation was aborted.', 'AbortError')
+    failing(abort)
+    await expect(api.projects()).rejects.toBe(abort)
   })
 })
 

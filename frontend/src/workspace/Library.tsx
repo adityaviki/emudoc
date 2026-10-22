@@ -12,6 +12,7 @@ import {
   Sparkles,
   Trash2,
   Upload,
+  WifiOff,
   X,
 } from 'lucide-react'
 import { createElement, Fragment, useEffect, useRef, useState } from 'react'
@@ -32,6 +33,7 @@ import type { MenuItem } from '../components/Menu.tsx'
 import { PlanLimitNotice, PlanOffer } from '../components/PlanLimit.tsx'
 import { Button, Chip, EmptyState, IconButton, Loading, Notice, Spinner } from '../components/ui.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
+import { uploadCutOff, uploadWaiting } from '../connection.ts'
 import { libraryPlace } from '../failures.ts'
 import { useFolders, useLocalStorage, useStatus } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
@@ -101,6 +103,11 @@ export function Library() {
   const folders = useFolders(project.id)
   const mutations = useLibraryMutations()
   const byPlan = mutations.rejected.find((file) => file.limit !== null)
+  const { upload } = mutations
+  // Offline, TanStack Query holds the upload until the browser is back; one cut off on its way
+  // keeps its files to send again.
+  const waiting = upload.isPaused ? uploadWaiting(upload.variables?.files.length ?? 0) : null
+  const cutOff = upload.variables ? uploadCutOff(upload.error, upload.variables.files.length) : null
   const changes = mayChange(useMe().role)
   // The sample project takes no uploads: it counts against nothing on the plan (backend/app/sample).
   const uploads = changes && !project.sample
@@ -181,14 +188,18 @@ export function Library() {
               {uploads && (
                 <Button
                   data-tour="upload"
-                  icon={mutations.upload.isPending ? <Spinner /> : <Upload className="size-4" />}
+                  icon={
+                    upload.isPaused ? <WifiOff className="size-4" /> : upload.isPending ? <Spinner /> : <Upload className="size-4" />
+                  }
                   onClick={() => fileInput.current?.click()}
-                  disabled={mutations.upload.isPending}
-                  title={ACCEPTED_TYPES_LABEL}
-                  aria-label={mutations.upload.isPending ? 'Uploading…' : 'Upload'}
+                  disabled={upload.isPending}
+                  title={waiting ?? ACCEPTED_TYPES_LABEL}
+                  aria-label={upload.isPaused ? 'Waiting for the connection' : upload.isPending ? 'Uploading…' : 'Upload'}
                   className="px-2 @xs:px-3"
                 >
-                  <span className="hidden @xs:inline">{mutations.upload.isPending ? 'Uploading…' : 'Upload'}</span>
+                  <span className="hidden @xs:inline">
+                    {upload.isPaused ? 'Waiting…' : upload.isPending ? 'Uploading…' : 'Upload'}
+                  </span>
                 </Button>
               )}
             </>
@@ -214,6 +225,26 @@ export function Library() {
           </Notice>
         )}
         {mutations.planLimit && <PlanLimitNotice refusal={mutations.planLimit} onDismiss={mutations.clearPlanLimit} />}
+        {waiting && <Notice tone="info">{waiting}</Notice>}
+        {cutOff && (
+          <Notice tone="bad">
+            <div className="flex items-start justify-between gap-3">
+              <span>{cutOff}</span>
+              <span className="flex shrink-0 items-center gap-1">
+                <Button
+                  variant="ghost"
+                  className="h-6 px-2"
+                  onClick={() => upload.variables && upload.mutate(upload.variables)}
+                >
+                  Upload again
+                </Button>
+                <IconButton label="Dismiss" onClick={() => upload.reset()} className="p-0.5!">
+                  <X className="size-3.5" />
+                </IconButton>
+              </span>
+            </div>
+          </Notice>
+        )}
         {mutations.last && (
           <Notice tone="info">
             <div className="flex items-center justify-between gap-3">

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronDown, X } from 'lucide-react'
+import { Check, ChevronDown, WifiOff, X } from 'lucide-react'
 import { useContext, useEffect, useRef, useState } from 'react'
 import { Link, Navigate, Outlet, Route, Routes, useLocation, useMatch, useNavigate } from 'react-router'
 import { AccountPage } from './account/AccountPage.tsx'
@@ -20,6 +20,7 @@ import { api, auth, handleForbidden, handlePlanLimit, handleSwitched, handleUnau
 import type { Me } from './api.ts'
 import { ME_KEY, MeContext, forgetUser, loginPath, openInOrganization, startAgainInOrganization, useMeQuery } from './auth.ts'
 import { describeExcess } from './billing.ts'
+import { describeConnection } from './connection.ts'
 import { formatDate } from './format.ts'
 import { DELETION_SECTION, deletionWords } from './organizationSettings.ts'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
@@ -27,7 +28,7 @@ import { Floating, Menu } from './components/Menu.tsx'
 import type { MenuItem } from './components/Menu.tsx'
 import { ThemeToggle } from './components/ThemeToggle.tsx'
 import { Button, IconButton, Spinner } from './components/ui.tsx'
-import { useHelp, useLocalStorage, useStatus } from './hooks.ts'
+import { useHelp, useLocalStorage, useOnline, useStatus } from './hooks.ts'
 import { HelpMenu } from './help/HelpMenu.tsx'
 import { HelpPage } from './help/HelpPage.tsx'
 import { WhatsNew } from './help/WhatsNew.tsx'
@@ -382,9 +383,25 @@ function PlanBanner({ me }: { me: Me }) {
   )
 }
 
-/** Shows whether the two optional services, the AI model and semantic search, are usable. */
+/**
+ * Shows whether the two optional services, the AI model and semantic search, are usable, and in
+ * their place while the browser is offline that it is, at every width.
+ */
 function ServiceStatus() {
   const { data } = useStatus()
+  const connection = describeConnection(useOnline())
+  if (connection) {
+    return (
+      <span
+        role="status"
+        title={connection.detail}
+        className="flex h-7 cursor-help items-center gap-1.5 rounded-md px-2 text-xs text-warn transition hover:bg-sunken"
+      >
+        <WifiOff className="size-3.5" />
+        {connection.label}
+      </span>
+    )
+  }
   if (!data) return null
   return (
     <div className="hidden items-center gap-1 text-xs text-muted sm:flex">

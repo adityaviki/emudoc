@@ -77,8 +77,11 @@ is written by the background worker, not by the request that asked the question:
 is saved with an empty answer and a job, the worker runs the agent and writes each event to a
 table, and the page follows them from there. So an answer keeps streaming while you look at
 another tab, survives a reload, a dropped connection and a restart of the API, and is picked
-up where it was by another tab that opens the chat. Stop ends it with what arrived so far,
-whether or not a worker is alive; a chat takes one question at a time.
+up where it was by another tab that opens the chat. While the browser is offline the page says
+so (in the header, and under an answer it was following) and follows on once the connection is
+back; a connection that keeps failing for 15 seconds online is given up with "Reconnect", which
+reads the answer again from its start. Stop ends it with what arrived so far, whether or not a
+worker is alive; a chat takes one question at a time.
 
 A chat is its starter's alone until they share it with the project ("Share" in the chat's
 header, "Make private" to take it back). Everyone who sees the project then finds it under
@@ -205,7 +208,9 @@ is indexed sooner next to a free organisation's.
 A project opens as two panes. On the left is the **library**: the project's documents filed in
 folders, with the usual file-manager moves (new folder, rename, drag to move, delete, upload by
 button or by dropping files, search), shown as a tree that opens folders in place, a folder's
-files by name a hundred at a time, with more on request. The last deletion, move or rename is
+files by name a hundred at a time, with more on request. An upload begun while the browser is
+offline waits and starts by itself once it is back; one cut off on its way is offered again,
+a file that got through before the cut coming back as already in the project. The last deletion, move or rename is
 offered back at once with "Undo", until the next one or its cross. Opening a file adds a third pane in
 the middle, the **document**, with a tab for each open file; the tabs stay open across reloads,
 and closing the last one leaves the library and the agent side by side again.

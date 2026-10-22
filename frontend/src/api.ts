@@ -1013,6 +1013,28 @@ export class ApiError extends Error {
   }
 }
 
+// What a request that reached no server says: the browser knows it is offline, or the network
+// or something on its way dropped the request or its answer.
+const OFFLINE = 'Your browser is offline. Try again once the connection is back.'
+const UNREACHABLE = 'Emudoc did not answer. Check your connection, then try again.'
+
+/**
+ * A request that reached no server, or whose answer never came back. fetch rejects with a
+ * TypeError in the browser's own words ("Failed to fetch", "Load failed"); this says it in the
+ * app's. A class of its own, not an `ApiError`, so that the queries' rule (both main.tsx)
+ * retries it as it does a server's failure, and following an answer takes it for a dropped
+ * connection.
+ */
+export class Unreachable extends Error {
+  /** Whether the browser said it was offline, rather than the server or the way to it failing. */
+  offline: boolean
+
+  constructor(offline: boolean) {
+    super(offline ? OFFLINE : UNREACHABLE)
+    this.offline = offline
+  }
+}
+
 /**
  * Whether the server refused because the organisation's plan does not allow it (402). The
  * message names the limit and says to upgrade, and `limit` which figure it is; the app shows
@@ -1092,7 +1114,14 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers)
   headers.set('X-Requested-With', 'fetch')
   if (shownOrganization !== null) headers.set(ORGANIZATION_HEADER, String(shownOrganization))
-  const response = await fetch(`/api${path}`, { ...init, headers })
+  let response: Response
+  try {
+    response = await fetch(`/api${path}`, { ...init, headers })
+  } catch (error) {
+    // An abort (a stop, a query no longer wanted) is the page's own doing and stays as it is.
+    if (error instanceof TypeError) throw new Unreachable(globalThis.navigator?.onLine === false)
+    throw error
+  }
   const reference = response.headers.get('X-Request-ID')
   if (response.status >= 400 && reference) lastFailure = { reference, status: response.status }
   if (response.status === 401 && !path.startsWith('/auth/')) onUnauthorized?.()

@@ -2,7 +2,10 @@
 // server's worker and read here as a stream of events; the stream keeps flowing into the query
 // cache after the user moves to another chat or tab, so it is tracked here rather than in a
 // component, and a chat opened while its answer is still being written picks the stream up.
+// Offline, the page waits for the connection and follows on from where it was; an answer it gave
+// up on is followed again from its first event on the member's word.
 
+import { onlineManager } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
 import { useSyncExternalStore } from 'react'
 import { ApiError, api, isPlanLimit, streamEvents } from './api.ts'
@@ -33,6 +36,11 @@ export interface Message {
   // What the answer used, once known: from the `done` event while it is followed, from the
   // saved row when the chat is loaded.
   usage?: Usage | null
+  // The browser went offline while the answer was followed: it is followed on once it is back.
+  offline?: boolean
+  // The page gave up following the answer, which the worker may still be writing: the member
+  // may follow it again.
+  lost?: boolean
   // Length of `content` when the current model turn began, to discard a turn that is retried.
   turnStart: number
 }
@@ -46,10 +54,11 @@ export const chatKey = (chatId: number | null) => ['chat', chatId] as const
 // How many times in a row a dropped stream is reconnected before the answer is shown as lost,
 // and how long the first wait is; each wait is a second longer than the one before. A
 // connection that brought an event starts the count over, so that a long answer outlasts the
-// stop of every server it is followed from, as in a deployment of a new version.
+// stop of every server it is followed from, as in a deployment of a new version. Drops while
+// the browser is offline count for nothing: those are waited out.
 const RECONNECTS = 5
 const RECONNECT_WAIT = 1000
-const LOST = 'The connection to the answer was lost. Reload the page to see it.'
+const LOST = 'The connection to the answer was lost. Reconnect to follow it again.'
 // What a proxy answers while the server behind it is away, as between one server's stop and
 // the next one's start, and what a server answers that cannot serve just now: a dropped
 // connection too, unlike the other refusals.
@@ -75,6 +84,7 @@ export function settle(message: Message): Message {
   return {
     ...message,
     thinking: false,
+    offline: false,
     status: message.status === 'streaming' ? 'done' : message.status,
     steps: message.steps.map((step) => (step.summary === undefined ? { ...step, summary: '' } : step)),
   }
@@ -82,7 +92,20 @@ export function settle(message: Message): Message {
 
 /** An answer as it starts: nothing arrived yet. */
 function empty(message: Message): Message {
-  return { ...message, content: '', steps: [], sources: {}, thinking: true, notice: null, error: null, usage: null, turnStart: 0 }
+  return {
+    ...message,
+    content: '',
+    steps: [],
+    sources: {},
+    status: 'streaming',
+    thinking: true,
+    notice: null,
+    error: null,
+    usage: null,
+    offline: false,
+    lost: false,
+    turnStart: 0,
+  }
 }
 
 export function applyEvent(message: Message, event: ChatEvent): Message {
@@ -184,6 +207,25 @@ export function stop(chatId: number) {
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/** Wait until the browser is back online, or the following is stopped. */
+function backOnline(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (onlineManager.isOnline() || signal.aborted) return resolve()
+    const done = () => {
+      stopListening()
+      signal.removeEventListener('abort', done)
+      resolve()
+    }
+    const stopListening = onlineManager.subscribe((online) => {
+      if (online) done()
+    })
+    signal.addEventListener('abort', done)
+  })
+}
+
+/** Following given up after the drops in a row: the member may take it up again. */
+class Lost extends Error {}
+
 type Edit = (change: (message: Message) => Message) => void
 
 /** Read the answer's events into the message until the server says it is settled. */
@@ -191,8 +233,16 @@ async function follow(chatId: number, messageId: number, update: Edit, signal: A
   let after: number | null = null
   let drops = 0
   for (;;) {
+    // Each connection ends with the following, and as the browser goes offline: one the network
+    // took away may otherwise wait for good without an error.
+    const connection = new AbortController()
+    const close = () => connection.abort()
+    signal.addEventListener('abort', close)
+    const stopListening = onlineManager.subscribe((online) => {
+      if (!online) close()
+    })
     try {
-      for await (const { seq, event } of streamEvents(chatId, messageId, after, signal)) {
+      for await (const { seq, event } of streamEvents(chatId, messageId, after, connection.signal)) {
         if (seq != null) after = seq
         drops = 0
         update((message) => applyEvent(message, event))
@@ -201,8 +251,21 @@ async function follow(chatId: number, messageId: number, update: Edit, signal: A
     } catch (error) {
       // A refusal (the chat is gone, the session ended) is final; a dropped connection is not.
       if (signal.aborted || (error instanceof ApiError && !AWAY.has(error.status))) throw error
+    } finally {
+      signal.removeEventListener('abort', close)
+      stopListening()
     }
-    if (drops >= RECONNECTS) throw new Error(LOST)
+    if (!onlineManager.isOnline()) {
+      // The drop is the browser's, not the server's: waited out however long it takes, while
+      // the worker goes on writing the answer, and followed on from the last event seen.
+      update((message) => ({ ...message, offline: true }))
+      await backOnline(signal)
+      signal.throwIfAborted()
+      update((message) => ({ ...message, offline: false }))
+      drops = 0
+      continue
+    }
+    if (drops >= RECONNECTS) throw new Lost(LOST)
     drops++
     await wait(RECONNECT_WAIT * drops)
   }
@@ -220,7 +283,9 @@ async function run(queryClient: QueryClient, chatId: number, following: Followin
     const stopped = controller.signal.aborted
     update((message) => ({
       ...message,
-      ...(stopped ? { notice: 'Stopped.', status: 'stopped' } : { error: (error as Error).message, status: 'failed' }),
+      ...(stopped
+        ? { notice: 'Stopped.', status: 'stopped' }
+        : { error: (error as Error).message, status: 'failed', lost: error instanceof Lost }),
     }))
   } finally {
     update(settle)
@@ -279,8 +344,8 @@ export async function ask(queryClient: QueryClient, chatId: number, question: st
 }
 
 /**
- * Follow an answer the server is still writing, after a reload or from another tab: its
- * events are read from the start, so the message starts empty.
+ * Follow an answer the server is still writing, after a reload, from another tab or once the
+ * page lost it: its events are read from the start, so the message starts empty.
  */
 export function resume(queryClient: QueryClient, chatId: number, messageId: number) {
   if (running.has(chatId)) return
