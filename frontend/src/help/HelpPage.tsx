@@ -94,7 +94,7 @@ function StillStuck({ address }: { address: string | null }) {
       {address && (
         <>
           , or to{' '}
-          <a href={`mailto:${address}`} className="text-ink hover:underline">
+          <a href={`mailto:${address}`} className="text-ink underline underline-offset-2">
             {address}
           </a>
         </>

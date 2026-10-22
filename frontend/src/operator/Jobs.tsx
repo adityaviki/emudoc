@@ -124,7 +124,7 @@ export function JobsPage() {
                   Run every failed document again
                 </Button>
               )}
-              <Table columns={[{ label: 'Job' }, { label: 'Kind' }, { label: 'About' }, { label: 'Ended' }, { label: 'Why' }, { label: '' }]}>
+              <Table columns={[{ label: 'Job' }, { label: 'Kind' }, { label: 'About' }, { label: 'Ended' }, { label: 'Why' }, { label: 'Action', unseen: true }]}>
                 {jobs.data.failed.map((job) => (
                   <tr key={job.id}>
                     <Cell>{job.id}</Cell>

@@ -214,6 +214,14 @@ a file that got through before the cut coming back as already in the project. Th
 offered back at once with "Undo", until the next one or its cross. Opening a file adds a third pane in
 the middle, the **document**, with a tab for each open file; the tabs stay open across reloads,
 and closing the last one leaves the library and the agent side by side again.
+
+Everything there works by the keyboard as well (WCAG 2.2 AA). The library is one stop of Tab:
+the arrows move through its rows, which a screen reader reads out by name and state, Enter opens
+one, F2 renames, Delete deletes, and Tab goes on to the actions of the row it is on, whose "Move
+to…" asks for a folder in a dialog, the way to move without a drag. The tabs open with the arrows
+and close with Delete, the text of a document scrolls once focused, and the dividers between the
+panes move with the arrows. Every menu and panel takes the keyboard as it opens, gives it back
+to its button on Escape, and lets Tab go on past it.
 PDFs show their rendered pages with the extracted text laid invisibly over them, so it can be
 selected and searched; spreadsheets show one tab per sheet; images show the picture above the text
 read from it. On the right is the **agent**. Clicking a citation in an answer opens the cited
@@ -940,7 +948,9 @@ The frontend's unit tests (`pnpm test`, Vitest) sit beside the modules they test
 reconnections, the workspace's URLs, the formatting. `pnpm e2e` (Playwright) drives the built
 page in Chromium as a new member: sign up through the link the app mails, skip the tour, ask the
 sample project one of its questions, make a project, upload a contract, wait for it to be indexed, search for it, ask about it and open the passage the
-answer cites, then invite a colleague from under that answer. It starts the app itself (`frontend/e2e/serve.sh`, in a database of its own,
+answer cites, then invite a colleague from under that answer, checking each kind of page, panel
+and dialog against axe-core's rules for WCAG 2.2 AA in both themes along the way
+(`frontend/e2e/axe.ts`), and the keyboard's focus where what held it goes. It starts the app itself (`frontend/e2e/serve.sh`, in a database of its own,
 `emudoc_e2e`, made afresh each run, its log in the temporary directory, where the test finds the
 mail) against a stand-in for the model and the embeddings endpoint (`frontend/e2e/standin.py`),
 which answers the same way every run and needs no key. Chromium comes once with `pnpm exec

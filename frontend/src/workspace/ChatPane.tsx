@@ -509,7 +509,7 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
                 rows={Math.min(6, draft.split('\n').length)}
                 placeholder="Ask a question about these documents"
                 disabled={chat.isError}
-                className="max-h-40 min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 outline-none placeholder:text-muted/70"
+                className="max-h-40 min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 outline-none placeholder:text-muted"
               />
               {streaming ? (
                 <Button icon={<Square className="size-3.5" />} onClick={() => chatId != null && stop(chatId)}>
@@ -528,7 +528,7 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
               )}
             </div>
           )}
-          <p className="mt-2 text-center text-[11px] text-muted/80">
+          <p className="mt-2 text-center text-[11px] text-muted">
             Answers are written by AI and can be wrong: check the cited passages
             {!starter && ' · Enter to send · Shift+Enter for a new line'}
           </p>
@@ -648,7 +648,7 @@ function Answer({ message, currency, onOpen, onReconnect }: AnswerProps) {
         </div>
       )}
       {message.usage?.calls ? (
-        <p className="text-[11px] text-muted/80" title="What this answer used">
+        <p className="text-[11px] text-muted" title="What this answer used">
           {describeAnswerUsage(message.usage, currency)}
         </p>
       ) : null}
@@ -687,7 +687,7 @@ function CitationChip({ number, source, onOpen }: { number: number; source: Sour
         {number}
       </button>
       {anchor && (
-        <Floating anchor={anchor} onClose={() => setAnchor(null)} ignore={chip} className="w-96 max-w-[90vw]">
+        <Floating anchor={anchor} onClose={() => setAnchor(null)} ignore={chip} preview className="w-96 max-w-[90vw]">
           <div onMouseEnter={show} onMouseLeave={hide} className="text-[13px]">
             <div className="border-b border-line bg-sunken/50 px-3 py-2">
               <p className="truncate font-semibold">{source.document_title}</p>
@@ -768,7 +768,7 @@ function StepLine({ step }: { step: Step }) {
       <span className="min-w-0">
         {describeStep(step)}
         {step.summary && (
-          <span className={step.is_error ? 'text-bad' : 'opacity-70'}> · {step.summary}</span>
+          <span className={step.is_error ? 'text-bad' : undefined}> · {step.summary}</span>
         )}
       </span>
     </li>

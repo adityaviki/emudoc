@@ -1,9 +1,11 @@
 import { useRef, useState } from 'react'
-import type { CSSProperties, PointerEvent, ReactNode } from 'react'
+import type { CSSProperties, KeyboardEvent, PointerEvent, ReactNode } from 'react'
 import { useLocalStorage } from '../hooks.ts'
 
 export interface Pane {
   key: string
+  /** What the pane is, which names the divider after it. */
+  label: string
   node: ReactNode
   /** How wide this pane starts, relative to the others. */
   share: number
@@ -29,7 +31,10 @@ interface Drag {
   from: number[]
 }
 
-/** Panes side by side with draggable dividers between them; the widths are remembered in this browser. */
+/**
+ * Panes side by side with dividers between them, dragged, or moved by the arrow keys (Shift for
+ * larger steps) once focused; the widths are remembered in this browser.
+ */
 export function SplitPanes({ panes, storageKey, shown }: SplitPanesProps) {
   const [splits, setSplits] = useLocalStorage<Splits>(storageKey, {}, isSplits)
   const [drag, setDrag] = useState<Drag | null>(null)
@@ -47,19 +52,30 @@ export function SplitPanes({ panes, storageKey, shown }: SplitPanesProps) {
     setDrag({ index, startX: event.clientX, width: container.current!.getBoundingClientRect().width, from: percents })
   }
 
+  /** The widths once the divider after pane `index` moved by `delta` percent of the `width`. */
+  function moved(from: number[], index: number, delta: number, width: number): number[] {
+    const toPercent = (px: number) => (px / width) * 100
+    // The divider moves width from one neighbour to the other; neither may go below its minimum.
+    const allowed = Math.min(from[index + 1] - toPercent(panes[index + 1].min), Math.max(toPercent(panes[index].min) - from[index], delta))
+    const next = [...from]
+    next[index] = from[index] + allowed
+    next[index + 1] = from[index + 1] - allowed
+    return next
+  }
+
   function onPointerMove(event: PointerEvent<HTMLDivElement>) {
     if (!drag) return
     const { index, from, width } = drag
-    const toPercent = (px: number) => (px / width) * 100
-    // The divider moves width from one neighbour to the other; neither may go below its minimum.
-    const delta = Math.min(
-      from[index + 1] - toPercent(panes[index + 1].min),
-      Math.max(toPercent(panes[index].min) - from[index], toPercent(event.clientX - drag.startX)),
-    )
-    const next = [...from]
-    next[index] = from[index] + delta
-    next[index + 1] = from[index + 1] - delta
+    const next = moved(from, index, ((event.clientX - drag.startX) / width) * 100, width)
     setSplits((current) => ({ ...current, [layout]: next }), { persist: false })
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLDivElement>, index: number) {
+    const direction = { ArrowLeft: -1, ArrowRight: 1 }[event.key]
+    if (!direction) return
+    event.preventDefault()
+    const next = moved(percents, index, direction * (event.shiftKey ? 10 : 2), container.current!.getBoundingClientRect().width)
+    setSplits((current) => ({ ...current, [layout]: next }))
   }
 
   function onPointerUp() {
@@ -88,6 +104,13 @@ export function SplitPanes({ panes, storageKey, shown }: SplitPanesProps) {
               key={`divider:${pane.key}`}
               role="separator"
               aria-orientation="vertical"
+              // Named for the pane before it, whose share of the width it says.
+              aria-label={pane.label}
+              aria-valuenow={Math.round(percents[index])}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              tabIndex={0}
+              onKeyDown={(event) => onKeyDown(event, index)}
               onPointerDown={(event) => onPointerDown(event, index)}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
@@ -100,7 +123,7 @@ export function SplitPanes({ panes, storageKey, shown }: SplitPanesProps) {
                   return rest
                 })
               }
-              className={`hidden w-1.5 shrink-0 cursor-col-resize touch-none border-l border-line transition-colors hover:bg-accent/40 lg:block ${
+              className={`hidden w-1.5 shrink-0 cursor-col-resize touch-none border-l border-line transition-colors hover:bg-accent/40 focus-visible:-outline-offset-2! lg:block ${
                 drag?.index === index ? 'bg-accent/40' : ''
               }`}
             />

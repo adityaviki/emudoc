@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from 'react'
+import type { ReactNode } from 'react'
 import { Button } from './ui.tsx'
 
 /** What the page asks before an action: what it is about, what it does, and the button that does it. */
@@ -14,15 +15,17 @@ interface ConfirmProps extends Question {
   onConfirm: () => void
   /** Called once the dialog closed, whichever way: Cancel, Escape or the action. */
   onClose: () => void
+  /** What the action needs chosen, between the words and the buttons. */
+  children?: ReactNode
 }
 
 /**
  * Asks before an action, in a modal over the page for as long as it is mounted, Cancel focused
- * first. It is the browser's own dialog, opened with `showModal()`: the page beneath is inert,
+ * first, or what the action needs chosen when it marks itself `data-autofocus`. It is the browser's own dialog, opened with `showModal()`: the page beneath is inert,
  * Tab stays inside, Escape cancels, it sits above every other layer, and focus goes back to what
  * had it once it closes.
  */
-export function Confirm({ title, body, action, danger = true, onConfirm, onClose }: ConfirmProps) {
+export function Confirm({ title, body, action, danger = true, onConfirm, onClose, children }: ConfirmProps) {
   const dialog = useRef<HTMLDialogElement>(null)
   const id = useId()
 
@@ -31,7 +34,7 @@ export function Confirm({ title, body, action, danger = true, onConfirm, onClose
     // Strict mode runs an effect twice, and a dialog already open stays as it is.
     if (!shown || shown.open) return
     shown.showModal()
-    shown.querySelector<HTMLButtonElement>('[data-cancel]')?.focus()
+    shown.querySelector<HTMLElement>('[data-autofocus], [data-cancel]')?.focus()
   }, [])
 
   return (
@@ -48,6 +51,7 @@ export function Confirm({ title, body, action, danger = true, onConfirm, onClose
       <p id={`${id}-body`} className="mt-1.5 text-[13px] leading-relaxed break-words text-muted">
         {body}
       </p>
+      {children && <div className="mt-4">{children}</div>}
       <div className="mt-5 flex justify-end gap-2">
         <Button data-cancel onClick={() => dialog.current?.close()}>
           Cancel

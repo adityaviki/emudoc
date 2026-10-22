@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { ListTree, X } from 'lucide-react'
 import { Fragment, useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import { api, fileUrl, isImage, isPdf, isSheet, pageImageUrl, pageLabel, sectionPath } from '../api.ts'
 import type { Block, Document, DocumentContent, Section } from '../api.ts'
 import { IndexingStatus } from '../components/IndexingStatus.tsx'
@@ -78,7 +79,9 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
   useEffect(() => {
     if (focusStart == null || !loaded) return
     const target = pages ? `page-${focusPage}` : `block-${focusStart}`
-    window.document.getElementById(target)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    // Smoothly, unless the system asks for less motion, which CSS cannot say for a script's scroll.
+    const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+    window.document.getElementById(target)?.scrollIntoView({ block: 'center', behavior })
   }, [focusStart, focusPage, loaded, pages])
 
   const focusLabel =
@@ -160,20 +163,20 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
           <Notice tone="bad">Could not load the text: {content.error.message}</Notice>
         </div>
       ) : pages ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <Scrolled label={`Pages of ${document.filename}`} className="min-h-0 flex-1 overflow-y-auto">
           <PagesView document={document} content={content.data} focus={blockFocus} />
-        </div>
+        </Scrolled>
       ) : isImage(document) ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <Scrolled label={`Text of ${document.filename}`} className="min-h-0 flex-1 overflow-y-auto">
           <ImagePreview document={document} />
           <TextView blocks={content.data.blocks} focus={blockFocus} />
-        </div>
+        </Scrolled>
       ) : isSheet(document) ? (
-        <SheetView blocks={content.data.blocks} focus={blockFocus} />
+        <SheetView label={`Rows of ${document.filename}`} blocks={content.data.blocks} focus={blockFocus} />
       ) : (
         <div className="flex min-h-0 flex-1">
           {outlineOpen && outline.data && outline.data.length > 0 && (
-            <aside className="w-60 shrink-0 overflow-y-auto border-r border-line bg-surface p-2">
+            <aside aria-label="Outline" className="w-60 shrink-0 overflow-y-auto border-r border-line bg-surface p-2">
               <p className="px-2 pt-1 pb-2 text-[11px] font-medium tracking-wide text-muted uppercase">Outline</p>
               <ul>
                 {outline.data.map((section) => (
@@ -187,9 +190,9 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
               </ul>
             </aside>
           )}
-          <div className="min-w-0 flex-1 overflow-y-auto">
+          <Scrolled label={`Text of ${document.filename}`} className="min-w-0 flex-1 overflow-y-auto">
             <TextView blocks={content.data.blocks} focus={blockFocus} />
-          </div>
+          </Scrolled>
         </div>
       )}
     </div>
@@ -368,7 +371,7 @@ interface Sheet {
 }
 
 /** A spreadsheet: one tab per sheet (its heading block), the sheet's tables below. */
-function SheetView({ blocks, focus }: { blocks: Block[]; focus: BlockFocus | null }) {
+function SheetView({ label, blocks, focus }: { label: string; blocks: Block[]; focus: BlockFocus | null }) {
   const sheets: Sheet[] = []
   for (const block of blocks) {
     if (block.kind === 'heading' && block.level === 1) {
@@ -407,7 +410,7 @@ function SheetView({ blocks, focus }: { blocks: Block[]; focus: BlockFocus | nul
           ))}
         </div>
       )}
-      <div className="min-h-0 flex-1 overflow-auto p-4">
+      <Scrolled label={label} className="min-h-0 flex-1 overflow-auto p-4">
         <div className="space-y-4">
           {sheet?.blocks.map((block) => (
             <div
@@ -419,7 +422,19 @@ function SheetView({ blocks, focus }: { blocks: Block[]; focus: BlockFocus | nul
             </div>
           ))}
         </div>
-      </div>
+      </Scrolled>
+    </div>
+  )
+}
+
+/**
+ * What scrolls in the pane: a stop of the keyboard, named for screen readers, so that the arrows
+ * and Page Down scroll a text that holds nothing else to focus.
+ */
+function Scrolled({ label, className, children }: { label: string; className: string; children: ReactNode }) {
+  return (
+    <div role="region" aria-label={label} tabIndex={0} className={`focus-visible:-outline-offset-2! ${className}`}>
+      {children}
     </div>
   )
 }

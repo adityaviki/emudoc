@@ -1,9 +1,13 @@
 import type { ReactNode } from 'react'
 
-/** A column of a table: its heading, and whether it holds figures, which line up on the right. */
+/**
+ * A column of a table: its heading, whether it holds figures, which line up on the right, and
+ * whether its heading is for screen readers alone, over buttons whose names say what they do.
+ */
 export interface Column {
   label: string
   figure?: boolean
+  unseen?: boolean
 }
 
 /** A table of the area's rows, which scrolls sideways on a narrow screen rather than squeeze its columns. */
@@ -15,7 +19,7 @@ export function Table({ columns, children }: { columns: Column[]; children: Reac
           <tr className="border-b border-line text-left text-xs text-muted">
             {columns.map((column) => (
               <th key={column.label} className={`px-3 py-2 font-medium whitespace-nowrap ${column.figure ? 'text-right' : ''}`}>
-                {column.label}
+                {column.unseen ? <span className="sr-only">{column.label}</span> : column.label}
               </th>
             ))}
           </tr>

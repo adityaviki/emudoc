@@ -81,6 +81,20 @@ summary {
   outline-offset: 2px;
 }
 
+/* Less motion for whoever asked their system for it: nothing fades, slides, pulses or scrolls
+   smoothly. A spinner keeps turning, since it is what says that something is under way. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    transition-duration: 0s !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-pulse {
+    animation: none !important;
+  }
+}
+
 /* Thin, unobtrusive scrollbars everywhere. */
 * {
   scrollbar-width: thin;
@@ -106,8 +120,9 @@ summary {
   transition:
     border-color 120ms,
     box-shadow 120ms;
+  /* A hint is read like any text, so it keeps muted's full contrast. */
   &::placeholder {
-    color: color-mix(in srgb, var(--color-muted) 75%, transparent);
+    color: var(--color-muted);
   }
   &:hover:not(:focus) {
     border-color: color-mix(in srgb, var(--color-ink) 20%, var(--color-line));

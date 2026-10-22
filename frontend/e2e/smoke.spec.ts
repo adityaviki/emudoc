@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { BrowserContext, Page } from '@playwright/test'
+import { expectAccessible } from './axe.ts'
 import { linkMailedTo, messageTo } from './mail.ts'
 import { makeOperator, movePlan } from './operator.ts'
 
@@ -24,7 +25,9 @@ import { makeOperator, movePlan } from './operator.ts'
 // colleague's account, which she let support see, and switch the model's provider off and on
 // again. The answer
 // is the stand-in's (e2e/standin.py): the first sentence of the passage its search found best,
-// with that passage's reference.
+// with that passage's reference. Along the way each kind of page, panel and dialog is checked
+// against axe-core's rules for WCAG 2.2 AA in both themes (e2e/axe.ts), and the keyboard's focus
+// is followed where something it was on goes away.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
 // The project every sign-up's organisation starts with (backend/app/sample).
 const SAMPLE = 'Sample: Acme supplier contract'
@@ -45,19 +48,24 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   await test.step('sign up', async () => {
     // A new address every run, so that a server kept from an earlier run takes it too.
     address = `ada.${Date.now()}@example.com`
+    await page.goto('/login')
+    await expectAccessible(page, 'the sign-in page')
     await page.goto('/signup')
+    await expectAccessible(page, 'the sign-up page')
     await page.getByLabel('Email', { exact: true }).fill(address)
     await page.getByRole('button', { name: 'Continue' }).click()
     await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible()
     await page.goto(await linkMailedTo(address))
     await expect(page.getByRole('heading', { name: 'Finish creating your account' })).toBeVisible()
     await expect(page.getByText(address)).toBeVisible()
+    await expectAccessible(page, 'the page that finishes a sign-up')
     await page.getByLabel('Name', { exact: true }).fill('Ada Lovelace')
     await page.getByLabel('Password', { exact: true }).fill('a sentence to remember')
     await page.getByLabel(/I accept the terms of service/).check()
     await page.getByRole('button', { name: 'Create account' }).click()
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
     await expect(firstSteps).toContainText('0 of 3 done')
+    await expectAccessible(page, 'the projects page with its first steps')
   })
 
   await test.step('skip the tour, and ask the sample project one of its questions', async () => {
@@ -67,6 +75,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const tour = page.getByRole('dialog')
     await expect(tour).toContainText('1 of 6')
     await expect(tour).toContainText('The library')
+    await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeFocused()
+    await expectAccessible(page, 'the tour')
     await page.getByRole('button', { name: 'Next', exact: true }).click()
     await expect(tour).toContainText('Search')
     const seen = page.waitForResponse((response) => response.url().endsWith('/api/auth/onboarding'))
@@ -85,12 +95,27 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByText('Thinking')).toHaveCount(0)
     // The sample's answer suggests no invitation: its documents are no work a team shares.
     await expect(inviteTeam).toHaveCount(0)
+    await expectAccessible(page, 'a project with an answer')
+    // A menu takes the keyboard to its first item, and Escape gives it back to its button.
+    const account = page.getByRole('button', { name: 'AL, your account' })
+    await account.click()
+    await expect(page.getByRole('menuitem', { name: 'Account and security' })).toBeFocused()
+    await expectAccessible(page, 'the user menu')
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('menu')).toHaveCount(0)
+    await expect(account).toBeFocused()
     await page.getByRole('link', { name: 'Emudoc' }).click()
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
     await expect(firstSteps).toContainText('1 of 3 done')
   })
 
   await test.step('make a project', async () => {
+    // Asked for less motion, nothing fades from one colour to another.
+    const fades = `getComputedStyle(document.querySelector('header button')).transitionDuration`
+    expect(await page.evaluate(fades)).not.toBe('0s')
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    expect(await page.evaluate(fades)).toBe('0s')
+    await page.emulateMedia({ reducedMotion: null })
     await page.getByRole('button', { name: 'New project' }).click()
     await page.getByLabel('Name', { exact: true }).fill('Supplier contracts')
     await page.getByRole('button', { name: 'Create project' }).click()
@@ -114,6 +139,15 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
       await expect(status).toHaveAccessibleName(new RegExp(`${stage}: done`))
     }
     await expect(status).toHaveAccessibleName(/Malware scan: skipped/)
+    await expectAccessible(page, 'the library with a document indexed')
+    // The divider between the panes moves by the keyboard as well as by a drag.
+    const divider = page.getByRole('separator', { name: 'Library' })
+    const share = Number(await divider.getAttribute('aria-valuenow'))
+    await divider.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(divider).toHaveAttribute('aria-valuenow', String(share + 2))
+    await page.keyboard.press('ArrowLeft')
+    await expect(divider).toHaveAttribute('aria-valuenow', String(share))
     // Seen once, the tour does not come back.
     await expect(page.getByRole('dialog')).toHaveCount(0)
   })
@@ -149,6 +183,14 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('heading', { name: 'Service contract', exact: true })).toBeVisible()
     await expect(page.getByText('Showing: 4 Termination')).toBeVisible()
     await expect(page.getByText(/^Either party may end this contract .* on the first page\.$/)).toBeInViewport()
+    await expectAccessible(page, 'a document beside its chat')
+    // Its tab closes by the keyboard, and the keyboard goes back to the library with the pane.
+    const tab = page.getByRole('tab', { name: /^service-contract\.md/ })
+    await expect(tab).toHaveAttribute('aria-selected', 'true')
+    await tab.focus()
+    await page.keyboard.press('Delete')
+    await expect(tab).toHaveCount(0)
+    await expect(page.getByRole('tree', { name: 'Files' })).toBeFocused()
   })
 
   await test.step('rename the contract and move it into a folder, undoing each', async () => {
@@ -158,6 +200,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.keyboard.press('F2')
     await page.getByLabel('New name').fill('contract')
     await page.getByLabel('New name').press('Enter')
+    await expect(page.getByRole('tree', { name: 'Files' })).toBeFocused()
     // The extension is kept.
     await expect(page.getByText('“service-contract.md” is now called “contract.md”.')).toBeVisible()
     await expect(page.getByRole('treeitem', { name: /(^|\s)contract\.md/ })).toBeVisible()
@@ -177,6 +220,24 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await undo.click()
     await expect(contract).toBeVisible()
     await expect(undo).toHaveCount(0)
+
+    // The same move by the keyboard: Tab from the listing to its row's actions, and the folder
+    // chosen in a dialog.
+    await contract.click()
+    await page.keyboard.press('Tab')
+    await expect(contract.getByRole('button', { name: 'More actions' })).toBeFocused()
+    await page.keyboard.press('Enter')
+    await page.getByRole('menuitem', { name: 'Move to…' }).click()
+    const where = page.getByRole('dialog', { name: 'Move “service-contract.md”' })
+    await expect(where.getByLabel('Folder')).toBeFocused()
+    await expectAccessible(page, 'the dialog that moves files')
+    await where.getByLabel('Folder').selectOption({ label: 'Supplier contracts / Contracts' })
+    await where.getByRole('button', { name: 'Move', exact: true }).click()
+    await expect(page.getByText('“service-contract.md” is now in “Contracts”.')).toBeVisible()
+    await expect(page.getByRole('tree', { name: 'Files' })).toBeFocused()
+    await undo.click()
+    await expect(contract).toBeVisible()
+    await expect(undo).toHaveCount(0)
   })
 
   await test.step('delete the contract and the folder, take the contract back from the trash and delete the folder for good', async () => {
@@ -186,6 +247,10 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.keyboard.press('Delete')
     await expect(contract).toHaveCount(0)
     await expect(page.getByText('“service-contract.md” is in the trash.')).toBeVisible()
+    // The keyboard stays in the listing, on the row that is left, which a screen reader reads out.
+    const files = page.getByRole('tree', { name: 'Files' })
+    await expect(files).toBeFocused()
+    await expect(files).toHaveAttribute('aria-activedescendant', (await folder.getAttribute('id')) ?? '')
     await folder.click()
     await page.keyboard.press('Delete')
     await expect(folder).toHaveCount(0)
@@ -200,12 +265,16 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const asked = page.getByRole('dialog', { name: 'Delete “Contracts” for good?' })
     await expect(asked).toContainText('The folder “Contracts” is deleted for good with everything in it')
     await expect(asked.getByRole('button', { name: 'Cancel' })).toBeFocused()
+    await expectAccessible(page, 'the dialog that asks before deleting for good')
     await page.keyboard.press('Escape')
     await expect(asked).toHaveCount(0)
     await expect(purge).toBeFocused()
     await purge.click()
     await asked.getByRole('button', { name: 'Delete for good' }).click()
     await expect(page.getByText('The trash is empty')).toBeVisible()
+    // The row and its button went: the keyboard goes on from the trash's heading.
+    await expect(page.getByRole('heading', { name: 'Trash', exact: true })).toBeFocused()
+    await expectAccessible(page, 'the trash')
     await page.getByRole('button', { name: 'Back to the library' }).click()
     await expect(contract).toBeVisible()
     await expect(folder).toHaveCount(0)
@@ -222,6 +291,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const file = panel.getByRole('link', { name: 'Download' })
     await expect(file).toBeVisible({ timeout: 15_000 })
     await expect(panel).toContainText(/1 document, [\d.]+ kB, until /)
+    await expectAccessible(page, "a project's exports")
     const downloading = page.waitForEvent('download')
     await file.click()
     const zip = await readFile(await (await downloading).path())
@@ -231,6 +301,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     // The bell, which asks again as the page loads, tells it is ready, and its notice opens the panel.
     await page.reload()
     await page.getByRole('button', { name: 'Notifications, 1 unread' }).click()
+    await expectAccessible(page, 'the notification centre')
     await page.getByRole('dialog', { name: 'Notifications' }).getByRole('button', { name: /Your project export is ready/ }).click()
     await expect(panel.getByRole('link', { name: 'Download' })).toBeVisible()
     await panel.getByRole('button', { name: 'Close' }).click()
@@ -241,7 +312,14 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     // From the projects page: a menu closes when anything scrolls, as the passage still may.
     await page.getByRole('link', { name: 'Emudoc', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
-    await page.getByRole('button', { name: "Ada Lovelace's workspace" }).click()
+    const switcher = page.getByRole('button', { name: "Ada Lovelace's workspace" })
+    await switcher.click()
+    // Tab leaves a menu, closing it, and goes on from its button.
+    await expect(page.getByRole('menuitem', { name: "Ada Lovelace's workspace" })).toBeFocused()
+    await page.keyboard.press('Shift+Tab')
+    await expect(page.getByRole('menu')).toHaveCount(0)
+    await expect(switcher).toBeFocused()
+    await switcher.click()
     await page.getByRole('menuitem', { name: 'New organisation' }).click()
     await page.getByLabel('Name', { exact: true }).fill('Lovelace Legal')
     await page.getByRole('button', { name: 'Create organisation' }).click()
@@ -262,6 +340,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(language).toHaveValue('german')
     await page.getByLabel('Chats kept').selectOption('7')
     await expect(page.getByText(/more than 7 days old are deleted within six hours/)).toBeVisible()
+    await expectAccessible(page, "an organisation's page")
     // The page saves a sign-in's days by a button of the same name: this is the one beside the select.
     const save = page.getByRole('button', { name: 'Save', exact: true })
     const chatDays = page.locator('div').filter({ has: page.getByLabel('Chats kept') }).filter({ has: save }).last()
@@ -276,6 +355,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(changes).toHaveCount(2)
     await expect(changes.first()).toContainText('Chats kept: as long as the plan → 7 days after the last question')
     await expect(changes.last()).toContainText('Language: the default → German')
+    await expectAccessible(page, 'the audit log')
     const downloading = page.waitForEvent('download')
     await page.getByRole('link', { name: 'Download CSV' }).click()
     const csv = await readFile(await (await downloading).path(), 'utf8')
@@ -340,6 +420,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     grace = await theirs.newPage()
     await grace.goto(await linkMailedTo(colleague))
     await expect(grace.getByRole('heading', { name: "Join Ada Lovelace's workspace" })).toBeVisible()
+    await expectAccessible(grace, "an invitation's page")
     await grace.getByLabel('Name', { exact: true }).fill('Grace Hopper')
     await grace.getByLabel('Password', { exact: true }).fill('another sentence to remember')
     await grace.getByLabel(/I accept the terms of service/).check()
@@ -380,11 +461,13 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(section('Held now').getByRole('definition').nth(0)).toContainText('Not counted: the sample project.')
     await expect(section('Held now').getByRole('definition').nth(3)).toContainText('2 of 2')
     await expect(section('Day by day').getByRole('figure', { name: /^Questions/ })).toContainText('2 questions in all')
+    await expectAccessible(page, 'the usage page')
   })
 
   await test.step('write to support from the help menu, which mails the page the member wrote from', async () => {
     await page.getByRole('button', { name: 'Help', exact: true }).click()
     const help = page.getByRole('dialog', { name: 'Help' })
+    await expectAccessible(page, 'the help menu')
     await help.getByRole('button', { name: 'A question' }).click()
     await help.getByLabel('Message').fill('Can one project hold two price lists?')
     await help.getByRole('button', { name: 'Send' }).click()
@@ -394,6 +477,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     expect(mail).toContain('Can one project hold two price lists?')
     expect(mail).toContain('/organization/usage')
     await page.keyboard.press('Escape')
+    await expect(help).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Help', exact: true })).toBeFocused()
   })
 
   await test.step('read the help pages from the help menu, find one by a word and follow its link into the app', async () => {
@@ -410,8 +495,10 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(article.getByRole('heading', { name: 'Your data: exports, the trash and deletion' })).toBeVisible()
     // Its figures are the deployment's own (backend/app/help).
     await expect(article).toContainText('kept 7 days for whoever asked for it')
+    await expectAccessible(page, 'a help page')
     await article.getByRole('link', { name: 'account page' }).click()
     await expect(page).toHaveURL(/\/account$/)
+    await expectAccessible(page, 'the account page')
   })
 
   await test.step("read what's new from the help menu: the changelog's newest entries for members", async () => {
@@ -423,6 +510,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('dialog', { name: 'Help' }).getByRole('link', { name: /^What's new/ }).click()
     await expect(page.getByRole('heading', { name: "What's new", exact: true })).toBeVisible()
     await expect(page.getByRole('region').first()).toContainText(newest)
+    await expectAccessible(page, "what's new")
     // Read, so the help menu marks nothing, whatever it marked before.
     await page.getByRole('link', { name: 'Emudoc', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Help', exact: true })).not.toHaveAttribute('aria-describedby')
@@ -454,6 +542,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await card.getByRole('button', { name: 'Who sees it' }).click()
     await page.getByLabel('Only the members chosen').check()
     await expect(page.getByText('Sees every project')).toBeVisible()
+    await expectAccessible(page, "a project's access")
     await page.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(page.getByText('Private', { exact: true })).toBeVisible()
     await grace.goto('/')
@@ -549,6 +638,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const flags = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Feature flags', exact: true }) })
     const preview = flags.getByRole('row').filter({ hasText: 'e2e_preview' })
     await expect(preview).toContainText('off, as rolled out')
+    await expectAccessible(page, "an organisation in the operator's area")
     const chosen = page.waitForResponse((response) => response.url().endsWith('/flags/e2e_preview') && response.ok())
     await preview.getByLabel('Feature flag e2e_preview').selectOption('on')
     await chosen
@@ -575,6 +665,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('button', { name: 'Ask again' })).toBeVisible()
     await page.getByRole('navigation', { name: 'Views' }).getByRole('link', { name: 'Services' }).click()
     await expect(page.getByRole('heading', { name: 'What the watch sees' })).toBeVisible()
+    await expectAccessible(page, "the operator's services")
     // The stand-in's provider switched off, which asks first, and on again: last, since nothing asks a model after it.
     const ollama = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Providers' }) }).getByRole('row').filter({ hasText: 'ollama' })
     await ollama.getByRole('button', { name: 'Switch ollama off' }).click()

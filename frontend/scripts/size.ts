@@ -14,11 +14,13 @@ import { gzipSync } from 'node:zlib'
 // the same day by its API keys (216.3 kB), and 218 kB by a member's leave for support and the
 // banner of support's view of an account (218.4 kB), which every page shows, and 220 kB by the
 // help menu, whose question mark writes to support from every page, and the help pages (220.4
-// kB), whose text the API sends, each of which a code split could not hold back without a
-// reload after a release (frontend conventions). A
+// kB), whose text the API sends, and 224 kB on 2026-10-22 by the accessibility pass (224.9 kB):
+// menus, panels, tabs and the library's listing worked by the keyboard alone, and the focus
+// given back where what held it goes, in the parts of every page, each of which a code split
+// could not hold back without a reload after a release (frontend conventions). A
 // change that passes it makes the scripts smaller (a dependency left out, a page loaded only
 // when it is opened) or raises this number, saying why in its commit.
-const BUDGET = 224_000
+const BUDGET = 228_000
 // The operator's area (operator.html), a build of its own that only operators are sent: React
 // and the rest again, 102.0 kB on 2026-10-21. Its size costs no member anything, so its budget
 // only catches a dependency pulled in by mistake.

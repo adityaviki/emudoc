@@ -18,7 +18,7 @@ import { Library } from '../workspace/Library.tsx'
 import { documentQuery, isGone } from '../workspace/listing.ts'
 import { SplitPanes } from '../workspace/SplitPane.tsx'
 import type { Pane as SplitPane } from '../workspace/SplitPane.tsx'
-import { TabStrip } from '../workspace/TabStrip.tsx'
+import { DOCUMENT_PANEL, TAB_ID, TabStrip } from '../workspace/TabStrip.tsx'
 import { SPLIT_KEY, WorkspaceContext, isTabsStore, tabsStorageKey, useWorkspace } from '../workspace/state.ts'
 import type { OpenTab, Pane, TabsStore, Workspace as WorkspaceState } from '../workspace/state.ts'
 import { buildWorkspaceUrl, sameFocus, useWorkspaceUrl } from '../workspace/url.ts'
@@ -169,6 +169,7 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
   const panes: SplitPane[] = [
     {
       key: 'library',
+      label: 'Library',
       node: (
         <ErrorBoundary part="library" resetKey={libraryPlace(url.library)}>
           <Library />
@@ -181,6 +182,7 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
       ? [
           {
             key: 'document',
+            label: 'Document',
             node: (
               <ErrorBoundary part="document" resetKey={activeDocumentId}>
                 <DocumentPane documentId={activeDocumentId} />
@@ -193,6 +195,7 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
       : []),
     {
       key: 'chat',
+      label: 'Chat',
       // What the tour points at, there while the chats load too.
       node: (
         <div data-tour="chat" className="h-full">
@@ -209,6 +212,8 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
   return (
     <WorkspaceContext value={workspace}>
       <div className="flex h-full min-h-0 flex-col">
+        {/* The header's switcher shows the project's name; a screen reader finds it as the page's heading. */}
+        <h1 className="sr-only">{workspace.project.name}</h1>
         {/* Where the chat is on a narrow screen, for the tour, which the hidden pane cannot show. */}
         <div data-tour="chat" className="flex justify-center border-b border-line bg-surface px-3 py-1.5 lg:hidden">
           <Segmented
@@ -276,7 +281,7 @@ function DocumentPane({ documentId }: { documentId: number }) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-page">
       <TabStrip />
-      <div className="min-h-0 flex-1">
+      <div id={DOCUMENT_PANEL} role="tabpanel" aria-labelledby={`${TAB_ID}${documentId}`} className="min-h-0 flex-1">
         {/* A document that breaks leaves the tabs, from which another opens. */}
         <ErrorBoundary part="document" resetKey={documentId}>
           {document.data ? (

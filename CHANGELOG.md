@@ -17,6 +17,14 @@ newest entry first.
 
 Members:
 
+- Emudoc works by the keyboard alone and reads better aloud. A menu or panel takes the keyboard
+  as it opens and gives it back to its button on Escape; Tab goes on past it. The library's
+  files are one stop: a screen reader reads out each file as the arrows reach it, with its
+  state, and the keyboard stays in the list after a rename or a deletion. A file or folder
+  moves into another folder from its menu's "Move to…" as well as by dragging; the document
+  tabs open with the arrow keys and close with Delete; the dividers between the panes move with
+  the arrow keys. Faint grey text and hints are darker, and nothing fades, slides or pulses when
+  your system asks for less motion.
 - Deleting something for good from the trash, or emptying it, asks first in Emudoc's own
   dialog, which says what goes: a folder with the files deleted with it and anything deleted
   from it earlier, a project with its documents, folders, chats and trash, and what emptying
@@ -34,6 +42,9 @@ Members:
 
 Operators:
 
+- The browser test checks each kind of page, panel and dialog against axe-core's rules for
+  WCAG 2.2 AA in both themes (`frontend/e2e/axe.ts`, `@axe-core/playwright`), and fails on any
+  violation. The members' page's scripts grow to 225.6 kB gzipped, under a budget raised to 228.
 - The operator's area asks before "Run again" and before a provider is switched off in the
   same dialog, rather than the browser's own.
 - The page's error boundaries (`frontend/src/components/ErrorBoundary.tsx`): besides the one

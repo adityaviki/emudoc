@@ -18,6 +18,7 @@ export function UserMenu() {
   const [anchor, setAnchor] = useState<DOMRect | null>(null)
   const button = useRef<HTMLButtonElement>(null)
   const close = () => setAnchor(null)
+  const shown = initials(me.name, me.email)
 
   const items: MenuItem[] = [
     { label: 'Account and security', icon: ShieldCheck, onSelect: () => navigate('/account') },
@@ -38,12 +39,14 @@ export function UserMenu() {
         type="button"
         aria-haspopup="menu"
         aria-expanded={anchor !== null}
+        // Its name holds the initials it shows, for whoever asks for it by voice.
+        aria-label={`${shown}, your account`}
         title={me.name || me.email}
         data-tour="account"
         onClick={(event) => setAnchor(anchor ? null : event.currentTarget.getBoundingClientRect())}
         className="flex size-7 shrink-0 items-center justify-center rounded-full bg-accent-soft text-[11px] font-semibold text-accent transition hover:ring-2 hover:ring-accent/30"
       >
-        {initials(me.name, me.email)}
+        {shown}
       </button>
       {anchor && (
         <Floating anchor={anchor} alignEnd onClose={close} ignore={button} className="w-60">

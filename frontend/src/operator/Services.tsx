@@ -68,7 +68,7 @@ export function ServicesPage() {
                 <Notice tone="bad">{toggle.error.message}</Notice>
               </div>
             )}
-            <Table columns={[{ label: 'Provider' }, { label: 'Its models' }, { label: 'State' }, { label: '' }]}>
+            <Table columns={[{ label: 'Provider' }, { label: 'Its models' }, { label: 'State' }, { label: 'Switch', unseen: true }]}>
               {services.data.providers.map((provider) => (
                 <tr key={provider.name}>
                   <Cell className="font-mono text-xs">{provider.name}</Cell>

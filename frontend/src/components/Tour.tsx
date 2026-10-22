@@ -130,7 +130,8 @@ export function Tour({ steps, onEnd }: { steps: TourStep[]; onEnd: () => void })
         aria-modal="true"
         aria-labelledby={`${id}-title`}
         aria-describedby={`${id}-body`}
-        style={place ?? { left: 0, top: 0, visibility: 'hidden' }}
+        // Unplaced, it is laid out unseen to be measured, and its button focused meanwhile, which a hidden one may not be.
+        style={place ?? { left: 0, top: 0, opacity: 0 }}
         className="fixed w-80 max-w-[calc(100vw-16px)] rounded-xl border border-line bg-surface p-4 shadow-xl shadow-ink/8"
       >
         <p className="text-[11px] font-medium text-muted tabular-nums">

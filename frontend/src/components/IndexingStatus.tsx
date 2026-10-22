@@ -3,12 +3,14 @@ import { STAGES, isIndexing } from '../api.ts'
 import type { Document, Stage } from '../api.ts'
 import { STAGE_LABELS, STATUS_LABELS, missingStages, stageOf, statusLabel, statusTitle } from '../indexing.ts'
 
-// Each stage's arc in the ring while the document is indexed.
+// Each stage's arc in the ring while the document is indexed. Every arc but a pending one, the
+// faint track the others fill, stands out from the row under it by 3:1 or more (WCAG's non-text
+// contrast), so that a stage running or skipped is seen without the pulse or the tooltip.
 const ARC_TONES: Record<Stage['status'], string> = {
   done: 'text-accent',
-  running: 'text-accent/50 animate-pulse',
+  running: 'text-accent/70 animate-pulse',
   failed: 'text-bad',
-  skipped: 'text-muted/30',
+  skipped: 'text-muted',
   pending: 'text-line',
 }
 // The ring is a circle of circumference 100 with an arc per stage, starting at the top: each
@@ -21,10 +23,10 @@ const GAP = 3
  * fills in as they finish; once ready, a check, green with every stage done and grey without one
  * of them; an alert when it failed, and a shield when the malware scan quarantined it.
  */
-export function StatusIcon({ document, className = 'size-3.5' }: { document: Document; className?: string }) {
+export function StatusIcon({ id, document, className = 'size-3.5' }: { id?: string; document: Document; className?: string }) {
   const title = statusTitle(document)
   return (
-    <span role="img" aria-label={title} title={title} className="inline-flex shrink-0">
+    <span id={id} role="img" aria-label={title} title={title} className="inline-flex shrink-0">
       {document.status === 'quarantined' ? (
         <ShieldAlert className={`text-bad ${className}`} />
       ) : document.status === 'failed' ? (

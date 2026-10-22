@@ -4,6 +4,7 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   Folder as FolderIcon,
+  FolderInput,
   FolderPlus,
   MoreHorizontal,
   Pencil,
@@ -31,10 +32,12 @@ import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
 import { StatusIcon } from '../components/IndexingStatus.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
 import { PlanLimitNotice, PlanOffer } from '../components/PlanLimit.tsx'
-import { Button, Chip, EmptyState, IconButton, Loading, Notice, Spinner } from '../components/ui.tsx'
+import { Confirm } from '../components/Confirm.tsx'
+import { Button, Chip, EmptyState, IconButton, Loading, Notice, SelectField, Spinner } from '../components/ui.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
 import { uploadCutOff, uploadWaiting } from '../connection.ts'
 import { libraryPlace } from '../failures.ts'
+import { cursorAfter } from '../focus.ts'
 import { useFolders, useLocalStorage, useStatus } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
 import { describeChange } from './changes.ts'
@@ -529,6 +532,8 @@ function Listing({
   const [cursor, setCursor] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
+  // What "Move to…" moves while its dialog asks where.
+  const [moving, setMoving] = useState<Item[] | null>(null)
   const menu = useContextMenu()
   const list = useRef<HTMLDivElement>(null)
   // A closed folder held under a drag opens after a moment, so the drag can go deeper.
@@ -602,6 +607,29 @@ function Listing({
       names: targets.map(itemName),
     })
     setSelected(new Set())
+    leaving(targets)
+  }
+
+  /**
+   * The cursor goes to the row after the last one leaving the listing with the items, else before
+   * the first, and the keyboard stays in the listing, wherever the change was asked from.
+   */
+  function leaving(targets: Item[]) {
+    const below = new Set(targets.flatMap((item) => (item.kind === 'folder' ? [...tree.subtree(item.folder.id)] : [])))
+    const inside = (item: Item) => {
+      const parent = parentOf(item)
+      return parent != null && below.has(parent)
+    }
+    setCursor(cursorAfter(keys, new Set(items.filter((item) => targets.includes(item) || inside(item)).map(itemKey))))
+    list.current?.focus()
+  }
+
+  /** Move the items into a folder chosen from a list, as a drag does, which the library offers to undo. */
+  function move(chosen: Item[], targetId: number | null) {
+    const targets = outermost(chosen, tree)
+    mutations.moveItems.mutate({ ...payloadOf(targets), targetId })
+    setSelected(new Set())
+    leaving(targets)
   }
 
   function commitRename(item: Item, value: string) {
@@ -618,20 +646,28 @@ function Listing({
 
   /** What can be done to the items; nothing for several at once when the role may not delete them. */
   function itemsMenu(targets: Item[]): MenuItem[] {
+    // Moving is what a drag does, for the keyboard, and for a pointer that cannot drag.
+    const moveTo: MenuItem = {
+      label: targets.length > 1 ? `Move ${targets.length} items to…` : 'Move to…',
+      icon: FolderInput,
+      disabled: placesFor(tree, project.name, payloadOf(outermost(targets, tree))).length === 0,
+      onSelect: () => setMoving(targets),
+    }
     if (targets.length > 1) {
-      return changes ? [{ label: `Delete ${targets.length} items`, icon: Trash2, danger: true, onSelect: () => remove(targets) }] : []
+      return changes ? [moveTo, { label: `Delete ${targets.length} items`, icon: Trash2, danger: true, onSelect: () => remove(targets) }] : []
     }
     const [item] = targets
     const rename: MenuItem = { label: 'Rename', icon: Pencil, shortcut: 'F2', onSelect: () => setRenaming(itemKey(item)) }
     const del: MenuItem = { label: 'Delete', icon: Trash2, shortcut: 'Del', danger: true, onSelect: () => remove([item]) }
     if (item.kind === 'folder') {
-      return [{ label: 'Open', onSelect: () => open(item) }, ...(changes ? [rename, 'separator' as const, del] : [])]
+      return [{ label: 'Open', onSelect: () => open(item) }, ...(changes ? [rename, moveTo, 'separator' as const, del] : [])]
     }
     const reading: MenuItem[] = [{ label: 'Open', onSelect: () => open(item) }, originalFileItem(item.document)]
     if (!changes) return reading
     return [
       ...reading,
       rename,
+      moveTo,
       {
         // On a quarantined document this scans it again, for signatures that have changed.
         label: 'Index again',
@@ -684,7 +720,8 @@ function Listing({
   }
 
   function onKeyDown(event: KeyboardEvent) {
-    if (renaming || creating) return
+    // The listing's own keys, not a row's button's: Enter there runs the button.
+    if (renaming || creating || event.target !== event.currentTarget) return
     const index = cursor ? keys.indexOf(cursor) : -1
     const item = items[index] as Item | undefined
     const moveTo = (next: number) => {
@@ -763,10 +800,7 @@ function Listing({
     // A folder carries its contents, so anything selected inside a dragged folder stays where it is.
     const dragged = outermost(liveSelected.has(key) ? selectedItems : [item], tree)
     if (!liveSelected.has(key)) select(key)
-    const payload: DragPayload = {
-      folderIds: dragged.flatMap((i) => (i.kind === 'folder' ? [i.folder.id] : [])),
-      documentIds: dragged.flatMap((i) => (i.kind === 'file' ? [i.document.id] : [])),
-    }
+    const payload = payloadOf(dragged)
     onDragChange(payload)
     event.dataTransfer.setData(ITEMS_TYPE, JSON.stringify(payload))
     event.dataTransfer.effectAllowed = 'move'
@@ -816,109 +850,193 @@ function Listing({
 
   const empty = lines.length === 0 && !creating
   return (
-    <div
-      ref={list}
-      role="tree"
-      aria-multiselectable
-      tabIndex={0}
-      onKeyDown={onKeyDown}
-      onContextMenu={(event) => onContextMenu(event)}
-      onClick={(event) => {
-        if (event.target === event.currentTarget) setSelected(new Set())
-      }}
-      className="group/list min-h-0 flex-1 overflow-y-auto p-2 outline-none"
-    >
-      {empty && (
-        <EmptyState icon={<FolderIcon />} title={folderId == null ? 'This library is empty' : 'This folder is empty'}>
-          {changes ? (
-            <>
-              Upload files or drop them here. Each one is parsed, outlined and indexed in the background.
-              <br />
-              {ACCEPTED_TYPES_LABEL}.
-              <div className="mt-4">
-                <Button variant="primary" icon={<Upload className="size-4" />} onClick={onPickFiles}>
-                  Upload files
-                </Button>
-              </div>
-            </>
-          ) : (
-            'Nothing has been uploaded here yet. Your role is viewer, so the files a member uploads show here for you to read and ask about.'
-          )}
-        </EmptyState>
-      )}
-      {creating && (
-        <GhostFolderRow
-          onCommit={(name) => {
-            onCreatingChange(false)
-            const trimmed = name.trim()
-            if (!trimmed) return
-            if (trimmed.includes('/')) {
-              mutations.setNotice("A name cannot contain '/'.")
-              return
-            }
-            mutations.createFolder.mutate({ name: trimmed, parentId: folderId })
-          }}
-          onCancel={() => onCreatingChange(false)}
-        />
-      )}
-      {lines.map((line) => {
-        if (!isEntry(line)) {
-          const listing = listings.get(line.folderId)?.data
+    <>
+      <div
+        ref={list}
+        role="tree"
+        aria-label="Files"
+        aria-multiselectable
+        // The listing is one stop of the keyboard, its cursor the row a screen reader reads out.
+        aria-activedescendant={cursor && present.has(cursor) ? rowId(cursor) : undefined}
+        tabIndex={0}
+        // Tabbed into without a cursor, the cursor starts on the first row; a click puts it on its own.
+        onFocus={(event) => {
+          const tabbed = event.target === event.currentTarget && event.currentTarget.matches(':focus-visible')
+          if (tabbed && !(cursor && present.has(cursor)) && keys.length) setCursor(keys[0])
+        }}
+        onKeyDown={onKeyDown}
+        onContextMenu={(event) => onContextMenu(event)}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) setSelected(new Set())
+        }}
+        className="group/list min-h-0 flex-1 overflow-y-auto p-2 outline-none"
+      >
+        {empty && (
+          <EmptyState icon={<FolderIcon />} title={folderId == null ? 'This library is empty' : 'This folder is empty'}>
+            {changes ? (
+              <>
+                Upload files or drop them here. Each one is parsed, outlined and indexed in the background.
+                <br />
+                {ACCEPTED_TYPES_LABEL}.
+                <div className="mt-4">
+                  <Button variant="primary" icon={<Upload className="size-4" />} onClick={onPickFiles}>
+                    Upload files
+                  </Button>
+                </div>
+              </>
+            ) : (
+              'Nothing has been uploaded here yet. Your role is viewer, so the files a member uploads show here for you to read and ask about.'
+            )}
+          </EmptyState>
+        )}
+        {creating && (
+          <GhostFolderRow
+            onCommit={(name) => {
+              onCreatingChange(false)
+              const trimmed = name.trim()
+              if (!trimmed) return
+              if (trimmed.includes('/')) {
+                mutations.setNotice("A name cannot contain '/'.")
+                return
+              }
+              mutations.createFolder.mutate({ name: trimmed, parentId: folderId })
+            }}
+            onCancel={() => onCreatingChange(false)}
+          />
+        )}
+        {lines.map((line) => {
+          if (!isEntry(line)) {
+            const listing = listings.get(line.folderId)?.data
+            return (
+              <GapRow
+                key={`gap:${line.folderId ?? 'root'}`}
+                gap={line}
+                busy={growing(listing)}
+                onMore={() => showMore(queryClient, project.id, line.folderId)}
+                onRetry={() => listings.get(line.folderId)?.refetch()}
+              />
+            )
+          }
+          const { item, depth } = line
+          const key = itemKey(item)
           return (
-            <GapRow
-              key={`gap:${line.folderId ?? 'root'}`}
-              gap={line}
-              busy={growing(listing)}
-              onMore={() => showMore(queryClient, project.id, line.folderId)}
-              onRetry={() => listings.get(line.folderId)?.refetch()}
+            <Row
+              key={key}
+              item={item}
+              depth={depth}
+              expanded={item.kind === 'folder' && openSet.has(item.folder.id)}
+              selected={liveSelected.has(key)}
+              isCursor={cursor === key}
+              renaming={renaming === key}
+              movable={changes}
+              dropping={dropTarget === key}
+              onSelect={(event) => select(key, event)}
+              onOpen={() => activate(item)}
+              onToggle={() => item.kind === 'folder' && setExpanded(item.folder.id, !openSet.has(item.folder.id))}
+              onContextMenu={(event) => onContextMenu(event, item)}
+              onMenuButton={(element) => {
+                select(key)
+                menu.openAt(element, itemsMenu([item]))
+              }}
+              onRename={(value) => commitRename(item, value)}
+              onCancelRename={() => setRenaming(null)}
+              onDragStart={(event) => onDragStart(event, item)}
+              onDragEnd={() => {
+                onDragChange(null)
+                setDropTarget(null)
+                cancelExpand()
+              }}
+              onDragOver={changes && item.kind === 'folder' ? (event) => onFolderDragOver(event, item.folder) : undefined}
+              onDragLeave={(event) => {
+                if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+                if (dropTarget === key) setDropTarget(null)
+                if (item.kind === 'folder' && expandTimer.current?.id === item.folder.id) cancelExpand()
+              }}
+              onDrop={changes && item.kind === 'folder' ? (event) => onFolderDrop(event, item.folder) : undefined}
+              folderCount={
+                item.kind === 'folder' ? (tree.children.get(item.folder.id)?.length ?? 0) + item.folder.document_count : undefined
+              }
             />
           )
-        }
-        const { item, depth } = line
-        const key = itemKey(item)
-        return (
-          <Row
-            key={key}
-            item={item}
-            depth={depth}
-            expanded={item.kind === 'folder' && openSet.has(item.folder.id)}
-            selected={liveSelected.has(key)}
-            isCursor={cursor === key}
-            renaming={renaming === key}
-            movable={changes}
-            dropping={dropTarget === key}
-            onSelect={(event) => select(key, event)}
-            onOpen={() => activate(item)}
-            onToggle={() => item.kind === 'folder' && setExpanded(item.folder.id, !openSet.has(item.folder.id))}
-            onContextMenu={(event) => onContextMenu(event, item)}
-            onMenuButton={(element) => {
-              select(key)
-              menu.openAt(element, itemsMenu([item]))
-            }}
-            onRename={(value) => commitRename(item, value)}
-            onCancelRename={() => setRenaming(null)}
-            onDragStart={(event) => onDragStart(event, item)}
-            onDragEnd={() => {
-              onDragChange(null)
-              setDropTarget(null)
-              cancelExpand()
-            }}
-            onDragOver={changes && item.kind === 'folder' ? (event) => onFolderDragOver(event, item.folder) : undefined}
-            onDragLeave={(event) => {
-              if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
-              if (dropTarget === key) setDropTarget(null)
-              if (item.kind === 'folder' && expandTimer.current?.id === item.folder.id) cancelExpand()
-            }}
-            onDrop={changes && item.kind === 'folder' ? (event) => onFolderDrop(event, item.folder) : undefined}
-            folderCount={
-              item.kind === 'folder' ? (tree.children.get(item.folder.id)?.length ?? 0) + item.folder.document_count : undefined
-            }
-          />
-        )
-      })}
-      {menu.element}
-    </div>
+        })}
+        {menu.element}
+      </div>
+      {moving && (
+        <MoveDialog
+          items={moving}
+          places={placesFor(tree, project.name, payloadOf(outermost(moving, tree)))}
+          onMove={(targetId) => move(moving, targetId)}
+          onClose={() => setMoving(null)}
+        />
+      )}
+    </>
   )
+}
+
+interface MoveDialogProps {
+  items: Item[]
+  places: Place[]
+  onMove: (targetId: number | null) => void
+  onClose: () => void
+}
+
+/** Asks where items go, from the folders they may go into, and moves them there. */
+function MoveDialog({ items, places, onMove, onClose }: MoveDialogProps) {
+  const [target, setTarget] = useState(places[0]?.id ?? null)
+  const one = items.length === 1
+  return (
+    <Confirm
+      title={one ? `Move “${itemName(items[0])}”` : `Move ${items.length} items`}
+      body={`Choose the folder ${one ? 'it goes' : 'they go'} into. The library then offers to undo the move.`}
+      action="Move"
+      danger={false}
+      onConfirm={() => onMove(target)}
+      onClose={onClose}
+    >
+      <SelectField
+        label="Folder"
+        data-autofocus
+        value={target ?? ''}
+        onChange={(event) => setTarget(event.target.value ? Number(event.target.value) : null)}
+      >
+        {places.map((place) => (
+          <option key={place.id ?? ''} value={place.id ?? ''}>
+            {place.label}
+          </option>
+        ))}
+      </SelectField>
+    </Confirm>
+  )
+}
+
+/** A folder items may be moved into, or the top of the library (`id` null), named by its path. */
+interface Place {
+  id: number | null
+  label: string
+}
+
+/**
+ * Where the items may go, in the library's order: its top and every folder, but the one they are
+ * all in already, and a folder among them or inside one.
+ */
+function placesFor(tree: FolderTree, top: string, payload: DragPayload): Place[] {
+  const found: Place[] = [{ id: null, label: top }]
+  const visit = (parentId: number | null, path: string[]) => {
+    for (const folder of tree.children.get(parentId) ?? []) {
+      found.push({ id: folder.id, label: [...path, folder.name].join(' / ') })
+      visit(folder.id, [...path, folder.name])
+    }
+  }
+  visit(null, [top])
+  return found.filter((place) => canDropItems(tree, place.id, payload))
+}
+
+/** What a drag or a move carries: the folders and files, the folders taking what is in them. */
+function payloadOf(items: Item[]): DragPayload {
+  return {
+    folderIds: items.flatMap((item) => (item.kind === 'folder' ? [item.folder.id] : [])),
+    documentIds: items.flatMap((item) => (item.kind === 'file' ? [item.document.id] : [])),
+  }
 }
 
 interface ListingResult {
@@ -977,6 +1095,11 @@ function outermost(items: Item[], tree: FolderTree): Item[] {
   return items.filter((item) => !tree.pathTo(parentOf(item)).some((folder) => folderIds.has(folder.id)))
 }
 
+/** A row's id, which the listing names as the one its cursor is on. */
+function rowId(key: string): string {
+  return `library-${key.replace(':', '-')}`
+}
+
 interface RowProps {
   item: Item
   /** How far below the shown folder the item sits, which is how far it is indented. */
@@ -994,7 +1117,7 @@ interface RowProps {
   onOpen: () => void
   onToggle: () => void
   onContextMenu: (event: MouseEvent) => void
-  onMenuButton: (element: Element) => void
+  onMenuButton: (element: HTMLElement) => void
   onRename: (value: string) => void
   onCancelRename: () => void
   onDragStart: (event: DragEvent) => void
@@ -1013,9 +1136,14 @@ function ItemIcon({ item, className }: { item: Item; className: string }) {
 function Row(props: RowProps) {
   const { item, depth, expanded, selected, isCursor, renaming, movable, dropping, folderCount } = props
   const name = itemName(item)
+  const id = rowId(itemKey(item))
 
   const handlers = {
     role: 'treeitem' as const,
+    id,
+    // Its name, and for a file its state as the status icon gives it, rather than all it holds.
+    'aria-label': name,
+    'aria-describedby': item.kind === 'file' ? `${id}-status` : undefined,
     'aria-selected': selected,
     'data-key': itemKey(item),
     draggable: movable && !renaming,
@@ -1041,6 +1169,8 @@ function Row(props: RowProps) {
   const menuButton = (
     <IconButton
       label="More actions"
+      // Tab goes from the listing to the actions of the row its cursor is on, not through every row's.
+      tabIndex={isCursor ? 0 : -1}
       className={`size-6! shrink-0 ${selected ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
       onClick={(event) => {
         event.stopPropagation()
@@ -1096,7 +1226,7 @@ function Row(props: RowProps) {
       </div>
       {item.kind === 'file' && (
         <span className="ml-2 flex">
-          <StatusIcon document={item.document} />
+          <StatusIcon id={`${id}-status`} document={item.document} />
         </span>
       )}
       <span className="ml-1 flex">{menuButton}</span>
@@ -1155,7 +1285,14 @@ interface RenameInputProps {
 
 /** An inline name editor. Enter or leaving the field commits; Escape cancels and nothing else fires. */
 function RenameInput({ value, isFile, onCommit, onCancel }: RenameInputProps) {
-  const cancelled = useRef(false)
+  // Once committed or cancelled, the blur that follows changes nothing.
+  const done = useRef(false)
+  function finish(name: string | null) {
+    if (done.current) return
+    done.current = true
+    if (name === null) onCancel()
+    else onCommit(name)
+  }
   return (
     <input
       autoFocus
@@ -1171,15 +1308,12 @@ function RenameInput({ value, isFile, onCommit, onCancel }: RenameInputProps) {
       onDoubleClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         event.stopPropagation()
-        if (event.key === 'Enter') onCommit(event.currentTarget.value)
-        if (event.key === 'Escape') {
-          cancelled.current = true
-          onCancel()
-        }
+        if (event.key !== 'Enter' && event.key !== 'Escape') return
+        finish(event.key === 'Enter' ? event.currentTarget.value : null)
+        // The field goes, and the keyboard goes on in the listing it was in.
+        event.currentTarget.closest<HTMLElement>('[role="tree"]')?.focus()
       }}
-      onBlur={(event) => {
-        if (!cancelled.current) onCommit(event.target.value)
-      }}
+      onBlur={(event) => finish(event.target.value)}
       className="field rounded px-1.5 py-0.5 text-[13px]"
     />
   )

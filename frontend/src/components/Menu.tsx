@@ -1,10 +1,12 @@
 // Floating layers (menus, popovers) rendered into document.body and kept inside the viewport,
-// and the menus built on them: a context menu with keyboard navigation.
+// and the menus built on them: a context menu with keyboard navigation. A layer sits in the
+// keyboard's order as if it came right after what opened it, which is where focus goes back.
 
 import type { LucideIcon } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode, RefObject } from 'react'
 import { createPortal } from 'react-dom'
+import { leavesLayer } from '../focus.ts'
 
 /** Where a layer opens: at a point (a right-click) or below an element (a dropdown button). */
 export type Anchor = { x: number; y: number } | DOMRect
@@ -19,13 +21,51 @@ interface FloatingProps {
   /** Align the layer's right edge with a rect anchor's right edge. */
   alignEnd?: boolean
   /** Pointer-downs inside this element do not close the layer (the button that toggles it). */
-  ignore?: RefObject<Element | null>
+  ignore?: RefObject<HTMLElement | null>
+  /** What focus goes back to: by default the button it ignores, else what had focus as it opened. */
+  opener?: HTMLElement | null
+  /** A preview shown on hover or focus, which leaves the focus where it is rather than take it. */
+  preview?: boolean
   className?: string
 }
 
-export function Floating({ anchor, onClose, children, alignEnd, ignore, className = '' }: FloatingProps) {
+/** What Tab stops at inside an element, in order. */
+function tabStops(element: HTMLElement): HTMLElement[] {
+  return [
+    ...element.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [tabindex]'),
+  ].filter((stop) => stop.tabIndex >= 0 && !stop.matches(':disabled') && stop.getClientRects().length > 0)
+}
+
+/**
+ * A layer over the page, which closes on Escape, a click outside, a scroll, a resize and the
+ * window's blur. It takes the focus as it opens, unless something in it took it first or it is a
+ * preview, and gives it back to its opener when it closes with the focus inside; Tab past its
+ * last stop goes on from the opener, and Shift+Tab before its first goes back to the opener.
+ */
+export function Floating({ anchor, onClose, children, alignEnd, ignore, opener, preview, className = '' }: FloatingProps) {
   const ref = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
+  // Read once, as the layer opens, before anything in it takes the focus.
+  const back = useRef<HTMLElement | null>(null)
+
+  useLayoutEffect(() => {
+    const layer = ref.current
+    const active = document.activeElement
+    const before = opener ?? ignore?.current ?? (active instanceof HTMLElement && active !== document.body ? active : null)
+    back.current = before
+    return () => {
+      // Run before the layer leaves the page, while the focus it holds can still be seen.
+      if (layer?.contains(document.activeElement) && before?.isConnected) before.focus()
+    }
+    // The opener is what had focus as the layer opened, read once.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const layer = ref.current
+    if (!layer || preview || layer.contains(document.activeElement)) return
+    ;(tabStops(layer)[0] ?? layer).focus()
+  }, [preview])
 
   useLayoutEffect(() => {
     const element = ref.current
@@ -72,13 +112,34 @@ export function Floating({ anchor, onClose, children, alignEnd, ignore, classNam
     }
   }, [onClose, ignore])
 
+  function onKeyDown(event: KeyboardEvent) {
+    // What is pressed in the layer is the layer's alone: through the portal, the page under it
+    // would act on it too (a listing's Enter would open its row). Escape, which the window's
+    // listener then no longer hears from inside, closes it here.
+    event.stopPropagation()
+    if (event.key === 'Escape') onClose()
+    const layer = ref.current
+    const before = back.current
+    if (event.key !== 'Tab' || !layer || !before?.isConnected) return
+    const stops = tabStops(layer)
+    const at = stops.indexOf(document.activeElement as HTMLElement)
+    if (!leavesLayer(stops.length, at, event.shiftKey, document.activeElement === layer)) return
+    // Out of the layer: back to the opener, and on from there in the browser's own order.
+    if (event.shiftKey) event.preventDefault()
+    before.focus()
+    onClose()
+  }
+
   return createPortal(
     <div
       ref={ref}
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
       // Scroll events inside the layer must not close it: stop them before the window hears them.
       onScroll={(event) => event.stopPropagation()}
-      style={position ? { left: position.left, top: position.top } : { left: 0, top: 0, visibility: 'hidden' }}
-      className={`fixed z-50 overflow-hidden rounded-lg border border-line bg-surface shadow-xl shadow-ink/8 ${className}`}
+      // Unplaced, it is laid out unseen to be measured, and may be focused meanwhile, which a hidden element may not.
+      style={position ? { left: position.left, top: position.top } : { left: 0, top: 0, opacity: 0 }}
+      className={`fixed z-50 overflow-hidden rounded-lg border border-line bg-surface shadow-xl shadow-ink/8 outline-none ${className}`}
     >
       {children}
     </div>,
@@ -102,7 +163,7 @@ interface MenuProps {
   onClose: () => void
 }
 
-/** A list of actions. Arrow keys move, Enter or a click runs one; every choice closes the menu. */
+/** A list of actions. Arrow keys, Home and End move, Enter or a click runs one; every choice closes the menu. */
 export function Menu({ items, onClose }: MenuProps) {
   const ref = useRef<HTMLDivElement>(null)
 
@@ -136,6 +197,8 @@ export function Menu({ items, onClose }: MenuProps) {
             key={index}
             type="button"
             role="menuitem"
+            // The arrows move between the items; Tab leaves the menu (Floating).
+            tabIndex={-1}
             disabled={item.disabled}
             onClick={() => {
               onClose()

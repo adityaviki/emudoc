@@ -54,7 +54,9 @@ export function ProjectsPage() {
       <div className="mx-auto max-w-5xl px-6 py-10">
         <div className="mb-6 flex items-end justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
+            <h1 id={PROJECTS_HEADING} tabIndex={-1} className="text-2xl font-semibold tracking-tight">
+              Projects
+            </h1>
             <p className="mt-1 text-[13px] text-muted">
               A project holds a set of documents that are indexed and queried together.
             </p>
@@ -120,6 +122,8 @@ export function ProjectsPage() {
  * The organisation's projects in the trash, each with everything it held, until a member
  * restores it, as the plan has room for, or deletes it for good, or the days it is kept pass.
  */
+const PROJECTS_HEADING = 'projects-heading'
+
 function ProjectTrash() {
   const queryClient = useQueryClient()
   const trash = useQuery({ queryKey: TRASHED_PROJECTS_KEY, queryFn: api.trashedProjects })
@@ -128,7 +132,13 @@ function ProjectTrash() {
     for (const queryKey of [TRASHED_PROJECTS_KEY, ['projects'], ME_KEY]) void queryClient.invalidateQueries({ queryKey: [...queryKey] })
   }
   const options = {
-    onMutate: () => setRefused(null),
+    onMutate: () => {
+      setRefused(null)
+      // The project's row, and its button with the focus, go: the keyboard goes on from the
+      // trash's heading while it holds others, else from the page's, since the section goes too.
+      const left = (trash.data?.projects.length ?? 0) > 1
+      document.getElementById(left ? 'project-trash' : PROJECTS_HEADING)?.focus()
+    },
     onError: (error: Error) => setRefused({ message: error.message, limit: isPlanLimit(error) ? error.limit : null }),
     onSettled: settle,
   }
@@ -139,7 +149,7 @@ function ProjectTrash() {
 
   return (
     <section aria-labelledby="project-trash" className="mt-10">
-      <h2 id="project-trash" className="font-semibold">
+      <h2 id="project-trash" tabIndex={-1} className="font-semibold">
         Trash
       </h2>
       <p className="mt-0.5 mb-3 text-[13px] text-muted">
@@ -336,7 +346,7 @@ function ProjectCard({ project, changes, onManage, onExport }: { project: Projec
         {project.description ? (
           <p className="mt-1 line-clamp-2 text-[13px] leading-relaxed text-muted">{project.description}</p>
         ) : (
-          <p className="mt-1 text-[13px] text-muted/60">No description</p>
+          <p className="mt-1 text-[13px] text-muted italic">No description</p>
         )}
         <p className="mt-auto pt-5 text-xs text-muted tabular-nums">
           {project.document_count} document{project.document_count === 1 ? '' : 's'}

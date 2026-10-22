@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, FileText, Folder as FolderIcon, MessagesSquare, RotateCcw, Trash2, X } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { api, isPlanLimit, mayChange } from '../api.ts'
 import type { PlanRefusal, Trashed } from '../api.ts'
 import { ME_KEY, useMe } from '../auth.ts'
@@ -37,7 +37,17 @@ export function TrashView() {
       void queryClient.invalidateQueries({ queryKey: [...queryKey] })
     }
   }
-  const options = { onMutate: () => setRefused(null), onError: fail, onSettled: settle }
+  // A restore or a deletion takes its row, and its button with the focus, away: the keyboard
+  // goes on from the heading, which stays.
+  const heading = useRef<HTMLHeadingElement>(null)
+  const options = {
+    onMutate: () => {
+      setRefused(null)
+      heading.current?.focus()
+    },
+    onError: fail,
+    onSettled: settle,
+  }
   const restore = useMutation({ mutationFn: (item: Trashed) => api.restore(item.kind, item.id), ...options })
   const purge = useMutation({ mutationFn: (item: Trashed) => api.purge(item.kind, item.id), ...options })
   const empty = useMutation({ mutationFn: () => api.emptyTrash(project.id), ...options })
@@ -51,7 +61,9 @@ export function TrashView() {
         <IconButton label="Back to the library" onClick={() => workspace.goToFolder(null)}>
           <ArrowLeft className="size-4" />
         </IconButton>
-        <h2 className="flex-1 text-[13px] font-semibold">Trash</h2>
+        <h2 ref={heading} tabIndex={-1} className="flex-1 text-[13px] font-semibold">
+          Trash
+        </h2>
         {changes && items.length > 0 && (
           <Button
             variant="danger"
