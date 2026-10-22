@@ -6,13 +6,14 @@ import { Link, useNavigate, useSearchParams } from 'react-router'
 import { api, auth, isPlanLimit, mayChange, organizations } from '../api.ts'
 import type { PlanRefusal, Project, TrashedProject } from '../api.ts'
 import { ME_KEY, setSignedIn, useMe } from '../auth.ts'
+import { Confirm } from '../components/Confirm.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, Checkbox, EmptyState, FIELD, IconButton, LinkButton, Loading, Notice } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
 import { EXPORT_QUERY } from '../exports.ts'
 import { checklistOf } from '../onboarding.ts'
 import type { ChecklistStep } from '../onboarding.ts'
-import { describeTrashedProject, TRASHED_PROJECTS_KEY } from '../trash.ts'
+import { describeTrashedProject, projectPurgeQuestion, TRASHED_PROJECTS_KEY } from '../trash.ts'
 import { ProjectAccessForm } from './ProjectAccessForm.tsx'
 import { ProjectExports } from './ProjectExports.tsx'
 
@@ -133,6 +134,7 @@ function ProjectTrash() {
   }
   const restore = useMutation({ mutationFn: (project: TrashedProject) => api.restore('project', project.id), ...options })
   const purge = useMutation({ mutationFn: (project: TrashedProject) => api.purge('project', project.id), ...options })
+  const [asking, setAsking] = useState<TrashedProject | null>(null)
   if (!trash.data?.projects.length) return null
 
   return (
@@ -162,15 +164,14 @@ function ProjectTrash() {
               label={`Delete ${project.name} for good`}
               danger
               disabled={purge.isPending}
-              onClick={() => {
-                if (window.confirm(`Delete “${project.name}” and everything in it for good? This cannot be undone.`)) purge.mutate(project)
-              }}
+              onClick={() => setAsking(project)}
             >
               <Trash2 className="size-4" />
             </IconButton>
           </li>
         ))}
       </ul>
+      {asking && <Confirm {...projectPurgeQuestion(asking)} onConfirm={() => purge.mutate(asking)} onClose={() => setAsking(null)} />}
     </section>
   )
 }

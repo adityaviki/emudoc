@@ -179,18 +179,36 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(undo).toHaveCount(0)
   })
 
-  await test.step('delete the contract, and take it back from the trash', async () => {
+  await test.step('delete the contract and the folder, take the contract back from the trash and delete the folder for good', async () => {
     const contract = page.getByRole('treeitem', { name: /service-contract\.md/ })
+    const folder = page.getByRole('treeitem', { name: /Contracts/ })
     await contract.click()
     await page.keyboard.press('Delete')
     await expect(contract).toHaveCount(0)
     await expect(page.getByText('“service-contract.md” is in the trash.')).toBeVisible()
+    await folder.click()
+    await page.keyboard.press('Delete')
+    await expect(folder).toHaveCount(0)
     await page.getByRole('button', { name: 'Trash', exact: true }).click()
     await expect(page).toHaveURL(/[?&]trash/)
     await page.getByRole('button', { name: 'Restore service-contract.md' }).click()
+    const trashed = page.getByRole('list', { name: 'In the trash' })
+    await expect(trashed.getByRole('listitem')).toHaveCount(1)
+    // Deleting for good asks first, in a dialog that says what goes; Escape keeps it.
+    const purge = trashed.getByRole('button', { name: 'Delete Contracts for good' })
+    await purge.click()
+    const asked = page.getByRole('dialog', { name: 'Delete “Contracts” for good?' })
+    await expect(asked).toContainText('The folder “Contracts” is deleted for good with everything in it')
+    await expect(asked.getByRole('button', { name: 'Cancel' })).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(asked).toHaveCount(0)
+    await expect(purge).toBeFocused()
+    await purge.click()
+    await asked.getByRole('button', { name: 'Delete for good' }).click()
     await expect(page.getByText('The trash is empty')).toBeVisible()
     await page.getByRole('button', { name: 'Back to the library' }).click()
     await expect(contract).toBeVisible()
+    await expect(folder).toHaveCount(0)
   })
 
   await test.step('export the project, which the worker makes, and download it', async () => {
@@ -559,8 +577,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('heading', { name: 'What the watch sees' })).toBeVisible()
     // The stand-in's provider switched off, which asks first, and on again: last, since nothing asks a model after it.
     const ollama = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Providers' }) }).getByRole('row').filter({ hasText: 'ollama' })
-    page.once('dialog', (dialog) => dialog.accept())
     await ollama.getByRole('button', { name: 'Switch ollama off' }).click()
+    await page.getByRole('dialog', { name: 'Switch ollama off?' }).getByRole('button', { name: 'Switch it off' }).click()
     await expect(ollama).toContainText('switched off since')
     await expect(page.getByText('is switched off: an operator switched its provider, ollama, off').first()).toBeVisible()
     await ollama.getByRole('button', { name: 'Switch ollama on' }).click()

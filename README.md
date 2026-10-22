@@ -229,7 +229,8 @@ in it, into the organisation's trash under the projects. What is in the trash is
 library, the search, the agent's answers and the counts, and counts against nothing on the
 plan, so deleting still makes room at once. A member restores it as it was (a folder with what
 went with it, into the nearest folder that is still there, renamed if a name was taken
-meanwhile), as the plan has room for it again, or deletes it for good with its files; after 30
+meanwhile), as the plan has room for it again, or deletes it for good with its files, once a
+dialog has said what goes with it (the files a folder takes, what a project holds); after 30
 days the housekeeper deletes it for good. A viewer reads the trash and restores only their own
 chats. A document in the trash keeps its place: uploading the same file again is refused with
 the way to restore it, which costs none of the indexing again, and its indexing waits until it

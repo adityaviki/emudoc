@@ -4,10 +4,11 @@ import { useState } from 'react'
 import { api, isPlanLimit, mayChange } from '../api.ts'
 import type { PlanRefusal, Trashed } from '../api.ts'
 import { ME_KEY, useMe } from '../auth.ts'
+import { Confirm } from '../components/Confirm.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, EmptyState, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
-import { describeTrashed, trashedName, trashKey } from '../trash.ts'
+import { describeTrashed, emptyingQuestion, purgeQuestion, trashedName, trashKey } from '../trash.ts'
 import { listingsKey } from './listing.ts'
 import { useWorkspace } from './state.ts'
 
@@ -26,6 +27,8 @@ export function TrashView() {
   const trash = useQuery({ queryKey: trashKey(project.id), queryFn: () => api.projectTrash(project.id) })
   // What the server refused: the plan's limit as the way past it, anything else as it said.
   const [refused, setRefused] = useState<PlanRefusal | string | null>(null)
+  // What a deletion for good asks about while its dialog shows: one thing, or the whole trash.
+  const [asking, setAsking] = useState<Trashed | 'all' | null>(null)
   const fail = (error: Error) =>
     setRefused(isPlanLimit(error) ? { message: error.message, limit: error.limit } : error.message)
   // A restore puts things back into the library, the counts, the chats and the plan's figures.
@@ -53,9 +56,7 @@ export function TrashView() {
           <Button
             variant="danger"
             disabled={busy}
-            onClick={() => {
-              if (window.confirm('Delete everything in the trash for good? This cannot be undone.')) empty.mutate()
-            }}
+            onClick={() => setAsking('all')}
           >
             Empty trash
           </Button>
@@ -105,9 +106,7 @@ export function TrashView() {
                       label={`Delete ${name} for good`}
                       danger
                       disabled={busy}
-                      onClick={() => {
-                        if (window.confirm(`Delete “${name}” for good? This cannot be undone.`)) purge.mutate(item)
-                      }}
+                      onClick={() => setAsking(item)}
                     >
                       <Trash2 className="size-4" />
                     </IconButton>
@@ -119,6 +118,13 @@ export function TrashView() {
         </ul>
         {more > 0 && <p className="text-xs text-muted">And {more} more deleted before these.</p>}
       </div>
+      {asking && trash.data && (
+        <Confirm
+          {...(asking === 'all' ? emptyingQuestion(trash.data) : purgeQuestion(asking))}
+          onConfirm={() => (asking === 'all' ? empty.mutate() : purge.mutate(asking))}
+          onClose={() => setAsking(null)}
+        />
+      )}
     </div>
   )
 }

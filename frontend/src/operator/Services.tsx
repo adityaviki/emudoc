@@ -5,6 +5,8 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw } from 'lucide-react'
+import { useState } from 'react'
+import { Confirm } from '../components/Confirm.tsx'
 import { Button, Chip, Loading, Notice, Row, Section } from '../components/ui.tsx'
 import { formatDateTime } from '../format.ts'
 import { operatorApi } from './api.ts'
@@ -18,10 +20,9 @@ export function ServicesPage() {
     mutationFn: ({ name, off }: { name: string; off: boolean }) => operatorApi.switchProvider(name, off),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['operator', 'services'] }),
   })
-  const flip = (provider: Provider) => {
-    const asked = `Switch ${provider.name} off? No process of the deployment asks its models from a few seconds on, until it is switched on again here; a fallback of another provider answers in their place.`
-    if (provider.off || window.confirm(asked)) toggle.mutate({ name: provider.name, off: !provider.off })
-  }
+  // The provider to switch off once the dialog's question is agreed; switching one on asks nothing.
+  const [asking, setAsking] = useState<Provider | null>(null)
+  const flip = (provider: Provider) => (provider.off ? toggle.mutate({ name: provider.name, off: false }) : setAsking(provider))
   return (
     <>
       <Heading title="Services" command="database">
@@ -123,6 +124,15 @@ export function ServicesPage() {
             </dl>
           </Section>
         </div>
+      )}
+      {asking && (
+        <Confirm
+          title={`Switch ${asking.name} off?`}
+          body="No process of the deployment asks its models from a few seconds on, until it is switched on again here; a fallback of another provider answers in their place."
+          action="Switch it off"
+          onConfirm={() => toggle.mutate({ name: asking.name, off: true })}
+          onClose={() => setAsking(null)}
+        />
       )}
     </>
   )

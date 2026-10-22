@@ -4,6 +4,9 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, RotateCcw } from 'lucide-react'
+import { useState } from 'react'
+import { Confirm } from '../components/Confirm.tsx'
+import type { Question } from '../components/Confirm.tsx'
 import { Button, Loading, Notice, Section } from '../components/ui.tsx'
 import { operatorApi } from './api.ts'
 import { Cell, Heading, Table } from './Table.tsx'
@@ -12,6 +15,17 @@ import { ago, count, lease, span } from './words.ts'
 // The one kind of job that runs again: an index job, from the stage its document stopped at.
 const RUNS_AGAIN = 'index_document'
 
+// What is asked before a failed job's document, or every one's, is queued again.
+function runAgainQuestion(jobIds: number[] | null): Question {
+  return jobIds === null
+    ? {
+        title: 'Run every failed document again?',
+        body: 'The document of every failed index job is queued again, from the stage each stopped at. The jobs of other kinds are left as they are.',
+        action: 'Run them again',
+      }
+    : { title: `Run job ${jobIds.join(', ')} again?`, body: 'Its document is queued again, from the stage it stopped at.', action: 'Run it again' }
+}
+
 export function JobsPage() {
   const queryClient = useQueryClient()
   const jobs = useQuery({ queryKey: ['operator', 'jobs'], queryFn: operatorApi.jobs, refetchInterval: 15_000 })
@@ -19,13 +33,9 @@ export function JobsPage() {
     mutationFn: operatorApi.requeue,
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['operator', 'jobs'] }),
   })
-  const runAgain = (jobIds: number[] | null) => {
-    const asked =
-      jobIds === null
-        ? 'Queue the document of every failed index job again, from the stage each stopped at? The jobs of other kinds are left as they are.'
-        : 'Queue its document again, from the stage it stopped at?'
-    if (window.confirm(asked)) requeue.mutate(jobIds)
-  }
+  // The jobs whose documents are to run again while the dialog asks: null for every failed one.
+  const [asking, setAsking] = useState<{ jobIds: number[] | null } | null>(null)
+  const runAgain = (jobIds: number[] | null) => setAsking({ jobIds })
   return (
     <>
       <Heading title="Jobs" command="jobs">
@@ -138,6 +148,14 @@ export function JobsPage() {
             </Section>
           )}
         </div>
+      )}
+      {asking && (
+        <Confirm
+          {...runAgainQuestion(asking.jobIds)}
+          danger={false}
+          onConfirm={() => requeue.mutate(asking.jobIds)}
+          onClose={() => setAsking(null)}
+        />
       )}
     </>
   )

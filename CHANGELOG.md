@@ -17,6 +17,10 @@ newest entry first.
 
 Members:
 
+- Deleting something for good from the trash, or emptying it, asks first in Emudoc's own
+  dialog, which says what goes: a folder with the files deleted with it and anything deleted
+  from it earlier, a project with its documents, folders, chats and trash, and what emptying
+  the trash takes. Escape or Cancel keeps everything as it was.
 - Emudoc says when your browser is offline, in the header, and waits for the connection rather
   than failing. An answer cut off goes on being written and shows in full once you are back; an
   upload begun offline starts by itself then, and one cut off on its way offers "Upload again".
@@ -30,6 +34,8 @@ Members:
 
 Operators:
 
+- The operator's area asks before "Run again" and before a provider is switched off in the
+  same dialog, rather than the browser's own.
 - The page's error boundaries (`frontend/src/components/ErrorBoundary.tsx`): besides the one
   around everything, the shell's page, each of the workspace's panes and what each pane shows
   below its own navigation, and the operator's area's views, have one, each reporting to `POST
