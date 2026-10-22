@@ -26,11 +26,13 @@ import {
 } from '../api.ts'
 import type { Document, Folder, SearchHit } from '../api.ts'
 import { useMe } from '../auth.ts'
+import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
 import { StatusIcon } from '../components/IndexingStatus.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
 import { PlanLimitNotice, PlanOffer } from '../components/PlanLimit.tsx'
 import { Button, Chip, EmptyState, IconButton, Loading, Notice, Spinner } from '../components/ui.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
+import { libraryPlace } from '../failures.ts'
 import { useFolders, useLocalStorage, useStatus } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
 import { describeChange } from './changes.ts'
@@ -271,24 +273,27 @@ export function Library() {
         )}
       </div>
 
-      {query ? (
-        <SearchResults query={query} folderId={folderId} scope={folderId == null ? null : currentName} />
-      ) : (
-        <Listing
-          key={folderId ?? 'root'}
-          folderId={folderId}
-          creating={creating}
-          onCreatingChange={setCreating}
-          mutations={mutations}
-          changes={changes}
-          dragging={dragging}
-          onDragChange={(payload) => {
-            dragging.current = payload
-          }}
-          onUploadFiles={uploadFiles}
-          onPickFiles={() => fileInput.current?.click()}
-        />
-      )}
+      {/* A folder or a search that breaks leaves the path and the search box, from which another opens. */}
+      <ErrorBoundary part="library" resetKey={libraryPlace(workspace.url.library)}>
+        {query ? (
+          <SearchResults query={query} folderId={folderId} scope={folderId == null ? null : currentName} />
+        ) : (
+          <Listing
+            key={folderId ?? 'root'}
+            folderId={folderId}
+            creating={creating}
+            onCreatingChange={setCreating}
+            mutations={mutations}
+            changes={changes}
+            dragging={dragging}
+            onDragChange={(payload) => {
+              dragging.current = payload
+            }}
+            onUploadFiles={uploadFiles}
+            onPickFiles={() => fileInput.current?.click()}
+          />
+        )}
+      </ErrorBoundary>
 
       {uploads && (
         <input

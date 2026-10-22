@@ -6,8 +6,10 @@ import { Link, useNavigate } from 'react-router'
 import { api, auth } from '../api.ts'
 import type { Document } from '../api.ts'
 import { setSignedIn, useMe } from '../auth.ts'
+import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
 import { Tour } from '../components/Tour.tsx'
 import { Loading, Notice, Segmented } from '../components/ui.tsx'
+import { libraryPlace } from '../failures.ts'
 import { useFolderTree, useFolders, useLocalStorage } from '../hooks.ts'
 import { offerTour, workspaceTour } from '../tour.ts'
 import { ChatPane } from '../workspace/ChatPane.tsx'
@@ -163,15 +165,40 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
   // The document pane goes away with its last tab; a narrow screen then shows the library.
   const shown: Pane = mobilePane === 'document' && !hasDocument ? 'library' : mobilePane
   // Beside a document the library is a sidebar; alone with the agent it is the main view.
+  // Each pane breaks alone, and starts afresh once it is moved elsewhere (src/failures.ts).
   const panes: SplitPane[] = [
-    { key: 'library', node: <Library />, share: hasDocument ? 25 : 55, min: 240 },
-    ...(hasDocument ? [{ key: 'document', node: <DocumentPane documentId={activeDocumentId} />, share: 45, min: 360 }] : []),
+    {
+      key: 'library',
+      node: (
+        <ErrorBoundary part="library" resetKey={libraryPlace(url.library)}>
+          <Library />
+        </ErrorBoundary>
+      ),
+      share: hasDocument ? 25 : 55,
+      min: 240,
+    },
+    ...(hasDocument
+      ? [
+          {
+            key: 'document',
+            node: (
+              <ErrorBoundary part="document" resetKey={activeDocumentId}>
+                <DocumentPane documentId={activeDocumentId} />
+              </ErrorBoundary>
+            ),
+            share: 45,
+            min: 360,
+          },
+        ]
+      : []),
     {
       key: 'chat',
       // What the tour points at, there while the chats load too.
       node: (
         <div data-tour="chat" className="h-full">
-          <ChatPane />
+          <ErrorBoundary part="chat" resetKey={url.chatId}>
+            <ChatPane />
+          </ErrorBoundary>
         </div>
       ),
       share: hasDocument ? 30 : 45,
@@ -250,20 +277,23 @@ function DocumentPane({ documentId }: { documentId: number }) {
     <div className="flex h-full min-h-0 flex-col bg-page">
       <TabStrip />
       <div className="min-h-0 flex-1">
-        {document.data ? (
-          <DocumentTab
-            key={document.data.id}
-            document={document.data}
-            focus={workspace.url.document?.focus ?? null}
-            onClearFocus={workspace.clearFocus}
-          />
-        ) : document.isError ? (
-          <div className="p-4">
-            <Notice tone="bad">{isGone(document.error) ? 'This document no longer exists.' : document.error.message}</Notice>
-          </div>
-        ) : (
-          <Loading />
-        )}
+        {/* A document that breaks leaves the tabs, from which another opens. */}
+        <ErrorBoundary part="document" resetKey={documentId}>
+          {document.data ? (
+            <DocumentTab
+              key={document.data.id}
+              document={document.data}
+              focus={workspace.url.document?.focus ?? null}
+              onClearFocus={workspace.clearFocus}
+            />
+          ) : document.isError ? (
+            <div className="p-4">
+              <Notice tone="bad">{isGone(document.error) ? 'This document no longer exists.' : document.error.message}</Notice>
+            </div>
+          ) : (
+            <Loading />
+          )}
+        </ErrorBoundary>
       </div>
     </div>
   )

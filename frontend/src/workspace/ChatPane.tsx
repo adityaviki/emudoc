@@ -24,6 +24,7 @@ import type { Chat, Source } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { ask, chatKey, isStreaming, loadChat, resume, splitChats, stop, useStreaming } from '../chat.ts'
 import type { ChatData, Message, Step } from '../chat.ts'
+import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
 import { Markdown, SourceText } from '../components/Markdown.tsx'
 import { Floating } from '../components/Menu.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
@@ -71,7 +72,10 @@ export function ChatPane() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-page">
       <ChatHeader own={own} shared={shared} activeId={chatId} />
-      <Conversation key={chatId ?? 'new'} chatId={chatId} shared={shared} />
+      {/* A chat that breaks leaves the list, from which another opens. */}
+      <ErrorBoundary part="chat" resetKey={chatId ?? 'new'}>
+        <Conversation key={chatId ?? 'new'} chatId={chatId} shared={shared} />
+      </ErrorBoundary>
     </div>
   )
 }

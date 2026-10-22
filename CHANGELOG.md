@@ -13,6 +13,24 @@ to: `## YYYY-MM-DD` a day (or `## YYYY-MM-DD to YYYY-MM-DD`), the newest first, 
 and `Operators:`, each a list of `- ` entries whose lines go on indented by two spaces, a day's
 newest entry first.
 
+## 2026-10-22
+
+Members:
+
+- A part of the page that runs into an error no longer takes the whole page with it. The header
+  stays, with the help menu, the notifications and the way to your other organisations and
+  projects; in a project, the library, a document and a chat each break alone, the other two
+  going on. The broken part offers to try again or to reload the page, and gives a reference to
+  quote; opening another folder, document, chat or page starts it afresh.
+
+Operators:
+
+- The page's error boundaries (`frontend/src/components/ErrorBoundary.tsx`): besides the one
+  around everything, the shell's page, each of the workspace's panes and what each pane shows
+  below its own navigation, and the operator's area's views, have one, each reporting to `POST
+  /api/page-errors` as before. A report says the page's path, not which part broke; its frames
+  say where.
+
 ## 2026-10-21
 
 Members:

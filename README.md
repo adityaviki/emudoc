@@ -826,11 +826,16 @@ With `SENTRY_DSN` set, the API and the worker report each error nobody planned f
 or to GlitchTip or a Sentry of your own (`backend/app/tracking.py`), with what the log would
 show of it and the ids of the request or job as tags: the exception's kind and frames, its
 message only when the app wrote it, never a frame's variables, a request's body, cookies or
-query values, nor an email address. An error the page renders into shows a Reload button and
-a reference, and is reported to the app (`POST /api/page-errors`), which logs it and passes it
-on; the browser runs no tracker's script. A 500 answers with a sentence that ends with the
-request's id as the reference to quote. The subprocessor list and the privacy policy name the
-tracker when it is a company's. `deploying.md` ("Error tracking") has the details.
+query values, nor an email address. An error the page renders into shows a reference and the
+way on in place of the part that broke, and is reported to the app (`POST /api/page-errors`),
+which logs it and passes it on; the browser runs no tracker's script. The part is as small as
+it can be: the header stays while the page below it shows the error, and in a project the
+library, the open document and the chat each break alone, offering to try again, and start
+afresh once another folder, document or chat is opened
+(`frontend/src/components/ErrorBoundary.tsx`, `frontend/src/failures.ts`). A 500 answers with
+a sentence that ends with the request's id as the reference to quote. The subprocessor list
+and the privacy policy name the tracker when it is a company's. `deploying.md` ("Error
+tracking") has the details.
 
 The question mark in the header is the help menu. It opens the help pages at `/help`, public
 like the terms and linked under every sign-in page: a few articles, from getting started to

@@ -22,6 +22,7 @@ import { ME_KEY, MeContext, forgetUser, loginPath, openInOrganization, startAgai
 import { describeExcess } from './billing.ts'
 import { formatDate } from './format.ts'
 import { DELETION_SECTION, deletionWords } from './organizationSettings.ts'
+import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { Floating, Menu } from './components/Menu.tsx'
 import type { MenuItem } from './components/Menu.tsx'
 import { ThemeToggle } from './components/ThemeToggle.tsx'
@@ -178,7 +179,10 @@ function Shell() {
         <PlanBanner me={me} />
       </header>
       <main className="min-h-0 flex-1">
-        <Outlet />
+        {/* A page that breaks leaves the header, and with it the help menu and the way elsewhere. */}
+        <ErrorBoundary resetKey={location.pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </main>
     </div>
   )

@@ -4,8 +4,9 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
-import { NavLink, Navigate, Route, Routes } from 'react-router'
+import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router'
 import { ApiError } from '../api.ts'
+import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
 import { Chip, Loading, Notice } from '../components/ui.tsx'
 import { formatDateTime } from '../format.ts'
 import { operatorApi } from './api.ts'
@@ -27,6 +28,7 @@ const VIEWS = [
 ]
 
 export function OperatorApp() {
+  const location = useLocation()
   const me = useQuery({ queryKey: ['operator', 'me'], queryFn: operatorApi.me, staleTime: Infinity })
   if (me.isPending) return <Loading />
   if (me.isError) return <Refused error={me.error} />
@@ -35,17 +37,20 @@ export function OperatorApp() {
       <Header operator={me.data} />
       {me.data.viewing && <Viewing operator={me.data} />}
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-        <Routes>
-          <Route path="/operator" element={<Navigate to="/operator/organizations" replace />} />
-          <Route path="/operator/organizations" element={<OrganizationsPage currency={me.data.currency} />} />
-          <Route path="/operator/organizations/:id" element={<OrganizationPage currency={me.data.currency} />} />
-          <Route path="/operator/users" element={<UsersPage />} />
-          <Route path="/operator/costs" element={<CostsPage />} />
-          <Route path="/operator/jobs" element={<JobsPage />} />
-          <Route path="/operator/services" element={<ServicesPage />} />
-          <Route path="/operator/flags" element={<FlagsPage />} />
-          <Route path="*" element={<Notice tone="info">The operator's area has no such page.</Notice>} />
-        </Routes>
+        {/* A view that breaks leaves the header, from which another opens. */}
+        <ErrorBoundary resetKey={location.pathname}>
+          <Routes>
+            <Route path="/operator" element={<Navigate to="/operator/organizations" replace />} />
+            <Route path="/operator/organizations" element={<OrganizationsPage currency={me.data.currency} />} />
+            <Route path="/operator/organizations/:id" element={<OrganizationPage currency={me.data.currency} />} />
+            <Route path="/operator/users" element={<UsersPage />} />
+            <Route path="/operator/costs" element={<CostsPage />} />
+            <Route path="/operator/jobs" element={<JobsPage />} />
+            <Route path="/operator/services" element={<ServicesPage />} />
+            <Route path="/operator/flags" element={<FlagsPage />} />
+            <Route path="*" element={<Notice tone="info">The operator's area has no such page.</Notice>} />
+          </Routes>
+        </ErrorBoundary>
       </main>
     </div>
   )

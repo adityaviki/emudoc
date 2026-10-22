@@ -2305,10 +2305,12 @@ request body, cookie or header, none of the log lines before it, and no email ad
 SDK's own integrations are off, its AI integrations above all, which would record prompts
 and replies, and so are its traces, sessions and log forwarding.
 
-An error the page renders into replaces the page with a sentence and a Reload button, and is
-reported to the app (`POST /api/page-errors`, `RATE_PAGE_ERRORS` a minute per client address),
-not to the tracker: the browser runs no SDK, so the page's address with the library's search
-words, its requests and its console go nowhere, and the page's policy needs no other origin.
+An error the page renders into replaces the part of the page that broke (the page below the
+header, or in a project the library, the document or the chat) with a sentence, a Reload
+button and a reference, and is reported to the app (`POST /api/page-errors`,
+`RATE_PAGE_ERRORS` a minute per client address), not to the tracker: the browser runs no
+SDK, so the page's address with the library's search words, its requests and its console go
+nowhere, and the page's policy needs no other origin.
 The app logs one line and sends the tracker an event of the `javascript` platform: the error's
 kind, the API's status when it was the API's refusal, the frames in the page's built scripts
 and the page's path. A frame names a line and column of the minified script; to read it, build
