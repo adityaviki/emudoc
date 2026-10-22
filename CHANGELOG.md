@@ -17,6 +17,10 @@ newest entry first.
 
 Members:
 
+- The panes of a project resize without dragging: click the line between two of them and the
+  buttons that show beside it narrow or widen the pane before it. Escape, or a click elsewhere,
+  puts them away; dragging, the arrow keys and a double-click for the starting widths work as
+  before.
 - A folder can be uploaded whole, with the folders in it: drop it on the library or on a folder
   there, or choose it with "Upload a folder". Its folders are made as they were, and where a
   folder of the same name is there already its files go into that one. An upload now shows how

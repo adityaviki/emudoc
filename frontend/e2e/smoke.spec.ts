@@ -151,6 +151,18 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(divider).toHaveAttribute('aria-valuenow', String(share + 2))
     await page.keyboard.press('ArrowLeft')
     await expect(divider).toHaveAttribute('aria-valuenow', String(share))
+    // A click offers buttons beside it that move it without a drag, the keyboard left on it.
+    await divider.click()
+    const wider = page.getByRole('button', { name: 'Widen the library' })
+    await wider.click()
+    await expect(divider).toHaveAttribute('aria-valuenow', String(share + 10))
+    await expectAccessible(page, "the divider's buttons")
+    await page.getByRole('button', { name: 'Narrow the library' }).click()
+    await expect(divider).toHaveAttribute('aria-valuenow', String(share))
+    await expect(divider).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(wider).toHaveCount(0)
+    await expect(divider).toBeFocused()
     // Seen once, the tour does not come back.
     await expect(page.getByRole('dialog')).toHaveCount(0)
   })

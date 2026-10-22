@@ -225,7 +225,9 @@ the arrows move through its rows, which a screen reader reads out by name and st
 one, F2 renames, Delete deletes, and Tab goes on to the actions of the row it is on, whose "Move
 to…" asks for a folder in a dialog, the way to move without a drag. The tabs open with the arrows
 and close with Delete, the text of a document scrolls once focused, and the dividers between the
-panes move with the arrows. Every menu and panel takes the keyboard as it opens, gives it back
+panes move with the arrows. A click on a divider shows two buttons beside it that narrow or widen
+the pane before it, for whoever cannot drag; a double-click puts the panes back to their starting
+widths. Every menu and panel takes the keyboard as it opens, gives it back
 to its button on Escape, and lets Tab go on past it.
 PDFs show their rendered pages with the extracted text laid invisibly over them, so it can be
 selected and searched; spreadsheets show one tab per sheet; images show the picture above the text
