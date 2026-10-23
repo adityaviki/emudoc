@@ -1,10 +1,11 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowDown, ArrowLeft, ArrowUp, Check, FileSearch, History, ListChecks, ListFilter, PenLine, Search, TriangleAlert, Undo2, X } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, Check, Download, FileSearch, FileSpreadsheet, FileText, History, ListChecks, ListFilter, PenLine, Search, TriangleAlert, Undo2, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { FocusEvent, KeyboardEvent } from 'react'
 import { api } from '../api.ts'
 import type { ExtractionTemplate, Fact, FactCheck, FactCheckInput, FactRow, TemplateField } from '../api.ts'
-import { Floating } from '../components/Menu.tsx'
+import { Floating, Menu } from '../components/Menu.tsx'
+import type { MenuItem } from '../components/Menu.tsx'
 import { Button, EmptyState, IconButton, InputField, Loading, Notice, SelectField, Spinner } from '../components/ui.tsx'
 import {
   BY_NAME,
@@ -20,6 +21,7 @@ import {
   correctionProblem,
   draftOf,
   earlierWords,
+  exportUrl,
   factTableKey,
   factTablesKey,
   fieldWords,
@@ -32,7 +34,7 @@ import {
   tableQuery,
   valueless,
 } from '../factTable.ts'
-import type { Operator, TableAsk, TableCondition, TableSort } from '../factTable.ts'
+import type { ExportFormat, Operator, TableAsk, TableCondition, TableSort } from '../factTable.ts'
 import { templatesKey } from '../templates.ts'
 import { useWorkspace } from './state.ts'
 
@@ -161,6 +163,7 @@ export function FactsView({ kind }: { kind: string }) {
           <Button icon={<ListChecks className="size-4" />} aria-pressed={review} disabled={!template} onClick={() => setReview(!review)}>
             To review
           </Button>
+          <DownloadMenu projectId={project.id} ask={ask} disabled={!first || first.total === 0} />
         </div>
         {adding && template && (
           <ConditionForm
@@ -252,6 +255,42 @@ export function FactsView({ kind }: { kind: string }) {
         )}
       </div>
     </div>
+  )
+}
+
+/** The rows the table keeps as a file to save, every page of them: the table as it shows, or a workbook with each fact's source and check. */
+function DownloadMenu({ projectId, ask, disabled }: { projectId: number; ask: TableAsk; disabled: boolean }) {
+  const button = useRef<HTMLButtonElement>(null)
+  const [anchor, setAnchor] = useState<DOMRect | null>(null)
+  const close = () => setAnchor(null)
+  // Followed as a click on a link would be, so the download leaves the page where it is.
+  const save = (format: ExportFormat) => () => {
+    const link = window.document.createElement('a')
+    Object.assign(link, { href: exportUrl(projectId, ask, format), download: '' })
+    link.click()
+  }
+  const items: MenuItem[] = [
+    { label: 'CSV file, as the table shows', icon: FileText, onSelect: save('csv') },
+    { label: "Excel workbook, with each fact's source", icon: FileSpreadsheet, onSelect: save('xlsx') },
+  ]
+  return (
+    <>
+      <Button
+        ref={button}
+        icon={<Download className="size-4" />}
+        aria-haspopup="menu"
+        aria-expanded={anchor !== null}
+        disabled={disabled}
+        onClick={(event) => setAnchor(anchor ? null : event.currentTarget.getBoundingClientRect())}
+      >
+        Download
+      </Button>
+      {anchor && (
+        <Floating anchor={anchor} alignEnd onClose={close} ignore={button}>
+          <Menu items={items} onClose={close} />
+        </Floating>
+      )}
+    </>
   )
 }
 

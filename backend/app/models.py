@@ -100,7 +100,8 @@ NATURAL_ORDER = "natural_order"
 # member's leave for Emudoc's support to see their account and support's views of it. A
 # project, folder, document or chat `_deleted` went into the trash (app/trash.py), `_restored`
 # came out of it, and `_purged` was deleted for good from it by a member. A project's extraction
-# templates (app/extraction.py) are made, changed and deleted for good, with no trash.
+# templates (app/extraction.py) are made, changed and deleted for good, with no trash, and its
+# facts tables downloaded (app/fact_export.py), which is its documents' content leaving the app.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -162,6 +163,7 @@ AUDIT_ACTIONS = (
     "fact_checked",
     "fact_corrected",
     "fact_check_removed",
+    "facts_exported",
     "project_deleted",
     "project_restored",
     "project_purged",

@@ -3532,7 +3532,8 @@ budget alert:
 ## Rates
 
 The app holds each caller to a rate of its own (the `RATE_*` settings in `.env.example`): so
-many upload requests, questions and searches a minute per user, and on the sign-in routes so
+many upload requests, questions and searches a minute per user, and downloads of a facts table
+(`RATE_EXPORTS`, 10), each of which reads every row the table keeps, and on the sign-in routes so
 many requests per email address and, with more room, per client address, the one uvicorn read
 from `X-Forwarded-For`. The request past a rate is refused with 429, a sentence and a
 `Retry-After` of the seconds until the minute turns, and the counts live in the database, so
@@ -4220,6 +4221,7 @@ and the like), named on its models' pages.
 | `RATE_PAGE_ERRORS` | `10` | | The page's error reports a minute, per client address |
 | `RATE_FEEDBACK` | `10` | | Messages to support an hour, per member ("Support") |
 | `RATE_BILLING` | `10` | | Billing requests a minute, per member: Checkout, the portal, a payment asked about ("Billing") |
+| `RATE_EXPORTS` | `10` | | Facts tables downloaded a minute, per member, each every row its conditions keep |
 | `RATE_API_REQUESTS` | `300` | | Requests a minute, per API key, on top of its member's rates ("Rates") |
 
 ### Mail and sign-in

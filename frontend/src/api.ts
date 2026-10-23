@@ -1084,6 +1084,7 @@ export type AuditAction =
   | 'fact_checked'
   | 'fact_corrected'
   | 'fact_check_removed'
+  | 'facts_exported'
   | 'project_deleted'
   | 'project_restored'
   | 'project_purged'

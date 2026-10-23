@@ -50,6 +50,16 @@ export function tableQuery(ask: TableAsk, after: string | null): URLSearchParams
   return params
 }
 
+/** What the table is downloaded as: a CSV file of the table as it shows, or an Excel workbook of the same rows with each value typed and a sheet of every fact, where it was found and who checked it. */
+export type ExportFormat = 'csv' | 'xlsx'
+
+/** Every row the table is asked for, as a file to save (backend/app/fact_export.py); a link, not a fetch, and the download is in the audit log. */
+export function exportUrl(projectId: number, ask: TableAsk, format: ExportFormat): string {
+  const params = tableQuery(ask, null)
+  params.set('format', format)
+  return `/api/projects/${projectId}/fact-table/export?${params}`
+}
+
 /** A condition as the server reads it: `field:op`, or `field:op:value`. */
 export function conditionParam({ field, op, value }: TableCondition): string {
   return valueless(op) ? `${field}:${op}` : `${field}:${op}:${value.trim()}`

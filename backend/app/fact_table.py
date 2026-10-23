@@ -22,7 +22,6 @@ import base64
 import datetime as dt
 import json
 import operator
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -73,6 +72,36 @@ class Condition:
 
 
 @dataclass(frozen=True)
+class Ask:
+    """What the table is asked for: the field it is sorted by (None for the document's name) and
+    which way, the conditions and the words its rows hold, and whether only the rows to review."""
+
+    sort: TemplateField | None = None
+    order: Order = "asc"
+    conditions: tuple[Condition, ...] = ()
+    words: str = ""
+    review: bool = False
+
+    def given(self) -> dict[str, object]:
+        """What was asked, as the audit log records it: the fields and how each was held, never a
+        condition's value or the words, which may be what a document says."""
+        given: dict[str, object] = {}
+        if self.sort is not None:
+            given |= {"sort": self.sort.name, "order": self.order}
+        if self.conditions:
+            given["conditions"] = [f"{held.field.name}:{held.op}" for held in self.conditions]
+        if self.words.strip():
+            given["words"] = True
+        if self.review:
+            given["review"] = True
+        return given
+
+
+# Every row, by the document's name.
+EVERY_ROW = Ask()
+
+
+@dataclass(frozen=True)
 class Row:
     """A row of the table: the document, the facts of each field it has, in its order, and the
     checks of a field no fact holds since the document was read again."""
@@ -85,9 +114,10 @@ class Row:
 @dataclass(frozen=True)
 class Table:
     rows: list[Row]
-    # How many rows the conditions keep, over every page, and how many of those are to review.
-    total: int
-    to_review: int
+    # How many rows the conditions keep, over every page, and how many of those are to review;
+    # None when the page was read without counting them.
+    total: int | None
+    to_review: int | None
     next_after: str | None
 
 
@@ -130,18 +160,16 @@ def read_table(
     session: Session,
     project_id: int,
     template: Template,
+    ask: Ask = EVERY_ROW,
     *,
-    sort: TemplateField | None = None,
-    order: Order = "asc",
-    conditions: Sequence[Condition] = (),
-    words: str = "",
-    review: bool = False,
     after: str | None = None,
     limit: int = 100,
+    counted: bool = True,
 ) -> Table:
-    """A page of the table of the project's documents read for `template`, sorted by `sort`
-    (None for the document's name), with the conditions and the words held, and with `review`
-    only the rows to review, past `after`."""
+    """A page of the table of the project's documents read for `template`, as `ask` asks for
+    it, past `after`; with `counted` also how many rows there are over every page, which the
+    export (app/fact_export.py), reading every page, has no use for."""
+    sort, order, words = ask.sort, ask.order, ask.words
     # Each statement is planned for this project, as a search is (app/search.py): whether the
     # facts are better read document by document or the project's at once depends on how many
     # it has. And none is compiled: a sort's value looked up for each of thousands of documents
@@ -154,12 +182,12 @@ def read_table(
         Document.project_id == project_id,
         Document.template == template.doc_type,
         Document.deleted_at.is_(None),
-        *(_holds(project_id, condition) for condition in conditions),
+        *(_holds(project_id, condition) for condition in ask.conditions),
     ]
     if words.strip():
         held.append(_mentions(project_id, template, words.strip()))
     fields = [field.name for field in template.fields]
-    if review:
+    if ask.review:
         held.append(exists().where(*_of(project_id, *fields), Fact.check_id.is_(None)))
     if sort is None:
         ranked = select(Document.id, name.label("key"), name.label("name")).where(*held)
@@ -174,15 +202,17 @@ def read_table(
         )
     ranked = ranked.subquery()
 
-    unchecked = exists().where(
-        Fact.document_id == ranked.c.id,
-        Fact.project_id == project_id,
-        Fact.name.in_(fields),
-        Fact.check_id.is_(None),
-    )
-    total, to_review = session.execute(
-        select(func.count(), func.count().filter(unchecked)).select_from(ranked)
-    ).one()
+    total = to_review = None
+    if counted:
+        unchecked = exists().where(
+            Fact.document_id == ranked.c.id,
+            Fact.project_id == project_id,
+            Fact.name.in_(fields),
+            Fact.check_id.is_(None),
+        )
+        total, to_review = session.execute(
+            select(func.count(), func.count().filter(unchecked)).select_from(ranked)
+        ).one()
     page = select(ranked.c.id, ranked.c.key, ranked.c.name)
     if after is not None:
         page = page.where(_past(ranked, _cursor(after, sort), order))

@@ -542,6 +542,9 @@ class Settings(BaseSettings):
     # Requests a minute per member to billing (app/api/billing.py): each starts a Checkout or a
     # customer portal session at Stripe, or reads one back.
     rate_billing: int = Field(default=10, ge=0)
+    # Files a minute per member of a project's facts table (app/fact_export.py): each reads every
+    # row the table's conditions keep, as many as fifty of its pages.
+    rate_exports: int = Field(default=10, ge=0)
     # Requests a minute per API key (app/apikeys.py), every request it makes, besides the
     # member's own rates above, which a key's uploads, questions and searches count against
     # too: a program that loops goes no faster than this, whatever it asks.

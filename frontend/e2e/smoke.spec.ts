@@ -29,8 +29,8 @@ import { holdNextTurn, refuseEmbeddings, releaseTurns } from './standin.ts'
 // again; and last, make the project's own invoice template from the built-in one, a field
 // added, and delete it, then upload an invoice, read for the built-in one, and find its facts in
 // the project's facts table, sorted, kept by a condition and opened where they were found, one
-// checked and another corrected, which the table's rows to review and the audit log keep, and
-// then a field added to the project's own invoice template and the invoice read again for it,
+// checked and another corrected, which the table's rows to review, its CSV file and the audit
+// log keep, and then a field added to the project's own invoice template and the invoice read again for it,
 // what the reading changed listed, the corrected total kept. The answer
 // is the stand-in's (e2e/standin.py): the first sentence of the passage its search found best,
 // with that passage's reference. Along the way each kind of page, panel and dialog is checked
@@ -928,10 +928,31 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(row).toBeVisible()
     await toReview.click()
 
-    // Both are the organisation's to ask about, by the field and the file, never the value.
+    // Every row it keeps downloads as a CSV file of the table as it shows, the correction in its cell.
+    const download = page.getByRole('button', { name: 'Download', exact: true })
+    await download.click()
+    const downloads = page.getByRole('menu')
+    await expect(downloads.getByRole('menuitem').first()).toBeFocused()
+    await expectAccessible(page, "the facts table's downloads")
+    const downloading = page.waitForEvent('download')
+    await downloads.getByRole('menuitem', { name: 'CSV file, as the table shows' }).click()
+    await expect(download).toBeFocused()
+    const csv = await readFile(await (await downloading).path(), 'utf8')
+    // With the byte order mark Excel needs to read its names, which trim() takes off.
+    expect(csv.startsWith('\ufeffDocument,invoice_number,issue_date,')).toBe(true)
+    const [, line, ...more] = csv.trim().split(/\r?\n/)
+    expect(more).toEqual([])
+    expect(line).toContain('INV-2026-0412')
+    expect(line).toContain('"1,205.00 EUR"')
+
+    // All three are the organisation's to ask about, by the field and the file, never the value.
     await page.goto('/organization/audit')
     await page.getByLabel('What').selectOption('fact_corrected')
     await expect(page.getByRole('listitem').filter({ hasText: 'Corrected a fact' })).toContainText('invoice.md · total amount')
+    await page.getByLabel('What').selectOption('facts_exported')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Downloaded a facts table' })).toContainText(
+      'invoice facts as a CSV file, sorted by total amount',
+    )
   })
 
   await test.step('add a field to the invoice template, read the invoice again for it, and read what changed', async () => {

@@ -44,6 +44,18 @@ Members:
 
 Operators:
 
+- Downloading the facts table, behind the flag `extraction_templates`: where it is on, the
+  table's "Download" saves every row its sort, conditions, words and "To review" keep, as a CSV
+  file of the table as it shows (a cell's values joined by "; ", the members' corrections in
+  place, and columns naming the fields still to review and those whose quote was not found in
+  the text), or as an Excel workbook of the same rows with each lone number, amount and date
+  typed and a second sheet of every fact with its page, quote, whether the quote was found, who
+  checked it and what the model read. New route `GET /api/projects/{id}/fact-table/export`
+  (`format=csv|xlsx`, the table's query), which API keys take, held to the new `RATE_EXPORTS`
+  (10 a minute per member); each download is a `facts_exported` row of the audit log (a
+  migration) with the kind, the format and what was asked, never a value or the words. The
+  model gives no confidence of its own for a fact: the files say whether its quote was found
+  and whether a member checked it.
 - Reading a template's documents again, behind the flag `extraction_templates`: once a template
   is saved or deleted, the library offers to read again the documents it concerns (those read
   for it, those of its kind read for none, and those read for the kind it was for before), not

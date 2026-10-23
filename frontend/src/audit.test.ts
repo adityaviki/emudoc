@@ -106,6 +106,12 @@ describe('a row', () => {
     const changed = { name: 'Supplier invoice', doc_type: 'bill', added: ['vat_number'], removed: [], changed: ['iban'], from: 'invoice', to: 'bill' }
     expect(describeDetail(event('template_changed', changed))).toBe('Supplier invoice · for invoice → bill documents, added vat_number, changed iban')
     expect(describeDetail(event('template_deleted', { name: 'Supplier invoice', doc_type: 'invoice' }))).toBe('Supplier invoice · for invoice documents')
+    // A facts table downloaded: its kind, the file and how it was kept, never a condition's value or the words.
+    expect(describeDetail(event('facts_exported', { kind: 'invoice', format: 'csv' }))).toBe('invoice facts as a CSV file')
+    const asked = { kind: 'invoice', format: 'xlsx', sort: 'total_amount', order: 'desc', conditions: ['total_amount:min', 'vendor_name:contains', 'total_amount:max'], words: true, review: true }
+    expect(describeDetail(event('facts_exported', asked))).toBe(
+      'invoice facts as an Excel workbook, sorted by total amount, descending, kept by total amount and vendor name, rows holding the words looked for, those to review',
+    )
     // A fact checked or corrected: the document and the field, never what it says.
     expect(describeDetail(event('fact_corrected', { filename: 'acme-10.pdf', field: 'total_amount' }))).toBe('acme-10.pdf · total amount')
     // A member's leave for support, support's view of their account, and what was done in it.

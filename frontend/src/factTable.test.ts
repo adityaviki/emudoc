@@ -15,6 +15,7 @@ import {
   correctionProblem,
   draftOf,
   earlierWords,
+  exportUrl,
   factTableKey,
   nextSort,
   operatorsFor,
@@ -79,6 +80,16 @@ describe('tableQuery', () => {
       'kind=purchase+order&order=desc&sort=total_amount&filter=vendor_name%3Acontains%3Aacme&filter=due_date%3Alacks&q=bolts&review=true&after=abc',
     )
     expect(tableQuery({ kind: 'invoice', sort: BY_NAME, conditions: [], words: ' ', review: false }, null).toString()).toBe('kind=invoice&order=asc')
+  })
+
+  it('downloads every row the table asks for, from its first page, as the file chosen', () => {
+    const ask = { kind: 'invoice', sort: { field: 'total_amount', order: 'desc' as const }, conditions: [{ field: 'iban', op: 'has' as const, value: '' }], words: 'acme', review: true }
+    expect(exportUrl(3, ask, 'xlsx')).toBe(
+      '/api/projects/3/fact-table/export?kind=invoice&order=desc&sort=total_amount&filter=iban%3Ahas&q=acme&review=true&format=xlsx',
+    )
+    expect(exportUrl(3, { ...ask, sort: BY_NAME, conditions: [], words: '', review: false }, 'csv')).toBe(
+      '/api/projects/3/fact-table/export?kind=invoice&order=asc&format=csv',
+    )
   })
 
   it('keys each table by what it asks, so that a page of one never stands for another', () => {

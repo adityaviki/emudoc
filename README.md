@@ -131,6 +131,20 @@ it in its cell as made before, to forget. A cell marks facts all checked, and a 
 was not found in the text that nobody has checked; "To review" keeps the rows with a fact nobody
 checked, and a field's condition "is not checked" those with one of its own.
 
+The table's "Download" saves every row it keeps, as it is sorted and kept, whatever page it shows
+(`backend/app/fact_export.py`, `GET /api/projects/{id}/fact-table/export`): a CSV file of the table
+as it shows, a cell's several values joined by "; " and a member's correction in the model's place,
+with two more columns naming the fields of each row still to review and those whose quote was not
+found in the text; or an Excel workbook of the same rows, a lone number, amount or date typed so
+that a spreadsheet adds and sorts it, and a second sheet of every fact with its page, its quote,
+whether the quote was found, who checked it and when, and what the model read where a member
+corrected it. The model gives no figure for how sure it is of a fact, and one it gave would not be
+calibrated, so those two are what the files say of it. Each download is a row of the audit log
+naming the kind, the file and the fields it was sorted and kept by, never a value. A program reads
+the same with an API key ("Accounts"): the table as JSON, a page at a time (`GET
+/api/projects/{id}/fact-table`, each fact with its typed value, quote, page and check), the files,
+and what the last readings changed.
+
 A project can hold any number of chats. Each one is saved with its answers, including the
 steps the agent took and the passages it was shown, so a chat can be reopened later. An answer
 is written by the background worker, not by the request that asked the question: the question
@@ -1149,6 +1163,8 @@ backend/app/
   flags.py      the feature flags: what is being rolled out, to how many organisations, and to which
   extraction.py the extraction templates: the built-in ones, and those in force for a project
   fact_table.py the facts table: a kind's documents side by side, sorted, kept and paged
+  fact_export.py
+                the facts table as a CSV file or an Excel workbook to save
   fact_checks.py
                 members' checks and corrections of facts, kept through the next reading
   fact_changes.py

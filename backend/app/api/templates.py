@@ -1,7 +1,8 @@
 """A project's extraction templates (app/extraction.py): the fields its documents of each kind are
 read for, which the library's Templates page lists, the built-in ones among them, and changes;
-the facts table of each kind's documents (app/fact_table.py), a column for each field; and the
-members' checks and corrections of its facts (app/fact_checks.py).
+the facts table of each kind's documents (app/fact_table.py), a column for each field, and the
+same as a file to save (app/fact_export.py); and the members' checks and corrections of its facts
+(app/fact_checks.py).
 
 Every route is behind the flag `extraction_templates` (app/flags.py), answering an organisation it
 is off for as a path no route takes. Whoever may change the project changes its templates, each
@@ -13,10 +14,12 @@ lists (`fact_changes`, app/fact_changes.py).
 """
 
 import datetime as dt
+import os
 from dataclasses import dataclass
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
@@ -51,13 +54,14 @@ from app.fact_changes import (
     read_changes,
 )
 from app.fact_checks import FACT_GONE, CheckRefused, check_out, written
-from app.fact_table import TableRefusal, condition_of, read_table
+from app.fact_export import MEDIA_TYPES, ExportFormat, csv_file, read_out, workbook_file
+from app.fact_table import Ask, TableRefusal, condition_of, read_table
 from app.flags import EXTRACTION_TEMPLATES
 from app.indexing.enrich import normalize_fact_name
 from app.indexing.pipeline import reset_stages
 from app.jobs import BULK, queue_index
 from app.models import Document, ExtractionTemplate, Fact, FactCheck, Project
-from app.ratelimit import SEARCHES
+from app.ratelimit import EXPORTS, SEARCHES
 from app.schemas import (
     DocumentChangesOut,
     FactChangesOut,
@@ -73,6 +77,7 @@ from app.schemas import (
     TemplateIn,
     TemplateOut,
 )
+from app.storage import content_disposition
 
 router = APIRouter(tags=["templates"], dependencies=[Depends(flagged(EXTRACTION_TEMPLATES))])
 
@@ -113,12 +118,16 @@ def list_templates(project: ProjectDep, session: SessionDep):
     )
 
 
-@router.get(
-    "/projects/{project_id}/fact-table",
-    response_model=FactTableOut,
-    dependencies=[Depends(limited(SEARCHES))],
-)
-def fact_table(
+@dataclass(frozen=True)
+class _Asked:
+    """A facts table as a request asks for it: the template in force for its kind, and its
+    sort, conditions, words and rows to review, each checked against the template."""
+
+    template: Template
+    ask: Ask
+
+
+def _asked(
     project: ProjectDep,
     session: SessionDep,
     kind: str,
@@ -127,15 +136,12 @@ def fact_table(
     conditions: Annotated[list[str] | None, Query(alias="filter")] = None,
     q: str = "",
     review: bool = False,
-    after: str | None = None,
-    limit: Annotated[int, Query(ge=1, le=MAX_TABLE_ROWS)] = TABLE_ROWS,
-):
-    """A page of the facts table of the project's documents of one kind (app/fact_table.py):
-    a row for each document read for the kind's template, a column for each of its fields,
-    sorted by one field (`sort`; the document's name without one), the rows kept by each
-    `filter` (`field:has`, `field:lacks`, `field:unchecked`, `field:contains:words`,
-    `field:min:value`, `field:max:value`), the words `q`, in the document's name or its facts,
-    and with `review` those with a fact no member has checked."""
+) -> _Asked:
+    """The table the query asks for: of the documents read for the template of the kind, sorted
+    by one field (`sort`; the document's name without one), the rows kept by each `filter`
+    (`field:has`, `field:lacks`, `field:unchecked`, `field:contains:words`, `field:min:value`,
+    `field:max:value`), the words `q`, in the document's name or its facts, and with `review`
+    those with a fact no member has checked."""
     doc_type = kind_of(kind)
     template = next((t for t in templates_for(session, project.id) if t.doc_type == doc_type), None)
     if template is None:
@@ -148,18 +154,33 @@ def fact_table(
         if sorted_by is None:
             raise HTTPException(422, f"The {template.title} template has no field named {sort}.")
     try:
-        table = read_table(
-            session,
-            project.id,
-            template,
-            sort=sorted_by,
-            order=order,
-            conditions=[condition_of(template, written) for written in conditions or []],
-            words=q,
-            review=review,
-            after=after,
-            limit=limit,
-        )
+        held = tuple(condition_of(template, written) for written in conditions or [])
+    except TableRefusal as refusal:
+        raise HTTPException(422, str(refusal)) from None
+    return _Asked(template, Ask(sorted_by, order, held, q, review))
+
+
+AskedDep = Annotated[_Asked, Depends(_asked)]
+
+
+@router.get(
+    "/projects/{project_id}/fact-table",
+    response_model=FactTableOut,
+    dependencies=[Depends(limited(SEARCHES))],
+)
+def fact_table(
+    project: ProjectDep,
+    session: SessionDep,
+    asked: AskedDep,
+    after: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=MAX_TABLE_ROWS)] = TABLE_ROWS,
+):
+    """A page of the facts table of the project's documents of one kind (app/fact_table.py):
+    a row for each document read for the kind's template and a column for each of its fields,
+    as the query asks (`_asked`), past `after`."""
+    template = asked.template
+    try:
+        table = read_table(session, project.id, template, asked.ask, after=after, limit=limit)
     except TableRefusal as refusal:
         raise HTTPException(422, str(refusal)) from None
     updated_at = (
@@ -192,6 +213,49 @@ def fact_table(
         to_review=table.to_review,
         next_after=table.next_after,
     )
+
+
+@router.get(
+    "/projects/{project_id}/fact-table/export",
+    response_class=Response,
+    responses={200: {"content": {media: {} for media in MEDIA_TYPES.values()}}},
+    dependencies=[Depends(limited(EXPORTS))],
+)
+def export_fact_table(
+    project: ProjectDep,
+    session: SessionDep,
+    account: AccountDep,
+    request: Request,
+    asked: AskedDep,
+    written_as: Annotated[ExportFormat, Query(alias="format")] = "csv",
+):
+    """Every row of the facts table the query asks for (`_asked`), as a file to save
+    (app/fact_export.py): a CSV of the table as the page shows it, or with `format=xlsx` an Excel
+    workbook of the same rows typed and a sheet of each of their facts, with where it was found
+    and who checked it. The download is recorded first, with what was asked but none of the
+    values or words, which may be what a document says."""
+    template = asked.template
+    audit(
+        session,
+        account,
+        request,
+        "facts_exported",
+        project_id=project.id,
+        detail={"kind": template.doc_type, "format": written_as, **asked.ask.given()},
+    )
+    session.commit()
+    filename = f"{project.name} {template.doc_type} facts {dt.datetime.now(dt.UTC):%Y-%m-%d}"
+    headers = {"Content-Disposition": content_disposition(f"{filename}.{written_as}")}
+    if written_as == "csv":
+        return StreamingResponse(
+            csv_file(project.id, template, asked.ask),
+            media_type=MEDIA_TYPES["csv"],
+            headers=headers,
+        )
+    # A workbook is a ZIP file, whose index comes last, so it is sent once it is whole.
+    book = workbook_file(project.id, template, asked.ask)
+    headers["Content-Length"] = str(os.fstat(book.fileno()).st_size)
+    return StreamingResponse(read_out(book), media_type=MEDIA_TYPES["xlsx"], headers=headers)
 
 
 @router.post(

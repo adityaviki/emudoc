@@ -86,6 +86,7 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   fact_checked: ['Checked a fact', 'files'],
   fact_corrected: ['Corrected a fact', 'files'],
   fact_check_removed: ["Took back a fact's check", 'files'],
+  facts_exported: ['Downloaded a facts table', 'files'],
   project_deleted: ['Deleted a project', 'files'],
   project_restored: ['Restored a project', 'files'],
   project_purged: ['Deleted a project for good', 'files'],
@@ -165,6 +166,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   if (event.action === 'settings_changed') parts.push(describeSetting(detail))
   else if (event.action === 'flag_changed') parts.push(describeFlag(detail))
   else if (TEMPLATE_ACTIONS.has(event.action)) parts.push(describeTemplate(event.action, detail))
+  else if (event.action === 'facts_exported') parts.push(describeFactsExport(detail))
   else if ('to' in detail) parts.push(`${word(detail.from)} → ${word(detail.to)}`)
   else if ('from' in detail) parts.push(`was ${word(detail.from)}`)
   if (typeof detail.role === 'string' && !('to' in detail)) parts.push(word(detail.role))
@@ -226,6 +228,19 @@ function describeTemplate(action: AuditAction, detail: AuditEvent['detail']): st
     const names = detail[change]
     if (Array.isArray(names) && names.length > 0) parts.push(`${change} ${names.join(', ')}`)
   }
+  return parts.join(', ')
+}
+
+/** A facts table downloaded: its kind, the file, and how its rows were sorted and kept, by the fields' names, never a condition's value or the words. */
+function describeFactsExport(detail: AuditEvent['detail']): string {
+  const parts = [`${String(detail.kind)} facts as ${detail.format === 'xlsx' ? 'an Excel workbook' : 'a CSV file'}`]
+  if (typeof detail.sort === 'string') parts.push(`sorted by ${fieldWords(detail.sort)}${detail.order === 'desc' ? ', descending' : ''}`)
+  if (Array.isArray(detail.conditions) && detail.conditions.length > 0) {
+    const fields = [...new Set(detail.conditions.map((condition) => fieldWords(String(condition).split(':')[0])))]
+    parts.push(`kept by ${fields.join(' and ')}`)
+  }
+  if (detail.words === true) parts.push('rows holding the words looked for')
+  if (detail.review === true) parts.push('those to review')
   return parts.join(', ')
 }
 

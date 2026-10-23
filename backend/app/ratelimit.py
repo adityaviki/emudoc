@@ -129,6 +129,8 @@ BILLING = Limit("billing", "rate_billing", "billing requests")
 API_REQUESTS = Limit("api_key", "rate_api_requests", "requests")
 # A member's messages to support (app/api/help.py), each a mail to the support address, an hour.
 FEEDBACK = Limit("feedback", "rate_feedback", "messages to support", HOUR)
+# A member's files of a facts table (app/fact_export.py), each every row of it.
+EXPORTS = Limit("export", "rate_exports", "downloads of a facts table")
 # Each limit's refusals are counted from zero in the metrics (app/metrics.py).
 for _limit in (
     UPLOADS,
@@ -141,6 +143,7 @@ for _limit in (
     BILLING,
     API_REQUESTS,
     FEEDBACK,
+    EXPORTS,
 ):
     RATE_LIMITED.labels(_limit.scope)
 
