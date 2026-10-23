@@ -1,8 +1,10 @@
+import asyncio
 import json
 import re
 from datetime import UTC, datetime
 
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ThinkingPart, ToolCallPart
+from pydantic_ai.models.function import AgentInfo, FunctionModel
 from sqlalchemy import select
 
 from app.agent.loop import MAX_RETRIES, run_agent
@@ -22,7 +24,9 @@ from app.agent.tools import (
 )
 from app.config import get_settings
 from app.models import Folder, Passage, Project, Section
+from app.usage import ModelUsage
 from tests.conftest import FakeTurn
+from tests.test_llm import SCRIPTED, scripted_llm
 
 
 def context(session, services, document) -> ToolContext:
@@ -386,3 +390,21 @@ def test_each_tool_call_runs_in_a_session_of_its_own(services, indexed, monkeypa
     assert second["is_error"] is False
     assert len(sessions) == 2 and sessions[0] is not sessions[1]
     assert not any(session.in_transaction() for session in sessions)
+
+
+def test_a_turn_left_mid_answer_is_counted_as_far_as_it_went(session, services, indexed):
+    async def endless(messages: list, info: AgentInfo):
+        yield "The notice "
+        await asyncio.sleep(60)
+        yield "never sent"
+
+    services.llm = scripted_llm(FunctionModel(stream_function=endless))
+    usage = ModelUsage()
+    events = run_agent(
+        services, indexed.project_id, [{"role": "user", "content": "Notice?"}], usage
+    )
+    assert next(events) == {"type": "text", "text": "The notice "}
+    # Its reader leaves, as a stop does: the call was made, and counts.
+    events.close()
+    spent = usage.models[SCRIPTED]
+    assert spent.calls == 1 and spent.input_tokens > 0

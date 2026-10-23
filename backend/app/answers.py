@@ -34,7 +34,7 @@ limit catches here end with its sentence as their error instead of running.
 import json
 import logging
 import time
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -342,17 +342,27 @@ def answer(
         # thinks.
         session.rollback()
         usage = ModelUsage()
+        events: Generator[dict[str, Any]]
         if over is None:
             events = run_agent(services, project_id, history, usage)
         else:
             log.info("Answer %s was not run: %s", message_id, over)
-            events = iter([{"type": "error", "message": over}])
+            events = _only({"type": "error", "message": over})
         try:
             _write(session, writer, events, lease)
         finally:
             # The calls the run made were made whatever ended it: a stop, a lost lease and a
-            # crash all leave the run through here, and are counted like an answer.
-            _charge(session, usage, message_id, payer)
+            # crash all leave the run through here, and are counted like an answer. A run left
+            # mid-turn is closed first, which counts the call it was in (`run_agent`).
+            try:
+                events.close()
+            finally:
+                _charge(session, usage, message_id, payer)
+
+
+def _only(event: dict[str, Any]) -> Generator[dict[str, Any]]:
+    """The one event of an answer that is not run, as a run's are given."""
+    yield event
 
 
 def _write(session: Session, writer: _Writer, events: Iterator[dict], lease: Lease | None) -> None:

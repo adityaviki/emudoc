@@ -28,6 +28,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import Model
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
 from pydantic_ai.profiles import ModelProfile
+from pydantic_ai.usage import RequestUsage
 
 from app.agent.loop import run_agent
 from app.config import Settings, export_env_file
@@ -462,6 +463,22 @@ def test_leaving_a_stream_early_stops_the_request():
     with llm.stream_agent("Be brief.", QUESTION, []) as stream:
         next(iter(stream))
     assert stopped.wait(timeout=5)
+
+
+def test_a_stream_left_early_says_what_it_used_so_far():
+    async def endless(messages: list, info: AgentInfo):
+        yield "The notice "
+        await asyncio.sleep(60)
+        yield "never sent"
+
+    llm = scripted_llm(FunctionModel(stream_function=endless))
+    with llm.stream_agent("Be brief.", QUESTION, []) as stream:
+        assert (stream.model, stream.used()) == (None, RequestUsage())
+        next(iter(stream))
+        # From its first event the turn is the model's, and was paid for as far as it went,
+        # which is what a reader that leaves now is charged (`run_agent`).
+        assert stream.model == SCRIPTED
+        assert stream.used().input_tokens > 0 and stream.used().output_tokens > 0
 
 
 def test_a_failed_stream_raises_as_it_ends():

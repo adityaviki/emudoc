@@ -263,8 +263,12 @@ def test_a_crash_in_the_run_fails_the_answer_and_the_job(
         HANDLERS[ANSWER_QUESTION].run(job, services)
     final = message(session, asked["answer"]["id"])
     assert final.status == "failed" and final.error == FAILED
+
     # The lease guards the settling too: a run whose job was taken over settles nothing.
-    monkeypatch.setattr(answers_module, "run_agent", lambda *args: iter([]))
+    def nothing(*args):
+        yield from ()
+
+    monkeypatch.setattr(answers_module, "run_agent", nothing)
     other = new_chat(client, indexed.project_id)
     asked = ask(client, other["id"], "Billing?")
     job = claim("w:1", ANSWERS)
@@ -385,6 +389,28 @@ def test_a_try_made_while_the_stopped_run_waits_on_the_model_is_its_own_runs_alo
     # Every run's model calls were paid for, and the answer shows them all: the first try's
     # search and its words, the second try's words.
     assert row.usage["answer"]["calls"] == 3
+
+
+def test_a_model_turn_cut_off_by_a_stop_is_charged(client, session, services, indexed, monkeypatch):
+    # Each piece of text goes out at once, so the run finds the answer stopped at its first
+    # words, while the model's turn is still being read.
+    monkeypatch.setattr(answers_module, "TEXT_FLUSH_SECONDS", 0)
+    held = Held(TextPart("The first "), TextPart("words."))
+    services.llm.agent_turns = [held]
+    chat = new_chat(client, indexed.project_id)
+    message_id = ask(client, chat["id"], "Notice period?")["answer"]["id"]
+    run = threading.Thread(target=answer, args=(message_id, services))
+    run.start()
+    try:
+        assert held.reached.wait(10)
+        client.post(f"/api/chats/{chat['id']}/messages/{message_id}/stop")
+    finally:
+        held.release.set()
+    run.join(10)
+    assert not run.is_alive()
+    row = message(session, message_id)
+    assert row.status == "stopped"
+    assert row.usage["answer"]["calls"] == 1
 
 
 def test_the_job_of_an_earlier_try_writes_nothing(client, session, services, indexed):

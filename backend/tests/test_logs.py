@@ -452,7 +452,7 @@ def test_an_answers_lines_name_the_member_who_asked(client, services, account, m
 
     def thinking(services_, project_id, messages, usage):
         logging.getLogger("app.agent.loop").info("Thinking")
-        return iter([])
+        yield from ()
 
     monkeypatch.setattr(answers, "run_agent", thinking)
     worker = Worker(services, concurrency=0, answer_concurrency=1)

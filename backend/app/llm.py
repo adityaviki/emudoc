@@ -73,7 +73,7 @@ from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.google_cloud import GoogleCloudProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.tools import ToolDefinition
-from pydantic_ai.usage import RunUsage
+from pydantic_ai.usage import RequestUsage, RunUsage
 
 from app.config import AGENT, INDEX, ModelSetting, Settings, model_provider
 from app.errors import AppError, provider_codes
@@ -459,7 +459,8 @@ class ModelStream:
     can be read from any thread, even a different one for each event. The models are asked in
     turn while each fails before its first event in a way that asks the next (`_falls_back`);
     once one has sent an event, the turn is its own, since what it sent may have been shown.
-    `model` then names the one that answered, as the settings name it.
+    `model` then names the one that answered, as the settings name it, and `used()` what the
+    turn has used so far, for a reader that leaves before the end.
     """
 
     def __init__(
@@ -483,6 +484,7 @@ class ModelStream:
         # reader that went away does; the metrics tell the two apart by it.
         self._gave_up = False
         self.model: str | None = None
+        self._used = RequestUsage()
 
     def __enter__(self) -> "ModelStream":
         self._deadline = time.monotonic() + AGENT_TIMEOUT
@@ -507,6 +509,13 @@ class ModelStream:
         for _ in self:
             pass
         return self._reply()
+
+    def used(self) -> RequestUsage:
+        """What the turn has used: the whole reply's usage once it ended, else what the
+        provider has reported by the last event read, which a reader that leaves mid-turn is
+        charged for (`run_agent`): the request was made and is paid for all the same. Some
+        providers report the tokens only at the end, and the call then counts without them."""
+        return self._used
 
     def _next(self) -> Any:
         """The next event, or `_END`. Waits at most `STREAM_STALL`, and no longer than the turn
@@ -547,9 +556,13 @@ class ModelStream:
                         ) as stream:
                             async for event in stream:
                                 request.first_event()
+                                # The turn is this model's from its first event on.
+                                self.model = candidate.name
                                 sent = True
+                                self._used = stream.usage
                                 self._events.put(event)
                             response = stream.get()
+                        self._used = response.usage
                         request.used(response.usage.input_tokens, response.usage.output_tokens)
                 except Exception as error:
                     following = self._candidates[position + 1 : position + 2]

@@ -875,11 +875,12 @@ class FakeTurn:
                 yield PartStartEvent(index=index, part=part)
 
     def response(self) -> ModelResponse:
-        return ModelResponse(
-            parts=self.parts,
-            usage=RequestUsage(input_tokens=10, output_tokens=5),
-            finish_reason=self.finish_reason,
-        )
+        return ModelResponse(parts=self.parts, usage=self.used(), finish_reason=self.finish_reason)
+
+    def used(self) -> RequestUsage:
+        """What the turn used, whole even for a reader that left it: a scripted turn's tokens
+        are known from the start."""
+        return RequestUsage(input_tokens=10, output_tokens=5)
 
 
 def drop_schema() -> None:

@@ -177,7 +177,8 @@ def test_a_stopped_answer_is_counted_for_the_calls_it_made(
     client, session, services, indexed, monkeypatch
 ):
     # Text goes out as it comes, so the run notices the stop at the first word of the second
-    # call, before that call's usage is known: the first call alone is on the bill.
+    # call, while that call is still being read: it was made all the same, and is on the bill
+    # with the first for what it used by then (a scripted turn's tokens, known from its start).
     monkeypatch.setattr(answers_module, "TEXT_FLUSH_SECONDS", 0)
     held = Held(TextPart("The notice period is 90 days."))
     services.llm.agent_turns = [
@@ -199,13 +200,13 @@ def test_a_stopped_answer_is_counted_for_the_calls_it_made(
         held.release.set()
     assert not run.is_alive()
     assert measures_of(rows_of(session, (CHAT_MESSAGE, message_id))) == [
-        ("calls", 1),
-        ("input_tokens", 10),
-        ("output_tokens", 5),
+        ("calls", 2),
+        ("input_tokens", 20),
+        ("output_tokens", 10),
     ]
     # The stop settled the row without knowing the calls; the run filled them in after.
     reply = client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]
-    assert reply["status"] == "stopped" and reply["usage"]["answer"]["calls"] == 1
+    assert reply["status"] == "stopped" and reply["usage"]["answer"]["calls"] == 2
 
 
 def test_a_lost_run_and_the_run_that_starts_over_are_both_counted(

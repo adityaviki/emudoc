@@ -93,7 +93,8 @@ def run_agent(
     next call nor the caller's session.
 
     `usage` is filled with each model call as it is answered, so a caller that leaves the
-    loop before its `done` event still knows what the calls so far cost (app/usage.py).
+    loop before its `done` event still knows what the calls so far cost (app/usage.py); one
+    that leaves mid-turn closes the loop first, which counts the call it was in.
     """
     if usage is None:
         usage = ModelUsage()
@@ -118,11 +119,20 @@ def run_agent(
     while turns < max_turns:
         try:
             with services.llm.stream_agent(system, conversation, tools) as stream:
-                for event in stream:
-                    if isinstance(event, PartStartEvent) and isinstance(event.part, ThinkingPart):
-                        yield {"type": "thinking"}
-                    elif text := _new_text(event):
-                        yield {"type": "text", "text": text}
+                try:
+                    for event in stream:
+                        if isinstance(event, PartStartEvent) and isinstance(
+                            event.part, ThinkingPart
+                        ):
+                            yield {"type": "thinking"}
+                        elif text := _new_text(event):
+                            yield {"type": "text", "text": text}
+                except GeneratorExit:
+                    # The reader left mid-turn (a stop, a newer try, a lost lease) and closed
+                    # the loop: the call was made all the same, and counts as far as it went.
+                    if stream.model:
+                        usage.add(stream.model, stream.used())
+                    raise
                 response = stream.response()
         except LLMError as error:
             # The answer's error is the asker's to read: a deployment tells them the members'

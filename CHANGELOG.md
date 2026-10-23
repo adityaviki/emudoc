@@ -35,6 +35,9 @@ Members:
 
 Operators:
 
+- A model call an answer was in the middle of when it was stopped, tried again or its run
+  lost, is now counted in the answer's usage and the organisation's costs, for the tokens the
+  provider reported by then; it was left out before, though the provider was paid for it.
 - `POST /api/projects/{id}/reprocess` without `from_stage` now queues the project's partly
   indexed documents alone (ready, with enrich or embed failed or skipped and no retry waiting),
   each from the first stage it went without; with `from_stage` it runs every document from it,
