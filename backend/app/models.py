@@ -1113,8 +1113,13 @@ class ChatMessage(Base):
     error: Mapped[str | None] = mapped_column(Text)
     # What the answer used, by kind (`answer`: its model calls, tokens and their cost), as
     # app/usage.py keeps it in step with the usage events the run records when it ends, so
-    # empty while the answer is being written and for a question.
+    # empty while the answer is being written and for a question. A retried answer sums
+    # every run's.
     usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    # Which try at the answer the row holds: 1, and one more each time the member tries a
+    # stopped or failed answer again. Its job carries the number, and a run of an earlier try,
+    # still waiting on the model or queued, writes nothing into a later one (app/answers.py).
+    attempt: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

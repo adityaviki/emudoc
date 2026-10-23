@@ -15,7 +15,9 @@ searches them and reads the passages it found, and it can compare the facts read
 documents, such as an invoice's prices against the price list. Every claim in an answer cites
 its passage with a numbered chip: click it to open the document at that passage and check it.
 Answers are written by an AI model and can be wrong; the citations are there so that you can
-tell. Stop ends an answer early, and an answer goes on while you look elsewhere.
+tell. Stop ends an answer early, and an answer goes on while you look elsewhere, or after you
+reload the page. Try again, under the last answer of your chat when it was stopped or failed,
+writes it anew in its place.
 
 A question can be up to $question_chars characters; for more, upload the text as a document and
 ask about it. New chat starts afresh, and the empty chat suggests a few questions.

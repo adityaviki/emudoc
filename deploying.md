@@ -2814,7 +2814,13 @@ beside the app and the files in a directory, at the defaults (`WORKER_CONCURRENC
 | A page of the scan kept from before | 300 | 26 ms | 32 ms |
 | The same, from the bucket | 300 | 52 ms | 63 ms |
 
-The row with `ANSWER_CONCURRENCY` 20 is a run earlier that day (with `DB_POOL_SIZE` 22, the pool
+The two rows at the hosted model's pace were measured with the words of an answer at once: the
+stand-in ignored `--words-per-second` until 2026-10-23. The first token's second before each
+turn was paced, so the row with `ANSWER_CONCURRENCY` 20, where no question waits for an
+answerer, stands; the row above it is short of the time each answer now holds an answerer for
+its words (about 0.4 s at 40 a second), which the questions waiting for one add up, and is to be
+measured again on an idle machine (`--phases library,chats`). The row with
+`ANSWER_CONCURRENCY` 20 is a run earlier that day (with `DB_POOL_SIZE` 22, the pool
 the worker then needed), the bucket's a run of the large phase with `--storage s3` (`--phases
 large --sheet-mb 0`) once the API kept its copy of the original for the next pages; before it
 copied the original for every page, and a page from the bucket took 2.06 s (p95 2.11 s).

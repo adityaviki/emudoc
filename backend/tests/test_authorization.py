@@ -181,6 +181,7 @@ def chat_writes(w: World) -> list[Route]:
         ("PATCH", f"/api/chats/{w.chat_id}", {"json": {"title": "Renamed"}}),
         ("POST", f"/api/chats/{w.chat_id}/messages", {"json": {"content": "What is due?"}}),
         ("POST", f"/api/chats/{w.chat_id}/messages/{w.message_id}/stop", {}),
+        ("POST", f"/api/chats/{w.chat_id}/messages/{w.message_id}/retry", {}),
         ("DELETE", f"/api/chats/{w.chat_id}", {}),
     ]
 

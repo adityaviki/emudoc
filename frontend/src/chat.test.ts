@@ -1,8 +1,8 @@
 import { QueryClient, onlineManager } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { applyEvent, ask, chatKey, isStreaming, loadChat, resume, settle, splitChats, stop } from './chat.ts'
+import { applyEvent, ask, chatKey, isStreaming, loadChat, mayRetry, resume, retry, settle, splitChats, stop } from './chat.ts'
 import type { ChatData, Message } from './chat.ts'
-import type { AskResult, ChatDetail, ChatEvent, ChatMessage, Source } from './api.ts'
+import type { AskResult, ChatDetail, ChatEvent, ChatMessage, RetryResult, Source } from './api.ts'
 
 const SOURCE: Source = {
   id: 812,
@@ -137,7 +137,7 @@ interface Call {
   body: unknown
 }
 
-type Reply = (init: RequestInit) => Response
+type Reply = (init: RequestInit) => Response | Promise<Response>
 
 const json = (body: unknown, status = 200): Reply => () => Response.json(body, { status })
 const events = (...chunks: string[]): Reply => (init) => new Response(stream(chunks, init.signal))
@@ -377,6 +377,27 @@ describe('ask', () => {
     expect(calls).toHaveLength(1)
   })
 
+  it('stops an answer whose question is still being saved, on the server once it has an id', async () => {
+    let save = () => {}
+    const stored = new Promise<void>((resolve) => (save = resolve))
+    serve(async () => {
+      await stored
+      return Response.json(asked(), { status: 201 })
+    })
+    const asking = ask(client, 1, 'Notice period?')
+    stop(1)
+    serve(json({ ...saved(11, 'assistant', '', 'stopped'), notice: 'Stopped.' }))
+    save()
+    await through(asking)
+
+    expect(messages()[1]).toMatchObject({ id: 11, notice: 'Stopped.', status: 'stopped', thinking: false })
+    // Nothing of the answer was followed: the stop went out as soon as the answer had an id.
+    expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual([
+      'POST /api/chats/1/messages',
+      'POST /api/chats/1/messages/11/stop',
+    ])
+  })
+
   it('stops an answer on the server and keeps what arrived', async () => {
     serve(json(asked(), 201), pending(sse([0, { type: 'text', text: 'Ninety' }])))
     const asking = ask(client, 1, 'Notice period?')
@@ -408,5 +429,119 @@ describe('resume', () => {
     expect(messages()[1]).toMatchObject({ content: 'Ninety days.', status: 'done', thinking: false })
     expect(calls).toHaveLength(1)
     expect(calls[0].headers.has('Last-Event-ID')).toBe(false)
+  })
+})
+
+describe('mayRetry', () => {
+  it('offers to try again an answer that was stopped or failed, not one lost, refused by the plan or finished', () => {
+    const answer = (change: Partial<Message>): Message => ({ ...answering, thinking: false, ...change })
+    expect(mayRetry(answer({ status: 'stopped', notice: 'Stopped.' }))).toBe(true)
+    expect(mayRetry(answer({ status: 'failed', error: 'The model is not answering.' }))).toBe(true)
+    expect(mayRetry(answer({ status: 'failed', lost: true }))).toBe(false)
+    const refusal = { message: 'The Free plan allows 50 questions a month.', limit: 'questions_per_month' as const }
+    expect(mayRetry(answer({ status: 'failed', refusedByPlan: refusal }))).toBe(false)
+    expect(mayRetry(answer({ status: 'done' }))).toBe(false)
+    expect(mayRetry(answer({ status: 'streaming' }))).toBe(false)
+    expect(mayRetry({ ...answer({ status: 'failed' }), role: 'user' })).toBe(false)
+  })
+})
+
+describe('retry', () => {
+  const stopped = { ...saved(11, 'assistant', 'Ninety', 'stopped'), notice: 'Stopped.' }
+  const retried = (lastEventId: number | null): RetryResult => ({
+    answer: saved(11, 'assistant', '', 'streaming'),
+    last_event_id: lastEventId,
+  })
+
+  beforeEach(() => client.setQueryData(chatKey(1), loadChat(chat([saved(10, 'user', 'Notice period?'), stopped]))))
+
+  it('empties the answer in its place and follows the new try past the events the earlier one left', async () => {
+    serve(
+      json(retried(3)),
+      events(sse([4, { type: 'restart' }], [5, { type: 'text', text: 'Ninety days.' }], [null, { type: 'end', status: 'done' }])),
+    )
+    const trying = retry(client, 1)
+    // At once, before the server has answered: nothing of the stopped try is left on screen.
+    expect(messages()[1]).toMatchObject({ content: '', notice: null, status: 'streaming', thinking: true })
+    await through(trying)
+
+    expect(messages()).toHaveLength(2)
+    expect(messages()[1]).toMatchObject({ id: 11, content: 'Ninety days.', notice: null, error: null, status: 'done' })
+    expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual([
+      'POST /api/chats/1/messages/11/retry',
+      'GET /api/chats/1/messages/11/events',
+    ])
+    expect(calls[1].headers.get('Last-Event-ID')).toBe('3')
+  })
+
+  it('waits for the stop of the answer to reach the server before trying it again', async () => {
+    client.setQueryData(chatKey(1), loadChat(chat()))
+    serve(json(asked(), 201), pending(sse([0, { type: 'text', text: 'Ninety' }])))
+    const asking = ask(client, 1, 'Notice period?')
+    await vi.waitFor(() => expect(messages()[1].content).toBe('Ninety'))
+    // The server is slow to answer the stop, and the member tries the answer again meanwhile.
+    let answerStop = () => {}
+    const stopAnswered = new Promise<void>((resolve) => (answerStop = resolve))
+    serve(async () => {
+      await stopAnswered
+      return Response.json({ ...saved(11, 'assistant', 'Ninety', 'stopped'), notice: 'Stopped.' })
+    })
+    stop(1)
+    await through(asking)
+    serve(
+      json(retried(0)),
+      events(sse([1, { type: 'restart' }], [2, { type: 'text', text: 'Ninety days.' }], [null, { type: 'end', status: 'done' }])),
+    )
+    const trying = retry(client, 1)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(calls).toHaveLength(3)
+
+    answerStop()
+    await through(trying)
+    expect(calls.slice(2).map((call) => `${call.method} ${call.url}`)).toEqual([
+      'POST /api/chats/1/messages/11/stop',
+      'POST /api/chats/1/messages/11/retry',
+      'GET /api/chats/1/messages/11/events',
+    ])
+    expect(messages()[1]).toMatchObject({ content: 'Ninety days.', status: 'done' })
+  })
+
+  it('follows the new try from the start when the earlier one left no event', async () => {
+    serve(json(retried(null)), events(sse([0, { type: 'text', text: 'Ninety days.' }], [null, { type: 'end', status: 'done' }])))
+    await through(retry(client, 1))
+
+    expect(messages()[1]).toMatchObject({ content: 'Ninety days.', status: 'done' })
+    expect(calls[1].headers.has('Last-Event-ID')).toBe(false)
+  })
+
+  it('leaves the answer as it was with the refusal of the try, which may be tried again later', async () => {
+    const busy = 'Too many questions are being answered right now. Wait a moment and try again.'
+    serve(json({ detail: busy }, 429))
+    await through(retry(client, 1))
+
+    expect(messages()[1]).toMatchObject({ content: 'Ninety', notice: 'Stopped.', error: busy, status: 'stopped', thinking: false })
+    expect(mayRetry(messages()[1])).toBe(true)
+
+    const limit = 'The Free plan allows USD 1.00 of model use a day.'
+    serve(json({ detail: limit, limit: 'daily_spend_micros' }, 402))
+    await through(retry(client, 1))
+    expect(messages()[1]).toMatchObject({ content: 'Ninety', refusedByPlan: { message: limit, limit: 'daily_spend_micros' } })
+    expect(mayRetry(messages()[1])).toBe(false)
+  })
+
+  it('asks a question the server refused before saving it again', async () => {
+    client.setQueryData(chatKey(1), loadChat(chat()))
+    serve(json({ detail: 'Too many questions are being answered right now.' }, 429))
+    await through(ask(client, 1, 'Notice period?'))
+    expect(messages()[1]).toMatchObject({ status: 'failed' })
+    expect(messages()[1].id).toBeUndefined()
+
+    serve(json(asked(), 201), events(sse([0, { type: 'text', text: 'Ninety days.' }], [null, { type: 'end', status: 'done' }])))
+    await through(retry(client, 1))
+
+    expect(messages()).toHaveLength(2)
+    expect(messages()[0]).toMatchObject({ id: 10, content: 'Notice period?' })
+    expect(messages()[1]).toMatchObject({ id: 11, content: 'Ninety days.', status: 'done', error: null })
+    expect(calls[1]).toMatchObject({ method: 'POST', url: '/api/chats/1/messages', body: { content: 'Notice period?' } })
   })
 })

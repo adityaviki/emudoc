@@ -82,7 +82,11 @@ up where it was by another tab that opens the chat. While the browser is offline
 so (in the header, and under an answer it was following) and follows on once the connection is
 back; a connection that keeps failing for 15 seconds online is given up with "Reconnect", which
 reads the answer again from its start. Stop ends it with what arrived so far, whether or not a
-worker is alive; a chat takes one question at a time.
+worker is alive, even while the question is still being sent; a chat takes one question at a
+time. The last answer of a member's own chat, once stopped or failed, offers "Try again", which
+empties it and has the worker write it anew from the same question, counting no other question
+against the plan; a run of the earlier try that is still waiting on the model writes nothing
+into the new one, since each try is numbered and its job names its own.
 
 A chat is its starter's alone until they share it with the project ("Share" in the chat's
 header, "Make private" to take it back). Everyone who sees the project then finds it under

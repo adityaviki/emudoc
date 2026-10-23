@@ -3,13 +3,14 @@
 // cache after the user moves to another chat or tab, so it is tracked here rather than in a
 // component, and a chat opened while its answer is still being written picks the stream up.
 // Offline, the page waits for the connection and follows on from where it was; an answer it gave
-// up on is followed again from its first event on the member's word.
+// up on is followed again from its first event on the member's word, and a stopped or failed one
+// is tried again in its place.
 
 import { onlineManager } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
 import { useSyncExternalStore } from 'react'
 import { ApiError, api, isPlanLimit, streamEvents } from './api.ts'
-import type { Chat, ChatDetail, ChatEvent, ChatMessage, MessageStatus, PlanRefusal, Source, Usage } from './api.ts'
+import type { AskResult, Chat, ChatDetail, ChatEvent, ChatMessage, MessageStatus, PlanRefusal, Source, Usage } from './api.ts'
 
 export interface Step {
   id: string
@@ -151,12 +152,16 @@ export function applyEvent(message: Message, event: ChatEvent): Message {
 
 interface Following {
   controller: AbortController
-  // Unset until the question was saved and the answer has an id to stop.
+  // Unset while the request that saves the question, or tries the answer again, is on its way: a
+  // stop meanwhile reaches the server once the answer is saved, with the id it then has.
   messageId: number | null
 }
 
 // The answers being followed, by chat id.
 const running = new Map<number, Following>()
+// The stops on their way to the server, by chat id: a try of the stopped answer waits for its
+// stop, or the server would find the answer still being written.
+const stopping = new Map<number, Promise<unknown>>()
 const listeners = new Set<() => void>()
 
 function subscribe(listener: () => void) {
@@ -193,16 +198,55 @@ export function isStreaming(chat: ChatData | undefined): boolean {
   return last?.role === 'assistant' && last.status === 'streaming'
 }
 
+/**
+ * Whether the answer, the last of its chat, may be tried again: it was stopped or failed. Not one
+ * the page lost, which the worker may still be writing and is followed again instead, nor one the
+ * plan refused, whose notice offers what lifts the limit.
+ */
+export function mayRetry(message: Message): boolean {
+  return (
+    message.role === 'assistant' &&
+    (message.status === 'stopped' || message.status === 'failed') &&
+    !message.lost &&
+    !message.refusedByPlan
+  )
+}
+
 /** End the answer with what arrived so far, on the server and here. */
 export function stop(chatId: number) {
   const following = running.get(chatId)
   if (!following) return
-  if (following.messageId != null) {
-    api.stopAnswer(chatId, following.messageId).catch(() => {
-      // The abort below settles it here; a stop the server did not hear of ends with its run.
-    })
-  }
+  if (following.messageId != null) stopOnServer(chatId, following.messageId)
   following.controller.abort()
+}
+
+function stopOnServer(chatId: number, messageId: number) {
+  const stopped = api
+    .stopAnswer(chatId, messageId)
+    .catch(() => {
+      // The abort settles it here; a stop the server did not hear of ends with its run.
+    })
+    .finally(() => {
+      if (stopping.get(chatId) === stopped) stopping.delete(chatId)
+    })
+  stopping.set(chatId, stopped)
+}
+
+/**
+ * Take the chat's answer as followed before the request that saves it is sent, so that the page
+ * shows it being written and a stop meanwhile is heard (`following`).
+ */
+function begin(chatId: number): Following {
+  const following: Following = { controller: new AbortController(), messageId: null }
+  running.set(chatId, following)
+  changed()
+  return following
+}
+
+/** Let go of an answer whose request was refused: there is nothing to follow. */
+function letGo(chatId: number) {
+  running.delete(chatId)
+  changed()
 }
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -228,11 +272,15 @@ class Lost extends Error {}
 
 type Edit = (change: (message: Message) => Message) => void
 
-/** Read the answer's events into the message until the server says it is settled. */
-async function follow(chatId: number, messageId: number, update: Edit, signal: AbortSignal) {
-  let after: number | null = null
+/**
+ * Read the answer's events into the message until the server says it is settled, from the start
+ * or past the event with id `after`.
+ */
+async function follow(chatId: number, messageId: number, update: Edit, signal: AbortSignal, after: number | null) {
   let drops = 0
   for (;;) {
+    // Stopped before it was followed, while its question was being saved.
+    signal.throwIfAborted()
     // Each connection ends with the following, and as the browser goes offline: one the network
     // took away may otherwise wait for good without an error.
     const connection = new AbortController()
@@ -271,14 +319,26 @@ async function follow(chatId: number, messageId: number, update: Edit, signal: A
   }
 }
 
-/** Follow the answer with id `messageId` into the chat's query data until it is settled. */
-async function run(queryClient: QueryClient, chatId: number, following: Following, update: Edit) {
+/**
+ * Follow the answer with id `messageId` into the chat's query data until it is settled, from the
+ * start or past the event with id `after`. A stop heard while the request that saved it was on its
+ * way reaches the server now.
+ */
+async function run(
+  queryClient: QueryClient,
+  chatId: number,
+  following: Following,
+  messageId: number,
+  update: Edit,
+  after: number | null = null,
+) {
   const { controller } = following
+  following.messageId = messageId
   running.set(chatId, following)
   changed()
+  if (controller.signal.aborted) stopOnServer(chatId, messageId)
   try {
-    if (following.messageId == null) throw new Error('The question was not saved.')
-    await follow(chatId, following.messageId, update, controller.signal)
+    await follow(chatId, messageId, update, controller.signal, after)
   } catch (error) {
     const stopped = controller.signal.aborted
     update((message) => ({
@@ -308,6 +368,16 @@ function editor(queryClient: QueryClient, chatId: number) {
   return { edit, last, byId }
 }
 
+/** A refusal to answer, shown where the answer is: a plan's limit as the way past it. */
+function refused(error: unknown): Partial<Message> {
+  return {
+    thinking: false,
+    error: (error as Error).message,
+    refusedByPlan: isPlanLimit(error) ? { message: error.message, limit: error.limit } : undefined,
+    status: 'failed',
+  }
+}
+
 /** Send a question and follow its answer into the chat's query data until it ends or is stopped. */
 export async function ask(queryClient: QueryClient, chatId: number, question: string) {
   const { edit, last, byId } = editor(queryClient, chatId)
@@ -316,31 +386,21 @@ export async function ask(queryClient: QueryClient, chatId: number, question: st
     { role: 'user', content: question, steps: [], sources: {}, status: 'done', turnStart: 0 },
     { role: 'assistant', content: '', steps: [], sources: {}, status: 'streaming', thinking: true, turnStart: 0 },
   ])
-  const following: Following = { controller: new AbortController(), messageId: null }
-  let update: Edit = last
+  const following = begin(chatId)
+  let saved: AskResult
   try {
-    const saved = await api.ask(chatId, question, following.controller.signal)
-    // The saved pair replaces the provisional one, so the answer can be followed by its id.
-    edit((messages) => [...messages.slice(0, -2), fromSaved(saved.question), fromSaved(saved.answer)])
-    following.messageId = saved.answer.id
-    update = byId(saved.answer.id)
+    saved = await api.ask(chatId, question)
   } catch (error) {
     // A refusal (another answer still running, too many in flight, the plan's questions used
-    // up) shows where the answer would be; the question stays on screen for the user to send
-    // again.
-    if (!following.controller.signal.aborted) {
-      last((message) => ({
-        ...message,
-        thinking: false,
-        error: (error as Error).message,
-        refusedByPlan: isPlanLimit(error) ? { message: error.message, limit: error.limit } : undefined,
-        status: 'failed',
-      }))
-      queryClient.invalidateQueries({ queryKey: ['chats'] })
-      return
-    }
+    // up) shows where the answer would be; the question stays on screen, to be tried again.
+    letGo(chatId)
+    last((message) => ({ ...message, ...refused(error) }))
+    queryClient.invalidateQueries({ queryKey: ['chats'] })
+    return
   }
-  await run(queryClient, chatId, following, update)
+  // The saved pair replaces the provisional one, so the answer can be followed by its id.
+  edit((messages) => [...messages.slice(0, -2), fromSaved(saved.question), fromSaved(saved.answer)])
+  await run(queryClient, chatId, following, saved.answer.id, byId(saved.answer.id))
 }
 
 /**
@@ -351,5 +411,37 @@ export function resume(queryClient: QueryClient, chatId: number, messageId: numb
   if (running.has(chatId)) return
   const update = editor(queryClient, chatId).byId(messageId)
   update(empty)
-  void run(queryClient, chatId, { controller: new AbortController(), messageId }, update)
+  void run(queryClient, chatId, { controller: new AbortController(), messageId }, messageId, update)
+}
+
+/**
+ * Try the chat's last answer again in its place, once it was stopped or failed (`mayRetry`): the
+ * server empties it and its worker writes it anew, followed from past the events the earlier tries
+ * left. An answer the server never saved, its question refused, is asked again instead. A refused
+ * try leaves the answer as it was, with the refusal, to be tried again later.
+ */
+export async function retry(queryClient: QueryClient, chatId: number) {
+  if (running.has(chatId)) return
+  const { edit, byId } = editor(queryClient, chatId)
+  const messages = queryClient.getQueryData<ChatData>(chatKey(chatId))?.messages ?? []
+  const answer = messages[messages.length - 1]
+  const question = messages[messages.length - 2]
+  if (answer?.role !== 'assistant' || question?.role !== 'user') return
+  if (answer.id == null) {
+    edit((all) => all.slice(0, -2))
+    return ask(queryClient, chatId, question.content)
+  }
+  const update = byId(answer.id)
+  const following = begin(chatId)
+  update(empty)
+  let after: number | null
+  try {
+    await stopping.get(chatId)
+    after = (await api.retryAnswer(chatId, answer.id)).last_event_id
+  } catch (error) {
+    letGo(chatId)
+    update(() => ({ ...answer, ...refused(error), status: answer.status }))
+    return
+  }
+  await run(queryClient, chatId, following, answer.id, update, after)
 }

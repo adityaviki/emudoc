@@ -14,6 +14,11 @@ the passages. It answers as a model would that does the least the app asks:
 - an embedding is the text's words hashed into EMBEDDING_DIM dimensions, so a passage and a
   question that share words are near each other.
 
+`POST /hold` makes the next agent turn wait until `POST /release` (or HELD_FOR seconds), as a
+model that thinks for long, so that the browser test stops an answer while it is thought about
+and tries it again: the try's turns are not held, and the held one answers once released, into
+an answer that is no longer its run's.
+
 The load test (backend/loadtest) asks for more, with options the end-to-end test leaves off:
 `--fill` answers an indexing request as a model that read it would (a scanned page gets text
 made up from its picture, a document its title, kind, date, summary, section summaries and the
@@ -33,9 +38,13 @@ import json
 import math
 import random
 import re
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+
+# The longest a held agent turn waits for its release.
+HELD_FOR = 60.0
 
 WORD = re.compile(r"\w+")
 CITED = re.compile(r"^(\[P\d+\]) .*\n(.+)", re.MULTILINE)
@@ -214,6 +223,10 @@ class Handler(BaseHTTPRequestHandler):
     words_per_second = 0.0
     index_seconds = 0.0
     protocol_version = "HTTP/1.1"
+    # How many agent turns to come are held, and what lets the held ones go.
+    holds = 0
+    released = threading.Event()
+    hold_lock = threading.Lock()
 
     def log_message(self, format: str, *args: Any) -> None:
         """Quiet: Playwright shows a server's output only when asked."""
@@ -226,7 +239,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
-        if self.path.endswith("/embeddings"):
+        if self.path.rstrip("/") == "/hold":
+            with Handler.hold_lock:
+                Handler.holds += 1
+                Handler.released.clear()
+            self._json({"holds": Handler.holds})
+        elif self.path.rstrip("/") == "/release":
+            with Handler.hold_lock:
+                Handler.holds = 0
+                Handler.released.set()
+            self._json({"holds": 0})
+        elif self.path.endswith("/embeddings"):
             inputs = body["input"] if isinstance(body["input"], list) else [body["input"]]
             words = sum(len(WORD.findall(text)) for text in inputs)
             self._json(
@@ -258,6 +281,12 @@ class Handler(BaseHTTPRequestHandler):
             reply: dict[str, Any] = {"text": json.dumps(made)}
             time.sleep(self.index_seconds)
         elif body.get("tools"):
+            with Handler.hold_lock:
+                held = Handler.holds > 0
+                if held:
+                    Handler.holds -= 1
+            if held:
+                Handler.released.wait(HELD_FOR)
             reply = agent_turn(body.get("messages", []))
             time.sleep(self.first_token)
         else:
@@ -314,7 +343,11 @@ class Handler(BaseHTTPRequestHandler):
         for chunk in chunks:
             self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
             self.wfile.flush()
-            if self.words_per_second and chunk["choices"] and "content" in chunk["choices"][0]:
+            if (
+                self.words_per_second
+                and chunk["choices"]
+                and chunk["choices"][0]["delta"].get("content")
+            ):
                 time.sleep(1 / self.words_per_second)
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()

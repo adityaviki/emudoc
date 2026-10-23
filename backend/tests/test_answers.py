@@ -1,6 +1,7 @@
 """Answers as jobs: the worker's answerer lane writes an answer's events under its lease, a
 follower reads them as they land, a stop settles the row whoever holds the job, a lost run
-starts the answer over, and the cap on answers in flight refuses the question past it."""
+starts the answer over, a try again is written by its own run alone, and the cap on answers in
+flight refuses the question past it."""
 
 import threading
 import time
@@ -13,7 +14,7 @@ from sqlalchemy import select, text
 import app.answers as answers_module
 import app.worker as worker_module
 from app.agent.tools import TOOLS
-from app.answers import FAILED, STOPPED, answer
+from app.answers import FAILED, STOPPED, abandon_answer, answer, fail_answer
 from app.api.chats import TOO_MANY_ANSWERS
 from app.api.deps import RETRY_AFTER
 from app.config import get_settings
@@ -22,7 +23,7 @@ from app.maintenance import housekeeping
 from app.models import ChatEvent, ChatMessage, Job
 from app.worker import HANDLERS, Worker
 from tests.conftest import FakeTurn
-from tests.test_chats import answered, ask, follow, new_chat
+from tests.test_chats import answered, ask, follow, new_chat, try_again
 from tests.test_jobs import lose, wait_until
 
 ANSWERS = [ANSWER_QUESTION]
@@ -147,7 +148,7 @@ def test_a_stop_mid_answer_keeps_what_arrived_and_ends_the_run(
         "sources",
         "tool_result",
     ]
-    assert "stopped or removed while it was being written" in caplog.text
+    assert "stopped, removed or tried again while it was being written" in caplog.text
     final = message(session, message_id)
     assert final.status == "stopped" and final.content == "" and final.notice == STOPPED
     assert follow(client, chat["id"], message_id)[-1] == {"type": "end", "status": "stopped"}
@@ -243,8 +244,7 @@ def test_an_answer_lost_on_every_attempt_is_given_up(client, session, services, 
     final = message(session, message_id)
     assert final.status == "failed" and final.content == "So far"
     assert final.error == (
-        f"The answer stopped unexpectedly {MAX_ATTEMPTS} times and was not tried again. Ask "
-        "the question again."
+        f"The answer stopped unexpectedly {MAX_ATTEMPTS} times. Try again in a moment."
     )
     assert services.llm.agent_requests == []
 
@@ -338,6 +338,80 @@ def test_text_is_written_out_in_batches(client, session, services, indexed, monk
             },
         },
     ]
+
+
+def test_a_try_made_while_the_stopped_run_waits_on_the_model_is_its_own_runs_alone(
+    client, session, services, indexed, caplog
+):
+    held = Held(TextPart("The first try's words."))
+    services.llm.agent_turns = [
+        FakeTurn(ToolCallPart("search", {"query": "notice"}, "call_1")),
+        held,
+        FakeTurn(TextPart("The second try's words.")),
+    ]
+    chat = new_chat(client, indexed.project_id)
+    message_id = ask(client, chat["id"], "Notice period?")["answer"]["id"]
+    first = threading.Thread(target=answer, args=(message_id, services))
+    first.start()
+    try:
+        assert held.reached.wait(10)
+        # The member stops the answer while the model thinks, and tries it again at once.
+        client.post(f"/api/chats/{chat['id']}/messages/{message_id}/stop")
+        retried = try_again(client, chat["id"], message_id).json()
+        assert retried["last_event_id"] == 2
+        # Then the first run's model answers, into an answer that is the second try's now.
+        with caplog.at_level("INFO", logger="app.answers"):
+            held.release.set()
+            first.join(10)
+    finally:
+        held.release.set()
+    assert not first.is_alive()
+    assert "stopped, removed or tried again while it was being written" in caplog.text
+    before = ["tool_call", "sources", "tool_result"]
+    assert [event["type"] for event in events_in(session, message_id)] == before
+    row = message(session, message_id)
+    assert (row.status, row.attempt, row.content) == ("streaming", 2, "")
+
+    answer(message_id, services, attempt=2)
+    assert [event["type"] for event in events_in(session, message_id)] == [
+        *before,
+        "restart",
+        "text",
+        "done",
+    ]
+    row = message(session, message_id)
+    assert row.status == "done" and row.content == "The second try's words."
+    assert row.steps == [] and row.sources == [] and row.notice is None
+    # Every run's model calls were paid for, and the answer shows them all: the first try's
+    # search and its words, the second try's words.
+    assert row.usage["answer"]["calls"] == 3
+
+
+def test_the_job_of_an_earlier_try_writes_nothing(client, session, services, indexed):
+    services.llm.agent_turns = [FakeTurn(TextPart("Answered."))]
+    chat = new_chat(client, indexed.project_id)
+    message_id = ask(client, chat["id"], "Notice period?")["answer"]["id"]
+    # Stopped before any worker got to it, so its job is still queued when the member tries
+    # again.
+    client.post(f"/api/chats/{chat['id']}/messages/{message_id}/stop")
+    assert try_again(client, chat["id"], message_id).json()["last_event_id"] is None
+    earlier, later = answer_jobs(session)
+    assert (earlier.payload["attempt"], later.payload["attempt"]) == (1, 2)
+
+    taken = claim("w:1", ANSWERS)
+    assert taken.id == earlier.id
+    assert HANDLERS[ANSWER_QUESTION].run(taken, services) is None
+    assert services.llm.agent_requests == [] and events_in(session, message_id) == []
+    # Nor does the earlier try's failing, or its job given up, settle the later one.
+    fail_answer(message_id, 1, FAILED)
+    abandon_answer(earlier, services)
+    assert message(session, message_id).status == "streaming"
+
+    HANDLERS[ANSWER_QUESTION].run(claim("w:1", ANSWERS), services)
+    # No earlier try left an event, so the new one's start at the beginning, without a restart.
+    assert [event["type"] for event in events_in(session, message_id)] == ["text", "done"]
+    row = message(session, message_id)
+    assert row.status == "done" and row.content == "Answered."
 
 
 def test_the_events_of_old_answers_are_pruned(client, session, services, indexed):

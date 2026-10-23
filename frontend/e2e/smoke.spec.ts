@@ -5,11 +5,13 @@ import type { BrowserContext, Page } from '@playwright/test'
 import { expectAccessible } from './axe.ts'
 import { linkMailedTo, messageTo } from './mail.ts'
 import { makeOperator, movePlan } from './operator.ts'
+import { holdNextTurn, releaseTurns } from './standin.ts'
 
 // The member's way through the app, end to end: sign up through the link the app mails, find the
 // organisation's first steps listed, skip the tour the first project shows, ask the sample
 // project the organisation starts with one of its questions, make a project, upload a contract,
-// begun offline and waiting for the connection, wait for it to be indexed, find it by searching, ask about it, open the passage the answer
+// begun offline and waiting for the connection, wait for it to be indexed, find it by searching, ask about it, stop the
+// answer while the model thinks and try it again, open the passage the answer
 // cites, which the Free plan's chat follows with the way to a plan for a team, upload a folder,
 // whose panel follows each file while its request is held, and put it in the trash, export the project,
 // download it and open the bell's notice that it is ready, start a second
@@ -178,17 +180,27 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page).not.toHaveURL(/[?&]q=/)
   })
 
-  await test.step('ask, and get an answer that cites the contract', async () => {
+  await test.step('ask, stop the answer while the model thinks, try it again and get an answer that cites the contract', async () => {
     const composer = page.getByPlaceholder('Ask a question about these documents')
+    await holdNextTurn(request)
     await composer.fill('How much notice does ending the contract take?')
     await composer.press('Enter')
     await expect(page).toHaveURL(/[?&]chat=\d+/)
+    await expect(page.getByText('Thinking')).toBeVisible()
+    await page.getByRole('button', { name: 'Stop', exact: true }).click()
+    await expect(page.getByText('Stopped.', { exact: true })).toBeVisible()
+    // Tried again in its place, which counts no question: the month's third, at the end, is the
+    // one that uses them all. The held turn answers after, into a try that is no longer its own.
+    await page.getByRole('button', { name: 'Try again' }).click()
+    await expect(page.getByText('Stopped.', { exact: true })).toHaveCount(0)
     const citation = page.getByRole('button', { name: '1', exact: true })
     await expect(citation).toBeVisible({ timeout: 30_000 })
     await expect(citation).toHaveAttribute('title', 'Service contract · 4 Termination')
     await expect(page.getByText(/Searched for "How much notice/)).toBeVisible()
     await expect(page.getByText("Either party may end this contract by giving ninety days' written notice to the other.")).toBeVisible()
     await expect(page.getByText('Thinking')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0)
+    await releaseTurns(request)
     // The Free plan is for one: the suggestion says so, and offers no form.
     await expect(inviteTeam).toContainText('Its plan has room for you alone.')
     await expect(inviteTeam).toContainText('Your organisation is on the Free plan.')

@@ -10,6 +10,7 @@ import {
   MessagesSquare,
   Pencil,
   Plus,
+  RotateCcw,
   Search,
   Square,
   Table2,
@@ -23,7 +24,7 @@ import type { KeyboardEvent } from 'react'
 import { api, organizations, pageLabel, sectionPath } from '../api.ts'
 import type { Chat, Source } from '../api.ts'
 import { useMe } from '../auth.ts'
-import { ask, chatKey, isStreaming, loadChat, resume, splitChats, stop, useStreaming } from '../chat.ts'
+import { ask, chatKey, isStreaming, loadChat, mayRetry, resume, retry, splitChats, stop, useStreaming } from '../chat.ts'
 import type { ChatData, Message, Step } from '../chat.ts'
 import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
 import { Markdown, SourceText } from '../components/Markdown.tsx'
@@ -417,6 +418,10 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
   }
 
   const unavailable = health.data && !health.data.llm.available
+  // The member's own chat's last answer, stopped or failed, is tried again in its place; another
+  // member's shared chat is read, not asked in.
+  const last = messages[messages.length - 1]
+  const retried = !starter && !streaming && last !== undefined && mayRetry(last) ? last : null
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto px-5">
@@ -475,6 +480,8 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
                 currency={health.data?.currency}
                 onOpen={openSource}
                 onReconnect={message.lost ? () => reconnect(message) : undefined}
+                onRetry={message === retried && chatId != null ? () => retry(queryClient, chatId) : undefined}
+                retryHeld={!online || unavailable}
               />
             ),
           )}
@@ -572,13 +579,33 @@ interface AnswerProps {
   onOpen: (source: Source) => void
   // Offered on an answer the page gave up following, which the worker may still be writing.
   onReconnect?: () => void
+  // Offered on the last answer of the member's own chat once it was stopped or failed.
+  onRetry?: () => void
+  // Offline or without a model the answer cannot be tried again just now.
+  retryHeld?: boolean
 }
 
-function Answer({ message, currency, onOpen, onReconnect }: AnswerProps) {
+function Answer({ message, currency, onOpen, onReconnect, onRetry, retryHeld }: AnswerProps) {
   // Number the cited passages in the order the answer first mentions them.
   const cited = [...new Set([...message.content.matchAll(/\[P(\d+)\]/g)].map((match) => Number(match[1])))]
     .filter((id) => message.sources[id])
   const numberOf = (id: number) => cited.indexOf(id) + 1
+  // What the answer offers beside the words of how it ended: the error's, else the notice's.
+  const action = onReconnect ? (
+    <Button variant="ghost" className="h-6 shrink-0 px-2" onClick={onReconnect}>
+      Reconnect
+    </Button>
+  ) : onRetry ? (
+    <Button
+      variant="ghost"
+      className="h-6 shrink-0 px-2"
+      icon={<RotateCcw className="size-3.5" />}
+      onClick={onRetry}
+      disabled={retryHeld}
+    >
+      Try again
+    </Button>
+  ) : null
 
   return (
     <div className="space-y-2.5">
@@ -613,7 +640,12 @@ function Answer({ message, currency, onOpen, onReconnect }: AnswerProps) {
           }
         />
       )}
-      {message.notice && <p className="text-sm text-muted">{message.notice}</p>}
+      {message.notice && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <p className="text-sm text-muted">{message.notice}</p>
+          {!message.error && action}
+        </div>
+      )}
       {message.error &&
         (message.refusedByPlan ? (
           <PlanLimitNotice refusal={message.refusedByPlan} />
@@ -621,11 +653,7 @@ function Answer({ message, currency, onOpen, onReconnect }: AnswerProps) {
           <Notice tone="bad">
             <div className="flex items-start justify-between gap-3">
               <span>{message.error}</span>
-              {onReconnect && (
-                <Button variant="ghost" className="h-6 shrink-0 px-2" onClick={onReconnect}>
-                  Reconnect
-                </Button>
-              )}
+              {action}
             </div>
           </Notice>
         ))}

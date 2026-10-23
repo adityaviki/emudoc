@@ -438,6 +438,16 @@ export interface AskResult {
   answer: ChatMessage
 }
 
+/**
+ * An answer tried again, emptied and streaming, and the id of the last event its earlier tries
+ * left: followed from there, the new try's events alone arrive, `restart` first. Null when there
+ * are none, and the new try's are followed from the start.
+ */
+export interface RetryResult {
+  answer: ChatMessage
+  last_event_id: number | null
+}
+
 export type ChatEvent =
   | { type: 'text'; text: string }
   | { type: 'thinking' }
@@ -1552,11 +1562,13 @@ export const api = {
     request<Chat>(`/chats/${id}`, json('PATCH', { visibility })),
   deleteChat: (id: number) => request<void>(`/chats/${id}`, { method: 'DELETE' }),
   /** Add a question; the worker writes the answer, which `streamEvents` follows. */
-  ask: (chatId: number, content: string, signal?: AbortSignal) =>
-    request<AskResult>(`/chats/${chatId}/messages`, { ...json('POST', { content }), signal }),
+  ask: (chatId: number, content: string) => request<AskResult>(`/chats/${chatId}/messages`, json('POST', { content })),
   /** End an answer with what arrived so far. */
   stopAnswer: (chatId: number, messageId: number) =>
     request<ChatMessage>(`/chats/${chatId}/messages/${messageId}/stop`, { method: 'POST' }),
+  /** Write the chat's last answer again in its place, once it was stopped or failed. */
+  retryAnswer: (chatId: number, messageId: number) =>
+    request<RetryResult>(`/chats/${chatId}/messages/${messageId}/retry`, { method: 'POST' }),
 }
 
 export const fileUrl = (documentId: number) => `/api/documents/${documentId}/file`

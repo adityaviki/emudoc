@@ -385,6 +385,15 @@ class AskOut(BaseModel):
     answer: ChatMessageOut
 
 
+class RetryOut(BaseModel):
+    """An answer tried again, emptied and streaming, and the id of the last event its earlier
+    tries left: sent as `Last-Event-ID`, it follows the new try's events alone, the first of
+    them `restart`. Null when there are none, and the new try's are followed from the start."""
+
+    answer: ChatMessageOut
+    last_event_id: int | None
+
+
 # Enough to catch a typo; the verification email settles whether the address is real.
 EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 # NIST SP 800-63B: a minimum length and no composition rules; the routes refuse a breached

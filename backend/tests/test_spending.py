@@ -1,10 +1,10 @@
 """Daily spending limits: an organisation's questions are refused with 402 once its plan's
 limit for the day is spent, the platform's limit refuses every organisation with 503 until
-midnight UTC, an answer queued under a limit ends with its sentence when the worker reaches it,
-an indexing stage that needs the model waits for midnight while structure makes do, the
-operator is warned once a day as a day nears a limit, and the plan command shows the limit as
-money. The kill switch is tested with the model layer (tests/test_llm.py) and the production
-start (tests/test_config.py)."""
+midnight UTC, an answer queued under a limit ends with its sentence when the worker reaches it
+and is not tried again until the day allows, an indexing stage that needs the model waits for
+midnight while structure makes do, the operator is warned once a day as a day nears a limit,
+and the plan command shows the limit as money. The kill switch is tested with the model layer
+(tests/test_llm.py) and the production start (tests/test_config.py)."""
 
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
@@ -176,7 +176,7 @@ def test_the_platform_limit_refuses_every_organisation_until_midnight_utc(
 
 
 def test_an_answer_queued_under_the_limit_ends_with_its_sentence_when_the_worker_reaches_it(
-    member, client, session, services, priced
+    member, client, session, services, priced, monkeypatch
 ):
     project = create_project(client)
     chat = new_chat(client, project["id"])
@@ -194,6 +194,23 @@ def test_an_answer_queued_under_the_limit_ends_with_its_sentence_when_the_worker
     reply = client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]
     assert reply["status"] == "failed" and reply["error"] == plan_refusal("1.00")
     assert reply["content"] == "" and reply["usage"] == {}
+
+    # Trying it again is held to the day as a question is, each try being paid for.
+    retry = f"/api/chats/{chat['id']}/messages/{asked['answer']['id']}/retry"
+    refused = client.post(retry)
+    assert refused.status_code == 402
+    assert refused.json() == {"detail": plan_refusal("1.00"), "limit": "daily_spend_micros"}
+    assert client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]["status"] == "failed"
+    monkeypatch.setattr(get_settings(), "daily_spend_cap", Decimal("0.50"))
+    yesterday(session)
+    spend(session, member.organization.id, "0.50")
+    assert client.post(retry).status_code == 503
+    # The next day, it is written.
+    monkeypatch.setattr(get_settings(), "daily_spend_cap", Decimal(0))
+    yesterday(session)
+    assert client.post(retry).status_code == 200
+    answer(asked["answer"]["id"], services, attempt=2)
+    assert client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]["content"] == "Yes."
 
 
 def run_index(services) -> None:

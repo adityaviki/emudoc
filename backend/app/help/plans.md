@@ -7,7 +7,7 @@ $plans
 Pages and questions count from the first of each month, in UTC, and start afresh on the next. A
 document without pages, such as a Word file or a spreadsheet, counts a page for every
 $chars_per_page characters of its text. A question counts as it is asked, whatever becomes of its
-chat. The sample project counts against nothing. Figures agreed with an organisation in place of
+chat, and trying its answer again counts no other. The sample project counts against nothing. Figures agreed with an organisation in place of
 its plan's are listed in the Plan section of its page.
 
 ## Usage

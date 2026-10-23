@@ -17,6 +17,9 @@ newest entry first.
 
 Members:
 
+- An answer that was stopped or failed can be tried again in its place: "Try again" under the
+  last answer of your own chat writes it anew from the same question, and counts no other
+  question against your plan. Stop also works now while a question is still being sent.
 - A document whose indexing failed for a passing reason, such as the AI model being busy, says
   when Emudoc tries again: "Retrying at 14:32" in its status, or "Paused until 02:00" when the
   day's spending limit holds it, with an amber mark on its ring in the library. A ready
@@ -25,6 +28,11 @@ Members:
 
 Operators:
 
+- `POST /api/chats/{id}/messages/{message_id}/retry` writes a stopped or failed answer again
+  (`RetryOut`: the emptied answer and the `last_event_id` to follow its new try from). It is
+  held to `MAX_ANSWERS`, the day's spending limits and `RATE_QUESTIONS`, not to the plan's
+  questions. A migration adds `chat_messages.attempt`, the try an answer's job writes, so that a
+  run of an earlier try writes nothing into a later one.
 - A document's stages carry `retry_at` and `deferred` while a retry waits (`StageOut`), and the
   page asks about such a document when its retry is due, at most once a minute, rather than
   every 1.5 seconds.

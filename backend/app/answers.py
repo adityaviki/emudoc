@@ -15,7 +15,13 @@ row (`fold`) and marks it `stopped`, which the next append notices and ends the 
 way a stop works at once whether or not a worker is alive. A run that was lost (its worker
 died, or was stopped and handed the job back) starts the answer over on the next claim: it
 appends a `restart` event first, so a follower drops what it had, and a run lost `max_attempts`
-times ends the answer `failed` with a sentence that says to ask again (`abandon_answer`).
+times ends the answer `failed` with a sentence that says to try again (`abandon_answer`).
+
+A stopped or failed answer is tried again in its place (`retry_answer`): the row is emptied,
+streaming again, and a new job writes it, whose run finds the earlier try's events and appends
+`restart` as a lost run's does. The tries are numbered (`chat_messages.attempt`) and each job
+carries its try's: the run of an earlier try, still waiting on the model when the member tried
+again, or its job still queued, writes no event into the later try and settles nothing.
 
 Whatever ends a run, the model calls it made are recorded as the organisation's usage
 (app/usage.py) before it returns: the loop counts them as they are answered, and the run
@@ -61,14 +67,17 @@ TEXT_FLUSH_SECONDS = 0.1
 # finished; the events only serve a follower that is still catching up.
 EVENT_HISTORY = timedelta(days=1)
 
-# A new event takes its place only while the answer is still being written: a row that was
-# stopped, or removed with its chat, takes none, and the run that tried finds out so from the
-# count. The lock on the row orders the append with a stop that is folding the events (`stop`
-# in app/api/chats.py), so that neither misses the other's write.
+# A new event takes its place only while the answer is still being written, by the run's own
+# try: a row that was stopped, removed with its chat or tried again since takes none, and the
+# run that tried finds out so from the count. The lock on the row orders the append with a stop
+# that is folding the events (`stop` in app/api/chats.py) and with a retry reading where they
+# end, so that neither misses the other's write.
 _APPEND = text(
     """
     WITH answer AS (
-        SELECT id FROM chat_messages WHERE id = :id AND status = 'streaming' FOR UPDATE
+        SELECT id FROM chat_messages
+        WHERE id = :id AND status = 'streaming' AND attempt = :attempt
+        FOR UPDATE
     )
     INSERT INTO chat_events (message_id, seq, event)
     SELECT id, :seq, :event FROM answer
@@ -79,7 +88,7 @@ _SETTLE = text(
     UPDATE chat_messages
     SET content = :content, steps = :steps, sources = :sources, notice = :notice,
         error = :error, status = :status
-    WHERE id = :id AND status = 'streaming'
+    WHERE id = :id AND status = 'streaming' AND attempt = :attempt
     """
 ).bindparams(bindparam("steps", type_=JSONB), bindparam("sources", type_=JSONB))
 _EVENTS = text(
@@ -161,15 +170,38 @@ def start_answer(session: Session, chat: Chat, question: str) -> tuple[ChatMessa
     session.add_all([asked, answer])
     session.flush()
     project = session.get(Project, chat.project_id)
+    _queue(session, project, answer)
+    return asked, answer
+
+
+def retry_answer(session: Session, chat: Chat, message: ChatMessage) -> int | None:
+    """Empty the stopped or failed answer and queue the job that writes it again, the next try;
+    the caller holds the row's lock and commits.
+
+    Returns the seq of the last event the earlier tries left, which a client sends as
+    `Last-Event-ID` to follow the new try's events alone: its run appends `restart` after them
+    (`_Writer.resumed`). None when there are none, their events pruned already, and the new
+    run's start at 0.
+    """
+    last = session.scalar(_NEXT_SEQ, {"id": message.id}) - 1
+    for column, value in Reply().columns("streaming").items():
+        setattr(message, column, value)
+    # The usage stays: it sums every run the organisation paid for, this one's to come.
+    message.attempt += 1
+    _queue(session, session.get(Project, chat.project_id), message)
+    return last if last >= 0 else None
+
+
+def _queue(session: Session, project: Project, answer: ChatMessage) -> None:
+    """Queue the job that writes the answer's current try, ahead of any upload."""
     enqueue(
         session,
         ANSWER_QUESTION,
         org_id=project.org_id,
         project_id=project.id,
-        payload={"message_id": answer.id},
+        payload={"message_id": answer.id, "attempt": answer.attempt},
         priority=LIVE,
     )
-    return asked, answer
 
 
 def answers_in_flight(session: Session, org_id: int) -> int:
@@ -198,13 +230,15 @@ def fold(session: Session, message_id: int) -> Reply:
     return reply
 
 
-def settle(session: Session, message_id: int, reply: Reply, status: str) -> bool:
-    """Write the answer into its row with its final status, in the caller's transaction.
+def settle(session: Session, message_id: int, attempt: int, reply: Reply, status: str) -> bool:
+    """Write try `attempt` of the answer into its row with its final status, in the caller's
+    transaction.
 
-    False when the row is no longer streaming: it was stopped or removed meanwhile, and what
-    it holds stands.
+    False when the row is no longer streaming that try: it was stopped, removed or tried again
+    meanwhile, and what it holds stands.
     """
-    return session.execute(_SETTLE, {"id": message_id, **reply.columns(status)}).rowcount == 1
+    params = {"id": message_id, "attempt": attempt, **reply.columns(status)}
+    return session.execute(_SETTLE, params).rowcount == 1
 
 
 def prune_events(connection: Connection, age: timedelta = EVENT_HISTORY) -> int:
@@ -214,24 +248,26 @@ def prune_events(connection: Connection, age: timedelta = EVENT_HISTORY) -> int:
 
 
 class _Settled(Exception):
-    """The answer was stopped by the user or removed with its chat while it was being
-    written: the run ends, and the row stands as it is."""
+    """The answer was stopped by the user, removed with its chat or tried again while it was
+    being written: the run ends, and the row stands as it is."""
 
 
 class _Writer:
     """Appends an answer's events as the agent yields them, one commit each under the lease."""
 
-    def __init__(self, session: Session, lease: Lease | None, message_id: int):
+    def __init__(self, session: Session, lease: Lease | None, message_id: int, attempt: int):
         self._session = session
         self._lease = lease
         self.message_id = message_id
+        self.attempt = attempt
         self.seq = session.scalar(_NEXT_SEQ, {"id": message_id})
         self._text = ""
         self._flushed_at = time.monotonic()
 
     @property
     def resumed(self) -> bool:
-        """Whether a run before this one wrote events: this run starts the answer over."""
+        """Whether a run before this one wrote events, lost or of an earlier try: this run
+        starts the answer over."""
         return self.seq > 0
 
     def emit(self, event: dict[str, Any]) -> None:
@@ -250,7 +286,7 @@ class _Writer:
             self._append({"type": "text", "text": pending})
 
     def _append(self, event: dict[str, Any]) -> None:
-        params = {"id": self.message_id, "seq": self.seq, "event": event}
+        params = {"id": self.message_id, "attempt": self.attempt, "seq": self.seq, "event": event}
         # Each write is a span of the run's trace, counted rather than listed: a slow database
         # shows in their total. The first text written is when a member sees the answer begin.
         with span(WRITE, listed=False):
@@ -269,8 +305,11 @@ class _Writer:
         self._flushed_at = time.monotonic()
 
 
-def answer(message_id: int, services: Services, lease: Lease | None = None) -> None:
-    """Write the answer to the question before this message, event by event, and settle it.
+def answer(
+    message_id: int, services: Services, lease: Lease | None = None, attempt: int = 1
+) -> None:
+    """Write try `attempt` of the answer to the question before this message, event by event,
+    and settle it.
 
     `lease` is the job's hold on the answer (app/jobs.py): every commit renews it, and one that
     finds the job no longer this worker's ends the run with `LeaseLost`, with the answer the
@@ -278,8 +317,9 @@ def answer(message_id: int, services: Services, lease: Lease | None = None) -> N
     """
     with SessionLocal() as session:
         message = session.get(ChatMessage, message_id)
-        if message is None or message.status != "streaming":
-            # Removed with its chat, or stopped before any worker got to it.
+        if message is None or message.status != "streaming" or message.attempt != attempt:
+            # Removed with its chat, stopped before any worker got to it, or tried again since
+            # this job was queued: the later try's job writes it.
             return
         chat = session.get(Chat, message.chat_id)
         project = session.get(Project, chat.project_id)
@@ -295,7 +335,7 @@ def answer(message_id: int, services: Services, lease: Lease | None = None) -> N
             for earlier in chat.messages
             if earlier.id < message.id and earlier.content.strip()
         ]
-        writer = _Writer(session, lease, message_id)
+        writer = _Writer(session, lease, message_id, attempt)
         # The reads are done, and the agent loop opens sessions of its own per tool call
         # (app/agent/loop.py), so from here this session is the writer's alone: its connection
         # goes back now and is taken for each event it writes, never held while the model
@@ -328,7 +368,9 @@ def _write(session: Session, writer: _Writer, events: Iterator[dict], lease: Lea
         writer.flush()
         status = "failed" if reply.error else "done"
     except _Settled:
-        log.info("Answer %s was stopped or removed while it was being written", message_id)
+        log.info(
+            "Answer %s was stopped, removed or tried again while it was being written", message_id
+        )
         return
     except PoolTimeout:
         # Every database connection was in use when a tool or an append needed one (a
@@ -347,7 +389,7 @@ def _write(session: Session, writer: _Writer, events: Iterator[dict], lease: Lea
     if lease is not None and not renew(session, lease):
         session.rollback()
         raise LeaseLost(lease)
-    settle(session, message_id, reply, status)
+    settle(session, message_id, writer.attempt, reply, status)
     session.commit()
 
 
@@ -380,9 +422,9 @@ def _charge(session: Session, usage: ModelUsage, message_id: int, payer: dict[st
 def run_answer(job: Job, services: Services) -> str | None:
     """The worker's handler: write the answer the job names, and if the run itself breaks,
     leave the answer failed with a sentence before the job fails with the traceback."""
-    message_id = job.payload["message_id"]
+    message_id, attempt = _named(job)
     try:
-        answer(message_id, services, Lease(job.id, job.worker_id))
+        answer(message_id, services, Lease(job.id, job.worker_id), attempt)
     except LeaseLost:
         # The answer is another worker's now, which starts it over.
         raise
@@ -393,7 +435,7 @@ def run_answer(job: Job, services: Services) -> str | None:
         else:
             log.exception("Answer %s failed", message_id)
         try:
-            fail_answer(message_id, BUSY if isinstance(error, PoolTimeout) else FAILED)
+            fail_answer(message_id, attempt, BUSY if isinstance(error, PoolTimeout) else FAILED)
         except PoolTimeout:
             log.warning("Answer %s could not be marked failed either; stop it by hand", message_id)
         raise
@@ -402,20 +444,26 @@ def run_answer(job: Job, services: Services) -> str | None:
 
 def abandon_answer(job: Job, services: Services) -> None:
     """The job was lost `max_attempts` times to a dying process: the answer ends failed with
-    what arrived and a sentence that says to ask again."""
+    what arrived and a sentence that says to try again."""
     fail_answer(
-        job.payload["message_id"],
-        f"The answer stopped unexpectedly {job.max_attempts} times and was not tried again. "
-        "Ask the question again.",
+        *_named(job),
+        f"The answer stopped unexpectedly {job.max_attempts} times. Try again in a moment.",
     )
 
 
-def fail_answer(message_id: int, error: str) -> None:
-    """End the answer failed with `error`, keeping what its events so far add up to."""
+def _named(job: Job) -> tuple[int, int]:
+    """The answer the job writes and which try at it; a job queued before tries were numbered
+    names none and writes the first."""
+    return job.payload["message_id"], job.payload.get("attempt", 1)
+
+
+def fail_answer(message_id: int, attempt: int, error: str) -> None:
+    """End try `attempt` of the answer failed with `error`, keeping what its events so far add
+    up to."""
     with SessionLocal() as session:
         reply = fold(session, message_id)
         reply.error = error
-        settle(session, message_id, reply, "failed")
+        settle(session, message_id, attempt, reply, "failed")
         session.commit()
 
 

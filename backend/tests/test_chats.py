@@ -1,23 +1,26 @@
 """Chats: created, listed, renamed, shared and deleted; a question saved with an empty answer,
-which the worker writes (app/answers.py) and the events route streams from the table."""
+which the worker writes (app/answers.py) and the events route streams from the table; a
+stopped or failed answer tried again in its place."""
 
 import json
 import threading
 import time
+from datetime import UTC, datetime, timedelta
 
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolCallPart
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 
 from app.agent.tools import TOOLS
 from app.answers import KEEPALIVE, STOPPED, answer
-from app.api.chats import STILL_ANSWERING
+from app.api.chats import FINISHED, NOT_THE_LAST, STILL_ANSWERING, TOO_MANY_ANSWERS
 from app.config import get_settings
 from app.db import BUSY
-from app.jobs import ANSWER_QUESTION, LIVE
+from app.jobs import ANSWER_QUESTION, LIVE, claim
 from app.llm import MODEL_UNAVAILABLE, LLMUnavailable
-from app.models import ChatEvent, Job
+from app.models import Chat, ChatEvent, Job, UsageEvent
 from app.tracing import TRACE_ID
+from app.worker import HANDLERS
 from tests.conftest import MISSING_KEY, FakeTurn
 
 
@@ -70,6 +73,27 @@ def answered(client, services, chat_id, question) -> list[dict]:
     return follow(client, chat_id, asked["answer"]["id"])
 
 
+def try_again(client, chat_id, message_id):
+    """Ask for the answer to be tried again; the response, whatever it says."""
+    return client.post(f"/api/chats/{chat_id}/messages/{message_id}/retry")
+
+
+def run_next(services) -> None:
+    """Claim the next answer job and run it as the worker's answerer would."""
+    job = claim("w:1", [ANSWER_QUESTION])
+    assert job is not None
+    HANDLERS[ANSWER_QUESTION].run(job, services)
+
+
+def questions_counted(session) -> int:
+    session.expire_all()
+    return session.scalar(
+        select(func.coalesce(func.sum(UsageEvent.quantity), 0)).where(
+            UsageEvent.unit == "questions"
+        )
+    )
+
+
 def test_chat_crud(client, indexed):
     project_id = indexed.project_id
     assert client.get(f"/api/projects/{project_id}/chats").json() == []
@@ -116,10 +140,12 @@ def test_asking_saves_the_question_and_queues_its_answer(client, session, indexe
 
     # The job that writes the answer went in with the question, ahead of any upload.
     (job,) = session.scalars(select(Job).where(Job.kind == ANSWER_QUESTION)).all()
-    # Under the trace of the request that asked, which the worker logs the answer's lines by.
+    # Under the trace of the request that asked, which the worker logs the answer's lines by,
+    # and naming the answer's first try.
     trace = job.payload.get("trace_id")
     assert TRACE_ID.fullmatch(trace) and job.payload == {
         "message_id": empty["id"],
+        "attempt": 1,
         "trace_id": trace,
     }
     assert job.status == "queued" and job.priority == LIVE
@@ -379,3 +405,97 @@ def test_an_answer_that_finds_every_connection_in_use_ends_with_the_busy_sentenc
     assert "Traceback" not in caplog.text
     reply = client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]
     assert reply["role"] == "assistant" and reply["error"] == BUSY
+
+
+def test_a_failed_answer_is_tried_again_in_its_place(client, session, services, indexed):
+    stream_agent = services.llm.stream_agent
+
+    def unavailable(*args):
+        raise LLMUnavailable(MISSING_KEY)
+
+    services.llm.stream_agent = unavailable
+    chat = new_chat(client, indexed.project_id)
+    asked = ask(client, chat["id"], "Notice period?")
+    message_id = asked["answer"]["id"]
+    run_next(services)
+    assert follow(client, chat["id"], message_id)[-1] == {"type": "end", "status": "failed"}
+    session.execute(
+        update(Chat).where(Chat.id == chat["id"]).values(updated_at=func.now() - timedelta(days=3))
+    )
+    session.commit()
+
+    # The model is back: the member tries the answer again, which empties it in its place and
+    # queues its job; nothing is added to the chat, and no question is counted.
+    services.llm.stream_agent = stream_agent
+    services.llm.agent_turns = [FakeTurn(TextPart("90 days."))]
+    retried = try_again(client, chat["id"], message_id)
+    assert retried.status_code == 200, retried.text
+    emptied, last_event_id = retried.json()["answer"], retried.json()["last_event_id"]
+    assert emptied["id"] == message_id and emptied["status"] == "streaming"
+    assert emptied["content"] == "" and emptied["error"] is None and emptied["notice"] is None
+    # The failed try left one event, its error: the new try's are followed from past it.
+    assert last_event_id == 0
+    detail = client.get(f"/api/chats/{chat['id']}").json()
+    assert [m["status"] for m in detail["messages"]] == ["done", "streaming"]
+    assert questions_counted(session) == 1
+    # It is the chat's latest activity, as a question would be.
+    assert session.get(Chat, chat["id"]).updated_at > datetime.now(UTC) - timedelta(minutes=1)
+    # Meanwhile the chat is being answered, and takes no other question or try.
+    assert client.post(
+        f"/api/chats/{chat['id']}/messages", json={"content": "Billing?"}
+    ).json() == {"detail": STILL_ANSWERING}
+    again = try_again(client, chat["id"], message_id)
+    assert again.status_code == 409 and again.json() == {"detail": STILL_ANSWERING}
+
+    (job,) = session.scalars(
+        select(Job).where(Job.kind == ANSWER_QUESTION, Job.status == "queued")
+    ).all()
+    assert job.payload["message_id"] == message_id and job.payload["attempt"] == 2
+    assert job.priority == LIVE
+    run_next(services)
+    # The new try starts by saying so, which a follower that read the failed one acts on.
+    events = follow(client, chat["id"], message_id, after=last_event_id)
+    assert [event["type"] for event in events] == ["restart", "text", "done", "end"]
+    assert events[1]["text"] == "90 days." and events[-1]["status"] == "done"
+    reply = client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]
+    assert reply["status"] == "done" and reply["content"] == "90 days."
+    assert reply["error"] is None
+    # The model was asked the question alone, as the first time.
+    (history,) = services.llm.agent_requests
+    assert [part.content for message in history for part in message.parts] == ["Notice period?"]
+
+
+def test_only_the_chats_last_unfinished_answer_is_tried_again(client, services, indexed):
+    services.llm.agent_turns = [FakeTurn(TextPart("A."))]
+    chat = new_chat(client, indexed.project_id)
+    done = ask(client, chat["id"], "First?")["answer"]["id"]
+    answer(done, services)
+    # A finished answer is followed up, not tried again.
+    refused = try_again(client, chat["id"], done)
+    assert refused.status_code == 409 and refused.json() == {"detail": FINISHED}
+
+    stopped = ask(client, chat["id"], "Second?")["answer"]["id"]
+    client.post(f"/api/chats/{chat['id']}/messages/{stopped}/stop")
+    last = ask(client, chat["id"], "Third?")
+    client.post(f"/api/chats/{chat['id']}/messages/{last['answer']['id']}/stop")
+    # The second answer was stopped, but the chat went on after it.
+    refused = try_again(client, chat["id"], stopped)
+    assert refused.status_code == 409 and refused.json() == {"detail": NOT_THE_LAST}
+    assert try_again(client, chat["id"], last["answer"]["id"]).status_code == 200
+
+    # A question is no answer, and an answer of another chat is not this one's.
+    assert try_again(client, chat["id"], last["question"]["id"]).status_code == 404
+    other = new_chat(client, indexed.project_id)
+    assert try_again(client, other["id"], last["answer"]["id"]).status_code == 404
+
+
+def test_a_try_is_held_to_the_answers_in_flight(client, services, indexed, monkeypatch):
+    monkeypatch.setattr(get_settings(), "max_answers", 1)
+    chat = new_chat(client, indexed.project_id)
+    stopped = ask(client, chat["id"], "Notice period?")["answer"]["id"]
+    client.post(f"/api/chats/{chat['id']}/messages/{stopped}/stop")
+    other = new_chat(client, indexed.project_id)
+    ask(client, other["id"], "Billing?")
+    refused = try_again(client, chat["id"], stopped)
+    assert refused.status_code == 429 and refused.json() == {"detail": TOO_MANY_ANSWERS}
+    assert client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]["status"] == "stopped"

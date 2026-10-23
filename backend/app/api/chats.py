@@ -4,8 +4,9 @@ A question is answered by the worker, not in the request (app/answers.py): `ask`
 question and an empty answer, queues the job and returns both at once; the client then follows
 the answer's events through `events`, a server-sent event stream read from the table, and can
 pick it up again from the last event it saw after a reload or a dropped connection. `stop`
-ends an answer early with what arrived so far. A chat deleted goes into the trash, its
-starter's alone (app/trash.py); an answer still being written there finishes.
+ends an answer early with what arrived so far, and `retry` writes a stopped or failed answer
+again in its place. A chat deleted goes into the trash, its starter's alone (app/trash.py); an
+answer still being written there finishes.
 """
 
 import logging
@@ -19,12 +20,14 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
+from app.accounts import Account
 from app.answers import (
     KEEPALIVE,
     STOPPED,
     answers_in_flight,
     events_after,
     fold,
+    retry_answer,
     settle,
     sse,
     start_answer,
@@ -47,7 +50,15 @@ from app.logs import about
 from app.models import Chat, ChatMessage
 from app.notices import MONTH_QUESTIONS, note_quota
 from app.ratelimit import QUESTIONS
-from app.schemas import AskOut, ChatDetail, ChatMessageOut, ChatOut, ChatPatch, QuestionIn
+from app.schemas import (
+    AskOut,
+    ChatDetail,
+    ChatMessageOut,
+    ChatOut,
+    ChatPatch,
+    QuestionIn,
+    RetryOut,
+)
 from app.shutdown import Stop
 from app.spending import check_platform_spend, check_spend, retry_after
 from app.trash import trash_chat
@@ -58,10 +69,14 @@ log = logging.getLogger(__name__)
 router = APIRouter(tags=["chats"])
 
 TITLE_LENGTH = 60
-TOO_MANY_ANSWERS = "Too many questions are being answered right now. Wait a moment and ask again."
+TOO_MANY_ANSWERS = "Too many questions are being answered right now. Wait a moment and try again."
 STILL_ANSWERING = (
     "This chat is still being answered. Wait for the answer, or stop it, before asking again."
 )
+NOT_THE_LAST = "Only the chat's last answer can be tried again. Ask the question again instead."
+FINISHED = "This answer is finished, so there is nothing to try again. Ask a follow-up instead."
+# The statuses of an answer the member may try again: one that ended without being finished.
+RETRIED = ("stopped", "failed")
 # How often the events route looks for new events of an answer it is following. Each look is
 # one short query from a thread; the wait between them holds no thread.
 EVENT_POLL_SECONDS = 0.1
@@ -161,25 +176,10 @@ def ask(
         raise HTTPException(409, STILL_ANSWERING)
     # The count is taken before the question is saved, or a refused question would sit in the
     # chat with no answer.
-    cap = get_settings().max_answers
-    if (in_flight := answers_in_flight(session, account.organization.id)) >= cap:
-        log.warning(
-            "A question in chat %s was refused: organisation %s has %s answers in flight, "
-            "the most MAX_ANSWERS allows",
-            chat.id,
-            account.organization.id,
-            in_flight,
-        )
-        raise HTTPException(429, TOO_MANY_ANSWERS, headers={"Retry-After": str(RETRY_AFTER)})
+    _refuse_past_answers_in_flight(session, account, chat)
     if refusal := check_question(session, account.organization):
         raise PlanRefused(refusal)
-    # The day's spending (app/spending.py): the platform's limit first, since no plan lifts it,
-    # as a 503 with the seconds until midnight UTC, when it resets; then the plan's, as a 402.
-    if reason := check_platform_spend(session):
-        log.warning("A question in chat %s was refused: %s", chat.id, reason)
-        raise HTTPException(503, reason, headers={"Retry-After": str(retry_after())})
-    if reason := check_spend(session, account.organization):
-        raise PlanRefused(Refusal("daily_spend_micros", reason))
+    _refuse_past_spending(session, account, chat)
     if not chat.title:
         chat.title = _title(question)
     chat.updated_at = func.now()
@@ -235,10 +235,70 @@ def stop(chat: OwnChatDep, message_id: int, session: SessionDep):
     if message.status == "streaming":
         reply = fold(session, message.id)
         reply.notice = STOPPED
-        settle(session, message.id, reply, "stopped")
+        settle(session, message.id, message.attempt, reply, "stopped")
         session.commit()
         session.refresh(message)
     return message
+
+
+@router.post(
+    "/chats/{chat_id}/messages/{message_id}/retry",
+    response_model=RetryOut,
+    dependencies=[Depends(limited(QUESTIONS))],
+)
+def retry(chat: OwnChatDep, message_id: int, session: SessionDep, account: AccountDep):
+    """Write the chat's last answer again in its place, once it was stopped or failed: the row
+    is emptied and streaming, and the worker writes it from the question as for a new one,
+    which `events` streams.
+
+    The plan counted the question when it was asked, and the member asked once, so a retry
+    counts none; it is held to everything else that holds a question, the model's runs in
+    flight and the day's spending, since each try is paid for.
+    """
+    message = _message_in(chat, message_id, session)
+    # The lock orders this with a stop or a run settling the answer, and with the earlier try's
+    # appends, so that no event of it lands after the seq this reads.
+    session.execute(select(ChatMessage.id).where(ChatMessage.id == message.id).with_for_update())
+    session.refresh(message)
+    if message.status == "streaming":
+        raise HTTPException(409, STILL_ANSWERING)
+    if message.status not in RETRIED:
+        raise HTTPException(409, FINISHED)
+    if chat.messages[-1].id != message.id:
+        raise HTTPException(409, NOT_THE_LAST)
+    _refuse_past_answers_in_flight(session, account, chat)
+    _refuse_past_spending(session, account, chat)
+    # A try is the chat's latest activity, as a question is: it moves up the list, and its
+    # retention counts from now (app/retention.py).
+    chat.updated_at = func.now()
+    last_event_id = retry_answer(session, chat, message)
+    session.commit()
+    return RetryOut(answer=message, last_event_id=last_event_id)
+
+
+def _refuse_past_answers_in_flight(session: Session, account: Account, chat: Chat) -> None:
+    """Refuse another run of the agent while the organisation has MAX_ANSWERS in flight."""
+    cap = get_settings().max_answers
+    if (in_flight := answers_in_flight(session, account.organization.id)) >= cap:
+        log.warning(
+            "A question in chat %s was refused: organisation %s has %s answers in flight, "
+            "the most MAX_ANSWERS allows",
+            chat.id,
+            account.organization.id,
+            in_flight,
+        )
+        raise HTTPException(429, TOO_MANY_ANSWERS, headers={"Retry-After": str(RETRY_AFTER)})
+
+
+def _refuse_past_spending(session: Session, account: Account, chat: Chat) -> None:
+    """Refuse another run of the agent past the day's spending (app/spending.py): the
+    platform's limit first, since no plan lifts it, as a 503 with the seconds until midnight
+    UTC, when it resets; then the plan's, as a 402."""
+    if reason := check_platform_spend(session):
+        log.warning("A question in chat %s was refused: %s", chat.id, reason)
+        raise HTTPException(503, reason, headers={"Retry-After": str(retry_after())})
+    if reason := check_spend(session, account.organization):
+        raise PlanRefused(Refusal("daily_spend_micros", reason))
 
 
 def _message_in(chat: Chat, message_id: int, session: Session) -> ChatMessage:

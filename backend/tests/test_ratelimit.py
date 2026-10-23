@@ -38,7 +38,7 @@ from app.ratelimit import (
 from tests.test_api import create_project
 from tests.test_audit import actions
 from tests.test_auth import NEW_PASSWORD, PASSWORD, another_browser, login, signup
-from tests.test_chats import ask, new_chat
+from tests.test_chats import ask, new_chat, try_again
 
 FROM_ACCOUNT = "from your account"
 FROM_ADDRESS = "from your address"
@@ -131,6 +131,19 @@ def test_questions_past_the_rate_are_refused_until_the_minute_turns(
     minute_turned(session)
     ask(client, second["id"], "Billing?")
     assert counts(session) == [("question", "user:1", 2), ("question", "user:1", 1)]
+
+
+def test_trying_an_answer_again_counts_as_a_question(client, session, monkeypatch):
+    # Each try runs the model as a question does.
+    monkeypatch.setattr(get_settings(), "rate_questions", 1)
+    chat = new_chat(client, create_project(client)["id"])
+    stopped = ask(client, chat["id"], "Notice period?")["answer"]["id"]
+    client.post(f"/api/chats/{chat['id']}/messages/{stopped}/stop")
+    refused(try_again(client, chat["id"], stopped), QUESTIONS.refusal(1, FROM_ACCOUNT))
+    assert client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]["status"] == "stopped"
+
+    minute_turned(session)
+    assert try_again(client, chat["id"], stopped).status_code == 200
 
 
 def test_the_rate_is_each_users_own(client, session, make_account, act_as, monkeypatch):

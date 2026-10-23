@@ -1,11 +1,11 @@
 import { defineConfig, devices } from '@playwright/test'
 import { SERVER_LOG } from './e2e/mail.ts'
+import { STANDIN_PORT } from './e2e/standin.ts'
 
 // The end-to-end smoke test (e2e/): the built page and the API as one server, against a
 // stand-in for the model and the embeddings endpoint, since a real one needs a key and answers
 // differently every run. Needs the compose database up and a `pnpm build`.
 const PORT = 18000
-const STANDIN_PORT = 18001
 
 export default defineConfig({
   testDir: 'e2e',
