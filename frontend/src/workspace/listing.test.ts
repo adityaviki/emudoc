@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { REFRESH, WAITING_REFRESH, editListings, fetchListing, findListed, listed, listingKey, refreshAfter, showMore } from './listing.ts'
+import { REFRESH, WAITING_REFRESH, editListings, fetchListing, findListed, listed, listingKey, partlyCountBehind, refreshAfter, showMore } from './listing.ts'
 import type { ListedPage, Listing } from './listing.ts'
 import type { Document } from '../api.ts'
 
@@ -173,5 +173,30 @@ describe('refreshAfter', () => {
   it('takes a queued document without a known retry, from before the server said when, for one indexed', () => {
     const untimed = { ...waiting(1, 'queued', inMinutes(2), 'parse'), stages: { parse: { status: 'failed', detail: 'Busy.', retry_at: null, deferred: false } } } satisfies Document
     expect(refreshAfter([untimed], NOW)).toBe(REFRESH)
+  })
+})
+
+describe('partlyCountBehind', () => {
+  const skipped = (document: Document): Document => ({
+    ...document,
+    stages: { enrich: { status: 'skipped', detail: 'Summaries and facts need the AI model.', retry_at: null, deferred: false } },
+  })
+
+  it('tells when a document listed before became partly indexed or stopped being so, for the project to count again', () => {
+    const indexing = { ...a, status: 'processing' } satisfies Document
+    expect(partlyCountBehind([indexing, b], [skipped(a), b], 0)).toBe(true)
+    expect(partlyCountBehind([skipped(a), b], [{ ...skipped(a), status: 'queued' }, b], 1)).toBe(true)
+    expect(partlyCountBehind([indexing, b], [a, b], 0)).toBe(false)
+    expect(partlyCountBehind([skipped(a)], [skipped(a)], 1)).toBe(false)
+    // A document gone is the deletion's to count.
+    expect(partlyCountBehind([skipped(a)], [], 1)).toBe(false)
+  })
+
+  it('tells when a folder first listed shows one the project counts none of, indexed before it was opened', () => {
+    expect(partlyCountBehind([], [skipped(a)], 0)).toBe(true)
+    expect(partlyCountBehind([], [skipped(a)], 1)).toBe(false)
+    expect(partlyCountBehind([], [a], 0)).toBe(false)
+    // Nor while the project is not held, which asks for its counts as it comes.
+    expect(partlyCountBehind([], [skipped(a)], undefined)).toBe(false)
   })
 })

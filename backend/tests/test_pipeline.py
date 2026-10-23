@@ -172,7 +172,7 @@ def test_a_deployments_members_read_what_failed_without_how_it_is_set_up(
     assert document.stages["enrich"] == {
         "status": "skipped",
         "detail": "Summaries and facts need the AI model, which is unavailable just now. Use "
-        '"Index again" later to add them.',
+        '"Index the rest" once it is back to add them.',
     }
     assert document.stages["embed"] == {"status": "failed", "detail": EmbeddingError.members}
 

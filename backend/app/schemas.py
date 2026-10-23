@@ -46,8 +46,10 @@ class ProjectOut(_FromORM):
     sample: bool = False
     suggestions: list[str] = Field(default_factory=list)
     document_count: int = 0
-    # The documents whose enrich stage was skipped for want of a model: what the library
-    # offers to run the model on once there is one.
+    # The documents that are partly indexed (`unfinished_stages`, app/indexing/pipeline.py),
+    # which the library offers to index the rest of, and those of them without summaries and
+    # facts, which wait for the model as well as for the embeddings endpoint.
+    partly_indexed_count: int = 0
     unenriched_count: int = 0
 
 

@@ -406,7 +406,11 @@ def test_reprocess_and_delete(client, services, sample_pdf):
         ).status_code
         == 422
     )
-    whole_project = client.post(f"/api/projects/{project['id']}/reprocess").json()
+    # Without a stage, a project runs its partly indexed documents alone
+    # (tests/test_partly_indexed.py).
+    whole_project = client.post(
+        f"/api/projects/{project['id']}/reprocess", params={"from_stage": "enrich"}
+    ).json()
     assert whole_project == {"queued": 1}
 
     assert client.delete(f"/api/documents/{document_id}").status_code == 204

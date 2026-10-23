@@ -5,7 +5,7 @@ import type { BrowserContext, Page } from '@playwright/test'
 import { expectAccessible } from './axe.ts'
 import { linkMailedTo, messageTo } from './mail.ts'
 import { makeOperator, movePlan } from './operator.ts'
-import { holdNextTurn, releaseTurns } from './standin.ts'
+import { holdNextTurn, refuseEmbeddings, releaseTurns } from './standin.ts'
 
 // The member's way through the app, end to end: sign up through the link the app mails, find the
 // organisation's first steps listed, skip the tour the first project shows, ask the sample
@@ -310,7 +310,9 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(folder).toHaveCount(0)
   })
 
-  await test.step('upload a folder, following each file as it goes, and put it in the trash', async () => {
+  await test.step('upload a folder, following each file as it goes, index the rest of a file partly indexed, and put it in the trash', async () => {
+    // March's passages are refused once by the embeddings: that file is found by its words alone.
+    await refuseEmbeddings(request, 'printer paper')
     // The request is held while the panel that follows it is read.
     let release = () => {}
     const held = new Promise<void>((resolve) => {
@@ -338,8 +340,24 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const folder = page.getByRole('treeitem', { name: /deliveries/ })
     await folder.click()
     await page.keyboard.press('ArrowRight')
-    await expect(page.getByRole('treeitem', { name: /march\.md/ })).toBeVisible()
+    const march = page.getByRole('treeitem', { name: /march\.md/ })
+    await expect(march).toBeVisible()
     await expect(page.getByRole('treeitem', { name: /april/ })).toBeVisible()
+    // Partly indexed: the library counts it, and its tab says what it lacks and indexes the rest.
+    await expect(march.getByRole('img', { name: /^Partly indexed/ })).toBeVisible({ timeout: 60_000 })
+    const partly = page.getByText('1 document is partly indexed: found by its words, not yet by meaning.')
+    await expect(partly).toBeVisible()
+    await expectAccessible(page, 'the library with a document partly indexed')
+    await march.click()
+    await page.keyboard.press('Enter')
+    const tab = page.getByRole('tabpanel')
+    await expect(tab.getByText('Found by its words, not yet by meaning')).toBeVisible()
+    await expectAccessible(page, 'a document partly indexed')
+    await tab.getByRole('button', { name: 'Index the rest' }).click()
+    await expect(tab.getByRole('heading', { level: 2 })).toBeFocused()
+    await expect(tab.getByRole('img', { name: /^Ready/ })).toBeVisible({ timeout: 60_000 })
+    await expect(tab.getByRole('img', { name: /^Ready/ })).toHaveAccessibleName(/Embeddings: done/)
+    await expect(partly).toHaveCount(0)
     await folder.click()
     await page.keyboard.press('Delete')
     await expect(folder).toHaveCount(0)

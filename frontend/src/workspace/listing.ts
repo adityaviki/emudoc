@@ -7,8 +7,8 @@
 import { queryOptions, useQueries, useQueryClient } from '@tanstack/react-query'
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
 import { api, ApiError, isIndexing } from '../api.ts'
-import type { Document } from '../api.ts'
-import { waitingRetry } from '../indexing.ts'
+import type { Document, Project } from '../api.ts'
+import { unfinishedStages, waitingRetry } from '../indexing.ts'
 
 /** How often a folder or a document being indexed is asked about again, in milliseconds. */
 export const REFRESH = 1500
@@ -97,15 +97,39 @@ export const hasMore = (listing: Listing | undefined) => listing?.pages.at(-1)?.
 /** Whether the next page has been asked for and not yet come. */
 export const growing = (listing: Listing | undefined) => listing != null && listing.wanted > listing.pages.length
 
-/** The listings of these folders, in the same order; each is asked again while it shows a document being indexed or waiting for a retry. */
+/**
+ * Whether the project's count of partly indexed documents (`partly_indexed_count`, which `counted`
+ * is while the project is held) is behind what a listing shows: a document listed before became
+ * partly indexed or stopped being so (an upload whose summaries failed, a retry that gave up,
+ * another member's "Index the rest"), or one is listed while the project counts none (indexed
+ * before its folder was first opened).
+ */
+export function partlyCountBehind(before: Document[], after: Document[], counted: number | undefined): boolean {
+  const held = new Map(before.map((document) => [document.id, unfinishedStages(document).join()]))
+  const changed = after.some((document) => held.has(document.id) && held.get(document.id) !== unfinishedStages(document).join())
+  return changed || (counted === 0 && after.some((document) => unfinishedStages(document).length > 0))
+}
+
+/**
+ * The listings of these folders, in the same order; each is asked again while it shows a document
+ * being indexed or waiting for a retry, and the project again once its count of partly indexed
+ * documents is behind what a listing shows.
+ */
 export function useListings(projectId: number, folderIds: (number | null)[]) {
   const queryClient = useQueryClient()
   return useQueries({
     queries: folderIds.map((folderId) =>
       queryOptions({
         queryKey: listingKey(projectId, folderId),
-        queryFn: ({ signal }) =>
-          fetchListing(projectId, folderId, queryClient.getQueryData<Listing>(listingKey(projectId, folderId)), signal),
+        queryFn: async ({ signal }) => {
+          const held = queryClient.getQueryData<Listing>(listingKey(projectId, folderId))
+          const listing = await fetchListing(projectId, folderId, held, signal)
+          const counted = queryClient.getQueryData<Project>(['project', projectId])?.partly_indexed_count
+          if (partlyCountBehind(listed(held), listed(listing), counted)) {
+            void queryClient.invalidateQueries({ queryKey: ['project', projectId], exact: true })
+          }
+          return listing
+        },
         refetchInterval: (query) => refreshAfter(listed(query.state.data)),
       }),
     ),

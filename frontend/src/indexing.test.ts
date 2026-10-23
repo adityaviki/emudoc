@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import type { Document, Stage, StageName } from './api.ts'
+import type { Document, Stage, StageName, SystemStatus } from './api.ts'
 import { formatDateTime } from './format.ts'
-import { missingWords, notIndexedWords, retryWords, statusLabel, statusTitle, waitingRetry } from './indexing.ts'
+import {
+  missingWords,
+  notIndexedWords,
+  partlyIndexedWords,
+  restHeld,
+  retryWords,
+  statusLabel,
+  statusTitle,
+  unfinishedStages,
+  waitingRetry,
+} from './indexing.ts'
 
 const NOW = new Date('2026-10-23T12:00:00Z')
 const inMinutes = (minutes: number) => new Date(NOW.getTime() + minutes * 60_000).toISOString()
@@ -77,7 +87,7 @@ describe('a retry that waits', () => {
     const ready = doc('ready', { enrich: failed(at), embed: { status: 'pending' } })
     expect(statusLabel(ready, NOW)).toBe('Ready')
     expect(missingWords(ready, NOW)).toBe(`Summaries and facts: retrying at ${time(at)}`)
-    expect(missingWords(doc('ready', { enrich: { status: 'skipped' } }), NOW)).toBe('Without summaries and facts')
+    expect(missingWords(doc('ready', { scan: { status: 'skipped' } }), NOW)).toBe('Without malware scan')
     // A stage left out for good is not one that comes later.
     expect(missingWords(doc('ready', { scan: { status: 'skipped' }, enrich: failed(at), embed: { status: 'pending' } }), NOW)).toBe(
       `Without malware scan. Summaries and facts: retrying at ${time(at)}`,
@@ -108,5 +118,72 @@ describe('a retry that waits', () => {
       'Embeddings: pending',
     ])
     expect(statusTitle(doc('processing', { structure: { status: 'running' } }), NOW).split('\n')[0]).toBe('Indexing: outline')
+  })
+})
+
+const GAVE_UP = 'This document could not be prepared for semantic search just now. Tried 5 times over 15 minutes.'
+
+function status(llm: boolean, embeddings: boolean): SystemStatus {
+  return {
+    llm: { available: llm, agent_model: null, index_model: null, agent_fallback_model: null, index_fallback_model: null, error: null },
+    embeddings: { ok: embeddings, model: null, error: null },
+    currency: 'EUR',
+    uploads: { files: 50, request_bytes: 100, file_bytes: 50 },
+  }
+}
+
+describe('a partly indexed document', () => {
+  it('is ready without summaries and facts or its vectors, while no retry waits for them', () => {
+    const skipped = doc('ready', { enrich: { status: 'skipped', detail: 'Summaries and facts need the AI model.' } })
+    const gaveUp = doc('ready', { embed: { status: 'failed', detail: GAVE_UP } })
+    const both = doc('ready', { scan: { status: 'skipped' }, enrich: { status: 'failed' }, embed: { status: 'failed' } })
+    expect(unfinishedStages(skipped)).toEqual(['enrich'])
+    expect(unfinishedStages(gaveUp)).toEqual(['embed'])
+    expect(unfinishedStages(both)).toEqual(['enrich', 'embed'])
+    // A scan the deployment runs none for, a retry that waits, and a document not ready are not.
+    expect(unfinishedStages(doc('ready', { scan: { status: 'skipped' } }))).toEqual([])
+    expect(unfinishedStages(doc('ready', { enrich: { status: 'skipped' }, embed: failed(inMinutes(2)) }))).toEqual([])
+    expect(unfinishedStages(doc('queued', { enrich: { status: 'pending' }, embed: { status: 'pending' } }))).toEqual([])
+    expect(unfinishedStages(doc('failed', { parse: { status: 'failed' }, enrich: { status: 'skipped' } }))).toEqual([])
+
+    expect(statusLabel(skipped, NOW)).toBe('Partly indexed')
+    expect(missingWords(skipped, NOW)).toBe('No summary or facts yet')
+    expect(missingWords(gaveUp, NOW)).toBe('Found by its words, not yet by meaning')
+    expect(missingWords(both, NOW)).toBe('Without malware scan. Found by its words, not yet by meaning. No summary or facts yet')
+    expect(statusTitle(gaveUp, NOW).split('\n')).toEqual([
+      'Partly indexed',
+      'Malware scan: done',
+      'Parse: done',
+      'Outline: done',
+      'Summaries and facts: done',
+      `Embeddings: failed (${GAVE_UP})`,
+    ])
+  })
+
+  it('waits for the services its rest needs, saying which', () => {
+    expect(restHeld(['embed'], status(false, true))).toBeNull()
+    expect(restHeld(['enrich', 'embed'], status(true, true))).toBeNull()
+    expect(restHeld(['enrich'], status(false, true))).toBe('The AI model is unavailable just now: index the rest once it is back.')
+    // Summaries and facts are embedded again with the paths they rename.
+    expect(restHeld(['enrich'], status(true, false))).toBe('Search by meaning is unavailable just now: index the rest once it is back.')
+    expect(restHeld(['enrich', 'embed'], status(false, false))).toBe(
+      'The AI model and search by meaning are unavailable just now: index the rest once they are back.',
+    )
+    // Not while the status is not known, nor for a document with nothing left.
+    expect(restHeld(['enrich'], undefined)).toBeNull()
+    expect(restHeld([], status(false, false))).toBeNull()
+  })
+
+  it('is counted for the library, with what they lack', () => {
+    expect(partlyIndexedWords(1, 1)).toBe('1 document is partly indexed: no summary or facts yet.')
+    expect(partlyIndexedWords(3, 3)).toBe('3 documents are partly indexed: no summaries or facts yet.')
+    expect(partlyIndexedWords(1, 0)).toBe('1 document is partly indexed: found by its words, not yet by meaning.')
+    expect(partlyIndexedWords(2, 0)).toBe('2 documents are partly indexed: found by their words, not yet by meaning.')
+    expect(partlyIndexedWords(3, 1)).toBe(
+      '3 documents are partly indexed: 1 has no summary or facts yet, 2 are found by their words, not yet by meaning.',
+    )
+    expect(partlyIndexedWords(4, 3)).toBe(
+      '4 documents are partly indexed: 3 have no summaries or facts yet, 1 is found by its words, not yet by meaning.',
+    )
   })
 })

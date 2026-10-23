@@ -18,7 +18,7 @@ from app.api.deps import (
 )
 from app.audit import audit
 from app.entitlements import PlanRefused, check_project
-from app.indexing.pipeline import reset_stages
+from app.indexing.pipeline import OPTIONAL_STAGES, reset_stages, unfinished_stages, went_without
 from app.jobs import BULK, queue_index
 from app.models import Document, Project, ProjectMember
 from app.schemas import NewProjectIn, ProjectAccessIn, ProjectAccessOut, ProjectIn, ProjectOut
@@ -27,18 +27,26 @@ from app.trash import trash_project
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
-# The documents a project holds out of the trash, and those whose enrich stage was skipped for
-# want of a model.
+# The documents a project holds out of the trash, those that are partly indexed (ready without
+# an optional stage, app/indexing/pipeline.py), and those of them without summaries and facts,
+# which need the model to be indexed in full.
 _COUNTS = (
     func.count(Document.id),
-    func.count(Document.id).filter(Document.stages["enrich"]["status"].astext == "skipped"),
+    func.count(Document.id).filter(went_without(*OPTIONAL_STAGES)),
+    func.count(Document.id).filter(went_without("enrich")),
 )
 _LIVE = Document.deleted_at.is_(None)
 
 
-def _out(project: Project, document_count: int, unenriched_count: int = 0) -> ProjectOut:
+def _out(
+    project: Project, document_count: int, partly_indexed_count: int = 0, unenriched_count: int = 0
+) -> ProjectOut:
     return ProjectOut.model_validate(project).model_copy(
-        update={"document_count": document_count, "unenriched_count": unenriched_count}
+        update={
+            "document_count": document_count,
+            "partly_indexed_count": partly_indexed_count,
+            "unenriched_count": unenriched_count,
+        }
     )
 
 
@@ -169,19 +177,22 @@ def reprocess_project(
     project: EditableProjectDep,
     session: SessionDep,
     worker: WorkerDep,
-    from_stage: Stage = "enrich",
+    from_stage: Stage | None = None,
 ):
-    """Queue every document in the project to run again from the given stage. A quarantined
+    """Queue the project's documents to run again. Without a stage, the partly indexed ones,
+    each from the first stage it went without ("Index the rest" in the library), which spends
+    nothing on what is indexed already; with one, every document from that stage. A quarantined
     document is left alone: the run would only scan it again."""
+    which = (
+        went_without(*OPTIONAL_STAGES)
+        if from_stage is None
+        else Document.status.not_in(("processing", "quarantined"))
+    )
     documents = session.scalars(
-        select(Document).where(
-            Document.project_id == project.id,
-            _LIVE,
-            Document.status.not_in(("processing", "quarantined")),
-        )
+        select(Document).where(Document.project_id == project.id, _LIVE, which)
     ).all()
     for document in documents:
-        reset_stages(document, from_stage)
+        reset_stages(document, from_stage or unfinished_stages(document)[0])
         # Behind fresh uploads, which someone is waiting for.
         queue_index(session, document, priority=BULK)
     session.commit()

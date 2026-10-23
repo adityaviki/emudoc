@@ -15,7 +15,7 @@ from pathlib import Path
 from queue import SimpleQueue
 
 from pgvector import Vector
-from sqlalchemy import delete, select, update
+from sqlalchemy import ColumnElement, and_, delete, or_, select, update
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
@@ -57,6 +57,12 @@ log = logging.getLogger(__name__)
 # Without the scan nothing may open the file, and without parse and structure there is
 # nothing to search; the other stages only add to it.
 REQUIRED_STAGES = ("scan", "parse", "structure")
+# What a ready document may go without: it is found by its words all the same, and lacks its
+# summaries and facts without enrich, its matches by meaning without embed.
+OPTIONAL_STAGES = tuple(name for name in STAGES if name not in REQUIRED_STAGES)
+# How an optional stage ends without its output: it failed, or it could not run as the
+# deployment stood (no model), which a later run may change.
+UNFINISHED = ("failed", "skipped")
 # Longest image edge sent for OCR; larger scans are scaled down to this.
 MAX_IMAGE_EDGE = 2576
 # A stage's detail while it waits to run again after the database went away under it.
@@ -318,6 +324,33 @@ WAITING = ("retry_at", "deferred")
 
 def _unwaited(stage: dict) -> dict:
     return {key: value for key, value in stage.items() if key not in WAITING}
+
+
+def unfinished_stages(document: Document) -> list[str]:
+    """The optional stages a ready document went without while no retry waits for one, which
+    makes it partly indexed: what "Index the rest" runs from the first of (`reset_stages`, which
+    runs the ones after it too, since enrich renames the paths that embed reads), and what the
+    page words (`unfinishedStages` in frontend/src/indexing.ts). Empty for any other document,
+    and while a retry waits, which runs them by itself."""
+    if document.status != "ready":
+        return []
+    stages = [document.stages.get(name, {}) for name in OPTIONAL_STAGES]
+    if any("retry_at" in stage for stage in stages):
+        return []
+    return [
+        name
+        for name, stage in zip(OPTIONAL_STAGES, stages, strict=True)
+        if stage.get("status") in UNFINISHED
+    ]
+
+
+def went_without(*names: str) -> ColumnElement[bool]:
+    """`unfinished_stages` as SQL: a document that holds one of the stages named among them."""
+    return and_(
+        Document.status == "ready",
+        *(Document.stages[name]["retry_at"].is_(None) for name in OPTIONAL_STAGES),
+        or_(*(Document.stages[name]["status"].astext.in_(UNFINISHED) for name in names)),
+    )
 
 
 def reset_stages(document: Document, from_stage: str = "parse") -> None:
@@ -866,7 +899,7 @@ def _enrich(session: Session, document: Document, services: Services, meter: Met
             f"Summaries and facts need the AI model. {services.llm.problem()}",
             members=(
                 "Summaries and facts need the AI model, which is unavailable just now. Use "
-                '"Index again" later to add them.'
+                '"Index the rest" once it is back to add them.'
             ),
         )
     _wait_for_the_day(session, document)

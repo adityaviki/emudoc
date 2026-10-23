@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.embeddings import Embedder
 from app.folders import PATH_SEPARATOR, folder_paths
 from app.indexing.enrich import parse_iso_date
+from app.indexing.pipeline import unfinished_stages
 from app.models import Document, Fact, Passage, Section
 from app.search import hybrid_search
 
@@ -485,7 +486,14 @@ def _document_line(document: Document, folder_paths: dict[int, str]) -> str:
         parts.append("quarantined by the malware scan, nothing of it can be read")
     elif document.status != "ready":
         parts.append(f"indexing {document.status}")
+    elif unfinished := unfinished_stages(document):
+        # So that the model looks for what it lacks by searching and reading it instead.
+        parts.append(f"partly indexed, {', '.join(_WITHOUT[name] for name in unfinished)}")
     return " · ".join(parts)
+
+
+# What a partly indexed document lacks for the model, by the stage it went without.
+_WITHOUT = {"enrich": "no summaries or facts", "embed": "found by keyword search alone"}
 
 
 def _pages(start: int | None, end: int | None) -> str:

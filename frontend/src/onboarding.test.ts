@@ -12,6 +12,7 @@ const project = (id: number, name: string, changes: Partial<Project> = {}): Proj
   sample: false,
   suggestions: [],
   document_count: 0,
+  partly_indexed_count: 0,
   unenriched_count: 0,
   ...changes,
 })

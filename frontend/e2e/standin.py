@@ -17,7 +17,10 @@ the passages. It answers as a model would that does the least the app asks:
 `POST /hold` makes the next agent turn wait until `POST /release` (or HELD_FOR seconds), as a
 model that thinks for long, so that the browser test stops an answer while it is thought about
 and tries it again: the try's turns are not held, and the held one answers once released, into
-an answer that is no longer its run's.
+an answer that is no longer its run's. `POST /refuse-embeddings` with `{"containing": word}`
+refuses the next embeddings request any of whose texts holds the word with a 400, which the app
+does not try again, so that the browser test finds a document partly indexed and indexes the
+rest of it.
 
 The load test (backend/loadtest) asks for more, with options the end-to-end test leaves off:
 `--fill` answers an indexing request as a model that read it would (a scanned page gets text
@@ -227,6 +230,8 @@ class Handler(BaseHTTPRequestHandler):
     holds = 0
     released = threading.Event()
     hold_lock = threading.Lock()
+    # The word whose next embeddings request is refused, once.
+    refusing: str | None = None
 
     def log_message(self, format: str, *args: Any) -> None:
         """Quiet: Playwright shows a server's output only when asked."""
@@ -249,8 +254,21 @@ class Handler(BaseHTTPRequestHandler):
                 Handler.holds = 0
                 Handler.released.set()
             self._json({"holds": 0})
+        elif self.path.rstrip("/") == "/refuse-embeddings":
+            with Handler.hold_lock:
+                Handler.refusing = body["containing"]
+            self._json({"refusing": Handler.refusing})
         elif self.path.endswith("/embeddings"):
             inputs = body["input"] if isinstance(body["input"], list) else [body["input"]]
+            with Handler.hold_lock:
+                refused = Handler.refusing is not None and any(
+                    Handler.refusing in text for text in inputs
+                )
+                if refused:
+                    Handler.refusing = None
+            if refused:
+                self._json({"error": {"message": "Refused, as asked.", "type": "test"}}, 400)
+                return
             words = sum(len(WORD.findall(text)) for text in inputs)
             self._json(
                 {

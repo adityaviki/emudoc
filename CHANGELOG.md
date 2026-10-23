@@ -17,6 +17,13 @@ newest entry first.
 
 Members:
 
+- A document that was read but went without its summaries and facts, or without its search by
+  meaning, is marked "Partly indexed" with an amber check, and says what it lacks: "Found by its
+  words, not yet by meaning", "No summary or facts yet". It can be searched by its words and
+  asked about meanwhile. "Index the rest", on its tab or in its menu in the library, adds only
+  what it lacks, and the library offers the same for every such document of the project at
+  once. While the AI model or search by meaning is unavailable, the button waits and says why.
+
 - An answer that was stopped or failed can be tried again in its place: "Try again" under the
   last answer of your own chat writes it anew from the same question, and counts no other
   question against your plan. Stop also works now while a question is still being sent.
@@ -28,6 +35,12 @@ Members:
 
 Operators:
 
+- `POST /api/projects/{id}/reprocess` without `from_stage` now queues the project's partly
+  indexed documents alone (ready, with enrich or embed failed or skipped and no retry waiting),
+  each from the first stage it went without; with `from_stage` it runs every document from it,
+  as before, when the default was `enrich`. `ProjectOut` adds `partly_indexed_count`, and
+  `unenriched_count` now counts those of them without summaries and facts, failed as well as
+  skipped. `list_documents` tells the agent which documents are partly indexed.
 - `POST /api/chats/{id}/messages/{message_id}/retry` writes a stopped or failed answer again
   (`RetryOut`: the emptied answer and the `last_event_id` to follow its new try from). It is
   held to `MAX_ANSWERS`, the day's spending limits and `RATE_QUESTIONS`, not to the plan's

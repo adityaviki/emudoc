@@ -51,7 +51,9 @@ export interface Project {
   /** The questions an empty chat offers to ask; none offers the page's own. */
   suggestions: string[]
   document_count: number
-  /** The documents whose enrich stage was skipped for want of a model. */
+  /** The documents partly indexed (`unfinishedStages` in indexing.ts), which the library offers to index the rest of. */
+  partly_indexed_count: number
+  /** Those of them without summaries and facts, whose rest waits for the AI model too. */
   unenriched_count: number
 }
 
@@ -1476,8 +1478,9 @@ export const api = {
     request<T>(`/trash/${kind}s/${id}/restore`, { method: 'POST' }),
   /** Delete something in the trash for good, with its files. */
   purge: (kind: TrashKind | 'project', id: number) => request<void>(`/trash/${kind}s/${id}`, { method: 'DELETE' }),
-  reprocessProject: (id: number, fromStage: StageName) =>
-    request<{ queued: number }>(`/projects/${id}/reprocess?from_stage=${fromStage}`, {
+  /** Without a stage, the project's partly indexed documents, each from the first stage it went without ("Index the rest"); with one, every document from it. */
+  reprocessProject: (id: number, fromStage?: StageName) =>
+    request<{ queued: number }>(`/projects/${id}/reprocess${fromStage ? `?from_stage=${fromStage}` : ''}`, {
       method: 'POST',
     }),
 

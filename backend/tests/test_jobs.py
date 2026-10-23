@@ -87,6 +87,10 @@ def lose(session, job_id: int, attempts: int = 1) -> None:
     session.commit()
 
 
+# A project's every document, from enrich on, rather than its partly indexed ones alone.
+EVERY = {"from_stage": "enrich"}
+
+
 def test_uploads_and_reprocesses_queue_index_jobs(client, session, sample_pdf, sample_docx):
     project = client.post("/api/projects", json={"name": "P", "description": ""}).json()
     with sample_pdf.open("rb") as pdf, sample_docx.open("rb") as docx:
@@ -123,7 +127,9 @@ def test_uploads_and_reprocesses_queue_index_jobs(client, session, sample_pdf, s
         TRACE_ID.fullmatch(replaced.payload["trace_id"]) and replaced.payload["trace_id"] != trace
     )
     assert replaced.id > second and kept.id == second
-    assert client.post(f"/api/projects/{project['id']}/reprocess").json() == {"queued": 2}
+    assert client.post(f"/api/projects/{project['id']}/reprocess", params=EVERY).json() == {
+        "queued": 2
+    }
     assert {(job.payload["document_id"], job.priority) for job in all_jobs(session)} == {
         (ids[0], 0),
         (ids[1], 0),
@@ -134,7 +140,9 @@ def test_uploads_and_reprocesses_queue_index_jobs(client, session, sample_pdf, s
         {"id": str(ids[0])},
     )
     session.commit()
-    assert client.post(f"/api/projects/{project['id']}/reprocess").json() == {"queued": 2}
+    assert client.post(f"/api/projects/{project['id']}/reprocess", params=EVERY).json() == {
+        "queued": 2
+    }
     assert {
         (job.payload["document_id"], job.priority, job.status) for job in all_jobs(session)
     } == {

@@ -25,7 +25,12 @@ rate limiting, a dropped connection) is run again by itself after 1, 2, 4 and 8 
 document's status says when ("Retrying at 14:32", or "Paused until 02:00" for the day's
 spending limit, with the stage's arc amber), the page asks about it again at that moment rather
 than every second and a half, and after the last try it stays failed until "Index again". A stage that failed for a reason that will not pass on its own, such
-as a rejected key or a file nothing can be read from, is not retried. In development the
+as a rejected key or a file nothing can be read from, is not retried. A document read without
+its summaries and facts or its search by meaning (enrich or embed failed, or skipped for want of
+the model) is "Partly indexed", with an amber check: found by its words meanwhile, and finished
+by "Index the rest" on its tab or in its menu, which runs only the stages it went without, or by
+the same button in the library for every such document of the project; the button waits, saying
+why, while the model or the embeddings endpoint it needs is unavailable. In development the
 stage's words are the operator's (the model, the endpoint's address, the setting to change); a
 deployment's members read what it means for them ("The AI model is unavailable just now.", a
 document "found by its words alone") and nothing of how the deployment is set up, and so does an
@@ -332,7 +337,7 @@ most once a minute for it, so an endpoint that comes back shows within the minut
 development it names the models and says what stops one and what to change; a deployment's
 members are told only what they cannot do for now and to try later, and the reason is the
 operator's, in the log, the metrics and the alerts. After adding a key, restart the backend and
-press "Run the model on them" in the Documents tab to enrich what was indexed without it.
+press "Index the rest" in the library to enrich what was indexed without it.
 `DISABLED_PROVIDERS` switches a provider's models off on purpose, with the same effect and the
 reason shown in the header in development, and the same button enriches what was indexed
 meanwhile once it is lifted; a fallback of another provider (`AGENT_FALLBACK_MODEL`, `INDEX_FALLBACK_MODEL`, below)

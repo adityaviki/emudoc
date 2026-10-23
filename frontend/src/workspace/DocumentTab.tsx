@@ -1,17 +1,19 @@
-import { useQuery } from '@tanstack/react-query'
-import { ListTree, X } from 'lucide-react'
-import { Fragment, useEffect, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ListChecks, ListTree, X } from 'lucide-react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { api, fileUrl, isImage, isPdf, isSheet, pageImageUrl, pageLabel, sectionPath } from '../api.ts'
+import { api, fileUrl, isImage, isPdf, isSheet, mayChange, pageImageUrl, pageLabel, sectionPath } from '../api.ts'
 import type { Block, Document, DocumentContent, Section } from '../api.ts'
+import { useMe } from '../auth.ts'
 import { IndexingStatus } from '../components/IndexingStatus.tsx'
 import { PipeTable } from '../components/Markdown.tsx'
-import { Chip, IconButton, Loading, Notice } from '../components/ui.tsx'
+import { Button, Chip, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { formatDate, parsePipeTable } from '../format.ts'
 import { useStatus } from '../hooks.ts'
-import { notIndexedWords, scanPassed } from '../indexing.ts'
+import { notIndexedWords, restHeld, scanPassed, unfinishedStages } from '../indexing.ts'
 import { describeDocumentUsage } from '../usage.ts'
 import { originalFile } from './files.ts'
+import { documentKey, listingsKey } from './listing.ts'
 import { useWorkspace } from './state.ts'
 import type { Focus } from './url.ts'
 
@@ -30,6 +32,9 @@ interface DocumentTabProps {
 /** One open document: a PDF's rendered pages, or anything else's extracted text with the outline beside it. */
 export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps) {
   const workspace = useWorkspace()
+  const changes = mayChange(useMe().role)
+  // Where the keyboard goes on from once a button of the header it held is gone.
+  const heading = useRef<HTMLHeadingElement>(null)
   const [outlineOpen, setOutlineOpen] = useState(true)
   const status = document.status
   const indexed = document.stages.structure?.status === 'done'
@@ -100,7 +105,12 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
       <header className="shrink-0 border-b border-line bg-surface px-4 py-2.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="truncate text-[15px] font-semibold tracking-tight" title={document.title ?? document.filename}>
+            <h2
+              ref={heading}
+              tabIndex={-1}
+              className="truncate text-[15px] font-semibold tracking-tight"
+              title={document.title ?? document.filename}
+            >
               {document.title ?? document.filename}
             </h2>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
@@ -116,6 +126,9 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
                 <span title={usage.detail}>{usage.summary}</span>
               )}
               <IndexingStatus document={document} />
+              {changes && unfinishedStages(document).length > 0 && (
+                <IndexTheRest document={document} onStarted={() => heading.current?.focus()} />
+              )}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
@@ -194,6 +207,43 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
             <TextView blocks={content.data.blocks} focus={blockFocus} />
           </Scrolled>
         </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * "Index the rest" of a partly indexed document: the run from the first stage it went without,
+ * which keeps what it has meanwhile, or why it waits for the service its rest needs.
+ */
+function IndexTheRest({ document, onStarted }: { document: Document; onStarted: () => void }) {
+  const queryClient = useQueryClient()
+  const health = useStatus()
+  const unfinished = unfinishedStages(document)
+  const held = restHeld(unfinished, health.data)
+  const run = useMutation({
+    mutationFn: () => api.reprocessDocument(document.id, unfinished[0]),
+    // Queued, it is no longer partly indexed, and the button goes at once.
+    onSuccess: (queued) => {
+      queryClient.setQueryData(documentKey(document.id), queued)
+      onStarted()
+    },
+    onSettled: () => {
+      for (const queryKey of [listingsKey(document.project_id), documentKey(document.id), ['project', document.project_id]]) {
+        void queryClient.invalidateQueries({ queryKey })
+      }
+    },
+  })
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <Button icon={<ListChecks className="size-4" />} onClick={() => run.mutate()} disabled={run.isPending || held != null}>
+        Index the rest
+      </Button>
+      {held && <span className="max-w-xs text-muted">{held}</span>}
+      {run.isError && (
+        <span role="alert" className="max-w-xs text-bad">
+          {run.error.message}
+        </span>
       )}
     </div>
   )

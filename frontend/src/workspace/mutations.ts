@@ -15,6 +15,7 @@ import { Unreachable, api, isPlanLimit } from '../api.ts'
 import type { Document, Folder, PlanRefusal, UploadItem, UploadResult } from '../api.ts'
 import { ME_KEY } from '../auth.ts'
 import { useStatus } from '../hooks.ts'
+import { unfinishedStages } from '../indexing.ts'
 import { trashKey } from '../trash.ts'
 import { moved, renamed } from './changes.ts'
 import type { Change, MoveItems, TrashItems } from './changes.ts'
@@ -274,11 +275,19 @@ export function useLibraryMutations() {
   const reprocess = useMutation({
     mutationFn: (id: number) => api.reprocessDocument(id, 'parse'),
     onError: fail,
-    onSettled: (_data, _error, id) => invalidate(documentsKey, [...documentKey(id)]),
+    onSettled: (_data, _error, id) => invalidate(documentsKey, [...documentKey(id)], projectKey),
   })
 
-  const enrichAll = useMutation({
-    mutationFn: () => api.reprocessProject(projectId, 'enrich'),
+  // "Index the rest": a partly indexed document from the first stage it went without, keeping
+  // what it has; for the project, each of its partly indexed documents so (the server picks them).
+  const indexRest = useMutation({
+    mutationFn: (document: Document) => api.reprocessDocument(document.id, unfinishedStages(document)[0]),
+    onError: fail,
+    onSettled: (_data, _error, document) => invalidate(documentsKey, [...documentKey(document.id)], projectKey),
+  })
+
+  const indexProjectRest = useMutation({
+    mutationFn: () => api.reprocessProject(projectId),
     onError: fail,
     onSettled: () => invalidate(documentsKey, openKey, projectKey),
   })
@@ -303,7 +312,8 @@ export function useLibraryMutations() {
     uploadProgress: progress,
     stopUpload: () => sending.current?.abort(),
     reprocess,
-    enrichAll,
+    indexRest,
+    indexProjectRest,
   }
 }
 

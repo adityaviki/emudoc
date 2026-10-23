@@ -287,7 +287,10 @@ def test_a_flagged_upload_is_quarantined_and_nothing_of_it_is_served(
 
     # Running the project's documents again leaves it alone, and the job that scanned it is
     # done, not a dead letter: the verdict is the outcome, not a failure of the worker.
-    assert client.post(f"/api/projects/{project['id']}/reprocess").json() == {"queued": 1}
+    every = {"from_stage": "enrich"}
+    assert client.post(f"/api/projects/{project['id']}/reprocess", params=every).json() == {
+        "queued": 1
+    }
     assert session.scalars(text("SELECT status FROM jobs WHERE status = 'failed'")).all() == []
 
     # An editor deletes it, and the file goes with it once it is deleted from the trash.

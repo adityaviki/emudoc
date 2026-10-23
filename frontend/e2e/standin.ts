@@ -18,6 +18,14 @@ export async function releaseTurns(request: APIRequestContext) {
   expect200(await request.post(`${STANDIN}/release`))
 }
 
+/**
+ * Refuse the next embeddings request any of whose texts holds the word, which the app does not
+ * try again: the document it was for is left partly indexed, found by its words alone.
+ */
+export async function refuseEmbeddings(request: APIRequestContext, containing: string) {
+  expect200(await request.post(`${STANDIN}/refuse-embeddings`, { data: { containing } }))
+}
+
 function expect200(response: { ok(): boolean; url(): string; status(): number }) {
   if (!response.ok()) throw new Error(`${response.url()} answered ${response.status()}.`)
 }

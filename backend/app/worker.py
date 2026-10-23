@@ -78,6 +78,7 @@ from app.deadletters import alert_failed_jobs
 from app.errors import summary
 from app.export import abandon_export, make_export
 from app.indexing.pipeline import (
+    REQUIRED_STAGES,
     Services,
     StageFailure,
     await_retry,
@@ -164,7 +165,8 @@ CRASHED = "Indexing stopped unexpectedly. Try reprocessing."
 ENDED = ("done", "failed", "crashed", "abandoned")
 # How many times a stage that failed for a passing reason is run again, and how long the first
 # wait is; each wait is twice the one before, so four retries span a quarter of an hour. An
-# outage longer than that leaves the stage failed until the user presses "Index again".
+# outage longer than that leaves the stage failed until the user presses "Index again", or for
+# an optional stage "Index the rest".
 MAX_RETRIES = 4
 FIRST_BACKOFF = timedelta(minutes=1)
 
@@ -230,11 +232,13 @@ def _retry_index(job: Job, failure: StageFailure) -> str | None:
         if retry > MAX_RETRIES:
             tries = MAX_RETRIES + 1
             waited = FIRST_BACKOFF * (2**MAX_RETRIES - 1)
+            # A ready document keeps what it has, so its fix runs what is missing alone.
+            fix = "Index again" if failure.stage in REQUIRED_STAGES else "Index the rest"
             give_up_retrying(
                 document,
                 failure,
-                f'Tried {tries} times over {_minutes(waited)}; use "Index again" once the '
-                "service is back.",
+                f'Tried {tries} times over {_minutes(waited)}; use "{fix}" once the service is '
+                "back.",
             )
             session.commit()
             reason = (

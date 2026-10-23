@@ -7,11 +7,11 @@ import {
   FolderInput,
   FolderPlus,
   FolderUp,
+  ListChecks,
   MoreHorizontal,
   Pencil,
   RefreshCw,
   Search,
-  Sparkles,
   Trash2,
   Upload,
   WifiOff,
@@ -41,6 +41,7 @@ import { libraryPlace } from '../failures.ts'
 import { cursorAfter } from '../focus.ts'
 import { useFolders, useLocalStorage, useStatus } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
+import { partlyIndexedWords, restHeld, unfinishedStages } from '../indexing.ts'
 import { describeChange } from './changes.ts'
 import { chosenFolder, droppedEntries, readEntries } from './dropped.ts'
 import { fileKind, originalFileItem } from './files.ts'
@@ -159,8 +160,10 @@ export function Library() {
     if (accepted.length) uploadItems(accepted.map((file) => ({ file, folder: '' })), targetId)
   }
 
-  // Documents indexed before a model was configured can catch up in one go.
-  const waitingForModel = project.unenriched_count
+  // The partly indexed documents are indexed in full in one go, once the services their rest
+  // needs are back: the model for those without summaries and facts, the embeddings for all.
+  const partly = project.partly_indexed_count
+  const partlyHeld = restHeld(project.unenriched_count ? ['enrich', 'embed'] : ['embed'], health.data)
 
   if (workspace.url.library.trash) return <TrashView />
   return (
@@ -332,19 +335,24 @@ export function Library() {
             </div>
           </Notice>
         )}
-        {changes && health.data?.llm.available && waitingForModel > 0 && !query && (
+        {changes && partly > 0 && !query && (
           <Notice tone="info">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span>
-                {waitingForModel} document{waitingForModel === 1 ? ' has' : 's have'} no summaries or
-                facts yet.
-              </span>
+              <div>
+                <p>{partlyIndexedWords(partly, project.unenriched_count)}</p>
+                {partlyHeld && <p className="mt-0.5 text-xs text-muted">{partlyHeld}</p>}
+              </div>
               <Button
-                icon={<Sparkles className="size-4" />}
-                onClick={() => mutations.enrichAll.mutate()}
-                disabled={mutations.enrichAll.isPending}
+                icon={<ListChecks className="size-4" />}
+                // The notice goes once they are queued: the keyboard goes on from the tree.
+                onClick={() =>
+                  mutations.indexProjectRest.mutate(undefined, {
+                    onSuccess: () => window.document.querySelector<HTMLElement>('[role="tree"]')?.focus(),
+                  })
+                }
+                disabled={mutations.indexProjectRest.isPending || partlyHeld != null}
               >
-                Run the model on them
+                Index the rest
               </Button>
             </div>
           </Notice>
@@ -577,6 +585,8 @@ function Listing({
 }: ListingProps) {
   const workspace = useWorkspace()
   const queryClient = useQueryClient()
+  // Whether a partly indexed document's rest can run now (`restHeld`).
+  const health = useStatus()
   const { tree, project } = workspace
   const [openFolders, setOpenFolders] = useLocalStorage<number[]>(treeKey(project.id), [], isIdList)
   const openSet = new Set(openFolders)
@@ -729,10 +739,23 @@ function Listing({
     }
     const reading: MenuItem[] = [{ label: 'Open', onSelect: () => open(item) }, originalFileItem(item.document)]
     if (!changes) return reading
+    const unfinished = unfinishedStages(item.document)
+    // A partly indexed document runs what it went without, once the services for it are back.
+    const rest: MenuItem[] = unfinished.length
+      ? [
+          {
+            label: 'Index the rest',
+            icon: ListChecks,
+            disabled: restHeld(unfinished, health.data) != null,
+            onSelect: () => mutations.indexRest.mutate(item.document),
+          },
+        ]
+      : []
     return [
       ...reading,
       rename,
       moveTo,
+      ...rest,
       {
         // On a quarantined document this scans it again, for signatures that have changed.
         label: 'Index again',

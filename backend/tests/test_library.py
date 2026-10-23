@@ -130,18 +130,3 @@ def test_a_page_that_does_not_exist_is_refused(client):
         assert response.status_code == 422 and response.json()["detail"] == BAD_CURSOR, after
     assert client.get(url, params={"folder_id": elsewhere["id"]}).status_code == 404
     assert client.get(url, params={"limit": 0}).status_code == 422
-
-
-def test_a_project_counts_its_documents_that_wait_for_a_model(
-    client, services, session, sample_pdf, sample_docx
-):
-    project = create_project(client)
-    pdf, docx = upload(client, project["id"], sample_pdf, sample_docx)["documents"]
-    process_document(pdf["id"], services)
-    services.llm.available = False
-    process_document(docx["id"], services)
-
-    shown = client.get(f"/api/projects/{project['id']}").json()
-    assert (shown["document_count"], shown["unenriched_count"]) == (2, 1)
-    (listed,) = client.get("/api/projects").json()
-    assert (listed["document_count"], listed["unenriched_count"]) == (2, 1)
