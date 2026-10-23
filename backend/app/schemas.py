@@ -730,6 +730,81 @@ class RetryOut(BaseModel):
     last_event_id: int | None
 
 
+# How far a run of cross-checks is (app/check_runs.py), and its discrepancy report.
+RunStatus = Literal["queued", "running", "done", "failed"]
+ReportStatus = Literal["queued", "writing", "done", "failed"]
+
+
+class CheckRunIn(BaseModel):
+    """A run a member asks for: the project's cross-checks by id, or every one of them when
+    null, and whether the agent writes the discrepancy report once they are worked out."""
+
+    check_ids: list[int] | None = Field(default=None, min_length=1, max_length=100)
+    report: bool = False
+
+
+class CheckRunRuleOut(CrossCheckIn):
+    """A rule of a run as it was when the run was made: the cross-check's id (which may be gone
+    since), what it compares and the types of its fields, and once the run is worked out, why it
+    could not be or what it found by outcome."""
+
+    check_id: int
+    left_type: FactType | None
+    right_type: FactType | None
+    problem: str | None
+    counts: FindingCountsOut | None
+
+
+class CheckRunSummaryOut(BaseModel):
+    """A run as the project's list shows it: when, by whom (their name as it is now, None once
+    their account is gone), how far it and its report are, its rules' names and what they found
+    together."""
+
+    id: int
+    status: RunStatus
+    report_status: ReportStatus | None
+    run_by: str | None
+    titles: list[str]
+    counts: FindingCountsOut | None
+    created_at: dt.datetime
+    finished_at: dt.datetime | None
+
+
+class CheckRunOut(CheckRunSummaryOut):
+    """A run whole: its rules, why it failed, and its report, which cites the passages it was
+    shown as [P<id>], with what the report used."""
+
+    project_id: int
+    user_id: int | None
+    error: str | None
+    rules: list[CheckRunRuleOut]
+    report: str
+    report_sources: list[SourceOut]
+    report_notice: str | None
+    report_error: str | None
+    usage: dict[str, UsageOut]
+
+
+class CheckRunsOut(BaseModel):
+    """A page of the project's runs, newest first, and the id the next page starts before."""
+
+    runs: list[CheckRunSummaryOut]
+    next_before: int | None
+
+
+class RunFindingsOut(BaseModel):
+    """A page of what one rule of a run found, as it was found, those of one outcome or all,
+    differing first; and of the documents the page names, those deleted or in the trash since,
+    which cannot be opened."""
+
+    rule: CheckRunRuleOut
+    outcome: FindingOutcome | None
+    findings: list[FindingOut]
+    total: int
+    next_after: int | None
+    gone: list[int]
+
+
 # Enough to catch a typo; the verification email settles whether the address is real.
 EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 # NIST SP 800-63B: a minimum length and no composition rules; the routes refuse a breached

@@ -7,6 +7,7 @@ import pytest
 from pydantic_ai.messages import TextPart
 
 from app.answers import answer
+from app.check_runs import run_workflow
 from app.indexing.pipeline import process_document
 from tests.conftest import FakeTurn
 from tests.test_api import create_project, upload
@@ -21,7 +22,8 @@ Route = tuple[str, str, dict]
 @dataclass
 class World:
     """A project with a folder, an indexed document with a fact a member checked, the upload it came
-    in with, an extraction template of its own and a cross-check, and a chat holding one answered
+    in with, an extraction template of its own and a cross-check with a run of it, and a chat
+    holding one answered
     question, and in its trash a folder, a document and a chat; another project in the trash; an
     invitation to the organisation and an API key of it, all made by the local owner in the local
     organisation, and another member of it. The extraction templates are on for every
@@ -48,6 +50,7 @@ class World:
     fact_id: int
     check_id: int
     cross_check_id: int
+    run_id: int
 
 
 @pytest.fixture
@@ -78,6 +81,8 @@ def world(client, services, sample_pdf, account, make_account, monkeypatch) -> W
     fact = client.get(f"/api/documents/{document['id']}/facts").json()[0]
     checked = client.put(f"/api/facts/{fact['id']}/check", json={}).json()
     cross_check = client.post(f"/api/projects/{project['id']}/cross-checks", json=CROSS_CHECK)
+    checked_run = client.post(f"/api/projects/{project['id']}/check-runs", json={}).json()
+    run_workflow(checked_run["id"], services)
     for path in (
         f"/api/folders/{trashed_folder['id']}",
         f"/api/documents/{note['id']}",
@@ -106,6 +111,7 @@ def world(client, services, sample_pdf, account, make_account, monkeypatch) -> W
         fact["id"],
         checked["check"]["id"],
         cross_check.json()["id"],
+        checked_run["id"],
     )
 
 
@@ -131,6 +137,9 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/projects/{w.project_id}/fact-changes", {"params": {"kind": "invoice"}}),
         ("GET", f"/api/projects/{w.project_id}/cross-checks", {}),
         ("GET", f"/api/cross-checks/{w.cross_check_id}/findings", {}),
+        ("GET", f"/api/projects/{w.project_id}/check-runs", {}),
+        ("GET", f"/api/check-runs/{w.run_id}", {}),
+        ("GET", f"/api/check-runs/{w.run_id}/findings", {"params": {"rule": 0}}),
         ("GET", f"/api/documents/{w.document_id}", {}),
         ("GET", f"/api/documents/{w.document_id}/file", {}),
         ("GET", f"/api/documents/{w.document_id}/pages/1.png", {}),
@@ -166,6 +175,8 @@ def writes(w: World) -> list[Route]:
         ("PUT", f"/api/templates/{w.template_id}", {"json": INVOICE}),
         ("POST", f"/api/projects/{w.project_id}/cross-checks", {"json": CROSS_CHECK}),
         ("PUT", f"/api/cross-checks/{w.cross_check_id}", {"json": CROSS_CHECK}),
+        ("POST", f"/api/projects/{w.project_id}/check-runs", {"json": {}}),
+        ("POST", f"/api/check-runs/{w.run_id}/report", {}),
         ("PUT", f"/api/facts/{w.fact_id}/check", {"json": {"value": "120 days"}}),
         (
             "POST",
@@ -176,6 +187,7 @@ def writes(w: World) -> list[Route]:
         ("PATCH", f"/api/documents/{w.document_id}", {"json": {"filename": "renamed.pdf"}}),
         ("POST", f"/api/documents/{w.document_id}/reprocess", {}),
         ("DELETE", f"/api/fact-checks/{w.check_id}", {}),
+        ("DELETE", f"/api/check-runs/{w.run_id}", {}),
         ("DELETE", f"/api/cross-checks/{w.cross_check_id}", {}),
         ("DELETE", f"/api/templates/{w.template_id}", {}),
         ("DELETE", f"/api/folders/{w.folder_id}", {}),

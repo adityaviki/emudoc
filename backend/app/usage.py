@@ -11,9 +11,12 @@ one a question, by the ask route in app/api/chats.py, with no reference: it is w
 counts, and it stays when its chat is deleted), what an upload brought in (`upload`: its
 bytes, by the request in app/api/documents.py, and its pages, by the first parse), the model
 calls of the indexing stages (`ocr` with the pages it read, `infer_sections`, `enrich`), the
-texts embedded (`embed`, with the tokens the endpoint says they took) and the pages rendered
+texts embedded (`embed`, with the tokens the endpoint says they took), the pages rendered
 for the viewer (`render`: the member's by app/api/documents.py, the organisation's for a PDF's
-first pages drawn ahead by app/rendering.py).
+first pages drawn ahead by app/rendering.py), and the model calls of a discrepancy report the
+agent writes from a run of cross-checks (`report`, by app/check_runs.py), whose asking counts as
+a question (`answer` in `questions`, by app/api/check_runs.py), what the plan holds the agent's
+runs to.
 
 The code that spent something records it, from what it counted, when its work ends however it
 ends: a stop, a lost lease or a crash ends an answer's run too, and the calls it made were
@@ -28,10 +31,10 @@ settings list per model (MODEL_PRICES, app/config.py), for the tokens a model to
 gave out, an embedding model's included; a row for a model without a price, or for a unit that
 is not tokens, has none.
 
-The message or document a row was for shows what it used: `ChatMessage.usage` and
-`Document.usage` (app/models.py) hold the rows for the row, by kind, each unit summed over
-every run, the model the latest row named, and the cost summed when any row has one. `record`
-adds to it as it adds the rows, in the same transaction, so the two never drift apart.
+The message, document or run a row was for shows what it used: `ChatMessage.usage`,
+`Document.usage` and `WorkflowRun.usage` (app/models.py) hold the rows for the row, by kind, each
+unit summed over every run, the model the latest row named, and the cost summed when any row has
+one. `record` adds to it as it adds the rows, in the same transaction, so the two never drift apart.
 
 `daily` is the rollup: an organisation's quantities and costs per day in UTC, by kind and
 unit, which is what a quota or an invoice reads. It is a query over the events, which is
@@ -58,7 +61,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import ChatMessage, Document, UsageEvent
+from app.models import ChatMessage, Document, UsageEvent, WorkflowRun
 
 USAGE_COMMAND = "uv run python -m app.maintenance usage"
 # The kinds the app records, and what it records them for.
@@ -69,10 +72,12 @@ INFER_SECTIONS = "infer_sections"
 ENRICH = "enrich"
 EMBED = "embed"
 RENDER = "render"
+REPORT = "report"
 CHAT_MESSAGE = "chat_message"
 DOCUMENT = "document"
+WORKFLOW_RUN = "workflow_run"
 # The row a reference names, which carries the usage recorded for it.
-_REFERENCED = {CHAT_MESSAGE: ChatMessage, DOCUMENT: Document}
+_REFERENCED = {CHAT_MESSAGE: ChatMessage, DOCUMENT: Document, WORKFLOW_RUN: WorkflowRun}
 
 _DAILY = text(
     """
@@ -382,7 +387,7 @@ def add(usage: Mapping[str, Mapping[str, Any]], rows: Iterable[UsageEvent]) -> d
 
 
 def _keep(session: Session, ref: tuple[str, int], rows: Iterable[UsageEvent]) -> None:
-    """Add the rows to the usage the message or document they were for shows."""
+    """Add the rows to the usage the message, document or run they were for shows."""
     ref_type, ref_id = ref
     # Read again under the row's lock: the object the session holds may be behind the row (a
     # page rendered while the stage ran, the run that was lost charging beside this one), and

@@ -26,7 +26,6 @@ from app.api.deps import (
     flagged,
     limited,
 )
-from app.api.documents import fact_out
 from app.audit import audit
 from app.cross_checks import (
     MAX_CROSS_CHECKS,
@@ -41,6 +40,7 @@ from app.cross_checks import (
     suggestions_for,
 )
 from app.extraction import Template, kind_of, templates_for
+from app.fact_checks import fact_out
 from app.flags import EXTRACTION_TEMPLATES
 from app.indexing.enrich import normalize_fact_name
 from app.models import CrossCheck, Document, Fact, Project

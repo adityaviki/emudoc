@@ -83,6 +83,9 @@ def run_agent(
     project_id: int,
     messages: list[dict[str, str]],
     usage: ModelUsage | None = None,
+    *,
+    task: str | None = None,
+    sources: dict[int, dict[str, Any]] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Run one user turn to completion, yielding events for the client as it goes.
 
@@ -95,6 +98,10 @@ def run_agent(
     `usage` is filled with each model call as it is answered, so a caller that leaves the
     loop before its `done` event still knows what the calls so far cost (app/usage.py); one
     that leaves mid-turn closes the loop first, which counts the call it was in.
+
+    `task` is a piece of work other than a member's question (a discrepancy report,
+    app/check_runs.py), said after the system prompt; `sources` are the passages its input
+    shows the model, which it may cite from the start, as it may those its tools return.
     """
     if usage is None:
         usage = ModelUsage()
@@ -107,11 +114,12 @@ def run_agent(
             # cannot move it; the label tells the model which zone the date is in.
             + f"\nToday's date (UTC): {datetime.now(UTC).date().isoformat()}"
             + answer_language(project.organization)
+            + (f"\n\n{task}" if task else "")
         )
     tools = [tool.definition() for tool in TOOLS.values()]
     conversation: list[ModelMessage] = [_chat_message(message) for message in messages]
     # Passages shown to the model so far, keyed by id: the only references an answer may cite.
-    sources: dict[int, dict[str, Any]] = {}
+    sources = dict(sources or {})
     retries = 0
     turns = 0
     max_turns = get_settings().agent_max_turns

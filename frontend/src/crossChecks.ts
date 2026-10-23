@@ -91,6 +91,14 @@ export function countsWords(counts: FindingCounts): string {
 /** Each outcome as the findings' filter and chips name it. */
 export const OUTCOMES: Record<FindingOutcome, string> = { differs: 'Differs', missing: 'Missing', holds: 'Holds' }
 
+/** The outcomes a list of findings is filtered by, all first. */
+export const OUTCOME_CHOICES: { value: FindingOutcome | 'all'; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'differs', label: OUTCOMES.differs },
+  { value: 'missing', label: OUTCOMES.missing },
+  { value: 'holds', label: OUTCOMES.holds },
+]
+
 /** The documents a value was compared against, by name: one, two, or the first two and how many more. */
 export function partnersWords(partners: { title: string }[]): string {
   const titles = partners.map((partner) => partner.title)

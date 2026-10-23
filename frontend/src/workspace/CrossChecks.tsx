@@ -1,13 +1,14 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, CircleAlert, CircleCheck, CircleHelp, ListChecks, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ListChecks, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { api, mayChange } from '../api.ts'
-import type { CrossCheck, CrossCheckSuggestion, ExtractionTemplate, Fact, Finding, FindingOutcome } from '../api.ts'
+import type { CrossCheck, CrossCheckSuggestion, ExtractionTemplate, FindingOutcome } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { Confirm } from '../components/Confirm.tsx'
 import { Button, Checkbox, EmptyState, IconButton, InputField, Loading, Notice, Radio, Segmented, SelectField } from '../components/ui.tsx'
 import {
   OUTCOMES,
+  OUTCOME_CHOICES,
   checkSentence,
   comparisonsFor,
   countsWords,
@@ -16,7 +17,6 @@ import {
   draftOf,
   draftProblem,
   fieldType,
-  findingWords,
   findingsKey,
   fitted,
   inputOf,
@@ -24,9 +24,11 @@ import {
   suggestionInput,
   wordedDraft,
 } from '../crossChecks.ts'
-import type { CheckDraft, Worded } from '../crossChecks.ts'
-import { fieldWords, quoteWords, sourceOf } from '../factTable.ts'
+import type { CheckDraft } from '../crossChecks.ts'
+import { fieldWords, sourceOf } from '../factTable.ts'
 import { templatesKey } from '../templates.ts'
+import { RunsSection } from './CheckRuns.tsx'
+import { FindingItem } from './Findings.tsx'
 import { useWorkspace } from './state.ts'
 
 /** What the form is open on: a new rule, or one of those listed. */
@@ -181,6 +183,7 @@ export function CrossChecksView() {
                 ))}
               </ul>
             )}
+            {listed.length > 0 && <RunsSection runnable={listed.some((check) => !check.problem)} changes={changes} />}
             {suggested.length > 0 && (
               <section aria-labelledby="suggested-checks" className="space-y-2 pt-2">
                 <h3 id="suggested-checks" className="text-xs font-semibold text-muted">
@@ -437,13 +440,6 @@ function CheckForm({
   )
 }
 
-const SHOWN: { value: FindingOutcome | 'all'; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'differs', label: OUTCOMES.differs },
-  { value: 'missing', label: OUTCOMES.missing },
-  { value: 'holds', label: OUTCOMES.holds },
-]
-
 /**
  * What a cross-check finds now, in the library's place: a value of each document it checks
  * with the values it was compared with, each opening its document where it is written, those
@@ -488,7 +484,7 @@ export function FindingsView({ checkId }: { checkId: number }) {
             <Segmented
               value={shown}
               onChange={setShown}
-              options={SHOWN.map((option) => ({
+              options={OUTCOME_CHOICES.map((option) => ({
                 ...option,
                 label: `${option.label} ${option.value === 'all' ? counts.differs + counts.missing + counts.holds : counts[option.value]}`,
               }))}
@@ -518,64 +514,6 @@ export function FindingsView({ checkId }: { checkId: number }) {
           </Button>
         )}
       </div>
-    </div>
-  )
-}
-
-const MARKS: Record<FindingOutcome, { icon: typeof CircleAlert; tone: string }> = {
-  differs: { icon: CircleAlert, tone: 'text-bad' },
-  missing: { icon: CircleHelp, tone: 'text-warn' },
-  holds: { icon: CircleCheck, tone: 'text-good' },
-}
-
-function FindingItem({ finding, check, onOpen }: { finding: Finding; check: Worded; onOpen: (documentId: number, fact: Fact | null) => void }) {
-  const mark = MARKS[finding.outcome]
-  return (
-    <li className="rounded-md border border-line bg-surface px-3 py-2">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-2">
-        <button type="button" onClick={() => onOpen(finding.document_id, null)} className="min-w-0 truncate text-left text-[13px] font-medium hover:underline">
-          {finding.title}
-        </button>
-        <span className="flex shrink-0 items-center gap-1 text-xs text-ink">
-          <mark.icon aria-hidden className={`size-3.5 ${mark.tone}`} />
-          {OUTCOMES[finding.outcome]}
-        </span>
-      </div>
-      <p className="text-xs text-ink">{findingWords(finding, check)}</p>
-      {(finding.left || finding.right.length > 0) && (
-        <dl className="mt-1.5 space-y-1.5">
-          {finding.left && <Side label={fieldWords(check.left_field)} fact={finding.left} onOpen={onOpen} />}
-          {finding.right.map((fact) => (
-            <Side
-              key={fact.id}
-              label={check.pairing === 'same' ? fieldWords(check.right_field) : `${fieldWords(check.right_field)}, ${fact.document_title}`}
-              fact={fact}
-              onOpen={onOpen}
-            />
-          ))}
-        </dl>
-      )}
-    </li>
-  )
-}
-
-/** A value compared, opening its document where it is written, and where that is. */
-function Side({ label, fact, onOpen }: { label: string; fact: Fact; onOpen: (documentId: number, fact: Fact | null) => void }) {
-  return (
-    <div className="text-xs leading-snug">
-      <dt className="text-muted">{label}</dt>
-      <dd>
-        <button
-          type="button"
-          onClick={() => onOpen(fact.document_id, fact)}
-          title={`Open ${fact.document_title} where it says so`}
-          className="text-left font-medium break-words text-ink underline decoration-dotted underline-offset-2 hover:decoration-solid"
-        >
-          {fact.value}
-        </button>
-        {fact.check && <span className="text-muted"> · {fact.check.corrected_from != null ? 'corrected' : 'checked'}</span>}
-      </dd>
-      <dd className="break-words text-muted">{quoteWords(fact)}</dd>
     </div>
   )
 }

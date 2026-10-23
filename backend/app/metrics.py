@@ -65,6 +65,7 @@ from app.jobs import (
     JOB_STATES,
     QUEUE_BY_STATE,
     RENDER_PAGES,
+    RUN_WORKFLOW,
     SEND_EMAIL,
 )
 from app.models import STAGES
@@ -92,7 +93,15 @@ NO_ROUTE = "other"
 # first one.
 DOCUMENT_STATUSES = ("queued", "processing", "ready", "failed", "quarantined", "trashed")
 # The kinds of job the worker runs (HANDLERS in app/worker.py), whose series start at zero.
-JOBS = (INDEX_DOCUMENT, ANSWER_QUESTION, RENDER_PAGES, SEND_EMAIL, APPLY_LANGUAGE, EXPORT_PROJECT)
+JOBS = (
+    INDEX_DOCUMENT,
+    ANSWER_QUESTION,
+    RENDER_PAGES,
+    SEND_EMAIL,
+    APPLY_LANGUAGE,
+    EXPORT_PROJECT,
+    RUN_WORKFLOW,
+)
 # What a lane of the worker's threads runs (app/worker.py).
 INDEXER = "indexer"
 ANSWERER = "answerer"

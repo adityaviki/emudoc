@@ -165,6 +165,20 @@ much, and the values on both sides, each opening its document where it is writte
 change the project makes, changes and deletes the rules, each a row of the audit log naming the
 kinds and fields, never a value.
 
+Under the rules, "Run the checks" works them all out now and keeps what they found
+(`backend/app/check_runs.py`, `POST /api/projects/{id}/check-runs`): a run holds the rules as
+they were and each finding as it was found, so it reads the same after the documents are read
+again or the rules change, and lists the documents deleted since. The background worker works it
+out, and with "With a discrepancy report by the model" checked, or later from the run, the agent
+writes a report from its findings, the code's words handed to it with the passages each value
+came from, which it cites as an answer does (`POST /api/check-runs/{id}/report`); asking for one
+counts as one of the month's questions, and is held to the day's spending as a question is. The
+runs are listed newest first under the rules, each opening its rules' findings, its report and
+what the report used (`GET /api/projects/{id}/check-runs`, `GET /api/check-runs/{id}`, `GET
+/api/check-runs/{id}/findings`). Whoever may change the project runs the checks, asks for a
+report and deletes a run, each a row of the audit log naming the rules, never a value; a run is
+kept as long as a chat.
+
 A project can hold any number of chats. Each one is saved with its answers, including the
 steps the agent took and the passages it was shown, so a chat can be reopened later. An answer
 is written by the background worker, not by the request that asked the question: the question

@@ -29,10 +29,12 @@ import { gzipSync } from 'node:zlib'
 // cell's checks and corrections (241.5 kB), and 246 kB the same day by what a template's change
 // did once its documents were read again (243.0 kB): the view of each reading's changes, and
 // 252 kB the same day by the cross-checks (249.3 kB): the rules that compare one kind's facts with
-// another's, the form that writes one with its sentence, and the view of what each finds.
+// another's, the form that writes one with its sentence, and the view of what each finds, and
+// 256 kB the same day by the runs of them (252.3 kB): the runs' list, the view of a run with what
+// each rule found as it was found, and the model's discrepancy report with its citations.
 // A change that passes it makes the scripts smaller (a dependency left out, a page loaded only
 // when it is opened) or raises this number, saying why in its commit.
-const BUDGET = 252_000
+const BUDGET = 256_000
 // The operator's area (operator.html), a build of its own that only operators are sent: React
 // and the rest again, 102.0 kB on 2026-10-21. Its size costs no member anything, so its budget
 // only catches a dependency pulled in by mistake.

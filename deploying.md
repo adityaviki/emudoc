@@ -1681,6 +1681,10 @@ every six hours), and so what the privacy notice can promise:
   ends the hold, another move down holds the longer of the two for 30 days from then). The
   `plan` command prints a hold that stands. A chat in the trash goes at whichever comes
   first, this or the trash's 30 days.
+- **Runs of cross-checks** (`workflow_runs`, with their findings and reports,
+  `backend/app/check_runs.py`) go as a chat would, counted from when the run was made
+  (`prune_runs` in `backend/app/retention.py`), never one the worker is still working out or
+  writing a report for.
 - **The trash**: a project, folder, document or chat a member deleted goes for good, rows and
   files, 30 days after it was deleted (`TRASH_DAYS` in `backend/app/trash.py`, `purge_trash` in
   the housekeeping round), unless a member restores it or deletes it for good there first. Its

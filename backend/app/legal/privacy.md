@@ -33,8 +33,10 @@ organisation uploaded a document about you, ask the organisation first; we help 
   your account secure, which is our legitimate interest.
 - **What you upload and ask**: the documents, what is read from them (their text, images of
   their pages, summaries, facts and the search index), the facts you checked or corrected with
-  when, which your organisation's members see beside your name, and your chats with their
-  questions and answers. We need them to provide the service.
+  when, which your organisation's members see beside your name, your chats with their
+  questions and answers, and the runs of a project's cross-checks you made, with the values
+  they compared and the reports the model wrote from them. We need them to provide the
+  service.
 - **Invitations**: the email address a member of an organisation invited to join it, the role
   offered and who sent it, to mail the invitation and let whoever holds the address join; the
   organisation's owners and admins see it until it is accepted or revoked. We need it to
@@ -120,6 +122,9 @@ $region
   a project go when you leave the organisation or an owner or admin removes you from it. After
   a move to a plan or terms that keep chats for less time, they are kept as before for
   $held_days days after the move, unless the organisation chose less.
+- **Runs of cross-checks**, with what they found and their reports, for as long as the
+  organisation keeps a chat, counted from when the run was made, unless a member deletes them
+  sooner.
 - **Audit log entries**, for as long as the organisation's plan keeps them
   ($audit_retention), or the terms agreed with the organisation in its place; after a move to
   a plan or terms that keep them for less time, as before for $held_days days after the move.

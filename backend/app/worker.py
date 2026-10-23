@@ -7,7 +7,8 @@ API: the API replicas serve requests while as many workers as the backlog needs 
 and answer questions. A worker starts like the API does (app/startup.py) and claims the kinds
 of job it has a handler for (`HANDLERS`), in two lanes: WORKER_CONCURRENCY indexer threads for
 the documents (and for a PDF's first pages, drawn ahead once it is parsed, app/rendering.py),
-and ANSWER_CONCURRENCY answerer threads for the questions (app/answers.py), so that a backlog
+and ANSWER_CONCURRENCY answerer threads for the questions (app/answers.py) and the runs of
+cross-checks with their reports (app/check_runs.py), so that a backlog
 of parses never holds an answer up and the other way round. An indexer spends most of a
 document waiting on the model, so they are many, and only PARSE_CONCURRENCY of them run a
 parse, the part that takes memory, at once (`ParseSlots` in app/indexing/pipeline.py). The
@@ -77,6 +78,7 @@ from sqlalchemy import text
 
 from app.answers import abandon_answer, run_answer
 from app.bounces import read_ses_events
+from app.check_runs import abandon_run, run_workflow
 from app.config import MAIL_THREADS, Settings, get_settings
 from app.db import SessionLocal, connection_lost
 from app.deadletters import alert_failed_jobs
@@ -97,6 +99,7 @@ from app.jobs import (
     INDEX_DOCUMENT,
     LEASE,
     RENDER_PAGES,
+    RUN_WORKFLOW,
     SEEN_WITHIN,
     SEND_EMAIL,
     Lease,
@@ -335,6 +338,14 @@ def _run_language(job: Job, services: Services) -> str | None:
     return None
 
 
+def _run_workflow(job: Job, services: Services) -> str | None:
+    return run_workflow(job.payload["run_id"], services, Lease(job.id, job.worker_id))
+
+
+def _abandon_workflow(job: Job, services: Services) -> None:
+    abandon_run(job.payload["run_id"], job.max_attempts)
+
+
 def _abandon_language(job: Job, services: Services) -> None:
     # The passages not moved yet are searched in the language they have, as before the change;
     # the next change of language, or indexing a document again, moves them.
@@ -342,8 +353,9 @@ def _abandon_language(job: Job, services: Services) -> None:
 
 
 # The kinds this worker runs. A kind in JOB_KINDS that is missing here is left in the queue for
-# a worker that has it. The answers and the mail have a lane of threads each (`LANE_KINDS`);
-# every other kind shares the indexers.
+# a worker that has it. The answers and the mail have a lane of threads each (`LANE_KINDS`),
+# the runs of cross-checks the answers', since a member waits for them and their reports are
+# the agent's; every other kind shares the indexers.
 HANDLERS: dict[str, Handler] = {
     INDEX_DOCUMENT: Handler(_run_index, _abandon_index, after_index),
     ANSWER_QUESTION: Handler(run_answer, abandon_answer),
@@ -351,8 +363,9 @@ HANDLERS: dict[str, Handler] = {
     SEND_EMAIL: Handler(run_email, abandon_email),
     APPLY_LANGUAGE: Handler(_run_language, _abandon_language),
     EXPORT_PROJECT: Handler(_run_export, _abandon_export),
+    RUN_WORKFLOW: Handler(_run_workflow, _abandon_workflow),
 }
-LANE_KINDS = {ANSWERER: [ANSWER_QUESTION], MAILER: [SEND_EMAIL]}
+LANE_KINDS = {ANSWERER: [ANSWER_QUESTION, RUN_WORKFLOW], MAILER: [SEND_EMAIL]}
 
 
 class Worker:

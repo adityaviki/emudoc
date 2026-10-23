@@ -90,6 +90,9 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   cross_check_created: ['Made a cross-check', 'files'],
   cross_check_changed: ['Changed a cross-check', 'files'],
   cross_check_deleted: ['Deleted a cross-check', 'files'],
+  cross_checks_run: ['Ran cross-checks', 'files'],
+  check_report_requested: ['Asked for a discrepancy report', 'files'],
+  check_run_deleted: ['Deleted a run of cross-checks', 'files'],
   project_deleted: ['Deleted a project', 'files'],
   project_restored: ['Restored a project', 'files'],
   project_purged: ['Deleted a project for good', 'files'],
@@ -171,6 +174,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   else if (TEMPLATE_ACTIONS.has(event.action)) parts.push(describeTemplate(event.action, detail))
   else if (event.action === 'facts_exported') parts.push(describeFactsExport(detail))
   else if (CROSS_CHECK_ACTIONS.has(event.action)) parts.push(describeCrossCheck(detail))
+  else if (RUN_ACTIONS.has(event.action)) parts.push(describeRun(detail))
   else if ('to' in detail) parts.push(`${word(detail.from)} → ${word(detail.to)}`)
   else if ('from' in detail) parts.push(`was ${word(detail.from)}`)
   if (typeof detail.role === 'string' && !('to' in detail)) parts.push(word(detail.role))
@@ -270,6 +274,16 @@ function describeCrossCheck(detail: AuditEvent['detail']): string {
   if (Array.isArray(detail.changed) && detail.changed.length > 0) {
     parts.push(`changed ${detail.changed.map((part) => CROSS_CHECK_PARTS[String(part)] ?? String(part)).join(', ')}`)
   }
+  return parts.join(', ')
+}
+
+const RUN_ACTIONS = new Set<AuditAction>(['cross_checks_run', 'check_report_requested', 'check_run_deleted'])
+
+/** A run of a project's cross-checks made, its report asked for or the run deleted: the rules it ran, by their names, never what they found. */
+function describeRun(detail: AuditEvent['detail']): string {
+  const names = Array.isArray(detail.names) ? detail.names.map(String) : []
+  const parts = [names.length === 1 ? names[0] : `${names.length} cross-checks: ${names.join(', ')}`]
+  if (detail.report === true) parts.push('with a discrepancy report')
   return parts.join(', ')
 }
 

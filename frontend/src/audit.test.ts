@@ -118,6 +118,11 @@ describe('a row', () => {
     expect(describeDetail(event('cross_check_changed', { ...rule, changed: ['title', 'comparison'] }))).toBe(
       'Prices · invoice unit price against price list unit price, changed its name, the comparison',
     )
+    // A run of cross-checks: the rules it ran by their names, and whether a report was asked for.
+    expect(describeDetail(event('cross_checks_run', { names: ['Prices', 'Totals'], report: true }))).toBe(
+      '2 cross-checks: Prices, Totals, with a discrepancy report',
+    )
+    expect(describeDetail(event('check_report_requested', { names: ['Prices'] }))).toBe('Prices')
     // A fact checked or corrected: the document and the field, never what it says.
     expect(describeDetail(event('fact_corrected', { filename: 'acme-10.pdf', field: 'total_amount' }))).toBe('acme-10.pdf · total amount')
     // A member's leave for support, support's view of their account, and what was done in it.

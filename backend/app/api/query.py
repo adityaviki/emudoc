@@ -7,8 +7,8 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, or_, select
 
 from app.api.deps import ProjectDep, ServicesDep, SessionDep, limited
-from app.api.documents import fact_out
 from app.api.folders import resolve_folder, subtree_ids
+from app.fact_checks import fact_out
 from app.models import Document, Fact
 from app.ratelimit import SEARCHES
 from app.schemas import FactList, FactName, SearchHitOut, SearchOut, SnippetSegment

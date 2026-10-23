@@ -22,6 +22,7 @@ from app.api import (
     auth,
     billing,
     chats,
+    check_runs,
     cross_checks,
     documents,
     exports,
@@ -441,6 +442,7 @@ KEYED = (
     trash.router,
     templates.router,
     cross_checks.router,
+    check_runs.router,
 )
 
 

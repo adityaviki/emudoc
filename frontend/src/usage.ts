@@ -1,4 +1,4 @@
-// What a document or an answer used, put into words (DocumentTab and ChatPane show it).
+// What a document, an answer or a run's report used, put into words (DocumentTab, ChatPane and RunView show it).
 
 import type { Usage, UsageKind } from './api.ts'
 
@@ -10,6 +10,7 @@ export const USAGE_LABELS: Record<UsageKind, string> = {
   enrich: 'Summaries and facts',
   embed: 'Embeddings',
   render: 'Page renders',
+  report: 'Discrepancy report',
 }
 
 // The order the kinds happen to a document in.

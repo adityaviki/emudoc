@@ -36,7 +36,6 @@ from app.api.deps import (
     flagged,
     limited,
 )
-from app.api.documents import fact_out
 from app.audit import audit
 from app.extraction import (
     BUILT_IN_TYPES,
@@ -53,7 +52,7 @@ from app.fact_changes import (
     of_kind,
     read_changes,
 )
-from app.fact_checks import FACT_GONE, CheckRefused, check_out, written
+from app.fact_checks import FACT_GONE, CheckRefused, check_out, fact_out, written
 from app.fact_export import MEDIA_TYPES, ExportFormat, csv_file, read_out, workbook_file
 from app.fact_table import Ask, TableRefusal, condition_of, read_table
 from app.flags import EXTRACTION_TEMPLATES
@@ -310,12 +309,14 @@ def fact_changes(
     if not doc_type:
         raise HTTPException(422, "Name the kind of document whose readings to list.")
     template = next((t for t in templates_for(session, project.id) if t.doc_type == doc_type), None)
+    # What is still being read is read first: a reading commits its row with its stage's end, so
+    # one that ends between these statements leaves `reading` saying so, and the page asks again,
+    # where read after the counts it would say none is, beside counts that missed it.
+    counts = _kinds(session, project.id).get(doc_type, _NONE)
     try:
         readings = read_changes(session, project.id, doc_type, after, limit)
     except ChangesRefusal as refusal:
         raise HTTPException(422, str(refusal)) from None
-    kinds = _kinds(session, project.id)
-    counts = kinds.get(doc_type, _NONE)
     updated_at = (
         session.scalar(
             select(ExtractionTemplate.updated_at).where(ExtractionTemplate.id == template.id)

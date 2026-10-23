@@ -20,9 +20,9 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.db import MIGRATION_LOCK
-from app.models import Fact, FactCheck
+from app.models import Document, Fact, FactCheck
 from app.parsing.types import clean_text
-from app.schemas import FactCheckOut
+from app.schemas import FactCheckOut, FactOut
 
 # The longest value a member may write, as long as the stage keeps one.
 MAX_VALUE_CHARS = 2000
@@ -231,6 +231,27 @@ def unheld(session: Session, document_ids: Sequence[int], names: Sequence[str]) 
             )
             .order_by(FactCheck.document_id, FactCheck.checked_at, FactCheck.id)
         )
+    )
+
+
+def fact_out(fact: Fact, document: Document) -> FactOut:
+    """A fact as the pages show it, with its document's name and a member's check."""
+    return FactOut(
+        id=fact.id,
+        document_id=fact.document_id,
+        document_title=document.display_title,
+        name=fact.name,
+        value_type=fact.value_type,
+        value=fact.value,
+        number=fact.number,
+        date=fact.date,
+        currency=fact.currency,
+        quote=fact.quote,
+        page=fact.page,
+        block_ordinal=fact.block_ordinal,
+        passage_id=fact.passage_id,
+        verified=fact.verified,
+        check=check_out(fact.check) if fact.check is not None else None,
     )
 
 

@@ -60,6 +60,8 @@ export interface Workspace {
   showChecks(): void
   /** Shows what one of the project's cross-checks finds in the library, likewise. */
   showFindings(checkId: number): void
+  /** Shows a run of the project's cross-checks, kept with what it found, in the library, likewise. */
+  showRun(runId: number): void
   openChat(chatId: number | 'new' | null, options?: { replace?: boolean }): void
   /** Which pane shows on a narrow screen, where only one fits. */
   mobilePane: Pane

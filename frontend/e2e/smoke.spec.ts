@@ -1062,4 +1062,42 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
       'invoice total amount against purchase order total amount',
     )
   })
+
+  await test.step('run the cross-checks with a discrepancy report, the run keeping what each found and the report citing where it is written', async () => {
+    await page.goto('/')
+    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
+    await page.getByRole('button', { name: 'Cross-checks' }).click()
+    const runs = page.getByRole('region', { name: 'Runs' })
+    await expect(runs).toContainText('No runs yet.')
+    await runs.getByLabel('With a discrepancy report by the model').check()
+    await runs.getByRole('button', { name: 'Run the checks' }).click()
+
+    // The run opens in the library's place, where the worker works it out and the model writes its report.
+    await expect(page.getByRole('heading', { name: /^Run of / })).toBeFocused()
+    const report = page.getByRole('region', { name: 'Discrepancy report' })
+    const chip = report.getByRole('button', { name: '1', exact: true })
+    await expect(chip).toBeVisible({ timeout: 30_000 })
+    await expect(report).toContainText('Written by the model from what the run found')
+    const ran = page.getByRole('list', { name: 'Cross-checks run' })
+    const total = ran.getByRole('listitem').filter({ hasText: 'Total within its purchase order' })
+    await expect(total).toContainText('1 differs · 0 miss a value · 0 hold')
+    await total.getByRole('button', { name: 'What it found: Total within its purchase order' }).click()
+    await expect(total.getByRole('list', { name: 'Findings of Total within its purchase order' })).toContainText(
+      '5 EUR more than purchase-order.md.',
+    )
+    await expectAccessible(page, 'a run of the cross-checks')
+
+    // The report's citation opens the passage it cites; the run is listed under the rules with its report.
+    await chip.click()
+    await expect(page).toHaveURL(/\/documents\/\d+\?(.*&)?passage=\d+/)
+    await page.getByRole('button', { name: 'Back to the cross-checks' }).click()
+    await expect(page.getByRole('list', { name: 'Runs' }).getByRole('listitem')).toContainText('Report written')
+
+    // The run is the organisation's to ask about, by the rules it ran.
+    await page.goto('/organization/audit')
+    await page.getByLabel('What').selectOption('cross_checks_run')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Ran cross-checks' })).toContainText(
+      '2 cross-checks: Issued after its order, Total within its purchase order, with a discrepancy report',
+    )
+  })
 })

@@ -176,10 +176,10 @@ def ask(
         raise HTTPException(409, STILL_ANSWERING)
     # The count is taken before the question is saved, or a refused question would sit in the
     # chat with no answer.
-    _refuse_past_answers_in_flight(session, account, chat)
+    refuse_past_answers_in_flight(session, account, f"A question in chat {chat.id}")
     if refusal := check_question(session, account.organization):
         raise PlanRefused(refusal)
-    _refuse_past_spending(session, account, chat)
+    refuse_past_spending(session, account, f"A question in chat {chat.id}")
     if not chat.title:
         chat.title = _title(question)
     chat.updated_at = func.now()
@@ -266,8 +266,8 @@ def retry(chat: OwnChatDep, message_id: int, session: SessionDep, account: Accou
         raise HTTPException(409, FINISHED)
     if chat.messages[-1].id != message.id:
         raise HTTPException(409, NOT_THE_LAST)
-    _refuse_past_answers_in_flight(session, account, chat)
-    _refuse_past_spending(session, account, chat)
+    refuse_past_answers_in_flight(session, account, f"A question in chat {chat.id}")
+    refuse_past_spending(session, account, f"A question in chat {chat.id}")
     # A try is the chat's latest activity, as a question is: it moves up the list, and its
     # retention counts from now (app/retention.py).
     chat.updated_at = func.now()
@@ -276,26 +276,26 @@ def retry(chat: OwnChatDep, message_id: int, session: SessionDep, account: Accou
     return RetryOut(answer=message, last_event_id=last_event_id)
 
 
-def _refuse_past_answers_in_flight(session: Session, account: Account, chat: Chat) -> None:
-    """Refuse another run of the agent while the organisation has MAX_ANSWERS in flight."""
+def refuse_past_answers_in_flight(session: Session, account: Account, what: str) -> None:
+    """Refuse another run of the agent while the organisation has MAX_ANSWERS in flight;
+    `what` names the run refused for the log: "A question in chat 12"."""
     cap = get_settings().max_answers
     if (in_flight := answers_in_flight(session, account.organization.id)) >= cap:
         log.warning(
-            "A question in chat %s was refused: organisation %s has %s answers in flight, "
-            "the most MAX_ANSWERS allows",
-            chat.id,
+            "%s was refused: organisation %s has %s answers in flight, the most MAX_ANSWERS allows",
+            what,
             account.organization.id,
             in_flight,
         )
         raise HTTPException(429, TOO_MANY_ANSWERS, headers={"Retry-After": str(RETRY_AFTER)})
 
 
-def _refuse_past_spending(session: Session, account: Account, chat: Chat) -> None:
+def refuse_past_spending(session: Session, account: Account, what: str) -> None:
     """Refuse another run of the agent past the day's spending (app/spending.py): the
     platform's limit first, since no plan lifts it, as a 503 with the seconds until midnight
     UTC, when it resets; then the plan's, as a 402."""
     if reason := check_platform_spend(session):
-        log.warning("A question in chat %s was refused: %s", chat.id, reason)
+        log.warning("%s was refused: %s", what, reason)
         raise HTTPException(503, reason, headers={"Retry-After": str(retry_after())})
     if reason := check_spend(session, account.organization):
         raise PlanRefused(Refusal("daily_spend_micros", reason))

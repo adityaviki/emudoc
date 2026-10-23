@@ -21,7 +21,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
-import { api, organizations, pageLabel, sectionPath } from '../api.ts'
+import { api, organizations, pageLabel, sectionPath, sourceLabel } from '../api.ts'
 import type { Chat, Source } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { ask, chatKey, isStreaming, loadChat, mayRetry, resume, retry, splitChats, stop, useStreaming } from '../chat.ts'
@@ -688,7 +688,7 @@ function Answer({ message, currency, onOpen, onReconnect, onRetry, retryHeld }: 
 }
 
 /** A numbered citation. Hovering shows the cited text; clicking opens it in the document. */
-function CitationChip({ number, source, onOpen }: { number: number; source: Source; onOpen: () => void }) {
+export function CitationChip({ number, source, onOpen }: { number: number; source: Source; onOpen: () => void }) {
   const chip = useRef<HTMLButtonElement>(null)
   // The popover's position, set from the chip when it opens.
   const [anchor, setAnchor] = useState<DOMRect | null>(null)
@@ -746,16 +746,6 @@ function CitationChip({ number, source, onOpen }: { number: number; source: Sour
       )}
     </>
   )
-}
-
-function sourceLabel(source: Source): string {
-  return [
-    source.document_title,
-    sectionPath(source.context, source.document_title),
-    pageLabel(source.page_start, source.page_end),
-  ]
-    .filter(Boolean)
-    .join(' · ')
 }
 
 const STEP_ICONS: Record<string, LucideIcon> = {

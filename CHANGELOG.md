@@ -44,6 +44,26 @@ Members:
 
 Operators:
 
+- Runs of cross-checks and the discrepancy report, behind the flag `extraction_templates`:
+  under a project's cross-checks, "Run the checks" works every rule out now and keeps what it
+  found, the rules as they were and each value as it was read, so a run reads the same after its
+  documents are read again or its rules change, and names the documents deleted since; the runs
+  are listed newest first, each opening what each rule found. With "With a discrepancy report
+  by the model" checked, or later from the run, the agent writes a report from the findings,
+  citing the passages each value was read from as an answer does; asking for one counts as one
+  of the month's questions and is held to the agent's runs in flight and the day's spending as a
+  question is. New tables `workflow_runs` and `workflow_findings` and a usage kind `report` (a
+  migration); the worker's `run_workflow` jobs, in the answerers' lane, work a run out and write
+  its report, one run of a project at a time. New routes `POST|GET
+  /api/projects/{id}/check-runs`, `GET|DELETE /api/check-runs/{id}`, `GET
+  /api/check-runs/{id}/findings` (held to `RATE_SEARCHES`) and `POST
+  /api/check-runs/{id}/report` (held to `RATE_QUESTIONS`), which API keys take; a run made, a
+  report asked for and a run deleted are rows of the audit log (`cross_checks_run`,
+  `check_report_requested`, `check_run_deleted`) naming the rules, never a value. A run is kept
+  as long as a chat, which the privacy policy now says (the terms' edition is unchanged).
+- What a template's reading changed, behind the same flag, no longer stops following a reading
+  that ended just as it was asked for, saying that none was read again beside the document it
+  had read.
 - Cross-checks, behind the flag `extraction_templates`: where it is on, the library's
   "Cross-checks" lists a project's rules that compare a field of one kind's documents with a
   field of the same document, of the documents of another kind stating the same key, or of every

@@ -36,5 +36,8 @@ export function failureWords(part: Part): FailureWords {
 export function libraryPlace(view: LibraryView): string {
   if (view.facts) return `facts:${view.facts}`
   if (view.changes) return `changes:${view.changes}`
+  if (view.check != null) return `check:${view.check}`
+  if (view.run != null) return `run:${view.run}`
+  if (view.checks) return 'checks'
   return view.trash ? 'trash' : view.templates ? 'templates' : `${view.folderId ?? 'root'}?${view.q}`
 }

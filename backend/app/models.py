@@ -38,6 +38,25 @@ FACT_TYPES = ("text", "number", "date", "money")
 # it compares their values.
 CROSS_CHECK_PAIRINGS = ("same", "key", "every")
 CROSS_CHECK_COMPARISONS = ("equal", "at_most", "at_least", "same_words", "same_numbers")
+# What a cross-check found for one value (app/cross_checks.py, OUTCOME_OF): the outcome a
+# member filters by, and the reason that gives it, as a run keeps them (`WorkflowFinding`).
+FINDING_OUTCOMES = ("differs", "missing", "holds")
+FINDING_REASONS = (
+    "holds",
+    "differs",
+    "currency",
+    "no_value",
+    "no_key",
+    "no_partner",
+    "no_partner_value",
+    "no_item",
+    "untyped",
+)
+# How far a run of a project's cross-checks is (app/check_runs.py): waiting for the worker,
+# being worked out, kept with what it found, or failed; and the discrepancy report the agent
+# writes from it when a member asks for one: waiting, being written, written, or failed.
+RUN_STATUSES = ("queued", "running", "done", "failed")
+REPORT_STATUSES = ("queued", "writing", "done", "failed")
 # From most to least permitted: each role may do everything the roles after it may.
 ROLES = ("owner", "admin", "member", "viewer")
 # The roles an organisation may let everyone at its domains join with (app/invitations.py): none
@@ -74,9 +93,9 @@ EXPORT_STATUSES = ("queued", "ready", "failed")
 # user, or failed. A question is always `done`.
 MESSAGE_STATUSES = ("streaming", "done", "stopped", "failed")
 # What an organisation is metered for (app/usage.py): the activity a row counts, and what the
-# count is in. The stored `usage` of a document or a message (`Document.usage`,
-# `ChatMessage.usage`) is keyed by the same kinds.
-USAGE_KINDS = ("answer", "upload", "ocr", "infer_sections", "enrich", "embed", "render")
+# count is in. The stored `usage` of a document, a message or a run of cross-checks
+# (`Document.usage`, `ChatMessage.usage`, `WorkflowRun.usage`) is keyed by the same kinds.
+USAGE_KINDS = ("answer", "upload", "ocr", "infer_sections", "enrich", "embed", "render", "report")
 USAGE_UNITS = ("calls", "input_tokens", "output_tokens", "pages", "bytes", "inputs", "questions")
 # What an organisation is entitled to (app/entitlements.py), from the plan with the least to
 # the one with no limits. A new organisation starts on the first.
@@ -106,7 +125,8 @@ NATURAL_ORDER = "natural_order"
 # came out of it, and `_purged` was deleted for good from it by a member. A project's extraction
 # templates (app/extraction.py) and cross-checks (app/cross_checks.py) are made, changed and
 # deleted for good, with no trash, and its facts tables downloaded (app/fact_export.py), which is
-# its documents' content leaving the app.
+# its documents' content leaving the app; a run of its cross-checks is made, a discrepancy report
+# asked of the agent and the run deleted for good (app/check_runs.py).
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -172,6 +192,9 @@ AUDIT_ACTIONS = (
     "cross_check_created",
     "cross_check_changed",
     "cross_check_deleted",
+    "cross_checks_run",
+    "check_report_requested",
+    "check_run_deleted",
     "project_deleted",
     "project_restored",
     "project_purged",
@@ -1236,6 +1259,101 @@ class CrossCheck(Base):
     updated_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class WorkflowRun(Base):
+    """A run of a project's cross-checks (app/check_runs.py): the rules as they were when a
+    member ran them, what each found over the documents as they read then, and the discrepancy
+    report the agent wrote from that when a member asked for one.
+
+    What a rule finds is otherwise worked out at each request and kept nowhere; a run keeps it as
+    it was found, in `workflow_findings`. The facts and passages a finding came from are written
+    anew at every reading of their document, so a run names the documents by id and keeps the
+    values, quotes and places as read, never a fact to join on later. The worker works a run out
+    (`run_workflow` jobs), and the page follows `status` and `report_status` until they settle.
+    """
+
+    __tablename__ = "workflow_runs"
+    __table_args__ = (
+        _one_of("status", RUN_STATUSES, "workflow_runs"),
+        _one_of("report_status", REPORT_STATUSES, "workflow_runs"),
+        # The project's runs, newest first, as its list pages them.
+        Index("ix_workflow_runs_project", "project_id", "id"),
+        # What the agent's runs in flight count (app/answers.py): the few reports being written.
+        Index(
+            "ix_workflow_runs_reporting",
+            "org_id",
+            postgresql_where=text("report_status IN ('queued', 'writing')"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # The tenant, as for every row a member reaches by its id.
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    # Who ran it; null once their account is gone. Indexed for the account purge.
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    # One of RUN_STATUSES.
+    status: Mapped[str] = mapped_column(String(20), default="queued", server_default="queued")
+    # The rules as they were when the run was made, in the order their findings are kept: each a
+    # cross-check's id (which may be gone since), its title and what it compares, and once the
+    # run is worked out, why it could not be (`problem`) or what it found by outcome (`counts`).
+    rules: Mapped[list] = mapped_column(JSONB)
+    # Why the run failed, in the sentence its members read.
+    error: Mapped[str | None] = mapped_column(Text)
+    # One of REPORT_STATUSES; null while no report was asked for.
+    report_status: Mapped[str | None] = mapped_column(String(20))
+    # The report as the agent wrote it, citing passages as [P<id>], the passages it was shown,
+    # which it may cite, and how its run ended when not as it should (cut off, failed).
+    report: Mapped[str] = mapped_column(Text, default="", server_default="")
+    report_sources: Mapped[list] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb")
+    )
+    report_notice: Mapped[str | None] = mapped_column(Text)
+    report_error: Mapped[str | None] = mapped_column(Text)
+    # What the run used, by kind (`report`: the report's model calls, tokens and cost), as
+    # app/usage.py keeps it; the findings are worked out without a model and cost nothing.
+    usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # When its findings were kept, or it failed.
+    finished_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class WorkflowFinding(Base):
+    """What one rule of a run found for one value of a document it checked, as it was found
+    (app/check_runs.py): the document by id and by name as they were, the outcome and its
+    reason, the value checked and the values it was compared with as `FactOut`s were then, the
+    documents paired with it, and how far apart the two were. Nothing here joins a fact, a
+    passage or a document: they change or go, and the finding stays what it was."""
+
+    __tablename__ = "workflow_findings"
+    __table_args__ = (
+        _one_of("outcome", FINDING_OUTCOMES, "workflow_findings"),
+        _one_of("reason", FINDING_REASONS, "workflow_findings"),
+    )
+
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("workflow_runs.id", ondelete="CASCADE"), primary_key=True
+    )
+    # The rule's place in the run's `rules`, and the finding's in what the rule found, in the
+    # order the rule lists them: those that differ first, then by the document's name.
+    rule: Mapped[int] = mapped_column(Integer, primary_key=True)
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True)
+    outcome: Mapped[str] = mapped_column(String(20))
+    reason: Mapped[str] = mapped_column(String(20))
+    document_id: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(Text)
+    filename: Mapped[str] = mapped_column(Text)
+    left: Mapped[dict | None] = mapped_column(JSONB)
+    right: Mapped[list] = mapped_column(JSONB, default=list)
+    partners: Mapped[list] = mapped_column(JSONB, default=list)
+    difference: Mapped[float | None] = mapped_column(Float)
 
 
 class Chat(Base):

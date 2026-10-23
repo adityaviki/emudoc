@@ -4,6 +4,7 @@ and no answer outlasts while the work that is the data's length lifts them, a po
 transaction mode, which is sent no prepared statement and no LISTEN, and a failover, which a
 document being indexed outlasts."""
 
+import gc
 import threading
 import time
 from contextlib import contextmanager
@@ -80,9 +81,18 @@ def role_timeouts():
 
     engine.dispose()
     event.listen(engine, "connect", limit)
-    yield
-    event.remove(engine, "connect", limit)
-    engine.dispose()
+    # Late in the suite a full collection of its heap pauses the process for half a second or
+    # more, past these limits: one between a request's statements would end its connection for
+    # idling, which is not what a test here means. So the heap is collected first, and not again
+    # until the test is done.
+    gc.collect()
+    gc.disable()
+    try:
+        yield
+    finally:
+        gc.enable()
+        event.remove(engine, "connect", limit)
+        engine.dispose()
 
 
 @contextmanager

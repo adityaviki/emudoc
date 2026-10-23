@@ -112,6 +112,7 @@ from app.models import (
     Project,
     User,
     UserSession,
+    WorkflowRun,
 )
 from app.ratelimit import API_REQUESTS, Key, Limit, by_key, by_user, hit
 from app.retention import deletion_pending, held_for_deletion
@@ -479,6 +480,20 @@ def get_cross_check(check_id: int, session: SessionDep, account: AccountDep) -> 
     return check
 
 
+def get_run(run_id: int, session: SessionDep, account: AccountDep) -> WorkflowRun:
+    """A run of a project's cross-checks (app/check_runs.py), provided the account sees the
+    project and it is out of the trash."""
+    run = session.scalar(
+        select(WorkflowRun)
+        .join(Project, Project.id == WorkflowRun.project_id)
+        .where(WorkflowRun.id == run_id, visible_to(account))
+    )
+    if run is None:
+        raise HTTPException(404, "Run not found")
+    about(project_id=run.project_id)
+    return run
+
+
 def get_fact(fact_id: int, session: SessionDep, account: AccountDep) -> Fact:
     """A fact read from a document (app/fact_checks.py), provided the account sees the
     document's project and the document is out of the trash."""
@@ -550,6 +565,21 @@ def get_editable_cross_check(
     return check
 
 
+def get_editable_run(
+    run: Annotated[WorkflowRun, Depends(get_run)], account: AccountDep, session: SessionDep
+) -> WorkflowRun:
+    get_editor(account, session)
+    return run
+
+
+def get_deletable_run(
+    run: Annotated[WorkflowRun, Depends(get_run)], account: AccountDep
+) -> WorkflowRun:
+    """The run, for deleting it: by role alone, as a document is."""
+    _refuse_viewer(account)
+    return run
+
+
 def get_editable_fact(
     fact: Annotated[Fact, Depends(get_fact)], account: AccountDep, session: SessionDep
 ) -> Fact:
@@ -596,6 +626,9 @@ EditableFolderDep = Annotated[Folder, Depends(get_editable_folder)]
 EditableTemplateDep = Annotated[ExtractionTemplate, Depends(get_editable_template)]
 CrossCheckDep = Annotated[CrossCheck, Depends(get_cross_check)]
 EditableCrossCheckDep = Annotated[CrossCheck, Depends(get_editable_cross_check)]
+RunDep = Annotated[WorkflowRun, Depends(get_run)]
+EditableRunDep = Annotated[WorkflowRun, Depends(get_editable_run)]
+DeletableRunDep = Annotated[WorkflowRun, Depends(get_deletable_run)]
 EditableFactDep = Annotated[Fact, Depends(get_editable_fact)]
 EditableFactCheckDep = Annotated[FactCheck, Depends(get_editable_fact_check)]
 DeletableProjectDep = Annotated[Project, Depends(get_deletable_project)]

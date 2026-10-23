@@ -83,6 +83,7 @@ describe('buildWorkspaceUrl', () => {
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', changes: 'invoice' } })).toBe('/projects/3?changes=invoice')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', checks: true } })).toBe('/projects/3?checks=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', check: 5 } })).toBe('/projects/3?check=5')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', run: 8 } })).toBe('/projects/3?run=8')
   })
 
   it('reads back what it wrote', () => {
@@ -98,6 +99,7 @@ describe('buildWorkspaceUrl', () => {
       { ...home, library: { folderId: null, q: '', changes: 'delivery note' }, chatId: 12 },
       { ...home, library: { folderId: null, q: '', checks: true }, chatId: 12 },
       { ...home, library: { folderId: null, q: '', check: 5 }, document: { id: 41, focus: { block: 2 } } },
+      { ...home, library: { folderId: null, q: '', run: 8 }, document: { id: 41, focus: { block: 2 } } },
     ]
     for (const url of urls) expect(parse(buildWorkspaceUrl(url))).toEqual(url)
   })

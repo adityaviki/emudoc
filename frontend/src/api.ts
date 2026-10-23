@@ -16,10 +16,10 @@ export interface Stage {
   deferred: boolean
 }
 
-export type UsageKind = 'answer' | 'upload' | 'ocr' | 'infer_sections' | 'enrich' | 'embed' | 'render'
+export type UsageKind = 'answer' | 'upload' | 'ocr' | 'infer_sections' | 'enrich' | 'embed' | 'render' | 'report'
 
 /**
- * What one kind of work used for a document or an answer, summed over every run for it. A
+ * What one kind of work used for a document, an answer or a run of cross-checks, summed over every run for it. A
  * unit the work did not count is 0 from the API and absent from the `done` event; the cost
  * is in millionths of the currency the status names, and null without a price for the model.
  */
@@ -458,6 +458,54 @@ export interface Findings {
   findings: Finding[]
   total: number
   next_after: string | null
+}
+
+/** How far a run of cross-checks is (backend/app/check_runs.py), and its discrepancy report. */
+export type RunStatus = 'queued' | 'running' | 'done' | 'failed'
+export type ReportStatus = 'queued' | 'writing' | 'done' | 'failed'
+
+/** A rule of a run as it was when the run was made (CheckRunRuleOut): its cross-check's id, which may be gone since, and once worked out, why it could not be or what it found. */
+export interface CheckRunRule extends CrossCheckInput {
+  check_id: number
+  left_type: FactType | null
+  right_type: FactType | null
+  problem: string | null
+  counts: FindingCounts | null
+}
+
+/** A run as the project's list shows it (CheckRunSummaryOut): who ran it (null once their account is gone), its rules' names and what they found together. */
+export interface CheckRunSummary {
+  id: number
+  status: RunStatus
+  report_status: ReportStatus | null
+  run_by: string | null
+  titles: string[]
+  counts: FindingCounts | null
+  created_at: string
+  finished_at: string | null
+}
+
+/** A run whole (CheckRunOut): its rules, why it failed, and its report, which cites `report_sources` as [P<id>]. */
+export interface CheckRun extends CheckRunSummary {
+  project_id: number
+  user_id: number | null
+  error: string | null
+  rules: CheckRunRule[]
+  report: string
+  report_sources: Source[]
+  report_notice: string | null
+  report_error: string | null
+  usage: Record<string, Usage>
+}
+
+/** A page of what one rule of a run found, as it was found (RunFindingsOut); `gone` the documents it names that were deleted or put in the trash since. */
+export interface RunFindings {
+  rule: CheckRunRule
+  outcome: FindingOutcome | null
+  findings: Finding[]
+  total: number
+  next_after: number | null
+  gone: number[]
 }
 
 export interface SearchHit {
@@ -1162,6 +1210,9 @@ export type AuditAction =
   | 'cross_check_created'
   | 'cross_check_changed'
   | 'cross_check_deleted'
+  | 'cross_checks_run'
+  | 'check_report_requested'
+  | 'check_run_deleted'
   | 'project_deleted'
   | 'project_restored'
   | 'project_purged'
@@ -1759,6 +1810,25 @@ export const api = {
     if (after) query.set('after', after)
     return request<Findings>(`/cross-checks/${id}/findings${query.size ? `?${query}` : ''}`)
   },
+  /** Run the project's cross-checks, those named or all of them, and have the agent write the report once they are worked out when `report`. */
+  runChecks: (projectId: number, body: { check_ids?: number[]; report: boolean }) =>
+    request<CheckRun>(`/projects/${projectId}/check-runs`, json('POST', body)),
+  /** A page of the project's runs, newest first, before the run `before` names. */
+  checkRuns: (projectId: number, before: number | null = null) =>
+    request<{ runs: CheckRunSummary[]; next_before: number | null }>(
+      `/projects/${projectId}/check-runs${before != null ? `?before=${before}` : ''}`,
+    ),
+  checkRun: (id: number) => request<CheckRun>(`/check-runs/${id}`),
+  /** A page of what one rule of the run found, those of one outcome or all, past `after`. */
+  runFindings: (id: number, rule: number, outcome: FindingOutcome | null, after: number | null = null) => {
+    const query = new URLSearchParams({ rule: String(rule) })
+    if (outcome) query.set('outcome', outcome)
+    if (after != null) query.set('after', String(after))
+    return request<RunFindings>(`/check-runs/${id}/findings?${query}`)
+  },
+  /** Have the agent write the run's discrepancy report, or write it again. */
+  askReport: (id: number) => request<CheckRun>(`/check-runs/${id}/report`, { method: 'POST' }),
+  deleteCheckRun: (id: number) => request<void>(`/check-runs/${id}`, { method: 'DELETE' }),
 
   folders: (projectId: number) => request<Folder[]>(`/projects/${projectId}/folders`),
   createFolder: (projectId: number, body: { name: string; parent_id: number | null }) =>
@@ -1927,4 +1997,11 @@ export function sectionPath(context: string, documentTitle: string): string {
   const prefix = `${documentTitle} › `
   const path = context.startsWith(prefix) ? context.slice(prefix.length) : context
   return path === documentTitle ? '' : path
+}
+
+/** A cited passage in a line: its document, section and pages. */
+export function sourceLabel(source: Source): string {
+  return [source.document_title, sectionPath(source.context, source.document_title), pageLabel(source.page_start, source.page_end)]
+    .filter(Boolean)
+    .join(' · ')
 }

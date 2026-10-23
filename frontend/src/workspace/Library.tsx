@@ -45,6 +45,7 @@ import type { FolderTree } from '../hooks.ts'
 import { partlyIndexedWords, restHeld, unfinishedStages } from '../indexing.ts'
 import { describeChange } from './changes.ts'
 import { chosenFolder, droppedEntries, readEntries } from './dropped.ts'
+import { RunView } from './CheckRuns.tsx'
 import { CrossChecksView, FindingsView } from './CrossChecks.tsx'
 import { ChangesView } from './FactChanges.tsx'
 import { FactsView } from './FactsTable.tsx'
@@ -181,6 +182,7 @@ export function Library() {
   if (workspace.url.library.changes && templates) return <ChangesView kind={workspace.url.library.changes} />
   if (workspace.url.library.checks && templates) return <CrossChecksView />
   if (workspace.url.library.check != null && templates) return <FindingsView checkId={workspace.url.library.check} />
+  if (workspace.url.library.run != null && templates) return <RunView runId={workspace.url.library.run} />
   return (
     <div
       data-tour="library"

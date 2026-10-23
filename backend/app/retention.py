@@ -127,31 +127,54 @@ _BACK = """
     RETURNING {table}.id
 """
 
+
 # Each plan joins as a row of `kept`, so one statement prunes every organisation: by the days
 # agreed with it when `overrides` names them (a null there keeps a chat for good), else by its
 # plan's (a null plan keeps it for good: the interval and the comparison are null), and while a
 # hold after a lower plan stands, by its days as well; or by the days the organisation chose.
+def _past_retention(moment: str) -> str:
+    """The condition that a row whose clock is `moment` is past what its organisation keeps a
+    chat for: by its plan or agreed terms (the plans' days `kept` from `unnest`), and by a hold
+    after a lower plan while it stands, or by the organisation's own choice."""
+    return f"""(({moment} < now() - make_interval(days => CASE
+              WHEN organizations.overrides -> 'retention_days' IS NULL THEN kept.days
+              ELSE CAST(organizations.overrides ->> 'retention_days' AS integer) END)
+            -- Past what a hold after a lower plan keeps, too: a null there keeps it for good.
+            AND (organizations.retention_held_until IS NULL
+                 OR organizations.retention_held_until <= now()
+                 OR {moment} < now() - make_interval(days => organizations.held_chat_days)))
+           -- A null choice is the plan's, and the comparison null.
+           OR {moment} < now() - make_interval(days => organizations.chat_days))"""
+
+
 _PRUNE_CHATS = text(
-    """
+    f"""
     DELETE FROM chats
     USING projects, organizations,
           unnest(CAST(:plans AS text[]), CAST(:days AS integer[])) AS kept (plan, days)
     WHERE projects.id = chats.project_id
       AND organizations.id = projects.org_id
       AND organizations.plan = kept.plan
-      AND ((chats.updated_at < now() - make_interval(days => CASE
-              WHEN organizations.overrides -> 'retention_days' IS NULL THEN kept.days
-              ELSE CAST(organizations.overrides ->> 'retention_days' AS integer) END)
-            -- Past what a hold after a lower plan keeps, too: a null there keeps it for good.
-            AND (organizations.retention_held_until IS NULL
-                 OR organizations.retention_held_until <= now()
-                 OR chats.updated_at < now() - make_interval(days => organizations.held_chat_days)))
-           -- A null choice is the plan's, and the comparison null.
-           OR chats.updated_at < now() - make_interval(days => organizations.chat_days))
+      AND {_past_retention("chats.updated_at")}
       AND NOT EXISTS (
           SELECT 1 FROM chat_messages
           WHERE chat_messages.chat_id = chats.id AND chat_messages.status = 'streaming'
       )
+    """
+)
+# A run of cross-checks holds what documents said, as a chat's answers do, and is kept as long,
+# from when it was made; never one the worker is still working out or writing a report for.
+_PRUNE_RUNS = text(
+    f"""
+    DELETE FROM workflow_runs
+    USING organizations,
+          unnest(CAST(:plans AS text[]), CAST(:days AS integer[])) AS kept (plan, days)
+    WHERE organizations.id = workflow_runs.org_id
+      AND organizations.plan = kept.plan
+      AND {_past_retention("workflow_runs.created_at")}
+      AND workflow_runs.status NOT IN ('queued', 'running')
+      AND (workflow_runs.report_status IS NULL
+           OR workflow_runs.report_status NOT IN ('queued', 'writing'))
     """
 )
 
@@ -282,10 +305,18 @@ def prune_chats(connection: Connection) -> int:
     """Delete the chats whose last question is older than their organisation keeps them,
     by its plan or its agreed terms, and by a hold after a lower plan while it stands, or by
     its own choice; returns how many."""
+    return connection.execute(_PRUNE_CHATS, _plans_kept()).rowcount
+
+
+def prune_runs(connection: Connection) -> int:
+    """Delete the runs of cross-checks (app/check_runs.py) made longer ago than their
+    organisation keeps a chat; returns how many."""
+    return connection.execute(_PRUNE_RUNS, _plans_kept()).rowcount
+
+
+def _plans_kept() -> dict[str, list]:
     kept = {plan: limit.retention_days for plan, limit in PLANS.items()}
-    return connection.execute(
-        _PRUNE_CHATS, {"plans": list(kept), "days": list(kept.values())}
-    ).rowcount
+    return {"plans": list(kept), "days": list(kept.values())}
 
 
 def deletion_pending(due: datetime, zone: tzinfo = UTC) -> str:
