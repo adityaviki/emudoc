@@ -35,6 +35,8 @@ Members:
 
 Operators:
 
+- opentelemetry-api 1.45.1, past CVE-2026-114603, which Audit found in 1.45.0 (it comes with
+  FastAPI, Anthropic's SDK and Pydantic AI; the app turns on no OpenTelemetry provider).
 - A model call an answer was in the middle of when it was stopped, tried again or its run
   lost, is now counted in the answer's usage and the organisation's costs, for the tokens the
   provider reported by then; it was left out before, though the provider was paid for it.
