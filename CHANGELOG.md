@@ -17,6 +17,11 @@ newest entry first.
 
 Members:
 
+- Once an upload is sent, its panel in the library follows its documents as they are indexed:
+  "12 of 40 ready; 26 being indexed; 2 could not be indexed.", with how many are partly indexed
+  and how many wait for a retry. Those that could not be indexed are listed with why, and each
+  opens in its tab ("Index again" is in its menu in the library). The panel stays until you
+  close it or upload more.
 - A document that was read but went without its summaries and facts, or without its search by
   meaning, is marked "Partly indexed" with an amber check, and says what it lacks: "Found by its
   words, not yet by meaning", "No summary or facts yet". It can be searched by its words and

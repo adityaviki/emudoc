@@ -312,8 +312,9 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(folder).toHaveCount(0)
   })
 
-  await test.step('upload a folder, following each file as it goes, index the rest of a file partly indexed, and put it in the trash', async () => {
+  await test.step('upload a folder, following each file as it goes and then its indexing, open the file that could not be indexed, index the rest of a file partly indexed, and put it in the trash', async () => {
     // March's passages are refused once by the embeddings: that file is found by its words alone.
+    // The receipt is a PDF without pages, which cannot be indexed.
     await refuseEmbeddings(request, 'printer paper')
     // The request is held while the panel that follows it is read.
     let release = () => {}
@@ -327,16 +328,29 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     })
     await page.locator('input[name="folder"]').setInputFiles(DELIVERIES)
     const panel = page.getByRole('region', { name: 'Upload' })
-    await expect(panel.getByRole('progressbar', { name: 'Uploading 2 files into Supplier contracts' })).toBeVisible()
+    await expect(panel.getByRole('progressbar', { name: 'Uploading 3 files into Supplier contracts' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Upload a folder' })).toBeDisabled()
     await panel.getByText('Each file', { exact: true }).click()
     const each = panel.getByRole('list', { name: 'Each file' })
-    await expect(each.getByRole('listitem')).toHaveCount(2)
+    await expect(each.getByRole('listitem')).toHaveCount(3)
     await expect(each).toContainText('deliveries/march.md')
     await expect(each).toContainText('deliveries/april/week-1.md')
     await expectAccessible(page, 'the library while an upload is sent')
     release()
+    // Once sent, the panel follows its documents until each is ready or could not be indexed,
+    // and says why for the one that could not, which opens in its tab.
+    await expect(panel.getByRole('status')).toHaveText('2 of 3 ready, 1 of them partly indexed; 1 could not be indexed.', {
+      timeout: 60_000,
+    })
+    await expect(panel.getByRole('progressbar', { name: '3 files uploaded into Supplier contracts' })).toBeVisible()
+    const failed = panel.getByRole('list', { name: 'Could not be indexed' })
+    await expect(failed).toHaveText('receipt.pdf: This PDF has no pages. Export it again from the program that made it and upload that.')
+    await expectAccessible(page, 'the library once an upload is indexed')
+    await failed.getByRole('button', { name: 'receipt.pdf' }).click()
+    await expect(page.getByRole('tab', { name: /receipt\.pdf/ })).toHaveAttribute('aria-selected', 'true')
+    await panel.getByRole('button', { name: 'Dismiss' }).click()
     await expect(panel).toHaveCount(0)
+    await expect(page.getByRole('tree')).toBeFocused()
     await page.unroute(uploads)
     // Its folders are made as they were, the one in it with its file.
     const folder = page.getByRole('treeitem', { name: /deliveries/ })

@@ -223,7 +223,9 @@ it was, its folders made where the one it goes into holds none of their names. A
 as few requests as the deployment's limits allow, one after another, each its own upload for the
 notice that follows it, and a panel shows how far it has gone as a whole and file by file, until
 its Stop; a type Emudoc does not read and a file too large are left out before anything is
-sent. An upload begun while the browser is offline waits and starts by itself once it is back;
+sent. Once sent, the same panel follows its documents as they are indexed ("12 of 40 ready; 26
+being indexed; 2 could not be indexed."), lists those that could not be with why, each opening
+in its tab, and stays until its cross or the next upload. An upload begun while the browser is offline waits and starts by itself once it is back;
 one cut off on its way offers the files not sent again, a file that got through before the cut
 coming back as already in the project. The last deletion, move or rename is
 offered back at once with "Undo", until the next one or its cross. Opening a file adds a third pane in

@@ -1,15 +1,22 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../api.ts'
-import type { UploadItem, UploadResult } from '../api.ts'
+import type { UploadItem, UploadResult, UploadStatus } from '../api.ts'
+import { REFRESH, WAITING_REFRESH } from './listing.ts'
 import {
+  FOLLOWED_A_REQUEST,
   UploadProgress,
   UploadStopped,
   batches,
+  followAfter,
+  followedBatches,
   isAbort,
   screen,
   sendInBatches,
+  settled,
   shareWords,
   sharesOf,
+  standingOf,
+  summed,
   uploadStopped,
   wholeOf,
 } from './uploads.ts'
@@ -67,7 +74,12 @@ describe('the requests of an upload', () => {
     const result = await sendInBatches(items, limits, async (batch, onProgress) => {
       sent.push(names(batch))
       onProgress(100, 100)
-      return { documents: [], rejected: [{ filename: batch[0].file.name, reason: 'No.', limit: null }] }
+      // The second request keeps no file, and so is no upload on the server.
+      return {
+        documents: [],
+        rejected: [{ filename: batch[0].file.name, reason: 'No.', limit: null }],
+        upload_id: sent.length === 1 ? 7 : null,
+      }
     }, (state) => reports.push(state))
     expect(sent).toEqual([['a.md', 'b.md'], ['c.md']])
     expect(reports.map(({ answered, sending, loaded }) => [answered, sending, loaded])).toEqual([
@@ -77,11 +89,12 @@ describe('the requests of an upload', () => {
       [2, 1, 100],
     ])
     expect(result.rejected.map(({ filename }) => filename)).toEqual(['a.md', 'c.md'])
+    expect(result.uploads).toEqual([7])
   })
 
   it('stop at the first that fails, which keeps what went in and the files not sent', async () => {
     const items = ['a', 'b', 'c', 'd', 'e'].map((name) => item(`${name}.md`))
-    const done: UploadResult = { documents: [], rejected: [{ filename: 'a.md', reason: 'No.', limit: null }] }
+    const done: UploadResult = { documents: [], rejected: [{ filename: 'a.md', reason: 'No.', limit: null }], upload_id: 3 }
     const refusal = new ApiError(429, 'Too many uploads.')
     const send = vi.fn().mockResolvedValueOnce(done).mockRejectedValueOnce(refusal)
     const stopped = await sendInBatches(items, limits, send, () => {}).catch((error: unknown) => error)
@@ -89,6 +102,8 @@ describe('the requests of an upload', () => {
     const { error, result, unsent } = stopped as UploadStopped
     expect(error).toBe(refusal)
     expect(result.rejected).toEqual(done.rejected)
+    // What went in before is followed all the same.
+    expect(result.uploads).toEqual([3])
     expect(names(unsent)).toEqual(['c.md', 'd.md', 'e.md'])
     expect(send).toHaveBeenCalledTimes(2)
     expect(isAbort(error)).toBe(false)
@@ -134,5 +149,85 @@ describe('how far an upload has gone', () => {
     progress.set(null)
     expect(heard).toHaveBeenCalledOnce()
     expect(progress.get()).toBeNull()
+  })
+})
+
+const status = (counts: Partial<UploadStatus> = {}): UploadStatus => ({
+  documents: 0,
+  ready: 0,
+  partly_indexed: 0,
+  indexing: 0,
+  retrying: 0,
+  retry_at: null,
+  failed: 0,
+  failures: [],
+  ...counts,
+})
+
+const failure = (id: number, filename: string) => ({ id, filename, reason: 'It has no pages.', quarantined: false })
+
+describe('an upload followed as its documents are indexed', () => {
+  it('asks about its uploads a hundred at a time, and adds the answers up', () => {
+    const uploads = Array.from({ length: FOLLOWED_A_REQUEST + 1 }, (_, n) => n + 1)
+    expect(followedBatches(uploads).map((ids) => ids.length)).toEqual([FOLLOWED_A_REQUEST, 1])
+    expect(followedBatches([4, 5])).toEqual([[4, 5]])
+
+    const whole = summed([
+      status({ documents: 3, ready: 1, indexing: 1, failed: 1, failures: [failure(2, 'b.pdf')] }),
+      status({ documents: 2, retrying: 1, ready: 1, partly_indexed: 1, retry_at: '2026-10-23T10:05:00Z' }),
+      status({ documents: 1, retrying: 1, retry_at: '2026-10-23T10:01:00Z' }),
+    ])
+    expect(whole).toEqual(
+      status({
+        documents: 6,
+        ready: 2,
+        partly_indexed: 1,
+        indexing: 1,
+        retrying: 2,
+        retry_at: '2026-10-23T10:01:00Z',
+        failed: 1,
+        failures: [failure(2, 'b.pdf')],
+      }),
+    )
+  })
+
+  it('is asked about every moment while a document is indexed, after the soonest retry while one waits, and no more once settled', () => {
+    const now = Date.parse('2026-10-23T10:00:00Z')
+    expect(followAfter(status({ documents: 2, indexing: 1, retrying: 1, retry_at: '2026-10-23T10:05:00Z' }), now)).toBe(REFRESH)
+    expect(followAfter(status({ documents: 1, retrying: 1, retry_at: '2026-10-23T10:00:30Z' }), now)).toBe(30_000 + REFRESH)
+    // A retry hours away (the day's spending limit) is asked about within the minute all the same.
+    expect(followAfter(status({ documents: 1, retrying: 1, retry_at: '2026-10-24T00:00:00Z' }), now)).toBe(WAITING_REFRESH)
+    // One due already waits for a worker to take it.
+    expect(followAfter(status({ documents: 1, retrying: 1, retry_at: '2026-10-23T09:59:00Z' }), now)).toBe(REFRESH)
+    const done = status({ documents: 2, ready: 1, failed: 1 })
+    expect(settled(done)).toBe(true)
+    expect(followAfter(done, now)).toBe(false)
+  })
+
+  it('says how many of its documents are ready, and what became of the others', () => {
+    const indexing = standingOf(status({ documents: 40, ready: 12, indexing: 26, failed: 2 }), 'Contracts')
+    expect(indexing).toEqual({
+      title: 'Indexing 40 files uploaded into Contracts',
+      line: '12 of 40 ready; 26 being indexed; 2 could not be indexed.',
+      percent: 35,
+      settled: false,
+      // Two failed, and none listed: the answer was cut short of them.
+      more: '2 more could not be indexed: the library marks each.',
+    })
+    const waiting = standingOf(status({ documents: 3, ready: 2, partly_indexed: 1, retrying: 1, retry_at: '2026-10-23T10:00:00Z' }), 'Invoices')
+    expect(waiting.line).toBe('2 of 3 ready, 1 of them partly indexed; 1 waiting for a retry.')
+    expect(waiting.settled).toBe(false)
+
+    const done = standingOf(status({ documents: 1, ready: 1 }), 'Invoices')
+    expect([done.title, done.line, done.percent, done.settled, done.more]).toEqual([
+      '1 file uploaded into Invoices',
+      '1 of 1 ready.',
+      100,
+      true,
+      null,
+    ])
+    const failed = standingOf(status({ documents: 2, ready: 1, failed: 1, failures: [failure(2, 'b.pdf')] }), 'Invoices')
+    expect([failed.line, failed.more]).toEqual(['1 of 2 ready; 1 could not be indexed.', null])
+    expect(standingOf(status(), 'Invoices').line).toBe('They are all in the trash now.')
   })
 })

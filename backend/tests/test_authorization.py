@@ -18,10 +18,10 @@ Route = tuple[str, str, dict]
 
 @dataclass
 class World:
-    """A project with a folder, an indexed document and a chat holding one answered question,
-    and in its trash a folder, a document and a chat; another project in the trash; an
-    invitation to the organisation and an API key of it, all made by the local owner in the
-    local organisation, and another member of it."""
+    """A project with a folder, an indexed document, the upload it came in with, and a chat
+    holding one answered question, and in its trash a folder, a document and a chat; another
+    project in the trash; an invitation to the organisation and an API key of it, all made by
+    the local owner in the local organisation, and another member of it."""
 
     org_id: int
     project_id: int
@@ -38,13 +38,15 @@ class World:
     trashed_chat_id: int
     trashed_project_id: int
     export_id: int
+    upload_id: int
 
 
 @pytest.fixture
 def world(client, services, sample_pdf, account, make_account) -> World:
     project = create_project(client)
     folder = make_folder(client, project["id"], "Contracts")
-    document = upload(client, project["id"], sample_pdf)["documents"][0]
+    uploaded = upload(client, project["id"], sample_pdf)
+    document = uploaded["documents"][0]
     process_document(document["id"], services)
     chat = new_chat(client, project["id"])
     services.llm.agent_turns.append(FakeTurn(TextPart("Nothing is due.")))
@@ -85,6 +87,7 @@ def world(client, services, sample_pdf, account, make_account) -> World:
         trashed_chat["id"],
         trashed_project["id"],
         exported.json()["id"],
+        uploaded["upload_id"],
     )
 
 
@@ -95,6 +98,7 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/projects/{w.project_id}/access", {}),
         ("GET", f"/api/projects/{w.project_id}/folders", {}),
         ("GET", f"/api/projects/{w.project_id}/documents", {}),
+        ("GET", f"/api/projects/{w.project_id}/uploads", {"params": {"ids": w.upload_id}}),
         ("GET", f"/api/projects/{w.project_id}/chats", {}),
         ("GET", f"/api/projects/{w.project_id}/search", {"params": {"q": "notice"}}),
         ("GET", f"/api/projects/{w.project_id}/facts", {}),

@@ -6,8 +6,9 @@
 // take back the last deletion, move or rename at once (changes.ts) through the mutation that made
 // it, so that an undo shows at once too and is put back if the server refuses it. An upload
 // goes in as many requests as the server's limits ask (uploads.ts), its progress kept apart for
-// its panel; begun offline it waits for the connection, and one cut off on its way offers the
-// files not sent again (`uploadCutOff` in connection.ts) rather than show a refusal.
+// its panel, which then follows its documents' indexing until it is dismissed or the next upload
+// takes its place; begun offline it waits for the connection, and one cut off on its way offers
+// the files not sent again (`uploadCutOff` in connection.ts) rather than show a refusal.
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
@@ -27,6 +28,7 @@ import {
   UPLOAD_UNDER_WAY,
   UploadProgress,
   UploadStopped,
+  followedKey,
   isAbort,
   screen,
   sendInBatches,
@@ -37,9 +39,16 @@ interface Undoing {
   undoing?: boolean
 }
 
-/** What an upload sends, and the folder it goes into. */
+/** What an upload sends, and the folder it goes into; `resent` for the files one cut off did not send. */
 export interface UploadRequest {
   items: UploadItem[]
+  folderId: number | null
+  resent?: boolean
+}
+
+/** An upload sent, whose documents the panel follows: its uploads on the server, and the folder it went into. */
+export interface Followed {
+  uploads: number[]
   folderId: number | null
 }
 
@@ -61,6 +70,8 @@ export function useLibraryMutations() {
   const openKey = ['document']
   const foldersKey = ['folders', projectId]
   const projectKey = ['project', projectId]
+  // The upload the panel follows, whose documents may be indexed again or deleted.
+  const uploadsKey = [...followedKey(projectId)]
   const fail = (error: Error) =>
     isPlanLimit(error) ? setPlanLimit({ message: error.message, limit: error.limit }) : setNotice(error.message)
   const invalidate = (...keys: unknown[][]) => {
@@ -171,7 +182,8 @@ export function useLibraryMutations() {
 
   // What a deletion and its undoing touch: the library, the counts, the open documents, the
   // trash and what the organisation holds against its plan.
-  const afterTrash = () => invalidate(foldersKey, documentsKey, projectKey, openKey, [...trashKey(projectId)], [...ME_KEY])
+  const afterTrash = () =>
+    invalidate(foldersKey, documentsKey, projectKey, openKey, uploadsKey, [...trashKey(projectId)], [...ME_KEY])
 
   const trashItems = useMutation({
     // A folder's documents that the library does not hold close their tabs once they are asked
@@ -229,6 +241,12 @@ export function useLibraryMutations() {
   // read before it starts, by when the render's `isPending` may be old.
   const sending = useRef<AbortController | null>(null)
   const underWay = useRef(false)
+  const [followed, setFollowed] = useState<Followed | null>(null)
+  // The files sent again after a cut are followed with those that went in before it.
+  const follow = (uploads: number[], { folderId, resent }: UploadRequest) => {
+    if (!uploads.length) return
+    setFollowed((before) => ({ uploads: [...(resent && before ? before.uploads : []), ...uploads], folderId }))
+  }
   const upload = useMutation({
     mutationFn: ({ items, folderId }: UploadRequest) => {
       const controller = new AbortController()
@@ -240,12 +258,18 @@ export function useLibraryMutations() {
     onMutate: () => {
       underWay.current = true
     },
-    onSuccess: (result) => setRejected((left) => [...left, ...result.rejected]),
+    onSuccess: (result, request) => {
+      setRejected((left) => [...left, ...result.rejected])
+      follow(result.uploads, request)
+    },
     // One that reached no server, or that its member stopped, stays the mutation's error, which
-    // the library offers to send again or says was stopped.
-    onError: (error) => {
+    // the library offers to send again or says was stopped; what went in before is followed.
+    onError: (error, request) => {
       const stopped = error instanceof UploadStopped ? error : null
-      if (stopped) setRejected((left) => [...left, ...stopped.result.rejected])
+      if (stopped) {
+        setRejected((left) => [...left, ...stopped.result.rejected])
+        follow(stopped.result.uploads, request)
+      }
       const cause = stopped?.error ?? error
       if (!(cause instanceof Unreachable) && !isAbort(cause)) fail(cause)
     },
@@ -266,6 +290,7 @@ export function useLibraryMutations() {
     if (underWay.current) return UPLOAD_UNDER_WAY
     const screened = screen(items, limits, unread)
     setRejected(screened.left)
+    setFollowed(null)
     if (!screened.items.length) return screened.left.length ? null : NOTHING_TO_UPLOAD
     underWay.current = true
     upload.mutate({ items: screened.items, folderId })
@@ -275,7 +300,7 @@ export function useLibraryMutations() {
   const reprocess = useMutation({
     mutationFn: (id: number) => api.reprocessDocument(id, 'parse'),
     onError: fail,
-    onSettled: (_data, _error, id) => invalidate(documentsKey, [...documentKey(id)], projectKey),
+    onSettled: (_data, _error, id) => invalidate(documentsKey, [...documentKey(id)], projectKey, uploadsKey),
   })
 
   // "Index the rest": a partly indexed document from the first stage it went without, keeping
@@ -283,13 +308,13 @@ export function useLibraryMutations() {
   const indexRest = useMutation({
     mutationFn: (document: Document) => api.reprocessDocument(document.id, unfinishedStages(document)[0]),
     onError: fail,
-    onSettled: (_data, _error, document) => invalidate(documentsKey, [...documentKey(document.id)], projectKey),
+    onSettled: (_data, _error, document) => invalidate(documentsKey, [...documentKey(document.id)], projectKey, uploadsKey),
   })
 
   const indexProjectRest = useMutation({
     mutationFn: () => api.reprocessProject(projectId),
     onError: fail,
-    onSettled: () => invalidate(documentsKey, openKey, projectKey),
+    onSettled: () => invalidate(documentsKey, openKey, projectKey, uploadsKey),
   })
 
   return {
@@ -311,6 +336,8 @@ export function useLibraryMutations() {
     startUpload,
     uploadProgress: progress,
     stopUpload: () => sending.current?.abort(),
+    followed,
+    clearFollowed: () => setFollowed(null),
     reprocess,
     indexRest,
     indexProjectRest,

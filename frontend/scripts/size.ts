@@ -20,9 +20,11 @@ import { gzipSync } from 'node:zlib'
 // could not hold back without a reload after a release (frontend conventions), then 228 kB
 // (225.6 kB), and 231 kB the same day by an upload's progress and folders uploaded (228.5 kB):
 // the panel that follows each file, the requests a folder is sent in and its reading, in the
-// library of every project. A change that passes it makes the scripts smaller (a dependency left out, a page loaded only
+// library of every project, then 234 kB on 2026-10-23 by the same panel following the upload's
+// indexing (231.8 kB): how many of its documents are ready and those that could not be, and why.
+// A change that passes it makes the scripts smaller (a dependency left out, a page loaded only
 // when it is opened) or raises this number, saying why in its commit.
-const BUDGET = 231_000
+const BUDGET = 234_000
 // The operator's area (operator.html), a build of its own that only operators are sent: React
 // and the rest again, 102.0 kB on 2026-10-21. Its size costs no member anything, so its budget
 // only catches a dependency pulled in by mistake.

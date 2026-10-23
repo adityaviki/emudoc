@@ -23,7 +23,9 @@ ring until then), and "Index again" in the file's menu
 and facts, or without its search by meaning, is marked "Partly indexed" with an amber check and
 says what it lacks; it is found by its words meanwhile. "Index the rest", on its tab or in its
 menu, adds only what it lacks, and the library offers the same for all such documents at once;
-while the AI model or search by meaning is unavailable, the button waits and says why. An
+while the AI model or search by meaning is unavailable, the button waits and says why. Once an
+upload is sent, its panel follows it as it is read: how many of its files are ready, and those
+that could not be read, each with why, which open in their tab; close it with its cross. An
 upload that takes $notice_minutes minutes or more is followed by a notice under the bell when
 it is done, naming any file that could not be read.
 

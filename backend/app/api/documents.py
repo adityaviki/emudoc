@@ -12,7 +12,7 @@ from anyio import to_thread
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from PIL import ImageOps, UnidentifiedImageError
-from sqlalchemy import func, literal_column, select, tuple_
+from sqlalchemy import DateTime, and_, func, literal_column, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -44,11 +44,12 @@ from app.folders import (
     folder_names,
     unique_filename,
 )
-from app.indexing.pipeline import reset_stages
+from app.indexing.pipeline import OPTIONAL_STAGES, reset_stages, went_without
 from app.jobs import queue_index
+from app.mail import LISTED
 from app.metrics import UPLOAD_BYTES, UPLOAD_REJECTIONS
 from app.models import STAGES, Block, Document, Fact, Folder, Project, Section
-from app.notices import record_upload, settle_upload
+from app.notices import NOT_INDEXED, record_upload, settle_upload
 from app.parsing import IMAGE_TYPES, MIME_TYPES, SUPPORTED_EXTENSIONS, FileTooLarge
 from app.parsing.images import open_image
 from app.parsing.signatures import wrong_type
@@ -66,7 +67,9 @@ from app.schemas import (
     PassageOut,
     RejectedFile,
     SectionOut,
+    UploadFailureOut,
     UploadResult,
+    UploadStatusOut,
 )
 from app.storage import Storage, StorageError, original_key
 from app.trash import trash_document
@@ -106,6 +109,37 @@ MAX_PAGE_SIZE = 500
 BAD_CURSOR = "This page of the folder cannot be found. List the folder again from its start."
 # The transaction that wrote a row, which every change to it moves (`_page_tag`).
 ROW_VERSION = literal_column("documents.xmin::text")
+# How many uploads one request may ask about. Each request of the page's upload is an upload of
+# its own, so a large folder is many, which the page asks about this many at a time
+# (frontend/src/workspace/uploads.ts).
+MAX_FOLLOWED = 100
+# A queued or ready document whose stage failed for a reason that passes waits for the stage to
+# run again by itself (`await_retry` in app/indexing/pipeline.py), which drops the mark when it
+# runs; `waitingRetry` in frontend/src/indexing.ts reads the same.
+_WAITING = and_(
+    Document.status.in_(("queued", "ready")),
+    or_(*(Document.stages[name]["retry_at"].is_not(None) for name in STAGES)),
+)
+_FAILED = Document.status.in_(("failed", "quarantined"))
+# Where an upload's documents stand, each counted once (`UploadStatusOut`).
+_STANDING = (
+    func.count().label("documents"),
+    func.count().filter(Document.status == "ready", ~_WAITING).label("ready"),
+    func.count().filter(went_without(*OPTIONAL_STAGES)).label("partly_indexed"),
+    func.count().filter(Document.status.in_(("queued", "processing")), ~_WAITING).label("indexing"),
+    func.count().filter(_WAITING).label("retrying"),
+    func.min(
+        func.least(
+            *(
+                Document.stages[name]["retry_at"].astext.cast(DateTime(timezone=True))
+                for name in STAGES
+            )
+        )
+    )
+    .filter(_WAITING)
+    .label("retry_at"),
+    func.count().filter(_FAILED).label("failed"),
+)
 
 
 @router.get("/projects/{project_id}/documents", response_model=DocumentPage)
@@ -363,7 +397,51 @@ def upload_documents(
         settle_upload(session, upload_id, app_url(request))
     if documents and worker:
         worker.notify()
-    return UploadResult(documents=documents, rejected=rejected)
+    return UploadResult(documents=documents, rejected=rejected, upload_id=upload_id)
+
+
+@router.get("/projects/{project_id}/uploads", response_model=UploadStatusOut)
+def upload_status(
+    project: ProjectDep,
+    session: SessionDep,
+    ids: Annotated[list[int], Query(min_length=1, max_length=MAX_FOLLOWED)],
+):
+    """How far the documents of the project's uploads named by `ids` are indexed, counted by
+    where each stands, with the first that could not be indexed and why: what the library
+    follows of an upload once its files are sent, one request of the page's being one upload
+    on the server (app/notices.py). An id that is not one of the project's uploads counts
+    nothing, and a document in the trash is left out, as the upload's notice leaves it out.
+    """
+    of_uploads = (
+        Document.project_id == project.id,
+        Document.upload_id.in_(ids),
+        Document.deleted_at.is_(None),
+    )
+    counts = session.execute(select(*_STANDING).where(*of_uploads)).one()
+    failures = session.execute(
+        select(Document.id, Document.filename, Document.status, Document.error)
+        .where(*of_uploads, _FAILED)
+        .order_by(Document.filename, Document.id)
+        .limit(LISTED)
+    ).all()
+    return UploadStatusOut(
+        documents=counts.documents,
+        ready=counts.ready,
+        partly_indexed=counts.partly_indexed,
+        indexing=counts.indexing,
+        retrying=counts.retrying,
+        retry_at=counts.retry_at,
+        failed=counts.failed,
+        failures=[
+            UploadFailureOut(
+                id=document_id,
+                filename=filename,
+                reason=error or NOT_INDEXED,
+                quarantined=status == "quarantined",
+            )
+            for document_id, filename, status, error in failures
+        ],
+    )
 
 
 def too_many(files: list[UploadFile], settings: Settings) -> str | None:

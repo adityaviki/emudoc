@@ -214,6 +214,38 @@ class RejectedFile(BaseModel):
 class UploadResult(BaseModel):
     documents: list[DocumentOut]
     rejected: list[RejectedFile]
+    # The upload the documents kept are, which the page follows as they are indexed (GET
+    # /api/projects/{id}/uploads); None when the request kept none.
+    upload_id: int | None = None
+
+
+class UploadFailureOut(BaseModel):
+    """A document of an upload that could not be indexed, and why, in the words its tab shows."""
+
+    id: int
+    filename: str
+    reason: str
+    # Set apart by the malware scan rather than failed (app/scanning.py).
+    quarantined: bool
+
+
+class UploadStatusOut(BaseModel):
+    """How far the documents of some uploads are indexed, those in the trash left out. Each is
+    counted once: ready (partly indexed or not), indexing, waiting for a retry of a stage that
+    failed for a reason that passes, or failed; so `documents` is the sum of the four."""
+
+    documents: int
+    ready: int
+    # Of the ready, those without summaries and facts or their vectors, while no retry waits.
+    partly_indexed: int
+    indexing: int
+    retrying: int
+    # When the soonest retry is due; None while none waits.
+    retry_at: dt.datetime | None
+    # Failed or set apart by the malware scan.
+    failed: int
+    # The first of them by name, at most LISTED; `failed` counts them all.
+    failures: list[UploadFailureOut]
 
 
 class SectionOut(BaseModel):

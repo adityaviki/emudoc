@@ -141,6 +141,8 @@ export function Library() {
 
   const current = folderId == null ? null : tree.byId.get(folderId)
   const currentName = current?.name ?? project.name
+  const folderName = (id: number | null | undefined) => tree.byId.get(id ?? -1)?.name ?? project.name
+  const { followed } = mutations
 
   function uploadItems(items: UploadItem[], targetId: number | null, unread: string[] = []) {
     const refusal = project.sample ? SAMPLE_UPLOADS : mutations.startUpload(items, targetId, unread)
@@ -263,8 +265,10 @@ export function Library() {
         {waiting && <Notice tone="info">{waiting}</Notice>}
         <UploadPanel
           progress={mutations.uploadProgress}
-          into={tree.byId.get(upload.variables?.folderId ?? -1)?.name ?? project.name}
+          into={folderName(upload.variables?.folderId)}
           onStop={mutations.stopUpload}
+          followed={followed && { uploads: followed.uploads, into: folderName(followed.folderId) }}
+          onDismiss={mutations.clearFollowed}
         />
         {stoppedByMember && (
           <Notice tone="info">
@@ -284,7 +288,7 @@ export function Library() {
                 <Button
                   variant="ghost"
                   className="h-6 px-2"
-                  onClick={() => upload.variables && upload.mutate({ ...upload.variables, items: stopped.unsent })}
+                  onClick={() => upload.variables && upload.mutate({ ...upload.variables, items: stopped.unsent, resent: true })}
                 >
                   Upload again
                 </Button>

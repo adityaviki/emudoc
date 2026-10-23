@@ -160,6 +160,36 @@ export interface UploadResult {
   documents: Document[]
   /** The files left out, each with why; `limit` names the plan's figure when it was the plan. */
   rejected: { filename: string; reason: string; limit: PlanLimit | null }[]
+  /** The upload the documents kept are on the server, which the library follows as they are indexed; null when it kept none. */
+  upload_id: number | null
+}
+
+/** A document of an upload that could not be indexed, and why, in the words its tab shows. */
+export interface UploadFailure {
+  id: number
+  filename: string
+  reason: string
+  /** Set apart by the malware scan rather than failed. */
+  quarantined: boolean
+}
+
+/**
+ * How far the documents of some uploads are indexed, those in the trash left out, each counted
+ * once: ready, indexing, waiting for a retry or failed (UploadStatusOut in backend/app/schemas.py).
+ */
+export interface UploadStatus {
+  documents: number
+  ready: number
+  /** Of the ready, those without summaries and facts or their vectors. */
+  partly_indexed: number
+  indexing: number
+  retrying: number
+  /** When the soonest retry is due. */
+  retry_at: string | null
+  /** Failed, or set apart by the malware scan. */
+  failed: number
+  /** The first of them by name; `failed` counts them all. */
+  failures: UploadFailure[]
 }
 
 /** A file to upload, with the folders it is in below the one it goes into ("Invoices/2024"), '' for that one itself. */
@@ -1532,6 +1562,12 @@ export const api = {
     const init = { method: 'POST', body: form, signal: sending.signal }
     return request<UploadResult>(`/projects/${projectId}/documents${query}`, init, sending.onProgress)
   },
+  /** How far the documents of the project's uploads named are indexed (`MAX_FOLLOWED` of them a request). */
+  uploadStatus: (projectId: number, ids: number[], signal?: AbortSignal) =>
+    request<UploadStatus>(
+      `/projects/${projectId}/uploads?${new URLSearchParams(ids.map((id) => ['ids', String(id)]))}`,
+      { signal },
+    ),
   document: (id: number) => request<Document>(`/documents/${id}`),
   updateDocument: (id: number, body: { filename?: string; folder_id?: number | null }) =>
     request<Document>(`/documents/${id}`, json('PATCH', body)),

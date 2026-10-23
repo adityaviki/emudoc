@@ -15,6 +15,7 @@ import { describeDocumentUsage } from '../usage.ts'
 import { originalFile } from './files.ts'
 import { documentKey, listingsKey } from './listing.ts'
 import { useWorkspace } from './state.ts'
+import { followedKey } from './uploads.ts'
 import type { Focus } from './url.ts'
 
 /** The blocks to highlight and scroll to; `end` is exclusive. */
@@ -229,7 +230,12 @@ function IndexTheRest({ document, onStarted }: { document: Document; onStarted: 
       onStarted()
     },
     onSettled: () => {
-      for (const queryKey of [listingsKey(document.project_id), documentKey(document.id), ['project', document.project_id]]) {
+      for (const queryKey of [
+        listingsKey(document.project_id),
+        documentKey(document.id),
+        ['project', document.project_id],
+        followedKey(document.project_id),
+      ]) {
         void queryClient.invalidateQueries({ queryKey })
       }
     },

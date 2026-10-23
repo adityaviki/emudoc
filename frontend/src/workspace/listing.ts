@@ -34,8 +34,11 @@ export function refreshAfter(documents: Document[], now = Date.now()): number | 
     else if (isIndexing(document)) return REFRESH
   }
   if (soonest === Infinity) return false
-  return Math.min(Math.max(soonest - now + REFRESH, REFRESH), WAITING_REFRESH)
+  return askAgainAt(soonest, now)
 }
+
+/** When to ask again about something whose retry is due at `due`: just after, held between REFRESH and WAITING_REFRESH from now. */
+export const askAgainAt = (due: number, now: number) => Math.min(Math.max(due - now + REFRESH, REFRESH), WAITING_REFRESH)
 
 export interface ListedPage {
   /** The cursor the page was asked for with; null for the first. */

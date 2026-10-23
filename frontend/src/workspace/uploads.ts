@@ -3,11 +3,14 @@
 // goes in as few requests as the server's limits allow (`UploadLimits`, from GET /api/status),
 // one after another, so that a folder of more files than one request may carry goes whole. Each
 // request is one upload on the server, with its own notice (backend/app/notices.py). How far it
-// has gone, per file and as a whole, is the panel's (UploadPanel.tsx), which alone follows it.
+// has gone, per file and as a whole, is the panel's (UploadPanel.tsx), which alone follows it,
+// and once it is sent, how far its documents are indexed, asked of the server for its uploads
+// together (GET /api/projects/{id}/uploads) until none is being indexed or waits for a retry.
 
 import { ACCEPTED_EXTENSIONS } from '../api.ts'
-import type { Progress, UploadItem, UploadLimits, UploadResult } from '../api.ts'
+import type { Document, Progress, UploadItem, UploadLimits, UploadResult, UploadStatus } from '../api.ts'
 import { formatSize } from '../format.ts'
+import { REFRESH, askAgainAt } from './listing.ts'
 
 type Rejected = UploadResult['rejected'][number]
 
@@ -87,13 +90,20 @@ export interface UploadState {
   total: number
 }
 
+/** What an upload's requests stored and rejected over all of them, and the uploads they were on the server. */
+export interface Sent {
+  documents: Document[]
+  rejected: Rejected[]
+  uploads: number[]
+}
+
 /** Why an upload stopped before its last request: the error, what went in before it, and the files not sent. */
 export class UploadStopped extends Error {
   error: Error
-  result: UploadResult
+  result: Sent
   unsent: UploadItem[]
 
-  constructor(error: Error, result: UploadResult, unsent: UploadItem[]) {
+  constructor(error: Error, result: Sent, unsent: UploadItem[]) {
     super(error.message)
     this.error = error
     this.result = result
@@ -114,8 +124,8 @@ export async function sendInBatches(
   limits: UploadLimits,
   send: (batch: UploadItem[], onProgress: Progress) => Promise<UploadResult>,
   report: (state: UploadState) => void,
-): Promise<UploadResult> {
-  const result: UploadResult = { documents: [], rejected: [] }
+): Promise<Sent> {
+  const result: Sent = { documents: [], rejected: [], uploads: [] }
   let answered = 0
   for (const batch of batches(items, limits)) {
     const state: UploadState = { items, answered, sending: batch.length, loaded: 0, total: 0 }
@@ -124,6 +134,7 @@ export async function sendInBatches(
       const done = await send(batch, (loaded, total) => report({ ...state, loaded, total }))
       result.documents.push(...done.documents)
       result.rejected.push(...done.rejected)
+      if (done.upload_id != null) result.uploads.push(done.upload_id)
     } catch (error) {
       throw new UploadStopped(error instanceof Error ? error : new Error(String(error)), result, items.slice(answered))
     }
@@ -180,6 +191,85 @@ export const NOTHING_TO_UPLOAD = 'There is nothing to upload: the folder holds n
 /** What the library says once the member stopped an upload. */
 export const uploadStopped = (unsent: number) =>
   `The upload was stopped: the last ${files(unsent)} did not go in.`
+
+/** The followed uploads' query, of every upload of the project followed. */
+export const followedKey = (projectId: number) => ['uploads', projectId] as const
+
+/** How many uploads one request asks about (MAX_FOLLOWED in backend/app/api/documents.py). */
+export const FOLLOWED_A_REQUEST = 100
+
+/** The uploads' ids in the requests that ask about them. */
+export const followedBatches = (uploads: number[]): number[][] =>
+  Array.from({ length: Math.ceil(uploads.length / FOLLOWED_A_REQUEST) }, (_, n) =>
+    uploads.slice(n * FOLLOWED_A_REQUEST, (n + 1) * FOLLOWED_A_REQUEST),
+  )
+
+const COUNTS = ['documents', 'ready', 'partly_indexed', 'indexing', 'retrying', 'failed'] as const
+
+/** The answers about the uploads of each request, as one: the counts added, the soonest retry, the failures one after another. */
+export function summed(statuses: UploadStatus[]): UploadStatus {
+  const whole: UploadStatus = {
+    documents: 0,
+    ready: 0,
+    partly_indexed: 0,
+    indexing: 0,
+    retrying: 0,
+    retry_at: null,
+    failed: 0,
+    failures: [],
+  }
+  for (const status of statuses) {
+    for (const count of COUNTS) whole[count] += status[count]
+    if (status.retry_at && (!whole.retry_at || new Date(status.retry_at) < new Date(whole.retry_at))) {
+      whole.retry_at = status.retry_at
+    }
+    whole.failures.push(...status.failures)
+  }
+  return whole
+}
+
+/** Whether none of an upload's documents is being indexed or waits for a retry. */
+export const settled = (status: UploadStatus) => status.indexing === 0 && status.retrying === 0
+
+/**
+ * When to ask again how far an upload is indexed, in milliseconds, as the library asks about a
+ * folder (`refreshAfter` in listing.ts): every REFRESH while a document is being indexed, else
+ * just after the soonest retry is due; never once it is settled.
+ */
+export function followAfter(status: UploadStatus, now = Date.now()): number | false {
+  if (settled(status)) return false
+  if (status.indexing > 0 || !status.retry_at) return REFRESH
+  return askAgainAt(new Date(status.retry_at).getTime(), now)
+}
+
+const count = (n: number) => n.toLocaleString('en')
+
+/**
+ * Where an upload's documents stand, in words: its title, "12 of 40 ready; 26 being indexed; 2
+ * could not be indexed.", the share of them settled one way or the other, and the failures the
+ * list leaves out.
+ */
+export function standingOf(status: UploadStatus, into: string) {
+  const done = settled(status)
+  const { documents, ready, partly_indexed: partly, indexing, retrying, failed } = status
+  const title = done ? `${files(documents)} uploaded into ${into}` : `Indexing ${files(documents)} uploaded into ${into}`
+  const parts = documents
+    ? [
+        `${count(ready)} of ${count(documents)} ready${partly ? `, ${count(partly)} of them partly indexed` : ''}`,
+        indexing ? `${count(indexing)} being indexed` : '',
+        retrying ? `${count(retrying)} waiting for a retry` : '',
+        failed ? `${count(failed)} could not be indexed` : '',
+      ]
+    : ['They are all in the trash now']
+  const unlisted = failed - status.failures.length
+  return {
+    title,
+    line: `${parts.filter(Boolean).join('; ')}.`,
+    percent: documents ? Math.floor((100 * (ready + failed)) / documents) : 100,
+    settled: done,
+    more: unlisted > 0 ? `${count(unlisted)} more could not be indexed: the library marks each.` : null,
+  }
+}
 
 /**
  * The state's store: it changes with every few kilobytes sent, which only the panel follows, so
