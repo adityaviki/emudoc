@@ -195,9 +195,15 @@ def test_the_callers_slot_is_held_from_the_childs_start_to_its_end(
     assert len(held) == 4
 
 
-def test_a_parse_that_needs_too_much_memory_is_stopped(sample_pdf):
+def test_a_parse_that_needs_too_much_memory_is_stopped(tmp_path):
+    # The cap is below what the child holds once its libraries are loaded, so it is hit by the
+    # first allocation the heap cannot serve from what it holds already. The two-page sample PDF
+    # needs only 64 to 256 KB more, which the allocator's slack sometimes holds (both of CI's
+    # suites, 2026-10-23), so the file is a text whose reading needs megabytes at once.
+    text = tmp_path / "long.md"
+    text.write_text("A line of a long document.\n" * 300_000)
     with pytest.raises(ParseError) as caught:
-        parse_within_limits(sample_pdf, "msa.pdf", ParseLimits(memory_mb=1))
+        parse_within_limits(text, "long.md", ParseLimits(memory_mb=1))
     assert str(caught.value) == (
         "Parsing needs more than the 1 MB of memory allowed and was stopped. Split the file "
         "into smaller parts and upload those."
