@@ -3823,6 +3823,11 @@ no one releases from their own machine, and no AWS key is kept in GitHub.
   and pushes it with `push-image.sh`, unless the repository holds the tag already.
 - **Staging** is released by CI's Staging job once every job of the run passed, with
   `release.sh staging <sha>`, one release at a time.
+- **Where the jobs run**: GitHub's runners, or while the repository variable `RUNNER` names
+  them, the self-hosted runners of `.github/runner` on a developer's machine (CLAUDE.md, "CI
+  on this machine"). Either way the job is CI's, for a commit on `main`, and AWS trusts its
+  OpenID Connect token for an hour; the machine keeps no key between jobs. The Release
+  workflow runs on GitHub's alone.
 - **Production**, and staging again (a changed setting reaches the containers with a release
   of the same tag), are the Release workflow's: Actions, Release, Run workflow, from `main`,
   with the environment and the commit, its seven-digit SHA as GitHub shows it or the whole.

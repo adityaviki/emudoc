@@ -45,7 +45,11 @@ env:
 jobs:
   python:
     name: Python dependencies
-    runs-on: ubuntu-24.04
+    # This machine's runners (.github/runner) while the repository variable RUNNER names
+    # their label, else GitHub's; a pull request of Dependabot's always runs on GitHub's,
+    # since what it brings in is nobody's code here yet. The other jobs run where this
+    # one does.
+    runs-on: &runner ${{ github.actor != 'dependabot[bot]' && vars.RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -70,7 +74,7 @@ jobs:
 
   frontend:
     name: Frontend dependencies
-    runs-on: ubuntu-24.04
+    runs-on: *runner
     timeout-minutes: 10
     defaults:
       run:
@@ -104,7 +108,7 @@ jobs:
   # vulnerabilities with a statement.
   image:
     name: Image vulnerabilities
-    runs-on: ubuntu-24.04
+    runs-on: *runner
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -128,7 +132,7 @@ jobs:
   # copy pulled into Docker, so that no image is unpacked on the runner's disk.
   beside:
     name: Images beside the app
-    runs-on: ubuntu-24.04
+    runs-on: *runner
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

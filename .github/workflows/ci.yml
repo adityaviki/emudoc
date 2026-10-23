@@ -3,7 +3,8 @@
 # runs the command a developer would, so a red step is reproduced by running it on a checkout.
 # Actions are pinned by commit and the tools that come as images by digest: a moved tag changes
 # nothing here until this file does. A push to main also pushes the image it checked and, once
-# every check passed, releases it on staging (deploying.md, "Releases from CI").
+# every check passed, releases it on staging (deploying.md, "Releases from CI"). The jobs run on
+# a developer's machine while the repository variable RUNNER says so (.github/runner).
 name: CI
 
 on:
@@ -34,7 +35,11 @@ env:
 jobs:
   backend:
     name: Backend (${{ matrix.database }})
-    runs-on: ubuntu-24.04
+    # This machine's runners (.github/runner) while the repository variable RUNNER names
+    # their label, else GitHub's; a pull request of Dependabot's always runs on GitHub's,
+    # since what it brings in is nobody's code here yet. The other jobs run where this
+    # one does.
+    runs-on: &runner ${{ github.actor != 'dependabot[bot]' && vars.RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -84,7 +89,7 @@ jobs:
 
   frontend:
     name: Frontend
-    runs-on: ubuntu-24.04
+    runs-on: *runner
     timeout-minutes: 10
     defaults:
       run:
@@ -125,7 +130,7 @@ jobs:
   # and the same answer every run. On a failure the report and the trace are kept for a week.
   e2e:
     name: End to end
-    runs-on: ubuntu-24.04
+    runs-on: *runner
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -185,7 +190,7 @@ jobs:
   # (deploying.md, "Releases from CI") the job stops after the smoke test.
   image:
     name: Image
-    runs-on: ubuntu-24.04
+    runs-on: *runner
     timeout-minutes: 20
     # A pull request's token says pull_request and another branch's names it: AWS refuses both.
     permissions:
@@ -229,7 +234,7 @@ jobs:
   # every week, and nothing else here starts it.
   embeddings:
     name: Embeddings
-    runs-on: ubuntu-24.04
+    runs-on: *runner
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -240,7 +245,7 @@ jobs:
 
   opentofu:
     name: OpenTofu
-    runs-on: ubuntu-24.04
+    runs-on: *runner
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -283,7 +288,7 @@ jobs:
   # before the commit.
   secrets:
     name: Secrets
-    runs-on: ubuntu-24.04
+    runs-on: *runner
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -300,7 +305,7 @@ jobs:
 
   scripts:
     name: Scripts and configuration
-    runs-on: ubuntu-24.04
+    runs-on: *runner
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -371,7 +376,7 @@ jobs:
     if: >-
       github.event_name == 'push' && github.ref == 'refs/heads/main'
       && vars.AWS_PUSH_ROLE != '' && vars.AWS_STAGING_ROLE != ''
-    runs-on: ubuntu-24.04
+    runs-on: *runner
     # Systems Manager gives the release an hour on the instance (release.sh).
     timeout-minutes: 70
     permissions:
