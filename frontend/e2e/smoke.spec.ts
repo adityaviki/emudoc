@@ -27,12 +27,15 @@ import { holdNextTurn, refuseEmbeddings, releaseTurns } from './standin.ts'
 // agreed questions there, turn its extraction templates on, which its audit log keeps, view the
 // colleague's account, which she let support see, and switch the model's provider off and on
 // again; and last, make the project's own invoice template from the built-in one, a field
-// added, and delete it. The answer
+// added, and delete it, then upload an invoice, read for the built-in one, and find its facts in
+// the project's facts table, sorted, kept by a condition and opened where they were found. The answer
 // is the stand-in's (e2e/standin.py): the first sentence of the passage its search found best,
 // with that passage's reference. Along the way each kind of page, panel and dialog is checked
 // against axe-core's rules for WCAG 2.2 AA in both themes (e2e/axe.ts), and the keyboard's focus
 // is followed where something it was on goes away.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
+// An invoice whose fields are lines of their own, which the stand-in reads for the invoice template.
+const INVOICE = join(import.meta.dirname, 'fixtures', 'invoice.md')
 // A folder of two delivery notes, one of them in a folder of its own.
 const DELIVERIES = join(import.meta.dirname, 'fixtures', 'deliveries')
 // The project every sign-up's organisation starts with (backend/app/sample).
@@ -830,5 +833,56 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('listitem').filter({ hasText: 'Made an extraction template' })).toContainText(
       'Invoice · for invoice documents, 15 fields',
     )
+  })
+
+  await test.step("upload an invoice, read for its template, and find its facts in the project's facts table", async () => {
+    // Uploaded now that the templates are on, it is read for the built-in invoice template.
+    await page.goto('/')
+    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
+    await page.locator('input[name="files"]').setInputFiles(INVOICE)
+    await expect(page.getByRole('treeitem', { name: 'invoice.md' })).toHaveAccessibleDescription(/^Ready/, { timeout: 60_000 })
+    await page.getByRole('button', { name: 'Extraction templates' }).click()
+    const invoice = page.getByRole('list', { name: 'Templates' }).locator(':scope > li').filter({ hasText: /^Invoice/ })
+    await expect(invoice).toContainText('1 document read for it')
+    await invoice.getByRole('button', { name: 'Facts table of Invoice' }).click()
+    // The button went with the view: the keyboard goes on from the table's heading.
+    await expect(page.getByRole('heading', { name: 'Invoice facts' })).toBeFocused()
+    const grid = page.getByRole('grid', { name: 'Facts of invoice documents' })
+    const row = grid.getByRole('row').filter({ hasText: 'INV-2026-0412' })
+    await expect(row).toContainText('EUR 1,250.00')
+    await expect(row).toContainText('Acme Logistics Ltd')
+    await expect(page.getByText('1 document', { exact: true })).toBeVisible()
+    const total = grid.getByRole('columnheader', { name: 'total amount', exact: true })
+    await total.getByRole('button').click()
+    await expect(total).toHaveAttribute('aria-sort', 'ascending')
+
+    // One stop of Tab, the arrows between the cells; a cell's quote shows on focus, and Enter opens it where it was found.
+    await grid.getByRole('columnheader', { name: 'Document', exact: true }).getByRole('button').focus()
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('ArrowRight')
+    const number = grid.getByRole('button', { name: 'INV-2026-0412', exact: true })
+    await expect(number).toBeFocused()
+    await expect(page.getByText('Quoted as “Invoice number: INV-2026-0412”.')).toBeVisible()
+    await expectAccessible(page, 'the facts table')
+    await page.keyboard.press('Enter')
+    await expect(page).toHaveURL(/\/documents\/\d+\?(.*&)?block=\d+/)
+    await expect(page.getByRole('region', { name: 'Text of invoice.md' }).getByText('Invoice number: INV-2026-0412')).toBeInViewport()
+    await expect(number).toBeFocused()
+
+    // Kept by a condition the invoice does not meet, then by none.
+    const condition = page.getByRole('button', { name: 'Condition', exact: true })
+    await condition.click()
+    const form = page.getByRole('form', { name: 'Keep the rows whose…' })
+    await expect(form.getByLabel('Field')).toBeFocused()
+    await form.getByLabel('Field').selectOption('total_amount')
+    await form.getByLabel('Condition').selectOption('min')
+    await form.getByLabel('Number').fill('2000')
+    await expectAccessible(page, 'a condition of the facts table being chosen')
+    await form.getByRole('button', { name: 'Add' }).click()
+    await expect(page.getByText('No document meets these conditions')).toBeVisible()
+    await expect(condition).toBeFocused()
+    await page.getByRole('button', { name: 'Remove the condition total amount is at least 2000' }).click()
+    await expect(row).toBeVisible()
+    await expect(condition).toBeFocused()
   })
 })

@@ -7,12 +7,13 @@ import { useLocation, useNavigate } from 'react-router'
 /** What a document is opened at: a cited passage, a block of its text, or a page. */
 export type Focus = { passage: number } | { block: number } | { page: number }
 
-/** The folder the library shows, and the search running in it; or, with `trash`, the project's trash, and with `templates`, its extraction templates. */
+/** The folder the library shows, and the search running in it; or, with `trash`, the project's trash, with `templates`, its extraction templates, and with `facts`, the facts table of its documents of that kind. */
 export interface LibraryView {
   folderId: number | null
   q: string
   trash?: true
   templates?: true
+  facts?: string
 }
 
 export interface OpenDocument {
@@ -43,6 +44,7 @@ export function parseWorkspaceUrl(pathname: string, search: string): WorkspaceUr
   const library: LibraryView = { folderId: id(params.get('folder')), q: params.get('q') ?? '' }
   if (params.has('trash')) library.trash = true
   else if (params.has('templates')) library.templates = true
+  else if (params.get('facts')) library.facts = params.get('facts') ?? undefined
 
   let document: OpenDocument | null = null
   let canonical = true
@@ -81,6 +83,7 @@ export function buildWorkspaceUrl(url: Omit<WorkspaceUrl, 'canonical'>): string 
   if (url.library.q) params.set('q', url.library.q)
   if (url.library.trash) params.set('trash', '')
   if (url.library.templates) params.set('templates', '')
+  if (url.library.facts) params.set('facts', url.library.facts)
   if (url.document) {
     path += `/documents/${url.document.id}`
     const focus = url.document.focus

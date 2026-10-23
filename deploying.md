@@ -358,6 +358,14 @@ its fifth run on a connection, and Postgres then keeps one plan for every projec
 looks no dearer, which in a table of many projects is the small project's sort, three times
 slower for a large one and slower as it grows. None of this needs the operator.
 
+**The facts table** (behind `extraction_templates`) sorts a kind's documents by a field's
+first value, looked up for each document as it sorts them, so a page's time grows with the
+kind's documents in the project: at 5,000 invoices among 55,000 documents and 920,000 facts,
+a page took 30 to 120 ms (two statements of 30 to 55 ms each), sorted by the name, an amount, a
+date or a text, with conditions and words or without, the next page alike. Each is planned for
+its project and runs without the JIT, which the lookups' cost would otherwise start: that took
+330 of the 385 ms a page took before.
+
 **ICU**: the library lists a folder's files in an order the database keeps an index in, by
 an ICU collation the migrations make, `natural_order` (numbers in a name compared as numbers,
 case and accents set aside). The server must be built with ICU, as the official images, RDS
@@ -3205,8 +3213,8 @@ It changes four things, as the commands do:
   maintenance flags acme extraction_templates on      # or off, or rollout for the share's again
   ```
 
-  The flags today: `extraction_templates`, a project's extraction templates (README, "How it
-  works"), at 0. Where it is on, the enrich stage lists the project's templates in every
+  The flags today: `extraction_templates`, a project's extraction templates and the facts
+  table of each kind's documents (README, "How it works"), at 0. Where it is on, the enrich stage lists the project's templates in every
   document's first request (each field described while the listing is short, by name and type
   alone past 16,000 characters), a few thousand tokens more per document; where it is off, the
   stage asks as it always did. Turned off again, the documents keep the facts they were read

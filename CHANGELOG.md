@@ -44,6 +44,13 @@ Members:
 
 Operators:
 
+- The facts table, behind the same flag `extraction_templates`: where it is on, each template
+  with documents read for it opens a table of them from the library's "Extraction templates",
+  a row a document and a column a field, sorted by any field and kept by conditions on them,
+  each cell opening its fact where it was found. A new route, `GET
+  /api/projects/{id}/fact-table` (`kind`, `sort`, `order`, `filter`, `q`, `after`, `limit`),
+  which API keys take and `RATE_SEARCHES` holds as the other reads of the facts; no migration.
+  At 5,000 invoices in a project, a page takes 30 to 120 ms (deploying.md, "The database").
 - Extraction templates, the first of tier 3's features, behind the feature flag
   `extraction_templates` at 0, so off for every organisation until it is turned on for one in
   the operator's area or with `flags <slug> extraction_templates on`. A template is the fields a

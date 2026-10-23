@@ -24,10 +24,11 @@ import { gzipSync } from 'node:zlib'
 // indexing (231.8 kB): how many of its documents are ready and those that could not be, and why,
 // then 238 kB the same day by a project's extraction templates (235.5 kB): the view that lists
 // them and the form that writes one, field by field, the first of tier 3's features, which the
-// rest will add to (a facts table next).
+// rest will add to (a facts table next), and 242 kB the same day by that facts table (239.5 kB):
+// a grid the keyboard moves through, its sort, its conditions and each cell's quote.
 // A change that passes it makes the scripts smaller (a dependency left out, a page loaded only
 // when it is opened) or raises this number, saying why in its commit.
-const BUDGET = 238_000
+const BUDGET = 242_000
 // The operator's area (operator.html), a build of its own that only operators are sent: React
 // and the rest again, 102.0 kB on 2026-10-21. Its size costs no member anything, so its budget
 // only catches a dependency pulled in by mistake.

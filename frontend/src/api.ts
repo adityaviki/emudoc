@@ -301,6 +301,22 @@ export interface Fact {
   verified: boolean
 }
 
+/** A row of a kind's facts table (FactRowOut in backend/app/schemas.py): a document, and the facts of each of its template's fields it has, in the document's order. */
+export interface FactRow {
+  document_id: number
+  title: string
+  filename: string
+  cells: Record<string, Fact[]>
+}
+
+/** A page of a kind's facts table (FactTableOut): the template whose fields are its columns, its rows, how many rows its conditions keep, and where its next page starts. */
+export interface FactTable {
+  template: ExtractionTemplate
+  rows: FactRow[]
+  total: number
+  next_after: string | null
+}
+
 export interface SearchHit {
   passage_id: number
   document_id: number
@@ -1564,6 +1580,8 @@ export const api = {
   updateTemplate: (id: number, body: TemplateInput) => request<ExtractionTemplate>(`/templates/${id}`, json('PUT', body)),
   /** For good; the built-in template of its kind, if any, applies again. */
   deleteTemplate: (id: number) => request<void>(`/templates/${id}`, { method: 'DELETE' }),
+  /** A page of the facts table of the project's documents of one kind, as `tableQuery` in factTable.ts asks for it. */
+  factTable: (projectId: number, query: URLSearchParams) => request<FactTable>(`/projects/${projectId}/fact-table?${query}`),
 
   folders: (projectId: number) => request<Folder[]>(`/projects/${projectId}/folders`),
   createFolder: (projectId: number, body: { name: string; parent_id: number | null }) =>

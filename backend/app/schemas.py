@@ -386,6 +386,26 @@ class FactList(BaseModel):
     facts: list[FactOut]
 
 
+class FactRowOut(BaseModel):
+    """A row of the facts table (app/fact_table.py): a document, and the facts of each of the
+    template's fields it has, in the document's order; a field it has none of is left out."""
+
+    document_id: int
+    title: str
+    filename: str
+    cells: dict[str, list[FactOut]]
+
+
+class FactTableOut(BaseModel):
+    """A page of the facts table of one kind of document: the template whose fields are its
+    columns, the rows, how many rows the conditions keep, and where the next page starts."""
+
+    template: TemplateOut
+    rows: list[FactRowOut]
+    total: int
+    next_after: str | None
+
+
 class FactName(BaseModel):
     name: str
     count: int

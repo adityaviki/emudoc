@@ -111,6 +111,7 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/projects/{w.project_id}/facts", {}),
         ("GET", f"/api/projects/{w.project_id}/facts/names", {}),
         ("GET", f"/api/projects/{w.project_id}/templates", {}),
+        ("GET", f"/api/projects/{w.project_id}/fact-table", {"params": {"kind": "invoice"}}),
         ("GET", f"/api/documents/{w.document_id}", {}),
         ("GET", f"/api/documents/{w.document_id}/file", {}),
         ("GET", f"/api/documents/{w.document_id}/pages/1.png", {}),

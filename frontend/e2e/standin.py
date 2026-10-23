@@ -7,6 +7,9 @@ the passages. It answers as a model would that does the least the app asks:
 
 - an indexing request (a JSON schema in `response_format`) gets the smallest reply the schema
   takes: no sections, no facts, empty strings, which the pipeline reads as nothing learnt;
+- an indexing request that lists the project's extraction templates (`<templates>`) gets the
+  one whose kind the document's opening words hold, and the facts its "Name: value" lines
+  state, so that a document of the kind is a row of its facts table;
 - an agent turn whose conversation has no tool result yet calls `search` with the question,
   streamed as the app streams every turn;
 - an agent turn after a search answers with the first sentence of the best passage, cited by
@@ -62,6 +65,10 @@ ISO_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 MONEY = re.compile(r"^(EUR|USD|GBP) ([\d,]+(?:\.\d+)?)$")
 NUMBER = re.compile(r"^[\d,]+(?:\.\d+)?$")
 KINDS = ("delivery note", "price list", "invoice", "agreement", "contract", "review", "email")
+# The templates an indexing request lists, and each one's kind, which starts its line there
+# (the fields' lines below it are indented).
+TEMPLATES = re.compile(r"^<templates>\n(.*?)\n</templates>$", re.MULTILINE | re.DOTALL)
+LISTED_KIND = re.compile(r"^(\S[^:\n]*): ", re.MULTILINE)
 # The words of a scanned page's made-up text: the stand-in cannot read a picture.
 SCAN_WORDS = (
     "pallet carton crate delivered received signed checked damaged missing short late early "
@@ -123,6 +130,23 @@ def filled(schema: dict[str, Any], defs: dict[str, Any], messages: list[dict[str
     if "sections" in properties and "InferredSection" not in defs:
         reply["sections"] = section_summaries(prompt)
     if "facts" in properties:
+        reply["facts"] = facts_of(blocks)
+    return reply
+
+
+def named(reply: Any, schema: dict[str, Any], messages: list[dict[str, Any]]) -> Any:
+    """The reply to a request that lists the project's extraction templates, with the template
+    whose kind the document's opening words hold, and the facts its "Name: value" lines state;
+    any other reply as it is."""
+    prompt = "\n".join(text_of(m.get("content")) for m in messages if m.get("role") == "user")
+    listing = TEMPLATES.search(prompt)
+    if "template" not in schema.get("properties", {}) or not listing:
+        return reply
+    blocks = {int(number): text for number, text in BLOCK_LINE.findall(prompt)}
+    opening = " ".join(list(blocks.values())[:3]).lower()
+    kind = next((kind for kind in LISTED_KIND.findall(listing.group(1)) if kind in opening), None)
+    reply["template"] = kind
+    if kind is not None:
         reply["facts"] = facts_of(blocks)
     return reply
 
@@ -291,10 +315,11 @@ class Handler(BaseHTTPRequestHandler):
         if format_.get("type") == "json_schema":
             schema = format_["json_schema"]["schema"]
             defs = schema.get("$defs", {})
-            made = (
-                filled(schema, defs, body.get("messages", []))
-                if self.fill
-                else instance(schema, defs)
+            messages = body.get("messages", [])
+            made = named(
+                filled(schema, defs, messages) if self.fill else instance(schema, defs),
+                schema,
+                messages,
             )
             reply: dict[str, Any] = {"text": json.dumps(made)}
             time.sleep(self.index_seconds)

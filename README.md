@@ -94,6 +94,19 @@ template, customises a built-in one into the project's own, changes and deletes 
 of the audit log, and after a change has the project's documents read again ("Read them again",
 the enrich stage on). A project's export holds its own templates.
 
+Each template with documents read for it opens its facts table from that list ("Facts table",
+`backend/app/fact_table.py`, `GET /api/projects/{id}/fact-table`): a row for each of the
+project's documents read for it and a column for each of its fields, in the library's place
+beside the document and the chat. A cell shows the field's first fact in the document's order,
+with how many more it holds (each line of an invoice), its quote and page on hover or focus,
+and opens the document where it was found; a cell of several lists them to open one. A column's
+header sorts the rows by the field's typed value (an amount by its number, a date by its date, a
+text in the library's natural order), those without it last; the rows are kept by words in the
+document's name or its facts, and by conditions on a field (stated, not stated, contains, at
+least, at most), a row meeting one when any of the field's facts does. The columns are the
+template as it is now, so a document read for an earlier version shows the fields it still
+has. The table is one stop of Tab, the arrows moving between its cells.
+
 A project can hold any number of chats. Each one is saved with its answers, including the
 steps the agent took and the passages it was shown, so a chat can be reopened later. An answer
 is written by the background worker, not by the request that asked the question: the question
@@ -1111,6 +1124,7 @@ backend/app/
   billing.py    changing a plan, and selling it and packs: Checkout, the portal, Stripe's events
   flags.py      the feature flags: what is being rolled out, to how many organisations, and to which
   extraction.py the extraction templates: the built-in ones, and those in force for a project
+  fact_table.py the facts table: a kind's documents side by side, sorted, kept and paged
   payments.py   Stripe's API, and the signature on its events
   api/          HTTP endpoints
   headers.py    the headers every response carries for the browser

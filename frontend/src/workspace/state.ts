@@ -52,6 +52,8 @@ export interface Workspace {
   showTrash(): void
   /** Shows the project's extraction templates in the library, likewise. */
   showTemplates(): void
+  /** Shows the facts table of the project's documents of a kind in the library, likewise. */
+  showFacts(kind: string): void
   openChat(chatId: number | 'new' | null, options?: { replace?: boolean }): void
   /** Which pane shows on a narrow screen, where only one fits. */
   mobilePane: Pane

@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide-react'
-import { useId, useRef, useState } from 'react'
+import { ArrowLeft, Pencil, Plus, RotateCcw, Table2, Trash2, X } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { api, isPlanLimit, mayChange } from '../api.ts'
 import type { ExtractionTemplate, FactType, PlanRefusal } from '../api.ts'
 import { ME_KEY, useMe } from '../auth.ts'
 import { Confirm } from '../components/Confirm.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, Checkbox, Chip, IconButton, InputField, Loading, Notice, SelectField } from '../components/ui.tsx'
+import { factTablesKey } from '../factTable.ts'
 import { useStatus } from '../hooks.ts'
 import {
   FACT_TYPES,
@@ -49,6 +50,10 @@ export function TemplatesView() {
   const [done, setDone] = useState<string | null>(null)
   const [refused, setRefused] = useState<PlanRefusal | string | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
+  // Opened from a button that went with the view before it: the keyboard goes on from here.
+  useEffect(() => {
+    if (window.document.activeElement === window.document.body) heading.current?.focus()
+  }, [])
   const fail = (error: Error) =>
     setRefused(isPlanLimit(error) ? { message: error.message, limit: error.limit } : error.message)
 
@@ -61,7 +66,9 @@ export function TemplatesView() {
     },
     onSuccess: (_, template) => setDone(`Deleted “${template.title}”.`),
     onError: fail,
-    onSettled: () => queryClient.invalidateQueries({ queryKey: templatesKey(project.id) }),
+    onSettled: () => {
+      for (const queryKey of [templatesKey(project.id), factTablesKey(project.id)]) void queryClient.invalidateQueries({ queryKey })
+    },
   })
   const readAgain = useMutation({
     mutationFn: () => api.reprocessProject(project.id, 'enrich'),
@@ -69,7 +76,7 @@ export function TemplatesView() {
     onSuccess: ({ queued }) => setDone(`${queued} document${queued === 1 ? ' is' : 's are'} being read again.`),
     onError: fail,
     onSettled: () => {
-      for (const queryKey of [listingsKey(project.id), ['project', project.id], ME_KEY]) {
+      for (const queryKey of [listingsKey(project.id), factTablesKey(project.id), ['project', project.id], ME_KEY]) {
         void queryClient.invalidateQueries({ queryKey: [...queryKey] })
       }
     },
@@ -176,6 +183,7 @@ export function TemplatesView() {
                     setEditing({ template })
                   }}
                   onDelete={() => setAsking(template)}
+                  onTable={() => workspace.showFacts(template.doc_type)}
                 />
               ))}
             </ul>
@@ -200,12 +208,14 @@ function TemplateRow({
   busy,
   onEdit,
   onDelete,
+  onTable,
 }: {
   template: ExtractionTemplate
   changes: boolean
   busy: boolean
   onEdit: () => void
   onDelete: () => void
+  onTable: () => void
 }) {
   const origin = originOf(template)
   return (
@@ -234,6 +244,11 @@ function TemplateRow({
             </span>
           ))}
       </div>
+      {template.documents > 0 && (
+        <Button icon={<Table2 className="size-4" />} onClick={onTable} aria-label={`Facts table of ${template.title}`} className="mt-1.5">
+          Facts table
+        </Button>
+      )}
       <details className="mt-1.5">
         <summary className="cursor-pointer text-xs text-muted hover:text-ink">Its fields</summary>
         <ul className="mt-1.5 space-y-1">
@@ -284,7 +299,7 @@ function TemplateForm({ template, onClose }: { template: ExtractionTemplate | nu
       setRefused(null)
     },
     onSuccess: (saved) => {
-      void queryClient.invalidateQueries({ queryKey: templatesKey(project.id) })
+      for (const queryKey of [templatesKey(project.id), factTablesKey(project.id)]) void queryClient.invalidateQueries({ queryKey })
       onClose(`Saved “${saved.title}”.`)
     },
     onError: (error) => (isPlanLimit(error) ? setRefused({ message: error.message, limit: error.limit }) : setProblem(error.message)),

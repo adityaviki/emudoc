@@ -1,5 +1,6 @@
 """A project's extraction templates (app/extraction.py): the fields its documents of each kind are
-read for, which the library's Templates page lists, the built-in ones among them, and changes.
+read for, which the library's Templates page lists, the built-in ones among them, and changes;
+and the facts table of each kind's documents (app/fact_table.py), a column for each field.
 
 Every route is behind the flag `extraction_templates` (app/flags.py), answering an organisation it
 is off for as a path no route takes. Whoever may change the project changes its templates, each
@@ -10,8 +11,9 @@ others again.
 """
 
 import datetime as dt
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -22,7 +24,9 @@ from app.api.deps import (
     ProjectDep,
     SessionDep,
     flagged,
+    limited,
 )
+from app.api.documents import fact_out
 from app.audit import audit
 from app.extraction import (
     BUILT_IN_TYPES,
@@ -32,10 +36,19 @@ from app.extraction import (
     template_of,
     templates_for,
 )
+from app.fact_table import TableRefusal, condition_of, read_table
 from app.flags import EXTRACTION_TEMPLATES
 from app.indexing.enrich import normalize_fact_name
 from app.models import Document, ExtractionTemplate, Project
-from app.schemas import ProjectTemplatesOut, TemplateFieldOut, TemplateIn, TemplateOut
+from app.ratelimit import SEARCHES
+from app.schemas import (
+    FactRowOut,
+    FactTableOut,
+    ProjectTemplatesOut,
+    TemplateFieldOut,
+    TemplateIn,
+    TemplateOut,
+)
 
 router = APIRouter(tags=["templates"], dependencies=[Depends(flagged(EXTRACTION_TEMPLATES))])
 
@@ -43,6 +56,11 @@ TOO_MANY = (
     f"A project has at most {MAX_TEMPLATES} templates of its own. Delete one it no longer needs "
     "before adding another."
 )
+
+# The facts table's rows a page, and the conditions one request may hold.
+TABLE_ROWS = 100
+MAX_TABLE_ROWS = 200
+MAX_CONDITIONS = 10
 
 
 @router.get("/projects/{project_id}/templates", response_model=ProjectTemplatesOut)
@@ -63,6 +81,79 @@ def list_templates(project: ProjectDep, session: SessionDep):
             for template in templates_for(session, project.id)
         ],
         max_templates=MAX_TEMPLATES,
+    )
+
+
+@router.get(
+    "/projects/{project_id}/fact-table",
+    response_model=FactTableOut,
+    dependencies=[Depends(limited(SEARCHES))],
+)
+def fact_table(
+    project: ProjectDep,
+    session: SessionDep,
+    kind: str,
+    sort: str | None = None,
+    order: Literal["asc", "desc"] = "asc",
+    conditions: Annotated[list[str] | None, Query(alias="filter")] = None,
+    q: str = "",
+    after: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=MAX_TABLE_ROWS)] = TABLE_ROWS,
+):
+    """A page of the facts table of the project's documents of one kind (app/fact_table.py):
+    a row for each document read for the kind's template, a column for each of its fields,
+    sorted by one field (`sort`; the document's name without one), the rows kept by each
+    `filter` (`field:has`, `field:lacks`, `field:contains:words`, `field:min:value`,
+    `field:max:value`) and the words `q`, in the document's name or its facts."""
+    doc_type = kind_of(kind)
+    template = next((t for t in templates_for(session, project.id) if t.doc_type == doc_type), None)
+    if template is None:
+        raise HTTPException(404, f"This project has no template for {doc_type} documents.")
+    if len(conditions or []) > MAX_CONDITIONS:
+        raise HTTPException(422, f"A table takes at most {MAX_CONDITIONS} conditions at once.")
+    sorted_by = None
+    if sort:
+        sorted_by = template.field(sort)
+        if sorted_by is None:
+            raise HTTPException(422, f"The {template.title} template has no field named {sort}.")
+    try:
+        table = read_table(
+            session,
+            project.id,
+            template,
+            sort=sorted_by,
+            order=order,
+            conditions=[condition_of(template, written) for written in conditions or []],
+            words=q,
+            after=after,
+            limit=limit,
+        )
+    except TableRefusal as refusal:
+        raise HTTPException(422, str(refusal)) from None
+    updated_at = (
+        session.scalar(
+            select(ExtractionTemplate.updated_at).where(ExtractionTemplate.id == template.id)
+        )
+        if template.id is not None
+        else None
+    )
+    documents = _documents_read_for(session, project.id).get(template.doc_type, 0)
+    return FactTableOut(
+        template=_out(template, documents, updated_at),
+        rows=[
+            FactRowOut(
+                document_id=row.document.id,
+                title=row.document.display_title,
+                filename=row.document.filename,
+                cells={
+                    name: [fact_out(fact, row.document) for fact in facts]
+                    for name, facts in row.cells.items()
+                },
+            )
+            for row in table.rows
+        ],
+        total=table.total,
+        next_after=table.next_after,
     )
 
 
