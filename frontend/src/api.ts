@@ -119,7 +119,53 @@ export interface ExtractionTemplate {
   replaces_built_in: boolean
   /** The project's documents whose facts were last read for it. */
   documents: number
+  /** Those of its kind read for no template, such as the ones read before it was made, which reading its documents again takes too. */
+  matching: number
+  /** Its documents waiting for their summaries and facts to be read, again or retried. */
+  reading: number
+  /** Those whose last reading of its kind changed a field or the template they are read for. */
+  changed: number
   updated_at: string | null
+}
+
+/** Which documents to read again for the templates as they are now (ReadAgainIn): those of a template's kind, and those read for a kind its template was for before. */
+export interface ReadAgainInput {
+  kind?: string
+  was?: string
+}
+
+/** A field whose facts a document's last reading changed (FieldChangeOut): the values read before and no longer, and those read now and not before, each cut at a few of the counts; `checked` when a value gone was a member's check. */
+export interface FieldChange {
+  name: string
+  before: string[]
+  after: string[]
+  before_count: number
+  after_count: number
+  checked: boolean
+}
+
+/** What a document's last reading changed (DocumentChangesOut): the template it was read for before and now, and its fields. */
+export interface DocumentChanges {
+  document_id: number
+  title: string
+  filename: string
+  read_at: string
+  template_before: string | null
+  template_after: string | null
+  fields: FieldChange[]
+}
+
+/** The last readings of a project's documents of one kind (FactChangesOut): how many wait to be read, were read and changed, and a page of those that changed. */
+export interface FactChanges {
+  kind: string
+  template: ExtractionTemplate | null
+  reading: number
+  read: number
+  changed: number
+  /** How many changed a value a member checked or corrected. */
+  unheld: number
+  documents: DocumentChanges[]
+  next_after: string | null
 }
 
 /** A template as a member writes it, whole (TemplateIn): the server makes the kind lowercase words and the fields' names snake_case. */
@@ -1606,6 +1652,14 @@ export const api = {
   updateTemplate: (id: number, body: TemplateInput) => request<ExtractionTemplate>(`/templates/${id}`, json('PUT', body)),
   /** For good; the built-in template of its kind, if any, applies again. */
   deleteTemplate: (id: number) => request<void>(`/templates/${id}`, { method: 'DELETE' }),
+  /** Read the project's documents of a kind again for its template as it is now, from their summaries and facts. */
+  readAgain: (projectId: number, body: ReadAgainInput) =>
+    request<{ queued: number }>(`/projects/${projectId}/templates/read-again`, json('POST', body)),
+  /** What the last reading of each of the project's documents of a kind changed, a page past `after`. */
+  factChanges: (projectId: number, kind: string, after: string | null = null) =>
+    request<FactChanges>(
+      `/projects/${projectId}/fact-changes?${new URLSearchParams(after ? { kind, after } : { kind })}`,
+    ),
   /** A page of the facts table of the project's documents of one kind, as `tableQuery` in factTable.ts asks for it. */
   factTable: (projectId: number, query: URLSearchParams) => request<FactTable>(`/projects/${projectId}/fact-table?${query}`),
   /** Check a fact as it reads, or correct it to `value`; the member's value replaces the model's wherever the fact is read. */

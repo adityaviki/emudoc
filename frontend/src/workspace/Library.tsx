@@ -45,6 +45,7 @@ import type { FolderTree } from '../hooks.ts'
 import { partlyIndexedWords, restHeld, unfinishedStages } from '../indexing.ts'
 import { describeChange } from './changes.ts'
 import { chosenFolder, droppedEntries, readEntries } from './dropped.ts'
+import { ChangesView } from './FactChanges.tsx'
 import { FactsView } from './FactsTable.tsx'
 import { fileKind, originalFileItem } from './files.ts'
 import { growing, hasMore, listed, showMore, useListings } from './listing.ts'
@@ -176,6 +177,7 @@ export function Library() {
   if (workspace.url.library.trash) return <TrashView />
   if (workspace.url.library.templates && templates) return <TemplatesView />
   if (workspace.url.library.facts && templates) return <FactsView kind={workspace.url.library.facts} />
+  if (workspace.url.library.changes && templates) return <ChangesView kind={workspace.url.library.changes} />
   return (
     <div
       data-tour="library"

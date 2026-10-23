@@ -44,6 +44,16 @@ Members:
 
 Operators:
 
+- Reading a template's documents again, behind the flag `extraction_templates`: once a template
+  is saved or deleted, the library offers to read again the documents it concerns (those read
+  for it, those of its kind read for none, and those read for the kind it was for before), not
+  every document of the project, naming how many, and "What changed" then lists what each
+  reading changed of the template's fields, those against a member's check first. A new table,
+  `fact_changes` (a migration), one row a document, replaced at each reading that had one before
+  it and dropped when its outline is read again. New routes `POST
+  /api/projects/{id}/templates/read-again` and `GET /api/projects/{id}/fact-changes`, which API
+  keys take; `TemplateOut` adds `matching`, `reading` and `changed`. Reading again writes no
+  audit row, as "Index again" writes none.
 - Checking and correcting facts, behind the flag `extraction_templates`: where it is on, a cell
   of the facts table opens its facts, each to check as read, correct to what the document states
   or open, and "To review" keeps the rows with a fact nobody checked. A new table,

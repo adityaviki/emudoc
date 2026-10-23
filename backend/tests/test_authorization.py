@@ -118,6 +118,7 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/projects/{w.project_id}/facts/names", {}),
         ("GET", f"/api/projects/{w.project_id}/templates", {}),
         ("GET", f"/api/projects/{w.project_id}/fact-table", {"params": {"kind": "invoice"}}),
+        ("GET", f"/api/projects/{w.project_id}/fact-changes", {"params": {"kind": "invoice"}}),
         ("GET", f"/api/documents/{w.document_id}", {}),
         ("GET", f"/api/documents/{w.document_id}/file", {}),
         ("GET", f"/api/documents/{w.document_id}/pages/1.png", {}),
@@ -139,6 +140,11 @@ def writes(w: World) -> list[Route]:
             {"json": {"visibility": "organization", "user_ids": []}},
         ),
         ("POST", f"/api/projects/{w.project_id}/reprocess", {}),
+        (
+            "POST",
+            f"/api/projects/{w.project_id}/templates/read-again",
+            {"json": {"kind": "invoice"}},
+        ),
         ("POST", f"/api/projects/{w.project_id}/folders", {"json": {"name": "Invoices"}}),
         (
             "POST",

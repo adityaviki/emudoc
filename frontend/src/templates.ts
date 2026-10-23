@@ -100,11 +100,13 @@ export function draftProblem(draft: TemplateDraft): string | null {
   return null
 }
 
-/** The line under a template's name: the kind it is for, its fields, and the documents last read for it. */
+/** The line under a template's name: the kind it is for, its fields, the documents last read for it, those being read and those its last readings changed. */
 export function templateWords(template: ExtractionTemplate): string {
   const required = template.fields.filter((field) => field.required).length
   const parts = [`For ${template.doc_type} documents`, `${count(template.fields.length, 'field')}${required ? `, ${required} required` : ''}`]
   if (template.documents) parts.push(`${count(template.documents, 'document')} read for it`)
+  if (template.reading) parts.push(`${template.reading} being read`)
+  if (template.changed) parts.push(`${template.changed} changed when read again`)
   return parts.join(' · ')
 }
 
@@ -119,23 +121,10 @@ export function deletionQuestion(template: ExtractionTemplate): Question {
   const read = template.replaces_built_in ? `for the built-in ${template.doc_type} template` : 'without a template'
   return {
     title: `Delete the template “${template.title}”?`,
-    body: `The project's ${template.doc_type} documents are read ${read} once they are indexed again; until then they keep the facts read for this one. This cannot be undone.`,
+    body: `The project's ${template.doc_type} documents are read ${read} once they are read again; until then they keep the facts read for this one. This cannot be undone.`,
     action: 'Delete it',
-  }
-}
-
-/** What reading the project's documents again for the templates asks: it costs the model's time for each. */
-export function readAgainQuestion(documents: number): Question {
-  return {
-    title: 'Read the documents again?',
-    body: `The AI model reads the summaries and facts of the project's ${count(documents, 'document')} again, for the templates as they are now. A long project takes a while, and it counts against the day's use of the model.`,
-    action: 'Read them again',
   }
 }
 
 /** Why the documents cannot be read again just now. */
 export const MODEL_AWAY = 'The AI model is unavailable just now: read them again once it is back.'
-
-/** What the view says once a template is saved or deleted: the documents read before keep their facts until they are read again. */
-export const SAVED =
-  'Documents uploaded from now on are read for the templates as they are. Those here already keep the facts they were read for until they are read again.'

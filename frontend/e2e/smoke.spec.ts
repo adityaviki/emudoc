@@ -29,13 +29,16 @@ import { holdNextTurn, refuseEmbeddings, releaseTurns } from './standin.ts'
 // again; and last, make the project's own invoice template from the built-in one, a field
 // added, and delete it, then upload an invoice, read for the built-in one, and find its facts in
 // the project's facts table, sorted, kept by a condition and opened where they were found, one
-// checked and another corrected, which the table's rows to review and the audit log keep. The answer
+// checked and another corrected, which the table's rows to review and the audit log keep, and
+// then a field added to the project's own invoice template and the invoice read again for it,
+// what the reading changed listed, the corrected total kept. The answer
 // is the stand-in's (e2e/standin.py): the first sentence of the passage its search found best,
 // with that passage's reference. Along the way each kind of page, panel and dialog is checked
 // against axe-core's rules for WCAG 2.2 AA in both themes (e2e/axe.ts), and the keyboard's focus
 // is followed where something it was on goes away.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
-// An invoice whose fields are lines of their own, which the stand-in reads for the invoice template.
+// An invoice whose fields are lines of their own, which the stand-in reads for the invoice template,
+// and a delivery period, which only a template that asks for it reads.
 const INVOICE = join(import.meta.dirname, 'fixtures', 'invoice.md')
 // A folder of two delivery notes, one of them in a folder of its own.
 const DELIVERIES = join(import.meta.dirname, 'fixtures', 'deliveries')
@@ -816,8 +819,9 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(heading).toBeFocused()
     await expect(invoice).toContainText('Replaces the built-in one')
     await expect(invoice).toContainText('15 fields, 6 required')
-    // What is indexed from now on is read for it; what is here already, once read again.
-    await expect(page.getByRole('button', { name: 'Read them again' })).toBeVisible()
+    // What is indexed from now on is read for it; no invoice is here yet to read again.
+    await expect(page.getByText('Documents uploaded from now on are read for the templates as they are.')).toBeVisible()
+    await expect(page.getByRole('button', { name: /^Read (it|them) again$/ })).toHaveCount(0)
 
     // Deleted for good after a question, the built-in one applies again.
     await invoice.getByRole('button', { name: 'Delete Invoice' }).click()
@@ -928,5 +932,46 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.goto('/organization/audit')
     await page.getByLabel('What').selectOption('fact_corrected')
     await expect(page.getByRole('listitem').filter({ hasText: 'Corrected a fact' })).toContainText('invoice.md · total amount')
+  })
+
+  await test.step('add a field to the invoice template, read the invoice again for it, and read what changed', async () => {
+    await page.goto('/')
+    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
+    await page.getByRole('button', { name: 'Extraction templates' }).click()
+    const invoice = page.getByRole('list', { name: 'Templates' }).locator(':scope > li').filter({ hasText: /^Invoice/ })
+    // The delivery period the invoice states, which the built-in template does not ask for.
+    await invoice.getByRole('button', { name: 'Customise Invoice' }).click()
+    const form = page.getByRole('form', { name: 'Your own Invoice template' })
+    await form.getByRole('button', { name: 'Add a field' }).click()
+    await form.getByRole('group', { name: 'Field 15' }).getByLabel('Name').fill('Delivery period')
+    await form.getByRole('button', { name: 'Save' }).click()
+    await expect(page.getByText('The invoice document here keeps the facts read before until read again.')).toBeVisible()
+
+    // Read again after a question that names it; the button that asked goes, the one that shows what changed takes the focus.
+    await page.getByRole('button', { name: 'Read it again' }).click()
+    const question = page.getByRole('dialog', { name: 'Read the invoice document again?' })
+    await expectAccessible(page, 'the question before documents are read again')
+    await question.getByRole('button', { name: 'Read it again' }).click()
+    await expect(page.getByText('1 document is being read again.')).toBeVisible()
+    const whatChanged = page.getByRole('button', { name: 'What changed', exact: true })
+    await expect(whatChanged).toBeFocused()
+    await whatChanged.click()
+    await expect(page.getByRole('heading', { name: 'What changed in the Invoice facts' })).toBeFocused()
+
+    // Followed while it is read, then the field it found; the total its member corrected was read as before, so it stands, unnamed.
+    const changed = page.getByRole('list', { name: 'Documents read differently' }).getByRole('listitem')
+    await expect(changed).toContainText('delivery period', { timeout: 60_000 })
+    await expect(changed).toContainText('Found “March 2026”.')
+    await expect(changed).not.toContainText('total amount')
+    await expect(page.getByRole('status').filter({ hasText: 'read again' })).toHaveText('1 document read again: 1 changed.')
+    await expectAccessible(page, 'what a reading changed')
+
+    // The template says so, and its facts table has the field's column, beside the correction.
+    await page.getByRole('button', { name: 'Back to the templates' }).click()
+    await expect(invoice).toContainText('1 changed when read again')
+    await invoice.getByRole('button', { name: 'Facts table of Invoice' }).click()
+    const row = page.getByRole('grid', { name: 'Facts of invoice documents' }).getByRole('row').filter({ hasText: 'INV-2026-0412' })
+    await expect(row).toContainText('March 2026')
+    await expect(row).toContainText('1,205.00 EUR')
   })
 })

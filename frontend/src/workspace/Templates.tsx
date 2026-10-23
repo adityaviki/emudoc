@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Pencil, Plus, RotateCcw, Table2, Trash2, X } from 'lucide-react'
+import { ArrowLeft, FileDiff, Pencil, Plus, RotateCcw, Table2, Trash2, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { api, isPlanLimit, mayChange } from '../api.ts'
 import type { ExtractionTemplate, FactType, PlanRefusal } from '../api.ts'
@@ -7,20 +7,20 @@ import { ME_KEY, useMe } from '../auth.ts'
 import { Confirm } from '../components/Confirm.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, Checkbox, Chip, IconButton, InputField, Loading, Notice, SelectField } from '../components/ui.tsx'
+import { deletedReadAgain, factChangesKey, queuedWords, readAgainQuestion, savedReadAgain, savedWords } from '../factChanges.ts'
+import type { ReadAgain } from '../factChanges.ts'
 import { factTablesKey } from '../factTable.ts'
 import { useStatus } from '../hooks.ts'
 import {
   FACT_TYPES,
   MODEL_AWAY,
   NEW_FIELD,
-  SAVED,
   deletionQuestion,
   draftOf,
   draftProblem,
   factName,
   inputOf,
   originOf,
-  readAgainQuestion,
   templateWords,
   templatesKey,
 } from '../templates.ts'
@@ -31,11 +31,15 @@ import { useWorkspace } from './state.ts'
 /** What the form is open on: a new template, or one of those listed, a built-in one to become the project's own. */
 type Editing = { template: ExtractionTemplate | null }
 
+/** What the last change did, and the documents it offers to read again for it. */
+type Done = { said: string; read: ReadAgain | null }
+
 /**
  * The project's extraction templates, in the library's place: the fields its documents of each
  * kind are read for, the built-in ones among them, each of which a project's own of its kind
- * replaces. Whoever may change the project makes, changes and deletes them, and has the
- * documents read again for them; a viewer reads them.
+ * replaces. Whoever may change the project makes, changes and deletes them, and has a changed
+ * template's documents read again for it, then reads what each reading changed; a viewer reads
+ * them.
  */
 export function TemplatesView() {
   const workspace = useWorkspace()
@@ -46,10 +50,11 @@ export function TemplatesView() {
   const templates = useQuery({ queryKey: templatesKey(project.id), queryFn: () => api.templates(project.id) })
   const [editing, setEditing] = useState<Editing | null>(null)
   const [asking, setAsking] = useState<ExtractionTemplate | 'read' | null>(null)
-  // What the last change did, which offers to read the documents again.
-  const [done, setDone] = useState<string | null>(null)
+  // What the last change did, which offers to read its documents again.
+  const [done, setDone] = useState<Done | null>(null)
   const [refused, setRefused] = useState<PlanRefusal | string | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
+  const id = useId()
   // Opened from a button that went with the view before it: the keyboard goes on from here.
   useEffect(() => {
     if (window.document.activeElement === window.document.body) heading.current?.focus()
@@ -64,19 +69,28 @@ export function TemplatesView() {
       // The row goes with its buttons: the keyboard goes on from the heading.
       heading.current?.focus()
     },
-    onSuccess: (_, template) => setDone(`Deleted “${template.title}”.`),
+    onSuccess: (_, template) => setDone({ said: `Deleted “${template.title}”.`, read: deletedReadAgain(template) }),
     onError: fail,
     onSettled: () => {
       for (const queryKey of [templatesKey(project.id), factTablesKey(project.id)]) void queryClient.invalidateQueries({ queryKey })
     },
   })
   const readAgain = useMutation({
-    mutationFn: () => api.reprocessProject(project.id, 'enrich'),
+    mutationFn: (read: ReadAgain) => api.readAgain(project.id, read.ask),
     onMutate: () => setRefused(null),
-    onSuccess: ({ queued }) => setDone(`${queued} document${queued === 1 ? ' is' : 's are'} being read again.`),
+    // The button that asked goes: the keyboard goes on from the one that shows what changed.
+    onSuccess: () =>
+      requestAnimationFrame(() => (window.document.getElementById(`${id}-changes`) ?? heading.current)?.focus()),
     onError: fail,
     onSettled: () => {
-      for (const queryKey of [listingsKey(project.id), factTablesKey(project.id), ['project', project.id], ME_KEY]) {
+      for (const queryKey of [
+        listingsKey(project.id),
+        templatesKey(project.id),
+        factTablesKey(project.id),
+        factChangesKey(project.id),
+        ['project', project.id],
+        ME_KEY,
+      ]) {
         void queryClient.invalidateQueries({ queryKey: [...queryKey] })
       }
     },
@@ -86,11 +100,17 @@ export function TemplatesView() {
   const own = listed.filter((template) => !template.built_in).length
   const room = own < (templates.data?.max_templates ?? 0)
   const modelAway = health.data?.llm.available === false
-  const close = (said: string | null) => {
+  const close = (saved: Done | null) => {
     setEditing(null)
-    if (said) setDone(said)
+    if (saved) {
+      readAgain.reset()
+      setDone(saved)
+    }
     requestAnimationFrame(() => heading.current?.focus())
   }
+  // The documents the last change offers to read again, until they are.
+  const offer = changes && done?.read && done.read.documents > 0 && !readAgain.isSuccess ? done.read : null
+  const queued = readAgain.isSuccess ? readAgain.data.queued : null
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-page">
@@ -108,6 +128,7 @@ export function TemplatesView() {
             title={room ? undefined : `A project has at most ${templates.data?.max_templates} templates of its own.`}
             onClick={() => {
               setDone(null)
+              readAgain.reset()
               setEditing({ template: null })
             }}
           >
@@ -139,19 +160,26 @@ export function TemplatesView() {
               <Notice tone="info">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <p>
-                      {done} {readAgain.isSuccess ? '' : SAVED}
-                    </p>
-                    {changes && modelAway && !readAgain.isSuccess && <p className="mt-0.5 text-xs text-muted">{MODEL_AWAY}</p>}
+                    <p>{queued != null ? queuedWords(queued) : `${done.said} ${savedWords(done.read)}`}</p>
+                    {offer && modelAway && <p className="mt-0.5 text-xs text-muted">{MODEL_AWAY}</p>}
                   </div>
                   <span className="flex shrink-0 items-center gap-1">
-                    {changes && project.document_count > 0 && !readAgain.isSuccess && (
+                    {offer && (
                       <Button
                         icon={<RotateCcw className="size-4" />}
                         disabled={readAgain.isPending || modelAway}
                         onClick={() => setAsking('read')}
                       >
-                        Read them again
+                        {readAgainQuestion(offer).action}
+                      </Button>
+                    )}
+                    {queued != null && queued > 0 && done.read && (
+                      <Button
+                        id={`${id}-changes`}
+                        icon={<FileDiff className="size-4" />}
+                        onClick={() => workspace.showChanges(done.read?.kind ?? '')}
+                      >
+                        What changed
                       </Button>
                     )}
                     <IconButton
@@ -180,23 +208,23 @@ export function TemplatesView() {
                   busy={remove.isPending}
                   onEdit={() => {
                     setDone(null)
+                    readAgain.reset()
                     setEditing({ template })
                   }}
                   onDelete={() => setAsking(template)}
                   onTable={() => workspace.showFacts(template.doc_type)}
+                  onChanges={() => workspace.showChanges(template.doc_type)}
                 />
               ))}
             </ul>
           </>
         )}
       </div>
-      {asking && (
-        <Confirm
-          {...(asking === 'read' ? readAgainQuestion(project.document_count) : deletionQuestion(asking))}
-          danger={asking !== 'read'}
-          onConfirm={() => (asking === 'read' ? readAgain.mutate() : remove.mutate(asking))}
-          onClose={() => setAsking(null)}
-        />
+      {asking === 'read' && offer && (
+        <Confirm {...readAgainQuestion(offer)} danger={false} onConfirm={() => readAgain.mutate(offer)} onClose={() => setAsking(null)} />
+      )}
+      {asking && asking !== 'read' && (
+        <Confirm {...deletionQuestion(asking)} onConfirm={() => remove.mutate(asking)} onClose={() => setAsking(null)} />
       )}
     </div>
   )
@@ -209,6 +237,7 @@ function TemplateRow({
   onEdit,
   onDelete,
   onTable,
+  onChanges,
 }: {
   template: ExtractionTemplate
   changes: boolean
@@ -216,6 +245,7 @@ function TemplateRow({
   onEdit: () => void
   onDelete: () => void
   onTable: () => void
+  onChanges: () => void
 }) {
   const origin = originOf(template)
   return (
@@ -244,10 +274,19 @@ function TemplateRow({
             </span>
           ))}
       </div>
-      {template.documents > 0 && (
-        <Button icon={<Table2 className="size-4" />} onClick={onTable} aria-label={`Facts table of ${template.title}`} className="mt-1.5">
-          Facts table
-        </Button>
+      {(template.documents > 0 || template.changed > 0 || template.reading > 0) && (
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {template.documents > 0 && (
+            <Button icon={<Table2 className="size-4" />} onClick={onTable} aria-label={`Facts table of ${template.title}`}>
+              Facts table
+            </Button>
+          )}
+          {(template.changed > 0 || template.reading > 0) && (
+            <Button icon={<FileDiff className="size-4" />} onClick={onChanges} aria-label={`What changed in the ${template.title} facts`}>
+              What changed
+            </Button>
+          )}
+        </div>
       )}
       <details className="mt-1.5">
         <summary className="cursor-pointer text-xs text-muted hover:text-ink">Its fields</summary>
@@ -276,7 +315,7 @@ type Row = FieldDraft & { key: number }
  * A template written whole: its name, the kind of document it is for and its fields. A built-in
  * one opened here is saved as the project's own, in the built-in one's place.
  */
-function TemplateForm({ template, onClose }: { template: ExtractionTemplate | null; onClose: (said: string | null) => void }) {
+function TemplateForm({ template, onClose }: { template: ExtractionTemplate | null; onClose: (saved: Done | null) => void }) {
   const { project } = useWorkspace()
   const queryClient = useQueryClient()
   const id = useId()
@@ -300,7 +339,7 @@ function TemplateForm({ template, onClose }: { template: ExtractionTemplate | nu
     },
     onSuccess: (saved) => {
       for (const queryKey of [templatesKey(project.id), factTablesKey(project.id)]) void queryClient.invalidateQueries({ queryKey })
-      onClose(`Saved “${saved.title}”.`)
+      onClose({ said: `Saved “${saved.title}”.`, read: savedReadAgain(saved, template) })
     },
     onError: (error) => (isPlanLimit(error) ? setRefused({ message: error.message, limit: error.limit }) : setProblem(error.message)),
   })

@@ -10,5 +10,7 @@ Vendor name: Acme Logistics Ltd
 
 Total amount: EUR 1,250.00
 
+Delivery period: March 2026
+
 Payment is due within thirty days of the invoice date, by transfer to the account on the
 contract's first page.

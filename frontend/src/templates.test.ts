@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ExtractionTemplate } from './api.ts'
-import { NEW_FIELD, deletionQuestion, draftOf, draftProblem, factName, inputOf, kindOf, originOf, readAgainQuestion, templateWords } from './templates.ts'
+import { NEW_FIELD, deletionQuestion, draftOf, draftProblem, factName, inputOf, kindOf, originOf, templateWords } from './templates.ts'
 
 const invoice = (changes: Partial<ExtractionTemplate> = {}): ExtractionTemplate => ({
   id: null,
@@ -15,6 +15,9 @@ const invoice = (changes: Partial<ExtractionTemplate> = {}): ExtractionTemplate 
   built_in: true,
   replaces_built_in: false,
   documents: 0,
+  matching: 0,
+  reading: 0,
+  changed: 0,
   updated_at: null,
   ...changes,
 })
@@ -66,6 +69,9 @@ describe('a template', () => {
   it('says what it is for, how many fields it reads and the documents read for it', () => {
     expect(templateWords(invoice())).toBe('For invoice documents · 3 fields, 2 required')
     expect(templateWords(invoice({ documents: 1, fields: [invoice().fields[2]] }))).toBe('For invoice documents · 1 field · 1 document read for it')
+    expect(templateWords(invoice({ documents: 4, reading: 2, changed: 1 }))).toBe(
+      'For invoice documents · 3 fields, 2 required · 4 documents read for it · 2 being read · 1 changed when read again',
+    )
     expect(originOf(invoice())).toBe('Built in')
     expect(originOf(invoice({ id: 4, built_in: false, replaces_built_in: true }))).toBe('Replaces the built-in one')
     expect(originOf(invoice({ id: 4, built_in: false, doc_type: 'timesheet' }))).toBeNull()
@@ -74,8 +80,7 @@ describe('a template', () => {
   it('asks before it is deleted, saying what its documents are read for then', () => {
     const own = invoice({ id: 4, built_in: false, replaces_built_in: true, title: 'Supplier invoice' })
     expect(deletionQuestion(own).title).toBe('Delete the template “Supplier invoice”?')
-    expect(deletionQuestion(own).body).toMatch(/^The project's invoice documents are read for the built-in invoice template once they are indexed again;/)
+    expect(deletionQuestion(own).body).toMatch(/^The project's invoice documents are read for the built-in invoice template once they are read again;/)
     expect(deletionQuestion({ ...own, replaces_built_in: false }).body).toMatch(/^The project's invoice documents are read without a template once/)
-    expect(readAgainQuestion(1).body).toContain("the project's 1 document again")
   })
 })

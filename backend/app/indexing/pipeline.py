@@ -26,6 +26,8 @@ from app.embeddings import Embedder
 from app.entitlements import check_pages, text_pages
 from app.errors import AppError, shown, summary
 from app.extraction import Template, templates_for
+from app.fact_changes import facts_read, read_now
+from app.fact_changes import record as record_changes
 from app.fact_checks import apply_checks
 from app.fact_checks import hold as hold_checks
 from app.flags import EXTRACTION_TEMPLATES, flag_on_for
@@ -43,7 +45,7 @@ from app.languages import project_language
 from app.llm import LLM, LLMError, OcrBlock
 from app.mail import Mailer
 from app.metrics import DOCUMENT_READY, INDEX_RUNS, PARSES, STAGE_RUNS, STAGE_SECONDS
-from app.models import STAGES, Block, Document, Fact, Passage, Project, Section
+from app.models import STAGES, Block, Document, Fact, FactChange, Passage, Project, Section
 from app.notices import MONTH_PAGES, app_address, note_quota
 from app.parsing import IMAGE_TYPES, FileTooLarge, ParsedBlock, UnsupportedFile
 from app.parsing.images import open_image
@@ -304,7 +306,7 @@ def _quarantine(
     the members, and whatever an earlier run indexed of it is dropped, so that nothing of the
     file is searched, read or served (the routes refuse the file by the status and the scan
     stage, app/scanning.py). The file itself stays in the storage for a delete to remove."""
-    _delete_derived(session, document.id, Fact, Passage, Section, Block)
+    _delete_derived(session, document.id, Fact, FactChange, Passage, Section, Block)
     document.status = "quarantined"
     document.error = failure.detail
     audit_event(
@@ -851,9 +853,9 @@ def _structure(session: Session, document: Document, services: Services, meter: 
     outline = build_outline(blocks, document.title or stem, document.page_count, hints)
     document.title = outline.title if outline.title != stem else None
 
-    _delete_derived(session, document.id, Fact, Passage, Section)
-    # The facts went with the passages they were linked to; the template they were read for
-    # goes with them until the enrich stage reads them again.
+    _delete_derived(session, document.id, Fact, FactChange, Passage, Section)
+    # The facts went with the passages they were linked to, and what their reading changed with
+    # them; the template they were read for goes too until the enrich stage reads them again.
     document.template = None
     rows: dict[int, Section] = {}
     for ordinal, draft in enumerate(outline.sections):
@@ -927,6 +929,8 @@ def _enrich(session: Session, document: Document, services: Services, meter: Met
 
     profile = analysis.profile
     template = analysis.template
+    # The template the reading before was for, which what this one changed is told against.
+    was = document.template
     old_root = document.title or Path(document.filename).stem
     document.title = clean_text(profile.title)[:500] or document.title
     # A document read for a template is of its kind, which the catalogue filters by.
@@ -948,12 +952,16 @@ def _enrich(session: Session, document: Document, services: Services, meter: Met
             )
 
     hold_checks(session, document.id)
+    before = facts_read(session, document.id)
     session.execute(delete(Fact).where(Fact.document_id == document.id))
     facts = _fact_rows(session, document, analysis.facts, blocks, analysis.sampled, template)
     # What the members checked of the facts before outlives them: a fact read the same again
     # takes its check, with the member's value.
     apply_checks(session, document.id, facts)
     session.add_all(facts)
+    # What this reading changed of the last one's facts, for the template's fields, which a
+    # template changed and its documents read again show (app/fact_changes.py).
+    record_changes(session, document, before, was, read_now(facts), template, templates)
     summarized = sum(1 for section in sections if section.summary)
     detail = f"{summarized} section summaries, {len(facts)} facts"
     if template is not None:

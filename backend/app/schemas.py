@@ -181,7 +181,74 @@ class TemplateOut(BaseModel):
     replaces_built_in: bool
     # The project's documents whose facts were last read for it.
     documents: int
+    # Those of its kind read for no template, such as the ones read before it was made, which
+    # reading its documents again takes too.
+    matching: int
+    # Its documents and those waiting for the enrich stage, read again or retried.
+    reading: int
+    # Those whose last reading of its kind changed a field or the template they are read for.
+    changed: int
     updated_at: dt.datetime | None
+
+
+_Kind = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+
+
+class ReadAgainIn(BaseModel):
+    """Which of a project's documents to read again for its templates as they are now: those of
+    the kind a template is for (`kind`: read for it, and of its kind read for none), and those
+    read for a kind no template is for any more, as before a template's kind was changed or it
+    was deleted (`was`)."""
+
+    kind: _Kind | None = None
+    was: _Kind | None = None
+
+
+class ReadAgainOut(BaseModel):
+    queued: int
+
+
+class FieldChangeOut(BaseModel):
+    """A field whose facts a document's last reading changed (app/fact_changes.py): the values
+    read before and no longer, and those read now and not before, each list cut at a few of
+    the counts; `checked` when a value gone was a member's check, which the new reading
+    disagrees with."""
+
+    name: str
+    before: list[str]
+    after: list[str]
+    before_count: int
+    after_count: int
+    checked: bool
+
+
+class DocumentChangesOut(BaseModel):
+    """What a document's last reading changed: the template it was read for before and now
+    (null for none), and its fields."""
+
+    document_id: int
+    title: str
+    filename: str
+    read_at: dt.datetime
+    template_before: str | None
+    template_after: str | None
+    fields: list[FieldChangeOut]
+
+
+class FactChangesOut(BaseModel):
+    """The last readings of a project's documents of one kind, before or now: the template in
+    force for the kind (null for none), how many of its documents wait to be read, how many
+    were last read and how many of those changed something, how many disagree with a member's
+    check, and a page of those that changed, those first, then the newest."""
+
+    kind: str
+    template: TemplateOut | None
+    reading: int
+    read: int
+    changed: int
+    unheld: int
+    documents: list[DocumentChangesOut]
+    next_after: str | None
 
 
 class ProjectTemplatesOut(BaseModel):

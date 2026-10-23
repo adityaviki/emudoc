@@ -54,6 +54,8 @@ export interface Workspace {
   showTemplates(): void
   /** Shows the facts table of the project's documents of a kind in the library, likewise. */
   showFacts(kind: string): void
+  /** Shows what the last readings of the project's documents of a kind changed, likewise. */
+  showChanges(kind: string): void
   openChat(chatId: number | 'new' | null, options?: { replace?: boolean }): void
   /** Which pane shows on a narrow screen, where only one fits. */
   mobilePane: Pane

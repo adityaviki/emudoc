@@ -83,7 +83,8 @@ def test_the_standin_reads_a_document_as_enrich_sends_it():
 
 def test_the_standin_names_the_listed_template_a_document_is_and_reads_its_fields():
     """The browser test's stand-in, in its default mode, as the enrich stage asks it with the
-    project's templates listed: the one the opening words name, with the "Name: value" facts."""
+    project's templates listed: the one the opening words name, with the "Name: value" facts of
+    its fields."""
     schema = TemplatedDocumentAnalysis.model_json_schema()
 
     def asked_plainly(texts: list[str]) -> TemplatedDocumentAnalysis:
@@ -107,9 +108,11 @@ def test_the_standin_names_the_listed_template_a_document_is_and_reads_its_field
             "From Acme Logistics Ltd, for the deliveries of March.",
             "Invoice number: INV-2026-0412",
             "Total amount: EUR 1,250.00",
+            "Delivery period: March 2026",
         ]
     )
     assert chosen(BUILT_IN, analysis.template) is BUILT_IN[0]
+    # The line of no field of the invoice template is left out, as a template read alone.
     assert [(f.name, f.value, f.number) for f in analysis.facts] == [
         ("invoice_number", "INV-2026-0412", None),
         ("total_amount", "EUR 1,250.00", 1250.0),

@@ -91,8 +91,21 @@ template alone. The document takes the template's kind, and its stage says which
 every document of the kind states were not found in it. The library's "Extraction templates"
 button, beside the trash, lists them with their fields; whoever may change the project makes a
 template, customises a built-in one into the project's own, changes and deletes them, each a row
-of the audit log, and after a change has the project's documents read again ("Read them again",
-the enrich stage on). A project's export holds its own templates.
+of the audit log. After a change they have the template's documents read again from their
+summaries and facts ("Read them again", `POST /api/projects/{id}/templates/read-again`): those
+read for it, those of its kind read for none, such as the ones read before it was made, and
+after its kind moved or it was deleted, those read for the kind before, the question naming how
+many. A project's export holds its own templates.
+
+What a template's change did is then listed ("What changed", `backend/app/fact_changes.py`, `GET
+/api/projects/{id}/fact-changes`): each time the enrich stage reads a document it read before,
+it compares the facts of its template's fields with those the reading before left, a value read
+alike being no change ("EUR 1,250.00" and "1,250.00 EUR" are one amount), and keeps for each
+field the values found, no longer found or read otherwise, and whether the template the document
+is read for changed. The view follows the documents while they are read, then lists those that
+changed, first those whose new reading disagrees with a value a member checked or corrected,
+whose check then waits in its cell of the facts table to be settled. A reading after the
+document's outline was read again compares nothing, the facts having gone with the passages.
 
 Each template with documents read for it opens its facts table from that list ("Facts table",
 `backend/app/fact_table.py`, `GET /api/projects/{id}/fact-table`): a row for each of the
@@ -1138,6 +1151,8 @@ backend/app/
   fact_table.py the facts table: a kind's documents side by side, sorted, kept and paged
   fact_checks.py
                 members' checks and corrections of facts, kept through the next reading
+  fact_changes.py
+                what a document's last reading changed of its template's fields
   payments.py   Stripe's API, and the signature on its events
   api/          HTTP endpoints
   headers.py    the headers every response carries for the browser

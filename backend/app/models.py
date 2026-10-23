@@ -1098,6 +1098,39 @@ class FactCheck(Base):
         return self.value is not None
 
 
+class FactChange(Base):
+    """What a document's last reading by the enrich stage changed of the facts the reading before
+    left, field by field for the fields of its templates (app/fact_changes.py): one row a
+    document, written anew at each reading that had one before it, so that a template changed
+    and its documents read again show what the change did. Its values are what the document
+    says, as its facts are, and go with the document."""
+
+    __tablename__ = "fact_changes"
+    __table_args__ = (
+        CheckConstraint("jsonb_typeof(changes) = 'array'", name="ck_fact_changes_changes"),
+        # A project's last readings, the newest first, as the page lists them.
+        Index("ix_fact_changes_project_read", "project_id", "read_at"),
+    )
+
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+    )
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    read_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # The kind of the template the document was read for before and now; null for none.
+    template_before: Mapped[str | None] = mapped_column(String(100))
+    template_after: Mapped[str | None] = mapped_column(String(100))
+    # [{"name", "before", "after", "before_count", "after_count", "checked"}]: for each field
+    # whose facts changed, the values read before and no longer, and those read now and not
+    # before, each list cut at a few, with how many there were; `checked` when a value gone was
+    # a member's check, which the new reading disagrees with.
+    changes: Mapped[list] = mapped_column(JSONB, default=list)
+    # Whether the reading changed a field or the template, and how many of its fields lost a
+    # member's check: the page lists the changed readings, those first.
+    changed: Mapped[bool] = mapped_column(Boolean, default=False)
+    checks_unheld: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class ExtractionTemplate(Base):
     """The fields a project's documents of one kind are read for (app/extraction.py): what the
     enrich stage asks the model to find in an invoice, a contract or a kind of the members' own,

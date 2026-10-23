@@ -9,7 +9,8 @@ the passages. It answers as a model would that does the least the app asks:
   takes: no sections, no facts, empty strings, which the pipeline reads as nothing learnt;
 - an indexing request that lists the project's extraction templates (`<templates>`) gets the
   one whose kind the document's opening words hold, and the facts its "Name: value" lines
-  state, so that a document of the kind is a row of its facts table;
+  state of that template's fields, so that a document of the kind is a row of its facts table
+  and a field added to the template is found when the document is read again;
 - an agent turn whose conversation has no tool result yet calls `search` with the question,
   streamed as the app streams every turn;
 - an agent turn after a search answers with the first sentence of the best passage, cited by
@@ -69,6 +70,7 @@ KINDS = ("delivery note", "price list", "invoice", "agreement", "contract", "rev
 # (the fields' lines below it are indented).
 TEMPLATES = re.compile(r"^<templates>\n(.*?)\n</templates>$", re.MULTILINE | re.DOTALL)
 LISTED_KIND = re.compile(r"^(\S[^:\n]*): ", re.MULTILINE)
+LISTED_FIELD = re.compile(r"^  - (\w+) \(")
 # The words of a scanned page's made-up text: the stand-in cannot read a picture.
 SCAN_WORDS = (
     "pallet carton crate delivered received signed checked damaged missing short late early "
@@ -136,19 +138,35 @@ def filled(schema: dict[str, Any], defs: dict[str, Any], messages: list[dict[str
 
 def named(reply: Any, schema: dict[str, Any], messages: list[dict[str, Any]]) -> Any:
     """The reply to a request that lists the project's extraction templates, with the template
-    whose kind the document's opening words hold, and the facts its "Name: value" lines state;
-    any other reply as it is."""
+    whose kind the document's opening words hold, and the facts its "Name: value" lines state of
+    that template's fields; any other reply as it is."""
     prompt = "\n".join(text_of(m.get("content")) for m in messages if m.get("role") == "user")
     listing = TEMPLATES.search(prompt)
     if "template" not in schema.get("properties", {}) or not listing:
         return reply
     blocks = {int(number): text for number, text in BLOCK_LINE.findall(prompt)}
     opening = " ".join(list(blocks.values())[:3]).lower()
-    kind = next((kind for kind in LISTED_KIND.findall(listing.group(1)) if kind in opening), None)
+    fields = listed_fields(listing.group(1))
+    kind = next((kind for kind in fields if kind in opening), None)
     reply["template"] = kind
     if kind is not None:
-        reply["facts"] = facts_of(blocks)
+        reply["facts"] = [fact for fact in facts_of(blocks) if fact["name"] in fields[kind]]
     return reply
+
+
+def listed_fields(listing: str) -> dict[str, set[str]]:
+    """Each template a listing names, by its kind, in the listing's order, with the names of its
+    fields."""
+    fields: dict[str, set[str]] = {}
+    kind = None
+    for line in listing.splitlines():
+        if found := LISTED_FIELD.match(line):
+            if kind is not None:
+                fields[kind].add(found.group(1))
+        elif found := LISTED_KIND.match(line):
+            kind = found.group(1)
+            fields[kind] = set()
+    return fields
 
 
 def transcription(rng: random.Random) -> list[dict[str, Any]]:

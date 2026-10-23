@@ -7,15 +7,17 @@ Every route is behind the flag `extraction_templates` (app/flags.py), answering 
 is off for as a path no route takes. Whoever may change the project changes its templates, each
 change a row of the organisation's audit log; a template is written whole, and deleted for good,
 with no trash, since what it holds is the members' choice of fields and no document. A change
-applies to the documents indexed after it: "Index again" from summaries and facts reads the
-others again.
+applies to the documents indexed after it, and to those of its kind once they are read again
+(`read_again`), each reading keeping what it changed of the last one's facts, which the page
+lists (`fact_changes`, app/fact_changes.py).
 """
 
 import datetime as dt
+from dataclasses import dataclass
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app import fact_checks
@@ -27,6 +29,7 @@ from app.api.deps import (
     EditableTemplateDep,
     ProjectDep,
     SessionDep,
+    WorkerDep,
     flagged,
     limited,
 )
@@ -40,18 +43,32 @@ from app.extraction import (
     template_of,
     templates_for,
 )
+from app.fact_changes import (
+    ChangesRefusal,
+    being_read,
+    changed_by_kind,
+    of_kind,
+    read_changes,
+)
 from app.fact_checks import FACT_GONE, CheckRefused, check_out, written
 from app.fact_table import TableRefusal, condition_of, read_table
 from app.flags import EXTRACTION_TEMPLATES
 from app.indexing.enrich import normalize_fact_name
+from app.indexing.pipeline import reset_stages
+from app.jobs import BULK, queue_index
 from app.models import Document, ExtractionTemplate, Fact, FactCheck, Project
 from app.ratelimit import SEARCHES
 from app.schemas import (
+    DocumentChangesOut,
+    FactChangesOut,
     FactCheckIn,
     FactOut,
     FactRowOut,
     FactTableOut,
+    FieldChangeOut,
     ProjectTemplatesOut,
+    ReadAgainIn,
+    ReadAgainOut,
     TemplateFieldOut,
     TemplateIn,
     TemplateOut,
@@ -68,13 +85,18 @@ TOO_MANY = (
 TABLE_ROWS = 100
 MAX_TABLE_ROWS = 200
 MAX_CONDITIONS = 10
+# The documents a page of the last readings' changes lists.
+CHANGES_SHOWN = 50
+MAX_CHANGES_SHOWN = 200
+
+NO_KIND = "Name the kind of document whose documents to read again."
 
 
 @router.get("/projects/{project_id}/templates", response_model=ProjectTemplatesOut)
 def list_templates(project: ProjectDep, session: SessionDep):
     """The templates in force for the project, its own first, each with how many of its
-    documents were last read for it."""
-    read_for = _documents_read_for(session, project.id)
+    documents were last read for it, are being read and changed at their last reading."""
+    kinds = _kinds(session, project.id)
     updated = dict(
         session.execute(
             select(ExtractionTemplate.id, ExtractionTemplate.updated_at).where(
@@ -84,7 +106,7 @@ def list_templates(project: ProjectDep, session: SessionDep):
     )
     return ProjectTemplatesOut(
         templates=[
-            _out(template, read_for.get(template.doc_type, 0), updated.get(template.id))
+            _out(template, kinds.get(template.doc_type, _NONE), updated.get(template.id))
             for template in templates_for(session, project.id)
         ],
         max_templates=MAX_TEMPLATES,
@@ -147,9 +169,9 @@ def fact_table(
         if template.id is not None
         else None
     )
-    documents = _documents_read_for(session, project.id).get(template.doc_type, 0)
+    kinds = _kinds(session, project.id)
     return FactTableOut(
-        template=_out(template, documents, updated_at),
+        template=_out(template, kinds.get(template.doc_type, _NONE), updated_at),
         rows=[
             FactRowOut(
                 document_id=row.document.id,
@@ -169,6 +191,94 @@ def fact_table(
         total=table.total,
         to_review=table.to_review,
         next_after=table.next_after,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/templates/read-again", response_model=ReadAgainOut, status_code=202
+)
+def read_again(
+    project: EditableProjectDep, body: ReadAgainIn, session: SessionDep, worker: WorkerDep
+):
+    """Queue the project's documents of a kind to be read again from their summaries and facts,
+    for its template as it is now: those read for it and those of its kind read for none
+    (`kind`), and those read for a kind its template is no longer for (`was`), as after its kind
+    was changed or it was deleted. Each reading keeps what it changed (`fact_changes`); one being
+    indexed or quarantined is left alone, as `reprocess_project` leaves it."""
+    which = []
+    if body.kind is not None and (kind := kind_of(body.kind)):
+        which.append(of_kind(kind))
+    if body.was is not None and (was := kind_of(body.was)):
+        which.append(Document.template == was)
+    if not which:
+        raise HTTPException(400, NO_KIND)
+    documents = session.scalars(
+        select(Document).where(
+            Document.project_id == project.id,
+            Document.deleted_at.is_(None),
+            Document.status.not_in(("processing", "quarantined")),
+            or_(*which),
+        )
+    ).all()
+    for document in documents:
+        reset_stages(document, "enrich")
+        # Behind fresh uploads, which someone is waiting for.
+        queue_index(session, document, priority=BULK)
+    session.commit()
+    if worker:
+        worker.notify()
+    return ReadAgainOut(queued=len(documents))
+
+
+@router.get("/projects/{project_id}/fact-changes", response_model=FactChangesOut)
+def fact_changes(
+    project: ProjectDep,
+    session: SessionDep,
+    kind: str,
+    after: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=MAX_CHANGES_SHOWN)] = CHANGES_SHOWN,
+):
+    """What the last reading of each of the project's documents of a kind changed, before or now
+    (app/fact_changes.py): how many wait to be read and were read, and a page of those that
+    changed a field or the template they are read for, the ones whose new reading disagrees
+    with a member's check first, then the newest."""
+    doc_type = kind_of(kind)
+    if not doc_type:
+        raise HTTPException(422, "Name the kind of document whose readings to list.")
+    template = next((t for t in templates_for(session, project.id) if t.doc_type == doc_type), None)
+    try:
+        readings = read_changes(session, project.id, doc_type, after, limit)
+    except ChangesRefusal as refusal:
+        raise HTTPException(422, str(refusal)) from None
+    kinds = _kinds(session, project.id)
+    counts = kinds.get(doc_type, _NONE)
+    updated_at = (
+        session.scalar(
+            select(ExtractionTemplate.updated_at).where(ExtractionTemplate.id == template.id)
+        )
+        if template is not None and template.id is not None
+        else None
+    )
+    return FactChangesOut(
+        kind=doc_type,
+        template=_out(template, counts, updated_at) if template is not None else None,
+        reading=counts.reading,
+        read=readings.read,
+        changed=readings.changed,
+        unheld=readings.unheld,
+        documents=[
+            DocumentChangesOut(
+                document_id=document.id,
+                title=document.display_title,
+                filename=document.filename,
+                read_at=change.read_at,
+                template_before=change.template_before,
+                template_after=change.template_after,
+                fields=[FieldChangeOut.model_validate(field) for field in change.changes],
+            )
+            for change, document in readings.rows
+        ],
+        next_after=readings.next_after,
     )
 
 
@@ -404,27 +514,50 @@ def _names(fields: list[dict]) -> list[str]:
     return [field["name"] for field in fields]
 
 
-def _documents_read_for(session: Session, project_id: int) -> dict[str, int]:
-    """How many of the project's documents out of the trash were last read for each template."""
-    return dict(
-        session.execute(
-            select(Document.template, func.count())
-            .where(
-                Document.project_id == project_id,
-                Document.deleted_at.is_(None),
-                Document.template.is_not(None),
-            )
-            .group_by(Document.template)
-        ).all()
-    )
+@dataclass(frozen=True)
+class _KindCounts:
+    """The project's documents of a kind out of the trash: read for its template, read for none
+    and of the kind, waiting for the enrich stage, and changed at their last reading."""
+
+    documents: int = 0
+    matching: int = 0
+    reading: int = 0
+    changed: int = 0
+
+
+_NONE = _KindCounts()
+
+
+def _kinds(session: Session, project_id: int) -> dict[str, _KindCounts]:
+    """The project's documents counted by each kind they were read for, or found to be."""
+    kind = func.coalesce(Document.template, Document.doc_type)
+    rows = session.execute(
+        select(
+            kind,
+            func.count().filter(Document.template.is_not(None)),
+            func.count().filter(Document.template.is_(None)),
+            func.count().filter(being_read()),
+        )
+        .where(
+            Document.project_id == project_id,
+            Document.deleted_at.is_(None),
+            kind.is_not(None),
+        )
+        .group_by(kind)
+    ).all()
+    changed = changed_by_kind(session, project_id)
+    counts = {name: _KindCounts(*figures, changed=changed.get(name, 0)) for name, *figures in rows}
+    for name, n in changed.items():
+        counts.setdefault(name, _KindCounts(changed=n))
+    return counts
 
 
 def _row_out(session: Session, row: ExtractionTemplate) -> TemplateOut:
-    read_for = _documents_read_for(session, row.project_id)
-    return _out(template_of(row), read_for.get(row.doc_type, 0), row.updated_at)
+    kinds = _kinds(session, row.project_id)
+    return _out(template_of(row), kinds.get(row.doc_type, _NONE), row.updated_at)
 
 
-def _out(template: Template, documents: int, updated_at: dt.datetime | None) -> TemplateOut:
+def _out(template: Template, counts: _KindCounts, updated_at: dt.datetime | None) -> TemplateOut:
     return TemplateOut(
         id=template.id,
         doc_type=template.doc_type,
@@ -442,6 +575,9 @@ def _out(template: Template, documents: int, updated_at: dt.datetime | None) -> 
         ],
         built_in=template.id is None,
         replaces_built_in=template.id is not None and template.doc_type in BUILT_IN_TYPES,
-        documents=documents,
+        documents=counts.documents,
+        matching=counts.matching,
+        reading=counts.reading,
+        changed=counts.changed,
         updated_at=updated_at,
     )
