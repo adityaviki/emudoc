@@ -1,7 +1,8 @@
-// What the header says of the two optional services (ServiceStatus in App.tsx). The server
-// words a problem for whoever reads the status (`status` in backend/app/main.py): in
-// development the developer, who runs the app, gets the models' names and what to change; a
-// deployment's members get what they cannot do for now, and no names.
+// What the header says of the two optional services (ServiceStatus in App.tsx), and of the
+// background work when no worker takes it. The server words a problem for whoever reads the
+// status (`status` in backend/app/main.py): in development the developer, who runs the app,
+// gets the models' names and what to change; a deployment's members get what they cannot do
+// for now, and no names.
 
 import type { SystemStatus } from './api.ts'
 
@@ -29,10 +30,30 @@ function describeSearch(embeddings: SystemStatus['embeddings']): string {
   return `Semantic search with ${embeddings.model}`
 }
 
-/** The AI model and semantic search, each usable or not, with what that means. */
-export function describeServices({ llm, embeddings }: SystemStatus): ServiceLine[] {
-  return [
+// Said when the server gives no sentence of its own.
+const WORK_STOPPED = 'Background work is not running, so documents wait to be indexed and questions cannot be asked.'
+
+/**
+ * The AI model and semantic search, each usable or not, with what that means; and the background
+ * work, only while no worker runs, since a worker that runs is no news.
+ */
+export function describeServices({ llm, embeddings, workers }: SystemStatus): ServiceLine[] {
+  const lines = [
     { label: 'AI model', ok: llm.available, detail: describeModels(llm) },
     { label: 'Semantic search', ok: embeddings.ok, detail: describeSearch(embeddings) },
   ]
+  if (!workers.running) lines.push({ label: 'Background work', ok: false, detail: workers.error ?? WORK_STOPPED })
+  return lines
+}
+
+/**
+ * Why a question cannot be asked now, from `/api/status`: no model to answer it, or no worker to
+ * run the answer, which would otherwise wait unanswered. Null when it can, and while the status
+ * is not known.
+ */
+export function askHeld(status: SystemStatus | undefined): string | null {
+  if (!status) return null
+  if (!status.llm.available) return status.llm.error ?? 'The AI model is unavailable.'
+  if (!status.workers.running) return status.workers.error ?? WORK_STOPPED
+  return null
 }

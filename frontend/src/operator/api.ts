@@ -197,6 +197,16 @@ export interface Job {
   reported: boolean
 }
 
+/** A worker seen within the last day: running, stopped by itself, or neither, which is a process that died or lost the database. */
+export interface Worker {
+  id: string
+  version: string
+  started_at: string
+  last_seen_at: string
+  stopped_at: string | null
+  running: boolean
+}
+
 export interface Jobs {
   taken_at: string
   queue: Queue[]
@@ -204,6 +214,8 @@ export interface Jobs {
   failed: Job[]
   failed_total: number
   history_days: number
+  /** The workers seen lately, the latest first; none running leaves the queue's work waiting. */
+  workers: Worker[]
 }
 
 /** What running failed jobs again did: how many documents it queued, and a line for each job. */

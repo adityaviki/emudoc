@@ -1,6 +1,7 @@
 import logging
 import re
 from contextlib import asynccontextmanager
+from datetime import UTC
 from pathlib import Path
 
 import httpx
@@ -58,6 +59,7 @@ from app.headers import (
     secure,
 )
 from app.indexing.pipeline import Services
+from app.jobs import Work, work_running
 from app.legal import TERMS_VERSION, privacy_policy, published, terms_of_service
 from app.logs import REQUEST_ID_HEADER, RequestIds, configure_logging, current_context
 from app.mail import Mailer, mailer_from_settings
@@ -76,6 +78,7 @@ from app.schemas import (
     StatusOut,
     SubprocessorsOut,
     UploadLimitsOut,
+    WorkerStatus,
 )
 from app.shutdown import Stop, heard_stop
 from app.startup import prepare
@@ -102,6 +105,12 @@ MODELS_UNAVAILABLE = (
 KEYWORDS_ONLY = (
     "Search matches keywords only just now, so a passage that says the same in other words may "
     "be missed. Try again later."
+)
+# And when no worker takes the queue's work (app/jobs.py): the operator learns why from the
+# processes, `maintenance jobs` and the alerts.
+WORK_STOPPED = (
+    "Emudoc's background work is not running just now, so uploaded documents wait to be indexed "
+    "and questions cannot be asked. Try again later."
 )
 
 
@@ -187,8 +196,9 @@ def health(session: SessionDep):
 
 
 @system.get("/status", response_model=StatusOut)
-def status(services: ServicesDep, account: AccountDep):
-    """Which optional services are usable, so the page can say what cannot be done.
+def status(services: ServicesDep, account: AccountDep, session: SessionDep):
+    """Which optional services are usable, and whether a worker runs, so the page can say what
+    cannot be done.
 
     In development whoever uses the app runs it, so the status speaks to the operator: it names
     the models and says what stops them and what to change, the embeddings endpoint's address
@@ -198,10 +208,14 @@ def status(services: ServicesDep, account: AccountDep):
     settings = get_settings()
     reason = services.embedder.check()
     problem = services.llm.problem()
+    work = work_running(session)
     if settings.environment != "development":
         return StatusOut(
             llm=LLMStatus(available=problem is None, error=MODELS_UNAVAILABLE if problem else None),
             embeddings=EmbeddingStatus(ok=reason is None, error=KEYWORDS_ONLY if reason else None),
+            workers=WorkerStatus(
+                running=work.running, error=None if work.running else WORK_STOPPED
+            ),
             currency=settings.price_currency,
             uploads=upload_limits(settings),
         )
@@ -221,8 +235,23 @@ def status(services: ServicesDep, account: AccountDep):
             error=problem,
         ),
         embeddings=EmbeddingStatus(ok=reason is None, model=settings.embedding_model, error=reason),
+        workers=WorkerStatus(running=work.running, error=None if work.running else no_worker(work)),
         currency=settings.price_currency,
         uploads=upload_limits(settings),
+    )
+
+
+def no_worker(work: Work) -> str:
+    """What a developer reads when no worker runs: since when, and how to start one."""
+    seen = (
+        f"No worker has been seen since {work.last_seen_at.astimezone(UTC):%Y-%m-%d %H:%M} UTC"
+        if work.last_seen_at
+        else "No worker has run against this database yet"
+    )
+    return (
+        f"{seen}, so uploads stay queued and questions go unanswered. Run `uv run python -m "
+        "app.worker` in emudoc/backend, or leave RUN_WORKER unset for the backend to run one "
+        "itself, and restart it."
     )
 
 

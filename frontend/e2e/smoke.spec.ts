@@ -763,6 +763,11 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.goto('/operator/jobs')
     await expect(page.getByRole('heading', { name: 'Jobs', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Ask again' })).toBeVisible()
+    // The worker the server runs in its own process says it runs, so the page warns of none.
+    const workers = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Workers' }) })
+    await expect(workers.getByRole('row').filter({ hasText: 'running, seen' })).toHaveCount(1)
+    await expect(page.getByText('No worker has been seen running')).toHaveCount(0)
+    await expectAccessible(page, "the operator's jobs")
     await page.getByRole('navigation', { name: 'Views' }).getByRole('link', { name: 'Services' }).click()
     await expect(page.getByRole('heading', { name: 'What the watch sees' })).toBeVisible()
     await expectAccessible(page, "the operator's services")

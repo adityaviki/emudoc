@@ -17,6 +17,10 @@ newest entry first.
 
 Members:
 
+- When Emudoc's background work is not running, the header says so ("Background work off"),
+  and a chat says that questions cannot be asked until it is back, rather than taking a question
+  that would wait unanswered. Documents uploaded meanwhile are kept and indexed once it runs
+  again.
 - Once an upload is sent, its panel in the library follows its documents as they are indexed:
   "12 of 40 ready; 26 being indexed; 2 could not be indexed.", with how many are partly indexed
   and how many wait for a retry. Those that could not be indexed are listed with why, and each
@@ -40,6 +44,13 @@ Members:
 
 Operators:
 
+- Each worker says it runs, at its start and with every heartbeat, and says it stopped at its
+  stop, in a new table, `workers` (a migration). `/api/status` adds `workers` (`running`,
+  `error`): no worker seen for three minutes is "Background work off" in the members' header,
+  and holds the chat's question; in development its sentence says to run `python -m app.worker`
+  or leave `RUN_WORKER` unset. The `jobs` command and the operator's Jobs view list the workers
+  seen in the last day, each with its release and whether it runs, stopped, or was lost, and say
+  when none runs. Housekeeping forgets a worker a day after it was last seen.
 - opentelemetry-api 1.45.1, past CVE-2026-114603, which Audit found in 1.45.0 (it comes with
   FastAPI, Anthropic's SDK and Pydantic AI; the app turns on no OpenTelemetry provider).
 - A model call an answer was in the middle of when it was stopped, tried again or its run

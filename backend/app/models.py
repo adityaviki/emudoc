@@ -1205,6 +1205,26 @@ class Job(Base):
     reported_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class WorkerSeen(Base):
+    """A worker process and when it last said it was running (app/jobs.py): its heartbeat
+    writes the row at its start and every round, and its stop marks it stopped. Nothing else
+    knows a worker is there, since it serves nothing to ask, so the members' status line and the
+    operator read here whether anyone is taking the queue's work. The housekeeper removes a row
+    a day after its worker was last seen."""
+
+    __tablename__ = "workers"
+
+    # As the jobs it claims name it (`jobs.worker_id`): host:pid.
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    # The release it runs (app/version.py), so that a worker a release left behind shows.
+    version: Mapped[str] = mapped_column(String(64))
+    started_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    # The database's clock, as the readers compare it, so that no host's clock matters.
+    last_seen_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), index=True)
+    # Set by a stop the worker made itself; null while it runs, or once it died without one.
+    stopped_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class UsageEvent(Base):
     """One measure of one thing an organisation used, for its quotas and its bill (app/usage.py).
 

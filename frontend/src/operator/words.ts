@@ -1,7 +1,7 @@
 // How the operator's area words its figures, as the maintenance commands print them
 // (backend/app/maintenance.py): costs in the deployment's currency, spans of time, counts.
 
-import type { Cost, FlagState, Job } from './api.ts'
+import type { Cost, FlagState, Job, Worker } from './api.ts'
 
 /** An amount of millionths of the currency: to the cent, or to four places below a cent, as a cheap model's answer costs a tenth of one. */
 export function amount(micros: number, currency: string): string {
@@ -49,6 +49,16 @@ export function lease(job: Job, takenAt: string): string {
 
 /** How long ago a moment was, from when the figures were taken. */
 export const ago = (moment: string, takenAt: string) => `${span(seconds(moment, takenAt))} ago`
+
+/** The version as the user menu shows it: seven digits of a commit's SHA, or the word a checkout runs as. */
+export const release = (version: string) => (/^[0-9a-f]{40}$/.test(version) ? version.slice(0, 7) : version)
+
+/** How a worker stands, as the `jobs` command words it: running, stopped by itself, or neither, a process that died or lost the database. */
+export function workerStands(worker: Worker, takenAt: string): string {
+  if (worker.running) return `running, seen ${ago(worker.last_seen_at, takenAt)}`
+  if (worker.stopped_at) return `stopped ${ago(worker.stopped_at, takenAt)}`
+  return `not seen for ${span(seconds(worker.last_seen_at, takenAt))}`
+}
 
 /** The figures a plan's form agrees with the organisation, as the server takes them: those written, but members on a plan sold by the seat, whose members are its seats. */
 export function agreedOf(written: Record<string, string>, byTheSeat: boolean): Record<string, string> {

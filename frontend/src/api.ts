@@ -299,6 +299,8 @@ export interface SystemStatus {
     error: string | null
   }
   embeddings: { ok: boolean; model: string | null; error: string | null }
+  /** Whether a worker takes the background work, without which uploads wait to be indexed and questions to be answered. */
+  workers: { running: boolean; error: string | null }
   /** The currency the costs on usage are in, an ISO 4217 code. */
   currency: string
   uploads: UploadLimits

@@ -51,6 +51,10 @@ from app.worker import HANDLERS, MAX_RETRIES, Handler, Worker, serve
 from tests.test_pipeline import rows, stage_statuses
 
 INDEX = ["index_document"]
+NO_WORKER = (
+    "No worker has been seen running in the last 3 min: nothing is indexed, answered, mailed or "
+    "exported until one runs (`python -m app.worker`)."
+)
 
 
 def wait_until(condition: Callable[[], bool], timeout: float = 10) -> None:
@@ -1015,9 +1019,11 @@ def test_the_jobs_command_shows_the_queue_and_whether_each_running_job_is_held(
     session, account, make_document, sample_pdf, sample_docx, sample_csv, capsys
 ):
     main(["jobs"])
-    assert capsys.readouterr().out == (
-        "Nothing is queued or running, and no job failed in the last 30 days.\n"
-    )
+    assert capsys.readouterr().out.splitlines() == [
+        "Nothing is queued or running, and no job failed in the last 30 days.",
+        # The suite runs no worker; tests/test_workers.py reads the ones a test starts.
+        NO_WORKER,
+    ]
 
     due = make_document(sample_pdf)
     hold(session, job_for(session, due).id, "queued", "4 minutes")
@@ -1057,6 +1063,7 @@ def test_the_jobs_command_shows_the_queue_and_whether_each_running_job_is_held(
         "A lease that ran out is a worker that stopped or lost the database: the next free "
         "thread of its lane takes the job over.",
         "`failed-jobs` lists the failed ones with why.",
+        NO_WORKER,
     ]
 
 

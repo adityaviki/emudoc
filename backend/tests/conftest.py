@@ -933,12 +933,13 @@ def session():
         # The platform's spending warnings belong to no organisation, so they are named too,
         # and so are the request counts of the rate limits, which the test client's one
         # address would otherwise carry from test to test, the watch's alerts, the addresses
-        # the mail provider said to spare and the providers an operator switched off. The jobs
-        # go with the organisations they reference.
+        # the mail provider said to spare, the providers an operator switched off and the
+        # workers seen, which a test's worker leaves running for the next test's status. The
+        # jobs go with the organisations they reference.
         session_.execute(
             text(
                 "TRUNCATE projects, organizations, users, spend_alerts, rate_limits, "
-                "watch_alerts, billing_events, mail_suppressions, provider_switches "
+                "watch_alerts, billing_events, mail_suppressions, provider_switches, workers "
                 "RESTART IDENTITY CASCADE"
             )
         )

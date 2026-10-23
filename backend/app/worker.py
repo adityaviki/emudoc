@@ -25,6 +25,11 @@ A stop is graceful: the threads stop claiming, the jobs they are running get a g
 finish, and the ones that did not finish are handed back to the queue with their lease cleared,
 so that the next worker takes them at once rather than when the lease would have run out.
 
+The heartbeat thread also says that the worker runs, at its start and every round, and the stop
+says that it stopped (`beat`, `record_stop` in app/jobs.py): the worker serves nothing to ask,
+so that is how the members' status line and the operator know whether anyone takes the queue's
+work.
+
 A job is only ever written by one worker at a time. The heartbeat thread extends the leases of
 the jobs this process runs, and the pipeline renews its job's lease in the transaction of every
 commit it makes (`Lease` in app/jobs.py): a run whose job was taken over after a heartbeat that
@@ -92,14 +97,17 @@ from app.jobs import (
     INDEX_DOCUMENT,
     LEASE,
     RENDER_PAGES,
+    SEEN_WITHIN,
     SEND_EMAIL,
     Lease,
     LeaseLost,
+    beat,
     claim,
     extend_leases,
     finish,
     listen,
     queue_index,
+    record_stop,
     release,
 )
 from app.languages import apply_language
@@ -128,6 +136,7 @@ from app.startup import prepare
 from app.storage import StorageError
 from app.tracing import describe, timed, trace_of
 from app.tracking import start_tracking
+from app.version import VERSION
 from app.watch import watch
 
 # By its name rather than `__name__`, which is "__main__" when the module runs as a command.
@@ -139,8 +148,9 @@ POLL_SECONDS = 2.0
 LISTEN_SECONDS = 0.25
 # How long a thread waits after the database refused a claim before it tries again.
 RETRY_SECONDS = 5.0
-# How often the leases of the jobs this process holds are extended; well inside LEASE, so a
-# missed round or two does not hand a running job to another worker.
+# How often the leases of the jobs this process holds are extended, and the worker says it runs;
+# well inside LEASE, so a missed round or two does not hand a running job to another worker,
+# and a third of SEEN_WITHIN, so that it does not read as no worker either.
 HEARTBEAT_SECONDS = 60.0
 # Housekeeping (app/maintenance.py) first runs a minute after start, so that a process
 # restarted in a loop does not walk the storage every time, and then at this interval.
@@ -362,6 +372,7 @@ class Worker:
         # and nobody is warned of the spending.
         self._mailer = mailer
         self._id = f"{socket.gethostname()}:{os.getpid()}"
+        self._started = datetime.now(UTC)
         self._wake = threading.Event()
         self._stop = threading.Event()
         # Set while the listener's LISTEN is in place; clear while the threads only poll.
@@ -449,7 +460,8 @@ class Worker:
         self._threads.append(thread)
 
     def stop(self, grace: float = GRACE) -> None:
-        """Stop claiming, let the running jobs finish for `grace` seconds, and hand back the rest.
+        """Stop claiming, let the running jobs finish for `grace` seconds, hand back the rest,
+        and say that the worker stopped.
 
         A job handed back is queued again with its lease cleared, so the next worker takes it at
         once. Nothing stops the thread that is still running it: the process exits right after
@@ -461,6 +473,18 @@ class Worker:
         deadline = time.monotonic() + grace
         for thread in self._threads:
             thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        self._hand_back(grace)
+        try:
+            record_stop(self._id)
+        except Exception:
+            log.exception(
+                "Could not record that worker %s stopped; it counts as running until %s after "
+                "its last beat",
+                self._id,
+                SEEN_WITHIN,
+            )
+
+    def _hand_back(self, grace: float) -> None:
         with self._held_lock:
             unfinished = sorted(self._held)
         if not unfinished:
@@ -630,7 +654,10 @@ class Worker:
                 self._held.pop(job.id, None)
 
     def _heartbeat(self) -> None:
+        # At once, so that a worker counts as running from its start.
+        self._beat()
         while not self._stop.wait(HEARTBEAT_SECONDS):
+            self._beat()
             with self._held_lock:
                 held = sorted(self._held)
             if not held:
@@ -646,6 +673,18 @@ class Worker:
                     "still running them; their runs stop at their next commit",
                     sorted(lost),
                 )
+
+    def _beat(self) -> None:
+        """Say that this worker runs, whether it holds jobs or not (app/jobs.py)."""
+        # A beat after the stop's record would undo it.
+        if self._stop.is_set():
+            return
+        try:
+            beat(self._id, VERSION, self._started)
+        except Exception:
+            # A database that is unreachable now may be back by the next round; meanwhile the
+            # worker counts as running for SEEN_WITHIN after its last beat.
+            log.exception("Could not record that worker %s is running", self._id)
 
     def _housekeep(self) -> None:
         delay = HOUSEKEEPING_DELAY

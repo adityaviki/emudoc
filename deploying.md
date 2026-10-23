@@ -258,13 +258,24 @@ replica unready but none of them stuck, since a restart cures nothing and costs 
   design, stops the worker with exit status 1 ("The worker's housekeeper thread stopped
   unexpectedly…"), so that whatever runs it starts a whole one. A path the process cannot
   write in is a refusal to start.
+- **Whether any worker runs** is in the database: each worker writes a row of `workers` (its
+  `host:pid`, its release, its start) at its start and every minute with its heartbeat, and
+  marks it stopped at its stop. Nothing else would know: a deployment that never started a
+  worker serves every page, takes every upload and question, and leaves them queued. The
+  members' status line reads it (below), and so do `maintenance jobs` and the operator's Jobs
+  view, which list the workers seen in the last day, each running, stopped, or "not seen for"
+  a while, a process that died or lost the database. A row goes a day after it was last seen.
 
 `GET /api/status` is no probe: it is the status line the members see, signed in only, and it
 asks the embeddings endpoint (at most once a minute per process, waiting 10 seconds at most).
 In production it names no model, address or setting: while the models cannot be used it says
-that questions cannot be asked and documents get no summaries or facts for now, and while the
-embeddings endpoint does not answer that search matches keywords only, each with "Try again
-later". The operator reads why in the start's log, the metrics and the alerts (below).
+that questions cannot be asked and documents get no summaries or facts for now, while the
+embeddings endpoint does not answer that search matches keywords only, and while no worker has
+been seen for three minutes that documents wait to be indexed and questions cannot be asked
+("Background work off" in the header, and a chat holds its question), each with "Try again
+later". A worker that stopped itself counts for those three minutes too, so that a release,
+which stops one worker and starts the next, never shows as an outage. The operator reads why in
+the start's log, the metrics and the alerts (below).
 
 A failure says as little to the members. In production a document's stage, its error and an
 answer's error name no model, address or setting either: a model that refused the key, ran out
@@ -3151,7 +3162,8 @@ page as its members read it, its billing, its members and what its work cost ove
 (`plan`, `usage`); the users, found by a part of their address or name, with their
 organisations and when they were last seen; the costs across organisations over 7, 30 or 90 days
 against each plan's daily limit and `DAILY_SPEND_CAP` (`costs`); the job queue, the running jobs
-with their leases and the dead letters with why each failed (`jobs`, `failed-jobs`); and the
+with their leases, the dead letters with why each failed and the workers seen in the last day,
+with a warning when none runs (`jobs`, `failed-jobs`); and the
 models and services: the models each variable names, the providers and which are switched off,
 the embeddings endpoint, the scanner, the storage, the database, and everything the worker's
 watch sees wrong now, asked afresh, with since when it has been mailing each ("What the worker
@@ -3293,10 +3305,11 @@ When an alert or a member says something is wrong, and it is not yet clear what:
    --since 1h api worker | jq -R 'fromjson? // empty' | jq -c 'select(.level != "INFO")'`. A
    member's reference is a `request_id`: `select(.request_id == "…")` finds its lines, and their
    `trace_id` the jobs the request queued ("Traces").
-4. `maintenance jobs` for the queue and the running jobs, `maintenance database` for the
-   server, Prometheus's alerts page for what else fires ("On AWS" under "Alerts" for the way to
-   it on the instance). The operator's area shows the queue, the dead letters and what the
-   worker's watch sees in one place, from a browser ("The operator's area").
+4. `maintenance jobs` for the queue, the running jobs and the workers, `maintenance database`
+   for the server, Prometheus's alerts page for what else fires ("On AWS" under "Alerts" for
+   the way to it on the instance). The operator's area shows the queue, the dead letters, the
+   workers and what the worker's watch sees in one place, from a browser ("The operator's
+   area").
 
 ### Members get server errors
 
@@ -3345,6 +3358,10 @@ about it.
 
 1. `maintenance jobs --document <id>` says where it stands, each stage with what its members
    read, its index jobs, and what the newest one means:
+   - due, and `maintenance jobs` ends with "No worker has been seen running…" (the members'
+     header says "Background work off"): no worker takes the queue's work. `compose ps -a`
+     says whether the worker's container runs; started again (`compose up -d worker`), it takes
+     the queue as it stands, the answers asked meanwhile among it;
    - due and waiting for a free indexer thread: a backlog, which more workers or
      `WORKER_CONCURRENCY` shorten ("Load");
    - waiting until a moment: a retry's backoff after a provider or a service failed, or the

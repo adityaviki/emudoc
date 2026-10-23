@@ -287,8 +287,11 @@ SIGTERM stops it: the jobs it is running get a few seconds to finish (`--grace`,
 under Docker's 10), and the rest are queued again for the next worker to take at once. With
 `--alive-file PATH` it keeps a file fresh for a health check while all its threads run, and it
 exits with an error should one of them end, to be started again. Without any worker, uploads
-stay queued and questions wait unanswered. `RUN_WORKER=true` runs the
-worker inside the API process instead, for a small deployment. A stopping API ends the answer
+stay queued and questions wait unanswered: each worker says in the database that it runs, at
+its start and every minute, so when none has for three minutes the header says "Background work
+off" and a chat holds its question until one runs again, and `python -m app.maintenance jobs`
+lists the workers seen. `RUN_WORKER=true` runs the worker inside the API process instead, for a
+small deployment. A stopping API ends the answer
 streams it serves at once, rather than wait for their answers, and the page follows each answer
 again from the next one; the other requests get what `--timeout-graceful-shutdown` allows
 (8 seconds in the image). Putting it on a server, with

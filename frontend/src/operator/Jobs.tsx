@@ -1,6 +1,6 @@
 // The `jobs` and `failed-jobs` commands' report: each kind's jobs by state, the running ones
-// with their leases, and the dead letters with why each failed, whose documents are queued
-// again from here as `failed-jobs --requeue` queues them.
+// with their leases, the dead letters with why each failed, whose documents are queued again
+// from here as `failed-jobs --requeue` queues them, and the workers seen lately.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, RotateCcw } from 'lucide-react'
@@ -10,7 +10,7 @@ import type { Question } from '../components/Confirm.tsx'
 import { Button, Loading, Notice, Section } from '../components/ui.tsx'
 import { operatorApi } from './api.ts'
 import { Cell, Heading, Table } from './Table.tsx'
-import { ago, count, lease, span } from './words.ts'
+import { ago, count, lease, release, span, workerStands } from './words.ts'
 
 // The one kind of job that runs again: an index job, from the stage its document stopped at.
 const RUNS_AGAIN = 'index_document'
@@ -53,6 +53,12 @@ export function JobsPage() {
               Ask again
             </Button>
           </div>
+          {!jobs.data.workers.some((worker) => worker.running) && (
+            <Notice tone="bad">
+              No worker has been seen running in the last 3 minutes: nothing is indexed, answered, mailed or exported until one runs (
+              <code>python -m app.worker</code>).
+            </Notice>
+          )}
           {jobs.data.queue.length === 0 ? (
             <Notice tone="info">Nothing is queued or running, and no job failed in the last {jobs.data.history_days} days.</Notice>
           ) : (
@@ -94,6 +100,25 @@ export function JobsPage() {
                       {lease(job, jobs.data.taken_at)}
                     </Cell>
                     <Cell className="font-mono text-xs">{job.worker_id}</Cell>
+                  </tr>
+                ))}
+              </Table>
+            </Section>
+          )}
+          {jobs.data.workers.length > 0 && (
+            <Section
+              title="Workers"
+              description="The workers seen in the last day, the latest first. One neither running nor stopped died, or lost the database: its log's last lines say why."
+            >
+              <Table columns={[{ label: 'Worker' }, { label: 'Release' }, { label: 'Started' }, { label: 'Stands' }]}>
+                {jobs.data.workers.map((worker) => (
+                  <tr key={worker.id}>
+                    <Cell className="font-mono text-xs">{worker.id}</Cell>
+                    <Cell className="font-mono text-xs">{release(worker.version)}</Cell>
+                    <Cell className="whitespace-nowrap">{ago(worker.started_at, jobs.data.taken_at)}</Cell>
+                    <Cell className={`whitespace-nowrap ${worker.running ? '' : worker.stopped_at ? 'text-muted' : 'text-bad'}`}>
+                      {workerStands(worker, jobs.data.taken_at)}
+                    </Cell>
                   </tr>
                 ))}
               </Table>

@@ -1191,6 +1191,14 @@ class EmbeddingStatus(BaseModel):
     error: str | None
 
 
+class WorkerStatus(BaseModel):
+    """Whether a worker takes the queue's work (app/jobs.py), without which uploads wait to be
+    indexed and questions to be answered; `error` is worded as the models' is."""
+
+    running: bool
+    error: str | None
+
+
 class UploadLimitsOut(BaseModel):
     """What one upload request may carry (MAX_UPLOAD_FILES, MAX_UPLOAD_REQUEST_MB, MAX_UPLOAD_MB),
     so that the page sends a folder of more in several and leaves a file of more unsent."""
@@ -1203,6 +1211,7 @@ class UploadLimitsOut(BaseModel):
 class StatusOut(BaseModel):
     llm: LLMStatus
     embeddings: EmbeddingStatus
+    workers: WorkerStatus
     # The currency the costs on usage are in (PRICE_CURRENCY), an ISO 4217 code.
     currency: str
     uploads: UploadLimitsOut
@@ -1873,6 +1882,18 @@ class OperatorJobOut(BaseModel):
     reported: bool
 
 
+class OperatorWorkerOut(BaseModel):
+    """A worker seen within WORKERS_KEPT (app/jobs.py): running, stopped by itself, or neither,
+    which is a process that died or lost the database."""
+
+    id: str
+    version: str
+    started_at: dt.datetime
+    last_seen_at: dt.datetime
+    stopped_at: dt.datetime | None
+    running: bool
+
+
 class OperatorJobsOut(BaseModel):
     taken_at: dt.datetime
     queue: list[QueueOut]
@@ -1881,6 +1902,8 @@ class OperatorJobsOut(BaseModel):
     failed: list[OperatorJobOut]
     failed_total: int
     history_days: int
+    # The workers seen lately, the latest first; none running leaves the queue's work waiting.
+    workers: list[OperatorWorkerOut]
 
 
 class RequeueIn(BaseModel):

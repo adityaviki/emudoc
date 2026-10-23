@@ -38,6 +38,12 @@ stops a run whose job a stopping worker handed back to the queue.
 A job queued while a request or another job runs carries that work's trace in its payload
 (`trace_id`, app/tracing.py), so that the worker logs it under the same trace.
 
+Nothing else would know whether anyone takes the queue's work: a worker serves nothing to ask,
+and a deployment that never started one leaves every upload queued and every question
+unanswered. So each worker writes a row of `workers` at its start and with every heartbeat
+(`beat`), and marks it at its stop (`record_stop`); `work_running` is what the members' status
+line reads, `workers_seen` what the operator reads, both by the database's clock.
+
 Queuing a job also sends a NOTIFY on CHANNEL, delivered when the transaction commits, and the
 worker listens for it (`listen`) on a connection of its own: a question is picked up the moment
 the API commits it rather than at the worker's next poll, which is what makes answers as jobs
@@ -93,6 +99,17 @@ MAX_ATTEMPTS = 3
 # Finished jobs are kept this long for the operator (the failed ones carry `last_error`), then
 # pruned by housekeeping (app/maintenance.py).
 HISTORY = timedelta(days=30)
+# How long after a worker was last seen it still counts as running: three of its heartbeats
+# (HEARTBEAT_SECONDS in app/worker.py), so that a round it missed does not read as no worker.
+# For the members' status line a worker that stopped itself counts too until then, so that a
+# release, which stops one worker and starts the next a few seconds later, never reads as one.
+SEEN_WITHIN = timedelta(minutes=3)
+# How long a worker's row is kept after it was last seen, for the operator to read, before
+# housekeeping (app/maintenance.py) removes it.
+WORKERS_KEPT = timedelta(days=1)
+# How many workers the operator is shown, the latest seen first: one restarted in a loop under a
+# new host or pid leaves a row each time.
+WORKERS_SHOWN = 20
 # How a job stands for the operator: due (its run_at has come), waiting (a retry's backoff, or
 # the day's spending limit), running, or failed and kept for HISTORY (app/deadletters.py).
 JOB_STATES = ("due", "waiting", "running", "failed")
@@ -180,6 +197,28 @@ _RENEW = text(
     """
 )
 _PRUNE = text("DELETE FROM jobs WHERE status IN ('done', 'failed') AND finished_at < now() - :age")
+# A worker's start and every heartbeat; the same host and pid again, as a container restarted
+# in place has, is a new start of the same row.
+_BEAT = text(
+    """
+    INSERT INTO workers (id, version, started_at, last_seen_at)
+    VALUES (:id, :version, :started, now())
+    ON CONFLICT (id) DO UPDATE SET version = excluded.version, started_at = excluded.started_at,
+        last_seen_at = now(), stopped_at = NULL
+    """
+)
+_STOPPED = text("UPDATE workers SET last_seen_at = now(), stopped_at = now() WHERE id = :id")
+_LAST_SEEN = text(
+    "SELECT max(last_seen_at), coalesce(max(last_seen_at) > now() - :within, false) FROM workers"
+)
+_SEEN = text(
+    """
+    SELECT id, version, started_at, last_seen_at, stopped_at,
+        stopped_at IS NULL AND last_seen_at > now() - :within AS running
+    FROM workers WHERE last_seen_at > now() - :kept ORDER BY last_seen_at DESC, id LIMIT :limit
+    """
+)
+_PRUNE_WORKERS = text("DELETE FROM workers WHERE last_seen_at < now() - :age")
 _NOTIFY = text(f"SELECT pg_notify('{CHANNEL}', '')")
 # A queued job for the same document is replaced, and the new one takes the better priority of
 # the two: an upload's job stays ahead of bulk work when a project reprocess overtakes it.
@@ -210,6 +249,28 @@ class Lease:
 
     job_id: int
     worker_id: str
+
+
+@dataclass(frozen=True)
+class Work:
+    """Whether a worker takes the queue's work, for the members' status line: one was seen
+    within SEEN_WITHIN, a stopped one included; and when the latest was, None before any."""
+
+    running: bool
+    last_seen_at: datetime | None
+
+
+@dataclass(frozen=True)
+class SeenWorker:
+    """A worker as the operator reads it: running while it was seen within SEEN_WITHIN and has
+    not stopped; one neither running nor stopped died, or lost the database."""
+
+    id: str
+    version: str
+    started_at: datetime
+    last_seen_at: datetime
+    stopped_at: datetime | None
+    running: bool
 
 
 class LeaseLost(Exception):
@@ -386,6 +447,37 @@ def release(job_ids: list[int], worker_id: str) -> set[int]:
 def prune_finished(connection: Connection, age: timedelta = HISTORY) -> int:
     """Remove the jobs that finished longer ago than `age`; returns how many."""
     return connection.execute(_PRUNE, {"age": age}).rowcount
+
+
+def beat(worker_id: str, version: str, started: datetime) -> None:
+    """Record that the worker runs, as its heartbeat does at its start and every round."""
+    with SessionLocal() as session:
+        session.execute(_BEAT, {"id": worker_id, "version": version, "started": started})
+        session.commit()
+
+
+def record_stop(worker_id: str) -> None:
+    """Record that the worker stopped itself, as a stopping worker does once it handed its jobs
+    back."""
+    with SessionLocal() as session:
+        session.execute(_STOPPED, {"id": worker_id})
+        session.commit()
+
+
+def work_running(session: Session) -> Work:
+    last_seen, running = session.execute(_LAST_SEEN, {"within": SEEN_WITHIN}).one()
+    return Work(running=running, last_seen_at=last_seen)
+
+
+def workers_seen(session: Session, limit: int = WORKERS_SHOWN) -> list[SeenWorker]:
+    """The workers seen within WORKERS_KEPT, the latest seen first."""
+    rows = session.execute(_SEEN, {"within": SEEN_WITHIN, "kept": WORKERS_KEPT, "limit": limit})
+    return [SeenWorker(*row) for row in rows]
+
+
+def prune_workers(connection: Connection, age: timedelta = WORKERS_KEPT) -> int:
+    """Forget the workers last seen longer ago than `age`; returns how many."""
+    return connection.execute(_PRUNE_WORKERS, {"age": age}).rowcount
 
 
 def listen(

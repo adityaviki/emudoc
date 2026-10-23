@@ -36,6 +36,7 @@ import { formatDate } from '../format.ts'
 import { useOnline, useStatus } from '../hooks.ts'
 import { inviteNudgeOf, mayInvite } from '../onboarding.ts'
 import type { InviteNudge } from '../onboarding.ts'
+import { askHeld } from '../status.ts'
 import { trashKey } from '../trash.ts'
 import { describeAnswerUsage } from '../usage.ts'
 import { InviteTeam } from './InviteTeam.tsx'
@@ -338,6 +339,9 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
   const queryClient = useQueryClient()
   const health = useStatus()
   const online = useOnline()
+  // No model to answer, or no worker to run the answer: the composer waits, and says why.
+  const held = askHeld(health.data)
+  const unavailable = held !== null
   const chat = useQuery({
     queryKey: chatKey(chatId),
     queryFn: () => api.chat(chatId!).then(loadChat),
@@ -392,7 +396,7 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
 
   function send(text: string) {
     const question = text.trim()
-    if (!question || !online || streaming || loading || chat.isError || create.isPending || starter) return
+    if (!question || !online || unavailable || streaming || loading || chat.isError || create.isPending || starter) return
     if (chatId == null) {
       create.mutate(question)
       return
@@ -417,7 +421,6 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
     if (chatId != null && message.id != null) resume(queryClient, chatId, message.id)
   }
 
-  const unavailable = health.data && !health.data.llm.available
   // The member's own chat's last answer, stopped or failed, is tried again in its place; another
   // member's shared chat is read, not asked in.
   const last = messages[messages.length - 1]
@@ -426,7 +429,7 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto px-5">
         <div className="mx-auto max-w-3xl space-y-6 py-5">
-          {unavailable && <Notice>{health.data?.llm.error ?? 'The AI model is unavailable.'}</Notice>}
+          {held && <Notice>{held}</Notice>}
           {loading && <Loading />}
           {chat.isError && (
             <Notice tone="bad">

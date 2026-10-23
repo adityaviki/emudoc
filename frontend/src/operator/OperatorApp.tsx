@@ -17,6 +17,7 @@ import { JobsPage } from './Jobs.tsx'
 import { OrganizationPage, OrganizationsPage } from './Organizations.tsx'
 import { ServicesPage } from './Services.tsx'
 import { UsersPage } from './Users.tsx'
+import { release } from './words.ts'
 
 const VIEWS = [
   { path: 'organizations', label: 'Organisations' },
@@ -116,9 +117,6 @@ function Viewing({ operator }: { operator: Operator }) {
     </div>
   )
 }
-
-/** The version as the user menu shows it: seven digits of a commit's SHA, or the word a checkout runs as. */
-const release = (version: string) => (/^[0-9a-f]{40}$/.test(version) ? version.slice(0, 7) : version)
 
 /** What the area says when it will not open: two-factor sign-in first, or nothing at all for anyone it does not know. */
 function Refused({ error }: { error: Error }) {

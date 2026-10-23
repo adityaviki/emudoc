@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 
 from app.config import get_settings
 from app.indexing.pipeline import process_document
-from app.main import KEYWORDS_ONLY, MODELS_UNAVAILABLE
+from app.main import KEYWORDS_ONLY, MODELS_UNAVAILABLE, WORK_STOPPED
 from app.models import Job
 from app.parsing import images
 from tests.conftest import (
@@ -489,6 +489,8 @@ def test_a_deployments_status_names_nothing_of_how_it_is_set_up(client, services
             "error": None,
         },
         "embeddings": {"ok": True, "model": None, "error": None},
+        # The suite runs no worker (tests/test_workers.py).
+        "workers": {"running": False, "error": WORK_STOPPED},
         "currency": "USD",
         "uploads": {"files": 100, "request_bytes": 500 * 1024**2, "file_bytes": 100 * 1024**2},
     }

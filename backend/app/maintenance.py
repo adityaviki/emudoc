@@ -16,11 +16,11 @@ one walk over the storage (`sweep_storage`) that removes the rendered pages and 
 than PAGE_IMAGE_DAYS, which are rendered again when asked for, and the objects of documents and
 projects that no longer exist, which a delete leaves behind when the storage fails after the rows
 are gone; the pruning of jobs that finished longer ago than the queue keeps them, of the
-events of old answers, of the request counts behind the rate limits (app/ratelimit.py), of the
-chats past their plan's retention (app/retention.py), and of the sessions and one-time links
-that ended a month ago (app/auth.py); and the purge of the accounts and the organisations
-whose deletion is due, after setting those that a restore brought back to be purged again
-(app/retention.py).
+workers not seen for a day, of the events of old answers, of the request counts behind the rate
+limits (app/ratelimit.py), of the chats past their plan's retention (app/retention.py), and of
+the sessions and one-time links that ended a month ago (app/auth.py); and the purge of the
+accounts and the organisations whose deletion is due, after setting those that a restore brought
+back to be purged again (app/retention.py).
 `sweep-page-images` runs the first part by hand, after lowering the setting; `sweep-orphans`
 lists the second part and removes it with `--delete`.
 
@@ -33,9 +33,10 @@ check of the restore drill (deploying.md, "The drill").
 
 `failed-jobs` lists the jobs the worker gave up on, the dead letters (app/deadletters.py), and
 with `--requeue` queues their documents again from the stage they stopped at. `jobs` shows the
-queue as it stands, the running jobs with their leases, and with `--document` where one
-document's indexing stands and what that means: the operator's look before a release and at a
-document a member says is stuck (deploying.md, "Runbooks").
+queue as it stands, the running jobs with their leases, the workers seen lately and whether
+any runs, and with `--document` where one document's indexing stands and what that means: the
+operator's look before a release and at a document a member says is stuck (deploying.md,
+"Runbooks").
 
 `usage` prints what an organisation used per day (app/usage.py): the model calls and tokens
 of its answers today, and whatever is metered next. `costs` is the operator's view across the
@@ -117,8 +118,13 @@ from app.jobs import (
     INDEX_DOCUMENT,
     JOB_STATES,
     QUEUE_BY_STATE,
+    SEEN_WITHIN,
+    WORKERS_KEPT,
+    SeenWorker,
     prune_finished,
+    prune_workers,
     queue_index_by_id,
+    workers_seen,
 )
 from app.logs import configure_logging
 from app.models import JOB_KINDS, STAGES, Document, Job, Organization, User
@@ -509,6 +515,7 @@ def housekeeping(storage: Storage) -> None:
         else:
             remove_orphans(storage, sweep.orphans)
         pruned = prune_finished(connection)
+        prune_workers(connection)
         events = prune_events(connection)
         minutes = prune_rate_limits(connection)
         chats = prune_chats(connection)
@@ -949,9 +956,47 @@ def _kept(days: int | None) -> str:
 
 def jobs_report(session: Session) -> list[str]:
     """The lines the `jobs` command prints: each kind's jobs by state, how long the oldest due
-    one has waited for a worker, and each running job with what it is for, its attempt and its
-    lease, which says whether its worker still holds it."""
+    one has waited for a worker, each running job with what it is for, its attempt and its
+    lease, which says whether its worker still holds it, and the workers seen lately."""
     now = session.scalar(select(func.now()))
+    return [*_queue_lines(session, now), *workers_lines(workers_seen(session), now)]
+
+
+def workers_lines(workers: list[SeenWorker], now: datetime) -> list[str]:
+    """The workers seen within WORKERS_KEPT, each with its release, its start and how it stands,
+    and a line when none runs, which leaves the queue's work waiting."""
+    lines = []
+    if workers:
+        lines.append(f"The workers seen in the last {span(WORKERS_KEPT)}:")
+        rows = [("worker", "release", "started", "stands")]
+        rows += [
+            (seen.id, _release(seen.version), _at(seen.started_at), _stands(seen, now))
+            for seen in workers
+        ]
+        lines += _table(rows, left={0, 1, 2, 3})
+    if not any(seen.running for seen in workers):
+        lines.append(
+            f"No worker has been seen running in the last {span(SEEN_WITHIN)}: nothing is "
+            "indexed, answered, mailed or exported until one runs (`python -m app.worker`)."
+        )
+    return lines
+
+
+def _release(version: str) -> str:
+    """Seven digits of a commit's SHA, as the user menu shows it, or the word a checkout runs as."""
+    return version[:7] if re.fullmatch(r"[0-9a-f]{40}", version) else version
+
+
+def _stands(seen: SeenWorker, now: datetime) -> str:
+    if seen.running:
+        return f"running, seen {span(now - seen.last_seen_at)} ago"
+    if seen.stopped_at is not None:
+        return f"stopped {span(now - seen.stopped_at)} ago"
+    # Its heartbeat stopped without a stop: the process died, or lost the database.
+    return f"not seen for {span(now - seen.last_seen_at)}"
+
+
+def _queue_lines(session: Session, now: datetime) -> list[str]:
     counts: dict[tuple[str, str], int] = {}
     oldest: dict[str, float] = {}
     for kind, state, count, waited in session.execute(QUEUE_BY_STATE):
@@ -1442,9 +1487,10 @@ def main(argv: list[str] | None = None) -> None:
         "midnight UTC, running, and failed in the last "
         f"{HISTORY.days} days), how long the oldest due one has waited for a worker, and each "
         "running job with what it is for, its attempt and its lease, which says whether its "
-        "worker still holds it. With --document, one document instead: where it stands, each "
-        "stage with what its members read, its index jobs newest first, and what the newest "
-        "one means. It changes nothing.",
+        "worker still holds it, and the workers seen in the last day, each with its release "
+        "and whether it runs, stopped, or was lost. With --document, one document instead: "
+        "where it stands, each stage with what its members read, its index jobs newest first, "
+        "and what the newest one means. It changes nothing.",
     )
     jobs.add_argument(
         "--document",

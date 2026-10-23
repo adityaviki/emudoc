@@ -38,7 +38,7 @@ from app.config import get_settings, model_provider
 from app.deadletters import NamedJob, named_jobs, requeue
 from app.entitlements import BY_THE_SEAT, FIELDS, PLANS, agreed_with, entitlements_of
 from app.flags import FLAGS, choose, chosen, flag_on, rollouts
-from app.jobs import HISTORY, JOB_STATES, QUEUE_BY_STATE
+from app.jobs import HISTORY, JOB_STATES, QUEUE_BY_STATE, workers_seen
 from app.logs import about
 from app.mail import support_view_email
 from app.maintenance import entitlement_words, figure_of
@@ -85,6 +85,7 @@ from app.schemas import (
     OperatorUserOut,
     OperatorUsersOut,
     OperatorViewOut,
+    OperatorWorkerOut,
     OrganizationCostOut,
     ProviderSwitchIn,
     QueueOut,
@@ -553,7 +554,7 @@ def costs(session: SessionDep, days: int = Query(COST_DAYS, ge=1, le=366)):
 @router.get("/jobs", response_model=OperatorJobsOut)
 def jobs(session: SessionDep):
     """The `jobs` and `failed-jobs` commands' report: each kind's jobs by state, the running
-    ones with their leases, and the dead letters, the newest first."""
+    ones with their leases, the dead letters, the newest first, and the workers seen lately."""
     counts: dict[tuple[str, str], int] = {}
     oldest: dict[str, float] = {}
     for kind, state, count, waited in session.execute(QUEUE_BY_STATE):
@@ -584,6 +585,7 @@ def jobs(session: SessionDep):
         ],
         failed_total=failed,
         history_days=HISTORY.days,
+        workers=[OperatorWorkerOut(**vars(seen)) for seen in workers_seen(session)],
     )
 
 

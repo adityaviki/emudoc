@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SystemStatus } from './api.ts'
-import { describeServices } from './status.ts'
+import { askHeld, describeServices } from './status.ts'
 
 // As the development backend answers: the models named, a problem with what to change.
 const development: SystemStatus = {
@@ -13,6 +13,7 @@ const development: SystemStatus = {
     error: null,
   },
   embeddings: { ok: true, model: 'nomic-embed-text', error: null },
+  workers: { running: true, error: null },
   currency: 'USD',
   uploads: { files: 100, request_bytes: 500 * 1024 * 1024, file_bytes: 100 * 1024 * 1024 },
 }
@@ -28,6 +29,7 @@ const deployment: SystemStatus = {
     error: null,
   },
   embeddings: { ok: true, model: null, error: null },
+  workers: { running: true, error: null },
   currency: 'USD',
   uploads: { files: 100, request_bytes: 500 * 1024 * 1024, file_bytes: 100 * 1024 * 1024 },
 }
@@ -79,5 +81,30 @@ describe('describeServices', () => {
       'The AI model is unavailable just now.',
       'Search matches keywords only just now.',
     ])
+  })
+})
+
+describe('the background work', () => {
+  const stopped: SystemStatus = {
+    ...deployment,
+    workers: { running: false, error: "Emudoc's background work is not running just now." },
+  }
+
+  it('is a line of the header only while no worker runs, in the server’s words', () => {
+    expect(describeServices(deployment).map((line) => line.label)).toEqual(['AI model', 'Semantic search'])
+    expect(describeServices(stopped)[2]).toEqual({
+      label: 'Background work',
+      ok: false,
+      detail: "Emudoc's background work is not running just now.",
+    })
+  })
+
+  it('holds a question with no model to answer it or no worker to run the answer', () => {
+    expect(askHeld(undefined)).toBeNull()
+    expect(askHeld(deployment)).toBeNull()
+    expect(askHeld(stopped)).toBe("Emudoc's background work is not running just now.")
+    // The model first: without it there is no answer, worker or not.
+    const neither: SystemStatus = { ...stopped, llm: { ...deployment.llm, available: false, error: 'The AI model is unavailable just now.' } }
+    expect(askHeld(neither)).toBe('The AI model is unavailable just now.')
   })
 })

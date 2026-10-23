@@ -1,6 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import type { Cost, Job } from './api.ts'
-import { agreedOf, ago, amount, choiceOf, chosenOf, count, flagWords, known, lease, rolledOut, seatsOf, span, topDay } from './words.ts'
+import type { Cost, Job, Worker } from './api.ts'
+import {
+  agreedOf,
+  ago,
+  amount,
+  choiceOf,
+  chosenOf,
+  count,
+  flagWords,
+  known,
+  lease,
+  release,
+  rolledOut,
+  seatsOf,
+  span,
+  topDay,
+  workerStands,
+} from './words.ts'
 
 const cost = (top: number | null, limit: number | null): Cost => ({
   cost_micros: 0,
@@ -51,6 +67,29 @@ describe('time', () => {
     expect(lease(job, '2026-10-21T12:05:00Z')).toBe('ran out 3 min ago')
     expect(lease({ ...job, lease_until: null }, '2026-10-21T12:00:00Z')).toBe('')
     expect(ago('2026-10-21T11:00:00Z', '2026-10-21T12:00:00Z')).toBe('1 h ago')
+  })
+
+  it('words a worker as the jobs command does: running, stopped, or lost', () => {
+    const worker: Worker = {
+      id: 'host:12',
+      version: 'development',
+      started_at: '2026-10-21T09:00:00Z',
+      last_seen_at: '2026-10-21T11:59:30Z',
+      stopped_at: null,
+      running: true,
+    }
+    expect(workerStands(worker, '2026-10-21T12:00:00Z')).toBe('running, seen 30 s ago')
+    const stopped = { ...worker, running: false, last_seen_at: '2026-10-21T11:50:00Z', stopped_at: '2026-10-21T11:50:00Z' }
+    expect(workerStands(stopped, '2026-10-21T12:00:00Z')).toBe('stopped 10 min ago')
+    // Neither running nor stopped: it died, or lost the database.
+    expect(workerStands({ ...worker, running: false, last_seen_at: '2026-10-21T11:40:00Z' }, '2026-10-21T12:00:00Z')).toBe(
+      'not seen for 20 min',
+    )
+  })
+
+  it("shows a commit's SHA by seven digits, and a checkout's word whole", () => {
+    expect(release('3f2c1ab' + '0'.repeat(33))).toBe('3f2c1ab')
+    expect(release('development')).toBe('development')
   })
 
   it('counts with the noun that fits', () => {

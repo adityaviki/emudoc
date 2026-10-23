@@ -127,6 +127,7 @@ function status(llm: boolean, embeddings: boolean): SystemStatus {
   return {
     llm: { available: llm, agent_model: null, index_model: null, agent_fallback_model: null, index_fallback_model: null, error: null },
     embeddings: { ok: embeddings, model: null, error: null },
+    workers: { running: true, error: null },
     currency: 'EUR',
     uploads: { files: 50, request_bytes: 100, file_bytes: 50 },
   }
