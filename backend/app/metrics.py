@@ -65,6 +65,7 @@ from app.jobs import (
     JOB_STATES,
     QUEUE_BY_STATE,
     RENDER_PAGES,
+    RUN_AUTOMATION,
     RUN_WORKFLOW,
     SEND_EMAIL,
 )
@@ -101,6 +102,7 @@ JOBS = (
     APPLY_LANGUAGE,
     EXPORT_PROJECT,
     RUN_WORKFLOW,
+    RUN_AUTOMATION,
 )
 # What a lane of the worker's threads runs (app/worker.py).
 INDEXER = "indexer"
@@ -713,4 +715,4 @@ def lane_of(kind: str) -> str:
     """The lane of the worker's threads that runs a job of `kind` (app/worker.py)."""
     if kind == SEND_EMAIL:
         return MAILER
-    return ANSWERER if kind == ANSWER_QUESTION else INDEXER
+    return ANSWERER if kind in (ANSWER_QUESTION, RUN_WORKFLOW, RUN_AUTOMATION) else INDEXER

@@ -123,6 +123,16 @@ describe('a row', () => {
       '2 cross-checks: Prices, Totals, with a discrepancy report',
     )
     expect(describeDetail(event('check_report_requested', { names: ['Prices'] }))).toBe('Prices')
+    // An automation: what it watches and runs, by names, never a value; and a run it made names it.
+    const automation = { name: 'New invoices', kind: 'invoice', folder: 'Inbox', checks: null, report: false, audience: 'maker', recheck: false, enabled: true }
+    expect(describeDetail(event('automation_created', automation))).toBe('New invoices · invoice documents in Inbox, running every cross-check')
+    const turnedOff = { ...automation, kind: null, folder: null, checks: ['Totals'], enabled: false, changed: ['watches', 'enabled'] }
+    expect(describeDetail(event('automation_changed', turnedOff))).toBe(
+      'New invoices · any document anywhere, running Totals, off, changed what it watches, on or off',
+    )
+    expect(describeDetail(event('cross_checks_run', { names: ['Totals'], report: false, automation: 'New invoices' }))).toBe(
+      'Totals, by the automation “New invoices”',
+    )
     // A fact checked or corrected: the document and the field, never what it says.
     expect(describeDetail(event('fact_corrected', { filename: 'acme-10.pdf', field: 'total_amount' }))).toBe('acme-10.pdf · total amount')
     // A member's leave for support, support's view of their account, and what was done in it.

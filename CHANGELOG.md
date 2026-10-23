@@ -44,6 +44,20 @@ Members:
 
 Operators:
 
+- Automations of a project's cross-checks, behind the flag `extraction_templates`: under the
+  rules, an automation runs every cross-check, or those it names, with the discrepancy report
+  when asked, once documents of a kind, or any, arrive in a folder or anywhere in the project,
+  and with "Run them again" once the documents its checks compare them with arrive anywhere; it
+  tells its maker, everyone who sees the project or nobody what the run found about what arrived,
+  a new kind of notice, in the app and by email, counts and file names alone. A document arrives
+  as its upload settles, and the run waits for the arrivals to go quiet: `AUTOMATION_WAIT`
+  seconds after the last (120), at most a quarter of an hour after the first. Its report counts
+  as one of the month's questions, and a month or day without room runs the checks without one,
+  saying why. New tables `automations`, `automation_checks` and `automation_arrivals`, a run's
+  `automation_id`, `trigger` and `told_at`, the job kind `run_automation` in the answerers' lane,
+  the notice kind `checks_run` and the audit actions `automation_created`, `automation_changed`
+  and `automation_deleted` (a migration); an automation's run is in the audit log by Emudoc,
+  naming it. The privacy policy names the new notice.
 - Runs of cross-checks and the discrepancy report, behind the flag `extraction_templates`:
   under a project's cross-checks, "Run the checks" works every rule out now and keeps what it
   found, the rules as they were and each value as it was read, so a run reads the same after its

@@ -61,7 +61,7 @@ DEVELOPMENT = {
 }
 DIRECTORY = LocalStorage(Path("unused"))
 # The SHA-256 of terms.md and privacy.md as the edition TERMS_VERSION names was settled.
-SETTLED = "8e1e99bc662b95ae7376cb7651f797bae4c92af53e1d3ebf08bf29f15ced581a"
+SETTLED = "164abff50147cb60e41a099f5e964ad52a57a6af732f89852f6e56ded6aaab47"
 OLDER = "2026-01-01"
 
 
@@ -315,6 +315,7 @@ def test_the_policy_names_the_addresses_spared_where_the_provider_says_which():
     assert "You choose how you\nare told each kind on your account page" in policy()
     assert "when documents you uploaded took a while to\nindex, that they are done" in policy()
     assert "when its pages or questions for the month are mostly or all used" in policy()
+    assert "automation\nthat names you ran a project's cross-checks" in policy()
     # The notification centre keeps them for a while.
     assert "- **The notices in your notification centre**, 90 days, read or not" in policy()
     assert "could not be delivered" not in policy()

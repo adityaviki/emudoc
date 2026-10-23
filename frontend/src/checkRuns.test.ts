@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CheckRun, CheckRunSummary } from './api.ts'
-import { mayAskReport, reportStatusWords, runByline, runDeletionQuestion, runStatusWords, runTitle, settling } from './checkRuns.ts'
+import { arrivalWords, mayAskReport, reportStatusWords, runByline, runDeletionQuestion, runStatusWords, runTitle, settling } from './checkRuns.ts'
 import { formatDateTime } from './format.ts'
 
 const summary = (patch: Partial<CheckRunSummary> = {}): CheckRunSummary => ({
@@ -8,6 +8,7 @@ const summary = (patch: Partial<CheckRunSummary> = {}): CheckRunSummary => ({
   status: 'done',
   report_status: null,
   run_by: 'Ada Lovelace',
+  trigger: null,
   titles: ['Prices as on the price list', 'Total within its purchase order'],
   counts: { differs: 2, missing: 1, holds: 7 },
   created_at: '2026-10-23T14:05:00Z',
@@ -35,6 +36,18 @@ describe('a run in words', () => {
     expect(runByline(summary())).toBe('By Ada Lovelace · Prices as on the price list, Total within its purchase order')
     const many = summary({ run_by: null, titles: ['A', 'B', 'C', 'D', 'E'] })
     expect(runByline(many)).toBe('By a former member · A, B and 3 more')
+  })
+
+  it('names the automation that made it, and what arrived for it', () => {
+    const trigger = { automation_id: 3, automation: 'New invoices', documents: 2, partners: 0, names: ['INV-1.md', 'INV-2.md'] }
+    const made = summary({ run_by: null, trigger, titles: ['Totals'] })
+    expect(runByline(made)).toBe('By the automation “New invoices” · Totals')
+    expect(arrivalWords(trigger)).toBe('After INV-1.md and INV-2.md arrived.')
+    expect(arrivalWords({ ...trigger, documents: 5, names: ['a.md', 'b.md', 'c.md'] })).toBe('After a.md, b.md, c.md and 2 more arrived.')
+    expect(arrivalWords({ ...trigger, documents: 0, partners: 1, names: ['PO-7702.md'] })).toBe(
+      'After PO-7702.md, which its cross-checks compare with the documents it watches, arrived.',
+    )
+    expect(arrivalWords({ ...trigger, documents: 1, names: [] })).toBe('After 1 document arrived.')
   })
 
   it('says how far it is, or what its rules found together', () => {

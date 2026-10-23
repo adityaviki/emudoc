@@ -755,15 +755,28 @@ class CheckRunRuleOut(CrossCheckIn):
     counts: FindingCountsOut | None
 
 
+class RunTriggerOut(BaseModel):
+    """What an automation's run was made for: the automation, by its id while it is there and
+    its name as it was, and how many documents arrived, those it watches and those its checks
+    compare them with, the first few by their names."""
+
+    automation_id: int | None
+    automation: str
+    documents: int
+    partners: int
+    names: list[str]
+
+
 class CheckRunSummaryOut(BaseModel):
     """A run as the project's list shows it: when, by whom (their name as it is now, None once
-    their account is gone), how far it and its report are, its rules' names and what they found
-    together."""
+    their account is gone, or for an automation's run, `trigger` saying which and why), how far
+    it and its report are, its rules' names and what they found together."""
 
     id: int
     status: RunStatus
     report_status: ReportStatus | None
     run_by: str | None
+    trigger: RunTriggerOut | None
     titles: list[str]
     counts: FindingCountsOut | None
     created_at: dt.datetime
@@ -783,6 +796,56 @@ class CheckRunOut(CheckRunSummaryOut):
     report_notice: str | None
     report_error: str | None
     usage: dict[str, UsageOut]
+
+
+AutomationAudience = Literal["maker", "project", "nobody"]
+
+
+class AutomationIn(BaseModel):
+    """An automation as a member writes it, whole (app/automations.py): its name; the kind of
+    document it watches (as templates name kinds), or any; the folder it watches, its subfolders
+    with it, or the whole project; the cross-checks it runs by id, or every one of the project's
+    when null; whether the model writes the discrepancy report; whom it tells what a run found;
+    whether documents its checks compare the watched ones with run it again; and whether it is
+    on."""
+
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    kind: _Kind | None = None
+    folder_id: int | None = None
+    check_ids: list[int] | None = Field(default=None, min_length=1, max_length=100)
+    report: bool = False
+    audience: AutomationAudience = "maker"
+    recheck: bool = False
+    enabled: bool = True
+
+
+class AutomationOut(AutomationIn):
+    id: int
+    # The cross-checks it chose that are still there, which may be none; None when it runs
+    # every one.
+    check_ids: list[int] | None
+    # The folder's path as it is now, from the project's root, to word it by; None for the
+    # whole project.
+    folder: str | None
+    # The names of the cross-checks it chose, by name; None when it runs every one.
+    checks: list[str] | None
+    # Who made it, whom `maker` tells, by their id and their name as it is now; None once their
+    # account is gone.
+    created_by: int | None
+    made_by: str | None
+    # Why it would run nothing or tell nobody as the project stands now; None when it runs as
+    # it says.
+    problem: str | None
+    # When it last made a run, of those kept.
+    last_run_at: dt.datetime | None
+    updated_at: dt.datetime
+
+
+class AutomationsOut(BaseModel):
+    """A project's automations, by name, and how many it may have."""
+
+    automations: list[AutomationOut]
+    max_automations: int
 
 
 class CheckRunsOut(BaseModel):
@@ -909,7 +972,7 @@ class AccountDeletionIn(BaseModel):
 
 
 # The kinds of notice (NOTICE_KINDS in app/models.py, app/notices.py).
-NoticeKind = Literal["upload_indexed", "quota", "project_export"]
+NoticeKind = Literal["upload_indexed", "quota", "project_export", "checks_run"]
 
 
 class NoticeChoiceIn(BaseModel):

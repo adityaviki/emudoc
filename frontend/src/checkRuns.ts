@@ -3,7 +3,8 @@
 // its discrepancy report are, whether the page should ask again, and what the view asks before
 // deleting a run.
 
-import type { CheckRun, CheckRunSummary, FindingOutcome } from './api.ts'
+import type { CheckRun, CheckRunSummary, FindingOutcome, RunTrigger } from './api.ts'
+import { listWords } from './automations.ts'
 import type { Question } from './components/Confirm.tsx'
 import { countsWords } from './crossChecks.ts'
 import { formatDateTime } from './format.ts'
@@ -28,10 +29,25 @@ export function settling(run: CheckRunSummary): boolean {
 /** A run named by when it was made: "Run of 23 Oct 2026, 14:05". */
 export const runTitle = (run: CheckRunSummary) => `Run of ${formatDateTime(run.created_at)}`
 
-/** Who made the run and what it ran, in a line: "By Ada Lovelace · Prices, Totals", or the rules counted past three. */
+/** Who or what made the run and what it ran, in a line: "By Ada Lovelace · Prices, Totals", "By the automation “New invoices” · …", or the rules counted past three. */
 export function runByline(run: CheckRunSummary): string {
   const rules = run.titles.length <= 3 ? run.titles.join(', ') : `${run.titles.slice(0, 2).join(', ')} and ${run.titles.length - 2} more`
-  return [run.run_by ? `By ${run.run_by}` : 'By a former member', rules].join(' · ')
+  const by = run.trigger ? `By the automation “${run.trigger.automation}”` : run.run_by ? `By ${run.run_by}` : 'By a former member'
+  return [by, rules].join(' · ')
+}
+
+/** What an automation's run was made for: "After INV-1.md and INV-2.md arrived.", the names counted past those kept. */
+export function arrivalWords(trigger: RunTrigger): string {
+  const count = trigger.documents + trigger.partners
+  const { names } = trigger
+  const what =
+    names.length === 0
+      ? `${count} document${count === 1 ? '' : 's'}`
+      : count > names.length
+        ? `${names.join(', ')} and ${count - names.length} more`
+        : listWords(names)
+  const compared = trigger.documents === 0 ? ', which its cross-checks compare with the documents it watches,' : ''
+  return `After ${what}${compared} arrived.`
 }
 
 /** How far the run is, or what its rules found together once worked out. */

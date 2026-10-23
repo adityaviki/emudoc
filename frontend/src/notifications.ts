@@ -19,6 +19,10 @@ export const NOTICE_KINDS: Record<NoticeKind, { label: string; detail: string }>
     label: 'A project export is ready',
     detail: 'When the export of a project you asked for is ready to download, or could not be made.',
   },
+  checks_run: {
+    label: 'An automation ran the cross-checks',
+    detail: 'When documents arrived and an automation that tells you ran a project’s cross-checks: what they found about them.',
+  },
 }
 
 /** Where the notices are kept in the cache: the newest page, which the bell asks every minute. */

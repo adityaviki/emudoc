@@ -485,6 +485,11 @@ class Settings(BaseSettings):
     worker_concurrency: int = 16
     answer_concurrency: int = Field(default=8, ge=0)
     parse_concurrency: int = Field(default=2, ge=1)
+    # How long, in seconds, an automation (app/automations.py) waits after the last document it
+    # watches arrived before it runs the project's cross-checks, so that an upload sent in
+    # several requests makes one run rather than one a request; however many keep arriving, it
+    # runs within a quarter of an hour of the first (MOST_HELD there).
+    automation_wait: int = Field(default=120, ge=0)
     # The connections this process keeps to the database: DB_POOL_SIZE kept open, and up to
     # DB_MAX_OVERFLOW more opened while all of those are in use and closed as they come back.
     # A session holds one from its first statement to its next commit or rollback, so an API

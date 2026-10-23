@@ -57,6 +57,10 @@ FINDING_REASONS = (
 # writes from it when a member asks for one: waiting, being written, written, or failed.
 RUN_STATUSES = ("queued", "running", "done", "failed")
 REPORT_STATUSES = ("queued", "writing", "done", "failed")
+# Whom an automation (app/automations.py) tells what a run it made found: the member who made it,
+# everyone who sees its project, each as they chose for the kind of notice, or nobody, the run
+# being listed with the project's either way.
+AUTOMATION_AUDIENCES = ("maker", "project", "nobody")
 # From most to least permitted: each role may do everything the roles after it may.
 ROLES = ("owner", "admin", "member", "viewer")
 # The roles an organisation may let everyone at its domains join with (app/invitations.py): none
@@ -81,6 +85,7 @@ JOB_KINDS = (
     "export_project",
     "sync_connector",
     "run_workflow",
+    "run_automation",
 )
 JOB_STATUSES = ("queued", "running", "done", "failed")
 # Why an address is sent no notices (app/bounces.py): mail to it bounced for good, or its reader
@@ -106,7 +111,7 @@ QUOTA_FIGURES = ("pages_per_month", "questions_per_month")
 # The kinds of notice the app tells members about their work (app/notices.py), and the ways each
 # reaches them: the notification centre in the app, and email. A member chooses each way of
 # each kind (`User.notices`).
-NOTICE_KINDS = ("upload_indexed", "quota", "project_export")
+NOTICE_KINDS = ("upload_indexed", "quota", "project_export", "checks_run")
 NOTICE_CHANNELS = ("app", "email")
 # The order the library lists a folder's files in, which the database keeps an index in: by
 # name, with the numbers in a name compared as numbers ("invoice 2" before "invoice 10") and
@@ -125,8 +130,9 @@ NATURAL_ORDER = "natural_order"
 # came out of it, and `_purged` was deleted for good from it by a member. A project's extraction
 # templates (app/extraction.py) and cross-checks (app/cross_checks.py) are made, changed and
 # deleted for good, with no trash, and its facts tables downloaded (app/fact_export.py), which is
-# its documents' content leaving the app; a run of its cross-checks is made, a discrepancy report
-# asked of the agent and the run deleted for good (app/check_runs.py).
+# its documents' content leaving the app; a run of its cross-checks is made, by a member or by an
+# automation, a discrepancy report asked of the agent and the run deleted for good
+# (app/check_runs.py), and its automations made, changed and deleted (app/automations.py).
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -195,6 +201,9 @@ AUDIT_ACTIONS = (
     "cross_checks_run",
     "check_report_requested",
     "check_run_deleted",
+    "automation_created",
+    "automation_changed",
+    "automation_deleted",
     "project_deleted",
     "project_restored",
     "project_purged",
@@ -1318,6 +1327,17 @@ class WorkflowRun(Base):
     # What the run used, by kind (`report`: the report's model calls, tokens and cost), as
     # app/usage.py keeps it; the findings are worked out without a model and cost nothing.
     usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    # The automation that made the run, when one did rather than a member (app/automations.py);
+    # null for a member's run, and once the automation is deleted, `trigger` still naming it.
+    automation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("automations.id", ondelete="SET NULL"), index=True
+    )
+    # What an automation's run was made for: the automation's name as it was, the ids of the
+    # documents that arrived (`documents`, those it watches; `partners`, those its checks compare
+    # them with), the names of the first few, and the job that made it, which makes it once.
+    trigger: Mapped[dict | None] = mapped_column(JSONB)
+    # When an automation's run told whom it names what it found: once, as the run settles.
+    told_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -1354,6 +1374,92 @@ class WorkflowFinding(Base):
     right: Mapped[list] = mapped_column(JSONB, default=list)
     partners: Mapped[list] = mapped_column(JSONB, default=list)
     difference: Mapped[float | None] = mapped_column(Float)
+
+
+class Automation(Base):
+    """A project's rule for running its cross-checks on its own (app/automations.py): when
+    documents of a kind, or any, arrive in a folder or anywhere in the project, and when it says
+    so, documents its checks compare them with anywhere, the worker runs the checks it names, or
+    every one the project has, once the arrivals have gone quiet, with the model's discrepancy
+    report when asked, and tells whom it names what they found about what arrived."""
+
+    __tablename__ = "automations"
+    __table_args__ = (_one_of("audience", AUTOMATION_AUDIENCES, "automations"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # The tenant, as for every row a member reaches by its id.
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    title: Mapped[str] = mapped_column(String(200))
+    # The kind of document it watches, as `documents.template` names the kind a document was
+    # read for; null for any document.
+    kind: Mapped[str | None] = mapped_column(String(100))
+    # The folder whose documents it watches, its subfolders' with them; null for the whole
+    # project. A folder deleted for good takes its automations with it.
+    folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("folders.id", ondelete="CASCADE"), index=True
+    )
+    # Whether it runs every cross-check the project has when it runs, or the ones
+    # `automation_checks` names.
+    every_check: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    # Whether the model writes the run's discrepancy report.
+    report: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    # One of AUTOMATION_AUDIENCES.
+    audience: Mapped[str] = mapped_column(String(20), default="maker", server_default="maker")
+    # Whether it also runs when documents arrive anywhere in the project that its checks compare
+    # the ones it watches with: a delivery note that lets an invoice's quantities be checked.
+    recheck: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    # Off, nothing that arrives runs it.
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    # Who made it, whom `maker` tells; null once their account is gone. Indexed for the account
+    # purge.
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class AutomationCheck(Base):
+    """A cross-check an automation runs, for one that runs chosen ones rather than every one;
+    a cross-check deleted goes from the automations that chose it."""
+
+    __tablename__ = "automation_checks"
+
+    automation_id: Mapped[int] = mapped_column(
+        ForeignKey("automations.id", ondelete="CASCADE"), primary_key=True
+    )
+    cross_check_id: Mapped[int] = mapped_column(
+        ForeignKey("cross_checks.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+
+
+class AutomationArrival(Base):
+    """A document that arrived for an automation and waits for its next run
+    (app/automations.py): one it watches, or with `recheck`, one its checks compare those with.
+    The run takes the automation's arrivals as it is made, and a document deleted meanwhile goes
+    with its row."""
+
+    __tablename__ = "automation_arrivals"
+
+    automation_id: Mapped[int] = mapped_column(
+        ForeignKey("automations.id", ondelete="CASCADE"), primary_key=True
+    )
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    recheck: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    arrived_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class Chat(Base):

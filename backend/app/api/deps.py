@@ -101,6 +101,7 @@ from app.indexing.pipeline import Services
 from app.legal import terms_due, terms_pending
 from app.logs import about
 from app.models import (
+    Automation,
     Chat,
     CrossCheck,
     Document,
@@ -494,6 +495,20 @@ def get_run(run_id: int, session: SessionDep, account: AccountDep) -> WorkflowRu
     return run
 
 
+def get_automation(automation_id: int, session: SessionDep, account: AccountDep) -> Automation:
+    """A project's automation (app/automations.py), provided the account sees the project and it
+    is out of the trash."""
+    automation = session.scalar(
+        select(Automation)
+        .join(Project, Project.id == Automation.project_id)
+        .where(Automation.id == automation_id, visible_to(account))
+    )
+    if automation is None:
+        raise HTTPException(404, "Automation not found")
+    about(project_id=automation.project_id)
+    return automation
+
+
 def get_fact(fact_id: int, session: SessionDep, account: AccountDep) -> Fact:
     """A fact read from a document (app/fact_checks.py), provided the account sees the
     document's project and the document is out of the trash."""
@@ -565,6 +580,15 @@ def get_editable_cross_check(
     return check
 
 
+def get_editable_automation(
+    automation: Annotated[Automation, Depends(get_automation)],
+    account: AccountDep,
+    session: SessionDep,
+) -> Automation:
+    get_editor(account, session)
+    return automation
+
+
 def get_editable_run(
     run: Annotated[WorkflowRun, Depends(get_run)], account: AccountDep, session: SessionDep
 ) -> WorkflowRun:
@@ -629,6 +653,8 @@ EditableCrossCheckDep = Annotated[CrossCheck, Depends(get_editable_cross_check)]
 RunDep = Annotated[WorkflowRun, Depends(get_run)]
 EditableRunDep = Annotated[WorkflowRun, Depends(get_editable_run)]
 DeletableRunDep = Annotated[WorkflowRun, Depends(get_deletable_run)]
+AutomationDep = Annotated[Automation, Depends(get_automation)]
+EditableAutomationDep = Annotated[Automation, Depends(get_editable_automation)]
 EditableFactDep = Annotated[Fact, Depends(get_editable_fact)]
 EditableFactCheckDep = Annotated[FactCheck, Depends(get_editable_fact_check)]
 DeletableProjectDep = Annotated[Project, Depends(get_deletable_project)]

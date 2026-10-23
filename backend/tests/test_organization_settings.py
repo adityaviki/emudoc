@@ -100,6 +100,7 @@ def test_owners_and_admins_change_the_settings_and_each_change_is_audited(
         {"kind": "upload_indexed", "app": True, "email": True},
         {"kind": "quota", "app": True, "email": False},
         {"kind": "project_export", "app": True, "email": True},
+        {"kind": "checks_run", "app": True, "email": True},
     ]
     assert settings_changed(session, org_id) == [
         {"setting": "language", "from": None, "to": "german"},

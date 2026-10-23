@@ -7,6 +7,7 @@ import { useMe } from '../auth.ts'
 import {
   REPORT_NOTE,
   RUN_POLL,
+  arrivalWords,
   mayAskReport,
   reportStatusWords,
   runByline,
@@ -183,6 +184,7 @@ export function RunView({ runId }: { runId: number }) {
           <>
             <div className="space-y-0.5">
               <p className="text-xs text-muted">{runByline(data)}</p>
+              {data.trigger && <p className="text-xs text-muted">{arrivalWords(data.trigger)}</p>}
               <p className="flex items-center gap-1.5 text-xs text-ink">
                 {(data.status === 'queued' || data.status === 'running') && <Spinner className="size-3" />}
                 {runStatusWords(data)}

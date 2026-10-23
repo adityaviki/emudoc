@@ -19,9 +19,17 @@ usage of the run, held to the day's spending limits as the run starts, and its a
 one of the month's questions (app/api/check_runs.py). It is written whole, not streamed: the page
 asks for the run until the report settles.
 
+An automation's run (app/automations.py) is made by the worker (`run_automation`) once the
+documents it watches have gone quiet, with no member behind it: it names the automation and what
+arrived (`trigger`), and its report, when the automation asks for one, is held to the month's
+questions, of which it counts one, and the day's spending as a member's is, a refusal leaving
+the run without its report and saying why. Once such a run settles, worked out and its report
+written or failed, what it found about the documents that arrived is told, once (`tell_run`), to
+whom the automation names.
+
 A run's values are what documents say, like a chat's answers: the members' pages hold them, never
-the audit log or a log line, and a run is kept as long as the organisation keeps a chat
-(`prune_runs` in app/retention.py).
+the audit log, a log line or a notice, which counts them, and a run is kept as long as the
+organisation keeps a chat (`prune_runs` in app/retention.py).
 """
 
 import logging
@@ -31,12 +39,16 @@ from dataclasses import asdict, fields
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import delete, exists, func, insert, select, text, update
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
+from app.access import visible_to
+from app.accounts import Account
 from app.agent.loop import run_agent
 from app.answers import Reply
+from app.audit import audit_event
+from app.automations import checks_of, due_at, queue_automation, take_arrivals
 from app.cross_checks import (
     CURRENCY,
     NO_ITEM,
@@ -53,13 +65,27 @@ from app.cross_checks import (
     sides_of,
 )
 from app.db import SessionLocal, unbounded
+from app.entitlements import check_question
 from app.extraction import Template, templates_for
 from app.fact_checks import fact_out
+from app.flags import EXTRACTION_TEMPLATES, flag_on
 from app.indexing.pipeline import Services
 from app.jobs import LIVE, RUN_WORKFLOW, Lease, LeaseLost, enqueue, renew
-from app.models import CrossCheck, Document, Passage, Project, WorkflowFinding, WorkflowRun
+from app.mail import checks_run_email, in_organization
+from app.models import (
+    Automation,
+    CrossCheck,
+    Document,
+    Membership,
+    Passage,
+    Project,
+    User,
+    WorkflowFinding,
+    WorkflowRun,
+)
+from app.notices import CHECKS_RUN, MONTH_QUESTIONS, PROJECT_PAGE, app_address, note_quota, tell
 from app.spending import check_platform_spend, check_spend
-from app.usage import REPORT, WORKFLOW_RUN, ModelUsage, record
+from app.usage import ANSWER, REPORT, WORKFLOW_RUN, ModelUsage, record
 
 log = logging.getLogger(__name__)
 
@@ -74,6 +100,10 @@ REPORT_FINDINGS = 60
 VALUE_CHARS = 300
 # The findings a statement writes at once.
 WRITE_BATCH = 500
+# The names of the documents that arrived an automation's run keeps, for its page and its notice.
+ARRIVALS_NAMED = 3
+# Where a run's notice leads: the run in its project's library.
+RUN_PAGE = PROJECT_PAGE + "?run={}"
 
 REPORT_TASK = """\
 Your task now is a discrepancy report, not an answer to a question. The message lists what a \
@@ -129,13 +159,16 @@ def rule_from(kept: dict[str, Any]) -> Rule:
 def start_run(
     session: Session,
     project: Project,
-    user_id: int,
+    user_id: int | None,
     rows: list[CrossCheck],
     *,
     report: bool,
+    automation: Automation | None = None,
+    trigger: dict[str, Any] | None = None,
 ) -> WorkflowRun:
     """A run of the rules over the project, queued for the worker in the caller's session, with
-    its report asked for at once when `report`; the caller commits."""
+    its report asked for at once when `report`; the member's who ran it, or the automation's
+    with what arrived for it. The caller commits."""
     templates = templates_for(session, project.id)
     run = WorkflowRun(
         org_id=project.org_id,
@@ -143,6 +176,8 @@ def start_run(
         user_id=user_id,
         rules=[snapshot(row, templates) for row in rows],
         report_status="queued" if report else None,
+        automation_id=automation.id if automation is not None else None,
+        trigger=trigger,
     )
     session.add(run)
     session.flush()
@@ -177,6 +212,107 @@ def run_workflow(run_id: int, services: Services, lease: Lease | None = None) ->
         log.exception("Run %s of cross-checks failed", run_id)
         fail_run(run_id)
         raise
+    tell_run(run_id, lease)
+    return None
+
+
+def run_automation(automation_id: int, lease: Lease | None = None) -> str | None:
+    """The worker's handler of an automation's job: once the documents that arrived for it have
+    gone quiet, make the run of its cross-checks over the project as it reads now, as a member's
+    run is made, naming the automation and what arrived; a job that wakes before then queues the
+    next for that moment. Committed under the lease, a job run again after a lost one finds the
+    arrivals it took gone with the run it made, or waiting still if the commit was lost too."""
+    with SessionLocal() as session:
+        automation = session.scalar(
+            select(Automation).where(Automation.id == automation_id).with_for_update()
+        )
+        if automation is None:
+            return None
+        due = due_at(session, automation_id)
+        if due is None:
+            # An earlier job's run took them.
+            return None
+        if due > datetime.now(UTC):
+            queue_automation(session, automation, due)
+            _commit(session, lease)
+            return None
+        landed, partners = take_arrivals(session, automation_id)
+        project = session.get(Project, automation.project_id)
+        organization = project.organization
+        live = set(
+            session.scalars(
+                select(Document.id).where(
+                    Document.id.in_(landed + partners),
+                    Document.project_id == project.id,
+                    Document.deleted_at.is_(None),
+                )
+            )
+        )
+        landed = [document_id for document_id in landed if document_id in live]
+        partners = [document_id for document_id in partners if document_id in live]
+        checks = checks_of(session, automation)
+        if (
+            not (landed or partners)
+            or not checks
+            or not automation.enabled
+            or project.deleted_at is not None
+            or not flag_on(organization, EXTRACTION_TEMPLATES)
+        ):
+            # Nothing to run, or nothing it may run now: what arrived goes with this job, the
+            # automation's page saying why when the cause is its own.
+            _commit(session, lease)
+            return None
+        refusal = None
+        if automation.report:
+            refused = check_question(session, organization)
+            refusal = (
+                refused.sentence
+                if refused is not None
+                else check_platform_spend(session) or check_spend(session, organization)
+            )
+        reported = automation.report and refusal is None
+        named = (landed or partners)[:ARRIVALS_NAMED]
+        names = dict(
+            session.execute(
+                select(Document.id, Document.filename).where(Document.id.in_(named))
+            ).all()
+        )
+        trigger = {
+            "automation": automation.title,
+            "documents": landed,
+            "partners": partners,
+            "names": [names[document_id] for document_id in named if document_id in names],
+        }
+        run = start_run(
+            session, project, None, checks, report=reported, automation=automation, trigger=trigger
+        )
+        if refusal is not None:
+            log.info("The report of run %s was not asked for: %s", run.id, refusal)
+            run.report_status, run.report_error = "failed", refusal
+        if reported:
+            # The plan's measure of the agent's runs, as a member's report counts.
+            record(
+                session,
+                org_id=organization.id,
+                project_id=project.id,
+                user_id=None,
+                kind=ANSWER,
+                measures={"questions": 1},
+            )
+            note_quota(session, organization, MONTH_QUESTIONS, app_address())
+        audit_event(
+            session,
+            "cross_checks_run",
+            org_id=organization.id,
+            project_id=project.id,
+            target=("workflow_run", run.id),
+            detail={
+                "names": [check.title for check in checks],
+                "report": reported,
+                "automation": automation.title,
+            },
+        )
+        _commit(session, lease)
     return None
 
 
@@ -379,6 +515,96 @@ def fail_run(run_id: int, error: str | None = None) -> None:
             .values(report_status="failed", report_error=error or REPORT_FAILED)
         )
         session.commit()
+
+
+# The findings of a run about the documents given, by outcome: those of the documents
+# themselves, and those whose partners they are.
+_ABOUT = text(
+    """
+    SELECT f.outcome, count(*) AS findings
+    FROM workflow_findings AS f
+    WHERE f.run_id = :run
+      AND (f.document_id = ANY(:ids)
+           OR EXISTS (SELECT 1 FROM jsonb_array_elements(f.partners) AS p
+                      WHERE (p->>'document_id')::bigint = ANY(:ids)))
+    GROUP BY f.outcome
+    """
+)
+
+
+def tell_run(run_id: int, lease: Lease | None = None) -> int:
+    """Tell what an automation's run found about the documents that arrived for it, once, as the
+    run settles: worked out, and its report, when one was asked for, written or failed. To whom
+    the automation names, each as they chose for the kind of notice, and to nobody when it found
+    nothing about them; returns to how many. A member's run, and one told already, tell none."""
+    with SessionLocal() as session:
+        run = session.scalar(select(WorkflowRun).where(WorkflowRun.id == run_id).with_for_update())
+        if (
+            run is None
+            or run.trigger is None
+            or run.told_at is not None
+            or run.status != "done"
+            or run.report_status in ("queued", "writing")
+        ):
+            return 0
+        run.told_at = datetime.now(UTC)
+        arrived = run.trigger["documents"] + run.trigger["partners"]
+        counts = {outcome: 0 for outcome in OUTCOMES}
+        for outcome, findings in session.execute(_ABOUT, {"run": run.id, "ids": arrived}):
+            counts[outcome] = findings
+        told = 0
+        automation = session.get(Automation, run.automation_id) if run.automation_id else None
+        if automation is not None and any(counts.values()):
+            told = _tell_run(session, run, automation, counts)
+        _commit(session, lease)
+        return told
+
+
+def _tell_run(
+    session: Session,
+    run: WorkflowRun,
+    automation: Automation,
+    counts: dict[str, int],
+) -> int:
+    project = session.get(Project, run.project_id)
+    organization = project.organization
+    page = RUN_PAGE.format(project.id, run.id)
+    url = app_address()
+    told = 0
+    for user in _audience(session, automation, project):
+        content = checks_run_email(
+            user.name,
+            organization.name,
+            project.name,
+            run.trigger["automation"],
+            len(run.trigger["documents"]),
+            len(run.trigger["partners"]),
+            run.trigger["names"],
+            counts,
+            run.report_status,
+            run.report_error,
+            in_organization(f"{url}{page}", organization.id),
+        )
+        told += tell(session, user, organization.id, CHECKS_RUN, content, page, url)
+    return told
+
+
+def _audience(session: Session, automation: Automation, project: Project) -> list[User]:
+    """Whom the automation tells, of the organisation's members who see the project now: its
+    maker, everyone, or nobody."""
+    if automation.audience == "nobody":
+        return []
+    query = select(Membership).where(Membership.org_id == project.org_id)
+    if automation.audience == "maker":
+        if automation.created_by is None:
+            return []
+        query = query.where(Membership.user_id == automation.created_by)
+    told = []
+    for membership in session.scalars(query.order_by(Membership.user_id)):
+        account = Account(project.organization, membership.user, membership.role)
+        if session.scalar(select(exists().where(Project.id == project.id, visible_to(account)))):
+            told.append(membership.user)
+    return told
 
 
 def abandon_run(run_id: int, attempts: int) -> None:

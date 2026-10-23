@@ -27,6 +27,7 @@ import {
 import type { CheckDraft } from '../crossChecks.ts'
 import { fieldWords, sourceOf } from '../factTable.ts'
 import { templatesKey } from '../templates.ts'
+import { AutomationsSection } from './Automations.tsx'
 import { RunsSection } from './CheckRuns.tsx'
 import { FindingItem } from './Findings.tsx'
 import { useWorkspace } from './state.ts'
@@ -183,6 +184,7 @@ export function CrossChecksView() {
                 ))}
               </ul>
             )}
+            {listed.length > 0 && <AutomationsSection checks={listed} templates={kinds} />}
             {listed.length > 0 && <RunsSection runnable={listed.some((check) => !check.problem)} changes={changes} />}
             {suggested.length > 0 && (
               <section aria-labelledby="suggested-checks" className="space-y-2 pt-2">
@@ -258,7 +260,7 @@ function CheckRow({
       ) : (
         check.counts && (
           <div className="mt-1.5 flex flex-wrap items-center gap-2">
-            <Button icon={<ListChecks className="size-4" />} onClick={onOpen} aria-label={`What ${check.title} finds`}>
+            <Button icon={<ListChecks className="size-4" />} onClick={onOpen} aria-label={`What it finds: ${check.title}`}>
               What it finds
             </Button>
             <span className="text-xs text-muted">{countsWords(check.counts)}</span>

@@ -48,6 +48,7 @@ from app.schemas import (
     FindingOut,
     FindingOutcome,
     RunFindingsOut,
+    RunTriggerOut,
 )
 from app.usage import ANSWER, record
 
@@ -297,10 +298,24 @@ def _summary(run: WorkflowRun, run_by: str | None) -> CheckRunSummaryOut:
         status=run.status,
         report_status=run.report_status,
         run_by=run_by,
+        trigger=_trigger_out(run),
         titles=[kept["title"] for kept in run.rules],
         counts=_counts(run),
         created_at=run.created_at,
         finished_at=run.finished_at,
+    )
+
+
+def _trigger_out(run: WorkflowRun) -> RunTriggerOut | None:
+    """What an automation's run was made for, counted; None for a member's run."""
+    if run.trigger is None:
+        return None
+    return RunTriggerOut(
+        automation_id=run.automation_id,
+        automation=run.trigger["automation"],
+        documents=len(run.trigger["documents"]),
+        partners=len(run.trigger["partners"]),
+        names=run.trigger["names"],
     )
 
 

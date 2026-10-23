@@ -21,6 +21,10 @@ have gone; and one for the whole upload, however many files, naming those that c
 indexed with the sentence the library shows for each. A document that fails outside an upload,
 run again by "Index again", is told of by nothing else: whoever pressed it is watching.
 
+A settled upload's documents are what the project's automations watch arrive
+(app/automations.py): kept for each that watches them in the same transaction, they run its
+cross-checks once they have gone quiet.
+
 An upload is found settled by whoever ends its last piece of work. The worker looks once a
 document's index job is finished (`after_index`, which app/worker.py runs after the job's row
 says so), so that of two documents whose jobs end at once, the one that looks last sees the
@@ -50,6 +54,7 @@ from sqlalchemy.orm import Session
 
 from app.access import visible_to
 from app.accounts import Account, zone_of
+from app.automations import arrived
 from app.config import get_settings
 from app.db import SessionLocal
 from app.entitlements import (
@@ -85,8 +90,8 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 # The kinds of notice, and the way of telling them this module makes itself; a project's export
-# is told by app/export.py.
-UPLOAD_INDEXED, QUOTA, PROJECT_EXPORT = NOTICE_KINDS
+# is told by app/export.py, and what an automation's run found by app/check_runs.py.
+UPLOAD_INDEXED, QUOTA, PROJECT_EXPORT, CHECKS_RUN = NOTICE_KINDS
 IN_APP = NOTICE_CHANNELS[0]
 # How long a notice stays in its member's notification centre, read or not; the privacy policy
 # says so.
@@ -227,11 +232,13 @@ def record_upload(
 
 def settle_upload(session: Session, upload_id: int, app_url: str) -> bool:
     """Mark the upload settled if none of its documents is waiting or being indexed any more,
-    and post its member's notice if it took long enough; commits. Returns whether it was
-    settled now, rather than before or not yet."""
+    post its member's notice if it took long enough, and keep its documents for the project's
+    automations that watch them (app/automations.py); commits. Returns whether it was settled
+    now, rather than before or not yet."""
     settled = session.execute(_SETTLE, {"id": upload_id}).first()
     if settled is not None:
         _tell(session, settled, app_url)
+        arrived(session, settled.id, settled.project_id)
     session.commit()
     return settled is not None
 

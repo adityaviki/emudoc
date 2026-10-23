@@ -31,7 +31,9 @@ import { holdNextTurn, refuseEmbeddings, releaseTurns } from './standin.ts'
 // the project's facts table, sorted, kept by a condition and opened where they were found, one
 // checked and another corrected, which the table's rows to review, its CSV file and the audit
 // log keep, and then a field added to the project's own invoice template and the invoice read again for it,
-// what the reading changed listed, the corrected total kept. The answer
+// what the reading changed listed, the corrected total kept, the invoice checked against its purchase
+// order by cross-checks, run with a discrepancy report, and last an automation made, which runs them
+// once a second invoice arrives and tells the member what they found. The answer
 // is the stand-in's (e2e/standin.py): the first sentence of the passage its search found best,
 // with that passage's reference. Along the way each kind of page, panel and dialog is checked
 // against axe-core's rules for WCAG 2.2 AA in both themes (e2e/axe.ts), and the keyboard's focus
@@ -41,6 +43,8 @@ const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
 // and a delivery period, which only a template that asks for it reads.
 const INVOICE = join(import.meta.dirname, 'fixtures', 'invoice.md')
 const PURCHASE_ORDER = join(import.meta.dirname, 'fixtures', 'purchase-order.md')
+// A second invoice of the same order, 120 EUR over its total, which an automation checks as it arrives.
+const SECOND_INVOICE = join(import.meta.dirname, 'fixtures', 'second-invoice.md')
 // A folder of two delivery notes, one of them in a folder of its own.
 const DELIVERIES = join(import.meta.dirname, 'fixtures', 'deliveries')
 // The project every sign-up's organisation starts with (backend/app/sample).
@@ -1020,7 +1024,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const rules = page.getByRole('list', { name: 'Cross-checks', exact: true })
     const total = rules.getByRole('listitem').filter({ hasText: 'Total within its purchase order' })
     await expect(total).toContainText('1 differs · 0 miss a value · 0 hold')
-    await total.getByRole('button', { name: 'What Total within its purchase order finds' }).click()
+    await total.getByRole('button', { name: 'What it finds: Total within its purchase order' }).click()
     await expect(page.getByRole('heading', { name: 'What “Total within its purchase order” finds' })).toBeFocused()
     const finding = page.getByRole('list', { name: 'Findings' }).getByRole('listitem')
     await expect(finding).toContainText('5 EUR more than purchase-order.md.')
@@ -1099,5 +1103,57 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('listitem').filter({ hasText: 'Ran cross-checks' })).toContainText(
       '2 cross-checks: Issued after its order, Total within its purchase order, with a discrepancy report',
     )
+  })
+
+  await test.step('make an automation, which runs the cross-checks once a second invoice arrives and tells the member what they found', async () => {
+    await page.goto('/')
+    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
+    await page.getByRole('button', { name: 'Cross-checks' }).click()
+    const automations = page.getByRole('region', { name: 'Automations' })
+    await expect(automations).toContainText('No automations yet.')
+    await automations.getByRole('button', { name: 'New automation' }).click()
+    const form = page.getByRole('form', { name: 'New automation' })
+    await expect(form.getByLabel('Name', { exact: true })).toBeFocused()
+    await form.getByLabel('Name', { exact: true }).fill('New invoices')
+    await expect(form.getByLabel('When this arrives')).toHaveValue('invoice')
+    await expect(form).toContainText('When an invoice arrives anywhere in the project, run every cross-check, and tell you.')
+    await expectAccessible(page, 'an automation being written')
+    await form.getByRole('button', { name: 'Save' }).click()
+    await expect(automations.getByText('Saved “New invoices”.')).toBeVisible()
+    await expect(automations.getByRole('heading', { name: 'Automations' })).toBeFocused()
+    await expect(automations.getByRole('list', { name: 'Automations' }).getByRole('listitem')).toContainText('On · Not run yet')
+    await expectAccessible(page, 'the automations')
+
+    // The invoice arrives; once its upload is settled and a second has passed quiet, the worker runs the checks.
+    await page.getByRole('button', { name: 'Back to the library' }).click()
+    await page.locator('input[name="files"]').setInputFiles(SECOND_INVOICE)
+    await expect(page.getByRole('treeitem', { name: 'second-invoice.md' })).toHaveAccessibleDescription(/^Ready/, { timeout: 60_000 })
+    // The bell asks every minute; a reload asks at once. On the projects page, since the library's chat
+    // scrolls into place as it loads, and a panel closes when anything scrolls.
+    await page.goto('/')
+    const bell = page.getByRole('button', { name: 'Notifications, 1 unread' })
+    await expect(async () => {
+      await page.reload()
+      await expect(bell).toBeVisible({ timeout: 2_000 })
+    }).toPass({ timeout: 30_000 })
+    await bell.click()
+    await page.getByRole('dialog', { name: 'Notifications' }).getByRole('button', { name: /The cross-checks found differences/ }).click()
+
+    // Its notice opens the run the automation made, which names it and what arrived.
+    await expect(page).toHaveURL(/[?&]run=\d+/)
+    await expect(page.getByText('By the automation “New invoices” · Issued after its order, Total within its purchase order')).toBeVisible()
+    await expect(page.getByText('After second-invoice.md arrived.')).toBeVisible()
+    const total = page.getByRole('list', { name: 'Cross-checks run' }).getByRole('listitem').filter({ hasText: 'Total within its purchase order' })
+    await expect(total).toContainText('2 differ · 0 miss a value · 0 hold')
+    await expectAccessible(page, "an automation's run")
+
+    // The automation and its run are the organisation's to ask about: what it watches, and the run by Emudoc naming it.
+    await page.goto('/organization/audit')
+    await page.getByLabel('What').selectOption('automation_created')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Made an automation' })).toContainText(
+      'invoice documents anywhere, running every cross-check',
+    )
+    await page.getByLabel('What').selectOption('cross_checks_run')
+    await expect(page.getByRole('listitem').filter({ hasText: 'by the automation “New invoices”' })).toContainText('Emudoc')
   })
 })

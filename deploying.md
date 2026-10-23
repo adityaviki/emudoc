@@ -1405,7 +1405,11 @@ What the app mails, and to whom:
   ready, failed or set apart by the scan with no retry waiting, if that took five minutes or
   more (`NOTICE_AFTER`; an upload indexed sooner was most likely watched in the library, which
   says as much), one message for the whole upload naming the files that could not be indexed
-  and why, as the library words it; and to an organisation's owners and admins, once a month
+  and why, as the library words it; to the members a project's automation names (its maker,
+  everyone who sees the project, or nobody), once the run it made after documents arrived is
+  worked out and its report written or failed, what its cross-checks found about them, in counts
+  and file names, never a value a document states, and nothing when they found nothing about them
+  (`tell_run` in `backend/app/check_runs.py`); and to an organisation's owners and admins, once a month
   for each, when its pages or questions for the month reach 80 % of what it may use (its plan's
   and the packs bought for the month), when they reach all of it, and for pages when what is
   left could not take a document. A pack bought afterwards starts the count again. Each notice
@@ -1711,7 +1715,9 @@ every six hours), and so what the privacy notice can promise:
   log names accounts by id only.
 - **What the notices were about** ("Mail"): the record that a month's pages or questions were
   told of goes once the month is over (`quota_notices`); an upload's row, which names who sent
-  its files, stays as long as its project, and forgets them when their account goes; a notice
+  its files, stays as long as its project, and forgets them when their account goes; a document
+  waiting for an automation's run (`automation_arrivals`) goes as the run is made, within a
+  quarter of an hour of its arrival while a worker runs, or with the document; a notice
   in a member's notification centre goes after `NOTIFICATION_DAYS` (90), read or not, and those
   about an organisation when they leave it or are removed from it.
 
@@ -4213,6 +4219,7 @@ and the like), named on its models' pages.
 | `WORKER_CONCURRENCY` | `16` | | Documents a worker indexes at once |
 | `ANSWER_CONCURRENCY` | `8` | | Questions a worker answers at once |
 | `PARSE_CONCURRENCY` | `2` | | Files a worker parses at once, each in a child process ("Large documents") |
+| `AUTOMATION_WAIT` | `120` | | Seconds an automation waits for the documents it watches to stop arriving before it runs a project's cross-checks |
 | `MAX_ANSWERS` | `20` | | Answers one organisation may have in flight |
 | `MAX_QUESTION_CHARS` | `20000` | | The longest question |
 | `MAX_FREE_ORGANIZATIONS` | `2` | | Organisations on the free plan one user may own; 0 is no ceiling |

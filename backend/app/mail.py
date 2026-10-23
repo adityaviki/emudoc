@@ -883,6 +883,65 @@ def project_export_email(
     )
 
 
+def checks_run_email(
+    name: str,
+    organization: str,
+    project: str,
+    automation: str,
+    landed: int,
+    partners: int,
+    names: list[str],
+    counts: dict[str, int],
+    report_status: str | None,
+    report_error: str | None,
+    link: str,
+) -> Content:
+    """To whom an automation names once a run it made settles (app/check_runs.py): what arrived,
+    the documents it watches (`landed`) and those its checks compare them with (`partners`),
+    the first by its name when it came alone; how many of the values found about them differ,
+    could not be checked and hold; and its report's end, when one was asked for. Counts and file
+    names, never a value a document states. The subject says only which way it went, since the
+    log repeats it."""
+    differs, missing, holds = (
+        counts.get(outcome, 0) for outcome in ("differs", "missing", "holds")
+    )
+    if differs:
+        subject = "The cross-checks found differences"
+    elif missing:
+        subject = "The cross-checks could not check everything"
+    else:
+        subject = "The cross-checks found nothing amiss"
+    alone = names[0] if landed + partners == 1 and names else None
+    if alone and landed:
+        came = f"{alone} arrived"
+    elif alone:
+        came = f"{alone}, which its cross-checks compare with the documents it watches, arrived"
+    elif not partners:
+        came = f"{landed:,} documents arrived"
+    elif not landed:
+        came = (
+            f"{partners:,} documents that its cross-checks compare with the documents it watches "
+            "arrived"
+        )
+    else:
+        came = (
+            f"{landed:,} {'document' if landed == 1 else 'documents'} arrived, and {partners:,} "
+            "that its cross-checks compare them with"
+        )
+    said = (
+        f"The automation “{automation}” of {project} in {organization} ran the project's "
+        f"cross-checks after {came}. Of what they found about "
+        f"{'it' if alone else 'the documents that arrived'}, {differs:,} "
+        f"{'value differs' if differs == 1 else 'values differ'}, {missing:,} could not be "
+        f"checked and {holds:,} {'holds' if holds == 1 else 'hold'}."
+    )
+    if report_status == "done":
+        said += " The model's discrepancy report is written."
+    elif report_status == "failed":
+        said += f" The discrepancy report could not be written: {report_error}"
+    return Content(subject, (_greeting(name), said, Link(link, "Open the run")), said)
+
+
 def quota_email(
     name: str,
     organization: str,

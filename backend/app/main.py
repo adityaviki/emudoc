@@ -20,6 +20,7 @@ from app.api import (
     apikeys,
     audit,
     auth,
+    automations,
     billing,
     chats,
     check_runs,
@@ -443,6 +444,7 @@ KEYED = (
     templates.router,
     cross_checks.router,
     check_runs.router,
+    automations.router,
 )
 
 

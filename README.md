@@ -179,6 +179,21 @@ what the report used (`GET /api/projects/{id}/check-runs`, `GET /api/check-runs/
 report and deletes a run, each a row of the audit log naming the rules, never a value; a run is
 kept as long as a chat.
 
+Under them, "Automations" run the checks on their own (`backend/app/automations.py`, `GET|POST
+/api/projects/{id}/automations`, `PUT|DELETE /api/automations/{id}`): when documents of a kind,
+or any, arrive in a folder or anywhere in the project, an automation runs every cross-check or
+those it names, with the discrepancy report when asked, and tells whoever made it, everyone who
+sees the project, or nobody, in the app and by email as each chose for the notice, what they found
+about the documents that arrived, opening the run. With "Run them again" checked, the documents
+its checks compare those with arriving anywhere (a purchase order, a delivery note, a price list)
+run it too. A document arrives once its upload is indexed, and the run waits until none has
+arrived for two minutes (`AUTOMATION_WAIT`), at most a quarter of an hour after the first, so an
+upload sent in several requests makes one run. Its run is listed with the others, by the
+automation and what arrived; its report counts as one of the month's questions, and a month or a
+day with no room left runs the checks without one, saying why. Whoever may change the project
+makes, changes, turns off and deletes them, each a row of the audit log naming what it watches
+and runs, never a value, and the runs they make are rows of it by Emudoc.
+
 A project can hold any number of chats. Each one is saved with its answers, including the
 steps the agent took and the passages it was shown, so a chat can be reopened later. An answer
 is written by the background worker, not by the request that asked the question: the question

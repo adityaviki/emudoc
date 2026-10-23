@@ -17,13 +17,15 @@ from tests.test_folders import make_folder
 from tests.test_templates import INVOICE, turn_on
 
 Route = tuple[str, str, dict]
+# An automation of the world's project (tests/test_automations.py imports this module).
+AUTOMATION = {"title": "New invoices", "kind": "invoice"}
 
 
 @dataclass
 class World:
     """A project with a folder, an indexed document with a fact a member checked, the upload it came
-    in with, an extraction template of its own and a cross-check with a run of it, and a chat
-    holding one answered
+    in with, an extraction template of its own, a cross-check with a run of it and an automation,
+    and a chat holding one answered
     question, and in its trash a folder, a document and a chat; another project in the trash; an
     invitation to the organisation and an API key of it, all made by the local owner in the local
     organisation, and another member of it. The extraction templates are on for every
@@ -51,6 +53,7 @@ class World:
     check_id: int
     cross_check_id: int
     run_id: int
+    automation_id: int
 
 
 @pytest.fixture
@@ -83,6 +86,7 @@ def world(client, services, sample_pdf, account, make_account, monkeypatch) -> W
     cross_check = client.post(f"/api/projects/{project['id']}/cross-checks", json=CROSS_CHECK)
     checked_run = client.post(f"/api/projects/{project['id']}/check-runs", json={}).json()
     run_workflow(checked_run["id"], services)
+    automation = client.post(f"/api/projects/{project['id']}/automations", json=AUTOMATION)
     for path in (
         f"/api/folders/{trashed_folder['id']}",
         f"/api/documents/{note['id']}",
@@ -112,6 +116,7 @@ def world(client, services, sample_pdf, account, make_account, monkeypatch) -> W
         checked["check"]["id"],
         cross_check.json()["id"],
         checked_run["id"],
+        automation.json()["id"],
     )
 
 
@@ -140,6 +145,7 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/projects/{w.project_id}/check-runs", {}),
         ("GET", f"/api/check-runs/{w.run_id}", {}),
         ("GET", f"/api/check-runs/{w.run_id}/findings", {"params": {"rule": 0}}),
+        ("GET", f"/api/projects/{w.project_id}/automations", {}),
         ("GET", f"/api/documents/{w.document_id}", {}),
         ("GET", f"/api/documents/{w.document_id}/file", {}),
         ("GET", f"/api/documents/{w.document_id}/pages/1.png", {}),
@@ -177,6 +183,8 @@ def writes(w: World) -> list[Route]:
         ("PUT", f"/api/cross-checks/{w.cross_check_id}", {"json": CROSS_CHECK}),
         ("POST", f"/api/projects/{w.project_id}/check-runs", {"json": {}}),
         ("POST", f"/api/check-runs/{w.run_id}/report", {}),
+        ("POST", f"/api/projects/{w.project_id}/automations", {"json": AUTOMATION}),
+        ("PUT", f"/api/automations/{w.automation_id}", {"json": AUTOMATION}),
         ("PUT", f"/api/facts/{w.fact_id}/check", {"json": {"value": "120 days"}}),
         (
             "POST",
@@ -188,6 +196,7 @@ def writes(w: World) -> list[Route]:
         ("POST", f"/api/documents/{w.document_id}/reprocess", {}),
         ("DELETE", f"/api/fact-checks/{w.check_id}", {}),
         ("DELETE", f"/api/check-runs/{w.run_id}", {}),
+        ("DELETE", f"/api/automations/{w.automation_id}", {}),
         ("DELETE", f"/api/cross-checks/{w.cross_check_id}", {}),
         ("DELETE", f"/api/templates/{w.template_id}", {}),
         ("DELETE", f"/api/folders/{w.folder_id}", {}),

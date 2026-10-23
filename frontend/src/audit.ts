@@ -93,6 +93,9 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   cross_checks_run: ['Ran cross-checks', 'files'],
   check_report_requested: ['Asked for a discrepancy report', 'files'],
   check_run_deleted: ['Deleted a run of cross-checks', 'files'],
+  automation_created: ['Made an automation', 'files'],
+  automation_changed: ['Changed an automation', 'files'],
+  automation_deleted: ['Deleted an automation', 'files'],
   project_deleted: ['Deleted a project', 'files'],
   project_restored: ['Restored a project', 'files'],
   project_purged: ['Deleted a project for good', 'files'],
@@ -175,6 +178,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   else if (event.action === 'facts_exported') parts.push(describeFactsExport(detail))
   else if (CROSS_CHECK_ACTIONS.has(event.action)) parts.push(describeCrossCheck(detail))
   else if (RUN_ACTIONS.has(event.action)) parts.push(describeRun(detail))
+  else if (AUTOMATION_ACTIONS.has(event.action)) parts.push(describeAutomation(detail))
   else if ('to' in detail) parts.push(`${word(detail.from)} → ${word(detail.to)}`)
   else if ('from' in detail) parts.push(`was ${word(detail.from)}`)
   if (typeof detail.role === 'string' && !('to' in detail)) parts.push(word(detail.role))
@@ -284,6 +288,32 @@ function describeRun(detail: AuditEvent['detail']): string {
   const names = Array.isArray(detail.names) ? detail.names.map(String) : []
   const parts = [names.length === 1 ? names[0] : `${names.length} cross-checks: ${names.join(', ')}`]
   if (detail.report === true) parts.push('with a discrepancy report')
+  if (typeof detail.automation === 'string') parts.push(`by the automation “${detail.automation}”`)
+  return parts.join(', ')
+}
+
+const AUTOMATION_ACTIONS = new Set<AuditAction>(['automation_created', 'automation_changed', 'automation_deleted'])
+
+/** What a change of an automation changed, by its parts as the server names them. */
+const AUTOMATION_PARTS: Record<string, string> = {
+  title: 'its name',
+  watches: 'what it watches',
+  checks: 'the cross-checks it runs',
+  report: 'the report',
+  audience: 'whom it tells',
+  recheck: 'when it runs again',
+  enabled: 'on or off',
+}
+
+/** A project's automation made, changed or deleted: what it watches and runs, by the names of the kind, the folder and the cross-checks, never a value. */
+function describeAutomation(detail: AuditEvent['detail']): string {
+  const kind = typeof detail.kind === 'string' ? `${detail.kind} documents` : 'any document'
+  const parts = [`${kind} ${typeof detail.folder === 'string' ? `in ${detail.folder}` : 'anywhere'}`]
+  parts.push(Array.isArray(detail.checks) ? `running ${detail.checks.map(String).join(', ')}` : 'running every cross-check')
+  if (detail.enabled === false) parts.push('off')
+  if (Array.isArray(detail.changed) && detail.changed.length > 0) {
+    parts.push(`changed ${detail.changed.map((part) => AUTOMATION_PARTS[String(part)] ?? String(part)).join(', ')}`)
+  }
   return parts.join(', ')
 }
 

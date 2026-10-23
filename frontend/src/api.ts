@@ -473,12 +473,22 @@ export interface CheckRunRule extends CrossCheckInput {
   counts: FindingCounts | null
 }
 
-/** A run as the project's list shows it (CheckRunSummaryOut): who ran it (null once their account is gone), its rules' names and what they found together. */
+/** What an automation's run was made for (RunTriggerOut): the automation, its id null once it is deleted, and how many documents arrived, those it watches and those its checks compare them with, the first few by name. */
+export interface RunTrigger {
+  automation_id: number | null
+  automation: string
+  documents: number
+  partners: number
+  names: string[]
+}
+
+/** A run as the project's list shows it (CheckRunSummaryOut): who ran it (null once their account is gone, or for an automation's run, which `trigger` names), its rules' names and what they found together. */
 export interface CheckRunSummary {
   id: number
   status: RunStatus
   report_status: ReportStatus | null
   run_by: string | null
+  trigger: RunTrigger | null
   titles: string[]
   counts: FindingCounts | null
   created_at: string
@@ -496,6 +506,33 @@ export interface CheckRun extends CheckRunSummary {
   report_notice: string | null
   report_error: string | null
   usage: Record<string, Usage>
+}
+
+/** Whom an automation tells what a run found (backend/app/automations.py): its maker, everyone who sees the project, or nobody. */
+export type AutomationAudience = 'maker' | 'project' | 'nobody'
+
+/** An automation as a member writes it, whole (AutomationIn): the kind it watches (null for any document), the folder (null for the whole project), the cross-checks it runs (null for every one), its report, whom it tells, whether what its checks compare with runs it again, and whether it is on. */
+export interface AutomationInput {
+  title: string
+  kind: string | null
+  folder_id: number | null
+  check_ids: number[] | null
+  report: boolean
+  audience: AutomationAudience
+  recheck: boolean
+  enabled: boolean
+}
+
+/** A project's automation (AutomationOut): its folder's path and its chosen cross-checks' names as they are now, who made it, why it would run nothing as the project stands, and when it last ran. */
+export interface Automation extends AutomationInput {
+  id: number
+  folder: string | null
+  checks: string[] | null
+  created_by: number | null
+  made_by: string | null
+  problem: string | null
+  last_run_at: string | null
+  updated_at: string
 }
 
 /** A page of what one rule of a run found, as it was found (RunFindingsOut); `gone` the documents it names that were deleted or put in the trash since. */
@@ -1024,7 +1061,7 @@ export interface Member {
 }
 
 /** The kinds of notice (NOTICE_KINDS in backend/app/models.py, backend/app/notices.py). */
-export type NoticeKind = 'upload_indexed' | 'quota' | 'project_export'
+export type NoticeKind = 'upload_indexed' | 'quota' | 'project_export' | 'checks_run'
 
 /** How one kind of notice is told: in the notification centre, by email, both or neither. */
 export interface NoticeChoice {
@@ -1213,6 +1250,9 @@ export type AuditAction =
   | 'cross_checks_run'
   | 'check_report_requested'
   | 'check_run_deleted'
+  | 'automation_created'
+  | 'automation_changed'
+  | 'automation_deleted'
   | 'project_deleted'
   | 'project_restored'
   | 'project_purged'
@@ -1829,6 +1869,13 @@ export const api = {
   /** Have the agent write the run's discrepancy report, or write it again. */
   askReport: (id: number) => request<CheckRun>(`/check-runs/${id}/report`, { method: 'POST' }),
   deleteCheckRun: (id: number) => request<void>(`/check-runs/${id}`, { method: 'DELETE' }),
+  /** The project's automations, which run its cross-checks as documents arrive. */
+  automations: (projectId: number) =>
+    request<{ automations: Automation[]; max_automations: number }>(`/projects/${projectId}/automations`),
+  createAutomation: (projectId: number, body: AutomationInput) =>
+    request<Automation>(`/projects/${projectId}/automations`, json('POST', body)),
+  updateAutomation: (id: number, body: AutomationInput) => request<Automation>(`/automations/${id}`, json('PUT', body)),
+  deleteAutomation: (id: number) => request<void>(`/automations/${id}`, { method: 'DELETE' }),
 
   folders: (projectId: number) => request<Folder[]>(`/projects/${projectId}/folders`),
   createFolder: (projectId: number, body: { name: string; parent_id: number | null }) =>
