@@ -112,6 +112,12 @@ describe('a row', () => {
     expect(describeDetail(event('facts_exported', asked))).toBe(
       'invoice facts as an Excel workbook, sorted by total amount, descending, kept by total amount and vendor name, rows holding the words looked for, those to review',
     )
+    // A cross-check made or changed: the kinds and fields it compares and what changed, never a value.
+    const rule = { name: 'Prices', left: 'invoice.unit_price', right: 'price list.unit_price', comparison: 'equal' }
+    expect(describeDetail(event('cross_check_created', rule))).toBe('Prices · invoice unit price against price list unit price')
+    expect(describeDetail(event('cross_check_changed', { ...rule, changed: ['title', 'comparison'] }))).toBe(
+      'Prices · invoice unit price against price list unit price, changed its name, the comparison',
+    )
     // A fact checked or corrected: the document and the field, never what it says.
     expect(describeDetail(event('fact_corrected', { filename: 'acme-10.pdf', field: 'total_amount' }))).toBe('acme-10.pdf · total amount')
     // A member's leave for support, support's view of their account, and what was done in it.

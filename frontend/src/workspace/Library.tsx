@@ -45,6 +45,7 @@ import type { FolderTree } from '../hooks.ts'
 import { partlyIndexedWords, restHeld, unfinishedStages } from '../indexing.ts'
 import { describeChange } from './changes.ts'
 import { chosenFolder, droppedEntries, readEntries } from './dropped.ts'
+import { CrossChecksView, FindingsView } from './CrossChecks.tsx'
 import { ChangesView } from './FactChanges.tsx'
 import { FactsView } from './FactsTable.tsx'
 import { fileKind, originalFileItem } from './files.ts'
@@ -178,6 +179,8 @@ export function Library() {
   if (workspace.url.library.templates && templates) return <TemplatesView />
   if (workspace.url.library.facts && templates) return <FactsView kind={workspace.url.library.facts} />
   if (workspace.url.library.changes && templates) return <ChangesView kind={workspace.url.library.changes} />
+  if (workspace.url.library.checks && templates) return <CrossChecksView />
+  if (workspace.url.library.check != null && templates) return <FindingsView checkId={workspace.url.library.check} />
   return (
     <div
       data-tour="library"
@@ -217,6 +220,15 @@ export function Library() {
               onClick={workspace.showTemplates}
               title="Extraction templates: the fields each kind of document is read for"
               aria-label="Extraction templates"
+              className="px-2"
+            />
+          )}
+          {templates && (
+            <Button
+              icon={<ListChecks className="size-4" />}
+              onClick={workspace.showChecks}
+              title="Cross-checks: rules that compare the facts of one kind of document with another's"
+              aria-label="Cross-checks"
               className="px-2"
             />
           )}

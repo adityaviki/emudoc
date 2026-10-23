@@ -7,7 +7,7 @@ import { useLocation, useNavigate } from 'react-router'
 /** What a document is opened at: a cited passage, a block of its text, or a page. */
 export type Focus = { passage: number } | { block: number } | { page: number }
 
-/** The folder the library shows, and the search running in it; or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, and with `changes`, what their last readings changed. */
+/** The folder the library shows, and the search running in it; or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, with `changes`, what their last readings changed, with `checks`, its cross-checks, and with `check`, what that one finds. */
 export interface LibraryView {
   folderId: number | null
   q: string
@@ -15,6 +15,8 @@ export interface LibraryView {
   templates?: true
   facts?: string
   changes?: string
+  checks?: true
+  check?: number
 }
 
 export interface OpenDocument {
@@ -47,6 +49,8 @@ export function parseWorkspaceUrl(pathname: string, search: string): WorkspaceUr
   else if (params.has('templates')) library.templates = true
   else if (params.get('facts')) library.facts = params.get('facts') ?? undefined
   else if (params.get('changes')) library.changes = params.get('changes') ?? undefined
+  else if (id(params.get('check')) != null) library.check = id(params.get('check')) ?? undefined
+  else if (params.has('checks')) library.checks = true
 
   let document: OpenDocument | null = null
   let canonical = true
@@ -87,6 +91,8 @@ export function buildWorkspaceUrl(url: Omit<WorkspaceUrl, 'canonical'>): string 
   if (url.library.templates) params.set('templates', '')
   if (url.library.facts) params.set('facts', url.library.facts)
   if (url.library.changes) params.set('changes', url.library.changes)
+  if (url.library.checks) params.set('checks', '')
+  if (url.library.check != null) params.set('check', String(url.library.check))
   if (url.document) {
     path += `/documents/${url.document.id}`
     const focus = url.document.focus

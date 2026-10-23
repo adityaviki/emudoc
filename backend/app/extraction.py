@@ -104,6 +104,20 @@ BUILT_IN: tuple[Template, ...] = (
                 "and the line's amount, which is the number.",
                 examples=("Hex bolts M10 (pallet), 40 x 185.00 = 7,400.00",),
             ),
+            _field(
+                "unit_price",
+                "money",
+                "Each line's unit price, written with what the line is for as the line names it; "
+                "the price is the number.",
+                examples=("Hex bolts M10 (pallet): 185.00",),
+            ),
+            _field(
+                "quantity",
+                "number",
+                "Each line's quantity, written with what the line is for as the line names it; "
+                "the quantity is the number.",
+                examples=("Hex bolts M10 (pallet): 40",),
+            ),
             _field("subtotal_amount", "money", "The total before tax."),
             _field(
                 "tax_amount",
@@ -183,6 +197,18 @@ BUILT_IN: tuple[Template, ...] = (
                 "Each line ordered, as written: what, the quantity, the unit price and the "
                 "line's amount, which is the number.",
             ),
+            _field(
+                "unit_price",
+                "money",
+                "Each line's unit price, written with what the line is for as the line names it; "
+                "the price is the number.",
+            ),
+            _field(
+                "quantity",
+                "number",
+                "Each line's quantity, written with what the line is for as the line names it; "
+                "the quantity is the number.",
+            ),
             _field("total_amount", "money", "The order's total.", True),
             _field("payment_terms", "text", "When and how payment is to be made."),
             _field(
@@ -246,6 +272,24 @@ BUILT_IN: tuple[Template, ...] = (
                 examples=("Hex bolts M10 (pallet): 40",),
             ),
             _field("received_by", "text", "Who received or signed for the delivery."),
+        ),
+    ),
+    Template(
+        "price list",
+        "Price list",
+        "A supplier's list of the prices of what it sells.",
+        (
+            _field("vendor_name", "text", "Whose prices they are.", True),
+            _field("issue_date", "date", "The date the list was issued or its prices start."),
+            _field("valid_until", "date", "The last day its prices hold, when it states one."),
+            _field(
+                "unit_price",
+                "money",
+                "Each item's price, written with the item as the list names it, its code and unit "
+                "when stated; the price is the number.",
+                True,
+                ("Hex bolts M10 (FB-M10): 185.00 per pallet",),
+            ),
         ),
     ),
 )

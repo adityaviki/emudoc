@@ -27,6 +27,7 @@ BUILT_IN_KINDS = [
     "receipt",
     "bank statement",
     "delivery note",
+    "price list",
 ]
 
 INVOICE = {

@@ -87,6 +87,9 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   fact_corrected: ['Corrected a fact', 'files'],
   fact_check_removed: ["Took back a fact's check", 'files'],
   facts_exported: ['Downloaded a facts table', 'files'],
+  cross_check_created: ['Made a cross-check', 'files'],
+  cross_check_changed: ['Changed a cross-check', 'files'],
+  cross_check_deleted: ['Deleted a cross-check', 'files'],
   project_deleted: ['Deleted a project', 'files'],
   project_restored: ['Restored a project', 'files'],
   project_purged: ['Deleted a project for good', 'files'],
@@ -167,6 +170,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   else if (event.action === 'flag_changed') parts.push(describeFlag(detail))
   else if (TEMPLATE_ACTIONS.has(event.action)) parts.push(describeTemplate(event.action, detail))
   else if (event.action === 'facts_exported') parts.push(describeFactsExport(detail))
+  else if (CROSS_CHECK_ACTIONS.has(event.action)) parts.push(describeCrossCheck(detail))
   else if ('to' in detail) parts.push(`${word(detail.from)} → ${word(detail.to)}`)
   else if ('from' in detail) parts.push(`was ${word(detail.from)}`)
   if (typeof detail.role === 'string' && !('to' in detail)) parts.push(word(detail.role))
@@ -241,6 +245,31 @@ function describeFactsExport(detail: AuditEvent['detail']): string {
   }
   if (detail.words === true) parts.push('rows holding the words looked for')
   if (detail.review === true) parts.push('those to review')
+  return parts.join(', ')
+}
+
+const CROSS_CHECK_ACTIONS = new Set<AuditAction>(['cross_check_created', 'cross_check_changed', 'cross_check_deleted'])
+
+/** What a change of a cross-check changed, by its parts as the server names them. */
+const CROSS_CHECK_PARTS: Record<string, string> = {
+  title: 'its name',
+  left: 'what it checks',
+  right: 'what it compares with',
+  pairing: 'the documents it pairs',
+  by_item: 'line by line',
+  comparison: 'the comparison',
+}
+
+/** A project's cross-check made, changed or deleted: the kinds and fields it compares, and what changed, never a value. */
+function describeCrossCheck(detail: AuditEvent['detail']): string {
+  const side = (value: unknown) => {
+    const [kind, field] = String(value).split('.')
+    return `${kind} ${fieldWords(field ?? '')}`
+  }
+  const parts = [`${side(detail.left)} against ${side(detail.right)}`]
+  if (Array.isArray(detail.changed) && detail.changed.length > 0) {
+    parts.push(`changed ${detail.changed.map((part) => CROSS_CHECK_PARTS[String(part)] ?? String(part)).join(', ')}`)
+  }
   return parts.join(', ')
 }
 

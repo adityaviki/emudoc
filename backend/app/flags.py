@@ -55,11 +55,12 @@ EXTRACTION_TEMPLATES = "extraction_templates"
 # Every feature behind a flag, by name, in the order the operator's area lists them.
 FLAGS: dict[str, Flag] = {
     # A project's extraction templates (app/extraction.py): the fields its documents of each
-    # kind are read for, the built-in ones' among them, the page that changes them, and the
-    # facts table that shows a kind's documents side by side (app/fact_table.py).
+    # kind are read for, the built-in ones' among them, the page that changes them, the facts
+    # table that shows a kind's documents side by side (app/fact_table.py), and the cross-checks
+    # that compare one kind's facts with another's (app/cross_checks.py).
     EXTRACTION_TEMPLATES: Flag(
-        "Extraction templates and the facts table: the fields each kind of document is read "
-        "for, and its documents side by side"
+        "Extraction templates, the facts table and cross-checks: the fields each kind of "
+        "document is read for, its documents side by side, and rules comparing them"
     ),
 }
 

@@ -4,6 +4,8 @@ From Acme Logistics Ltd to Globex Supplies GmbH, for the deliveries of March.
 
 Invoice number: INV-2026-0412
 
+PO number: PO-7701
+
 Issue date: 2026-04-02
 
 Vendor name: Acme Logistics Ltd

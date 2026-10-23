@@ -503,6 +503,115 @@ class FactTableOut(BaseModel):
     next_after: str | None
 
 
+CrossCheckPairing = Literal["same", "key", "every"]
+CrossCheckComparison = Literal["equal", "at_most", "at_least", "same_words", "same_numbers"]
+FindingOutcome = Literal["differs", "missing", "holds"]
+# Why a finding is what it is (app/cross_checks.py, OUTCOME_OF).
+FindingReason = Literal[
+    "holds",
+    "differs",
+    "currency",
+    "no_value",
+    "no_key",
+    "no_partner",
+    "no_partner_value",
+    "no_item",
+    "untyped",
+]
+_FieldName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+
+
+class CrossCheckIn(BaseModel):
+    """A cross-check as a member writes it, whole (app/cross_checks.py): its name; the kind and
+    field of the documents checked and the kind and field they are compared with; how documents
+    are paired (`same`, `key` with the field of each side whose values pair them, `every`);
+    whether line by line; and the comparison, its margin (days between dates, else in the values'
+    units) and whether the paired documents' values are added up first."""
+
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    left_kind: _Kind
+    left_field: _FieldName
+    right_kind: _Kind
+    right_field: _FieldName
+    pairing: CrossCheckPairing
+    left_key: _FieldName | None = None
+    right_key: _FieldName | None = None
+    by_item: bool = False
+    comparison: CrossCheckComparison
+    margin: float = Field(default=0, ge=0, le=1e12)
+    summed: bool = False
+
+
+class CrossCheckSuggestionOut(CrossCheckIn):
+    """A rule offered to the project, which a member adds as it is, with the types of the fields
+    it compares."""
+
+    left_type: FactType
+    right_type: FactType
+
+
+class FindingCountsOut(BaseModel):
+    differs: int
+    missing: int
+    holds: int
+
+
+class CrossCheckOut(CrossCheckIn):
+    id: int
+    # The types of the fields compared, as the project's templates hold them now, which the page
+    # words the rule by; None for a field gone.
+    left_type: FactType | None
+    right_type: FactType | None
+    # Why the rule cannot be worked out with the project's templates as they are now, such as a
+    # field taken out of one since; None when it can.
+    problem: str | None
+    # What it finds now, by outcome; None while it has a problem.
+    counts: FindingCountsOut | None
+    updated_at: dt.datetime
+
+
+class CrossChecksOut(BaseModel):
+    """A project's cross-checks, by name, the rules offered that it has none of, and how many it
+    may have."""
+
+    checks: list[CrossCheckOut]
+    suggestions: list[CrossCheckSuggestionOut]
+    max_checks: int
+
+
+class PartnerOut(BaseModel):
+    document_id: int
+    title: str
+
+
+class FindingOut(BaseModel):
+    """What a cross-check found for a value of one of the documents it checks: the document, the
+    outcome and why, the value checked and those it was compared with, each with where it was
+    found, the documents paired with it, and how far apart the two were: the checked value less
+    the other (or their sum), in days for dates."""
+
+    document_id: int
+    title: str
+    filename: str
+    outcome: FindingOutcome
+    reason: FindingReason
+    left: FactOut | None
+    right: list[FactOut]
+    partners: list[PartnerOut]
+    difference: float | None
+
+
+class FindingsOut(BaseModel):
+    """A page of a cross-check's findings, those of one outcome or all, differing first: how many
+    the outcome holds, and where the next page starts."""
+
+    check: CrossCheckOut
+    outcome: FindingOutcome | None
+    findings: list[FindingOut]
+    total: int
+    next_after: str | None
+
+
 class FactName(BaseModel):
     name: str
     count: int

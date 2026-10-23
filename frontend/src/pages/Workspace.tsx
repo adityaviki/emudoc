@@ -149,6 +149,14 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
         setMobilePane('library')
         go({ library: { folderId: null, q: '', changes: kind } })
       },
+      showChecks() {
+        setMobilePane('library')
+        go({ library: { folderId: null, q: '', checks: true } })
+      },
+      showFindings(checkId) {
+        setMobilePane('library')
+        go({ library: { folderId: null, q: '', check: checkId } })
+      },
       openChat(chatId, options) {
         if (chatId === 'new') setMobilePane('chat')
         go({ chatId }, options)

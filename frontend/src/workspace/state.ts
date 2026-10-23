@@ -56,6 +56,10 @@ export interface Workspace {
   showFacts(kind: string): void
   /** Shows what the last readings of the project's documents of a kind changed, likewise. */
   showChanges(kind: string): void
+  /** Shows the project's cross-checks in the library, likewise. */
+  showChecks(): void
+  /** Shows what one of the project's cross-checks finds in the library, likewise. */
+  showFindings(checkId: number): void
   openChat(chatId: number | 'new' | null, options?: { replace?: boolean }): void
   /** Which pane shows on a narrow screen, where only one fits. */
   mobilePane: Pane

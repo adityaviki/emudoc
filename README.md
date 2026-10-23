@@ -81,8 +81,9 @@ The facts are read for each document's kind, by extraction templates (`backend/a
 being rolled out, behind the flag `extraction_templates`, and read as before where it is off). A
 template is a kind of document and the fields read from it, each with a name, a type (text,
 number, date or an amount of money), what it is, whether every document of the kind states it,
-and examples as documents write them. Six are built in (invoice, contract, purchase order,
-receipt, bank statement, delivery note), and a project may have twelve of its own: one of a
+and examples as documents write them. Seven are built in (invoice, contract, purchase order,
+receipt, bank statement, delivery note, price list), and a project may have twelve of its own: one
+of a
 built-in kind replaces the built-in one, for that project alone. The enrich stage lists the
 project's templates to the model, which names the kind the document is and reads that
 template's fields first, under the fields' names and of their types, then any other facts as
@@ -144,6 +145,25 @@ naming the kind, the file and the fields it was sorted and kept by, never a valu
 the same with an API key ("Accounts"): the table as JSON, a page at a time (`GET
 /api/projects/{id}/fact-table`, each fact with its typed value, quote, page and check), the files,
 and what the last readings changed.
+
+The library's "Cross-checks" button, beside the templates, checks the project's documents
+against one another by rules (`backend/app/cross_checks.py`, `GET|POST
+/api/projects/{id}/cross-checks`, `PUT|DELETE /api/cross-checks/{id}`): a field of one kind's
+documents compared with a field of the same document (an invoice's due date at most 30 days after
+its issue date), of the documents of another kind that state the same key (an invoice's quantities
+with what the delivery notes of its purchase order say was delivered, added up), or of every
+document of another kind (its prices with the price list's), the first value of each, or line by
+line, each line paired with the other document's line that shares most of its words, figures
+aside. Amounts, numbers and dates compare as equal, at most or at least, with a margin (days for
+dates); texts by their words, or by the numbers they state, so that "30 days" and "within thirty
+(30) days of the invoice date" agree. A few rules are suggested for the templates the project
+has, added in one click. What a rule finds is worked out from the facts as they read when it is
+shown, a member's corrections included, never by the model (`GET
+/api/cross-checks/{id}/findings`): for each value checked, whether it differs, holds or misses
+what it needs (the value, its key, a document to compare with, a line naming its item), by how
+much, and the values on both sides, each opening its document where it is written. Whoever may
+change the project makes, changes and deletes the rules, each a row of the audit log naming the
+kinds and fields, never a value.
 
 A project can hold any number of chats. Each one is saved with its answers, including the
 steps the agent took and the passages it was shown, so a chat can be reopened later. An answer
@@ -778,8 +798,9 @@ curl -H "Authorization: Bearer emk_…" https://emudoc.example.org/api/projects
 ```
 
 A key acts as the member who made it, in the organisation it was made in: it reads what they may
-in the organisation's projects (their folders, documents, search, facts, chats and trash), and
-with the write scope changes it as their role allows, never more. It does less as soon as they
+in the organisation's projects (their folders, documents, search, facts, extraction templates
+and cross-checks, chats and trash), and with the write scope changes it as their role allows,
+never more. It does less as soon as they
 may, goes when they leave or are removed, and is refused whenever they would be (terms not
 accepted, two-factor required and not set up, the account set to be deleted). It reaches nothing
 of the accounts or of the organisation itself, so no key signs in, makes another key, invites
@@ -1169,6 +1190,8 @@ backend/app/
                 members' checks and corrections of facts, kept through the next reading
   fact_changes.py
                 what a document's last reading changed of its template's fields
+  cross_checks.py
+                rules comparing one kind's facts with another's, and what each finds
   payments.py   Stripe's API, and the signature on its events
   api/          HTTP endpoints
   headers.py    the headers every response carries for the browser

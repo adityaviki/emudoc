@@ -44,6 +44,22 @@ Members:
 
 Operators:
 
+- Cross-checks, behind the flag `extraction_templates`: where it is on, the library's
+  "Cross-checks" lists a project's rules that compare a field of one kind's documents with a
+  field of the same document, of the documents of another kind stating the same key, or of every
+  document of another kind, value by value or line by line, with what each finds now: the values
+  that differ, those missing what the comparison needs, and those that hold, each side opening
+  its document where it is written. Five rules are suggested for the templates a project has
+  (prices as on the price list, quantities no more than delivered, the total within its purchase
+  order, payment terms as in the contract, due within 30 days of issue). A new table,
+  `cross_checks` (a migration), at most 20 a project; what a rule finds is worked out from the
+  facts whenever it is asked for, never by the model, and nothing of it is kept. New routes `GET
+  /api/projects/{id}/cross-checks`, `POST` there, `PUT|DELETE /api/cross-checks/{id}` and `GET
+  /api/cross-checks/{id}/findings` (held to `RATE_SEARCHES`), which API keys take; each rule
+  made, changed or deleted is a row of the audit log naming the kinds and fields, never a value.
+  The built-in invoice and purchase order templates now read each line's unit price and quantity
+  as facts of their own, and a built-in price list template reads each item's price, from the
+  next reading of a document on.
 - Downloading the facts table, behind the flag `extraction_templates`: where it is on, the
   table's "Download" saves every row its sort, conditions, words and "To review" keep, as a CSV
   file of the table as it shows (a cell's values joined by "; ", the members' corrections in

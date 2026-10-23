@@ -386,6 +386,80 @@ export interface FactTable {
   next_after: string | null
 }
 
+/** How a cross-check pairs a checked document with those it is compared with: itself, those of the other kind stating the same key, or every one of the other kind. */
+export type CrossCheckPairing = 'same' | 'key' | 'every'
+export type CrossCheckComparison = 'equal' | 'at_most' | 'at_least' | 'same_words' | 'same_numbers'
+export type FindingOutcome = 'differs' | 'missing' | 'holds'
+/** Why a finding is what it is (OUTCOME_OF in backend/app/cross_checks.py). */
+export type FindingReason =
+  | 'holds'
+  | 'differs'
+  | 'currency'
+  | 'no_value'
+  | 'no_key'
+  | 'no_partner'
+  | 'no_partner_value'
+  | 'no_item'
+  | 'untyped'
+
+/** A cross-check as a member writes it, whole (CrossCheckIn in backend/app/schemas.py): the server makes the kinds lowercase words and the fields' names snake_case. */
+export interface CrossCheckInput {
+  title: string
+  left_kind: string
+  left_field: string
+  right_kind: string
+  right_field: string
+  pairing: CrossCheckPairing
+  left_key: string | null
+  right_key: string | null
+  by_item: boolean
+  comparison: CrossCheckComparison
+  /** How far apart the two may be and still agree: days between dates, else in the values' units. */
+  margin: number
+  /** Whether the values of every document paired are added up before they are compared. */
+  summed: boolean
+}
+
+/** A rule offered to the project (CrossCheckSuggestionOut), added as it is. */
+export interface CrossCheckSuggestion extends CrossCheckInput {
+  left_type: FactType
+  right_type: FactType
+}
+
+export type FindingCounts = Record<FindingOutcome, number>
+
+/** A project's cross-check (CrossCheckOut): the rule, the types of the fields it compares as its templates hold them now (null for one gone), why it cannot be worked out with them if it cannot, and what it finds now. */
+export interface CrossCheck extends CrossCheckInput {
+  id: number
+  left_type: FactType | null
+  right_type: FactType | null
+  problem: string | null
+  counts: FindingCounts | null
+  updated_at: string
+}
+
+/** What a cross-check found for a value of one of the documents it checks (FindingOut): the value checked, those it was compared with, each with where it was found, the documents paired with it, and how far apart the two were, in days for dates. */
+export interface Finding {
+  document_id: number
+  title: string
+  filename: string
+  outcome: FindingOutcome
+  reason: FindingReason
+  left: Fact | null
+  right: Fact[]
+  partners: { document_id: number; title: string }[]
+  difference: number | null
+}
+
+/** A page of a cross-check's findings (FindingsOut), those of one outcome or all. */
+export interface Findings {
+  check: CrossCheck
+  outcome: FindingOutcome | null
+  findings: Finding[]
+  total: number
+  next_after: string | null
+}
+
 export interface SearchHit {
   passage_id: number
   document_id: number
@@ -1085,6 +1159,9 @@ export type AuditAction =
   | 'fact_corrected'
   | 'fact_check_removed'
   | 'facts_exported'
+  | 'cross_check_created'
+  | 'cross_check_changed'
+  | 'cross_check_deleted'
   | 'project_deleted'
   | 'project_restored'
   | 'project_purged'
@@ -1667,6 +1744,21 @@ export const api = {
   checkFact: (id: number, body: FactCheckInput) => request<Fact>(`/facts/${id}/check`, json('PUT', body)),
   /** Take a check back: its fact reads as the model read it again. */
   removeCheck: (id: number) => request<void>(`/fact-checks/${id}`, { method: 'DELETE' }),
+
+  /** The project's cross-checks, each with what it finds now, and the suggested rules its templates allow. */
+  crossChecks: (projectId: number) =>
+    request<{ checks: CrossCheck[]; suggestions: CrossCheckSuggestion[]; max_checks: number }>(`/projects/${projectId}/cross-checks`),
+  createCrossCheck: (projectId: number, body: CrossCheckInput) =>
+    request<CrossCheck>(`/projects/${projectId}/cross-checks`, json('POST', body)),
+  updateCrossCheck: (id: number, body: CrossCheckInput) => request<CrossCheck>(`/cross-checks/${id}`, json('PUT', body)),
+  deleteCrossCheck: (id: number) => request<void>(`/cross-checks/${id}`, { method: 'DELETE' }),
+  /** A page of what the cross-check finds now, those of one outcome or all, past `after`. */
+  findings: (id: number, outcome: FindingOutcome | null, after: string | null = null) => {
+    const query = new URLSearchParams()
+    if (outcome) query.set('outcome', outcome)
+    if (after) query.set('after', after)
+    return request<Findings>(`/cross-checks/${id}/findings${query.size ? `?${query}` : ''}`)
+  },
 
   folders: (projectId: number) => request<Folder[]>(`/projects/${projectId}/folders`),
   createFolder: (projectId: number, body: { name: string; parent_id: number | null }) =>

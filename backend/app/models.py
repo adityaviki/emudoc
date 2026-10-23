@@ -34,6 +34,10 @@ STAGES = ("scan", "parse", "structure", "enrich", "embed")
 # What a fact's value is (`Fact.value_type`), and so what a field of an extraction template may
 # be (app/extraction.py).
 FACT_TYPES = ("text", "number", "date", "money")
+# How a cross-check (app/cross_checks.py) pairs a document with those it is compared with, and how
+# it compares their values.
+CROSS_CHECK_PAIRINGS = ("same", "key", "every")
+CROSS_CHECK_COMPARISONS = ("equal", "at_most", "at_least", "same_words", "same_numbers")
 # From most to least permitted: each role may do everything the roles after it may.
 ROLES = ("owner", "admin", "member", "viewer")
 # The roles an organisation may let everyone at its domains join with (app/invitations.py): none
@@ -100,8 +104,9 @@ NATURAL_ORDER = "natural_order"
 # member's leave for Emudoc's support to see their account and support's views of it. A
 # project, folder, document or chat `_deleted` went into the trash (app/trash.py), `_restored`
 # came out of it, and `_purged` was deleted for good from it by a member. A project's extraction
-# templates (app/extraction.py) are made, changed and deleted for good, with no trash, and its
-# facts tables downloaded (app/fact_export.py), which is its documents' content leaving the app.
+# templates (app/extraction.py) and cross-checks (app/cross_checks.py) are made, changed and
+# deleted for good, with no trash, and its facts tables downloaded (app/fact_export.py), which is
+# its documents' content leaving the app.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -164,6 +169,9 @@ AUDIT_ACTIONS = (
     "fact_corrected",
     "fact_check_removed",
     "facts_exported",
+    "cross_check_created",
+    "cross_check_changed",
+    "cross_check_deleted",
     "project_deleted",
     "project_restored",
     "project_purged",
@@ -1158,6 +1166,66 @@ class ExtractionTemplate(Base):
     description: Mapped[str] = mapped_column(Text, default="", server_default="")
     # [{"name", "type", "description", "required", "examples"}], in the order they are asked.
     fields: Mapped[list] = mapped_column(JSONB, default=list)
+    # Who made it; null once their account is gone. Indexed for the account purge.
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class CrossCheck(Base):
+    """A rule a project's documents are checked by (app/cross_checks.py): a field of one kind's
+    documents compared with a field of the same document, of the documents of another kind that
+    state the same key, or of every document of another kind, value by value or line by line.
+    What it finds is worked out from the facts whenever it is asked, so nothing here goes stale
+    when a document is read again."""
+
+    __tablename__ = "cross_checks"
+    __table_args__ = (
+        _one_of("pairing", CROSS_CHECK_PAIRINGS, "cross_checks"),
+        _one_of("comparison", CROSS_CHECK_COMPARISONS, "cross_checks"),
+        # The keys name the fields a pairing by key goes by, and nothing otherwise.
+        CheckConstraint(
+            "(pairing = 'key' AND left_key IS NOT NULL AND right_key IS NOT NULL) "
+            "OR (pairing <> 'key' AND left_key IS NULL AND right_key IS NULL)",
+            name="ck_cross_checks_keys",
+        ),
+        CheckConstraint("margin >= 0", name="ck_cross_checks_margin"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # The tenant, as for every row a member reaches by its id.
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    title: Mapped[str] = mapped_column(String(200))
+    # The kinds of document and the fields compared, as the project's templates name them: the
+    # documents checked are those read for the left kind's template.
+    left_kind: Mapped[str] = mapped_column(String(100))
+    left_field: Mapped[str] = mapped_column(String(100))
+    right_kind: Mapped[str] = mapped_column(String(100))
+    right_field: Mapped[str] = mapped_column(String(100))
+    # One of CROSS_CHECK_PAIRINGS, and for a pairing by key the field of each side it goes by.
+    pairing: Mapped[str] = mapped_column(String(20))
+    left_key: Mapped[str | None] = mapped_column(String(100))
+    right_key: Mapped[str | None] = mapped_column(String(100))
+    # Whether each of the fields' values is compared, line by line, with the value of the other
+    # side that names the same item, rather than the first value of each side.
+    by_item: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    # One of CROSS_CHECK_COMPARISONS.
+    comparison: Mapped[str] = mapped_column(String(20))
+    # How far apart the two may be and still agree: days for dates, else in the values' units.
+    margin: Mapped[float] = mapped_column(Float, default=0, server_default=text("0"))
+    # Whether the values of every document paired are added up before they are compared.
+    summed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     # Who made it; null once their account is gone. Indexed for the account purge.
     created_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), index=True

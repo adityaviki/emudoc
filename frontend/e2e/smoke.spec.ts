@@ -40,6 +40,7 @@ const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
 // An invoice whose fields are lines of their own, which the stand-in reads for the invoice template,
 // and a delivery period, which only a template that asks for it reads.
 const INVOICE = join(import.meta.dirname, 'fixtures', 'invoice.md')
+const PURCHASE_ORDER = join(import.meta.dirname, 'fixtures', 'purchase-order.md')
 // A folder of two delivery notes, one of them in a folder of its own.
 const DELIVERIES = join(import.meta.dirname, 'fixtures', 'deliveries')
 // The project every sign-up's organisation starts with (backend/app/sample).
@@ -798,7 +799,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const heading = page.getByRole('heading', { name: 'Extraction templates' })
     const invoice = page.getByRole('list', { name: 'Templates' }).locator(':scope > li').filter({ hasText: /^Invoice/ })
     await expect(invoice).toContainText('Built in')
-    await expect(invoice).toContainText('For invoice documents · 14 fields, 5 required')
+    await expect(invoice).toContainText('For invoice documents · 16 fields, 5 required')
     await invoice.getByText('Its fields').click()
     await expect(invoice).toContainText('invoice_number · Text, required · The invoice\'s own number.')
     await expectAccessible(page, 'the extraction templates')
@@ -808,7 +809,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const form = page.getByRole('form', { name: 'Your own Invoice template' })
     await expect(form.getByLabel('Name', { exact: true }).first()).toBeFocused()
     await form.getByRole('button', { name: 'Add a field' }).click()
-    const added = form.getByRole('group', { name: 'Field 15' })
+    const added = form.getByRole('group', { name: 'Field 17' })
     await expect(added.getByLabel('Name')).toBeFocused()
     await added.getByLabel('Name').fill('VAT number')
     await expect(added).toContainText('Its facts are named vat_number.')
@@ -818,7 +819,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByText('Saved “Invoice”.')).toBeVisible()
     await expect(heading).toBeFocused()
     await expect(invoice).toContainText('Replaces the built-in one')
-    await expect(invoice).toContainText('15 fields, 6 required')
+    await expect(invoice).toContainText('17 fields, 6 required')
     // What is indexed from now on is read for it; no invoice is here yet to read again.
     await expect(page.getByText('Documents uploaded from now on are read for the templates as they are.')).toBeVisible()
     await expect(page.getByRole('button', { name: /^Read (it|them) again$/ })).toHaveCount(0)
@@ -836,7 +837,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.goto('/organization/audit')
     await page.getByLabel('What').selectOption('template_created')
     await expect(page.getByRole('listitem').filter({ hasText: 'Made an extraction template' })).toContainText(
-      'Invoice · for invoice documents, 15 fields',
+      'Invoice · for invoice documents, 17 fields',
     )
   })
 
@@ -964,7 +965,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await invoice.getByRole('button', { name: 'Customise Invoice' }).click()
     const form = page.getByRole('form', { name: 'Your own Invoice template' })
     await form.getByRole('button', { name: 'Add a field' }).click()
-    await form.getByRole('group', { name: 'Field 15' }).getByLabel('Name').fill('Delivery period')
+    await form.getByRole('group', { name: 'Field 17' }).getByLabel('Name').fill('Delivery period')
     await form.getByRole('button', { name: 'Save' }).click()
     await expect(page.getByText('The invoice document here keeps the facts read before until read again.')).toBeVisible()
 
@@ -994,5 +995,71 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const row = page.getByRole('grid', { name: 'Facts of invoice documents' }).getByRole('row').filter({ hasText: 'INV-2026-0412' })
     await expect(row).toContainText('March 2026')
     await expect(row).toContainText('1,205.00 EUR')
+  })
+
+  await test.step("check the invoice against its purchase order by a suggested cross-check and one of the member's own, each side opening where it is written", async () => {
+    // A purchase order of the PO number the invoice states, read for the built-in template.
+    await page.goto('/')
+    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
+    await page.locator('input[name="files"]').setInputFiles(PURCHASE_ORDER)
+    await expect(page.getByRole('treeitem', { name: 'purchase-order.md' })).toHaveAccessibleDescription(/^Ready/, { timeout: 60_000 })
+    await page.getByRole('button', { name: 'Cross-checks' }).click()
+    const heading = page.getByRole('heading', { name: 'Cross-checks', exact: true })
+    await expect(heading).toBeFocused()
+    await expect(page.getByText('No cross-checks yet: add a suggested one, or make your own.')).toBeVisible()
+    const suggested = page.getByRole('list', { name: 'Suggested cross-checks' })
+    await expect(suggested).toContainText(
+      "Each invoice's total amount is at most the total amount of the purchase order documents with the same po number.",
+    )
+    await expectAccessible(page, 'the cross-checks')
+
+    // Added as suggested, it finds the total as the member corrected it, 5 more than the order's.
+    await suggested.getByRole('button', { name: 'Add Total within its purchase order' }).click()
+    await expect(page.getByText('Added “Total within its purchase order”.')).toBeVisible()
+    await expect(heading).toBeFocused()
+    const rules = page.getByRole('list', { name: 'Cross-checks', exact: true })
+    const total = rules.getByRole('listitem').filter({ hasText: 'Total within its purchase order' })
+    await expect(total).toContainText('1 differs · 0 miss a value · 0 hold')
+    await total.getByRole('button', { name: 'What Total within its purchase order finds' }).click()
+    await expect(page.getByRole('heading', { name: 'What “Total within its purchase order” finds' })).toBeFocused()
+    const finding = page.getByRole('list', { name: 'Findings' }).getByRole('listitem')
+    await expect(finding).toContainText('5 EUR more than purchase-order.md.')
+    await expect(finding).toContainText('1,205.00 EUR · corrected')
+    await expectAccessible(page, 'what a cross-check finds')
+    await finding.getByRole('button', { name: 'EUR 1,200.00', exact: true }).click()
+    await expect(page).toHaveURL(/\/documents\/\d+\?(.*&)?block=\d+/)
+    await expect(page.getByRole('region', { name: 'Text of purchase-order.md' }).getByText('Total amount: EUR 1,200.00')).toBeInViewport()
+
+    // One of the member's own: the invoice issued no earlier than its order, paired by the PO number each states.
+    await page.getByRole('button', { name: 'Back to the cross-checks' }).click()
+    await page.getByRole('button', { name: 'New cross-check' }).click()
+    const form = page.getByRole('form', { name: 'New cross-check' })
+    await expect(form.getByLabel('Name', { exact: true })).toBeFocused()
+    await form.getByLabel('Name', { exact: true }).fill('Issued after its order')
+    const checks = form.getByRole('group', { name: 'What it checks' })
+    await checks.getByLabel('Kind of document').selectOption('invoice')
+    await checks.getByLabel('Field').selectOption('issue_date')
+    const against = form.getByRole('group', { name: 'Compared with' })
+    await against.getByLabel('Kind of document').selectOption('purchase order')
+    await against.getByLabel('Field').selectOption('issue_date')
+    await form.getByLabel('Compared how').selectOption('at_least')
+    await form.getByLabel('Those that state the same key').check()
+    await form.getByLabel('Key of the invoice').selectOption('po_number')
+    await expect(form.getByLabel('Key of the purchase order')).toHaveValue('po_number')
+    await expect(form).toContainText(
+      "Each invoice's issue date is no earlier than the issue date of the purchase order documents with the same po number.",
+    )
+    await expectAccessible(page, 'a cross-check being written')
+    await form.getByRole('button', { name: 'Save' }).click()
+    await expect(page.getByText('Saved “Issued after its order”.')).toBeVisible()
+    await expect(heading).toBeFocused()
+    await expect(rules.getByRole('listitem').filter({ hasText: 'Issued after its order' })).toContainText('0 differ · 0 miss a value · 1 holds')
+
+    // Both are the organisation's to ask about, by the kinds and fields they compare.
+    await page.goto('/organization/audit')
+    await page.getByLabel('What').selectOption('cross_check_created')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Total within its purchase order' })).toContainText(
+      'invoice total amount against purchase order total amount',
+    )
   })
 })

@@ -102,6 +102,7 @@ from app.legal import terms_due, terms_pending
 from app.logs import about
 from app.models import (
     Chat,
+    CrossCheck,
     Document,
     ExtractionTemplate,
     Fact,
@@ -464,6 +465,20 @@ def get_template(template_id: int, session: SessionDep, account: AccountDep) -> 
     return template
 
 
+def get_cross_check(check_id: int, session: SessionDep, account: AccountDep) -> CrossCheck:
+    """A project's cross-check (app/cross_checks.py), provided the account sees the project and
+    it is out of the trash."""
+    check = session.scalar(
+        select(CrossCheck)
+        .join(Project, Project.id == CrossCheck.project_id)
+        .where(CrossCheck.id == check_id, visible_to(account))
+    )
+    if check is None:
+        raise HTTPException(404, "Cross-check not found")
+    about(project_id=check.project_id)
+    return check
+
+
 def get_fact(fact_id: int, session: SessionDep, account: AccountDep) -> Fact:
     """A fact read from a document (app/fact_checks.py), provided the account sees the
     document's project and the document is out of the trash."""
@@ -526,6 +541,15 @@ def get_editable_template(
     return template
 
 
+def get_editable_cross_check(
+    check: Annotated[CrossCheck, Depends(get_cross_check)],
+    account: AccountDep,
+    session: SessionDep,
+) -> CrossCheck:
+    get_editor(account, session)
+    return check
+
+
 def get_editable_fact(
     fact: Annotated[Fact, Depends(get_fact)], account: AccountDep, session: SessionDep
 ) -> Fact:
@@ -570,6 +594,8 @@ EditableProjectDep = Annotated[Project, Depends(get_editable_project)]
 EditableDocumentDep = Annotated[Document, Depends(get_editable_document)]
 EditableFolderDep = Annotated[Folder, Depends(get_editable_folder)]
 EditableTemplateDep = Annotated[ExtractionTemplate, Depends(get_editable_template)]
+CrossCheckDep = Annotated[CrossCheck, Depends(get_cross_check)]
+EditableCrossCheckDep = Annotated[CrossCheck, Depends(get_editable_cross_check)]
 EditableFactDep = Annotated[Fact, Depends(get_editable_fact)]
 EditableFactCheckDep = Annotated[FactCheck, Depends(get_editable_fact_check)]
 DeletableProjectDep = Annotated[Project, Depends(get_deletable_project)]
