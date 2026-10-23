@@ -35,6 +35,7 @@ from app.api import (
     projects,
     query,
     support,
+    templates,
     trash,
     usage,
 )
@@ -437,6 +438,7 @@ KEYED = (
     query.router,
     chats.router,
     trash.router,
+    templates.router,
 )
 
 

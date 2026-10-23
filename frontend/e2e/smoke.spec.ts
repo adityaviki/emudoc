@@ -24,9 +24,10 @@ import { holdNextTurn, refuseEmbeddings, releaseTurns } from './standin.ts'
 // colleague then reads but does not ask in, and last ask the question that uses the month's
 // questions, which the bell tells, and open that notice from the other organisation; then, made
 // an operator, read the organisation in the operator's area, which nobody else is sent, raise its
-// agreed questions there, turn a feature flag on for it, which its audit log keeps, view the
+// agreed questions there, turn its extraction templates on, which its audit log keeps, view the
 // colleague's account, which she let support see, and switch the model's provider off and on
-// again. The answer
+// again; and last, make the project's own invoice template from the built-in one, a field
+// added, and delete it. The answer
 // is the stand-in's (e2e/standin.py): the first sentence of the passage its search found best,
 // with that passage's reference. Along the way each kind of page, panel and dialog is checked
 // against axe-core's rules for WCAG 2.2 AA in both themes (e2e/axe.ts), and the keyboard's focus
@@ -734,13 +735,13 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await plan.getByRole('button', { name: 'Save' }).click()
     await expect(questions).toContainText('10')
     await expect(questions).toContainText('agreed')
-    // A feature being rolled out to none, behind the run's own flag (e2e/served.py), turned on for it alone.
+    // A feature being rolled out to none, the extraction templates, turned on for it alone.
     const flags = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Feature flags', exact: true }) })
-    const preview = flags.getByRole('row').filter({ hasText: 'e2e_preview' })
+    const preview = flags.getByRole('row').filter({ hasText: 'extraction_templates' })
     await expect(preview).toContainText('off, as rolled out')
     await expectAccessible(page, "an organisation in the operator's area")
-    const chosen = page.waitForResponse((response) => response.url().endsWith('/flags/e2e_preview') && response.ok())
-    await preview.getByLabel('Feature flag e2e_preview').selectOption('on')
+    const chosen = page.waitForResponse((response) => response.url().endsWith('/flags/extraction_templates') && response.ok())
+    await preview.getByLabel('Feature flag extraction_templates').selectOption('on')
     await chosen
     await expect(preview).toContainText('on, chosen here')
 
@@ -753,13 +754,13 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
 
     // The flag across the deployment: on for this organisation alone, which its owner reads in its audit log.
     await page.getByRole('navigation', { name: 'Views' }).getByRole('link', { name: 'Flags' }).click()
-    const rollout = page.getByRole('row').filter({ hasText: 'e2e_preview' })
+    const rollout = page.getByRole('row').filter({ hasText: 'extraction_templates' })
     await expect(rollout.getByRole('link', { name: "Ada Lovelace's workspace" })).toBeVisible()
     await page.goto('/organization/audit')
     // The whole log first, which holds every kind of row this organisation has, its export's among them.
     await expect(page.getByRole('listitem').filter({ hasText: 'Exported a project' })).toContainText('Supplier contracts')
     await page.getByLabel('What').selectOption('flag_changed')
-    await expect(page.getByRole('listitem').filter({ hasText: 'Feature flag changed' })).toContainText("e2e preview: on · by Emudoc's operators")
+    await expect(page.getByRole('listitem').filter({ hasText: 'Feature flag changed' })).toContainText("extraction templates: on · by Emudoc's operators")
     await page.goto('/operator/jobs')
     await expect(page.getByRole('heading', { name: 'Jobs', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Ask again' })).toBeVisible()
@@ -780,5 +781,54 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await ollama.getByRole('button', { name: 'Switch ollama on' }).click()
     await expect(ollama.getByRole('cell').nth(2)).toHaveText('on')
     await expect(ollama.getByRole('button', { name: 'Switch ollama off' })).toBeVisible()
+  })
+
+  await test.step("make the project's own invoice template from the built-in one, then delete it", async () => {
+    // The flag turned on above shows the library's extraction templates, the built-in ones among them.
+    await page.goto('/')
+    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
+    await page.getByRole('button', { name: 'Extraction templates' }).click()
+    const heading = page.getByRole('heading', { name: 'Extraction templates' })
+    const invoice = page.getByRole('list', { name: 'Templates' }).locator(':scope > li').filter({ hasText: /^Invoice/ })
+    await expect(invoice).toContainText('Built in')
+    await expect(invoice).toContainText('For invoice documents · 14 fields, 5 required')
+    await invoice.getByText('Its fields').click()
+    await expect(invoice).toContainText('invoice_number · Text, required · The invoice\'s own number.')
+    await expectAccessible(page, 'the extraction templates')
+
+    // Customised, it is the project's own, a field added, whose name its facts take as the server makes it.
+    await invoice.getByRole('button', { name: 'Customise Invoice' }).click()
+    const form = page.getByRole('form', { name: 'Your own Invoice template' })
+    await expect(form.getByLabel('Name', { exact: true }).first()).toBeFocused()
+    await form.getByRole('button', { name: 'Add a field' }).click()
+    const added = form.getByRole('group', { name: 'Field 15' })
+    await expect(added.getByLabel('Name')).toBeFocused()
+    await added.getByLabel('Name').fill('VAT number')
+    await expect(added).toContainText('Its facts are named vat_number.')
+    await added.getByLabel('Every document of the kind states it').check()
+    await expectAccessible(page, 'an extraction template being written')
+    await form.getByRole('button', { name: 'Save' }).click()
+    await expect(page.getByText('Saved “Invoice”.')).toBeVisible()
+    await expect(heading).toBeFocused()
+    await expect(invoice).toContainText('Replaces the built-in one')
+    await expect(invoice).toContainText('15 fields, 6 required')
+    // What is indexed from now on is read for it; what is here already, once read again.
+    await expect(page.getByRole('button', { name: 'Read them again' })).toBeVisible()
+
+    // Deleted for good after a question, the built-in one applies again.
+    await invoice.getByRole('button', { name: 'Delete Invoice' }).click()
+    const question = page.getByRole('dialog', { name: 'Delete the template “Invoice”?' })
+    await expect(question).toContainText("The project's invoice documents are read for the built-in invoice template")
+    await expectAccessible(page, 'the question before a template is deleted')
+    await question.getByRole('button', { name: 'Delete it' }).click()
+    await expect(heading).toBeFocused()
+    await expect(invoice).toContainText('Built in')
+
+    // Both are the organisation's to ask about.
+    await page.goto('/organization/audit')
+    await page.getByLabel('What').selectOption('template_created')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Made an extraction template' })).toContainText(
+      'Invoice · for invoice documents, 15 fields',
+    )
   })
 })

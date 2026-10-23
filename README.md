@@ -77,6 +77,23 @@ The agent answers with five tools: `list_documents` and `get_outline` read the m
 reads the passage index (keywords and meaning, merged), `query_facts` reads the fact table, and
 `read` returns exact source text. Answers cite passages, and each citation opens the source.
 
+The facts are read for each document's kind, by extraction templates (`backend/app/extraction.py`;
+being rolled out, behind the flag `extraction_templates`, and read as before where it is off). A
+template is a kind of document and the fields read from it, each with a name, a type (text,
+number, date or an amount of money), what it is, whether every document of the kind states it,
+and examples as documents write them. Six are built in (invoice, contract, purchase order,
+receipt, bank statement, delivery note), and a project may have twelve of its own: one of a
+built-in kind replaces the built-in one, for that project alone. The enrich stage lists the
+project's templates to the model, which names the kind the document is and reads that
+template's fields first, under the fields' names and of their types, then any other facts as
+before; a long document's first part names its kind, and the parts after it are shown that
+template alone. The document takes the template's kind, and its stage says which of the fields
+every document of the kind states were not found in it. The library's "Extraction templates"
+button, beside the trash, lists them with their fields; whoever may change the project makes a
+template, customises a built-in one into the project's own, changes and deletes them, each a row
+of the audit log, and after a change has the project's documents read again ("Read them again",
+the enrich stage on). A project's export holds its own templates.
+
 A project can hold any number of chats. Each one is saved with its answers, including the
 steps the agent took and the passages it was shown, so a chat can be reopened later. An answer
 is written by the background worker, not by the request that asked the question: the question
@@ -1093,6 +1110,7 @@ backend/app/
                 what each plan allows, and the checks the routes and the parse stage make
   billing.py    changing a plan, and selling it and packs: Checkout, the portal, Stripe's events
   flags.py      the feature flags: what is being rolled out, to how many organisations, and to which
+  extraction.py the extraction templates: the built-in ones, and those in force for a project
   payments.py   Stripe's API, and the signature on its events
   api/          HTTP endpoints
   headers.py    the headers every response carries for the browser

@@ -3204,6 +3204,13 @@ It changes four things, as the commands do:
   maintenance flags acme                      # how each stands for one organisation
   maintenance flags acme extraction_templates on      # or off, or rollout for the share's again
   ```
+
+  The flags today: `extraction_templates`, a project's extraction templates (README, "How it
+  works"), at 0. Where it is on, the enrich stage lists the project's templates in every
+  document's first request (each field described while the listing is short, by name and type
+  alone past 16,000 characters), a few thousand tokens more per document; where it is off, the
+  stage asks as it always did. Turned off again, the documents keep the facts they were read
+  for until they are indexed again, and the templates made meanwhile stay, unread.
 - **Failed documents queued again.** Under Jobs, "Run again" on a failed index job, or "Run
   every failed document again", queues each document from the stage it stopped at, as
   `failed-jobs --requeue` does, once the cause is fixed; the jobs of other kinds are left. Each

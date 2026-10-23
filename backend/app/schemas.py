@@ -118,6 +118,80 @@ class ProjectAccessOut(BaseModel):
     user_ids: list[int]
 
 
+# FACT_TYPES in app/models.py: what a fact's value is, and so a template's field.
+FactType = Literal["text", "number", "date", "money"]
+
+# A template's ceilings (app/extraction.py). Every template in force is listed in the enrich
+# stage's prompt, so these bound what reading each of the project's documents costs.
+MAX_TEMPLATE_FIELDS = 30
+MAX_FIELD_EXAMPLES = 3
+MAX_TEMPLATE_WORDS = 300
+MAX_EXAMPLE_CHARS = 100
+
+_Line = Annotated[str, StringConstraints(strip_whitespace=True, max_length=MAX_TEMPLATE_WORDS)]
+
+
+class TemplateFieldIn(BaseModel):
+    """A field of an extraction template: its name, which its facts are named by, snake_case
+    once the server has made it so; its type; what it is; whether every document of the kind
+    should state it; and values as documents write them, which show the model what to find."""
+
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+    type: FactType
+    description: _Line = ""
+    required: bool = False
+    examples: list[
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_EXAMPLE_CHARS),
+        ]
+    ] = Field(default_factory=list, max_length=MAX_FIELD_EXAMPLES)
+
+
+class TemplateIn(BaseModel):
+    """A project's extraction template as a member writes it, whole: the kind of document it is
+    for (lowercase words once the server has made them so), its name, what the kind is, and its
+    fields in the order they are asked for."""
+
+    doc_type: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    description: _Line = ""
+    fields: list[TemplateFieldIn] = Field(min_length=1, max_length=MAX_TEMPLATE_FIELDS)
+
+
+class TemplateFieldOut(BaseModel):
+    name: str
+    type: FactType
+    description: str
+    required: bool
+    examples: list[str]
+
+
+class TemplateOut(BaseModel):
+    """An extraction template in force for a project: its own (`id` set) or a built-in one
+    (`built_in`, `id` null), which applies while the project has none of its own kind."""
+
+    id: int | None
+    doc_type: str
+    title: str
+    description: str
+    fields: list[TemplateFieldOut]
+    built_in: bool
+    # A project's own template of a kind a built-in one is for, which it replaces.
+    replaces_built_in: bool
+    # The project's documents whose facts were last read for it.
+    documents: int
+    updated_at: dt.datetime | None
+
+
+class ProjectTemplatesOut(BaseModel):
+    """The templates in force for a project: its own by title, then the built-in ones of the
+    kinds it has none of; and how many of its own it may have."""
+
+    templates: list[TemplateOut]
+    max_templates: int
+
+
 class FolderIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     parent_id: int | None = None
@@ -190,6 +264,8 @@ class DocumentOut(_FromORM):
     doc_type: str | None
     doc_date: dt.date | None
     summary: str | None
+    # The kind of the extraction template its facts were read for (app/extraction.py), if any.
+    template: str | None
     # By kind: `upload` (bytes, pages), `ocr`, `infer_sections`, `enrich`, `embed`, `render`.
     usage: dict[str, UsageOut]
     created_at: dt.datetime
@@ -1543,6 +1619,8 @@ class ExportedDocument(BaseModel):
     doc_type: str | None
     doc_date: dt.date | None
     summary: str | None
+    # The kind of the extraction template its facts were read for, if any.
+    template: str | None
     page_count: int | None
     uploaded_at: dt.datetime
 
@@ -1606,6 +1684,15 @@ class ExportedProjectChat(BaseModel):
     messages: list[ExportedMessage]
 
 
+class ExportedTemplate(BaseModel):
+    """An extraction template of the project's own, as its members wrote it."""
+
+    doc_type: str
+    title: str
+    description: str
+    fields: list[TemplateFieldOut]
+
+
 class ProjectExportFile(BaseModel):
     """`project.json` in the archive."""
 
@@ -1619,6 +1706,8 @@ class ProjectExportFile(BaseModel):
     folders: list[str]
     documents: list[ExportedDocument]
     chats: list[ExportedProjectChat]
+    # The project's own extraction templates; the built-in ones are Emudoc's, and not in it.
+    templates: list[ExportedTemplate]
 
 
 # The operator's area (app/operators.py, app/api/operator.py): what the maintenance commands

@@ -28,7 +28,7 @@ from tests.conftest import APP_HEADERS
 from tests.test_audit import actions, rows
 from tests.test_auth import signup
 from tests.test_deadletters import fail, job_of
-from tests.test_flags import registered
+from tests.test_flags import only_registered, registered
 from tests.test_jobs import hold
 from tests.test_llm import ANALYSIS, BACKUP, SCRIPTED, Script, fallback_llm, text_reply
 from tests.test_usage import charge
@@ -497,6 +497,7 @@ def test_an_operator_changes_the_plan_its_seats_and_its_agreed_figures(
 def test_an_operator_turns_a_flag_on_or_off_for_an_organisation(
     operator, session, make_account, monkeypatch
 ):
+    only_registered(monkeypatch)
     organization = make_account("ann@globex.example").organization
     shown = operator.get(f"/api/operator/organizations/{organization.id}").json()
     assert shown["flags"] == []

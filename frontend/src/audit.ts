@@ -79,6 +79,9 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   payment_failed: ['Payment failed', 'billing'],
   pack_bought: ['Bought a pack', 'billing'],
   project_exported: ['Exported a project', 'files'],
+  template_created: ['Made an extraction template', 'files'],
+  template_changed: ['Changed an extraction template', 'files'],
+  template_deleted: ['Deleted an extraction template', 'files'],
   project_deleted: ['Deleted a project', 'files'],
   project_restored: ['Restored a project', 'files'],
   project_purged: ['Deleted a project for good', 'files'],
@@ -155,6 +158,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   if (typeof detail.entitlement === 'string') parts.push(detail.entitlement.replaceAll('_', ' '))
   if (event.action === 'settings_changed') parts.push(describeSetting(detail))
   else if (event.action === 'flag_changed') parts.push(describeFlag(detail))
+  else if (TEMPLATE_ACTIONS.has(event.action)) parts.push(describeTemplate(event.action, detail))
   else if ('to' in detail) parts.push(`${word(detail.from)} → ${word(detail.to)}`)
   else if ('from' in detail) parts.push(`was ${word(detail.from)}`)
   if (typeof detail.role === 'string' && !('to' in detail)) parts.push(word(detail.role))
@@ -201,6 +205,22 @@ function describeFlag(detail: AuditEvent['detail']): string {
   const flag = String(detail.flag).replaceAll('_', ' ')
   const now = detail.on ? 'on' : 'off'
   return detail.to === null ? `${flag}: as Emudoc rolls it out, ${now}` : `${flag}: ${now}`
+}
+
+const TEMPLATE_ACTIONS = new Set<AuditAction>(['template_created', 'template_changed', 'template_deleted'])
+
+/** A project's extraction template made, changed or deleted: the kind of document it is for, and its fields or what became of them, by their names. */
+function describeTemplate(action: AuditAction, detail: AuditEvent['detail']): string {
+  const kind = typeof detail.from === 'string' ? `${detail.from} → ${String(detail.to)}` : String(detail.doc_type)
+  const parts = [`for ${kind} documents`]
+  if (action === 'template_created' && Array.isArray(detail.fields)) {
+    parts.push(`${detail.fields.length} field${detail.fields.length === 1 ? '' : 's'}`)
+  }
+  for (const change of ['added', 'removed', 'changed'] as const) {
+    const names = detail[change]
+    if (Array.isArray(names) && names.length > 0) parts.push(`${change} ${names.join(', ')}`)
+  }
+  return parts.join(', ')
 }
 
 const language = (value: unknown) => (typeof value === 'string' ? languageName(value) : 'the default')

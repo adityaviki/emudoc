@@ -49,9 +49,17 @@ class Flag:
             raise ValueError(f"A flag's share is a percentage from 0 to 100, not {self.share!r}.")
 
 
-# Every feature behind a flag, by name, in the order the operator's area lists them. None yet:
-# the first of tier 3's features joins it as it is built.
-FLAGS: dict[str, Flag] = {}
+# The flags whose names the code reads, each where its feature is.
+EXTRACTION_TEMPLATES = "extraction_templates"
+
+# Every feature behind a flag, by name, in the order the operator's area lists them.
+FLAGS: dict[str, Flag] = {
+    # A project's extraction templates (app/extraction.py): the fields its documents of each
+    # kind are read for, the built-in ones' among them, and the page that changes them.
+    EXTRACTION_TEMPLATES: Flag(
+        "Extraction templates: the fields each kind of document is read for"
+    ),
+}
 
 
 class UnknownFlag(LookupError):

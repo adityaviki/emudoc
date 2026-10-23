@@ -99,7 +99,16 @@ from app.flags import flag, flag_on
 from app.indexing.pipeline import Services
 from app.legal import terms_due, terms_pending
 from app.logs import about
-from app.models import Chat, Document, Folder, Passage, Project, User, UserSession
+from app.models import (
+    Chat,
+    Document,
+    ExtractionTemplate,
+    Folder,
+    Passage,
+    Project,
+    User,
+    UserSession,
+)
 from app.ratelimit import API_REQUESTS, Key, Limit, by_key, by_user, hit
 from app.retention import deletion_pending, held_for_deletion
 from app.security import mfa_due, mfa_pending, sign_in_again, signed_in_too_long
@@ -438,6 +447,20 @@ def _in_organization[T: (Document, Folder, Passage, Chat)](
     return found
 
 
+def get_template(template_id: int, session: SessionDep, account: AccountDep) -> ExtractionTemplate:
+    """A project's own extraction template (app/extraction.py), provided the account sees the
+    project and it is out of the trash."""
+    template = session.scalar(
+        select(ExtractionTemplate)
+        .join(Project, Project.id == ExtractionTemplate.project_id)
+        .where(ExtractionTemplate.id == template_id, visible_to(account))
+    )
+    if template is None:
+        raise HTTPException(404, "Template not found")
+    about(project_id=template.project_id)
+    return template
+
+
 ProjectDep = Annotated[Project, Depends(get_project)]
 DocumentDep = Annotated[Document, Depends(get_document)]
 FolderDep = Annotated[Folder, Depends(get_folder)]
@@ -460,6 +483,15 @@ def get_editable_document(
 def get_editable_folder(folder: FolderDep, account: AccountDep, session: SessionDep) -> Folder:
     get_editor(account, session)
     return folder
+
+
+def get_editable_template(
+    template: Annotated[ExtractionTemplate, Depends(get_template)],
+    account: AccountDep,
+    session: SessionDep,
+) -> ExtractionTemplate:
+    get_editor(account, session)
+    return template
 
 
 def get_deletable_project(project: ProjectDep, account: AccountDep) -> Project:
@@ -491,6 +523,7 @@ def get_own_chat(chat: ChatDep, account: AccountDep) -> Chat:
 EditableProjectDep = Annotated[Project, Depends(get_editable_project)]
 EditableDocumentDep = Annotated[Document, Depends(get_editable_document)]
 EditableFolderDep = Annotated[Folder, Depends(get_editable_folder)]
+EditableTemplateDep = Annotated[ExtractionTemplate, Depends(get_editable_template)]
 DeletableProjectDep = Annotated[Project, Depends(get_deletable_project)]
 DeletableDocumentDep = Annotated[Document, Depends(get_deletable_document)]
 DeletableFolderDep = Annotated[Folder, Depends(get_deletable_folder)]

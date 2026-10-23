@@ -20,6 +20,7 @@ function doc(id: number, filename: string, folderId: number | null = null): Docu
     doc_type: null,
     doc_date: null,
     summary: null,
+    template: null,
     usage: {},
     created_at: '2026-10-19T09:00:00Z',
   }

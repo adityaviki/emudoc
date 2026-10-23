@@ -99,6 +99,13 @@ describe('a row', () => {
     expect(describeDetail(event('flag_changed', { flag: 'extraction_templates', from: true, to: null, on: false }))).toBe(
       'extraction templates: as Emudoc rolls it out, off',
     )
+    // A project's extraction template made, changed (its kind too) and deleted, by its fields' names.
+    expect(describeDetail(event('template_created', { name: 'Supplier invoice', doc_type: 'invoice', fields: ['invoice_number', 'iban'] }))).toBe(
+      'Supplier invoice · for invoice documents, 2 fields',
+    )
+    const changed = { name: 'Supplier invoice', doc_type: 'bill', added: ['vat_number'], removed: [], changed: ['iban'], from: 'invoice', to: 'bill' }
+    expect(describeDetail(event('template_changed', changed))).toBe('Supplier invoice · for invoice → bill documents, added vat_number, changed iban')
+    expect(describeDetail(event('template_deleted', { name: 'Supplier invoice', doc_type: 'invoice' }))).toBe('Supplier invoice · for invoice documents')
     // A member's leave for support, support's view of their account, and what was done in it.
     const until = '2026-10-28T09:30:00+00:00'
     expect(describeDetail(event('support_access_granted', { days: 7, until }))).toBe(`until ${formatDateTime(until)}`)

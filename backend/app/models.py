@@ -31,6 +31,9 @@ _settings = get_settings()
 # The pipeline's stages in order (app/indexing/pipeline.py): the malware scan comes first,
 # since nothing may open the file before it has passed (app/scanning.py).
 STAGES = ("scan", "parse", "structure", "enrich", "embed")
+# What a fact's value is (`Fact.value_type`), and so what a field of an extraction template may
+# be (app/extraction.py).
+FACT_TYPES = ("text", "number", "date", "money")
 # From most to least permitted: each role may do everything the roles after it may.
 ROLES = ("owner", "admin", "member", "viewer")
 # The roles an organisation may let everyone at its domains join with (app/invitations.py): none
@@ -96,7 +99,8 @@ NATURAL_ORDER = "natural_order"
 # their own (a quarantine, the sample project a new account's organisation starts with), and a
 # member's leave for Emudoc's support to see their account and support's views of it. A
 # project, folder, document or chat `_deleted` went into the trash (app/trash.py), `_restored`
-# came out of it, and `_purged` was deleted for good from it by a member.
+# came out of it, and `_purged` was deleted for good from it by a member. A project's extraction
+# templates (app/extraction.py) are made, changed and deleted for good, with no trash.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -152,6 +156,9 @@ AUDIT_ACTIONS = (
     "member_removed",
     "project_access_changed",
     "project_exported",
+    "template_created",
+    "template_changed",
+    "template_deleted",
     "project_deleted",
     "project_restored",
     "project_purged",
@@ -874,6 +881,10 @@ class Document(Base):
     doc_type: Mapped[str | None] = mapped_column(String(100), index=True)
     doc_date: Mapped[dt.date | None] = mapped_column(Date)
     summary: Mapped[str | None] = mapped_column(Text)
+    # The kind of document of the extraction template its facts were read for (app/
+    # extraction.py), which `doc_type` then names too; null when they were read for none, and
+    # until the enrich stage has run.
+    template: Mapped[str | None] = mapped_column(String(100))
 
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -1020,7 +1031,7 @@ class Fact(Base):
         ForeignKey("projects.id", ondelete="CASCADE"), index=True
     )
     name: Mapped[str] = mapped_column(String(100), index=True)
-    # text | number | date | money
+    # One of FACT_TYPES.
     value_type: Mapped[str] = mapped_column(String(20), default="text")
     value: Mapped[str] = mapped_column(Text)
     number: Mapped[float | None] = mapped_column(Float)
@@ -1033,6 +1044,43 @@ class Fact(Base):
     passage_id: Mapped[int | None] = mapped_column(ForeignKey("passages.id", ondelete="SET NULL"))
     # True when the quote was found in the source block.
     verified: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class ExtractionTemplate(Base):
+    """The fields a project's documents of one kind are read for (app/extraction.py): what the
+    enrich stage asks the model to find in an invoice, a contract or a kind of the members' own,
+    each field becoming facts under its name. A project's template replaces the built-in one of
+    its kind, which applies while the project has none of its own."""
+
+    __tablename__ = "extraction_templates"
+    __table_args__ = (
+        UniqueConstraint("project_id", "doc_type"),
+        CheckConstraint("jsonb_typeof(fields) = 'array'", name="ck_extraction_templates_fields"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # The tenant, as for every row a member reaches by its id.
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    # The kind of document it is for, in lowercase words ("invoice", "delivery note"): what the
+    # model names when it finds a document is one, and the document's `doc_type` then.
+    doc_type: Mapped[str] = mapped_column(String(100))
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # [{"name", "type", "description", "required", "examples"}], in the order they are asked.
+    fields: Mapped[list] = mapped_column(JSONB, default=list)
+    # Who made it; null once their account is gone. Indexed for the account purge.
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class Chat(Base):

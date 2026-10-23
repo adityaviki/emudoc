@@ -25,6 +25,8 @@ from app.db import SessionLocal, connection_lost
 from app.embeddings import Embedder
 from app.entitlements import check_pages, text_pages
 from app.errors import AppError, shown, summary
+from app.extraction import Template, templates_for
+from app.flags import EXTRACTION_TEMPLATES, flag_on_for
 from app.indexing.enrich import (
     ExtractedFact,
     Reading,
@@ -39,7 +41,7 @@ from app.languages import project_language
 from app.llm import LLM, LLMError, OcrBlock
 from app.mail import Mailer
 from app.metrics import DOCUMENT_READY, INDEX_RUNS, PARSES, STAGE_RUNS, STAGE_SECONDS
-from app.models import STAGES, Block, Document, Fact, Passage, Section
+from app.models import STAGES, Block, Document, Fact, Passage, Project, Section
 from app.notices import MONTH_PAGES, app_address, note_quota
 from app.parsing import IMAGE_TYPES, FileTooLarge, ParsedBlock, UnsupportedFile
 from app.parsing.images import open_image
@@ -848,6 +850,9 @@ def _structure(session: Session, document: Document, services: Services, meter: 
     document.title = outline.title if outline.title != stem else None
 
     _delete_derived(session, document.id, Fact, Passage, Section)
+    # The facts went with the passages they were linked to; the template they were read for
+    # goes with them until the enrich stage reads them again.
+    document.template = None
     rows: dict[int, Section] = {}
     for ordinal, draft in enumerate(outline.sections):
         row = Section(
@@ -908,17 +913,25 @@ def _enrich(session: Session, document: Document, services: Services, meter: Met
     sections = session.scalars(
         select(Section).where(Section.document_id == document.id).order_by(Section.ordinal)
     ).all()
+    templates = _templates(session, document)
     usage = meter.calls(ENRICH)
     _done_reading(session)
     # The day's spending limits are checked above, once for the stage: they hold the next unit
     # of work, and the most a document's summaries and facts may take is bounded by this.
     limit = get_settings().enrich_max_requests
-    analysis = analyze_document(services.llm, document, sections, blocks, usage, limit)
+    analysis = analyze_document(
+        services.llm, document, sections, blocks, usage, limit, templates=templates
+    )
 
     profile = analysis.profile
+    template = analysis.template
     old_root = document.title or Path(document.filename).stem
     document.title = clean_text(profile.title)[:500] or document.title
-    document.doc_type = clean_text(profile.doc_type).lower()[:100] or None
+    # A document read for a template is of its kind, which the catalogue filters by.
+    document.doc_type = (
+        template.doc_type if template else clean_text(profile.doc_type).lower()[:100] or None
+    )
+    document.template = template.doc_type if template else None
     document.doc_date = parse_iso_date(profile.doc_date)
     document.summary = profile.summary.strip() or None
 
@@ -933,12 +946,34 @@ def _enrich(session: Session, document: Document, services: Services, meter: Met
             )
 
     session.execute(delete(Fact).where(Fact.document_id == document.id))
-    facts = _fact_rows(session, document, analysis.facts, blocks, analysis.sampled)
+    facts = _fact_rows(session, document, analysis.facts, blocks, analysis.sampled, template)
     session.add_all(facts)
     summarized = sum(1 for section in sections if section.summary)
     detail = f"{summarized} section summaries, {len(facts)} facts"
+    if template is not None:
+        detail += _read_for(template, facts)
     if analysis.reading is not None:
         detail += _partly_read(analysis.reading, document.page_count)
+    return detail
+
+
+def _templates(session: Session, document: Document) -> list[Template]:
+    """The extraction templates the document's facts may be read for (app/extraction.py): those
+    in force for its project, where its organisation has the feature, else none."""
+    org_id = session.scalar(select(Project.org_id).where(Project.id == document.project_id))
+    if org_id is None or not flag_on_for(session, org_id, EXTRACTION_TEMPLATES):
+        return []
+    return templates_for(session, document.project_id)
+
+
+def _read_for(template: Template, facts: Sequence[Fact]) -> str:
+    """What the enrich stage's detail adds for a document read for a template: which, and the
+    fields every document of its kind should state that this one was not found to."""
+    found = {fact.name for fact in facts}
+    missing = [f.name for f in template.fields if f.required and f.name not in found]
+    detail = f", by the {template.doc_type} template"
+    if missing:
+        detail += f" (not found: {', '.join(missing)})"
     return detail
 
 
@@ -968,10 +1003,12 @@ def _fact_rows(
     extracted: list[ExtractedFact],
     blocks: Sequence[Block],
     sampled: frozenset[int] = frozenset(),
+    template: Template | None = None,
 ) -> list[Fact]:
     """The facts as rows, each linked to the block its quote is in and that block's passage;
     none from a block in `sampled`, a table the model was shown in part (app/indexing/
-    enrich.py)."""
+    enrich.py). A fact of a field of the template the document was read for is of the field's
+    type, whatever the reply said, so that a project's `total_amount` facts are all money."""
     by_ordinal = {block.ordinal: block for block in blocks}
     normalized = {block.ordinal: _normalize(block.text) for block in blocks}
     # Where each passage is, and no more: a document's passages may be tens of thousands,
@@ -1008,15 +1045,17 @@ def _fact_rows(
                 (p for p in passages if p.block_start <= block.ordinal < p.block_end),
                 None,
             )
+        field = template.field(name) if template else None
+        kind = field.type if field else fact.type
         rows.append(
             Fact(
                 document_id=document.id,
                 project_id=document.project_id,
                 name=name,
-                value_type=fact.type,
+                value_type=kind,
                 value=value[:2000],
-                number=fact.number if fact.type in ("number", "money") else None,
-                date=parse_iso_date(fact.date) if fact.type == "date" else None,
+                number=fact.number if kind in ("number", "money") else None,
+                date=parse_iso_date(fact.date) if kind == "date" else None,
                 currency=(fact.currency or "").upper()[:10] or None,
                 quote=clean_text(fact.quote)[:1000] or None,
                 page=block.page if block else None,

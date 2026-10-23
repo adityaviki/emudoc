@@ -24,8 +24,20 @@ from app.models import Organization
 from tests.test_audit import actions
 
 
+def only_registered(monkeypatch) -> None:
+    """The registry without the code's own flags, so that a test counts only those it
+    registers."""
+    for name in list(FLAGS):
+        monkeypatch.delitem(FLAGS, name)
+
+
+@pytest.fixture(autouse=True)
+def alone(monkeypatch):
+    only_registered(monkeypatch)
+
+
 def registered(monkeypatch, name: str = "early", share: int = 0) -> str:
-    """A flag of the test's own in the registry, which holds none of its own yet."""
+    """A flag of the test's own in the registry, beside the code's own ones."""
     monkeypatch.setitem(FLAGS, name, Flag(f"{name.title()} access", share=share))
     return name
 

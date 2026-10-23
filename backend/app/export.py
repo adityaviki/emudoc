@@ -31,6 +31,7 @@ import tempfile
 import zipfile
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from itertools import count
 from pathlib import Path, PurePosixPath
@@ -42,6 +43,7 @@ from app.accounts import zone_of
 from app.bounces import address_hash
 from app.db import SessionLocal
 from app.errors import summary
+from app.extraction import templates_for
 from app.folders import PATH_SEPARATOR, folder_paths
 from app.jobs import EXPORT_PROJECT, Lease, LeaseLost, enqueue, renew
 from app.mail import in_organization, project_export_email
@@ -89,8 +91,10 @@ from app.schemas import (
     ExportedSection,
     ExportedSession,
     ExportedSpared,
+    ExportedTemplate,
     ExportedUsage,
     ProjectExportFile,
+    TemplateFieldOut,
 )
 from app.storage import Storage, export_key
 
@@ -129,8 +133,9 @@ PROJECT_ABOUT = (
     "lists the project, its folders, its documents and the chats about them: those shared with "
     "the project and the member's own, whose answers cite passages as [P<number>]. documents/ "
     "holds what was read from each document: its outline, its passages by number, and the facts "
-    "found in it, each with the passage it came from. What is in the trash is left out, and so "
-    "are other members' private chats."
+    "found in it, each with the passage it came from. templates holds the project's own "
+    "extraction templates, the fields its documents of each kind are read for. What is in the "
+    "trash is left out, and so are other members' private chats."
 )
 EXPORT_FAILED = (
     "The export could not be made. Ask for another; if that one fails too, write to support."
@@ -374,6 +379,7 @@ def _write(path: Path, export_id: int, storage: Storage) -> int:
             ),
             "exported_by": ExportedBy(name=user.name, email=user.email),
             "folders": sorted(folders.values(), key=str.lower),
+            "templates": _templates(session, project.id),
         }
     names = _Names()
     listed: list[ExportedDocument] = []
@@ -584,9 +590,24 @@ def _listed(document: Document, folder: str, original: str | None, data: str) ->
         doc_type=document.doc_type,
         doc_date=document.doc_date,
         summary=document.summary,
+        template=document.template,
         page_count=document.page_count,
         uploaded_at=document.created_at,
     )
+
+
+def _templates(session: Session, project_id: int) -> list[ExportedTemplate]:
+    """The project's own extraction templates (app/extraction.py), as its members wrote them."""
+    return [
+        ExportedTemplate(
+            doc_type=template.doc_type,
+            title=template.title,
+            description=template.description,
+            fields=[TemplateFieldOut(**asdict(field)) for field in template.fields],
+        )
+        for template in templates_for(session, project_id)
+        if template.id is not None
+    ]
 
 
 def _settle(

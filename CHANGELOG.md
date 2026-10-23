@@ -44,6 +44,17 @@ Members:
 
 Operators:
 
+- Extraction templates, the first of tier 3's features, behind the feature flag
+  `extraction_templates` at 0, so off for every organisation until it is turned on for one in
+  the operator's area or with `flags <slug> extraction_templates on`. A template is the fields a
+  kind of document is read for: six built in (invoice, contract, purchase order, receipt, bank
+  statement, delivery note) and up to twelve of a project's own, in a new table,
+  `extraction_templates`, with `documents.template`, the kind a document's facts were read for
+  (a migration). Where the flag is on, the enrich stage lists the project's templates in each
+  document's first request, a few thousand tokens more a document, the library has an
+  "Extraction templates" button, and the audit log records a template made, changed and
+  deleted. A project's export lists its own templates, and each document's template (null
+  without one), wherever the flag stands.
 - Each worker says it runs, at its start and with every heartbeat, and says it stopped at its
   stop, in a new table, `workers` (a migration). `/api/status` adds `workers` (`running`,
   `error`): no worker seen for three minutes is "Background work off" in the members' header,

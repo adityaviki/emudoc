@@ -50,6 +50,8 @@ export interface Workspace {
   setSearch(q: string, folderId?: number | null): void
   /** Shows the project's trash in the library; going to a folder leaves it. */
   showTrash(): void
+  /** Shows the project's extraction templates in the library, likewise. */
+  showTemplates(): void
   openChat(chatId: number | 'new' | null, options?: { replace?: boolean }): void
   /** Which pane shows on a narrow screen, where only one fits. */
   mobilePane: Pane

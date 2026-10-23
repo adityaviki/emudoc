@@ -12,6 +12,7 @@ import {
   Pencil,
   RefreshCw,
   Search,
+  TableProperties,
   Trash2,
   Upload,
   WifiOff,
@@ -50,6 +51,7 @@ import type { Listing } from './listing.ts'
 import { useLibraryMutations } from './mutations.ts'
 import type { LibraryMutations } from './mutations.ts'
 import { useWorkspace } from './state.ts'
+import { TemplatesView } from './Templates.tsx'
 import { TrashView } from './Trash.tsx'
 import { UploadPanel } from './UploadPanel.tsx'
 import { UploadStopped, isAbort, uploadStopped } from './uploads.ts'
@@ -123,7 +125,10 @@ export function Library() {
   const stopped = upload.error instanceof UploadStopped ? upload.error : null
   const cutOff = stopped && uploadCutOff(stopped.error, stopped.unsent.length)
   const stoppedByMember = stopped && isAbort(stopped.error) ? uploadStopped(stopped.unsent.length) : null
-  const changes = mayChange(useMe().role)
+  const me = useMe()
+  const changes = mayChange(me.role)
+  // Behind its flag while it is rolled out (backend/app/flags.py).
+  const templates = me.organization.flags_on.includes('extraction_templates')
   // The sample project takes no uploads: it counts against nothing on the plan (backend/app/sample).
   const uploads = changes && !project.sample
   const health = useStatus()
@@ -168,6 +173,7 @@ export function Library() {
   const partlyHeld = restHeld(project.unenriched_count ? ['enrich', 'embed'] : ['embed'], health.data)
 
   if (workspace.url.library.trash) return <TrashView />
+  if (workspace.url.library.templates && templates) return <TemplatesView />
   return (
     <div
       data-tour="library"
@@ -201,6 +207,15 @@ export function Library() {
             aria-label="Trash"
             className="px-2"
           />
+          {templates && (
+            <Button
+              icon={<TableProperties className="size-4" />}
+              onClick={workspace.showTemplates}
+              title="Extraction templates: the fields each kind of document is read for"
+              aria-label="Extraction templates"
+              className="px-2"
+            />
+          )}
           {changes && (
             <>
               <Button

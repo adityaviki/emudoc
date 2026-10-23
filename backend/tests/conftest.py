@@ -157,6 +157,8 @@ from app.indexing.enrich import (  # noqa: E402
     InferredSections,
     ProfileWithSections,
     SectionSummary,
+    TemplatedDocumentAnalysis,
+    TemplatedWindowAnalysis,
     WindowAnalysis,
 )
 from app.indexing.pipeline import Services, process_document  # noqa: E402
@@ -241,6 +243,10 @@ class FakeLLM:
         self.agent_turns: list[FakeTurn] = []
         self.agent_requests: list[list] = []
         self.agent_prompts: list[str] = []
+        # The extraction template a request that lists them names, as the model would.
+        self.template: str | None = None
+        # Facts every reply that reads a document adds to those the fake finds itself.
+        self.more_facts: list[ExtractedFact] = []
 
     def problem(self) -> str | None:
         return None if self.available else MISSING_KEY
@@ -283,9 +289,13 @@ class FakeLLM:
         }
         if schema is ProfileWithSections:
             return ProfileWithSections(**profile, sections=sections)
-        facts = self._facts(content)
+        facts = self._facts(content) + self.more_facts
         if schema is WindowAnalysis:
             return WindowAnalysis(sections=sections, facts=facts)
+        if schema is TemplatedWindowAnalysis:
+            return schema(template=self.template, sections=sections, facts=facts)
+        if schema is TemplatedDocumentAnalysis:
+            return schema(**profile, template=self.template, sections=sections, facts=facts)
         assert schema is DocumentAnalysis
         return DocumentAnalysis(**profile, sections=sections, facts=facts)
 

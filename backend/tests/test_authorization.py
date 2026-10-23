@@ -12,16 +12,19 @@ from tests.conftest import FakeTurn
 from tests.test_api import create_project, upload
 from tests.test_chats import answered, ask, new_chat
 from tests.test_folders import make_folder
+from tests.test_templates import INVOICE, turn_on
 
 Route = tuple[str, str, dict]
 
 
 @dataclass
 class World:
-    """A project with a folder, an indexed document, the upload it came in with, and a chat
-    holding one answered question, and in its trash a folder, a document and a chat; another
-    project in the trash; an invitation to the organisation and an API key of it, all made by
-    the local owner in the local organisation, and another member of it."""
+    """A project with a folder, an indexed document, the upload it came in with, an extraction
+    template of its own, and a chat holding one answered question, and in its trash a folder, a
+    document and a chat; another project in the trash; an invitation to the organisation and an
+    API key of it, all made by the local owner in the local organisation, and another member of
+    it. The extraction templates are on for every organisation, so that what refuses another
+    organisation is the project's scope, not the flag."""
 
     org_id: int
     project_id: int
@@ -39,10 +42,12 @@ class World:
     trashed_project_id: int
     export_id: int
     upload_id: int
+    template_id: int
 
 
 @pytest.fixture
-def world(client, services, sample_pdf, account, make_account) -> World:
+def world(client, services, sample_pdf, account, make_account, monkeypatch) -> World:
+    turn_on(monkeypatch)
     project = create_project(client)
     folder = make_folder(client, project["id"], "Contracts")
     uploaded = upload(client, project["id"], sample_pdf)
@@ -64,6 +69,7 @@ def world(client, services, sample_pdf, account, make_account) -> World:
     trashed_chat = new_chat(client, project["id"])
     trashed_project = create_project(client, "Archive")
     exported = client.post(f"/api/projects/{project['id']}/exports")
+    template = client.post(f"/api/projects/{project['id']}/templates", json=INVOICE)
     for path in (
         f"/api/folders/{trashed_folder['id']}",
         f"/api/documents/{note['id']}",
@@ -88,6 +94,7 @@ def world(client, services, sample_pdf, account, make_account) -> World:
         trashed_project["id"],
         exported.json()["id"],
         uploaded["upload_id"],
+        template.json()["id"],
     )
 
 
@@ -103,6 +110,7 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/projects/{w.project_id}/search", {"params": {"q": "notice"}}),
         ("GET", f"/api/projects/{w.project_id}/facts", {}),
         ("GET", f"/api/projects/{w.project_id}/facts/names", {}),
+        ("GET", f"/api/projects/{w.project_id}/templates", {}),
         ("GET", f"/api/documents/{w.document_id}", {}),
         ("GET", f"/api/documents/{w.document_id}/file", {}),
         ("GET", f"/api/documents/{w.document_id}/pages/1.png", {}),
@@ -127,12 +135,19 @@ def writes(w: World) -> list[Route]:
         ("POST", f"/api/projects/{w.project_id}/folders", {"json": {"name": "Invoices"}}),
         (
             "POST",
+            f"/api/projects/{w.project_id}/templates",
+            {"json": {**INVOICE, "doc_type": "credit note"}},
+        ),
+        ("PUT", f"/api/templates/{w.template_id}", {"json": INVOICE}),
+        (
+            "POST",
             f"/api/projects/{w.project_id}/documents",
             {"files": [("files", ("other.txt", b"Some other file."))]},
         ),
         ("PATCH", f"/api/folders/{w.folder_id}", {"json": {"name": "Renamed"}}),
         ("PATCH", f"/api/documents/{w.document_id}", {"json": {"filename": "renamed.pdf"}}),
         ("POST", f"/api/documents/{w.document_id}/reprocess", {}),
+        ("DELETE", f"/api/templates/{w.template_id}", {}),
         ("DELETE", f"/api/folders/{w.folder_id}", {}),
         ("DELETE", f"/api/documents/{w.document_id}", {}),
         ("DELETE", f"/api/projects/{w.project_id}", {}),

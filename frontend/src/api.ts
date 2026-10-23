@@ -95,6 +95,41 @@ export interface ProjectTrash {
   days: number
 }
 
+/** What a fact's value is, and so a template's field (FACT_TYPES in backend/app/models.py). */
+export type FactType = 'text' | 'number' | 'date' | 'money'
+
+/** A field of an extraction template (TemplateFieldOut in backend/app/schemas.py): the name its facts have, its type, what it is, whether every document of the kind should state it, and values as documents write them. */
+export interface TemplateField {
+  name: string
+  type: FactType
+  description: string
+  required: boolean
+  examples: string[]
+}
+
+/** An extraction template in force for a project (TemplateOut): its own, with an id, or a built-in one, which applies while the project has none of its kind. */
+export interface ExtractionTemplate {
+  id: number | null
+  doc_type: string
+  title: string
+  description: string
+  fields: TemplateField[]
+  built_in: boolean
+  /** A project's own template of a kind a built-in one is for, which it replaces. */
+  replaces_built_in: boolean
+  /** The project's documents whose facts were last read for it. */
+  documents: number
+  updated_at: string | null
+}
+
+/** A template as a member writes it, whole (TemplateIn): the server makes the kind lowercase words and the fields' names snake_case. */
+export interface TemplateInput {
+  doc_type: string
+  title: string
+  description: string
+  fields: TemplateField[]
+}
+
 /** A project's export the member asked for (ProjectExportOut in backend/app/schemas.py): being made, ready to download until it expires, or failed. */
 export interface ProjectExport {
   id: number
@@ -145,6 +180,8 @@ export interface Document {
   doc_type: string | null
   doc_date: string | null
   summary: string | null
+  /** The kind of the extraction template its facts were read for (backend/app/extraction.py), if any. */
+  template: string | null
   usage: Partial<Record<UsageKind, Usage>>
   created_at: string
 }
@@ -564,8 +601,8 @@ export interface Organization {
   flags_on: Flag[]
 }
 
-/** The names of the feature flags (FLAGS in backend/app/flags.py), so that a page that reads a misspelt one fails the build: none yet. */
-export type Flag = never
+/** The names of the feature flags (FLAGS in backend/app/flags.py), so that a page that reads a misspelt one fails the build. */
+export type Flag = 'extraction_templates'
 
 /** What the organisation page changes about the organisation (OrganizationChangeIn in backend/app/schemas.py). */
 export interface OrganizationChange {
@@ -956,6 +993,9 @@ export type AuditAction =
   | 'member_removed'
   | 'project_access_changed'
   | 'project_exported'
+  | 'template_created'
+  | 'template_changed'
+  | 'template_deleted'
   | 'project_deleted'
   | 'project_restored'
   | 'project_purged'
@@ -1515,6 +1555,15 @@ export const api = {
     request<{ queued: number }>(`/projects/${id}/reprocess${fromStage ? `?from_stage=${fromStage}` : ''}`, {
       method: 'POST',
     }),
+
+  /** The extraction templates in force for the project, its own first, and how many of its own it may have. */
+  templates: (projectId: number) =>
+    request<{ templates: ExtractionTemplate[]; max_templates: number }>(`/projects/${projectId}/templates`),
+  createTemplate: (projectId: number, body: TemplateInput) =>
+    request<ExtractionTemplate>(`/projects/${projectId}/templates`, json('POST', body)),
+  updateTemplate: (id: number, body: TemplateInput) => request<ExtractionTemplate>(`/templates/${id}`, json('PUT', body)),
+  /** For good; the built-in template of its kind, if any, applies again. */
+  deleteTemplate: (id: number) => request<void>(`/templates/${id}`, { method: 'DELETE' }),
 
   folders: (projectId: number) => request<Folder[]>(`/projects/${projectId}/folders`),
   createFolder: (projectId: number, body: { name: string; parent_id: number | null }) =>
