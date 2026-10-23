@@ -60,7 +60,7 @@ updates:
       actions:
         patterns: ["*"]
 
-  # The image's bases (Dockerfile, and the CI runner's in .github/runner) and the compose files'
+  # The image's bases (Dockerfile, and the CI runners' in ci-runner) and the compose files'
   # images, each pinned by digest. An update is the digest a tag was rebuilt with (Debian's security
   # updates, ClamAV's signatures) or a newer tag with its own. These two ecosystems take one
   # cooldown in days for both (the semver-*-days options make the whole file invalid, and Dependabot
@@ -71,7 +71,7 @@ updates:
   # request per ecosystem, without update-types, which would leave a digest out: Dependabot groups
   # by the version that changes, and a digest changes none.
   - package-ecosystem: docker
-    directories: [/, /.github/runner]
+    directories: [/, /ci-runner]
     schedule:
       interval: weekly
       day: monday
@@ -87,14 +87,17 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: python
         update-types: ["version-update:semver-minor"]
+      # The runners' Ubuntu stays the LTS that GitHub's ubuntu-24.04 runners are (24.10 is not).
+      - dependency-name: ubuntu
+        update-types: ["version-update:semver-minor"]
 
   # docker-compose.yml (the development database, the profiles), deploy/compose.yml (ClamAV and
   # llama.cpp's server beside the app), deploy/aws/compose.yml (Caddy) and
-  # .github/runner/compose.yml (the CI runners' Docker daemons). llama.cpp's `server` tag is its
+  # ci-runner/compose.yml (the CI runners' Docker daemons). llama.cpp's `server` tag is its
   # daily build: each Monday proposes that morning's digest, as the cooldown reads push dates from
   # Docker Hub alone, and CI's Embeddings job checks it.
   - package-ecosystem: docker-compose
-    directories: [/, /deploy, /deploy/aws, /.github/runner]
+    directories: [/, /deploy, /deploy/aws, /ci-runner]
     schedule:
       interval: weekly
       day: monday

@@ -45,7 +45,7 @@ env:
 jobs:
   python:
     name: Python dependencies
-    # This machine's runners (.github/runner) while the repository variable RUNNER names
+    # This machine's runners (ci-runner) while the repository variable RUNNER names
     # their label, else GitHub's; a pull request of Dependabot's always runs on GitHub's,
     # since what it brings in is nobody's code here yet. The other jobs run where this
     # one does.

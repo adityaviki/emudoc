@@ -13,11 +13,11 @@
 #
 #   # once, or after `down -v`: register the runners with a token that lasts an hour
 #   RUNNER_TOKEN=$(gh api -X POST repos/emudocai/emudoc/actions/runners/registration-token --jq .token) \
-#     docker compose -f .github/runner/compose.yml up -d --build
+#     docker compose -f ci-runner/compose.yml up -d --build
 #   gh variable set RUNNER --repo emudocai/emudoc --body emudoc    # the workflows use them
 #   gh variable delete RUNNER --repo emudocai/emudoc               # back to GitHub's runners
-#   docker compose -f .github/runner/compose.yml logs -f runner-1  # a runner's jobs
-#   docker compose -f .github/runner/compose.yml up -d             # after a change here
+#   docker compose -f ci-runner/compose.yml logs -f runner-1       # a runner's jobs
+#   docker compose -f ci-runner/compose.yml up -d --build          # after a change here
 #
 # They restart with Docker at boot. While this machine is off or the runners are stopped, a
 # job waits in the queue (up to a day) for one: delete the variable to run on GitHub's instead.
@@ -39,6 +39,9 @@ x-daemon: &daemon
     - --group=121
   environment:
     DOCKER_TLS_CERTDIR: ""
+  # Names are asked of these rather than through Docker Desktop's forwarder, which, two
+  # resolvers deep, once answered a burst of pip-audit's lookups with no address.
+  dns: [1.1.1.1, 8.8.8.8]
   healthcheck:
     test: ["CMD", "docker", "info"]
     interval: 5s

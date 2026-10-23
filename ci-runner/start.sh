@@ -14,7 +14,7 @@ cd /opt/actions-runner
 if [[ ! -f .runner ]]; then
   if [[ -z ${RUNNER_TOKEN:-} ]]; then
     echo "Runner $name is not registered yet: start it once with RUNNER_TOKEN set" \
-      "(.github/runner/compose.yml says how)." >&2
+      "(ci-runner/compose.yml says how)." >&2
     exit 1
   fi
   ./config.sh --unattended --replace --name "$name" --labels "$RUNNER_LABELS" \

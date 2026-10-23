@@ -4,7 +4,7 @@
 # Actions are pinned by commit and the tools that come as images by digest: a moved tag changes
 # nothing here until this file does. A push to main also pushes the image it checked and, once
 # every check passed, releases it on staging (deploying.md, "Releases from CI"). The jobs run on
-# a developer's machine while the repository variable RUNNER says so (.github/runner).
+# a developer's machine while the repository variable RUNNER says so (ci-runner).
 name: CI
 
 on:
@@ -35,7 +35,7 @@ env:
 jobs:
   backend:
     name: Backend (${{ matrix.database }})
-    # This machine's runners (.github/runner) while the repository variable RUNNER names
+    # This machine's runners (ci-runner) while the repository variable RUNNER names
     # their label, else GitHub's; a pull request of Dependabot's always runs on GitHub's,
     # since what it brings in is nobody's code here yet. The other jobs run where this
     # one does.

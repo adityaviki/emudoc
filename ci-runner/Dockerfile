@@ -1,10 +1,11 @@
 # A self-hosted GitHub Actions runner for CI and Audit (compose.yml beside it): Ubuntu 24.04, as
 # GitHub's ubuntu-24.04 runners, with what the workflows take from those runners' image rather
 # than set up themselves (git, Python 3 for the stand-in model and the scripts, the Docker CLI
-# with buildx and compose, sudo for the libraries Playwright installs). Node, pnpm, uv and
-# OpenTofu come from the workflows' setup actions, at the versions they name.
+# with buildx and compose, sudo for the libraries Playwright installs, libatomic for pnpm's
+# binary). Node, pnpm, uv and OpenTofu come from the workflows' setup actions, at the versions
+# they name.
 #
-#   docker compose -f .github/runner/compose.yml build
+#   docker compose -f ci-runner/compose.yml build
 
 # The CLI and its plugins of the daemon each runner talks to, so that the two are one release.
 FROM docker:29.9.2-dind@sha256:9e79b879b177fbd72c34376a3dd3d91747da5db49e1f560f76aea59561471977 AS docker
@@ -21,8 +22,8 @@ ARG DOCKER_GID=121
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 TZ=Etc/UTC
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl git jq python3 sudo \
-        tzdata unzip xz-utils zstd \
+    && apt-get install -y --no-install-recommends ca-certificates curl git jq libatomic1 \
+        python3 sudo tzdata unzip xz-utils zstd \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker
