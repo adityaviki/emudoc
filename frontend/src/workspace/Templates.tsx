@@ -78,9 +78,6 @@ export function TemplatesView() {
   const readAgain = useMutation({
     mutationFn: (read: ReadAgain) => api.readAgain(project.id, read.ask),
     onMutate: () => setRefused(null),
-    // The button that asked goes: the keyboard goes on from the one that shows what changed.
-    onSuccess: () =>
-      requestAnimationFrame(() => (window.document.getElementById(`${id}-changes`) ?? heading.current)?.focus()),
     onError: fail,
     onSettled: () => {
       for (const queryKey of [
@@ -111,6 +108,12 @@ export function TemplatesView() {
   // The documents the last change offers to read again, until they are.
   const offer = changes && done?.read && done.read.documents > 0 && !readAgain.isSuccess ? done.read : null
   const queued = readAgain.isSuccess ? readAgain.data.queued : null
+  // The button that asked went with the render that queued them, the focus with it: the keyboard
+  // goes on from the one that shows what changed, drawn by then.
+  useEffect(() => {
+    if (queued == null || (window.document.activeElement && window.document.activeElement !== window.document.body)) return
+    ;(window.document.getElementById(`${id}-changes`) ?? heading.current)?.focus()
+  }, [queued, id])
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-page">
