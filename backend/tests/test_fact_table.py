@@ -82,7 +82,11 @@ def templates_on(monkeypatch):
 
 
 @pytest.fixture
-def three(client, session):
+def three(client, session) -> int:
+    return invoices(client, session)
+
+
+def invoices(client, session) -> int:
     """A project of three invoices, a contract, an invoice in the trash and one read for no
     template, and an invoice of another project."""
     project = create_project(client)["id"]

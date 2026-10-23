@@ -1,9 +1,9 @@
-import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { ArrowDown, ArrowLeft, ArrowUp, ListFilter, Search, X } from 'lucide-react'
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowDown, ArrowLeft, ArrowUp, Check, FileSearch, History, ListChecks, ListFilter, PenLine, Search, TriangleAlert, Undo2, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { FocusEvent, KeyboardEvent } from 'react'
 import { api } from '../api.ts'
-import type { ExtractionTemplate, Fact, FactRow, TemplateField } from '../api.ts'
+import type { ExtractionTemplate, Fact, FactCheck, FactCheckInput, FactRow, TemplateField } from '../api.ts'
 import { Floating } from '../components/Menu.tsx'
 import { Button, EmptyState, IconButton, InputField, Loading, Notice, SelectField, Spinner } from '../components/ui.tsx'
 import {
@@ -11,17 +11,26 @@ import {
   ariaSort,
   cellAfter,
   cellDescription,
+  cellMark,
   cellWords,
+  checkWords,
   conditionProblem,
   conditionWords,
+  correctionOf,
+  correctionProblem,
+  draftOf,
+  earlierWords,
   factTableKey,
+  factTablesKey,
   fieldWords,
   nextSort,
   operatorsFor,
   quoteWords,
+  reviewWords,
   rowsWords,
   sourceOf,
   tableQuery,
+  valueless,
 } from '../factTable.ts'
 import type { Operator, TableAsk, TableCondition, TableSort } from '../factTable.ts'
 import { templatesKey } from '../templates.ts'
@@ -30,8 +39,9 @@ import { useWorkspace } from './state.ts'
 /**
  * The facts table of the project's documents of one kind, in the library's place: a row for each
  * document read for the kind's template, a column for each of its fields, sorted by a column's
- * header and kept by the words and conditions above it. A cell shows its field's first fact,
- * its quote on hover or focus, and opens it where it was found in the document.
+ * header and kept by the words and conditions above it, or to the rows with a fact nobody checked.
+ * A cell shows its field's first fact, its quote on hover or focus, and opens its facts to check,
+ * correct or open where they were found in the document.
  */
 export function FactsView({ kind }: { kind: string }) {
   const workspace = useWorkspace()
@@ -45,6 +55,8 @@ export function FactsView({ kind }: { kind: string }) {
   const [typed, setTyped] = useState('')
   const [words, setWords] = useState('')
   const [adding, setAdding] = useState(false)
+  const [review, setReview] = useState(false)
+  const grid = useRef<HTMLDivElement>(null)
   // Another kind chosen starts its table afresh, the choice keeping the focus where it is.
   const [shownKind, setShownKind] = useState(kind)
   if (kind !== shownKind) {
@@ -54,6 +66,7 @@ export function FactsView({ kind }: { kind: string }) {
     setTyped('')
     setWords('')
     setAdding(false)
+    setReview(false)
   }
   useEffect(() => {
     const timer = window.setTimeout(() => setWords(typed.trim()), 300)
@@ -65,7 +78,7 @@ export function FactsView({ kind }: { kind: string }) {
   }, [])
 
   const templates = useQuery({ queryKey: templatesKey(project.id), queryFn: () => api.templates(project.id) })
-  const ask: TableAsk = { kind, sort, conditions, words }
+  const ask: TableAsk = { kind, sort, conditions, words, review }
   const table = useInfiniteQuery({
     queryKey: factTableKey(project.id, ask),
     queryFn: ({ pageParam }) => api.factTable(project.id, tableQuery(ask, pageParam)),
@@ -77,7 +90,14 @@ export function FactsView({ kind }: { kind: string }) {
   const first = table.data?.pages[0]
   const template = first?.template
   const rows = table.data?.pages.flatMap((page) => page.rows) ?? []
-  const filtered = conditions.length > 0 || words !== ''
+  const filtered = conditions.length > 0 || words !== '' || review
+  // A change that took the row holding the focus out of a table of the rows to review: the
+  // keyboard goes on from the grid's cell where it was, or the heading once no row is left.
+  const restore = () =>
+    window.requestAnimationFrame(() => {
+      if (document.activeElement && document.activeElement !== document.body) return
+      ;(grid.current?.querySelector<HTMLElement>('[data-cell][tabindex="0"]') ?? heading.current)?.focus()
+    })
   // The kinds to choose from: those of the templates with documents read for them, and this one.
   const kinds = (templates.data?.templates ?? []).filter((other) => other.documents > 0 || other.doc_type === kind)
 
@@ -138,6 +158,9 @@ export function FactsView({ kind }: { kind: string }) {
           >
             Condition
           </Button>
+          <Button icon={<ListChecks className="size-4" />} aria-pressed={review} disabled={!template} onClick={() => setReview(!review)}>
+            To review
+          </Button>
         </div>
         {adding && template && (
           <ConditionForm
@@ -177,7 +200,7 @@ export function FactsView({ kind }: { kind: string }) {
         )}
         {first && (
           <p role="status" className="flex items-center gap-1.5 text-xs text-muted">
-            {rowsWords(first.total, first.template.documents, filtered)}
+            {rowsWords(first.total, first.template.documents, filtered)}, {reviewWords(first.to_review)}
             {table.isPlaceholderData && <Spinner className="size-3" />}
           </p>
         )}
@@ -190,15 +213,34 @@ export function FactsView({ kind }: { kind: string }) {
           </div>
         )}
         {template && first && first.total === 0 && (
-          <EmptyState title={filtered ? 'No document meets these conditions' : `No document has been read for the ${template.title} template yet`}>
-            {filtered
+          <EmptyState
+            title={
+              review && first.template.documents > 0 && conditions.length === 0 && words === ''
+                ? 'Every fact of these documents is checked'
+                : filtered
+                  ? 'No document meets these conditions'
+                  : `No document has been read for the ${template.title} template yet`
+            }
+          >
+            {review && conditions.length === 0 && words === ''
+              ? 'Each fact a member checked or corrected is marked in its cell. Turn off “To review” to see every document.'
+              : filtered
               ? 'Remove a condition, or find other words.'
               : `Documents of the kind uploaded from now on are read for it, and those here already once they are read again from the templates.`}
           </EmptyState>
         )}
         {template && rows.length > 0 && (
           <>
-            <Grid template={template} rows={rows} total={first?.total ?? rows.length} sort={sort} onSort={(field) => setSort(nextSort(sort, field))} />
+            <div ref={grid}>
+              <Grid
+                template={template}
+                rows={rows}
+                total={first?.total ?? rows.length}
+                sort={sort}
+                onSort={(field) => setSort(nextSort(sort, field))}
+                onRemoved={restore}
+              />
+            </div>
             {table.hasNextPage && (
               <div className="p-3">
                 <Button disabled={table.isFetchingNextPage} onClick={() => void table.fetchNextPage()}>
@@ -227,12 +269,14 @@ function Grid({
   total,
   sort,
   onSort,
+  onRemoved,
 }: {
   template: ExtractionTemplate
   rows: FactRow[]
   total: number
   sort: TableSort
   onSort: (field: string | null) => void
+  onRemoved: () => void
 }) {
   const workspace = useWorkspace()
   const grid = useRef<HTMLTableElement>(null)
@@ -316,9 +360,20 @@ function Grid({
               </th>
               {template.fields.map((field, column) => {
                 const facts = row.cells[field.name] ?? []
+                const earlier = row.earlier[field.name] ?? []
                 const cell = `${line}:${column + 1}`
-                return facts.length ? (
-                  <FactCell key={field.name} cell={cell} tabIndex={stop(line, column + 1)} field={field} facts={facts} documentId={row.document_id} />
+                return facts.length || earlier.length ? (
+                  <FactCell
+                    key={field.name}
+                    cell={cell}
+                    tabIndex={stop(line, column + 1)}
+                    field={field}
+                    facts={facts}
+                    earlier={earlier}
+                    documentId={row.document_id}
+                    title={row.title}
+                    onRemoved={onRemoved}
+                  />
                 ) : (
                   <td
                     key={field.name}
@@ -340,28 +395,34 @@ function Grid({
 }
 
 /**
- * A cell of facts: its first value, and how many more. Hovering or focusing it shows each fact's
- * quote and page; a cell of one fact opens it in the document, a cell of several lists them to
- * open one.
+ * A cell of facts: its first value, how many more, and a mark for what a member should know of
+ * them. Hovering or focusing it shows each fact's quote and check; pressing it opens its facts,
+ * each to check, correct or open in the document, and a check made before the document was read
+ * again that no fact holds, to forget.
  */
 function FactCell({
   cell,
   tabIndex,
   field,
   facts,
+  earlier,
   documentId,
+  title,
+  onRemoved,
 }: {
   cell: string
   tabIndex: number
   field: TemplateField
   facts: Fact[]
+  earlier: FactCheck[]
   documentId: number
+  title: string
+  onRemoved: () => void
 }) {
-  const workspace = useWorkspace()
   const described = useId()
   const button = useRef<HTMLButtonElement>(null)
   const [preview, setPreview] = useState<DOMRect | null>(null)
-  const [listing, setListing] = useState<DOMRect | null>(null)
+  const [panel, setPanel] = useState<DOMRect | null>(null)
   const timer = useRef<number | undefined>(undefined)
   const show = () => {
     window.clearTimeout(timer.current)
@@ -373,7 +434,8 @@ function FactCell({
   }
   useEffect(() => () => window.clearTimeout(timer.current), [])
   const { value, more } = cellWords(facts)
-  const open = (fact: Fact) => workspace.openDocument(documentId, sourceOf(fact))
+  const mark = cellMark(facts, earlier)
+  const Mark = mark === 'checked' ? Check : mark === 'flagged' ? TriangleAlert : mark === 'changed' ? History : null
 
   return (
     <td className="border-b border-line px-1 py-1">
@@ -383,7 +445,7 @@ function FactCell({
         data-cell={cell}
         tabIndex={tabIndex}
         aria-describedby={described}
-        aria-haspopup={more > 0 ? 'dialog' : undefined}
+        aria-haspopup="dialog"
         onMouseEnter={show}
         onMouseLeave={hide}
         onFocus={show}
@@ -391,18 +453,20 @@ function FactCell({
         onClick={() => {
           window.clearTimeout(timer.current)
           setPreview(null)
-          if (more > 0) setListing(button.current?.getBoundingClientRect() ?? null)
-          else open(facts[0])
+          // Opened, and measured, once the table has scrolled to the cell the click focused,
+          // whose scroll would otherwise close the panel as it opens.
+          window.requestAnimationFrame(() => setPanel(button.current?.getBoundingClientRect() ?? null))
         }}
         className="flex max-w-60 items-center gap-1 rounded px-1 py-0.5 text-left whitespace-nowrap transition hover:bg-sunken focus-visible:-outline-offset-2!"
       >
-        <span className="truncate">{value}</span>
+        <span className={`truncate ${facts.length ? '' : 'text-muted'}`}>{facts.length ? value : '—'}</span>
         {more > 0 && <span className="shrink-0 rounded bg-sunken px-1 text-[11px] font-medium text-muted">+{more}</span>}
+        {Mark && <Mark aria-hidden="true" className={`size-3.5 shrink-0 ${mark === 'checked' ? 'text-good' : 'text-warn'}`} />}
       </button>
       <span id={described} className="sr-only">
-        {cellDescription(facts)}
+        {cellDescription(facts, earlier)}
       </span>
-      {preview && !listing && (
+      {preview && !panel && (
         <Floating anchor={preview} onClose={() => setPreview(null)} ignore={button} preview className="w-80 max-w-[90vw]">
           <div onMouseEnter={show} onMouseLeave={hide} className="text-[13px]">
             <p className="border-b border-line bg-sunken/50 px-3 py-1.5 text-xs font-medium text-muted">{fieldWords(field.name)}</p>
@@ -411,37 +475,222 @@ function FactCell({
                 <li key={fact.id} className="px-3 py-1.5">
                   <p className="font-medium break-words">{fact.value}</p>
                   <p className="text-xs text-muted">{quoteWords(fact)}</p>
+                  {fact.check && <p className="text-xs text-good">{checkWords(fact.check)}</p>}
+                </li>
+              ))}
+              {earlier.map((check) => (
+                <li key={`earlier-${check.id}`} className="px-3 py-1.5 text-xs text-warn">
+                  {earlierWords(check)}
                 </li>
               ))}
             </ul>
           </div>
         </Floating>
       )}
-      {listing && (
-        <Floating anchor={listing} onClose={() => setListing(null)} ignore={button} className="w-80 max-w-[90vw]">
-          <div role="dialog" aria-label={`Each ${fieldWords(field.name)}`} className="text-[13px]">
-            <p className="border-b border-line bg-sunken/50 px-3 py-1.5 text-xs font-medium text-muted">Open one in the document</p>
-            <ul className="max-h-72 overflow-y-auto p-1">
+      {panel && (
+        <Floating anchor={panel} onClose={() => setPanel(null)} ignore={button} className="w-96 max-w-[90vw]">
+          <div role="dialog" aria-label={`${fieldWords(field.name)} of ${title}`} className="text-[13px]">
+            <p className="border-b border-line bg-sunken/50 px-3 py-1.5 text-xs font-medium text-muted">
+              {fieldWords(field.name)} · {title}
+            </p>
+            <ul className="max-h-96 divide-y divide-line overflow-y-auto">
               {facts.map((fact) => (
-                <li key={fact.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setListing(null)
-                      open(fact)
-                    }}
-                    className="block w-full rounded px-2 py-1.5 text-left transition hover:bg-sunken"
-                  >
-                    <span className="block font-medium break-words">{fact.value}</span>
-                    <span className="block text-xs text-muted">{quoteWords(fact)}</span>
-                  </button>
-                </li>
+                <FactItem
+                  key={fact.id}
+                  fact={fact}
+                  onOpen={() => setPanel(null)}
+                  documentId={documentId}
+                  onRemoved={onRemoved}
+                />
+              ))}
+              {earlier.map((check) => (
+                <EarlierItem key={`earlier-${check.id}`} check={check} onRemoved={onRemoved} />
               ))}
             </ul>
           </div>
         </Floating>
       )}
     </td>
+  )
+}
+
+/** A fact in its cell's panel: its value, where it was read and who checked it, and the buttons that check, correct or open it. */
+function FactItem({ fact, documentId, onOpen, onRemoved }: { fact: Fact; documentId: number; onOpen: () => void; onRemoved: () => void }) {
+  const workspace = useWorkspace()
+  const [correcting, setCorrecting] = useState(false)
+  const change = useFactChange(onRemoved)
+  const check = fact.check
+  // The form gives the keyboard back to the button that opened it, once that is on the page again.
+  const returning = useRef(false)
+  const correct = (button: HTMLButtonElement | null) => {
+    if (!button || !returning.current) return
+    returning.current = false
+    button.focus()
+  }
+  const back = () => {
+    returning.current = true
+    setCorrecting(false)
+  }
+  // A button pressed waits for its answer without being disabled, which would drop the focus it holds.
+  const busy = change.isPending
+
+  return (
+    <li className="space-y-1 px-3 py-2">
+      <p className="font-medium break-words">{fact.value}</p>
+      <p className="text-xs text-muted">{quoteWords(fact)}</p>
+      <p className={`flex items-center gap-1 text-xs ${check ? 'text-good' : fact.verified ? 'text-muted' : 'text-warn'}`}>
+        {check ? <Check aria-hidden="true" className="size-3.5 shrink-0" /> : !fact.verified && <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />}
+        {check ? checkWords(check) : 'Not checked.'}
+      </p>
+      {correcting ? (
+        <CorrectionForm
+          fact={fact}
+          pending={busy}
+          onCancel={back}
+          onSave={(body) => {
+            if (!busy) change.mutate({ fact, body }, { onSuccess: back })
+          }}
+        />
+      ) : (
+        <div className="flex flex-wrap gap-1.5 pt-1">
+          <Button
+            icon={check ? <Undo2 className="size-4" /> : <Check className="size-4" />}
+            aria-disabled={busy}
+            onClick={() => {
+              if (!busy) change.mutate(check ? { check } : { fact, body: {} })
+            }}
+          >
+            {check ? 'Take back the check' : 'Check'}
+          </Button>
+          <Button ref={correct} icon={<PenLine className="size-4" />} aria-disabled={busy} onClick={() => !busy && setCorrecting(true)}>
+            Correct…
+          </Button>
+          <Button
+            icon={<FileSearch className="size-4" />}
+            onClick={() => {
+              onOpen()
+              workspace.openDocument(documentId, sourceOf(fact))
+            }}
+          >
+            Open in the document
+          </Button>
+        </div>
+      )}
+      {change.isError && (
+        <p role="alert" className="text-xs text-bad">
+          {change.error.message}
+        </p>
+      )}
+    </li>
+  )
+}
+
+/** A check no fact holds since the document was read again: what the member said, and the button that forgets it. */
+function EarlierItem({ check, onRemoved }: { check: FactCheck; onRemoved: () => void }) {
+  const change = useFactChange(onRemoved)
+  return (
+    <li className="space-y-1 px-3 py-2">
+      <p className="flex items-start gap-1 text-xs text-warn">
+        <History aria-hidden="true" className="mt-px size-3.5 shrink-0" />
+        {earlierWords(check)}
+      </p>
+      <Button icon={<X className="size-4" />} aria-disabled={change.isPending} onClick={() => !change.isPending && change.mutate({ check })}>
+        Forget it
+      </Button>
+      {change.isError && (
+        <p role="alert" className="text-xs text-bad">
+          {change.error.message}
+        </p>
+      )}
+    </li>
+  )
+}
+
+/** What a member does to a fact from its panel: check or correct it (`body`), or take a check back. */
+type FactChange = { fact: Fact; body: FactCheckInput; check?: undefined } | { check: FactCheck; fact?: undefined; body?: undefined }
+
+/** Check, correct or take back, then load the project's tables again; `onRemoved` once they are, for a row the change took out of a table kept to the rows to review. */
+function useFactChange(onRemoved: () => void) {
+  const { project } = useWorkspace()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (change: FactChange) => {
+      if (change.check) await api.removeCheck(change.check.id)
+      else await api.checkFact(change.fact.id, change.body)
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: factTablesKey(project.id) })
+      onRemoved()
+    },
+  })
+}
+
+/** The value the document states, as the fact's type takes it: words, a number, an amount and its currency, or a date. */
+function CorrectionForm({
+  fact,
+  pending,
+  onSave,
+  onCancel,
+}: {
+  fact: Fact
+  pending: boolean
+  onSave: (body: FactCheckInput) => void
+  onCancel: () => void
+}) {
+  const [draft, setDraft] = useState(() => draftOf(fact))
+  const [problem, setProblem] = useState<string | null>(null)
+  const type = fact.value_type
+  const numeric = type === 'number' || type === 'money'
+
+  return (
+    <form
+      aria-label={`Correct ${fact.value}`}
+      className="space-y-2 rounded-md border border-line bg-page p-2"
+      onSubmit={(event) => {
+        event.preventDefault()
+        const found = correctionProblem(type, draft.value)
+        if (found) setProblem(found)
+        else onSave(correctionOf(type, draft.value, draft.currency))
+      }}
+      onKeyDown={(event) => {
+        // Escape gives up the correction, and leaves the panel open.
+        if (event.key !== 'Escape') return
+        event.stopPropagation()
+        onCancel()
+      }}
+    >
+      <div className="flex gap-2">
+        <InputField
+          className="flex-1"
+          label={type === 'date' ? 'Date' : type === 'money' ? 'Amount' : numeric ? 'Number' : 'Value'}
+          type={type === 'date' ? 'date' : numeric ? 'number' : 'text'}
+          step={numeric ? 'any' : undefined}
+          value={draft.value}
+          autoFocus
+          onChange={(event) => setDraft({ ...draft, value: event.target.value })}
+        />
+        {type === 'money' && (
+          <InputField
+            className="w-20"
+            label="Currency"
+            maxLength={10}
+            value={draft.currency}
+            onChange={(event) => setDraft({ ...draft, currency: event.target.value })}
+          />
+        )}
+      </div>
+      {problem && (
+        <p role="alert" className="text-xs text-bad">
+          {problem}
+        </p>
+      )}
+      <div className="flex justify-end gap-2">
+        <Button onClick={onCancel}>Cancel</Button>
+        <Button type="submit" variant="primary" aria-disabled={pending}>
+          {pending ? 'Saving…' : 'Save'}
+        </Button>
+      </div>
+    </form>
   )
 }
 
@@ -464,7 +713,7 @@ function ConditionForm({
   const offered = operatorsFor(field?.type ?? 'text')
   // A field of another type may not take the condition chosen for the one before.
   const chosen = offered.some((other) => other.op === op) ? op : 'has'
-  const valued = chosen !== 'has' && chosen !== 'lacks'
+  const valued = !valueless(chosen)
   const compared = chosen === 'min' || chosen === 'max'
 
   return (

@@ -32,8 +32,9 @@ organisation uploaded a document about you, ask the organisation first; we help 
   someone guessing your password has paused sign-ins from other browsers. We keep them to keep
   your account secure, which is our legitimate interest.
 - **What you upload and ask**: the documents, what is read from them (their text, images of
-  their pages, summaries, facts and the search index), and your chats with their questions and
-  answers. We need them to provide the service.
+  their pages, summaries, facts and the search index), the facts you checked or corrected with
+  when, which your organisation's members see beside your name, and your chats with their
+  questions and answers. We need them to provide the service.
 - **Invitations**: the email address a member of an organisation invited to join it, the role
   offered and who sent it, to mail the invitation and let whoever holds the address join; the
   organisation's owners and admins see it until it is accepted or revoked. We need it to

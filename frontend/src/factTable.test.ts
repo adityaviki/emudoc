@@ -1,18 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import type { Fact, TemplateField } from './api.ts'
+import type { Fact, FactCheck, TemplateField } from './api.ts'
 import {
   BY_NAME,
   ariaSort,
   cellAfter,
   cellDescription,
+  cellMark,
   cellWords,
+  checkWords,
   conditionParam,
   conditionProblem,
   conditionWords,
+  correctionOf,
+  correctionProblem,
+  draftOf,
+  earlierWords,
   factTableKey,
   nextSort,
   operatorsFor,
   quoteWords,
+  reviewWords,
   rowsWords,
   sourceOf,
   tableQuery,
@@ -38,8 +45,20 @@ const fact = (patch: Partial<Fact> = {}): Fact => ({
   block_ordinal: 14,
   passage_id: 31,
   verified: true,
+  check: null,
   ...patch,
 })
+
+const checked = (patch: Partial<FactCheck> = {}): FactCheck => ({
+  id: 9,
+  checked_by: 'Ada',
+  checked_at: '2026-10-23T09:00:00Z',
+  corrected_from: null,
+  value: 'EUR 1,200.00',
+  ...patch,
+})
+// The day as the browser words it, which the tests do not hold to one locale.
+const DAY = new Date('2026-10-23T09:00:00Z').toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 
 describe('tableQuery', () => {
   it('asks for the kind, the sort, each condition, the words and the page', () => {
@@ -52,19 +71,21 @@ describe('tableQuery', () => {
           { field: 'due_date', op: 'lacks', value: 'ignored' },
         ],
         words: '  bolts ',
+        review: true,
       },
       'abc',
     )
     expect(query.toString()).toBe(
-      'kind=purchase+order&order=desc&sort=total_amount&filter=vendor_name%3Acontains%3Aacme&filter=due_date%3Alacks&q=bolts&after=abc',
+      'kind=purchase+order&order=desc&sort=total_amount&filter=vendor_name%3Acontains%3Aacme&filter=due_date%3Alacks&q=bolts&review=true&after=abc',
     )
-    expect(tableQuery({ kind: 'invoice', sort: BY_NAME, conditions: [], words: ' ' }, null).toString()).toBe('kind=invoice&order=asc')
+    expect(tableQuery({ kind: 'invoice', sort: BY_NAME, conditions: [], words: ' ', review: false }, null).toString()).toBe('kind=invoice&order=asc')
   })
 
   it('keys each table by what it asks, so that a page of one never stands for another', () => {
-    const ask = { kind: 'invoice', sort: BY_NAME, conditions: [], words: '' }
-    expect(factTableKey(3, ask)).toEqual(['fact-table', 3, 'invoice', null, 'asc', [], ''])
+    const ask = { kind: 'invoice', sort: BY_NAME, conditions: [], words: '', review: false }
+    expect(factTableKey(3, ask)).toEqual(['fact-table', 3, 'invoice', null, 'asc', [], '', false])
     expect(factTableKey(3, { ...ask, conditions: [{ field: 'iban', op: 'has', value: '' }] })).not.toEqual(factTableKey(3, ask))
+    expect(factTableKey(3, { ...ask, review: true })).not.toEqual(factTableKey(3, ask))
   })
 })
 
@@ -85,8 +106,8 @@ describe('sorting', () => {
 
 describe('conditions', () => {
   it('offers comparisons to numbers, amounts and dates alone', () => {
-    expect(operatorsFor('text').map(({ op }) => op)).toEqual(['has', 'lacks', 'contains'])
-    expect(operatorsFor('money').map(({ label }) => label)).toEqual(['is stated', 'is not stated', 'contains', 'is at least', 'is at most'])
+    expect(operatorsFor('text').map(({ op }) => op)).toEqual(['has', 'lacks', 'unchecked', 'contains'])
+    expect(operatorsFor('money').map(({ label }) => label)).toEqual(['is stated', 'is not stated', 'is not checked', 'contains', 'is at least', 'is at most'])
     expect(operatorsFor('date').at(-1)?.label).toBe('is on or before')
   })
 
@@ -96,11 +117,14 @@ describe('conditions', () => {
     expect(conditionWords({ field: 'vendor_name', op: 'contains', value: 'acme ' }, VENDOR)).toBe('vendor name contains “acme”')
     expect(conditionWords({ field: 'vendor_name', op: 'lacks', value: '' }, VENDOR)).toBe('vendor name is not stated')
     expect(conditionParam({ field: 'vendor_name', op: 'has', value: 'x' })).toBe('vendor_name:has')
+    expect(conditionWords({ field: 'line_item', op: 'unchecked', value: '' }, VENDOR)).toBe('line item is not checked')
+    expect(conditionParam({ field: 'line_item', op: 'unchecked', value: 'x' })).toBe('line_item:unchecked')
   })
 
   it('refuses a condition the server would', () => {
     expect(conditionProblem({ field: 'iban', op: 'has', value: '' }, undefined)).toBe('Choose a field.')
     expect(conditionProblem({ field: 'vendor_name', op: 'has', value: '' }, VENDOR)).toBeNull()
+    expect(conditionProblem({ field: 'total_amount', op: 'unchecked', value: '' }, TOTAL)).toBeNull()
     expect(conditionProblem({ field: 'vendor_name', op: 'contains', value: ' ' }, VENDOR)).toBe('Give the words that vendor name should contain.')
     expect(conditionProblem({ field: 'total_amount', op: 'min', value: 'lots' }, TOTAL)).toBe('Give a number.')
     expect(conditionProblem({ field: 'total_amount', op: 'min', value: '' }, TOTAL)).toBe('Give a number.')
@@ -127,13 +151,58 @@ describe('cells', () => {
     expect(quoteWords(fact())).toBe('Quoted as “Total due: EUR 1,200.00”, page 2.')
     expect(quoteWords(fact({ verified: false, page: null }))).toBe('Quoted as “Total due: EUR 1,200.00”, which was not found in the text.')
     expect(quoteWords(fact({ quote: null }))).toBe('Read without a quote, page 2.')
-    expect(cellDescription([fact()])).toBe('Quoted as “Total due: EUR 1,200.00”, page 2. Enter opens it in the document.')
-    expect(cellDescription([fact(), fact()])).toBe('2 values. Enter lists them, each opening its place in the document.')
+    expect(cellDescription([fact()])).toBe('Not checked. Quoted as “Total due: EUR 1,200.00”, page 2. Enter offers to check, correct or open it.')
+    expect(cellDescription([fact(), fact()])).toBe('2 values, 0 checked. Enter lists them, to check, correct or open each.')
+    expect(cellDescription([fact({ check: checked() }), fact({ check: checked() })])).toBe('2 values, all checked. Enter lists them, to check, correct or open each.')
   })
 
-  it('count the rows against the documents of the kind', () => {
+  it('say who checked a fact, and what the model read in place of a correction', () => {
+    expect(checkWords(checked())).toBe(`Checked by Ada on ${DAY}.`)
+    expect(checkWords(checked({ checked_by: null, corrected_from: 'EUR 90.00' }))).toBe(`Corrected by a former member on ${DAY}; read as “EUR 90.00”.`)
+    expect(cellDescription([fact({ check: checked() })])).toBe(`Checked by Ada on ${DAY}. Quoted as “Total due: EUR 1,200.00”, page 2. Enter offers to check, correct or open it.`)
+    expect(earlierWords(checked({ corrected_from: 'EUR 90.00', value: '2,000.00' }))).toBe(
+      `Ada wrote “2,000.00” on ${DAY}, before the document was read again, which reads otherwise now.`,
+    )
+    expect(cellDescription([], [checked()])).toBe('Not stated. A check made before the document was read again holds no value now. Enter shows the earlier check.')
+  })
+
+  it('mark a cell all checked, one to look at, or one read again since a check', () => {
+    expect(cellMark([fact()])).toBeNull()
+    expect(cellMark([fact({ check: checked() }), fact({ check: checked() })])).toBe('checked')
+    expect(cellMark([fact({ check: checked() }), fact()])).toBeNull()
+    // A quote not found in the text, which nobody has checked since.
+    expect(cellMark([fact({ verified: false })])).toBe('flagged')
+    expect(cellMark([fact({ verified: false, check: checked() })])).toBe('checked')
+    expect(cellMark([fact({ check: checked() })], [checked()])).toBe('changed')
+  })
+
+  it('count the rows against the documents of the kind, and those to review', () => {
     expect(rowsWords(1, 1, false)).toBe('1 document')
     expect(rowsWords(2, 3, true)).toBe('2 of 3 documents')
+    expect(reviewWords(2)).toBe('2 to review')
+    expect(reviewWords(0)).toBe('every fact checked')
+  })
+})
+
+describe('corrections', () => {
+  it('start from the fact as its input takes it', () => {
+    expect(draftOf(fact())).toEqual({ value: '1200', currency: 'EUR' })
+    expect(draftOf(fact({ value_type: 'date', date: '2026-03-01', number: null }))).toEqual({ value: '2026-03-01', currency: '' })
+    expect(draftOf(fact({ value_type: 'text', value: 'INV-7' }))).toEqual({ value: 'INV-7', currency: '' })
+  })
+
+  it('send the value as the type takes it, an amount with its currency', () => {
+    expect(correctionOf('money', ' 1250.5 ', ' usd ')).toEqual({ value: '1250.5', currency: 'usd' })
+    expect(correctionOf('money', '1250.5', '')).toEqual({ value: '1250.5' })
+    expect(correctionOf('text', ' INV-7 ', 'EUR')).toEqual({ value: 'INV-7' })
+  })
+
+  it('refuse a value the server would', () => {
+    expect(correctionProblem('text', '  ')).toBe('Write the value the document states.')
+    expect(correctionProblem('money', '1,250')).toBe('Give a number.')
+    expect(correctionProblem('number', '-3.5')).toBeNull()
+    expect(correctionProblem('date', '1 March')).toBe('Choose a date.')
+    expect(correctionProblem('date', '2026-03-01')).toBeNull()
   })
 })
 

@@ -28,7 +28,8 @@ import { holdNextTurn, refuseEmbeddings, releaseTurns } from './standin.ts'
 // colleague's account, which she let support see, and switch the model's provider off and on
 // again; and last, make the project's own invoice template from the built-in one, a field
 // added, and delete it, then upload an invoice, read for the built-in one, and find its facts in
-// the project's facts table, sorted, kept by a condition and opened where they were found. The answer
+// the project's facts table, sorted, kept by a condition and opened where they were found, one
+// checked and another corrected, which the table's rows to review and the audit log keep. The answer
 // is the stand-in's (e2e/standin.py): the first sentence of the passage its search found best,
 // with that passage's reference. Along the way each kind of page, panel and dialog is checked
 // against axe-core's rules for WCAG 2.2 AA in both themes (e2e/axe.ts), and the keyboard's focus
@@ -851,12 +852,12 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const row = grid.getByRole('row').filter({ hasText: 'INV-2026-0412' })
     await expect(row).toContainText('EUR 1,250.00')
     await expect(row).toContainText('Acme Logistics Ltd')
-    await expect(page.getByText('1 document', { exact: true })).toBeVisible()
+    await expect(page.getByText('1 document, 1 to review', { exact: true })).toBeVisible()
     const total = grid.getByRole('columnheader', { name: 'total amount', exact: true })
     await total.getByRole('button').click()
     await expect(total).toHaveAttribute('aria-sort', 'ascending')
 
-    // One stop of Tab, the arrows between the cells; a cell's quote shows on focus, and Enter opens it where it was found.
+    // One stop of Tab, the arrows between the cells; a cell's quote shows on focus, and Enter opens its facts, each to open where it was found.
     await grid.getByRole('columnheader', { name: 'Document', exact: true }).getByRole('button').focus()
     await page.keyboard.press('ArrowDown')
     await page.keyboard.press('ArrowRight')
@@ -865,6 +866,12 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByText('Quoted as “Invoice number: INV-2026-0412”.')).toBeVisible()
     await expectAccessible(page, 'the facts table')
     await page.keyboard.press('Enter')
+    const facts = page.getByRole('dialog', { name: /^invoice number of / })
+    await expect(facts.getByRole('button', { name: 'Check', exact: true })).toBeFocused()
+    await expect(facts).toContainText('Not checked.')
+    await expectAccessible(page, "a cell's facts")
+    await facts.getByRole('button', { name: 'Open in the document' }).click()
+    await expect(facts).toBeHidden()
     await expect(page).toHaveURL(/\/documents\/\d+\?(.*&)?block=\d+/)
     await expect(page.getByRole('region', { name: 'Text of invoice.md' }).getByText('Invoice number: INV-2026-0412')).toBeInViewport()
     await expect(number).toBeFocused()
@@ -884,5 +891,42 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('button', { name: 'Remove the condition total amount is at least 2000' }).click()
     await expect(row).toBeVisible()
     await expect(condition).toBeFocused()
+
+    // The invoice number checked as read, the button that did it then taking the check back.
+    await number.click()
+    await facts.getByRole('button', { name: 'Check', exact: true }).click()
+    await expect(facts).toContainText(/Checked by .+ on /)
+    await expect(facts.getByRole('button', { name: 'Take back the check' })).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(number).toBeFocused()
+
+    // The total corrected: its own value in the cell, which the model's reading follows.
+    await row.getByRole('button', { name: 'EUR 1,250.00', exact: true }).click()
+    const totals = page.getByRole('dialog', { name: /^total amount of / })
+    const correct = totals.getByRole('button', { name: 'Correct…' })
+    await correct.click()
+    const correction = totals.getByRole('form', { name: 'Correct EUR 1,250.00' })
+    await expect(correction.getByLabel('Amount')).toBeFocused()
+    await expect(correction.getByLabel('Currency')).toHaveValue('EUR')
+    await correction.getByLabel('Amount').fill('1205')
+    await expectAccessible(page, "a fact's correction")
+    await correction.getByRole('button', { name: 'Save' }).click()
+    await expect(totals).toContainText(/Corrected by .+ on .+; read as “EUR 1,250.00”\./)
+    await expect(correct).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(row).toContainText('1,205.00 EUR')
+
+    // The rows to review keep it while a fact of it is unchecked.
+    const toReview = page.getByRole('button', { name: 'To review' })
+    await toReview.click()
+    await expect(toReview).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByText('1 of 1 document, 1 to review', { exact: true })).toBeVisible()
+    await expect(row).toBeVisible()
+    await toReview.click()
+
+    // Both are the organisation's to ask about, by the field and the file, never the value.
+    await page.goto('/organization/audit')
+    await page.getByLabel('What').selectOption('fact_corrected')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Corrected a fact' })).toContainText('invoice.md · total amount')
   })
 })

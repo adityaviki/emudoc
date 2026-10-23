@@ -99,13 +99,24 @@ Each template with documents read for it opens its facts table from that list ("
 project's documents read for it and a column for each of its fields, in the library's place
 beside the document and the chat. A cell shows the field's first fact in the document's order,
 with how many more it holds (each line of an invoice), its quote and page on hover or focus,
-and opens the document where it was found; a cell of several lists them to open one. A column's
+and opens its facts, each to open where it was found in the document. A column's
 header sorts the rows by the field's typed value (an amount by its number, a date by its date, a
 text in the library's natural order), those without it last; the rows are kept by words in the
 document's name or its facts, and by conditions on a field (stated, not stated, contains, at
 least, at most), a row meeting one when any of the field's facts does. The columns are the
 template as it is now, so a document read for an earlier version shows the fields it still
 has. The table is one stop of Tab, the arrows moving between its cells.
+
+Whoever may change the project checks a fact from its cell, or corrects it to what the document
+states (`backend/app/fact_checks.py`, `PUT /api/facts/{id}/check`, `DELETE
+/api/fact-checks/{id}`), each a row of the audit log naming the field and the document, never the
+value. A correction replaces the model's value wherever the fact is read: the table sorts and
+keeps rows by it, the agent is told a member corrected it and what the model read, and a
+project's export holds it with the check. A check outlives the document's next reading: a fact
+read the same again, or read as the member wrote it, takes it back, and one read otherwise leaves
+it in its cell as made before, to forget. A cell marks facts all checked, and a fact whose quote
+was not found in the text that nobody has checked; "To review" keeps the rows with a fact nobody
+checked, and a field's condition "is not checked" those with one of its own.
 
 A project can hold any number of chats. Each one is saved with its answers, including the
 steps the agent took and the passages it was shown, so a chat can be reopened later. An answer
@@ -1125,6 +1136,8 @@ backend/app/
   flags.py      the feature flags: what is being rolled out, to how many organisations, and to which
   extraction.py the extraction templates: the built-in ones, and those in force for a project
   fact_table.py the facts table: a kind's documents side by side, sorted, kept and paged
+  fact_checks.py
+                members' checks and corrections of facts, kept through the next reading
   payments.py   Stripe's API, and the signature on its events
   api/          HTTP endpoints
   headers.py    the headers every response carries for the browser

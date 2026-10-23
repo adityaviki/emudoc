@@ -44,6 +44,17 @@ Members:
 
 Operators:
 
+- Checking and correcting facts, behind the flag `extraction_templates`: where it is on, a cell
+  of the facts table opens its facts, each to check as read, correct to what the document states
+  or open, and "To review" keeps the rows with a fact nobody checked. A new table,
+  `fact_checks`, and `facts.check_id` (a migration): a check is kept by the document, the field
+  and what the model read, so that "Index again" and a template read again give it back to a
+  fact read the same. New routes `PUT /api/facts/{id}/check` and `DELETE
+  /api/fact-checks/{id}`, which API keys with write access take; the fact table's `review` and
+  the condition `field:unchecked`; `FactOut.check` and `FactRowOut.earlier`; the audit actions
+  `fact_checked`, `fact_corrected` and `fact_check_removed`. `query_facts` gives the agent a
+  member's value and says so, and a project's export holds each fact's check. The privacy policy
+  says a member's checks are kept with their name.
 - The facts table, behind the same flag `extraction_templates`: where it is on, each template
   with documents read for it opens a table of them from the library's "Extraction templates",
   a row a document and a column a field, sorted by any field and kept by conditions on them,

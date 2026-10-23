@@ -159,6 +159,9 @@ AUDIT_ACTIONS = (
     "template_created",
     "template_changed",
     "template_deleted",
+    "fact_checked",
+    "fact_corrected",
+    "fact_check_removed",
     "project_deleted",
     "project_restored",
     "project_purged",
@@ -1022,6 +1025,10 @@ class Fact(Base):
     """A typed field extracted from a document, linked to where it was found."""
 
     __tablename__ = "facts"
+    __table_args__ = (
+        # What a check's deletion looks through for the fact it set: the few checked ones.
+        Index("ix_facts_check_id", "check_id", postgresql_where=text("check_id IS NOT NULL")),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     document_id: Mapped[int] = mapped_column(
@@ -1042,8 +1049,53 @@ class Fact(Base):
     page: Mapped[int | None] = mapped_column(Integer)
     block_ordinal: Mapped[int | None] = mapped_column(Integer)
     passage_id: Mapped[int | None] = mapped_column(ForeignKey("passages.id", ondelete="SET NULL"))
-    # True when the quote was found in the source block.
+    # True when the quote was found in the source block: the model's quote, not a person's word,
+    # which is `check`.
     verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    # A member's check of the fact, which outlives the row (app/fact_checks.py): with a
+    # correction, the columns above hold the member's value and the check what the model read.
+    check_id: Mapped[int | None] = mapped_column(ForeignKey("fact_checks.id", ondelete="SET NULL"))
+    check: Mapped["FactCheck | None"] = relationship(lazy="selectin")
+
+
+class FactCheck(Base):
+    """A member's word on a fact: that the model read it right, or what the document says in its
+    place (app/fact_checks.py). Kept by the document, the field's name and the model's reading,
+    since the facts themselves are written anew at every run of the enrich stage, which gives
+    the check again to a fact reading the same."""
+
+    __tablename__ = "fact_checks"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(100))
+    # What the model read, as the fact held it.
+    read_value: Mapped[str] = mapped_column(Text)
+    read_number: Mapped[float | None] = mapped_column(Float)
+    read_date: Mapped[dt.date | None] = mapped_column(Date)
+    read_currency: Mapped[str | None] = mapped_column(String(10))
+    # The member's value, typed as the fact's, when they wrote another; null when they checked
+    # the model's.
+    value: Mapped[str | None] = mapped_column(Text)
+    number: Mapped[float | None] = mapped_column(Float)
+    date: Mapped[dt.date | None] = mapped_column(Date)
+    currency: Mapped[str | None] = mapped_column(String(10))
+    checked_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    checked_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # The member's name as it is now, which the table shows; None once their account is gone.
+    checker: Mapped[str | None] = column_property(
+        select(User.name).where(User.id == checked_by).correlate_except(User).scalar_subquery()
+    )
+
+    @property
+    def corrected(self) -> bool:
+        return self.value is not None
 
 
 class ExtractionTemplate(Base):

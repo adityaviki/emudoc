@@ -343,7 +343,13 @@ def query_facts(ctx: ToolContext, args: QueryFactsInput) -> str:
     ]
     for fact, document in rows:
         value = fact.value + (f" ({fact.currency})" if fact.currency else "")
-        if not fact.verified:
+        if fact.check is not None and fact.check.corrected:
+            # A member's correction is the fact's value; the source passage holds what the
+            # model misread.
+            value += f" (corrected by a member; the indexing model read {fact.check.read_value})"
+        elif fact.check is not None:
+            value += " (checked by a member)"
+        elif not fact.verified:
             value += " (unverified: quote not found in the source)"
         passage = passages.get(fact.passage_id)
         source = ctx.cite(passage, document.display_title) if passage else "-"
@@ -563,7 +569,9 @@ TOOLS: dict[str, Tool] = {
             "query_facts",
             "Query the fact table: typed fields extracted from every document, such as dates, "
             "parties, amounts and identifiers, each linked to its source passage. Returns all "
-            "matching facts, plus counts and sums for numeric ones. Call this for questions "
+            "matching facts, plus counts and sums for numeric ones; a fact the project's members "
+            "checked or corrected says so, and a correction is the value to use. Call this for "
+            "questions "
             "that filter, compare, total or must cover every document. Call it with no "
             "arguments to list the fact names that exist.",
             QueryFactsInput,

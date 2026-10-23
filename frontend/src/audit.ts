@@ -4,6 +4,7 @@
 
 import { PLAN_LABELS, ROLE_LABELS } from './api.ts'
 import type { AuditAction, AuditEvent, AuditFilter, NoticeKind, Plan, Role } from './api.ts'
+import { fieldWords } from './factTable.ts'
 import { formatDate, formatDateTime } from './format.ts'
 import { NOTICE_KINDS } from './notifications.ts'
 import { keptWords, languageName, signInWords } from './organizationSettings.ts'
@@ -82,6 +83,9 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   template_created: ['Made an extraction template', 'files'],
   template_changed: ['Changed an extraction template', 'files'],
   template_deleted: ['Deleted an extraction template', 'files'],
+  fact_checked: ['Checked a fact', 'files'],
+  fact_corrected: ['Corrected a fact', 'files'],
+  fact_check_removed: ["Took back a fact's check", 'files'],
   project_deleted: ['Deleted a project', 'files'],
   project_restored: ['Restored a project', 'files'],
   project_purged: ['Deleted a project for good', 'files'],
@@ -156,6 +160,8 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   if (typeof name === 'string' && name !== event.project_name) parts.push(name)
   if (event.target_type === 'user' && event.target_id !== null) parts.push(names.get(event.target_id) ?? 'a former member')
   if (typeof detail.entitlement === 'string') parts.push(detail.entitlement.replaceAll('_', ' '))
+  // A fact checked or corrected: its field, never what the document says.
+  if (typeof detail.field === 'string') parts.push(fieldWords(detail.field))
   if (event.action === 'settings_changed') parts.push(describeSetting(detail))
   else if (event.action === 'flag_changed') parts.push(describeFlag(detail))
   else if (TEMPLATE_ACTIONS.has(event.action)) parts.push(describeTemplate(event.action, detail))

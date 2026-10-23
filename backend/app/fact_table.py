@@ -12,6 +12,10 @@ its currency), a date by its date and a text by its words in the library's natur
 without the value goes last whichever way. Pages are keyset pages over the sort's value, the
 document's name and its id, all three in the cursor, so that a row added or removed between two
 pages moves none.
+
+The rows to review are those with a fact of the template's fields no member has checked
+(app/fact_checks.py); a correction is in the fact's own columns, so a row sorts and is kept by the
+member's value.
 """
 
 import base64
@@ -38,14 +42,17 @@ from sqlalchemy import (
 from sqlalchemy.orm import Session
 
 from app.extraction import Template, TemplateField
-from app.models import NATURAL_ORDER, Document, Fact
+from app.fact_checks import unheld
+from app.models import NATURAL_ORDER, Document, Fact, FactCheck
 
 Order = Literal["asc", "desc"]
 
 # What a condition on a field asks of a row, in the words of the `filter` parameter
-# (`field:op` or `field:op:value`): any of its facts at all, none, one whose written value holds
-# the words, or one whose number or date is at least or at most the value.
-OPERATORS = ("has", "lacks", "contains", "min", "max")
+# (`field:op` or `field:op:value`): any of its facts at all, none, one no member has checked, one
+# whose written value holds the words, or one whose number or date is at least or at most the
+# value.
+OPERATORS = ("has", "lacks", "unchecked", "contains", "min", "max")
+VALUELESS = ("has", "lacks", "unchecked")
 COMPARED = ("number", "money", "date")
 
 BAD_CURSOR = "The page asked for does not follow from this table's order. Load the table again."
@@ -67,17 +74,20 @@ class Condition:
 
 @dataclass(frozen=True)
 class Row:
-    """A row of the table: the document, and the facts of each field it has, in its order."""
+    """A row of the table: the document, the facts of each field it has, in its order, and the
+    checks of a field no fact holds since the document was read again."""
 
     document: Document
     cells: dict[str, list[Fact]]
+    earlier: dict[str, list[FactCheck]]
 
 
 @dataclass(frozen=True)
 class Table:
     rows: list[Row]
-    # How many rows the conditions keep, over every page.
+    # How many rows the conditions keep, over every page, and how many of those are to review.
     total: int
+    to_review: int
     next_after: str | None
 
 
@@ -90,7 +100,7 @@ def condition_of(template: Template, written: str) -> Condition:
         raise TableRefusal(f"The {template.title} template has no field named {name}.")
     if op not in OPERATORS:
         raise TableRefusal(f"A condition on {name} is one of {', '.join(OPERATORS)}, not “{op}”.")
-    if op in ("has", "lacks"):
+    if op in VALUELESS:
         return Condition(field, op)
     if op == "contains":
         if not value.strip():
@@ -125,11 +135,13 @@ def read_table(
     order: Order = "asc",
     conditions: Sequence[Condition] = (),
     words: str = "",
+    review: bool = False,
     after: str | None = None,
     limit: int = 100,
 ) -> Table:
     """A page of the table of the project's documents read for `template`, sorted by `sort`
-    (None for the document's name), with the conditions and the words held, past `after`."""
+    (None for the document's name), with the conditions and the words held, and with `review`
+    only the rows to review, past `after`."""
     # Each statement is planned for this project, as a search is (app/search.py): whether the
     # facts are better read document by document or the project's at once depends on how many
     # it has. And none is compiled: a sort's value looked up for each of thousands of documents
@@ -146,6 +158,9 @@ def read_table(
     ]
     if words.strip():
         held.append(_mentions(project_id, template, words.strip()))
+    fields = [field.name for field in template.fields]
+    if review:
+        held.append(exists().where(*_of(project_id, *fields), Fact.check_id.is_(None)))
     if sort is None:
         ranked = select(Document.id, name.label("key"), name.label("name")).where(*held)
     else:
@@ -159,7 +174,15 @@ def read_table(
         )
     ranked = ranked.subquery()
 
-    total = session.scalar(select(func.count()).select_from(ranked)) or 0
+    unchecked = exists().where(
+        Fact.document_id == ranked.c.id,
+        Fact.project_id == project_id,
+        Fact.name.in_(fields),
+        Fact.check_id.is_(None),
+    )
+    total, to_review = session.execute(
+        select(func.count(), func.count().filter(unchecked)).select_from(ranked)
+    ).one()
     page = select(ranked.c.id, ranked.c.key, ranked.c.name)
     if after is not None:
         page = page.where(_past(ranked, _cursor(after, sort), order))
@@ -182,16 +205,23 @@ def read_table(
         select(Fact)
         .where(
             Fact.document_id.in_(ids),
-            Fact.name.in_([field.name for field in template.fields]),
+            Fact.name.in_(fields),
         )
         .order_by(Fact.document_id, Fact.block_ordinal.asc().nulls_last(), Fact.id)
     ):
         cells[fact.document_id].setdefault(fact.name, []).append(fact)
+    earlier: dict[int, dict[str, list[FactCheck]]] = {document_id: {} for document_id in ids}
+    for held_check in unheld(session, ids, fields):
+        earlier[held_check.document_id].setdefault(held_check.name, []).append(held_check)
 
     last = shown[-1] if shown else None
     return Table(
-        rows=[Row(documents[document_id], cells[document_id]) for document_id in ids],
+        rows=[
+            Row(documents[document_id], cells[document_id], earlier[document_id])
+            for document_id in ids
+        ],
         total=total,
+        to_review=to_review,
         next_after=_cursor_of(last.key, last.name, last.id)
         if last is not None and len(found) > limit
         else None,
@@ -231,7 +261,9 @@ def _holds(project_id: int, condition: Condition) -> ColumnElement[bool]:
     of_field = _of(project_id, condition.field.name)
     if condition.op == "lacks":
         return ~exists().where(*of_field)
-    if condition.op == "contains":
+    if condition.op == "unchecked":
+        of_field.append(Fact.check_id.is_(None))
+    elif condition.op == "contains":
         of_field.append(Fact.value.icontains(str(condition.value), autoescape=True))
     elif condition.op in ("min", "max"):
         column = Fact.date if condition.field.type == "date" else Fact.number

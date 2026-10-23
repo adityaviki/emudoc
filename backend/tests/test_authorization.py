@@ -19,12 +19,12 @@ Route = tuple[str, str, dict]
 
 @dataclass
 class World:
-    """A project with a folder, an indexed document, the upload it came in with, an extraction
-    template of its own, and a chat holding one answered question, and in its trash a folder, a
-    document and a chat; another project in the trash; an invitation to the organisation and an
-    API key of it, all made by the local owner in the local organisation, and another member of
-    it. The extraction templates are on for every organisation, so that what refuses another
-    organisation is the project's scope, not the flag."""
+    """A project with a folder, an indexed document with a fact a member checked, the upload it came
+    in with, an extraction template of its own, and a chat holding one answered question, and in its
+    trash a folder, a document and a chat; another project in the trash; an invitation to the
+    organisation and an API key of it, all made by the local owner in the local organisation, and
+    another member of it. The extraction templates are on for every organisation, so that what
+    refuses another organisation is the project's scope, not the flag."""
 
     org_id: int
     project_id: int
@@ -43,6 +43,8 @@ class World:
     export_id: int
     upload_id: int
     template_id: int
+    fact_id: int
+    check_id: int
 
 
 @pytest.fixture
@@ -70,6 +72,8 @@ def world(client, services, sample_pdf, account, make_account, monkeypatch) -> W
     trashed_project = create_project(client, "Archive")
     exported = client.post(f"/api/projects/{project['id']}/exports")
     template = client.post(f"/api/projects/{project['id']}/templates", json=INVOICE)
+    fact = client.get(f"/api/documents/{document['id']}/facts").json()[0]
+    checked = client.put(f"/api/facts/{fact['id']}/check", json={}).json()
     for path in (
         f"/api/folders/{trashed_folder['id']}",
         f"/api/documents/{note['id']}",
@@ -95,6 +99,8 @@ def world(client, services, sample_pdf, account, make_account, monkeypatch) -> W
         exported.json()["id"],
         uploaded["upload_id"],
         template.json()["id"],
+        fact["id"],
+        checked["check"]["id"],
     )
 
 
@@ -140,6 +146,7 @@ def writes(w: World) -> list[Route]:
             {"json": {**INVOICE, "doc_type": "credit note"}},
         ),
         ("PUT", f"/api/templates/{w.template_id}", {"json": INVOICE}),
+        ("PUT", f"/api/facts/{w.fact_id}/check", {"json": {"value": "120 days"}}),
         (
             "POST",
             f"/api/projects/{w.project_id}/documents",
@@ -148,6 +155,7 @@ def writes(w: World) -> list[Route]:
         ("PATCH", f"/api/folders/{w.folder_id}", {"json": {"name": "Renamed"}}),
         ("PATCH", f"/api/documents/{w.document_id}", {"json": {"filename": "renamed.pdf"}}),
         ("POST", f"/api/documents/{w.document_id}/reprocess", {}),
+        ("DELETE", f"/api/fact-checks/{w.check_id}", {}),
         ("DELETE", f"/api/templates/{w.template_id}", {}),
         ("DELETE", f"/api/folders/{w.folder_id}", {}),
         ("DELETE", f"/api/documents/{w.document_id}", {}),

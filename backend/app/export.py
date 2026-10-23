@@ -44,6 +44,7 @@ from app.bounces import address_hash
 from app.db import SessionLocal
 from app.errors import summary
 from app.extraction import templates_for
+from app.fact_checks import check_out
 from app.folders import PATH_SEPARATOR, folder_paths
 from app.jobs import EXPORT_PROJECT, Lease, LeaseLost, enqueue, renew
 from app.mail import in_organization, project_export_email
@@ -471,6 +472,7 @@ def _read(session: Session, ids: Sequence[int]) -> list[tuple[Document, Exported
                 page=row.page,
                 passage_id=row.passage_id,
                 verified=row.verified,
+                check=check_out(row.check) if row.check is not None else None,
             )
         )
     return [

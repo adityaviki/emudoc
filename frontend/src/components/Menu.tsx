@@ -98,17 +98,22 @@ export function Floating({ anchor, onClose, children, alignEnd, ignore, opener, 
     function onKeyDown(event: globalThis.KeyboardEvent) {
       if (event.key === 'Escape') onClose()
     }
+    // What scrolls under the layer moves its anchor away; a list of its own scrolling does not.
+    function onScroll(event: Event) {
+      if (event.target instanceof Node && ref.current?.contains(event.target)) return
+      onClose()
+    }
     window.addEventListener('pointerdown', onPointerDown, true)
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('blur', onClose)
     window.addEventListener('resize', onClose)
-    window.addEventListener('scroll', onClose, true)
+    window.addEventListener('scroll', onScroll, true)
     return () => {
       window.removeEventListener('pointerdown', onPointerDown, true)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('blur', onClose)
       window.removeEventListener('resize', onClose)
-      window.removeEventListener('scroll', onClose, true)
+      window.removeEventListener('scroll', onScroll, true)
     }
   }, [onClose, ignore])
 
@@ -135,8 +140,6 @@ export function Floating({ anchor, onClose, children, alignEnd, ignore, opener, 
       ref={ref}
       tabIndex={-1}
       onKeyDown={onKeyDown}
-      // Scroll events inside the layer must not close it: stop them before the window hears them.
-      onScroll={(event) => event.stopPropagation()}
       // Unplaced, it is laid out unseen to be measured, and may be focused meanwhile, which a hidden element may not.
       style={position ? { left: position.left, top: position.top } : { left: 0, top: 0, opacity: 0 }}
       className={`fixed z-50 overflow-hidden rounded-lg border border-line bg-surface shadow-xl shadow-ink/8 outline-none ${className}`}

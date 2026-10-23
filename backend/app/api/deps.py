@@ -95,6 +95,7 @@ from app.auth import SESSION_COOKIE, find_session, now, touch_session
 from app.config import get_settings
 from app.db import get_session
 from app.entitlements import PlanRefused, check_api, read_only
+from app.fact_checks import CHECK_GONE, FACT_GONE
 from app.flags import flag, flag_on
 from app.indexing.pipeline import Services
 from app.legal import terms_due, terms_pending
@@ -103,6 +104,8 @@ from app.models import (
     Chat,
     Document,
     ExtractionTemplate,
+    Fact,
+    FactCheck,
     Folder,
     Passage,
     Project,
@@ -461,6 +464,35 @@ def get_template(template_id: int, session: SessionDep, account: AccountDep) -> 
     return template
 
 
+def get_fact(fact_id: int, session: SessionDep, account: AccountDep) -> Fact:
+    """A fact read from a document (app/fact_checks.py), provided the account sees the
+    document's project and the document is out of the trash."""
+    return _read_from(session, account, Fact, fact_id, FACT_GONE)
+
+
+def get_fact_check(check_id: int, session: SessionDep, account: AccountDep) -> FactCheck:
+    """A member's check of a document's fact, under the same terms as the fact."""
+    return _read_from(session, account, FactCheck, check_id, CHECK_GONE)
+
+
+def _read_from[T: (Fact, FactCheck)](
+    session: Session, account: Account, model: type[T], object_id: int, missing: str
+) -> T:
+    found = session.execute(
+        select(model, Document.project_id, Document.deleted_at)
+        .join(Document, Document.id == model.document_id)
+        .join(Project, Project.id == Document.project_id)
+        .where(model.id == object_id, visible_to(account))
+    ).first()
+    if found is None:
+        raise HTTPException(404, missing)
+    row, project_id, deleted_at = found
+    if deleted_at is not None:
+        raise HTTPException(404, DOCUMENT_IN_TRASH)
+    about(project_id=project_id, document_id=row.document_id)
+    return row
+
+
 ProjectDep = Annotated[Project, Depends(get_project)]
 DocumentDep = Annotated[Document, Depends(get_document)]
 FolderDep = Annotated[Folder, Depends(get_folder)]
@@ -494,6 +526,20 @@ def get_editable_template(
     return template
 
 
+def get_editable_fact(
+    fact: Annotated[Fact, Depends(get_fact)], account: AccountDep, session: SessionDep
+) -> Fact:
+    get_editor(account, session)
+    return fact
+
+
+def get_editable_fact_check(
+    check: Annotated[FactCheck, Depends(get_fact_check)], account: AccountDep, session: SessionDep
+) -> FactCheck:
+    get_editor(account, session)
+    return check
+
+
 def get_deletable_project(project: ProjectDep, account: AccountDep) -> Project:
     """The project, for deleting it: by role alone, since deleting is how an organisation past
     its plan gets within it."""
@@ -524,6 +570,8 @@ EditableProjectDep = Annotated[Project, Depends(get_editable_project)]
 EditableDocumentDep = Annotated[Document, Depends(get_editable_document)]
 EditableFolderDep = Annotated[Folder, Depends(get_editable_folder)]
 EditableTemplateDep = Annotated[ExtractionTemplate, Depends(get_editable_template)]
+EditableFactDep = Annotated[Fact, Depends(get_editable_fact)]
+EditableFactCheckDep = Annotated[FactCheck, Depends(get_editable_fact_check)]
 DeletableProjectDep = Annotated[Project, Depends(get_deletable_project)]
 DeletableDocumentDep = Annotated[Document, Depends(get_deletable_document)]
 DeletableFolderDep = Annotated[Folder, Depends(get_deletable_folder)]

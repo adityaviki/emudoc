@@ -2,7 +2,8 @@
 // `GET /api/projects/{id}/fact-table`): a project's documents of one kind side by side, a column
 // for each field of the kind's template, sorted by one of them and kept by conditions on them.
 
-import type { Fact, FactType, TemplateField } from './api.ts'
+import type { Fact, FactCheck, FactCheckInput, FactType, TemplateField } from './api.ts'
+import { formatDate } from './format.ts'
 import type { Focus } from './workspace/url.ts'
 
 /** Every facts table of the project, whatever its kind, sort or conditions: what a change to its templates or documents makes stale. */
@@ -16,26 +17,27 @@ export interface TableSort {
 
 export const BY_NAME: TableSort = { field: null, order: 'asc' }
 
-/** What a condition asks of a row's field: any fact at all, none, one whose words hold the value, or one at least or at most the value. */
-export type Operator = 'has' | 'lacks' | 'contains' | 'min' | 'max'
+/** What a condition asks of a row's field: any fact at all, none, one nobody checked, one whose words hold the value, or one at least or at most the value. */
+export type Operator = 'has' | 'lacks' | 'unchecked' | 'contains' | 'min' | 'max'
 
 export interface TableCondition {
   field: string
   op: Operator
-  /** Empty for `has` and `lacks`; a number, or a date as 2026-03-01, for `min` and `max`. */
+  /** Empty for `has`, `lacks` and `unchecked`; a number, or a date as 2026-03-01, for `min` and `max`. */
   value: string
 }
 
-/** What the table is asked for: its kind, its sort, its conditions and the words its rows hold. */
+/** What the table is asked for: its kind, its sort, its conditions, the words its rows hold, and whether only the rows with a fact nobody checked. */
 export interface TableAsk {
   kind: string
   sort: TableSort
   conditions: TableCondition[]
   words: string
+  review: boolean
 }
 
 export const factTableKey = (projectId: number, ask: TableAsk) =>
-  [...factTablesKey(projectId), ask.kind, ask.sort.field, ask.sort.order, ask.conditions.map(conditionParam), ask.words.trim()] as const
+  [...factTablesKey(projectId), ask.kind, ask.sort.field, ask.sort.order, ask.conditions.map(conditionParam), ask.words.trim(), ask.review] as const
 
 /** The query of a page of the table, past `after` when it is given. */
 export function tableQuery(ask: TableAsk, after: string | null): URLSearchParams {
@@ -43,14 +45,18 @@ export function tableQuery(ask: TableAsk, after: string | null): URLSearchParams
   if (ask.sort.field) params.set('sort', ask.sort.field)
   for (const condition of ask.conditions) params.append('filter', conditionParam(condition))
   if (ask.words.trim()) params.set('q', ask.words.trim())
+  if (ask.review) params.set('review', 'true')
   if (after) params.set('after', after)
   return params
 }
 
 /** A condition as the server reads it: `field:op`, or `field:op:value`. */
 export function conditionParam({ field, op, value }: TableCondition): string {
-  return op === 'has' || op === 'lacks' ? `${field}:${op}` : `${field}:${op}:${value.trim()}`
+  return valueless(op) ? `${field}:${op}` : `${field}:${op}:${value.trim()}`
 }
+
+/** Whether a condition asks for no value of its own. */
+export const valueless = (op: Operator) => op === 'has' || op === 'lacks' || op === 'unchecked'
 
 /** A sort after the column's header was pressed: a column sorted already turns around, another starts lowest first. */
 export function nextSort(sort: TableSort, field: string | null): TableSort {
@@ -75,6 +81,7 @@ export function operatorsFor(type: FactType): { op: Operator; label: string }[] 
   return [
     { op: 'has', label: 'is stated' },
     { op: 'lacks', label: 'is not stated' },
+    { op: 'unchecked', label: 'is not checked' },
     { op: 'contains', label: 'contains' },
     ...(COMPARED.includes(type)
       ? [
@@ -96,7 +103,7 @@ export function conditionWords(condition: TableCondition, field: TemplateField |
 export function conditionProblem(condition: TableCondition, field: TemplateField | undefined): string | null {
   if (!field) return 'Choose a field.'
   const value = condition.value.trim()
-  if (condition.op === 'has' || condition.op === 'lacks') return null
+  if (valueless(condition.op)) return null
   if (condition.op === 'contains') return value ? null : `Give the words that ${fieldWords(field.name)} should contain.`
   if (field.type === 'date') return /^\d{4}-\d{2}-\d{2}$/.test(value) ? null : 'Choose a date.'
   return value !== '' && Number.isFinite(Number(value)) ? null : 'Give a number.'
@@ -123,16 +130,73 @@ export function quoteWords(fact: Fact): string {
   return `Quoted as “${fact.quote}”${page}.`
 }
 
-/** What the screen reader hears of a cell besides its value: each fact's quote, and how to open it. */
-export function cellDescription(facts: Fact[]): string {
-  if (facts.length === 1) return `${quoteWords(facts[0])} Enter opens it in the document.`
-  return `${facts.length} values. Enter lists them, each opening its place in the document.`
+/** Who checked a fact and when, in a sentence: as read, or corrected from what the model read. */
+export function checkWords(check: FactCheck): string {
+  const who = check.checked_by ?? 'a former member'
+  const when = formatDate(check.checked_at)
+  if (check.corrected_from === null) return `Checked by ${who} on ${when}.`
+  return `Corrected by ${who} on ${when}; read as “${check.corrected_from}”.`
+}
+
+/** A check no fact holds any more, in a sentence: what the member said before the document was read again. */
+export function earlierWords(check: FactCheck): string {
+  const who = check.checked_by ?? 'A former member'
+  return `${who} ${check.corrected_from === null ? 'checked' : 'wrote'} “${check.value}” on ${formatDate(check.checked_at)}, before the document was read again, which reads otherwise now.`
+}
+
+/** What a cell's mark says of its facts: all checked, one to look at (its quote not in the text, nobody having checked it), a check made before it was read again that no fact holds, or nothing. */
+export type CellMark = 'checked' | 'flagged' | 'changed' | null
+
+export function cellMark(facts: Fact[], earlier: FactCheck[] = []): CellMark {
+  if (earlier.length > 0) return 'changed'
+  if (facts.some((fact) => !fact.check && !fact.verified)) return 'flagged'
+  if (facts.length > 0 && facts.every((fact) => fact.check)) return 'checked'
+  return null
+}
+
+/** What the screen reader hears of a cell besides its value: whether its facts were checked, each one's quote, and what Enter does. */
+export function cellDescription(facts: Fact[], earlier: FactCheck[] = []): string {
+  const before = earlier.length > 0 ? ' A check made before the document was read again holds no value now.' : ''
+  if (facts.length === 0) return `Not stated.${before} Enter shows the earlier check.`
+  if (facts.length === 1) {
+    const [fact] = facts
+    return `${fact.check ? checkWords(fact.check) : 'Not checked.'} ${quoteWords(fact)}${before} Enter offers to check, correct or open it.`
+  }
+  const checked = facts.filter((fact) => fact.check).length
+  const state = checked === facts.length ? 'all checked' : `${checked} checked`
+  return `${facts.length} values, ${state}.${before} Enter lists them, to check, correct or open each.`
 }
 
 /** How many of the kind's documents the table shows, once its conditions keep some. */
 export function rowsWords(total: number, documents: number, filtered: boolean): string {
   const noun = (n: number) => `${n} document${n === 1 ? '' : 's'}`
   return filtered ? `${total} of ${noun(documents)}` : noun(total)
+}
+
+/** How many of the rows shown hold a fact nobody has checked. */
+export function reviewWords(toReview: number): string {
+  return toReview === 0 ? 'every fact checked' : `${toReview} to review`
+}
+
+/** What the correction form sends: the value as the field's type takes it, an amount with its currency. */
+export function correctionOf(type: string, value: string, currency: string): FactCheckInput {
+  return type === 'money' && currency.trim() ? { value: value.trim(), currency: currency.trim() } : { value: value.trim() }
+}
+
+/** What stops a correction from being sent as it stands, in the form's words; null when nothing does. The server checks the same. */
+export function correctionProblem(type: string, value: string): string | null {
+  const written = value.trim()
+  if (!written) return 'Write the value the document states.'
+  if (type === 'date') return /^\d{4}-\d{2}-\d{2}$/.test(written) ? null : 'Choose a date.'
+  if (type === 'number' || type === 'money') return Number.isFinite(Number(written)) ? null : 'Give a number.'
+  return null
+}
+
+/** The value the correction form starts from: the fact's own, as its input takes it. */
+export function draftOf(fact: Fact): { value: string; currency: string } {
+  if (fact.value_type === 'date') return { value: fact.date ?? '', currency: '' }
+  if (fact.value_type === 'number' || fact.value_type === 'money') return { value: fact.number != null ? String(fact.number) : '', currency: fact.currency ?? '' }
+  return { value: fact.value, currency: '' }
 }
 
 /** The cell the keyboard moves to from `at` by `key` in a grid of `rows` rows and `columns` columns (the header's row and the name's column included); null for a key the grid does not take. */

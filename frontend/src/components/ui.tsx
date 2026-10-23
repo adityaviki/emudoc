@@ -1,7 +1,7 @@
 import { LoaderCircle } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useId } from 'react'
-import type { AnchorHTMLAttributes, ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react'
+import type { AnchorHTMLAttributes, ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, Ref, SelectHTMLAttributes } from 'react'
 import { Link } from 'react-router'
 import type { LinkProps } from 'react-router'
 
@@ -15,6 +15,7 @@ const BUTTON_VARIANTS = {
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: keyof typeof BUTTON_VARIANTS
   icon?: ReactNode
+  ref?: Ref<HTMLButtonElement>
 }
 
 const BUTTON_BASE =

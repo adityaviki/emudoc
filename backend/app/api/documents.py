@@ -36,6 +36,7 @@ from app.api.folders import folder_paths, resolve_folder
 from app.audit import audit
 from app.config import Settings, get_settings
 from app.entitlements import PlanRefused, check_upload, size_label
+from app.fact_checks import check_out
 from app.folders import (
     MAX_DEPTH,
     NAME_LENGTH,
@@ -838,4 +839,5 @@ def fact_out(fact: Fact, document: Document) -> FactOut:
         block_ordinal=fact.block_ordinal,
         passage_id=fact.passage_id,
         verified=fact.verified,
+        check=check_out(fact.check) if fact.check is not None else None,
     )

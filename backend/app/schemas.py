@@ -364,6 +364,29 @@ class PassageOut(BaseModel):
     block_end: int
 
 
+class FactCheckOut(BaseModel):
+    """A member's check of a fact (app/fact_checks.py): who and when, and with a correction what
+    the model read in its place."""
+
+    id: int
+    # The member's name as it is now; None once their account is gone.
+    checked_by: str | None
+    checked_at: dt.datetime
+    # The model's value, when the member wrote another; None for a check of the model's own.
+    corrected_from: str | None
+    # What the member said the field holds: their value, or the model's they checked.
+    value: str
+
+
+class FactCheckIn(BaseModel):
+    """A fact checked as it reads now (no `value`), or corrected to the value the document states:
+    words for a text, digits for a number or an amount (with its currency, else the fact's), a
+    date as 2026-03-01."""
+
+    value: str | None = Field(default=None, max_length=4000)
+    currency: str | None = Field(default=None, max_length=10)
+
+
 class FactOut(BaseModel):
     id: int
     document_id: int
@@ -378,7 +401,9 @@ class FactOut(BaseModel):
     page: int | None
     block_ordinal: int | None
     passage_id: int | None
+    # Whether the model's quote was found in the text; a person's word is `check`.
     verified: bool
+    check: FactCheckOut | None
 
 
 class FactList(BaseModel):
@@ -394,6 +419,9 @@ class FactRowOut(BaseModel):
     title: str
     filename: str
     cells: dict[str, list[FactOut]]
+    # The checks of a field no fact reads any more, by the field's name: made before the
+    # document was read again, which read it differently.
+    earlier: dict[str, list[FactCheckOut]]
 
 
 class FactTableOut(BaseModel):
@@ -403,6 +431,8 @@ class FactTableOut(BaseModel):
     template: TemplateOut
     rows: list[FactRowOut]
     total: int
+    # How many of those rows hold a fact of the fields no member has checked.
+    to_review: int
     next_after: str | None
 
 
@@ -1681,6 +1711,8 @@ class ExportedFact(BaseModel):
     passage_id: int | None
     # Whether the quote was found in the document as the model gave it.
     verified: bool
+    # A member's check of it, with their value in `value` when they corrected it.
+    check: FactCheckOut | None
 
 
 class ExportedDocumentData(BaseModel):

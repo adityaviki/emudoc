@@ -106,6 +106,8 @@ describe('a row', () => {
     const changed = { name: 'Supplier invoice', doc_type: 'bill', added: ['vat_number'], removed: [], changed: ['iban'], from: 'invoice', to: 'bill' }
     expect(describeDetail(event('template_changed', changed))).toBe('Supplier invoice · for invoice → bill documents, added vat_number, changed iban')
     expect(describeDetail(event('template_deleted', { name: 'Supplier invoice', doc_type: 'invoice' }))).toBe('Supplier invoice · for invoice documents')
+    // A fact checked or corrected: the document and the field, never what it says.
+    expect(describeDetail(event('fact_corrected', { filename: 'acme-10.pdf', field: 'total_amount' }))).toBe('acme-10.pdf · total amount')
     // A member's leave for support, support's view of their account, and what was done in it.
     const until = '2026-10-28T09:30:00+00:00'
     expect(describeDetail(event('support_access_granted', { days: 7, until }))).toBe(`until ${formatDateTime(until)}`)

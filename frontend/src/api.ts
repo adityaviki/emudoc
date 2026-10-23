@@ -298,7 +298,27 @@ export interface Fact {
   page: number | null
   block_ordinal: number | null
   passage_id: number | null
+  /** Whether the model's quote was found in the text; a person's word is `check`. */
   verified: boolean
+  check: FactCheck | null
+}
+
+/** A member's check of a fact (FactCheckOut in backend/app/schemas.py): who and when, and with a correction what the model read in its place. */
+export interface FactCheck {
+  id: number
+  /** The member's name as it is now; null once their account is gone. */
+  checked_by: string | null
+  checked_at: string
+  /** The model's value, when the member wrote another. */
+  corrected_from: string | null
+  /** What the member said the field holds: their value, or the model's they checked. */
+  value: string
+}
+
+/** A fact checked as it reads (no `value`), or corrected to the value the document states: words, digits for a number or an amount, a date as 2026-03-01. */
+export interface FactCheckInput {
+  value?: string
+  currency?: string
 }
 
 /** A row of a kind's facts table (FactRowOut in backend/app/schemas.py): a document, and the facts of each of its template's fields it has, in the document's order. */
@@ -307,13 +327,16 @@ export interface FactRow {
   title: string
   filename: string
   cells: Record<string, Fact[]>
+  /** The checks of a field no fact reads any more, by the field's name: made before the document was read again, which read it differently. */
+  earlier: Record<string, FactCheck[]>
 }
 
-/** A page of a kind's facts table (FactTableOut): the template whose fields are its columns, its rows, how many rows its conditions keep, and where its next page starts. */
+/** A page of a kind's facts table (FactTableOut): the template whose fields are its columns, its rows, how many rows its conditions keep and how many of those hold a fact nobody checked, and where its next page starts. */
 export interface FactTable {
   template: ExtractionTemplate
   rows: FactRow[]
   total: number
+  to_review: number
   next_after: string | null
 }
 
@@ -1012,6 +1035,9 @@ export type AuditAction =
   | 'template_created'
   | 'template_changed'
   | 'template_deleted'
+  | 'fact_checked'
+  | 'fact_corrected'
+  | 'fact_check_removed'
   | 'project_deleted'
   | 'project_restored'
   | 'project_purged'
@@ -1582,6 +1608,10 @@ export const api = {
   deleteTemplate: (id: number) => request<void>(`/templates/${id}`, { method: 'DELETE' }),
   /** A page of the facts table of the project's documents of one kind, as `tableQuery` in factTable.ts asks for it. */
   factTable: (projectId: number, query: URLSearchParams) => request<FactTable>(`/projects/${projectId}/fact-table?${query}`),
+  /** Check a fact as it reads, or correct it to `value`; the member's value replaces the model's wherever the fact is read. */
+  checkFact: (id: number, body: FactCheckInput) => request<Fact>(`/facts/${id}/check`, json('PUT', body)),
+  /** Take a check back: its fact reads as the model read it again. */
+  removeCheck: (id: number) => request<void>(`/fact-checks/${id}`, { method: 'DELETE' }),
 
   folders: (projectId: number) => request<Folder[]>(`/projects/${projectId}/folders`),
   createFolder: (projectId: number, body: { name: string; parent_id: number | null }) =>

@@ -1,6 +1,7 @@
 """A project's extraction templates (app/extraction.py): the fields its documents of each kind are
 read for, which the library's Templates page lists, the built-in ones among them, and changes;
-and the facts table of each kind's documents (app/fact_table.py), a column for each field.
+the facts table of each kind's documents (app/fact_table.py), a column for each field; and the
+members' checks and corrections of its facts (app/fact_checks.py).
 
 Every route is behind the flag `extraction_templates` (app/flags.py), answering an organisation it
 is off for as a path no route takes. Whoever may change the project changes its templates, each
@@ -17,8 +18,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app import fact_checks
 from app.api.deps import (
     AccountDep,
+    EditableFactCheckDep,
+    EditableFactDep,
     EditableProjectDep,
     EditableTemplateDep,
     ProjectDep,
@@ -36,12 +40,15 @@ from app.extraction import (
     template_of,
     templates_for,
 )
+from app.fact_checks import FACT_GONE, CheckRefused, check_out, written
 from app.fact_table import TableRefusal, condition_of, read_table
 from app.flags import EXTRACTION_TEMPLATES
 from app.indexing.enrich import normalize_fact_name
-from app.models import Document, ExtractionTemplate, Project
+from app.models import Document, ExtractionTemplate, Fact, FactCheck, Project
 from app.ratelimit import SEARCHES
 from app.schemas import (
+    FactCheckIn,
+    FactOut,
     FactRowOut,
     FactTableOut,
     ProjectTemplatesOut,
@@ -97,14 +104,16 @@ def fact_table(
     order: Literal["asc", "desc"] = "asc",
     conditions: Annotated[list[str] | None, Query(alias="filter")] = None,
     q: str = "",
+    review: bool = False,
     after: str | None = None,
     limit: Annotated[int, Query(ge=1, le=MAX_TABLE_ROWS)] = TABLE_ROWS,
 ):
     """A page of the facts table of the project's documents of one kind (app/fact_table.py):
     a row for each document read for the kind's template, a column for each of its fields,
     sorted by one field (`sort`; the document's name without one), the rows kept by each
-    `filter` (`field:has`, `field:lacks`, `field:contains:words`, `field:min:value`,
-    `field:max:value`) and the words `q`, in the document's name or its facts."""
+    `filter` (`field:has`, `field:lacks`, `field:unchecked`, `field:contains:words`,
+    `field:min:value`, `field:max:value`), the words `q`, in the document's name or its facts,
+    and with `review` those with a fact no member has checked."""
     doc_type = kind_of(kind)
     template = next((t for t in templates_for(session, project.id) if t.doc_type == doc_type), None)
     if template is None:
@@ -125,6 +134,7 @@ def fact_table(
             order=order,
             conditions=[condition_of(template, written) for written in conditions or []],
             words=q,
+            review=review,
             after=after,
             limit=limit,
         )
@@ -149,12 +159,87 @@ def fact_table(
                     name: [fact_out(fact, row.document) for fact in facts]
                     for name, facts in row.cells.items()
                 },
+                earlier={
+                    name: [check_out(held) for held in checks]
+                    for name, checks in row.earlier.items()
+                },
             )
             for row in table.rows
         ],
         total=table.total,
+        to_review=table.to_review,
         next_after=table.next_after,
     )
+
+
+@router.put("/facts/{fact_id}/check", response_model=FactOut)
+def check_fact(
+    fact: EditableFactDep,
+    body: FactCheckIn,
+    session: SessionDep,
+    account: AccountDep,
+    request: Request,
+):
+    """Check the fact as it reads now, or, with a `value`, correct it to what the document
+    states (app/fact_checks.py): the member's value replaces the model's wherever the fact is
+    read, and the check outlives the next reading of the document."""
+    fact_checks.hold(session, fact.document_id)
+    held = session.scalar(
+        select(Fact)
+        .where(Fact.id == fact.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if held is None:
+        raise HTTPException(404, FACT_GONE)
+    try:
+        value = None if body.value is None else written(held, body.value, body.currency)
+    except CheckRefused as refusal:
+        raise HTTPException(422, str(refusal)) from None
+    action = fact_checks.check(session, held, account.user.id, value)
+    document = session.get_one(Document, held.document_id)
+    if action is not None:
+        audit(
+            session,
+            account,
+            request,
+            action,
+            project_id=document.project_id,
+            target=("document", document.id),
+            detail={"filename": document.filename, "field": held.name},
+        )
+    session.commit()
+    if held.check is not None:
+        # Who checked it is read with the row, as their name is now.
+        session.refresh(held.check)
+    return fact_out(held, document)
+
+
+@router.delete("/fact-checks/{check_id}", status_code=204)
+def remove_check(
+    check: EditableFactCheckDep,
+    session: SessionDep,
+    account: AccountDep,
+    request: Request,
+):
+    """Take a member's check back: a fact holding it reads as the model read it again, and one
+    no fact holds, made before the document was read again, is forgotten."""
+    fact_checks.hold(session, check.document_id)
+    held = session.scalar(select(FactCheck).where(FactCheck.id == check.id).with_for_update())
+    if held is None:
+        return
+    document = session.get_one(Document, held.document_id)
+    audit(
+        session,
+        account,
+        request,
+        "fact_check_removed",
+        project_id=document.project_id,
+        target=("document", document.id),
+        detail={"filename": document.filename, "field": held.name},
+    )
+    fact_checks.remove(session, held)
+    session.commit()
 
 
 @router.post("/projects/{project_id}/templates", response_model=TemplateOut, status_code=201)

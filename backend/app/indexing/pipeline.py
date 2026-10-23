@@ -26,6 +26,8 @@ from app.embeddings import Embedder
 from app.entitlements import check_pages, text_pages
 from app.errors import AppError, shown, summary
 from app.extraction import Template, templates_for
+from app.fact_checks import apply_checks
+from app.fact_checks import hold as hold_checks
 from app.flags import EXTRACTION_TEMPLATES, flag_on_for
 from app.indexing.enrich import (
     ExtractedFact,
@@ -945,8 +947,12 @@ def _enrich(session: Session, document: Document, services: Services, meter: Met
                 update(Passage).where(Passage.section_id == section.id).values(context=section.path)
             )
 
+    hold_checks(session, document.id)
     session.execute(delete(Fact).where(Fact.document_id == document.id))
     facts = _fact_rows(session, document, analysis.facts, blocks, analysis.sampled, template)
+    # What the members checked of the facts before outlives them: a fact read the same again
+    # takes its check, with the member's value.
+    apply_checks(session, document.id, facts)
     session.add_all(facts)
     summarized = sum(1 for section in sections if section.summary)
     detail = f"{summarized} section summaries, {len(facts)} facts"
