@@ -16,7 +16,7 @@
 # Python for the two stages below, since the environment one builds runs on the other's.
 FROM python:3.13-slim-trixie@sha256:70729b46c69b4f1e97c4822c1af3df53a1476cf5ddc6c087c0c10bc3a5678c2f AS base
 
-FROM node:24-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5 AS frontend
+FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS frontend
 RUN npm install --global pnpm@11.2.2
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
