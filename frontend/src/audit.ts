@@ -186,6 +186,8 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   else if (event.action === 'document_assigned') parts.push(describeAssignment(detail, names))
   else if ('to' in detail) parts.push(`${word(detail.from)} → ${word(detail.to)}`)
   else if ('from' in detail) parts.push(`was ${word(detail.from)}`)
+  // A review an automation's run moved, which the row names as by Emudoc.
+  if (REVIEW_ACTIONS.has(event.action) && typeof detail.automation === 'string') parts.push(`by the automation “${detail.automation}”`)
   if (typeof detail.role === 'string' && !('to' in detail)) parts.push(word(detail.role))
   if (typeof detail.plan === 'string') parts.push(word(detail.plan))
   const unit = detail.unit ?? detail.pack
@@ -308,6 +310,7 @@ const AUTOMATION_PARTS: Record<string, string> = {
   audience: 'whom it tells',
   recheck: 'when it runs again',
   enabled: 'on or off',
+  reviews: 'what it puts in review',
 }
 
 /** A project's automation made, changed or deleted: what it watches and runs, by the names of the kind, the folder and the cross-checks, never a value. */
@@ -315,12 +318,16 @@ function describeAutomation(detail: AuditEvent['detail']): string {
   const kind = typeof detail.kind === 'string' ? `${detail.kind} documents` : 'any document'
   const parts = [`${kind} ${typeof detail.folder === 'string' ? `in ${detail.folder}` : 'anywhere'}`]
   parts.push(Array.isArray(detail.checks) ? `running ${detail.checks.map(String).join(', ')}` : 'running every cross-check')
+  if (detail.review === 'differs') parts.push('putting what differs in review')
+  else if (detail.review === 'arrived') parts.push('putting what arrives in review')
   if (detail.enabled === false) parts.push('off')
   if (Array.isArray(detail.changed) && detail.changed.length > 0) {
     parts.push(`changed ${detail.changed.map((part) => AUTOMATION_PARTS[String(part)] ?? String(part)).join(', ')}`)
   }
   return parts.join(', ')
 }
+
+const REVIEW_ACTIONS = new Set<AuditAction>(['document_review_changed', 'document_assigned'])
 
 /** A document's review as a row says it: its state, or none. */
 const review = (value: unknown) => REVIEW_LABELS[value as ReviewState] ?? 'not in review'

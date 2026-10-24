@@ -80,7 +80,8 @@ the invitation.$billing_mail Besides, we tell you notices about your work in the
 your notification centre in the app and by email: when documents you uploaded took a while to
 index, that they are done and which could not be indexed; when an organisation's automation
 that names you ran a project's cross-checks after documents arrived, what they found about them,
-by counts and file names; when a member assigned you a document to review, which and who; and
+by counts and file names; when a member or an automation assigned you a document to review, which
+and who; and
 an organisation's owners and admins,
 when its pages or questions for the month are mostly or all used. You choose how you
 are told each kind on your account page, and can stop each kind by email with the link at the

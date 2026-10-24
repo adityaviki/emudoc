@@ -842,6 +842,8 @@ class CheckRunOut(CheckRunSummaryOut):
 
 
 AutomationAudience = Literal["maker", "project", "nobody"]
+# AUTOMATION_REVIEWS in app/models.py.
+AutomationReview = Literal["differs", "arrived"]
 
 
 class AutomationIn(BaseModel):
@@ -849,8 +851,9 @@ class AutomationIn(BaseModel):
     document it watches (as templates name kinds), or any; the folder it watches, its subfolders
     with it, or the whole project; the cross-checks it runs by id, or every one of the project's
     when null; whether the model writes the discrepancy report; whom it tells what a run found;
-    whether documents its checks compare the watched ones with run it again; and whether it is
-    on."""
+    whether documents its checks compare the watched ones with run it again; whether it is on;
+    and what its run puts in review (app/reviews.py), none when null, and whom it assigns them to,
+    only with a review."""
 
     title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
     kind: _Kind | None = None
@@ -860,6 +863,8 @@ class AutomationIn(BaseModel):
     audience: AutomationAudience = "maker"
     recheck: bool = False
     enabled: bool = True
+    review: AutomationReview | None = None
+    assignee_id: int | None = None
 
 
 class AutomationOut(AutomationIn):
@@ -876,6 +881,8 @@ class AutomationOut(AutomationIn):
     # account is gone.
     created_by: int | None
     made_by: str | None
+    # The name of the member it assigns what it puts in review to, as it is now.
+    assignee: str | None
     # Why it would run nothing or tell nobody as the project stands now; None when it runs as
     # it says.
     problem: str | None

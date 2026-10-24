@@ -8,6 +8,7 @@ import pytest
 from pydantic_ai.messages import TextPart
 from sqlalchemy import select, text, update
 
+from app.api.automations import NOBODY_WITHOUT_REVIEW
 from app.automations import (
     CHECKS_GONE,
     FOLDER_TRASHED,
@@ -19,6 +20,7 @@ from app.automations import (
 )
 from app.config import get_settings
 from app.jobs import RUN_AUTOMATION, RUN_WORKFLOW, claim
+from app.mail import automation_review_email
 from app.models import (
     AuditEvent,
     AutomationArrival,
@@ -31,6 +33,7 @@ from app.models import (
     WorkflowRun,
 )
 from app.notices import settle_upload
+from app.reviews import NOT_A_REVIEWER
 from app.worker import Worker
 from tests.conftest import FakeTurn
 from tests.test_api import create_project
@@ -595,6 +598,8 @@ def test_an_automation_is_written_whole_and_refused_what_the_project_does_not_ho
         "audience": "project",
         "recheck": True,
         "enabled": True,
+        "review": None,
+        "assignee": None,
     }
     assert rows[1].detail["changed"] == [
         "title",
@@ -683,3 +688,155 @@ def test_the_notice_says_what_arrived_in_so_many_words():
     assert failed.brief.endswith(
         "The discrepancy report could not be written: The plan answers no more."
     )
+
+
+@pytest.fixture
+def bob(session, make_account, ann):
+    """Bob, a member of Ann's organisation, on a plan with room for him."""
+    ann.organization.plan = "enterprise"
+    session.commit()
+    return make_account("bob@globex.example", ann.organization, role="member")
+
+
+def standing(session, document_id: int) -> tuple:
+    session.expire_all()
+    document = session.get(Document, document_id)
+    return (document.review, document.assignee, document.review_changer)
+
+
+def test_an_automation_puts_what_its_checks_found_differing_in_review_for_its_assignee(
+    client, session, services, mailer, ann, bob
+):
+    project = create_project(client)
+    made(client, project["id"], TOTAL)
+    automation = make(client, project["id"], review="differs", assignee_id=bob.user.id)
+    assert (automation["review"], automation["assignee"]) == ("differs", "Bob")
+    documents = invoices(session, project["id"])
+    arrive(session, project["id"], ann.user.id, documents["INV-1"], documents["INV-2"])
+    next_job(services, RUN_AUTOMATION)
+    # Nothing moves until the run is worked out.
+    assert standing(session, documents["INV-1"]) == (None, None, None)
+    next_job(services, RUN_WORKFLOW)
+
+    # INV-1 is 5 EUR over its order; INV-2, with no order, could not be checked, and stays out.
+    assert standing(session, documents["INV-1"]) == ("to_review", "Bob", None)
+    assert standing(session, documents["INV-2"]) == (None, None, None)
+    assert standing(session, documents["PO-7701"]) == (None, None, None)
+    (notice,) = told(mailer, "bob@globex.example")
+    assert notice.subject == "A document was assigned to you"
+    assert (
+        "The automation “New invoices” of Contracts in Globex put INV-1.md in review for you."
+        in notice.text
+    )
+    page = f"/projects/{project['id']}/documents/{documents['INV-1']}"
+    assert f"{APP}{page}?organization={ann.organization.id}" in notice.text
+    (shown_notice,) = session.scalars(
+        select(Notification).where(Notification.kind == "review_assigned")
+    ).all()
+    assert (shown_notice.user_id, shown_notice.link) == (bob.user.id, page)
+
+    # By the app, naming the automation, never a value.
+    rows = session.scalars(
+        select(AuditEvent)
+        .where(AuditEvent.action.in_(("document_review_changed", "document_assigned")))
+        .order_by(AuditEvent.id)
+    ).all()
+    assert [(row.action, row.user_id, row.detail) for row in rows] == [
+        (
+            "document_review_changed",
+            None,
+            {"filename": "INV-1.md", "automation": "New invoices", "from": None, "to": "to_review"},
+        ),
+        (
+            "document_assigned",
+            None,
+            {"filename": "INV-1.md", "automation": "New invoices", "from": None, "to": bob.user.id},
+        ),
+    ]
+
+
+def test_an_automation_puts_everything_that_arrived_in_review_but_what_a_member_moved(
+    client, session, services, mailer, ann
+):
+    project = create_project(client)
+    made(client, project["id"], TOTAL)
+    make(client, project["id"], review="arrived")
+    documents = invoices(session, project["id"])
+    response = client.put(f"/api/documents/{documents['INV-1']}/review", json={"state": "approved"})
+    assert response.status_code == 200, response.text
+    arrive(session, project["id"], ann.user.id, documents["INV-1"], documents["INV-2"])
+    next_job(services, RUN_AUTOMATION)
+    next_job(services, RUN_WORKFLOW)
+
+    # A member's word stands; the other is in review, assigned to nobody, and nobody is told so.
+    assert standing(session, documents["INV-1"]) == ("approved", None, "Ann")
+    assert standing(session, documents["INV-2"]) == ("to_review", None, None)
+    assert (
+        session.scalars(select(Notification).where(Notification.kind == "review_assigned")).all()
+        == []
+    )
+
+
+def test_an_automation_assigns_a_member_who_may_review_while_they_may(
+    client, session, services, ann, bob, make_account
+):
+    project = create_project(client)
+    made(client, project["id"], TOTAL)
+    refused = client.post(
+        f"/api/projects/{project['id']}/automations",
+        json={**AUTOMATION, "assignee_id": bob.user.id},
+    )
+    assert (refused.status_code, refused.json()["detail"]) == (400, NOBODY_WITHOUT_REVIEW)
+    viewer = make_account("vic@globex.example", ann.organization, role="viewer")
+    refused = client.post(
+        f"/api/projects/{project['id']}/automations",
+        json={**AUTOMATION, "review": "arrived", "assignee_id": viewer.user.id},
+    )
+    assert (refused.status_code, refused.json()["detail"]) == (400, NOT_A_REVIEWER)
+    automation = make(client, project["id"], review="arrived", assignee_id=bob.user.id)
+
+    # Made a viewer since, Bob is kept when it is written again, and assigned nothing it puts in
+    # review.
+    session.execute(
+        update(Membership)
+        .where(Membership.user_id == bob.user.id, Membership.org_id == ann.organization.id)
+        .values(role="viewer")
+    )
+    session.commit()
+    body = {**AUTOMATION, "review": "arrived", "assignee_id": bob.user.id, "enabled": False}
+    response = client.put(f"/api/automations/{automation['id']}", json=body)
+    assert response.status_code == 200, response.text
+    changed = session.scalar(
+        select(AuditEvent.detail).where(AuditEvent.action == "automation_changed")
+    )
+    assert changed["changed"] == ["enabled"]
+    client.put(f"/api/automations/{automation['id']}", json={**body, "enabled": True})
+    documents = invoices(session, project["id"])
+    arrive(session, project["id"], ann.user.id, documents["INV-2"])
+    next_job(services, RUN_AUTOMATION)
+    next_job(services, RUN_WORKFLOW)
+    assert standing(session, documents["INV-2"]) == ("to_review", None, None)
+
+    # Removed from the organisation, he is no longer its assignee.
+    assert client.delete(f"/api/organization/members/{bob.user.id}").status_code == 204
+    (shown,) = listed(client, project["id"])
+    assert (shown["review"], shown["assignee_id"], shown["assignee"]) == ("arrived", None, None)
+
+
+def test_the_notice_of_what_an_automation_put_in_review_names_the_first_few():
+    def said(*names: str) -> str:
+        content = automation_review_email(
+            "Bob", "New invoices", list(names), "Contracts", "Globex", f"{APP}/x"
+        )
+        return content.brief
+
+    by = "The automation “New invoices” of Contracts in Globex"
+    assert said("a.md", "b.md") == f"{by} put 2 documents in review for you: a.md and b.md."
+    assert said("a.md", "b.md", "c.md") == (
+        f"{by} put 3 documents in review for you: a.md, b.md and c.md."
+    )
+    assert said("a.md", "b.md", "c.md", "d.md", "e.md") == (
+        f"{by} put 5 documents in review for you: a.md, b.md, c.md and 2 more."
+    )
+    several = automation_review_email("Bob", "N", ["a", "b"], "P", "O", f"{APP}/x")
+    assert several.subject == "Documents were assigned to you"

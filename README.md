@@ -188,17 +188,19 @@ about the documents that arrived, opening the run. With "Run them again" checked
 its checks compare those with arriving anywhere (a purchase order, a delivery note, a price list)
 run it too. A document arrives once its upload is indexed, and the run waits until none has
 arrived for two minutes (`AUTOMATION_WAIT`), at most a quarter of an hour after the first, so an
-upload sent in several requests makes one run. Its run is listed with the others, by the
-automation and what arrived; its report counts as one of the month's questions, and a month or a
+upload sent in several requests makes one run. An automation may also put in review what arrived
+(below), every document of it or those its cross-checks find a difference about, assigned to a
+member it names, once its run is worked out, leaving alone any a member put in review already. Its
+run is listed with the others, by the automation and what arrived; its report counts as one of the month's questions, and a month or a
 day with no room left runs the checks without one, saying why. Whoever may change the project
 makes, changes, turns off and deletes them, each a row of the audit log naming what it watches
 and runs, never a value, and the runs they make are rows of it by Emudoc.
 
 A document may be put in review, the accounts payable's way with an invoice (`backend/app/reviews.py`,
-`PUT /api/documents/{id}/review`): from its menu in the library or its tab, a member puts it "To
-review", assigns it to a member who sees the project and may change it, and approves or disputes
+`PUT /api/documents/{id}/review`): an automation as it arrives (above), or from its menu in the
+library or its tab a member, who puts it "To review", assigns it to a member who sees the project and may change it, and approves or disputes
 it; assigning one in no review puts it in review, and taking it out of review drops whom it was
-assigned to. Whoever is assigned it by another is told, in the app and by email as they chose for
+assigned to. Whoever is assigned it by another, or by an automation, is told, in the app and by email as they chose for
 the notice, opening the document. The library marks each row's review beside its status, and so
 does the facts table beside a document's name; the library's "Reviews" button lists the project's
 documents of one state, those still open oldest first and the approved ones newest first, every

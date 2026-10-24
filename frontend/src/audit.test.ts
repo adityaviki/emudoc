@@ -181,6 +181,10 @@ describe('a row', () => {
     expect(assigned(null, 9)).toBe('inv-1.pdf · to Bob')
     expect(assigned(9, 12)).toBe('inv-1.pdf · to a former member')
     expect(assigned(9, null)).toBe('inv-1.pdf · assigned to nobody, was Bob')
+    const automatic = { filename: 'inv-2.pdf', from: null, to: 'to_review', automation: 'New invoices' }
+    expect(describeDetail(event('document_review_changed', automatic, { user_id: null }))).toBe(
+      'inv-2.pdf · not in review → To review · by the automation “New invoices”',
+    )
   })
 
   it('words a setting by what it is', () => {

@@ -36,6 +36,7 @@ from app.models import (
     User,
     WorkflowRun,
 )
+from app.reviews import NOT_A_REVIEWER, may_review
 from app.schemas import AutomationIn, AutomationOut, AutomationsOut
 
 router = APIRouter(tags=["automations"], dependencies=[Depends(flagged(EXTRACTION_TEMPLATES))])
@@ -48,6 +49,9 @@ NO_TEMPLATE = (
     "This project has no template for that kind of document. Choose a kind its templates read, "
     "or any document."
 )
+NOBODY_WITHOUT_REVIEW = (
+    "An automation assigns what it puts in review. Choose what it puts in review, or assign nobody."
+)
 
 # What of an automation a change may change, as the audit log names it, by its columns, and
 # `checks` by the cross-checks it chose too.
@@ -59,6 +63,7 @@ PARTS = {
     "audience": ("audience",),
     "recheck": ("recheck",),
     "enabled": ("enabled",),
+    "reviews": ("review", "assignee_id"),
 }
 
 
@@ -85,7 +90,7 @@ def create_automation(
     request: Request,
 ):
     """Make an automation of the project's cross-checks."""
-    columns, chosen = _written(session, project, body)
+    columns, chosen = _written(session, project, body, None)
     # The project's row, so that two made at once cannot pass its ceiling.
     session.execute(select(Project.id).where(Project.id == project.id).with_for_update())
     held = session.scalar(select(func.count()).where(Automation.project_id == project.id))
@@ -120,7 +125,7 @@ def update_automation(
 ):
     """Write the automation anew, whole: what arrives from now on runs it as it says."""
     project = session.get(Project, row.project_id)
-    columns, chosen = _written(session, project, body)
+    columns, chosen = _written(session, project, body, row.assignee_id)
     before = _chosen_ids(session, row)
     changed = [
         part
@@ -167,11 +172,18 @@ def delete_automation(
 
 
 def _written(
-    session: Session, project: Project, body: AutomationIn
+    session: Session, project: Project, body: AutomationIn, assigned: int | None
 ) -> tuple[dict, list[CrossCheck] | None]:
     """The automation's columns as they are kept, and the cross-checks it chose (None for every
     one); refused for a kind the project's templates do not read, a folder that is not the
-    project's or is in the trash, and a cross-check that is not the project's."""
+    project's or is in the trash, a cross-check that is not the project's, and an assignee
+    without a review or one who may not review its documents, unless kept as `assigned` was, so
+    that an automation assigning a member since made a viewer is still turned off and on."""
+    if body.assignee_id is not None:
+        if body.review is None:
+            raise HTTPException(400, NOBODY_WITHOUT_REVIEW)
+        if body.assignee_id != assigned and not may_review(session, project, body.assignee_id):
+            raise HTTPException(400, NOT_A_REVIEWER)
     kind = kind_of(body.kind) if body.kind is not None else None
     if kind is not None and kind not in {t.doc_type for t in templates_for(session, project.id)}:
         raise HTTPException(400, NO_TEMPLATE)
@@ -203,6 +215,8 @@ def _written(
         "audience": body.audience,
         "recheck": body.recheck,
         "enabled": body.enabled,
+        "review": body.review,
+        "assignee_id": body.assignee_id,
     }
     return columns, chosen
 
@@ -229,8 +243,8 @@ def _chosen_ids(session: Session, row: Automation) -> list[int] | None:
 
 def _named(session: Session, row: Automation, chosen: list[CrossCheck] | None) -> dict:
     """What the audit log keeps of an automation: its name, the kind and the folder it watches,
-    the cross-checks it runs by their names, and how it runs them, never a value of a
-    document."""
+    the cross-checks it runs by their names, how it runs them, and what it puts in review and for
+    whom, by their id, never a value of a document."""
     folder = folder_paths(session, row.project_id, trashed=True).get(row.folder_id)
     return {
         "name": row.title,
@@ -241,6 +255,8 @@ def _named(session: Session, row: Automation, chosen: list[CrossCheck] | None) -
         "audience": row.audience,
         "recheck": row.recheck,
         "enabled": row.enabled,
+        "review": row.review,
+        "assignee": row.assignee_id,
     }
 
 
@@ -257,10 +273,9 @@ def _outs(session: Session, project_id: int, rows: list[Automation]) -> list[Aut
             select(Folder).where(Folder.id.in_({row.folder_id for row in rows} - {None}))
         )
     }
-    makers = dict(
-        session.execute(
-            select(User.id, User.name).where(User.id.in_({row.created_by for row in rows} - {None}))
-        ).all()
+    named = {row.created_by for row in rows} | {row.assignee_id for row in rows}
+    names = dict(
+        session.execute(select(User.id, User.name).where(User.id.in_(named - {None}))).all()
     )
     last = dict(
         session.execute(
@@ -283,10 +298,13 @@ def _outs(session: Session, project_id: int, rows: list[Automation]) -> list[Aut
                 audience=row.audience,
                 recheck=row.recheck,
                 enabled=row.enabled,
+                review=row.review,
+                assignee_id=row.assignee_id,
+                assignee=names.get(row.assignee_id),
                 folder=paths.get(row.folder_id) if row.folder_id is not None else None,
                 checks=None if row.every_check else [check.title for check in checks],
                 created_by=row.created_by,
-                made_by=makers.get(row.created_by),
+                made_by=names.get(row.created_by),
                 problem=problem_of(session, row, checks, templates, folders.get(row.folder_id)),
                 last_run_at=last.get(row.id),
                 updated_at=row.updated_at,

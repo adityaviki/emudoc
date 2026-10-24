@@ -17,6 +17,11 @@ newest entry first.
 
 Operators:
 
+- An automation may put in review what arrived for it, every document of it or those its
+  cross-checks found a difference about, assigned to a member it names, once its run is worked
+  out; it never moves a document a member put in review already. Its assignee is told once of
+  them all, and each move is in the audit log by Emudoc, naming the automation. New columns
+  `automations.review` and `assignee_id` (a migration).
 - Documents' reviews, behind the flag `extraction_templates`: a member puts a document in review
   from its menu in the library or its tab, assigns it to a member who sees the project and may
   change it, and approves or disputes it; a member assigned by another is told, a new kind of

@@ -33,8 +33,9 @@ import { heldTurns, holdNextTurn, refuseEmbeddings, releaseTurns } from './stand
 // log keep, and then a field added to the project's own invoice template and the invoice read again for it,
 // what the reading changed listed, the corrected total kept, the invoice checked against its purchase
 // order by cross-checks, run with a discrepancy report, an automation made, which runs them
-// once a second invoice arrives and tells the member what they found, and last the invoice put in
-// review, assigned to the colleague, disputed and approved in the reviews view. The answer
+// once a second invoice arrives, puts it in review and tells the member what they found, and last
+// the first invoice put in review, assigned to the colleague, disputed and approved in the reviews
+// view. The answer
 // is the stand-in's (e2e/standin.py): the first sentence of the passage its search found best,
 // with that passage's reference. Along the way each kind of page, panel and dialog is checked
 // against axe-core's rules for WCAG 2.2 AA in both themes (e2e/axe.ts), and the keyboard's focus
@@ -1119,7 +1120,10 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(form.getByLabel('Name', { exact: true })).toBeFocused()
     await form.getByLabel('Name', { exact: true }).fill('New invoices')
     await expect(form.getByLabel('When this arrives')).toHaveValue('invoice')
-    await expect(form).toContainText('When an invoice arrives anywhere in the project, run every cross-check, and tell you.')
+    // What arrives goes in review, assigned to nobody.
+    await form.getByLabel('Put in review').selectOption('arrived')
+    await expect(form.getByLabel('Assigned to')).toHaveValue('')
+    await expect(form).toContainText('When an invoice arrives anywhere in the project, run every cross-check, put it in review, and tell you.')
     await expectAccessible(page, 'an automation being written')
     await form.getByRole('button', { name: 'Save' }).click()
     await expect(automations.getByText('Saved “New invoices”.')).toBeVisible()
@@ -1160,7 +1164,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('listitem').filter({ hasText: 'by the automation “New invoices”' })).toContainText('Emudoc')
   })
 
-  await test.step('put the invoice in review from its menu, assign it to a colleague in its tab, dispute and approve it in the reviews view, and find it marked in the facts table', async () => {
+  await test.step('put the invoice in review from its menu, assign it to a colleague in its tab, dispute and approve it in the reviews view beside the one the automation put there, and find both marked in the facts table', async () => {
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
     const row = page.getByRole('treeitem', { name: 'invoice.md', exact: true })
@@ -1182,12 +1186,16 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('button', { name: 'Reviews', exact: true }).click()
     const heading = page.getByRole('heading', { name: 'Reviews' })
     await expect(heading).toBeFocused()
-    await expect(page.getByRole('button', { name: 'To review (1)' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByRole('button', { name: 'To review (2)' })).toHaveAttribute('aria-pressed', 'true')
+    // The automation put the second invoice in review as it arrived, before: the longest waiting comes first.
     const waiting = page.getByRole('list', { name: 'To review' }).getByRole('listitem')
-    await expect(waiting).toHaveCount(1)
-    await expect(waiting.getByLabel('Assigned to').locator('option:checked')).toHaveText('Grace Hopper')
+    await expect(waiting).toHaveCount(2)
+    await expect(waiting.first()).toContainText('second-invoice.md')
+    await expect(waiting.first()).toContainText(/Put in review on /)
+    const ours = waiting.filter({ has: page.getByTitle('invoice.md', { exact: true }) })
+    await expect(ours.getByLabel('Assigned to').locator('option:checked')).toHaveText('Grace Hopper')
     await expectAccessible(page, 'the reviews')
-    await waiting.getByLabel('Review', { exact: true }).selectOption('disputed')
+    await ours.getByLabel('Review', { exact: true }).selectOption('disputed')
     await expect(heading).toBeFocused()
     await page.getByRole('button', { name: 'Disputed (1)' }).click()
     const disputed = page.getByRole('list', { name: 'Disputed' }).getByRole('listitem')
@@ -1208,11 +1216,13 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await invoice.getByRole('button', { name: 'Facts table of Invoice' }).click()
     const grid = page.getByRole('grid', { name: 'Facts of invoice documents' })
     await expect(grid.getByRole('img', { name: 'Approved, assigned to Grace Hopper' })).toHaveCount(1)
+    await expect(grid.getByRole('img', { name: 'To review', exact: true })).toHaveCount(1)
 
     // Each move is the organisation's to ask about, by the file and its states, and the assignment by whom.
     await page.goto('/organization/audit')
     await page.getByLabel('What').selectOption('document_review_changed')
     await expect(page.getByRole('listitem').filter({ hasText: 'Disputed → Approved' })).toContainText('invoice.md')
+    await expect(page.getByRole('listitem').filter({ hasText: 'by the automation “New invoices”' })).toContainText('second-invoice.md')
     await page.getByLabel('What').selectOption('document_assigned')
     await expect(page.getByRole('listitem').filter({ hasText: 'Assigned a document' })).toContainText('invoice.md · to Grace Hopper')
   })

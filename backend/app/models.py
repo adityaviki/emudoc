@@ -65,6 +65,9 @@ AUTOMATION_AUDIENCES = ("maker", "project", "nobody")
 # invoice: put in review for a member to look at, then approved, or disputed with whoever sent
 # it. A document in no review has none.
 REVIEW_STATES = ("to_review", "approved", "disputed")
+# What an automation's run puts in review (app/reviews.py), of the documents that arrived for it
+# and are in none: those its cross-checks found a difference about, or every one it watches.
+AUTOMATION_REVIEWS = ("differs", "arrived")
 # From most to least permitted: each role may do everything the roles after it may.
 ROLES = ("owner", "admin", "member", "viewer")
 # The roles an organisation may let everyone at its domains join with (app/invitations.py): none
@@ -1440,7 +1443,14 @@ class Automation(Base):
     report when asked, and tells whom it names what they found about what arrived."""
 
     __tablename__ = "automations"
-    __table_args__ = (_one_of("audience", AUTOMATION_AUDIENCES, "automations"),)
+    __table_args__ = (
+        _one_of("audience", AUTOMATION_AUDIENCES, "automations"),
+        _one_of("review", AUTOMATION_REVIEWS, "automations"),
+        # Whom it assigns what it puts in review, so only with a review.
+        CheckConstraint(
+            "assignee_id IS NULL OR review IS NOT NULL", name="ck_automations_assignee"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     # The tenant, as for every row a member reaches by its id.
@@ -1471,6 +1481,13 @@ class Automation(Base):
     recheck: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     # Off, nothing that arrives runs it.
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    # One of AUTOMATION_REVIEWS, what its run puts in review, null for nothing; and the member it
+    # assigns them to, null for nobody and once they leave the organisation, indexed for the
+    # account purge.
+    review: Mapped[str | None] = mapped_column(String(20))
+    assignee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
     # Who made it, whom `maker` tells; null once their account is gone. Indexed for the account
     # purge.
     created_by: Mapped[int | None] = mapped_column(

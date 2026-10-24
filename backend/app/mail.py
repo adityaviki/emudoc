@@ -967,6 +967,42 @@ def review_assigned_email(
     )
 
 
+# The names of the documents an automation put in review that its notice lists; the rest counted.
+REVIEWS_NAMED = 3
+
+
+def automation_review_email(
+    name: str,
+    automation: str,
+    filenames: list[str],
+    project: str,
+    organization: str,
+    link: str,
+) -> Content:
+    """To the member an automation assigns what its run put in review (app/reviews.py): which
+    automation, and which documents, the first REVIEWS_NAMED by their files' names in the body
+    alone, the rest counted. The subject names neither, since the log repeats it."""
+    by = f"The automation “{automation}” of {project} in {organization}"
+    if len(filenames) == 1:
+        said = f"{by} put {filenames[0]} in review for you."
+        return Content(
+            "A document was assigned to you",
+            (_greeting(name), said, Link(link, "Open the document")),
+            said,
+        )
+    named = filenames[:REVIEWS_NAMED]
+    if (more := len(filenames) - len(named)) > 0:
+        listed = f"{', '.join(named)} and {more:,} more"
+    else:
+        listed = f"{', '.join(named[:-1])} and {named[-1]}"
+    said = f"{by} put {len(filenames):,} documents in review for you: {listed}."
+    return Content(
+        "Documents were assigned to you",
+        (_greeting(name), said, Link(link, "Open your reviews")),
+        said,
+    )
+
+
 def quota_email(
     name: str,
     organization: str,

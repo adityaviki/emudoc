@@ -1411,7 +1411,8 @@ What the app mails, and to whom:
   and file names, never a value a document states, and nothing when they found nothing about them
   (`tell_run` in `backend/app/check_runs.py`); to the member another assigned a document's review,
   who did and which file, in the change's transaction (`tell_assigned` in
-  `backend/app/reviews.py`); and to an organisation's owners and admins, once a month
+  `backend/app/reviews.py`), or an automation's run several, once, naming the first three
+  (`put_in_review`); and to an organisation's owners and admins, once a month
   for each, when its pages or questions for the month reach 80 % of what it may use (its plan's
   and the packs bought for the month), when they reach all of it, and for pages when what is
   left could not take a document. A pack bought afterwards starts the count again. Each notice

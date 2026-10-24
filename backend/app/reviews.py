@@ -7,6 +7,12 @@ document in no review puts it in review, since being assigned is being asked to 
 taking a document out of review drops its assignee, so that nobody is left assigned what nobody
 reviews any more (the checks on `documents` hold both).
 
+An automation's run may put in review the documents it was for (`put_in_review`,
+AUTOMATION_REVIEWS: those its cross-checks found a difference about, or every one that arrived),
+assigned to the member it names. It never moves a document already in review, approved or
+disputed: a member's word is never the machine's to change, and the notice of its run tells what
+it found about it all the same.
+
 The state is a member's word on the document as a whole, never worked out from its facts. The
 facts table's checks (app/fact_checks.py) are a member's word on one value the model read, and
 its "Unchecked" is the documents with a value nobody checked: work towards a review, which may
@@ -34,10 +40,12 @@ from datetime import UTC, datetime
 from sqlalchemy import ColumnElement, and_, exists, func, or_, select, tuple_, update
 from sqlalchemy.orm import Session
 
-from app.mail import in_organization, review_assigned_email
+from app.audit import audit_event
+from app.mail import automation_review_email, in_organization, review_assigned_email
 from app.models import (
     REVIEW_STATES,
     ROLES,
+    Automation,
     Document,
     Membership,
     Project,
@@ -64,8 +72,10 @@ NOBODY_OUT_OF_REVIEW = (
     "nobody."
 )
 BAD_CURSOR = "This page of the reviews cannot be found. List them again from the start."
-# Where a notice of a document assigned leads: the document in its project.
+# Where a notice of a document assigned leads: the document in its project, or for several the
+# member's own in the reviews view.
 DOCUMENT_PAGE = PROJECT_PAGE + "/documents/{}"
+MY_REVIEWS_PAGE = PROJECT_PAGE + "?reviews=mine"
 
 
 @dataclass(frozen=True)
@@ -188,15 +198,94 @@ def tell_assigned(
     return tell(session, user, organization.id, REVIEW_ASSIGNED, content, page, app_url)
 
 
+def put_in_review(
+    session: Session,
+    project: Project,
+    document_ids: list[int],
+    assignee_id: int | None,
+    automation: str,
+    app_url: str,
+) -> list[str]:
+    """Put in review, for the automation named, the project's documents of `document_ids` out of
+    the trash that are in none, assigned to `assignee_id` while they may still review them, else
+    to nobody; each a row of the audit log by the app, and the assignee told once of them all.
+    Returns the names of the files it put in review. One statement, so that a document a member
+    moves meanwhile is theirs. The caller commits."""
+    if assignee_id is not None and not may_review(session, project, assignee_id):
+        assignee_id = None
+    put = session.execute(
+        update(Document)
+        .where(
+            Document.id.in_(document_ids),
+            Document.project_id == project.id,
+            Document.deleted_at.is_(None),
+            Document.review.is_(None),
+        )
+        .values(
+            review=TO_REVIEW,
+            assignee_id=assignee_id,
+            review_changed_by=None,
+            review_changed_at=func.now(),
+        )
+        .returning(Document.id, Document.filename)
+        .execution_options(synchronize_session=False)
+    ).all()
+    put.sort()
+    for document_id, filename in put:
+        target = ("document", document_id)
+        named = {"filename": filename, "automation": automation}
+        audit_event(
+            session,
+            "document_review_changed",
+            org_id=project.org_id,
+            project_id=project.id,
+            target=target,
+            detail={**named, "from": None, "to": TO_REVIEW},
+        )
+        if assignee_id is not None:
+            audit_event(
+                session,
+                "document_assigned",
+                org_id=project.org_id,
+                project_id=project.id,
+                target=target,
+                detail={**named, "from": None, "to": assignee_id},
+            )
+    if put and assignee_id is not None:
+        user = session.get(User, assignee_id)
+        organization = project.organization
+        page = (
+            DOCUMENT_PAGE.format(project.id, put[0][0])
+            if len(put) == 1
+            else MY_REVIEWS_PAGE.format(project.id)
+        )
+        content = automation_review_email(
+            user.name,
+            automation,
+            [filename for _, filename in put],
+            project.name,
+            organization.name,
+            in_organization(f"{app_url}{page}", organization.id),
+        )
+        tell(session, user, organization.id, REVIEW_ASSIGNED, content, page, app_url)
+    return [filename for _, filename in put]
+
+
 def forget_assignments(session: Session, org_id: int, user_id: int) -> None:
     """Assign nobody the documents of the organisation's projects that were assigned to the
-    user, who is leaving it, so that joining it again finds none theirs. The caller commits."""
+    user, who is leaving it, nor what its automations put in review, so that joining it again
+    finds none theirs. The caller commits."""
     session.execute(
         update(Document)
         .where(
             Document.assignee_id == user_id,
             Document.project_id.in_(select(Project.id).where(Project.org_id == org_id)),
         )
+        .values(assignee_id=None)
+    )
+    session.execute(
+        update(Automation)
+        .where(Automation.org_id == org_id, Automation.assignee_id == user_id)
         .values(assignee_id=None)
     )
 

@@ -24,8 +24,9 @@ documents it watches have gone quiet, with no member behind it: it names the aut
 arrived (`trigger`), and its report, when the automation asks for one, is held to the month's
 questions, of which it counts one, and the day's spending as a member's is, a refusal leaving
 the run without its report and saying why. Once such a run settles, worked out and its report
-written or failed, what it found about the documents that arrived is told, once (`tell_run`), to
-whom the automation names.
+written or failed, the documents the automation said are put in review (app/reviews.py), those
+its checks found a difference about or every one it watches that arrived, and what it found
+about the documents that arrived is told, once (`tell_run`), to whom the automation names.
 
 A run's values are what documents say, like a chat's answers: the members' pages hold them, never
 the audit log, a log line or a notice, which counts them, and a run is kept as long as the
@@ -84,6 +85,7 @@ from app.models import (
     WorkflowRun,
 )
 from app.notices import CHECKS_RUN, MONTH_QUESTIONS, PROJECT_PAGE, app_address, note_quota, tell
+from app.reviews import put_in_review
 from app.spending import check_platform_spend, check_spend
 from app.usage import ANSWER, REPORT, WORKFLOW_RUN, ModelUsage, record
 
@@ -282,6 +284,9 @@ def run_automation(automation_id: int, lease: Lease | None = None) -> str | None
             "documents": landed,
             "partners": partners,
             "names": [names[document_id] for document_id in named if document_id in names],
+            # What it puts in review once the run settles, as it said when it ran.
+            "review": automation.review,
+            "assignee_id": automation.assignee_id,
         }
         run = start_run(
             session, project, None, checks, report=reported, automation=automation, trigger=trigger
@@ -519,15 +524,26 @@ def fail_run(run_id: int, error: str | None = None) -> None:
 
 # The findings of a run about the documents given, by outcome: those of the documents
 # themselves, and those whose partners they are.
+_ABOUT_DOCUMENTS = """
+    f.run_id = :run
+    AND (f.document_id = ANY(:ids)
+         OR EXISTS (SELECT 1 FROM jsonb_array_elements(f.partners) AS p
+                    WHERE (p->>'document_id')::bigint = ANY(:ids)))
+"""
 _ABOUT = text(
-    """
+    f"""
     SELECT f.outcome, count(*) AS findings
     FROM workflow_findings AS f
-    WHERE f.run_id = :run
-      AND (f.document_id = ANY(:ids)
-           OR EXISTS (SELECT 1 FROM jsonb_array_elements(f.partners) AS p
-                      WHERE (p->>'document_id')::bigint = ANY(:ids)))
+    WHERE {_ABOUT_DOCUMENTS}
     GROUP BY f.outcome
+    """
+)
+# The documents a value of which differs, of those findings.
+_DIFFERING = text(
+    f"""
+    SELECT DISTINCT f.document_id
+    FROM workflow_findings AS f
+    WHERE {_ABOUT_DOCUMENTS} AND f.outcome = 'differs'
     """
 )
 
@@ -536,7 +552,9 @@ def tell_run(run_id: int, lease: Lease | None = None) -> int:
     """Tell what an automation's run found about the documents that arrived for it, once, as the
     run settles: worked out, and its report, when one was asked for, written or failed. To whom
     the automation names, each as they chose for the kind of notice, and to nobody when it found
-    nothing about them; returns to how many. A member's run, and one told already, tell none."""
+    nothing about them; returns to how many. First, in the same transaction, the documents it
+    puts in review are put there (`_put_in_review`). A member's run, and one told already, tell
+    none."""
     with SessionLocal() as session:
         run = session.scalar(select(WorkflowRun).where(WorkflowRun.id == run_id).with_for_update())
         if (
@@ -552,12 +570,35 @@ def tell_run(run_id: int, lease: Lease | None = None) -> int:
         counts = {outcome: 0 for outcome in OUTCOMES}
         for outcome, findings in session.execute(_ABOUT, {"run": run.id, "ids": arrived}):
             counts[outcome] = findings
+        _put_in_review(session, run, arrived)
         told = 0
         automation = session.get(Automation, run.automation_id) if run.automation_id else None
         if automation is not None and any(counts.values()):
             told = _tell_run(session, run, automation, counts)
         _commit(session, lease)
         return told
+
+
+def _put_in_review(session: Session, run: WorkflowRun, arrived: list[int]) -> None:
+    """Put in review what the automation said it would when it ran: the documents its findings
+    show a value of to differ, of those that arrived or whose partners did (an invoice whose
+    order came later among them), or every one it watches that arrived."""
+    review = run.trigger.get("review")
+    if review is None:
+        return
+    if review == "differs":
+        chosen = list(session.scalars(_DIFFERING, {"run": run.id, "ids": arrived}))
+    else:
+        chosen = list(run.trigger["documents"])
+    if chosen:
+        put_in_review(
+            session,
+            session.get(Project, run.project_id),
+            chosen,
+            run.trigger.get("assignee_id"),
+            run.trigger["automation"],
+            app_address(),
+        )
 
 
 def _tell_run(

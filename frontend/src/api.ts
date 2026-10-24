@@ -542,6 +542,8 @@ export interface CheckRun extends CheckRunSummary {
 
 /** Whom an automation tells what a run found (backend/app/automations.py): its maker, everyone who sees the project, or nobody. */
 export type AutomationAudience = 'maker' | 'project' | 'nobody'
+/** What an automation's run puts in review of what arrived: those its cross-checks found a difference about, or every one it watches (`AUTOMATION_REVIEWS`). */
+export type AutomationReview = 'differs' | 'arrived'
 
 /** An automation as a member writes it, whole (AutomationIn): the kind it watches (null for any document), the folder (null for the whole project), the cross-checks it runs (null for every one), its report, whom it tells, whether what its checks compare with runs it again, and whether it is on. */
 export interface AutomationInput {
@@ -553,6 +555,9 @@ export interface AutomationInput {
   audience: AutomationAudience
   recheck: boolean
   enabled: boolean
+  /** What its run puts in review, null for nothing, and the member it assigns them to. */
+  review: AutomationReview | null
+  assignee_id: number | null
 }
 
 /** A project's automation (AutomationOut): its folder's path and its chosen cross-checks' names as they are now, who made it, why it would run nothing as the project stands, and when it last ran. */
@@ -562,6 +567,8 @@ export interface Automation extends AutomationInput {
   checks: string[] | null
   created_by: number | null
   made_by: string | null
+  /** The name of the member it assigns what it puts in review to, as it is now. */
+  assignee: string | null
   problem: string | null
   last_run_at: string | null
   updated_at: string
