@@ -245,16 +245,23 @@ def _write(draft_id: int, user_id: int | None, services: Services, lease: Lease 
         log.info("Draft %s was not written: %s", draft_id, over)
         events = _only({"type": "error", "message": over})
     reply = Reply(sources=dict(sources))
+    charged = False
     try:
         for event in events:
             reply.apply(event)
+        events.close()
+        # What the writing used is recorded before it is settled: the page stops asking at
+        # done, so a draft done before its usage would never show it.
+        charged = True
+        _charge(usage, draft_id, payer)
         with SessionLocal() as session:
             _settle(session, draft_id, asker, reply, run_id, lease)
     finally:
-        try:
-            events.close()
-        finally:
-            _charge(usage, draft_id, payer)
+        if not charged:
+            try:
+                events.close()
+            finally:
+                _charge(usage, draft_id, payer)
 
 
 def _only(event: dict[str, Any]) -> Generator[dict[str, Any]]:

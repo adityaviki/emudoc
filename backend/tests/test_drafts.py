@@ -10,6 +10,7 @@ import pytest
 from pydantic_ai.messages import TextPart
 from sqlalchemy import delete, func, select, update
 
+from app import drafts
 from app.config import get_settings
 from app.db import engine
 from app.draft_templates import BUILT_IN, kind_task
@@ -132,6 +133,28 @@ def test_a_draft_is_written_from_its_documents_facts_and_findings(
         select(UsageEvent).where(UsageEvent.kind == "draft", UsageEvent.unit == "calls")
     ).all()
     assert [(row.ref_type, row.ref_id) for row in charged] == [("draft", queued["id"])]
+
+
+def test_a_draft_is_never_done_without_what_its_writing_used(
+    client, session, services, monkeypatch
+):
+    # The page stops asking for a draft once it is done, so its usage is there by then.
+    project = create_project(client)
+    services.llm.agent_turns.append(FakeTurn(TextPart("Written.")))
+    draft = ask(client, project["id"], kind="report")
+    at_settle = []
+
+    def settle(*args, **kwargs):
+        with engine.connect() as connection:
+            at_settle.append(connection.scalar(select(Draft.usage).where(Draft.id == draft["id"])))
+        return settled(*args, **kwargs)
+
+    settled = drafts._settle
+    monkeypatch.setattr(drafts, "_settle", settle)
+    write(services)
+    assert at_settle[0]["draft"]["calls"] == 1
+    done = shown(client, draft["id"])
+    assert (done["status"], done["usage"]["draft"]["calls"]) == ("done", 1)
 
 
 def test_a_member_saves_versions_and_an_older_one_reads_as_it_was(
