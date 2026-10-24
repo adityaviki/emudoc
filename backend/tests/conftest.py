@@ -112,7 +112,7 @@ os.environ["PWNED_PASSWORDS_URL"] = ""
 # tests/test_receiving.py set them against fakes of their own.
 os.environ["SMTP_URL"] = os.environ["RESEND_API_KEY"] = ""
 os.environ["RESEND_WEBHOOK_SECRET"] = os.environ["MAIL_EVENTS_QUEUE"] = ""
-os.environ["INBOUND_DOMAIN"] = ""
+os.environ["INBOUND_DOMAIN"] = os.environ["INBOUND_MAIL_QUEUE"] = ""
 # Nothing is sold, whatever `.env` says; tests/test_billing.py turns billing on against
 # `FakeStripe`.
 os.environ["STRIPE_SECRET_KEY"] = os.environ["STRIPE_WEBHOOK_SECRET"] = ""

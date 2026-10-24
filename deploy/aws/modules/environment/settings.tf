@@ -32,6 +32,10 @@ locals {
       MAIL_FROM         = var.mail.from
       MAIL_EVENTS_QUEUE = aws_sqs_queue.mail_events[0].url
     },
+    var.inbound == null ? {} : {
+      INBOUND_DOMAIN     = var.inbound.domain
+      INBOUND_MAIL_QUEUE = aws_sqs_queue.inbound[0].url
+    },
     # The app's own reports (the jobs given up, the spending, the quarantines, its watch) go
     # where the instance's do.
     var.alert_email == "" ? {} : { ALERT_EMAIL = var.alert_email },
@@ -62,7 +66,7 @@ resource "aws_ssm_parameter" "setting" {
         keys(local.operator_settings),
         concat(keys(local.managed_settings), keys(local.secret_settings)),
       )) == 0
-      error_message = "settings names one the module sets itself (APP_URL, STORAGE_URL, AWS_DEFAULT_REGION, SCANNER_URL, EMBEDDING_BASE_URL, HOSTING_PROVIDER, BACKUP_DAYS, ACCESS_LOG_DAYS, SERVER_LOG_DAYS, SENTRY_ENVIRONMENT, DATA_REGION, MAIL_FROM, MAIL_EVENTS_QUEUE, ALERT_EMAIL, DATABASE_URL, SMTP_URL): use the module's own variable for it."
+      error_message = "settings names one the module sets itself (APP_URL, STORAGE_URL, AWS_DEFAULT_REGION, SCANNER_URL, EMBEDDING_BASE_URL, HOSTING_PROVIDER, BACKUP_DAYS, ACCESS_LOG_DAYS, SERVER_LOG_DAYS, SENTRY_ENVIRONMENT, DATA_REGION, MAIL_FROM, MAIL_EVENTS_QUEUE, INBOUND_DOMAIN, INBOUND_MAIL_QUEUE, ALERT_EMAIL, DATABASE_URL, SMTP_URL): use the module's own variable for it."
     }
   }
 }

@@ -581,11 +581,13 @@ def test_production_sends_nothing_off_its_own_network_unencrypted(
         embedding_base_url="http://embeddings.example.com/v1",
         pwned_passwords_url="http://pwned.example.com",
         mail_events_queue="http://sqs.example.com/123456789012/mail-events",
+        inbound_domain="in.example.com",
+        inbound_mail_queue="http://sqs.example.com/123456789012/inbound",
     )
     with pytest.raises(SystemExit) as stop:
         load_settings(**deployment)
     lines = stop.value.code.splitlines()[1:]
-    assert len(lines) == 5
+    assert len(lines) == 6
     assert "DATABASE_URL connects to db.example.com without sslmode=verify-full" in lines[0]
     assert "SCANNER_URL streams every upload to the ClamAV daemon at clamav.example.com" in lines[1]
     assert (
@@ -598,6 +600,10 @@ def test_production_sends_nothing_off_its_own_network_unencrypted(
     assert (
         "MAIL_EVENTS_QUEUE sends the worker's requests for the addresses whose mail bounced to "
         "sqs.example.com over plain HTTP" in lines[4]
+    )
+    assert (
+        "INBOUND_MAIL_QUEUE sends the worker's requests for the mail sent to projects' addresses "
+        "to sqs.example.com over plain HTTP" in lines[5]
     )
     assert "secret" not in stop.value.code
 
@@ -612,6 +618,7 @@ def test_production_sends_nothing_off_its_own_network_unencrypted(
         embedding_base_url="https://embeddings.example.com/v1",
         pwned_passwords_url="http://pwned:8080",
         mail_events_queue="https://sqs.eu-central-1.amazonaws.com/123456789012/mail-events",
+        inbound_mail_queue="https://sqs.eu-central-1.amazonaws.com/123456789012/inbound",
     )
     assert load_settings(**deployment).production_problems() == []
 
@@ -736,21 +743,27 @@ def test_a_process_that_runs_the_worker_needs_a_pool_for_its_threads(deployment)
     # heartbeat, housekeeper, alerter and the metrics' reading take one now and then, and with
     # SES's queue its reader; a pool that cannot hold them all would fail jobs for a reason the
     # operator set, so the settings are refused with the arithmetic.
-    deployment.update(run_worker=True, worker_concurrency=18, answer_concurrency=8)
+    deployment.update(run_worker=True, worker_concurrency=19, answer_concurrency=8)
     with pytest.raises(
-        ValueError, match="WORKER_CONCURRENCY is 18 and ANSWER_CONCURRENCY is 8"
+        ValueError, match="WORKER_CONCURRENCY is 19 and ANSWER_CONCURRENCY is 8"
     ) as error:
         load_settings(**deployment)
-    assert "need 31 database connections" in str(error.value)
-    assert "DB_POOL_SIZE + DB_MAX_OVERFLOW allows 30" in str(error.value)
-    assert load_settings(**deployment, db_max_overflow=21).worker_concurrency == 18
-    with pytest.raises(ValueError, match="need 32 database connections"):
-        load_settings(**deployment, db_max_overflow=21, mail_events_queue=QUEUE)
-    # The defaults hold the default threads, the queue's reader too.
+    assert "need 32 database connections" in str(error.value)
+    assert "DB_POOL_SIZE + DB_MAX_OVERFLOW allows 31" in str(error.value)
+    assert load_settings(**deployment, db_max_overflow=22).worker_concurrency == 19
+    with pytest.raises(ValueError, match="need 33 database connections"):
+        load_settings(**deployment, db_max_overflow=22, mail_events_queue=QUEUE)
+    # The defaults hold the default threads, both of SES's queues' readers too.
     del deployment["worker_concurrency"], deployment["answer_concurrency"]
-    settings = load_settings(**deployment, mail_events_queue=QUEUE)
+    settings = load_settings(
+        **deployment,
+        mail_events_queue=QUEUE,
+        inbound_domain="in.example.com",
+        inbound_mail_queue=QUEUE.replace("mail-events", "inbound"),
+    )
     assert (settings.worker_concurrency, settings.answer_concurrency) == (16, 8)
-    assert (settings.db_pool_size, settings.db_max_overflow) == (10, 20)
+    assert (settings.db_pool_size, settings.db_max_overflow) == (10, 21)
+    assert settings.receives_through == "ses"
     # An API replica that runs no worker has no indexing threads to hold connections.
     deployment.update(run_worker=False, worker_concurrency=50)
     assert load_settings(**deployment).run_worker is False

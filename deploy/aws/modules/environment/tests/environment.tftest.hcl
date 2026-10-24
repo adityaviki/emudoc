@@ -300,7 +300,7 @@ run "staging" {
         Action    = "s3:PutObject"
         Resource  = "arn:aws:s3:::emudoc-test-logs-123456789012/access/*"
         Condition = {
-          ArnLike      = { "aws:SourceArn" = "arn:aws:s3:::emudoc-test-documents-123456789012" }
+          ArnLike      = { "aws:SourceArn" = ["arn:aws:s3:::emudoc-test-documents-123456789012"] }
           StringEquals = { "aws:SourceAccount" = "123456789012" }
         }
       }
@@ -577,6 +577,13 @@ run "staging" {
     error_message = "Without mail there is no queue of its events for the worker to read."
   }
   assert {
+    condition = (
+      length(aws_ses_receipt_rule.inbound) == 0 && length(aws_s3_bucket.inbound) == 0
+      && !contains(keys(aws_ssm_parameter.setting), "INBOUND_DOMAIN")
+    )
+    error_message = "Without mail in, no rule takes mail and no project has an address."
+  }
+  assert {
     condition     = !contains(keys(aws_ssm_parameter.setting), "ALERT_EMAIL")
     error_message = "Without an alert address the app is given none."
   }
@@ -718,6 +725,92 @@ run "production" {
       "TXT _dmarc.mail.example.com" = tolist(["v=DMARC1; p=quarantine"])
     }
     error_message = "With a zone, the MAIL FROM domain's MX and SPF and the domain's DMARC are made in it."
+  }
+}
+
+run "mail_in" {
+  variables {
+    dns_zone_id = "Z0123456789ABCDEFGHIJ"
+    inbound     = { domain = "in.staging.emudoc.example.com", rule_set = "emudoc" }
+  }
+
+  assert {
+    condition = (
+      aws_ses_receipt_rule.inbound[0].rule_set_name == "emudoc"
+      && aws_ses_receipt_rule.inbound[0].name == "emudoc-staging"
+      && aws_ses_receipt_rule.inbound[0].recipients == toset(["in.staging.emudoc.example.com"])
+      && one(aws_ses_receipt_rule.inbound[0].s3_action).bucket_name == aws_s3_bucket.inbound[0].bucket
+      && one(aws_ses_receipt_rule.inbound[0].s3_action).object_key_prefix == "inbound/"
+      && one(aws_ses_receipt_rule.inbound[0].s3_action).topic_arn == aws_sns_topic.inbound[0].arn
+    )
+    error_message = "The environment's rule in the account's set writes its domain's mail into its bucket and tells its topic."
+  }
+  assert {
+    condition = (
+      local.inbound_bucket_policy.Statement[0].Principal == { Service = "ses.amazonaws.com" }
+      && local.inbound_bucket_policy.Statement[0].Action == "s3:PutObject"
+      && local.inbound_bucket_policy.Statement[0].Condition.ArnLike["aws:SourceArn"] == "arn:aws:ses:eu-central-1:123456789012:receipt-rule-set/emudoc:receipt-rule/emudoc-staging"
+      && local.inbound_topic_policy.Statement[0].Condition.ArnLike["aws:SourceArn"] == "arn:aws:ses:eu-central-1:123456789012:receipt-rule-set/emudoc:receipt-rule/emudoc-staging"
+      && local.inbound_topic_policy.Statement[0].Condition.StringEquals["aws:SourceAccount"] == "123456789012"
+    )
+    error_message = "SES writes into the bucket and publishes to the topic for this environment's rule alone."
+  }
+  assert {
+    condition = (
+      aws_sns_topic.inbound[0].kms_master_key_id == aws_kms_key.inbound[0].arn
+      && local.inbound_key_policy.Statement[1].Principal == { Service = "ses.amazonaws.com" }
+      && aws_sqs_queue.inbound[0].sqs_managed_sse_enabled
+      && aws_sqs_queue.inbound[0].message_retention_seconds == 14 * 24 * 3600
+      && aws_s3_bucket_lifecycle_configuration.inbound[0].rule[0].expiration[0].days == 14
+    )
+    error_message = "The notices are encrypted on their way, and a message untaken goes when its notice would."
+  }
+  assert {
+    condition = (
+      aws_sns_topic_subscription.inbound[0].raw_message_delivery
+      && aws_sns_topic_subscription.inbound[0].endpoint == aws_sqs_queue.inbound[0].arn
+      && local.inbound_queue_policy.Statement[0].Condition.ArnEquals["aws:SourceArn"] == aws_sns_topic.inbound[0].arn
+    )
+    error_message = "The topic sends SES's notice itself into the queue, and nothing else sends there."
+  }
+  assert {
+    condition = (
+      contains([for statement in local.app_policy.Statement : statement.Action if statement.Resource == aws_sqs_queue.inbound[0].arn], ["sqs:ReceiveMessage", "sqs:DeleteMessage"])
+      && one([
+        for statement in local.app_policy.Statement : statement.Action
+        if statement.Resource == "${aws_s3_bucket.inbound[0].arn}/inbound/*"
+      ]) == ["s3:GetObject", "s3:DeleteObject"]
+    )
+    error_message = "The app reads and removes the notices and the messages, and does nothing else to them."
+  }
+  assert {
+    condition = (
+      aws_ssm_parameter.setting["INBOUND_DOMAIN"].value == "in.staging.emudoc.example.com"
+      && aws_ssm_parameter.setting["INBOUND_MAIL_QUEUE"].value == aws_sqs_queue.inbound[0].url
+    )
+    error_message = "The app is told the domain and the queue."
+  }
+  assert {
+    condition = (
+      aws_route53_record.inbound_mx[0].records == toset(["10 inbound-smtp.eu-central-1.amazonaws.com"])
+      && [for record in aws_route53_record.inbound_dkim : record.name] == [
+        "one._domainkey.in.staging.emudoc.example.com",
+        "two._domainkey.in.staging.emudoc.example.com",
+        "three._domainkey.in.staging.emudoc.example.com",
+      ]
+    )
+    error_message = "With a zone, the domain's MX names SES's receiving endpoint, and its DKIM verifies it."
+  }
+  assert {
+    condition = (
+      aws_s3_bucket_logging.inbound[0].target_bucket == aws_s3_bucket.logs.id
+      && aws_s3_bucket_logging.inbound[0].target_prefix == "access/"
+      && length(one([
+        for statement in local.logs_policy.Statement : statement
+        if statement.Sid == "AccessLogsOfTheDocuments"
+      ]).Condition.ArnLike["aws:SourceArn"]) == 2
+    )
+    error_message = "The requests to the mail's bucket are logged beside the documents bucket's."
   }
 }
 

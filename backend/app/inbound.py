@@ -35,7 +35,7 @@ import secrets
 from dataclasses import dataclass, field
 from datetime import timedelta
 from email import policy
-from email.message import EmailMessage
+from email.message import EmailMessage, Message
 from email.parser import BytesParser
 from html.parser import HTMLParser
 from io import BytesIO
@@ -201,9 +201,7 @@ def parse(raw: bytes) -> Parsed:
     """The message's sender (its one From address, or None), subject, text and attachments."""
     message = BytesParser(policy=policy.default).parse(BytesIO(raw))
     assert isinstance(message, EmailMessage)
-    addresses = getattr(message.get("From"), "addresses", ()) if "From" in message else ()
-    senders = [a.addr_spec.lower() for a in addresses if "@" in (a.addr_spec or "")]
-    sender = senders[0] if len(senders) == 1 else None
+    sender = sender_of(message)
     subject = " ".join(str(message.get("Subject", "")).split())
     headers = [
         (name, " ".join(str(message[name]).split()))
@@ -226,6 +224,13 @@ def parse(raw: bytes) -> Parsed:
         if isinstance(payload, bytes):
             parsed.attachments.append((name, payload))
     return parsed
+
+
+def sender_of(message: Message) -> str | None:
+    """A message's one From address, lower-cased; None for none, several, or one unreadable."""
+    addresses = getattr(message.get("From"), "addresses", ()) if "From" in message else ()
+    senders = [a.addr_spec.lower() for a in addresses if "@" in (a.addr_spec or "")]
+    return senders[0] if len(senders) == 1 else None
 
 
 def _content(part: EmailMessage) -> str:

@@ -26,7 +26,14 @@ from app.config import AGENT, INDEX, Settings, model_provider
 from app.mail import RESEND_API
 from app.network import MODEL_BASE_URLS, host_of, on_own_network
 from app.oidc import providers
-from app.residency import Place, bucket_place, endpoint_place, model_place, tracker_place
+from app.residency import (
+    Place,
+    bucket_place,
+    endpoint_place,
+    inbound_place,
+    model_place,
+    tracker_place,
+)
 from app.storage import Storage
 
 # The companies behind the model providers, by the prefix of a provider:model name.
@@ -188,6 +195,16 @@ def subprocessors(
                     if receives
                     else ""
                 ),
+            )
+        )
+    if settings.receives_through == "ses" and (name := _company(settings.inbound_mail_queue)):
+        found.append(
+            Subprocessor(
+                name,
+                "Receives the mail sent to the projects' addresses, which becomes their documents.",
+                "The messages sent to the projects' addresses, their attachments among them, "
+                "and their senders' addresses.",
+                _where(inbound_place(settings, region)),
             )
         )
     if settings.sentry_dsn and (name := _company(settings.sentry_dsn)):

@@ -17,6 +17,18 @@ newest entry first.
 
 Operators:
 
+- Mail in through Amazon SES: the AWS module's new `inbound` (both roots name `in.<domain>`)
+  verifies the domain, points its MX at SES's receiving endpoint, and adds a rule of the
+  environment's to the account's one active receipt rule set, which the account root now makes
+  (apply it first): each message goes into a bucket of the environment's and SES's notice of it,
+  with its SPF, DKIM and DMARC verdicts, through an encrypted SNS topic into an SQS queue,
+  `INBOUND_MAIL_QUEUE`. A worker thread waits on the queue and queues a job per notice, which
+  reads the message from the bucket, takes it in and deletes the copy; a sender is proven by
+  DMARC, or for a domain without a DMARC policy by DKIM whose every signature is of its domain.
+  The subprocessor list names Amazon Web Services as receiving the projects' mail where the
+  queue's region says, and `DATA_REGION` refuses a queue outside it; SES wins where Resend is set
+  up too. `DB_MAX_OVERFLOW` is 21 by default (it was 20), so that the default pool holds the
+  worker's threads with both of SES's queues' readers.
 - Mail in through Resend: with `INBOUND_DOMAIN`'s MX at Resend and its webhook taking
   `email.received` beside the bounces, a message to a project's address queues a job that fetches
   it from Resend's API (`RESEND_API_KEY` with full access) as it was sent, with Resend's SPF, DKIM

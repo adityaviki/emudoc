@@ -39,7 +39,15 @@ WRITTEN = {
 }
 # Written only when the root asks: a region, mail through SES with the queue of its bounces,
 # and an address for the alerts.
-WRITTEN_WHEN_ASKED = {"DATA_REGION", "MAIL_FROM", "SMTP_URL", "MAIL_EVENTS_QUEUE", "ALERT_EMAIL"}
+WRITTEN_WHEN_ASKED = {
+    "DATA_REGION",
+    "MAIL_FROM",
+    "SMTP_URL",
+    "MAIL_EVENTS_QUEUE",
+    "INBOUND_DOMAIN",
+    "INBOUND_MAIL_QUEUE",
+    "ALERT_EMAIL",
+}
 # What the module refuses to go without (variables.tf): the operator's word.
 OPERATOR = {
     "OPERATOR_NAME": "Emudoc Ltd, 1 Example Street, Example Town",

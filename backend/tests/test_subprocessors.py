@@ -26,6 +26,7 @@ DEVELOPMENT = {
     "resend_api_key": "",
     "resend_webhook_secret": "",
     "inbound_domain": "",
+    "inbound_mail_queue": "",
     "hosting_provider": "",
     "data_region": "",
     "google_oauth_client_id": "",
@@ -114,6 +115,21 @@ def test_the_mail_is_listed_by_whichever_sends_it():
         "Receives the mail sent to the projects' addresses, which becomes their documents."
     )
     assert "their attachments among them" in mail.data
+    # Through SES, Amazon receives it where the queue's region says, and Resend only sends.
+    ses = configured(
+        resend_api_key="re_123456",
+        resend_webhook_secret="whsec_abc",
+        inbound_domain="in.x.com",
+        inbound_mail_queue="https://sqs.eu-central-1.amazonaws.com/123456789012/emudoc-inbound",
+    )
+    entries = subprocessors(ses, DIRECTORY, {})
+    (amazon,) = [entry for entry in entries if entry.purpose.startswith("Receives the mail")]
+    assert (amazon.name, amazon.location) == (
+        "Amazon Web Services",
+        "The European Union (eu-central-1)",
+    )
+    (resend,) = [entry for entry in entries if entry.name == "Resend"]
+    assert "Receives" not in resend.purpose
     # SES's relay is Amazon's; one on the deployment's own network is nobody's.
     ses = configured(smtp_url="smtp://user:secret@email-smtp.eu-central-1.amazonaws.com:587")
     assert "Amazon Web Services" in listed(ses)

@@ -83,6 +83,16 @@ run "ci_alone" {
   }
 }
 
+run "one_receipt_rule_set_for_both_environments" {
+  assert {
+    condition = (
+      aws_ses_receipt_rule_set.inbound.rule_set_name == "emudoc"
+      && aws_ses_active_receipt_rule_set.inbound.rule_set_name == "emudoc"
+    )
+    error_message = "The account's active rule set is the one shared/ names, which each environment adds its rule to."
+  }
+}
+
 run "an_operator_while_github_is_down" {
   command = plan
   variables {
@@ -271,6 +281,7 @@ run "an_address_for_the_alarms" {
     outputs = {
       github_repository   = "emudocai/emudoc"
       account_alert_email = "operator@example.com"
+      receipt_rule_set    = "emudoc"
     }
   }
   assert {

@@ -35,7 +35,8 @@ DEVELOPMENT_PASSWORD = "emudoc"
 # from the pool now and then: the heartbeat, the housekeeper and the alerter (app/worker.py),
 # and the metrics' server reading the database (app/metrics.py). The listener holds a
 # connection of its own outside the pool. With MAIL_EVENTS_QUEUE, one more reads SES's news of
-# mail that bounced (app/bounces.py).
+# mail that bounced (app/bounces.py), and with INBOUND_MAIL_QUEUE one more SES's notices of the
+# mail sent to projects' addresses (app/receiving.py).
 WORKER_HELPER_THREADS = 4
 # The worker's threads that send the mail the app posted (app/postbox.py), a lane of their own
 # so that neither a backlog of documents nor one of questions holds a sign-up link up.
@@ -509,7 +510,8 @@ class Settings(BaseSettings):
     # use, a request waits DB_POOL_TIMEOUT seconds for one and is then refused with 503 and a
     # sentence that says to try again (app/main.py), rather than hanging.
     db_pool_size: int = Field(default=10, ge=1)
-    db_max_overflow: int = Field(default=20, ge=0)
+    # 31 in all at the defaults, the worker's threads with both of SES's queues' readers.
+    db_max_overflow: int = Field(default=21, ge=0)
     db_pool_timeout: int = Field(default=5, ge=1)
     # The questions one organisation may have waiting for or receiving an answer at once. The
     # worker answers ANSWER_CONCURRENCY of them at a time, shared between the organisations
@@ -653,8 +655,10 @@ class Settings(BaseSettings):
     # The domain of the projects' own addresses, <token>@INBOUND_DOMAIN, whose mail becomes
     # their documents (app/inbound.py; deploying.md, "Mail in"): a subdomain of its own, such as
     # in.example.com, whose MX names the provider that receives it. Empty gives no project an
-    # address.
+    # address. Resend hands its mail over through the webhook above; SES through the SQS queue
+    # its notices reach, INBOUND_MAIL_QUEUE, which the worker waits on (the AWS module makes it).
     inbound_domain: str = ""
+    inbound_mail_queue: str = ""
     # Where the jobs the worker gave up on are reported (app/deadletters.py), through the
     # mailer above, as one digest every quarter of an hour. Empty sends nothing: the failures
     # wait, listed by the failed-jobs command, until an address is set.
@@ -776,10 +780,13 @@ class Settings(BaseSettings):
     @property
     def receives_through(self) -> str:
         """Which provider hands over the mail sent to projects' addresses (app/receiving.py):
-        "resend", through its webhook and API, where INBOUND_DOMAIN is set and so are Resend's
-        key and webhook secret; "" where nothing does."""
+        "ses", through INBOUND_MAIL_QUEUE, where INBOUND_DOMAIN is set and the queue is;
+        "resend", through its webhook and API, where Resend's key and webhook secret are set
+        instead; "" where nothing does."""
         if not self.inbound_domain:
             return ""
+        if self.inbound_mail_queue:
+            return "ses"
         if self.resend_api_key and self.resend_webhook_secret:
             return "resend"
         return ""
@@ -924,6 +931,7 @@ class Settings(BaseSettings):
             + MAIL_THREADS
             + WORKER_HELPER_THREADS
             + (1 if self.mail_events_queue else 0)
+            + (1 if self.inbound_mail_queue else 0)
         )
         allowed = self.db_pool_size + self.db_max_overflow
         if self.run_worker and allowed < needed:
@@ -1078,6 +1086,12 @@ class Settings(BaseSettings):
             "the worker's requests for the addresses whose mail bounced",
         ):
             problems.append(problem)
+        if problem := plain_http_problem(
+            "INBOUND_MAIL_QUEUE",
+            self.inbound_mail_queue,
+            "the worker's requests for the mail sent to projects' addresses",
+        ):
+            problems.append(problem)
         unset = [
             variable
             for variable, name in (("INDEX_MODEL", "index_model"), ("AGENT_MODEL", "agent_model"))
@@ -1153,6 +1167,7 @@ class Settings(BaseSettings):
         if self.inbound_domain and not self.receives_through:
             problems.append(
                 "INBOUND_DOMAIN is set, but no provider hands its mail to the app: set "
+                "INBOUND_MAIL_QUEUE to the queue of SES's notices (the AWS module's inbound), or "
                 "RESEND_API_KEY and RESEND_WEBHOOK_SECRET, with the domain's MX at Resend and "
                 "the webhook taking email.received, or set INBOUND_DOMAIN empty."
             )

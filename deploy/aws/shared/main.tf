@@ -60,3 +60,8 @@ output "account_alert_email" {
   description = "Where the account root's alarms on its trail go (deploying.md, \"The account's records\"), as an SNS subscription the address must confirm; empty sends them to the topic alone. Each environment's alerts go to its root's alert_email."
   value       = ""
 }
+
+output "receipt_rule_set" {
+  description = "The name of the account's one active SES receipt rule set in the region, which the account root makes and each environment's mail in adds its rule to (deploying.md, \"Mail in\")."
+  value       = "emudoc"
+}

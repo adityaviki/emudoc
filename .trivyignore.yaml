@@ -27,6 +27,21 @@ misconfigurations:
       start). A customer-managed key adds a key policy, a request to KMS per object and a cost;
       it comes with 4.3's customer-managed keys.
 
+  - id: AWS-0132
+    paths: [deploy/aws/modules/environment/inbound.tf]
+    statement: >-
+      SES writes the messages it received with S3's own keys (AES256), as the documents' bucket
+      keeps the files they become, for the minutes until the worker takes each in and deletes
+      it. A customer-managed key adds a key policy SES and the app role must both be let into;
+      it comes with 4.3's customer-managed keys.
+
+  - id: AWS-0090
+    paths: [deploy/aws/modules/environment/inbound.tf]
+    statement: >-
+      The bucket holds each message only until the worker takes it in and deletes it, and a
+      rule removes what is left after 14 days, as the queue forgets its notice: versions would
+      keep every message deleted, whose documents the members delete with the project's.
+
   - id: AWS-0033
     paths: [deploy/aws/account/main.tf]
     statement: >-

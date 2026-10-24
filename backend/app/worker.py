@@ -136,7 +136,7 @@ from app.metrics import (
 from app.models import Document, Job
 from app.notices import after_index
 from app.postbox import abandon_email, run_email
-from app.receiving import abandon_receive, run_receive
+from app.receiving import SES, abandon_receive, read_inbound, run_receive
 from app.rendering import draw_ahead
 from app.scanning import ScanError, alert_quarantines
 from app.spending import alert_spending, when
@@ -455,6 +455,10 @@ class Worker:
         if settings.mail_events_queue:
             self._spawn(
                 partial(read_ses_events, settings.mail_events_queue, self._stop), "mail-events"
+            )
+        if settings.receives_through == SES:
+            self._spawn(
+                partial(read_inbound, settings.inbound_mail_queue, self._stop), "inbound-mail"
             )
         if settings.listen_url:
             self._spawn(self._listen, "listener")

@@ -202,7 +202,9 @@ class FakeSQS:
         ]
         self.received = 0
 
-    def receive_message(self, QueueUrl: str, MaxNumberOfMessages: int) -> dict:
+    def receive_message(
+        self, QueueUrl: str, MaxNumberOfMessages: int, WaitTimeSeconds: int = 0
+    ) -> dict:
         self.received += 1
         return {"Messages": self.messages[:MaxNumberOfMessages]} if self.messages else {}
 

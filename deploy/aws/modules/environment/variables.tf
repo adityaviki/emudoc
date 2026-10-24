@@ -183,6 +183,15 @@ variable "mail" {
   }
 }
 
+variable "inbound" {
+  description = "Mail in through Amazon SES: the domain of the projects' addresses (INBOUND_DOMAIN), a subdomain of its own whose MX the module points at SES's receiving endpoint in the region, verified with DKIM; and the account's active receipt rule set (the account root's, by shared/'s name) the environment's rule goes into. Null receives no mail."
+  type = object({
+    domain   = string
+    rule_set = string
+  })
+  default = null
+}
+
 variable "alert_email" {
   description = "Where the alerts topic sends what the instance reports (a failed restore drill, credentials refresh or start, a container in trouble), what Prometheus's rules fire and CloudWatch's alarms (the alerts silent, the instance's status checks), as an SNS subscription the address must confirm; and where the app mails its own reports (ALERT_EMAIL, sent through the mail relay). Empty reports to the topic alone, and the app to nobody."
   type        = string

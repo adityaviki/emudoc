@@ -122,7 +122,7 @@ locals {
   # What app/storage.py asks of the bucket, and no more: the objects, their versions (a
   # restore removes the delete markers newer than its moment), and the bucket's versioning,
   # lifecycle, encryption and region, which the app reads at start; with mail, the queue of
-  # SES's events.
+  # SES's events, and with mail in, its notices and the messages.
   app_policy = {
     Version = "2012-10-17"
     Statement = concat([
@@ -149,6 +149,19 @@ locals {
         Effect   = "Allow"
         Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage"]
         Resource = aws_sqs_queue.mail_events[0].arn
+      },
+      ], var.inbound == null ? [] : [
+      # The mail sent to the projects' addresses (backend/app/receiving.py): SES's notices, and
+      # each message as it was sent, read and removed once taken in.
+      {
+        Effect   = "Allow"
+        Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage"]
+        Resource = aws_sqs_queue.inbound[0].arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:DeleteObject"]
+        Resource = "${aws_s3_bucket.inbound[0].arn}/${local.inbound_prefix}*"
       },
     ])
   }

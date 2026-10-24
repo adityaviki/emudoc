@@ -81,7 +81,8 @@ locals {
         Action    = "s3:PutObject"
         Resource  = "${aws_s3_bucket.logs.arn}/access/*"
         Condition = {
-          ArnLike      = { "aws:SourceArn" = aws_s3_bucket.documents.arn }
+          # The documents' bucket, and the bucket of the mail SES received, when there is one.
+          ArnLike      = { "aws:SourceArn" = concat([aws_s3_bucket.documents.arn], aws_s3_bucket.inbound[*].arn) }
           StringEquals = { "aws:SourceAccount" = local.account }
         }
       },

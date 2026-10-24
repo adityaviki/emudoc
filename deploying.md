@@ -420,7 +420,7 @@ keeps its transaction while each file goes to the storage. Set the limits on the
 
 ### A pooler
 
-Each process holds up to `DB_POOL_SIZE` + `DB_MAX_OVERFLOW` connections (30 by default), and a
+Each process holds up to `DB_POOL_SIZE` + `DB_MAX_OVERFLOW` connections (31 by default), and a
 database takes about 100 (`max_connections`; a managed one sets it from its memory). When the
 replicas need more, a pooler between them and the database lets many client connections share
 a few server ones: pgbouncer, or the provider's (RDS Proxy, Azure's built-in pgbouncer, Cloud
@@ -1313,8 +1313,9 @@ change; in development each is a warning.
   deployment is; a hosted endpoint is placed only at Vertex AI's addresses or OpenAI's
   European one, and any other is refused.
 - The provider that receives the mail sent to the projects' addresses ("Mail in"), which
-  becomes their documents: Resend's receiving server is the domain's to choose in its
-  dashboard, which the settings do not show, so under a region it is refused.
+  becomes their documents: SES receives in the region of `INBOUND_MAIL_QUEUE`, where its rule
+  and its bucket are; Resend's receiving server is the domain's to choose in its dashboard,
+  which the settings do not show, so under a region it is refused.
 
 The places the app knows are in `backend/app/residency.py`, as the providers stood in October
 2026; a location it does not know is in no region, and adding one is adding it there.
@@ -1619,6 +1620,31 @@ message stays in Resend's dashboard, whence it can be downloaded and handed over
 `receive-mail`. Resend is then on the subprocessor list as receiving the projects' mail too.
 Resend receives with sending (`RESEND_API_KEY`, not `SMTP_URL`), and is refused under
 `DATA_REGION` ("Keeping the data in one region").
+
+### Through Amazon SES
+
+SES receives the domain's mail where its MX is SES's receiving endpoint in the region (`10
+inbound-smtp.<region>.amazonaws.com`; Frankfurt receives since 2023, and not every region does)
+and SES has verified the domain, through a receipt rule of the account's one active rule set: SES
+keeps one active a region, so staging and production, in one account and region, share the
+account root's (`emudoc`, `deploy/aws/account/inbound.tf`) and each adds a rule of its own for
+its domain. The rule writes each message as it was sent into a bucket of the environment's
+(under `inbound/`) and tells an SNS topic, encrypted with a key of its own, whose notice, with
+the object's key and SES's SPF, DKIM and DMARC verdicts, reaches an SQS queue
+(`INBOUND_MAIL_QUEUE`) without SNS's envelope. A thread of the worker's waits on the queue (SQS's
+long poll, 20 seconds, so a message is taken within seconds) with the app role's credentials and
+queues a `receive_mail` job for each notice, deleting the notice once the job is committed; a
+message on the queue that is no such notice is dropped with a warning. The job reads the message
+from the bucket, takes it in and deletes the bucket's copy; a copy gone, or a bucket the role may
+not read, ends the job failed, and a bucket out of reach is asked again after 1, 2, 4 and 8
+minutes, as for Resend. The sender is proven when DMARC passed, or, for a domain that publishes
+no DMARC policy (SES's GRAY), when DKIM passed and every DKIM signature the message carries is of
+the From domain or of a domain it is under or over, so that the signature SES passed is one of
+them. A message no job took is removed after 14 days, as the queue's notice of it is. With
+`INBOUND_MAIL_QUEUE` set, SES hands the mail over, whatever Resend's settings say, and the
+subprocessor list names Amazon Web Services as receiving it, where the queue's region says; under
+`DATA_REGION` a queue outside the region is refused. On AWS, the module's `inbound` makes all of
+it ("On AWS").
 
 ## Billing
 
@@ -3762,9 +3788,20 @@ The directories:
   account sends only to verified addresses until AWS grants it production access, which is
   asked for by hand in SES's console. Without `mail`, `SMTP_URL` and `MAIL_FROM` go into the
   secrets path for a relay of the deployment's own.
-- **DNS**: with `dns_zone_id`, the domain's record and the mail's DKIM, SPF and DMARC records
-  are made in Route 53; otherwise `tofu output dns_records` lists them for the DNS kept
-  elsewhere. Caddy asks Let's Encrypt for the certificate once the name leads to the instance.
+- **Mail in**, when the root names an `inbound` domain ("Mail in"; both roots do, `in.<domain>`):
+  the domain's SES identity, verified by DKIM, and its MX at SES's receiving endpoint; a rule of
+  the environment's (`emudoc-<env>`) in the account's active receipt rule set, which the account
+  root makes since SES keeps one active a region (apply the account root first), for the domain
+  alone, writing each message into the bucket `emudoc-<env>-inbound-<account>` (under
+  `inbound/`, private, SSE-S3, over TLS only, its objects removed after 14 days) and telling the
+  topic `emudoc-<env>-inbound` (under a key of its own, `alias/emudoc-<env>-inbound`, which SES
+  may use), that SES alone may publish to and for this rule alone, whose notices reach the
+  SSE-SQS queue `emudoc-<env>-inbound` (kept 14 days) without SNS's envelope; the app role may
+  receive and delete the queue's notices and get and delete the bucket's messages, and nothing
+  else of them; the module writes `INBOUND_DOMAIN` and `INBOUND_MAIL_QUEUE`.
+- **DNS**: with `dns_zone_id`, the domain's record, the mail's DKIM, SPF and DMARC records and
+  the inbound domain's MX and DKIM are made in Route 53; otherwise `tofu output dns_records`
+  lists them for the DNS kept elsewhere. Caddy asks Let's Encrypt for the certificate once the name leads to the instance.
 - **Alerts**: an SNS topic, under a key of the environment's own, that the instance reports a
   failed drill, a failed credentials renewal (the containers lose the bucket within the hour),
   a failed start or a container in trouble to (`emudoc-watch.timer`), that Alertmanager on the
@@ -4222,7 +4259,7 @@ the roots' `settings` the others ("The settings").
 | `DATABASE_POOLER` | none | | `transaction` behind a pooler in transaction mode ("A pooler") |
 | `DATABASE_LISTEN_URL` | none | needed behind such a pooler | Where the worker listens for queued jobs |
 | `DB_POOL_SIZE` | `10` | | Connections each process keeps open |
-| `DB_MAX_OVERFLOW` | `20` | | Connections beyond them while those are in use |
+| `DB_MAX_OVERFLOW` | `21` | | Connections beyond them while those are in use |
 | `DB_POOL_TIMEOUT` | `5` | | Seconds a request waits for a connection before its 503 |
 | `SSL_CERT_FILE`, `SSL_CERT_DIR` | Debian's bundle in the image | needed for `sslrootcert=system` outside the image | Where OpenSSL finds the authorities ("Encryption") |
 | `PGSSLROOTCERT` | none | | libpq's default for `sslrootcert` |
@@ -4325,6 +4362,7 @@ and the like), named on its models' pages.
 | `RESEND_WEBHOOK_SECRET` | none | a secret | The signing secret of Resend's webhook, which says what bounced ("Mail") |
 | `MAIL_EVENTS_QUEUE` | none | | The SQS queue of SES's bounces and complaints, which the worker reads ("Mail"; the AWS module writes it) |
 | `INBOUND_DOMAIN` | none | with a provider that hands its mail over | The domain of the projects' addresses, whose mail becomes their documents ("Mail in") |
+| `INBOUND_MAIL_QUEUE` | none | | The SQS queue of SES's notices of the mail sent to projects' addresses, which the worker waits on ("Mail in"; the AWS module writes it) |
 | `PWNED_PASSWORDS_URL` | `https://api.pwnedpasswords.com` | | Where new passwords are checked against breaches ("Rates"); empty checks nothing |
 | `ENCRYPTION_KEYS` | development's key, which is in the code | required, a secret | The keys the authenticators' secrets are encrypted with, the first encrypting ("The encryption keys") |
 | `MAIL_FROM` | `Emudoc <no-reply@localhost>` | | The sender |

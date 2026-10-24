@@ -181,6 +181,21 @@ def tracker_place(url: str, region: str) -> Place | None:
     return None
 
 
+def inbound_place(settings: Settings, region: str) -> Place | None:
+    """Where the provider that receives the projects' mail keeps it: SES in its queue's region,
+    which its receipt rule's and the rule's bucket are in; None for Resend, whose receiving
+    server is the domain's choice in its dashboard, and for a queue the address does not
+    place."""
+    if settings.receives_through != "ses":
+        return None
+    host = host_of(settings.inbound_mail_queue)
+    if on_own_network(host):
+        return Place("the deployment's own network", region or None)
+    if match := re.fullmatch(r"sqs\.([a-z0-9-]+)\.amazonaws\.com", host):
+        return _aws(match[1])
+    return None
+
+
 def bucket_place(storage: Storage, region: str) -> Place | None:
     """Where the storage keeps the files; None when the app cannot tell."""
     if storage.origin is None:
@@ -268,15 +283,39 @@ def residency_problems(
         problems.append(problem)
     if problem := _storage_problem(storage, region):
         problems.append(problem)
+    if problem := _inbound_problem(settings, region):
+        problems.append(problem)
+    return problems
+
+
+def _inbound_problem(settings: Settings, region: str) -> str | None:
+    if not settings.receives_through:
+        return None
+    place = inbound_place(settings, region)
+    if place is not None and place.region == region:
+        return None
+    where = REGIONS[region]
+    receive = (
+        f"receive it through Amazon SES in {where}, such as {AWS_EXAMPLES[region]}, its queue "
+        "named in INBOUND_MAIL_QUEUE, or set INBOUND_DOMAIN empty to receive none"
+    )
     if settings.receives_through == "resend":
         # Its receiving server is the domain's to choose in its dashboard, which the settings do
         # not show.
-        problems.append(
+        return (
             "Resend receives the mail sent to the projects' addresses at INBOUND_DOMAIN, their "
             f"attachments among them, and the settings cannot show that it keeps them in "
-            f"{REGIONS[region]}; set INBOUND_DOMAIN empty to receive none."
+            f"{where}; {receive}."
         )
-    return problems
+    if place is None:
+        return (
+            f"INBOUND_MAIL_QUEUE is at {host_of(settings.inbound_mail_queue)}, and the app "
+            f"cannot tell where the mail sent to the projects' addresses is kept; {receive}."
+        )
+    return (
+        f"SES receives the mail sent to the projects' addresses in {place.detail}, which is "
+        f"not in {where}; {receive}."
+    )
 
 
 def _model_problem(uses: str, name: str, region: str, environ: Mapping[str, str]) -> str | None:

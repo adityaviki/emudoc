@@ -27,6 +27,8 @@ FIT = {
     "index_model": "google-cloud:gemini-2.5-flash-lite",
     "agent_model": "google-cloud:gemini-2.5-flash-lite",
     "embedding_base_url": "http://embeddings:8080/v1",
+    "inbound_domain": "",
+    "inbound_mail_queue": "",
 }
 DIRECTORY = LocalStorage(Path("unused"))
 # A Vertex AI service account in the EU multi-region.
@@ -60,10 +62,35 @@ def test_mail_received_through_resend_is_kept_in_no_region_the_settings_show():
     assert problems(**resend) == [
         "Resend receives the mail sent to the projects' addresses at INBOUND_DOMAIN, their "
         "attachments among them, and the settings cannot show that it keeps them in the "
-        "European Union; set INBOUND_DOMAIN empty to receive none."
+        "European Union; receive it through Amazon SES in the European Union, such as "
+        "eu-central-1, its queue named in INBOUND_MAIL_QUEUE, or set INBOUND_DOMAIN empty to "
+        "receive none."
     ]
     assert problems(**{**resend, "inbound_domain": ""}) == []
     assert problems(**{**resend, "data_region": ""}) == []
+
+
+def test_mail_received_through_ses_is_kept_in_its_queue_s_region():
+    def ses(queue: str, region: str = "eu") -> list[str]:
+        return problems(
+            data_region=region, inbound_domain="in.example.com", inbound_mail_queue=queue
+        )
+
+    assert (
+        ses("https://sqs.eu-central-1.amazonaws.com/123456789012/emudoc-production-inbound") == []
+    )
+    assert ses("https://sqs.us-east-1.amazonaws.com/1/inbound", region="us") == []
+    assert ses("https://sqs.eu-west-2.amazonaws.com/1/inbound") == [
+        "SES receives the mail sent to the projects' addresses in eu-west-2, which is not in the "
+        "European Union; receive it through Amazon SES in the European Union, such as "
+        "eu-central-1, its queue named in INBOUND_MAIL_QUEUE, or set INBOUND_DOMAIN empty to "
+        "receive none."
+    ]
+    assert ses("https://queue.elsewhere.example/1/inbound")[0].startswith(
+        "INBOUND_MAIL_QUEUE is at queue.elsewhere.example, and the app cannot tell"
+    )
+    # A stand-in for SQS on the deployment's own network is where the deployment is.
+    assert ses("http://sqs:9324/1/inbound") == []
 
 
 def test_without_a_region_nothing_is_held_to_one():

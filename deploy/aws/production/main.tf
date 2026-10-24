@@ -84,6 +84,12 @@ module "emudoc" {
     domain = "emudoc.example.com"
     from   = "Emudoc <no-reply@emudoc.example.com>"
   }
+  # The projects' addresses, <token>@in.emudoc.example.com, whose mail becomes their documents; null
+  # receives none.
+  inbound = {
+    domain   = "in.emudoc.example.com"
+    rule_set = module.shared.receipt_rule_set
+  }
   alert_email = ""
 
   github_repository = module.shared.github_repository

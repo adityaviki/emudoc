@@ -261,7 +261,10 @@ their uploads are, or of nobody for a sender outside the organisation, and the p
 automations see it arrive as any upload. Anything else is turned away with nothing sent back; the page lists
 the last messages, the documents kept from each and the files that were not, or why it was
 turned away, kept 30 days. A new address replaces one given out too widely (`POST
-/api/projects/{id}/mailbox/address`), and the old one then reaches nothing.
+/api/projects/{id}/mailbox/address`), and the old one then reaches nothing. The provider that
+receives the domain's mail hands each message over as it was sent, with its verdicts on the
+sender (`backend/app/receiving.py`): Resend through its webhook and API, Amazon SES through the
+SQS queue its notices reach, which the worker waits on (deploying.md, "Mail in").
 
 A project can hold any number of chats. Each one is saved with its answers, including the
 steps the agent took and the passages it was shown, so a chat can be reopened later. An answer
@@ -551,11 +554,11 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   database connection more than memory. `PARSE_CONCURRENCY` (2) of the indexers parse a file
   at once, each in a child process with memory of its own, and the others wait their turn.
 - `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` and `DB_POOL_TIMEOUT` size the database connections a
-  process holds: 10 kept open, up to 20 more while all of those are in use, and 5 seconds a
+  process holds: 10 kept open, up to 21 more while all of those are in use, and 5 seconds a
   request waits for one before it is refused with 503 and asked to try again. An API replica
   needs about one per request in flight; a worker needs one per document and per answer it
-  runs at once (an answer holds one only while a tool runs) plus four for its helper
-  threads, and refuses to start with a pool that cannot hold them; its listener holds one more
+  runs at once (an answer holds one only while a tool runs) plus one for each of its helper
+  threads (the mail's, four of its own, and the readers of SES's queues), and refuses to start with a pool that cannot hold them; its listener holds one more
   outside the pool. The sum over every replica must stay under the database's
   `max_connections` (100 for Postgres), or a connection pooler goes in between: one in
   transaction mode, such as pgbouncer's usual setup, needs `DATABASE_POOLER=transaction`

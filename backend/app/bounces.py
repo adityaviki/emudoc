@@ -194,14 +194,20 @@ def ses_undeliverable(event: Mapping[str, Any]) -> list[Undeliverable]:
     ]
 
 
+def region_of(queue_url: str) -> str:
+    """The AWS region an SQS queue's address names; for a queue elsewhere, a stand-in for SQS,
+    the region boto3 is configured with, or any."""
+    match = _SQS_HOST.fullmatch(urlsplit(queue_url).hostname or "")
+    return match.group(1) if match else boto3.session.Session().region_name or "us-east-1"
+
+
 def sqs_client(queue_url: str) -> Any:
     """A client of the queue's own endpoint and region, whatever AWS_ENDPOINT_URL names for the
-    bucket; credentials as boto3 finds them, the app role's on AWS. A queue elsewhere, a stand-in
-    for SQS, takes the region boto3 is configured with, or any."""
+    bucket; credentials as boto3 finds them, the app role's on AWS."""
     parts = urlsplit(queue_url)
-    match = _SQS_HOST.fullmatch(parts.hostname or "")
-    region = match.group(1) if match else boto3.session.Session().region_name or "us-east-1"
-    return boto3.client("sqs", region_name=region, endpoint_url=f"{parts.scheme}://{parts.netloc}")
+    return boto3.client(
+        "sqs", region_name=region_of(queue_url), endpoint_url=f"{parts.scheme}://{parts.netloc}"
+    )
 
 
 def take_ses_events(client: Any, queue_url: str) -> int:
