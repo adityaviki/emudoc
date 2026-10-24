@@ -105,6 +105,9 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   draft_template_created: ['Made a draft template', 'files'],
   draft_template_changed: ['Changed a draft template', 'files'],
   draft_template_deleted: ['Used a built-in draft template again', 'files'],
+  mailbox_created: ['Gave a project an address', 'files'],
+  mailbox_changed: ['Changed a project’s address', 'files'],
+  mailbox_deleted: ['Took a project’s address away', 'files'],
   project_deleted: ['Deleted a project', 'files'],
   project_restored: ['Restored a project', 'files'],
   project_purged: ['Deleted a project for good', 'files'],
@@ -192,10 +195,12 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   else if (AUTOMATION_ACTIONS.has(event.action)) parts.push(describeAutomation(detail))
   else if (DRAFT_ACTIONS.has(event.action)) parts.push(describeDraft(detail))
   else if (DRAFT_TEMPLATE_ACTIONS.has(event.action)) parts.push(describeDraftTemplate(detail))
+  else if (MAILBOX_ACTIONS.has(event.action) && event.action !== 'mailbox_deleted') parts.push(describeMailbox(detail))
   else if (event.action === 'document_review_changed') parts.push(`${review(detail.from)} → ${review(detail.to)}`)
   else if (event.action === 'document_assigned') parts.push(describeAssignment(detail, names))
   else if ('to' in detail) parts.push(`${word(detail.from)} → ${word(detail.to)}`)
   else if ('from' in detail) parts.push(`was ${word(detail.from)}`)
+  if (event.action === 'document_uploaded' && detail.by_email === true) parts.push('by email')
   // A review an automation's run moved, which the row names as by Emudoc.
   if (REVIEW_ACTIONS.has(event.action) && typeof detail.automation === 'string') parts.push(`by the automation “${detail.automation}”`)
   if (typeof detail.role === 'string' && !('to' in detail)) parts.push(word(detail.role))
@@ -366,6 +371,26 @@ function describeDraftTemplate(detail: AuditEvent['detail']): string {
   }
   if (detail.tone === true) parts.push('its tone changed')
   if (detail.guidance === true) parts.push('what else it asks changed')
+  return parts.join(', ')
+}
+
+const MAILBOX_ACTIONS = new Set<AuditAction>(['mailbox_created', 'mailbox_changed', 'mailbox_deleted'])
+
+/** A project's address given, changed or taken away: how many senders it takes mail from, never who, and where it puts what arrives. */
+function describeMailbox(detail: AuditEvent['detail']): string {
+  const parts: string[] = []
+  const changed: unknown[] = Array.isArray(detail.changed) ? detail.changed : []
+  if (changed.includes('address')) parts.push('a new address')
+  if (typeof detail.senders === 'number') {
+    parts.push(detail.senders ? `from ${detail.senders} sender${detail.senders === 1 ? '' : 's'} and its members` : 'from its members alone')
+  }
+  if (changed.includes('senders')) {
+    const counts = [['added', detail.added], ['removed', detail.removed]].filter(([, n]) => typeof n === 'number' && n > 0)
+    if (counts.length) parts.push(counts.map(([what, n]) => `${n} ${what}`).join(', '))
+  }
+  if (!changed.length || changed.includes('folder')) {
+    if ('folder' in detail) parts.push(typeof detail.folder === 'string' ? `into ${detail.folder}` : 'into the project’s root')
+  }
   return parts.join(', ')
 }
 

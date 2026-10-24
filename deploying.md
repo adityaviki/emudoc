@@ -1553,6 +1553,49 @@ names the list and its year where a provider reports to the deployment.
 provider said ("Metrics"), and three rules watch them: `EmudocMailWaiting`, `EmudocMailRefused`
 and `EmudocMailBounces` ("Rules on the metrics").
 
+## Mail in
+
+A project may have an address of its own, `<token>@INBOUND_DOMAIN`, whose mail becomes its
+documents (`backend/app/inbound.py`; behind the flag `email_in`, "The operator's area"): the
+message's text as a `.txt` document named by its subject, with its From, To, Date and Subject
+above it as an email reads, and each attachment as an uploaded file, through the checks an
+upload's files go through (its type, its size, bytes the project holds already, the plan), into
+the folder the address names or the project's root. Images an HTML message shows by their
+Content-ID (a signature's logo) are the message's own and are left out. A message brings at most
+`MAX_UPLOAD_FILES` files, and the largest a provider hands over is 40 MB, attachments and all.
+The members who may change the project give it its address in the library's "Email in", choose
+whom it takes mail from, give it a new address in place of one given out too widely (the old one
+then reaches nothing) and take it away; each is a row of the audit log that counts the senders
+and never names them.
+
+Whom it takes mail from: the members who may change the project, from their own confirmed
+addresses, whose upload it then is, and the senders listed, each an address or a domain (and
+its subdomains), never a domain anyone may have an address at (gmail.com and the like), whose
+documents are nobody's upload, so that no notice follows them. The From header is whatever its
+sender wrote, so a message counts as its sender's only when the provider proved it: DMARC
+passed for the From domain, or a DKIM signature of that domain did. One that is not proven, or
+from anyone else, is turned away, and nothing is sent back, since a reply to a forged address
+reaches someone who sent nothing; so is one for a project in the trash or an organisation past
+its plan or set to be deleted. The address's page tells its members why a sender's mail was
+turned away: for want of DKIM, the sender's mail administrator can sign it, or a member can
+forward it.
+
+What became of each message is kept 30 days (`inbound_messages`, `INBOUND_DAYS`; the privacy
+policy says so) for the project's members, beside the address: its sender, its subject, the
+documents kept, the files that were not and why, or why the whole message was turned away. A
+message a provider delivers twice is kept once, by the provider's id for it. Nothing of a
+message's text reaches the log, which names the project and the provider's id and what became
+of it; `emudoc_inbound_messages_total` counts each by its `outcome` ("Metrics"), mail to no
+project's address and mail that came while the flag was off for the organisation among them.
+
+`INBOUND_DOMAIN` is a domain of its own for this, such as `in.example.com`, whose MX names the
+provider that receives it: no mailbox of anyone's is there, and the domain's mail is the
+projects' alone. Without it no project has an address and the page says so. `python -m
+app.maintenance receive-mail <file.eml>` hands a message saved as it was sent to the projects
+its To, Cc and Delivered-To name (or `--to <address>`, again for each), its sender taken as
+proven since the operator vouches for it: for a message the provider kept that the app did
+not take, and for trying an address by hand.
+
 ## Billing
 
 With `STRIPE_SECRET_KEY` set the app sells its Pro and Team plans through Stripe
@@ -2413,6 +2456,7 @@ across the instances, `sum without (instance)`):
 | `emudoc_rate_limited_total` | Requests refused for a rate, by the limit's `scope` ("Rates") |
 | `emudoc_mail_sent_total` | Tries of the mail the app posted, by `outcome`: `sent`, `retried` (refused for now and queued again), `failed` (refused for good, or for the last time); the operator's own reports are not counted ("Mail") |
 | `emudoc_mail_events_total` | Addresses the mail provider said not to write to, by `kind`: `bounce`, `complaint`; counted by the API for Resend's, by the worker for SES's ("Mail") |
+| `emudoc_inbound_messages_total` | Messages sent to projects' addresses, by `outcome`: `kept`, `empty` (nothing in it to keep), `refused_sender`, `unauthenticated`, `unreadable`, `too_large`, `refused_project`, `refused_plan`, `unknown_address` (no project's), `off` (the flag off) ("Mail in") |
 | `emudoc_renders_total`, `emudoc_render_seconds` | PDF pages drawn as images, by `purpose` (`pane`, `thumbnail`, `ocr`, `ahead`) and `outcome`: `drawn`, `refused` (a page that cannot be drawn), `timeout` (`RENDER_TIMEOUT`), `out_of_memory` (`RENDER_MEMORY_MB`), `crashed` or `unstarted` (no process could draw it); the seconds include the wait for a free process ("Drawing pages") |
 | `process_*`, `python_*` | The process's CPU, memory and open files, and Python's collector |
 
@@ -3239,7 +3283,9 @@ It changes four things, as the commands do:
   (README, "How it works"), at 0: each writing is a run of the agent, counted as a question and
   held to the day's spending as one, and each file is laid out in the API's process (a PDF of a
   long draft in about half a second). Turned off again, the drafts and the templates stay,
-  unread.
+  unread. `email_in`, a project's address whose mail becomes its documents ("Mail in"), at 0,
+  which needs `INBOUND_DOMAIN` too: turned off again, the addresses stay and take nothing, a
+  message to one counted as `off` and kept nowhere, and turned on, they take mail again.
 - **Failed documents queued again.** Under Jobs, "Run again" on a failed index job, or "Run
   every failed document again", queues each document from the stage it stopped at, as
   `failed-jobs --requeue` does, once the cause is fixed; the jobs of other kinds are left. Each
@@ -4254,6 +4300,7 @@ and the like), named on its models' pages.
 | `RESEND_API_KEY` | none | a secret, or `SMTP_URL` | Resend's API key, which sends the mail through Resend instead ("Mail") |
 | `RESEND_WEBHOOK_SECRET` | none | a secret | The signing secret of Resend's webhook, which says what bounced ("Mail") |
 | `MAIL_EVENTS_QUEUE` | none | | The SQS queue of SES's bounces and complaints, which the worker reads ("Mail"; the AWS module writes it) |
+| `INBOUND_DOMAIN` | none | | The domain of the projects' addresses, whose mail becomes their documents ("Mail in") |
 | `PWNED_PASSWORDS_URL` | `https://api.pwnedpasswords.com` | | Where new passwords are checked against breaches ("Rates"); empty checks nothing |
 | `ENCRYPTION_KEYS` | development's key, which is in the code | required, a secret | The keys the authenticators' secrets are encrypted with, the first encrypting ("The encryption keys") |
 | `MAIL_FROM` | `Emudoc <no-reply@localhost>` | | The sender |

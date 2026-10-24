@@ -67,6 +67,7 @@ which every sign-up copies (app/sample).
 """
 
 import argparse
+import hashlib
 import logging
 import re
 import shutil
@@ -76,6 +77,9 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from email import policy
+from email.parser import BytesParser
+from io import BytesIO
 from pathlib import Path
 
 from sqlalchemy import Connection, func, select, text
@@ -111,6 +115,7 @@ from app.entitlements import (
 )
 from app.export import EXPORT_DAYS, EXPORT_KEPT, prune_exports
 from app.flags import FLAGS, choose, chosen, flag_on, rollouts
+from app.inbound import NO_DOMAIN, Received, prune_inbound, receive
 from app.jobs import (
     ANSWER_QUESTION,
     BULK,
@@ -127,9 +132,15 @@ from app.jobs import (
     workers_seen,
 )
 from app.logs import configure_logging
-from app.models import JOB_KINDS, STAGES, Document, Job, Organization, User
+from app.models import JOB_KINDS, STAGES, Document, Job, Organization, Project, User
 from app.models import PLANS as PLAN_NAMES
-from app.notices import NOTIFICATION_DAYS, prune_notifications, prune_quota_notices, settle_uploads
+from app.notices import (
+    NOTIFICATION_DAYS,
+    app_address,
+    prune_notifications,
+    prune_quota_notices,
+    settle_uploads,
+)
 from app.operators import grant, operators, revoke
 from app.parsing import MIME_TYPES
 from app.postgres import concerns, database_report, describe_database, span
@@ -527,6 +538,7 @@ def housekeeping(storage: Storage) -> None:
         credentials = prune_credentials(connection)
         billing_events = prune_billing_events(connection)
         spared = prune_suppressions(connection)
+        prune_inbound(connection)
         prune_quota_notices(connection)
         notifications = prune_notifications(connection)
         exports = prune_exports(connection)
@@ -843,6 +855,41 @@ def plan_report(
             )
         )
     return lines
+
+
+def receive_mail_report(storage: Storage, raw: bytes, to: list[str]) -> list[str]:
+    """Take a message saved as it was sent into the projects it is addressed to, as a provider's
+    way in would, its From address taken as proven since the operator vouches for it; the lines
+    that say what became of it in each. Recipients are `to`, or else its To, Cc and
+    Delivered-To."""
+    if not get_settings().inbound_domain:
+        raise RuntimeError(NO_DOMAIN)
+    if not to:
+        message = BytesParser(policy=policy.default).parse(BytesIO(raw), headersonly=True)
+        to = [
+            address.addr_spec
+            for name in ("To", "Cc", "Delivered-To")
+            for header in message.get_all(name) or []
+            for address in getattr(header, "addresses", ())
+        ]
+    received = Received(f"command:{hashlib.sha256(raw).hexdigest()}", raw, to, True)
+    with SessionLocal() as session:
+        records = receive(session, storage, received, app_address())
+        lines = []
+        for record in records:
+            project = session.get(Project, record.project_id)
+            where = f"{project.organization.slug} / {project.name}" if project else "A project"
+            if record.outcome == "refused":
+                lines.append(f"{where}: turned away. {record.reason}")
+                continue
+            kept = f"{record.kept} document{'' if record.kept == 1 else 's'}"
+            lines.append(f"{where}: kept {kept}." if record.kept else f"{where}: kept nothing.")
+            lines += [f"  {file['filename']}: {file['reason']}" for file in record.rejected]
+    return lines or [
+        "No project took the message: none of its recipients is a project's address at "
+        f"{get_settings().inbound_domain} that has not taken it already, or email in is off "
+        "for the organisation."
+    ]
 
 
 def flags_report(
@@ -1490,6 +1537,25 @@ def main(argv: list[str] | None = None) -> None:
         "action", nargs="?", choices=("add", "remove"), help="grant the area, or take it back"
     )
     granting.add_argument("email", nargs="?", metavar="ADDRESS", help="the account's address")
+    receiving = commands.add_parser(
+        "receive-mail",
+        help="hand a message saved as a file to the projects it is addressed to",
+        description="Take a message saved as it was sent (an .eml file) into the projects "
+        "whose addresses at INBOUND_DOMAIN it is addressed to, as the provider's way in "
+        "would, its From address taken as proven since you vouch for it: for a message the "
+        "provider kept that the app did not take, and for trying a project's address by "
+        "hand. Each project keeps what became of it, as for any message, and takes a file "
+        "given again once.",
+    )
+    receiving.add_argument("path", type=Path, help="the message's file")
+    receiving.add_argument(
+        "--to",
+        action="append",
+        default=[],
+        metavar="ADDRESS",
+        help="a project's address to deliver it to, in place of its To, Cc and Delivered-To; "
+        "again for each",
+    )
     jobs = commands.add_parser(
         "jobs",
         help="show what the queue holds now, or where one document's indexing stands",
@@ -1755,6 +1821,11 @@ def main(argv: list[str] | None = None) -> None:
                 session.commit()
                 for line in lines:
                     print(line)
+        elif args.command == "receive-mail":
+            check_schema()
+            storage = storage_from_settings(settings)
+            for line in receive_mail_report(storage, args.path.read_bytes(), args.to):
+                print(line)
         elif args.command == "operators":
             if (args.action is None) != (args.email is None):
                 parser.error("operators takes add or remove with an address, or neither")

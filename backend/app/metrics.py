@@ -133,6 +133,21 @@ JOB_OUTCOMES = ("done", "failed", "crashed", "abandoned", "lost", "unsettled")
 # (app/bounces.py).
 MAIL_OUTCOMES = ("sent", "retried", "failed")
 MAIL_EVENT_KINDS = ("bounce", "complaint")
+# What became of a message sent to a project's address (app/inbound.py): kept, with nothing in it
+# to keep, or turned away by its sender (not listed, not proven, unreadable), its size, the
+# project's trash or the plan; for no project's address; or come while email in was off.
+INBOUND_OUTCOMES = (
+    "kept",
+    "empty",
+    "refused_sender",
+    "unauthenticated",
+    "unreadable",
+    "too_large",
+    "refused_project",
+    "refused_plan",
+    "unknown_address",
+    "off",
+)
 UPLOAD_REFUSALS = (
     "too_many",
     "plan",
@@ -274,6 +289,13 @@ MAIL_EVENTS = Counter(
     "good; complaint, its reader marked a message as spam.",
     ["kind"],
 )
+INBOUND_MESSAGES = Counter(
+    "emudoc_inbound_messages",
+    "Messages sent to projects' addresses, by what became of each: "
+    + ", ".join(INBOUND_OUTCOMES)
+    + ".",
+    ["outcome"],
+)
 RATE_LIMITED = Counter(
     "emudoc_rate_limited",
     "Requests refused for a rate (the RATE_* settings), by the limit's scope.",
@@ -324,6 +346,8 @@ def _start_at_zero() -> None:
         MAIL_SENT.labels(outcome)
     for kind in MAIL_EVENT_KINDS:
         MAIL_EVENTS.labels(kind)
+    for outcome in INBOUND_OUTCOMES:
+        INBOUND_MESSAGES.labels(outcome)
 
 
 _start_at_zero()

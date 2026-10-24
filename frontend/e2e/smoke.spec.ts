@@ -1,10 +1,11 @@
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import type { BrowserContext, Page } from '@playwright/test'
 import { expectAccessible } from './axe.ts'
 import { linkMailedTo, messageTo } from './mail.ts'
-import { chooseFlag, makeOperator, movePlan } from './operator.ts'
+import { INBOUND_DOMAIN, chooseFlag, makeOperator, movePlan, receiveMail } from './operator.ts'
 import { heldTurns, holdNextTurn, refuseEmbeddings, releaseTurns } from './standin.ts'
 
 // The member's way through the app, end to end: sign up through the link the app mails, find the
@@ -39,7 +40,9 @@ import { heldTurns, holdNextTurn, refuseEmbeddings, releaseTurns } from './stand
 // figure is written, edited into a second version, downloaded as its Markdown with its citation a
 // footnote, the first still read as it was, and the project's dispute letters given a template of
 // their own, which the new draft's form names, then the built-in one again, and last a reply email
-// asked for in the chat, which the answer offers as a draft and a press writes into the drafts. The answer
+// asked for in the chat, which the answer offers as a draft and a press writes into the drafts, and
+// last the project given an address, a supplier's domain listed, whose mail becomes documents and a
+// stranger's is turned away, as the page lists them. The answer
 // is the stand-in's (e2e/standin.py): the first sentence of the passage its search found best,
 // with that passage's reference. Along the way each kind of page, panel and dialog is checked
 // against axe-core's rules for WCAG 2.2 AA in both themes (e2e/axe.ts), and the keyboard's focus
@@ -1368,5 +1371,69 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.goto('/organization/audit')
     await page.getByLabel('What').selectOption('draft_created')
     await expect(page.getByRole('listitem').filter({ hasText: 'from a chat' })).toContainText('Reply email, about 1 document, from a chat')
+  })
+
+  await test.step("give the project an address, list a supplier's domain, whose mail becomes documents, and read what became of a stranger's", async () => {
+    chooseFlag(slug, 'email_in', 'on')
+    await page.goto('/')
+    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
+    await page.getByRole('button', { name: 'Email in' }).click()
+    await expect(page.getByRole('heading', { name: 'Email in' })).toBeVisible()
+    await page.getByRole('button', { name: 'Give it an address' }).click()
+    const shown = page.getByText(new RegExp(`^[a-z2-7]{16}@${INBOUND_DOMAIN.replaceAll('.', '\\.')}$`))
+    await expect(shown).toBeVisible()
+    const projectAddress = (await shown.textContent())!.trim()
+    const sender = page.getByLabel('An address or a domain')
+    await sender.fill('gmail.com')
+    await page.getByRole('button', { name: 'Add', exact: true }).click()
+    await expect(page.getByText('Anyone can have an address at gmail.com')).toBeVisible()
+    await sender.fill('Northwind.example')
+    await page.getByRole('button', { name: 'Add', exact: true }).click()
+    await expect(page.getByRole('list', { name: 'Senders' })).toContainText('northwind.example')
+    await expectAccessible(page, "a project's address")
+
+    // A supplier at the listed domain mails a delivery note, and a stranger an invoice; the
+    // operator's command hands each over as the provider's way in would.
+    const saved = await mkdtemp(join(tmpdir(), 'emudoc-e2e-mail-'))
+    const mail = (from: string, subject: string, file: string, content: string) =>
+      [
+        `From: ${from}`,
+        `To: ${projectAddress}`,
+        `Subject: ${subject}`,
+        'Date: Fri, 23 Oct 2026 09:30:00 +0000',
+        'MIME-Version: 1.0',
+        'Content-Type: multipart/mixed; boundary="part"',
+        '',
+        '--part',
+        'Content-Type: text/plain; charset=utf-8',
+        '',
+        `${subject} is attached.`,
+        '--part',
+        `Content-Type: text/markdown; name="${file}"`,
+        `Content-Disposition: attachment; filename="${file}"`,
+        '',
+        content,
+        '--part--',
+        '',
+      ].join('\r\n')
+    await writeFile(
+      join(saved, 'supplier.eml'),
+      mail('Lena Vogt <lena@northwind.example>', 'Delivery note DN-118', 'delivery-note-118.md', '# Delivery note DN-118\n\nPO-7701: 40 pallets delivered on 22 October 2026.'),
+    )
+    await writeFile(join(saved, 'stranger.eml'), mail('mallory@elsewhere.example', 'Pay this invoice', 'urgent.md', '# Pay now'))
+    expect(receiveMail(join(saved, 'supplier.eml'))).toEqual([expect.stringMatching(/: kept 2 documents\.$/)])
+    expect(receiveMail(join(saved, 'stranger.eml'))[0]).toMatch(/: turned away\. mallory@elsewhere\.example is not among the senders/)
+
+    await page.reload()
+    const messages = page.getByRole('list', { name: 'Messages received' })
+    await expect(messages.getByRole('listitem').filter({ hasText: 'Delivery note DN-118' })).toContainText('2 documents kept')
+    await expect(messages.getByRole('listitem').filter({ hasText: 'Pay this invoice' })).toContainText('Turned away')
+    await expectAccessible(page, 'the messages a project received')
+    await page.getByRole('button', { name: 'Back to the library' }).click()
+    await expect(page.getByRole('treeitem', { name: /Delivery note DN-118\.txt/ })).toBeVisible()
+    await expect(page.getByRole('treeitem', { name: /delivery-note-118\.md/ })).toBeVisible()
+    await page.goto('/organization/audit')
+    await page.getByLabel('What').selectOption('mailbox_changed')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Changed a project’s address' })).toContainText('from 1 sender and its members, 1 added')
   })
 })

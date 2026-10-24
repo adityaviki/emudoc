@@ -149,6 +149,14 @@ describe('a row', () => {
       describeDetail(event('draft_template_changed', { kind: 'reply_email', added: ['Reference'], removed: [], changed: ['Closing'], tone: true, guidance: false })),
     ).toBe('for reply emails, added Reference, changed Closing, its tone changed')
     expect(describeDetail(event('draft_template_deleted', { kind: 'report' }))).toBe('for reports')
+    expect(describeDetail(event('mailbox_created', { senders: 2, folder: 'Inbox' }))).toBe('from 2 senders and its members, into Inbox')
+    expect(describeDetail(event('mailbox_created', { senders: 0, folder: null }))).toBe('from its members alone, into the project’s root')
+    expect(describeDetail(event('mailbox_changed', { changed: ['address'], senders: 1 }))).toBe('a new address, from 1 sender and its members')
+    expect(
+      describeDetail(event('mailbox_changed', { changed: ['senders'], senders: 3, added: 2, removed: 1, folder: 'Inbox' })),
+    ).toBe('from 3 senders and its members, 2 added, 1 removed')
+    expect(describeDetail(event('mailbox_deleted', { senders: 3 }))).toBe('')
+    expect(describeDetail(event('document_uploaded', { filename: 'INV-7.pdf', size_bytes: 10, by_email: true }))).toBe('INV-7.pdf · by email')
     // A fact checked or corrected: the document and the field, never what it says.
     expect(describeDetail(event('fact_corrected', { filename: 'acme-10.pdf', field: 'total_amount' }))).toBe('acme-10.pdf · total amount')
     // A member's leave for support, support's view of their account, and what was done in it.

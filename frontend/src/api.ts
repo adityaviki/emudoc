@@ -574,6 +574,37 @@ export interface Automation extends AutomationInput {
   updated_at: string
 }
 
+/** A project's address as its members set it (MailboxIn): whom it takes mail from besides themselves, each an address or a domain, and the folder what arrives goes into, the root when null. */
+export interface MailboxInput {
+  senders: string[]
+  folder_id: number | null
+}
+
+/** A message sent to the project's address and what became of it (InboundMessageOut): the documents kept, the files that were not, or why it was turned away. */
+export interface InboundMessage {
+  id: number
+  received_at: string
+  sender: string
+  /** The member whose address sent it, by their name; null for anyone else. */
+  member: string | null
+  subject: string
+  outcome: 'kept' | 'refused' | 'empty'
+  reason: string
+  kept: number
+  rejected: { filename: string; reason: string }[]
+}
+
+/** A project's address, or that it has none (`address` null), with what it received lately, newest first (MailboxOut); `available` is whether the deployment receives mail at all. */
+export interface Mailbox extends MailboxInput {
+  available: boolean
+  address: string | null
+  /** The folder's path; null for the project's root, which a folder gone or in the trash falls back to. */
+  folder: string | null
+  max_senders: number
+  days: number
+  messages: InboundMessage[]
+}
+
 /** A page of what one rule of a run found, as it was found (RunFindingsOut); `gone` the documents it names that were deleted or put in the trash since. */
 export interface RunFindings {
   rule: CheckRunRule
@@ -978,7 +1009,7 @@ export interface Organization {
 }
 
 /** The names of the feature flags (FLAGS in backend/app/flags.py), so that a page that reads a misspelt one fails the build. */
-export type Flag = 'extraction_templates' | 'drafts'
+export type Flag = 'extraction_templates' | 'drafts' | 'email_in'
 
 /** What the organisation page changes about the organisation (OrganizationChangeIn in backend/app/schemas.py). */
 export interface OrganizationChange {
@@ -1392,6 +1423,9 @@ export type AuditAction =
   | 'draft_template_created'
   | 'draft_template_changed'
   | 'draft_template_deleted'
+  | 'mailbox_created'
+  | 'mailbox_changed'
+  | 'mailbox_deleted'
   | 'project_deleted'
   | 'project_restored'
   | 'project_purged'
@@ -2017,6 +2051,13 @@ export const api = {
     request<Automation>(`/projects/${projectId}/automations`, json('POST', body)),
   updateAutomation: (id: number, body: AutomationInput) => request<Automation>(`/automations/${id}`, json('PUT', body)),
   deleteAutomation: (id: number) => request<void>(`/automations/${id}`, { method: 'DELETE' }),
+  /** The project's address, with what it received lately. */
+  mailbox: (projectId: number) => request<Mailbox>(`/projects/${projectId}/mailbox`),
+  /** Give the project an address, or change whom it takes mail from and where it goes. */
+  setMailbox: (projectId: number, body: MailboxInput) => request<Mailbox>(`/projects/${projectId}/mailbox`, json('PUT', body)),
+  /** A new address in place of the project's, which then reaches nothing. */
+  newMailAddress: (projectId: number) => request<Mailbox>(`/projects/${projectId}/mailbox/address`, { method: 'POST' }),
+  deleteMailbox: (projectId: number) => request<void>(`/projects/${projectId}/mailbox`, { method: 'DELETE' }),
   /** A page of the project's documents in review of one state, those assigned to the asker alone with `mine`, past `after`. */
   reviews: (projectId: number, state: ReviewState, mine: boolean, after: string | null = null) => {
     const query = new URLSearchParams({ state })

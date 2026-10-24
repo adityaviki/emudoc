@@ -13,6 +13,7 @@ import {
   FolderPlus,
   FolderUp,
   ListChecks,
+  Mail,
   MoreHorizontal,
   Pencil,
   PenLine,
@@ -56,6 +57,7 @@ import { RunView } from './CheckRuns.tsx'
 import { CrossChecksView, FindingsView } from './CrossChecks.tsx'
 import { DraftTemplatesView } from './DraftTemplates.tsx'
 import { DraftView, DraftsView } from './Drafts.tsx'
+import { MailboxView } from './Mailbox.tsx'
 import { ChangesView } from './FactChanges.tsx'
 import { FactsView } from './FactsTable.tsx'
 import { fileKind, originalFileItem } from './files.ts'
@@ -147,6 +149,7 @@ export function Library() {
   // Behind its flag while it is rolled out (backend/app/flags.py).
   const templates = me.organization.flags_on.includes('extraction_templates')
   const drafts = me.organization.flags_on.includes('drafts')
+  const mail = me.organization.flags_on.includes('email_in')
   // The sample project takes no uploads: it counts against nothing on the plan (backend/app/sample).
   const uploads = changes && !project.sample
   const health = useStatus()
@@ -201,6 +204,7 @@ export function Library() {
   if (workspace.url.library.drafts && drafts) return <DraftsView />
   if (workspace.url.library.draft != null && drafts) return <DraftView draftId={workspace.url.library.draft} />
   if (workspace.url.library.draftTemplates && drafts) return <DraftTemplatesView />
+  if (workspace.url.library.mail && mail) return <MailboxView />
   return (
     <div
       data-tour="library"
@@ -267,6 +271,15 @@ export function Library() {
               onClick={workspace.showDrafts}
               title="Drafts: letters, emails, memos, tables and reports the model writes from the documents"
               aria-label="Drafts"
+              className="px-2"
+            />
+          )}
+          {mail && (
+            <Button
+              icon={<Mail className="size-4" />}
+              onClick={workspace.showMailbox}
+              title="Email in: the project’s address, whose mail becomes its documents"
+              aria-label="Email in"
               className="px-2"
             />
           )}

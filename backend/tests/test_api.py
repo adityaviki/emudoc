@@ -217,11 +217,11 @@ def test_an_upload_of_too_many_files_or_bytes_is_refused_whole(
 def test_a_simultaneous_upload_of_the_same_bytes_is_rejected_not_a_crash(
     client, session, make_document, monkeypatch, sample_pdf, sample_docx
 ):
-    from app.api import documents as documents_api
+    from app import uploads
     from app.models import Project
 
     project = create_project(client)
-    choose = documents_api.unique_filename
+    choose = uploads.unique_filename
 
     def after_another_request_commits(session_, project_id, folder_id, name):
         # Between the duplicate check and the insert, another request stores the same bytes;
@@ -230,7 +230,7 @@ def test_a_simultaneous_upload_of_the_same_bytes_is_rejected_not_a_crash(
             make_document(sample_pdf, filename="scan.pdf", project=session.get(Project, project_id))
         return choose(session_, project_id, folder_id, name)
 
-    monkeypatch.setattr(documents_api, "unique_filename", after_another_request_commits)
+    monkeypatch.setattr(uploads, "unique_filename", after_another_request_commits)
     result = upload(client, project["id"], sample_pdf, sample_docx)
     assert [d["filename"] for d in result["documents"]] == ["policy.docx"]
     assert result["rejected"] == [

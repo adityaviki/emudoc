@@ -61,6 +61,7 @@ export SMTP_URL=
 export RESEND_API_KEY=
 export RESEND_WEBHOOK_SECRET=
 export MAIL_EVENTS_QUEUE=
+export INBOUND_DOMAIN=in.emudoc.test
 export PWNED_PASSWORDS_URL=
 export OPERATOR_EMAIL=
 export SUPPORT_EMAIL=support@example.com

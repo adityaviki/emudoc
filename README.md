@@ -248,6 +248,21 @@ the rules every draft keeps, its citations and its placeholders, stay the code's
 template says; a writing follows the template in force as it starts, so a draft written again
 after a change follows the new one.
 
+A project can take its documents by email too, where the deployment receives mail and the flag
+`email_in` is on (`backend/app/inbound.py`, `GET|PUT|DELETE /api/projects/{id}/mailbox`): the
+library's "Email in" gives it an address of its own, `<token>@INBOUND_DOMAIN`, and whoever may
+change the project chooses whom it takes mail from, besides themselves from their own confirmed
+addresses: addresses and domains, but never a mail service's whole domain. A message from one
+of them that the provider proved its sender's (DMARC, or DKIM of the From domain) becomes
+documents in the address's folder: its text as a `.txt` file named by its subject, with its
+From, To, Date and Subject above it, and each attachment as an uploaded file, through the
+checks an upload's files go through. It is an upload of the member who sent it, told of as
+their uploads are, or of nobody for a sender outside the organisation, and the project's
+automations see it arrive as any upload. Anything else is turned away with nothing sent back; the page lists
+the last messages, the documents kept from each and the files that were not, or why it was
+turned away, kept 30 days. A new address replaces one given out too widely (`POST
+/api/projects/{id}/mailbox/address`), and the old one then reaches nothing.
+
 A project can hold any number of chats. Each one is saved with its answers, including the
 steps the agent took and the passages it was shown, so a chat can be reopened later. An answer
 is written by the background worker, not by the request that asked the question: the question

@@ -916,6 +916,55 @@ class AutomationsOut(BaseModel):
     max_automations: int
 
 
+class MailboxIn(BaseModel):
+    """A project's address as its members set it (app/inbound.py): whom it takes mail from
+    besides themselves, each an address or a domain, and the folder what arrives goes into, the
+    project's root when null."""
+
+    senders: list[Annotated[str, StringConstraints(max_length=320)]] = Field(
+        default_factory=list, max_length=200
+    )
+    folder_id: int | None = None
+
+
+class InboundRejectedOut(BaseModel):
+    filename: str
+    reason: str
+
+
+class InboundMessageOut(BaseModel):
+    """A message sent to the project's address and what became of it: the documents kept, the
+    files that were not, or why it was turned away (`reason`)."""
+
+    id: int
+    received_at: dt.datetime
+    sender: str
+    # The member whose address sent it, by their name as it is now; None for anyone else.
+    member: str | None
+    subject: str
+    outcome: Literal["kept", "refused", "empty"]
+    reason: str
+    kept: int
+    rejected: list[InboundRejectedOut]
+
+
+class MailboxOut(BaseModel):
+    """A project's address, or that it has none (`address` null), with the messages it received
+    lately, newest first; `available` is whether the deployment receives mail at all."""
+
+    available: bool
+    address: str | None
+    senders: list[str]
+    folder_id: int | None
+    # The folder's path as it is now; None for the project's root, which a folder gone or in the
+    # trash falls back to.
+    folder: str | None
+    max_senders: int
+    # How long a message's record is kept.
+    days: int
+    messages: list[InboundMessageOut]
+
+
 class CheckRunsOut(BaseModel):
     """A page of the project's runs, newest first, and the id the next page starts before."""
 

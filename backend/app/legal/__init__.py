@@ -32,6 +32,7 @@ from app.bounces import SUPPRESSED_FOR
 from app.config import REGIONS, Settings, model_provider, parse_scanner_url
 from app.entitlements import CHARS_PER_PAGE, PLANS, Entitlements
 from app.export import EXPORT_DAYS
+from app.inbound import INBOUND_DAYS
 from app.network import MODEL_BASE_URLS, host_of, on_own_network
 from app.notices import NOTIFICATION_DAYS
 from app.oidc import OAUTH_COOKIE, OAUTH_WINDOW_SECONDS
@@ -161,6 +162,7 @@ def privacy_policy(
                 _error_reports(settings.sentry_dsn),
                 _billing_records(settings),
                 _undeliverable(settings),
+                _mail_in(settings),
             )
             if bullet
         ),
@@ -175,6 +177,10 @@ def privacy_policy(
                 f"- **Addresses mail could not be delivered to**, {SUPPRESSED_FOR.days} days, "
                 "or until the address's own user turns notices on again."
                 if _hears_of_bounces(settings)
+                else "",
+                f"- **What became of mail sent to a project's address**, {INBOUND_DAYS} days; "
+                "the documents it brought, as any document."
+                if settings.inbound_domain
                 else "",
             )
             if bullet
@@ -363,6 +369,20 @@ def _undeliverable(settings: Settings) -> str:
         "- **Mail that could not be delivered**: when our email provider tells us that mail to "
         "an address bounced for good or that its reader marked it as spam, the address (as a "
         "hash only) and which of the two, so that we send it no notices."
+    )
+
+
+def _mail_in(settings: Settings) -> str:
+    """What is kept of the mail sent to projects' addresses (app/inbound.py), where the
+    deployment receives any."""
+    if not settings.inbound_domain:
+        return ""
+    return (
+        "- **Mail sent to a project's address**: a message from a sender its members allow "
+        "becomes the project's documents, its text and its attachments, kept as any document "
+        "is; and for every message sent to the address, its sender's address, its subject and "
+        "what became of it, which the project's members see beside the address, so that they "
+        "can tell why a message did not arrive."
     )
 
 

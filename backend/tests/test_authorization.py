@@ -8,8 +8,9 @@ from pydantic_ai.messages import TextPart
 
 from app.answers import answer
 from app.check_runs import run_workflow
+from app.config import get_settings
 from app.drafts import write_draft
-from app.flags import DRAFTS
+from app.flags import DRAFTS, EMAIL_IN
 from app.indexing.pipeline import process_document
 from tests.conftest import FakeTurn
 from tests.test_api import create_project, upload
@@ -30,9 +31,9 @@ class World:
     draft the model wrote, and a chat holding one answered
     question, and in its trash a folder, a document and a chat; another project in the trash; an
     invitation to the organisation and an API key of it, all made by the local owner in the local
-    organisation, and another member of it. The extraction templates are on for every
-    organisation, and so are the drafts, so that what refuses another organisation is the
-    project's scope, not the flag."""
+    organisation, and another member of it; the project has an address. The extraction
+    templates are on for every organisation, and so are the drafts and email in, so that what
+    refuses another organisation is the project's scope, not the flag."""
 
     org_id: int
     project_id: int
@@ -63,6 +64,8 @@ class World:
 def world(client, services, sample_pdf, account, make_account, monkeypatch) -> World:
     turn_on(monkeypatch)
     turn_on(monkeypatch, DRAFTS)
+    turn_on(monkeypatch, EMAIL_IN)
+    monkeypatch.setattr(get_settings(), "inbound_domain", "in.emudoc.test")
     project = create_project(client)
     folder = make_folder(client, project["id"], "Contracts")
     uploaded = upload(client, project["id"], sample_pdf)
@@ -94,6 +97,8 @@ def world(client, services, sample_pdf, account, make_account, monkeypatch) -> W
     draft = client.post(f"/api/projects/{project['id']}/drafts", json={"kind": "report"}).json()
     services.llm.agent_turns.append(FakeTurn(TextPart("A report.")))
     write_draft(draft["id"], account.user.id, services)
+    given = client.put(f"/api/projects/{project['id']}/mailbox", json={"senders": ["acme.example"]})
+    assert given.status_code == 200, given.text
     for path in (
         f"/api/folders/{trashed_folder['id']}",
         f"/api/documents/{note['id']}",
@@ -157,6 +162,7 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/projects/{w.project_id}/reviews", {}),
         ("GET", f"/api/projects/{w.project_id}/reviewers", {}),
         ("GET", f"/api/projects/{w.project_id}/drafts", {}),
+        ("GET", f"/api/projects/{w.project_id}/mailbox", {}),
         ("GET", f"/api/drafts/{w.draft_id}", {}),
         ("GET", f"/api/drafts/{w.draft_id}/versions/1", {}),
         ("GET", f"/api/drafts/{w.draft_id}/versions/1/export", {}),
@@ -209,6 +215,8 @@ def writes(w: World) -> list[Route]:
             {"json": {"tone": "Brief."}},
         ),
         ("PUT", f"/api/facts/{w.fact_id}/check", {"json": {"value": "120 days"}}),
+        ("PUT", f"/api/projects/{w.project_id}/mailbox", {"json": {"senders": ["acme.example"]}}),
+        ("POST", f"/api/projects/{w.project_id}/mailbox/address", {}),
         (
             "POST",
             f"/api/projects/{w.project_id}/documents",
@@ -223,6 +231,7 @@ def writes(w: World) -> list[Route]:
         ("DELETE", f"/api/drafts/{w.draft_id}", {}),
         ("DELETE", f"/api/projects/{w.project_id}/draft-templates/report", {}),
         ("DELETE", f"/api/automations/{w.automation_id}", {}),
+        ("DELETE", f"/api/projects/{w.project_id}/mailbox", {}),
         ("DELETE", f"/api/cross-checks/{w.cross_check_id}", {}),
         ("DELETE", f"/api/templates/{w.template_id}", {}),
         ("DELETE", f"/api/folders/{w.folder_id}", {}),

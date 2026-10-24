@@ -4,11 +4,12 @@ from pathlib import Path
 import pytest
 from sqlalchemy import func, select, text
 
-from app.api.documents import ONE_PATH_A_FILE, UNMAKEABLE_FOLDER
+from app.api.documents import ONE_PATH_A_FILE
 from app.db import engine
 from app.folders import FOLDERS_LOCK, MAX_DEPTH
 from app.indexing.pipeline import process_document
 from app.models import Document, Folder, Upload
+from app.uploads import UNMAKEABLE_FOLDER
 from tests.test_api import create_project, listed, storage_key, upload
 
 

@@ -14,7 +14,7 @@ it did before there was a trash, and a restore is checked against the plan like 
 (`check_restore` in app/entitlements.py). A document waits as it was: its indexing stops at its
 next run (`process_document` in app/indexing/pipeline.py), and a restore queues what is left.
 Its bytes keep their place under the unique constraint on project and hash, so an upload of the
-same file is told to restore it instead (`_already_present` in app/api/documents.py).
+same file is told to restore it instead (`already_present` in app/uploads.py).
 
 A restore puts each item back where it was, or, when that folder is in the trash itself, in the
 nearest folder above it that is not, renamed as an upload would be when a live sibling took its

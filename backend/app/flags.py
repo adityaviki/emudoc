@@ -52,6 +52,7 @@ class Flag:
 # The flags whose names the code reads, each where its feature is.
 EXTRACTION_TEMPLATES = "extraction_templates"
 DRAFTS = "drafts"
+EMAIL_IN = "email_in"
 
 # Every feature behind a flag, by name, in the order the operator's area lists them.
 FLAGS: dict[str, Flag] = {
@@ -70,6 +71,12 @@ FLAGS: dict[str, Flag] = {
     DRAFTS: Flag(
         "Drafts: reply emails, dispute letters, memos, comparison tables and reports the model "
         "writes from a project's documents, kept with their versions"
+    ),
+    # A project's address that mail is sent to (app/inbound.py): its attachments and its text
+    # become the project's documents, from the senders its members allow.
+    EMAIL_IN: Flag(
+        "Email in: an address for each project whose mail, from the senders its members allow, "
+        "becomes its documents"
     ),
 }
 

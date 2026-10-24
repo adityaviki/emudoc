@@ -32,6 +32,7 @@ from app.api import (
     help,
     invitations,
     mail,
+    mailbox,
     notifications,
     onboarding,
     operator,
@@ -449,6 +450,7 @@ KEYED = (
     automations.router,
     reviews.router,
     drafts.router,
+    mailbox.router,
 )
 
 

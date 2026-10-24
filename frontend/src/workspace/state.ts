@@ -70,6 +70,8 @@ export interface Workspace {
   showDraft(draftId: number): void
   /** Shows how the project's drafts of each kind read in the library, likewise. */
   showDraftTemplates(): void
+  /** Shows the project's address, whose mail becomes its documents, in the library, likewise. */
+  showMailbox(): void
   openChat(chatId: number | 'new' | null, options?: { replace?: boolean }): void
   /** Which pane shows on a narrow screen, where only one fits. */
   mobilePane: Pane

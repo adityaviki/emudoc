@@ -139,6 +139,10 @@ QUOTA_FIGURES = ("pages_per_month", "questions_per_month")
 # each kind (`User.notices`).
 NOTICE_KINDS = ("upload_indexed", "quota", "project_export", "checks_run", "review_assigned")
 NOTICE_CHANNELS = ("app", "email")
+# What became of a message sent to a project's address (app/inbound.py): documents were kept
+# from it, it was turned away whole (its sender, the project, the plan), or nothing in it could
+# be kept.
+INBOUND_OUTCOMES = ("kept", "refused", "empty")
 # The order the library lists a folder's files in, which the database keeps an index in: by
 # name, with the numbers in a name compared as numbers ("invoice 2" before "invoice 10") and
 # case and accents set aside, as the page sorts the folders. An ICU collation, made by the
@@ -163,7 +167,9 @@ NATURAL_ORDER = "natural_order"
 # draft is asked of the agent, changed by a member's version or the agent's writing it again, and
 # deleted for good (app/drafts.py), and a version of it downloaded as a file (app/draft_export.py),
 # which is what documents say leaving the app; a project's own template of a kind of draft is
-# made, changed and deleted for good (app/draft_templates.py).
+# made, changed and deleted for good (app/draft_templates.py). A project's address is made, its
+# senders, folder or address changed, and taken away (app/inbound.py); a document that arrived
+# by it is uploaded by its member, or by nobody for a sender outside the organisation.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -242,6 +248,9 @@ AUDIT_ACTIONS = (
     "draft_template_created",
     "draft_template_changed",
     "draft_template_deleted",
+    "mailbox_created",
+    "mailbox_changed",
+    "mailbox_deleted",
     "project_deleted",
     "project_restored",
     "project_purged",
@@ -913,6 +922,80 @@ class Upload(Base):
     )
     # When its last document was ready, failed or set apart, with no retry waiting.
     settled_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ProjectMailbox(Base):
+    """A project's own address, <token>@INBOUND_DOMAIN, whose mail becomes its documents
+    (app/inbound.py), and whom it takes mail from: the members who may change the project, from
+    their own confirmed addresses, and the senders listed, each an address or a domain. The
+    token names the project and nothing more: a message is kept only from a sender the provider
+    proved the From address of, so knowing the address lets nobody in who is not let in, and
+    the token is kept as it is to be shown. A new address is a new token; the old one then
+    reaches nothing."""
+
+    __tablename__ = "project_mailboxes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), unique=True
+    )
+    token: Mapped[str] = mapped_column(String(32), unique=True)
+    # Lower-cased, each an address (ap@supplier.com) or a domain (supplier.com, its subdomains
+    # with it), in the order they were added.
+    senders: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default="{}")
+    # Where what arrives goes; the project's root when null, or once the folder is gone or in
+    # the trash.
+    folder_id: Mapped[int | None] = mapped_column(ForeignKey("folders.id", ondelete="SET NULL"))
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class InboundMessage(Base):
+    """A message sent to a project's address and what became of it, for its members to read
+    on the address's page (app/inbound.py): its sender and subject, the documents kept, the
+    files that were not and why, or why the whole message was turned away. Kept INBOUND_DAYS,
+    and once per delivery, so that a provider that delivers a message twice keeps it once."""
+
+    __tablename__ = "inbound_messages"
+    __table_args__ = (
+        UniqueConstraint("project_id", "delivery"),
+        _one_of("outcome", INBOUND_OUTCOMES, "inbound_messages"),
+        # A project's messages newest first, which its page lists.
+        Index("ix_inbound_messages_project_received", "project_id", "received_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    # The provider's name for the message and its id there ("resend:…", "ses:…").
+    delivery: Mapped[str] = mapped_column(String(200))
+    received_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    # The From address, lower-cased, and the member it is the confirmed address of, if any.
+    sender: Mapped[str] = mapped_column(String(320))
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    subject: Mapped[str] = mapped_column(String(300), default="")
+    outcome: Mapped[str] = mapped_column(String(20))
+    # Why it was turned away, as its members are told; empty otherwise.
+    reason: Mapped[str] = mapped_column(Text, default="")
+    # How many documents were kept from it.
+    kept: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # The files of it that were not kept, each {"filename", "reason"}, as an upload rejects them.
+    rejected: Mapped[list[dict]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb")
+    )
+    # The upload its documents are, which their notice and the automations follow.
+    upload_id: Mapped[int | None] = mapped_column(ForeignKey("uploads.id", ondelete="SET NULL"))
 
 
 class Document(Base):

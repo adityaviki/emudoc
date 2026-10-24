@@ -17,6 +17,23 @@ newest entry first.
 
 Operators:
 
+- Email in, behind a flag of its own, `email_in`, rolled out to none: the library's "Email in"
+  gives a project an address of its own at the new setting `INBOUND_DOMAIN`, and whoever may
+  change the project lists whom it takes mail from besides themselves, addresses or domains but
+  never a mail service's whole domain, and the folder what arrives goes into. A message the
+  provider proved its sender's, from a member who may change the project or a sender listed,
+  becomes documents: its text as a `.txt` file named by its subject, with its From, To, Date and
+  Subject above, and each attachment as an uploaded file, through an upload's checks; anything
+  else is turned away, with nothing sent back. The page lists what became of the last messages,
+  kept 30 days, and the privacy policy says so where `INBOUND_DOMAIN` is set. No provider hands
+  mail over yet: `python -m app.maintenance receive-mail <file.eml>` hands over a message saved
+  as it was sent. New tables `project_mailboxes` and `inbound_messages` and the audit actions
+  `mailbox_created`, `mailbox_changed` and `mailbox_deleted`, which count the senders and never
+  name them (a migration); new routes `GET|PUT|DELETE /api/projects/{id}/mailbox` and `POST
+  /api/projects/{id}/mailbox/address`, which API keys take; the metric
+  `emudoc_inbound_messages_total` by outcome. A document that arrives by mail is audited as
+  `document_uploaded` with `by_email`, by its member, or by nobody for a sender outside the
+  organisation.
 - Drafts from the chat: asked in a chat for a reply email, a dispute letter, a memo, a table or a
   report, the agent offers it under its answer as a draft of that kind about the documents it
   found, with what it should say, and the member's "Write the draft" has it written into the

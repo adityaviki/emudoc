@@ -57,6 +57,15 @@ SCANNER_URL_FORMS = (
     "this machine, clamd:///run/clamav/clamd.ctl; `off` runs without scanning"
 )
 SCANNER_OFF = "off"
+# A host name of labels joined by dots, the last of letters or an IDN's punycode, as
+# app/invitations.py takes a domain.
+INBOUND_DOMAIN = re.compile(
+    r"(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})"
+)
+INBOUND_DOMAIN_FORM = (
+    "INBOUND_DOMAIN is the domain of the projects' addresses, such as in.example.com, or empty "
+    "for none"
+)
 STRIPE_PRICES_FORM = (
     "STRIPE_PRICES lists the Stripe prices sold, as plan=price separated by commas, such as "
     "pro=price_1Pro,team=price_1Team, each plan pro or team"
@@ -641,6 +650,11 @@ class Settings(BaseSettings):
     # EventBridge, which the worker reads (the AWS module makes it and writes its URL here).
     resend_webhook_secret: str = ""
     mail_events_queue: str = ""
+    # The domain of the projects' own addresses, <token>@INBOUND_DOMAIN, whose mail becomes
+    # their documents (app/inbound.py; deploying.md, "Mail in"): a subdomain of its own, such as
+    # in.example.com, whose MX names the provider that receives it. Empty gives no project an
+    # address.
+    inbound_domain: str = ""
     # Where the jobs the worker gave up on are reported (app/deadletters.py), through the
     # mailer above, as one digest every quarter of an hour. Empty sends nothing: the failures
     # wait, listed by the failed-jobs command, until an address is set.
@@ -689,6 +703,14 @@ class Settings(BaseSettings):
         if parts.scheme == "s3" and parts.netloc and not parts.query and not parts.fragment:
             return value
         raise ValueError(f"{STORAGE_URL_FORMS}; {value!r} is neither")
+
+    @field_validator("inbound_domain")
+    @classmethod
+    def _names_a_domain_or_none(cls, value: str) -> str:
+        domain = value.strip().lower().removeprefix("@")
+        if domain and not INBOUND_DOMAIN.fullmatch(domain):
+            raise ValueError(f"{INBOUND_DOMAIN_FORM}; {value!r} is not one")
+        return domain
 
     @field_validator("encryption_keys")
     @classmethod

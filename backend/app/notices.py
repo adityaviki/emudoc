@@ -216,10 +216,12 @@ def app_address() -> str:
 
 
 def record_upload(
-    session: Session, project_id: int, user_id: int, document_ids: list[int]
+    session: Session, project_id: int, user_id: int | None, document_ids: list[int]
 ) -> int | None:
     """Make the upload of a request's documents in the caller's session, once it has stored
-    them all; returns its id, or None when the request kept none."""
+    them all; returns its id, or None when the request kept none. A message from a sender
+    outside the organisation (app/inbound.py) is nobody's upload, and its notice goes to no
+    one."""
     if not document_ids:
         return None
     upload = Upload(project_id=project_id, user_id=user_id)

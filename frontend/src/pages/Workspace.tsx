@@ -177,6 +177,10 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
         setMobilePane('library')
         go({ library: { folderId: null, q: '', draftTemplates: true } })
       },
+      showMailbox() {
+        setMobilePane('library')
+        go({ library: { folderId: null, q: '', mail: true } })
+      },
       openChat(chatId, options) {
         if (chatId === 'new') setMobilePane('chat')
         go({ chatId }, options)

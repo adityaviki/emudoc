@@ -35,10 +35,12 @@ import { gzipSync } from 'node:zlib'
 // 262 kB on 2026-10-24 by documents' reviews (257.6 kB): the reviews view, the controls that move a
 // review and assign it in the document's tab and the view, and each row's mark and menu, and
 // 266 kB the same day by drafts (262.2 kB): the drafts' list with the form that asks for one, a
-// draft's view with its versions, its editor and preview, and the dispute letter of a review.
+// draft's view with its versions, its editor and preview, and the dispute letter of a review, and
+// 271 kB the same day by a project's address (268.8 kB): the Email in view, with its senders'
+// list, its folder and what became of the messages it received.
 // A change that passes it makes the scripts smaller (a dependency left out, a page loaded only
 // when it is opened) or raises this number, saying why in its commit.
-const BUDGET = 266_000
+const BUDGET = 271_000
 // The operator's area (operator.html), a build of its own that only operators are sent: React
 // and the rest again, 102.0 kB on 2026-10-21. Its size costs no member anything, so its budget
 // only catches a dependency pulled in by mistake.
