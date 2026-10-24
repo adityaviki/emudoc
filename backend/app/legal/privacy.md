@@ -45,7 +45,10 @@ organisation uploaded a document about you, ask the organisation first; we help 
   provide the service to the organisation.
 - **API keys**: for each key an organisation's owner or admin makes for its programs, its name,
   what it may do, who made it (it acts as them), when it was made, last used and runs out, and
-  the key itself as a hash only. We need them to provide the service to the organisation.
+  the key itself as a hash only; and when a program names a request with an idempotency key,
+  that key and the answer the request was given, which holds what it made, so that the request
+  sent again is given the same answer rather than carried out twice. We need them to provide
+  the service to the organisation.
 - **Usage**: the pages, questions and model use your organisation counted, and what they cost,
   each with the member it was for, to hold the organisation to its plan and, on a paid plan,
   to bill it.
@@ -141,6 +144,7 @@ $region
   expired.
 - **API keys**, until they are revoked or the member who made them leaves the organisation, or
   $credential_days days after they ran out.
+- **The answers kept for a program's idempotency keys**, a day, or until its API key goes.
 - **Your leave for support**, until you withdraw it or leave the organisation, or
   $credential_days days after it ran out; the audit log keeps when support opened your account.
 - **The browsers you signed in with**, until $browser_days days after their last sign-in.

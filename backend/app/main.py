@@ -45,6 +45,7 @@ from app.api import (
     templates,
     trash,
     usage,
+    v1,
 )
 from app.api.deps import (
     RETRY_AFTER,
@@ -55,7 +56,7 @@ from app.api.deps import (
     refuse_past,
 )
 from app.billing import BillingRefused
-from app.config import ROOT_DIR, Settings, get_settings
+from app.config import ROOT_DIR, get_settings
 from app.db import BUSY, TOO_SLOW, SessionLocal, canceled, engine
 from app.entitlements import PlanRefused
 from app.errors import shown, summary
@@ -73,7 +74,6 @@ from app.logs import REQUEST_ID_HEADER, RequestIds, configure_logging, current_c
 from app.mail import Mailer, mailer_from_settings
 from app.metrics import POOL_TIMEOUTS, HttpMetrics, export_metrics
 from app.operators import operator_of
-from app.parsing import SUPPORTED_EXTENSIONS
 from app.payments import PaymentsError
 from app.ratelimit import PAGE_ERRORS, by_address
 from app.schemas import (
@@ -86,11 +86,11 @@ from app.schemas import (
     PlanRefusalOut,
     StatusOut,
     SubprocessorsOut,
-    UploadLimitsOut,
     WorkerStatus,
 )
 from app.shutdown import Stop, heard_stop
 from app.startup import prepare
+from app.status import KEYWORDS_ONLY, MODELS_UNAVAILABLE, WORK_STOPPED, upload_limits
 from app.storage import StorageError
 from app.subprocessors import subprocessors
 from app.tracking import report_page_error, start_tracking
@@ -103,24 +103,6 @@ FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
 STORAGE_DOWN = "Emudoc could not reach its file storage just now. Try again in a few minutes."
 NOT_READY = "Emudoc cannot serve requests just now. Try again in a few minutes."
 FAULT = "Emudoc ran into an error of its own, which it recorded."
-# What a deployment's status line tells members when the models or the embeddings endpoint
-# cannot be used: what they cannot do for now, naming no model, address or setting. Why is the
-# operator's, from the start's log, the metrics and the worker's watch (app/watch.py), which
-# read the same `LLM.problem()` and `Embedder.check()`.
-MODELS_UNAVAILABLE = (
-    "The AI model is unavailable just now, so questions cannot be asked and documents get no "
-    "summaries or facts. Try again later."
-)
-KEYWORDS_ONLY = (
-    "Search matches keywords only just now, so a passage that says the same in other words may "
-    "be missed. Try again later."
-)
-# And when no worker takes the queue's work (app/jobs.py): the operator learns why from the
-# processes, `maintenance jobs` and the alerts.
-WORK_STOPPED = (
-    "Emudoc's background work is not running just now, so uploaded documents wait to be indexed "
-    "and questions cannot be asked. Try again later."
-)
 
 
 class PagePath(PathConvertor):
@@ -261,16 +243,6 @@ def no_worker(work: Work) -> str:
         f"{seen}, so uploads stay queued and questions go unanswered. Run `uv run python -m "
         "app.worker` in emudoc/backend, or leave RUN_WORKER unset for the backend to run one "
         "itself, and restart it."
-    )
-
-
-def upload_limits(settings: Settings) -> UploadLimitsOut:
-    megabyte = 1024 * 1024
-    return UploadLimitsOut(
-        files=settings.max_upload_files,
-        request_bytes=settings.max_upload_request_mb * megabyte,
-        file_bytes=settings.max_upload_mb * megabyte,
-        extensions=sorted(SUPPORTED_EXTENSIONS),
     )
 
 
@@ -546,11 +518,18 @@ def create_app(
         help.router,
     ):
         app.include_router(router, prefix="/api", dependencies=[Depends(refuse_cross_site)])
+    # The versioned API, which a program alone calls, with its key (app/api/v1/): it carries
+    # no cookie, so the defence against another site's page needs no header of it.
+    app.include_router(v1.router, prefix="/api")
     # The routes an API key reaches (`_key_account` in app/api/deps.py), by their functions,
-    # which the request's scope names once its route is matched; and the status, whose upload
-    # limits a program sends its files within, as the page does (app/client/).
+    # which the request's scope names once its route is matched: the versioned API's, the page's
+    # that a program has a use for, and the status, whose upload limits a program sends its
+    # files within, as the page does (app/client/).
     app.state.keyed = frozenset(
-        [*(route.endpoint for router in KEYED for route in router.routes), status]
+        [
+            *(route.endpoint for router in (*KEYED, *v1.ROUTERS) for route in router.routes),
+            status,
+        ]
     )
     # Stripe's and Resend's events carry no header of the app's: their signature proves where
     # they came from (app/api/billing.py, app/api/mail.py); nor does a mail program's one-click

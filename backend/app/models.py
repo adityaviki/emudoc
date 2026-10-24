@@ -705,6 +705,29 @@ class ApiKey(Base):
     expires_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class IdempotencyKey(Base):
+    """An `Idempotency-Key` a program sent with a request that makes something (app/idempotency.py),
+    claimed for the API key that sent it with a fingerprint of the request, and once the request
+    is carried out the answer it was given, which a request sent again with the key is given in
+    its place. It goes with its API key, by the database's cascade, and the housekeeper removes
+    it KEPT after it was claimed."""
+
+    __tablename__ = "idempotency_keys"
+    __table_args__ = (UniqueConstraint("api_key_id", "key"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    api_key_id: Mapped[int] = mapped_column(ForeignKey("api_keys.id", ondelete="CASCADE"))
+    key: Mapped[str] = mapped_column(String(255))
+    # The SHA-256 of what the request asked (`fingerprint`), which a request sent again must match.
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    # The answer, None while the request that claimed the key is being carried out.
+    status_code: Mapped[int | None] = mapped_column(Integer)
+    body: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+
 class SupportGrant(Base):
     """A member's leave for Emudoc's support to see their account in one of their organisations
     (app/support.py), until `expires_at`. Granting it again moves the time; withdrawing it
@@ -1103,6 +1126,9 @@ class Document(Base):
         # app/api/documents.py), the root's being those whose folder is null; the leading
         # column serves every lookup by project as well.
         Index("ix_documents_listing", "project_id", "folder_id", "filename", "id"),
+        # A page of a project's documents, the newest first, as the versioned API lists them
+        # (app/api/v1/library.py): the same short scan whatever the project holds.
+        Index("ix_documents_project_id_id", "project_id", "id"),
         *_trash_indexes("documents", "project_id"),
         # A null review passes, as a check that is not false does.
         _one_of("review", REVIEW_STATES, "documents"),
@@ -1339,15 +1365,16 @@ class Fact(Base):
     __table_args__ = (
         # What a check's deletion looks through for the fact it set: the few checked ones.
         Index("ix_facts_check_id", "check_id", postgresql_where=text("check_id IS NOT NULL")),
+        # A project's facts, and a page of them in order as the versioned API lists them
+        # (app/api/v1/query.py), the same short scan whatever the project holds.
+        Index("ix_facts_project_id_id", "project_id", "id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     document_id: Mapped[int] = mapped_column(
         ForeignKey("documents.id", ondelete="CASCADE"), index=True
     )
-    project_id: Mapped[int] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), index=True
-    )
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
     name: Mapped[str] = mapped_column(String(100), index=True)
     # One of FACT_TYPES.
     value_type: Mapped[str] = mapped_column(String(20), default="text")
@@ -1883,12 +1910,13 @@ class Chat(Base):
     __table_args__ = (
         _one_of("visibility", CHAT_VISIBILITIES, "chats"),
         *_trash_indexes("chats", "project_id", by=False),
+        # A project's chats, and a page of them, the newest first, as the versioned API lists
+        # them (app/api/v1/chats.py).
+        Index("ix_chats_project_id_id", "project_id", "id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    project_id: Mapped[int] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), index=True
-    )
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
     # Who started the chat. A private chat is theirs alone, so it goes when their account does.
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     # The starter's name as it is now, read with the chat, which a shared chat shows the

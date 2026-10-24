@@ -1895,6 +1895,9 @@ every six hours), and so what the privacy notice can promise:
 - **Sessions and one-time links** go 30 days after they expired or were revoked
   (`CREDENTIAL_HISTORY` in `backend/app/auth.py`), with the address and browser a session
   recorded and the address a link went to.
+- **Idempotency keys** (`idempotency_keys`, `backend/app/idempotency.py`): the key a program sent
+  to the versioned API with a request that made something, and the answer it was given, which
+  names what it made, go a day after the key was claimed (`KEPT`), or with the API key.
 - **Invitations** go when they are accepted or revoked, and an expired one 30 days after it
   expired, with the address it was sent to (`backend/app/invitations.py`).
 - **Audit log rows** go once they are older than the organisation's plan keeps them

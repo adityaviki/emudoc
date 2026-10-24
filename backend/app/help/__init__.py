@@ -17,6 +17,7 @@ from app.client.emudoc_upload import EVERY, KEY_VARIABLE, OLDEST_PYTHON, STATE_N
 from app.config import Settings, parse_scanner_url
 from app.entitlements import BY_THE_SEAT, CHARS_PER_PAGE, GB, MB, PLANS
 from app.export import EXPORT_DAYS
+from app.idempotency import KEPT as IDEMPOTENCY_KEPT
 from app.invitations import INVITATION_TTL
 from app.legal import by_plan
 from app.notices import NOTICE_AFTER, NOTIFICATION_DAYS
@@ -99,6 +100,7 @@ def _values(settings: Settings) -> dict[str, str]:
             if settings.rate_api_requests
             else ""
         ),
+        "idempotency_hours": str(round(IDEMPOTENCY_KEPT.total_seconds() / 3600)),
         "plans": _plans(),
         "chars_per_page": f"{CHARS_PER_PAGE:,}",
         "lifts": _lifts(settings),

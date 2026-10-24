@@ -284,7 +284,7 @@ def _rule_out(kept: dict) -> CheckRunRuleOut:
     return CheckRunRuleOut.model_validate(kept)
 
 
-def _counts(run: WorkflowRun) -> FindingCountsOut | None:
+def run_counts(run: WorkflowRun) -> FindingCountsOut | None:
     """What the run's rules found together, once it is worked out."""
     if run.status != "done":
         return None
@@ -302,7 +302,7 @@ def _summary(run: WorkflowRun, run_by: str | None) -> CheckRunSummaryOut:
         run_by=run_by,
         trigger=_trigger_out(run),
         titles=[kept["title"] for kept in run.rules],
-        counts=_counts(run),
+        counts=run_counts(run),
         created_at=run.created_at,
         finished_at=run.finished_at,
     )

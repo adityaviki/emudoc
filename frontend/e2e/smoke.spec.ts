@@ -648,12 +648,12 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await keys.getByRole('button', { name: 'Make a key' }).click()
     const key = (await keys.locator('code').first().textContent()) ?? ''
     expect(key).toMatch(/^emk_/)
-    // A program sends the key alone, with no cookie and none of the app's headers.
+    // A program sends the key alone, with no cookie and none of the app's headers, to the versioned API.
     const bearer = { Authorization: `Bearer ${key}` }
-    const listed = await request.get('/api/projects', { headers: bearer })
+    const listed = await request.get('/api/v1/projects', { headers: bearer })
     expect(listed.status()).toBe(200)
-    expect((await listed.json()).map((project: { name: string }) => project.name)).toContain('Supplier contracts')
-    expect((await request.post('/api/projects', { headers: bearer, data: { name: 'Mine' } })).status()).toBe(403)
+    expect((await listed.json()).data.map((project: { name: string }) => project.name)).toContain('Supplier contracts')
+    expect((await request.post('/api/v1/projects', { headers: bearer, data: { name: 'Mine' } })).status()).toBe(403)
     expect((await request.get('/api/organization/keys', { headers: bearer })).status()).toBe(403)
     // The upload client the section offers, which the app serves for download.
     const offered = await keys.getByRole('link', { name: 'download the upload client' }).getAttribute('href')

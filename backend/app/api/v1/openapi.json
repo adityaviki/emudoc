@@ -1,0 +1,5925 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Emudoc API",
+    "description": "Programs read and change an organisation's projects with an API key, as the member who made it. Lists come a page at a time, `next` naming where the next starts; a request that makes something may carry an Idempotency-Key; a refusal says what to do next in `detail`.",
+    "version": "1"
+  },
+  "paths": {
+    "/api/v1/status": {
+      "get": {
+        "tags": [
+          "status"
+        ],
+        "summary": "Status",
+        "description": "Whether questions can be answered, search finds passages by meaning and uploads are\nindexed just now, and what one upload may carry.",
+        "operationId": "status",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "List Projects",
+        "description": "The projects the key's member sees, the newest first.",
+        "operationId": "list_projects",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "How many items the page holds.",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "How many items the page holds."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `next` of the page before; none for the first page.",
+              "title": "After"
+            },
+            "description": "The `next` of the page before; none for the first page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Create Project",
+        "description": "Make a project, which the organisation's plan holds to how many it may have.",
+        "operationId": "create_project",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A string of the program's own, at most 255 characters, such as a UUID: the request sent again with it within a day is given the first one's answer, and carried out once.",
+              "title": "Idempotency-Key"
+            },
+            "description": "A string of the program's own, at most 255 characters, such as a UUID: the request sent again with it within a day is given the first one's answer, and carried out once."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewProject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get Project",
+        "operationId": "get_project",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Update Project",
+        "description": "Rename the project, describe it anew, or both.",
+        "operationId": "update_project",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Delete Project",
+        "description": "Put the project in the organisation's trash with everything in it, from which a member\nrestores it in the app until it is deleted for good.",
+        "operationId": "delete_project",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/folders": {
+      "get": {
+        "tags": [
+          "folders"
+        ],
+        "summary": "List Folders",
+        "description": "The project's folders, the oldest first, each with its path and how many documents it\nholds itself.",
+        "operationId": "list_folders",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "How many items the page holds.",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "How many items the page holds."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `next` of the page before; none for the first page.",
+              "title": "After"
+            },
+            "description": "The `next` of the page before; none for the first page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "folders"
+        ],
+        "summary": "Create Folder",
+        "description": "Make a folder at the project's root or in one of its folders; its name is the only one of\nits folder's, whatever their case.",
+        "operationId": "create_folder",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A string of the program's own, at most 255 characters, such as a UUID: the request sent again with it within a day is given the first one's answer, and carried out once.",
+              "title": "Idempotency-Key"
+            },
+            "description": "A string of the program's own, at most 255 characters, such as a UUID: the request sent again with it within a day is given the first one's answer, and carried out once."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewFolder"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Folder"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/folders/{folder_id}": {
+      "get": {
+        "tags": [
+          "folders"
+        ],
+        "summary": "Get Folder",
+        "operationId": "get_folder",
+        "parameters": [
+          {
+            "name": "folder_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Folder Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Folder"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "folders"
+        ],
+        "summary": "Update Folder",
+        "description": "Rename the folder, move it, or both.",
+        "operationId": "update_folder",
+        "parameters": [
+          {
+            "name": "folder_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Folder Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Folder"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "folders"
+        ],
+        "summary": "Delete Folder",
+        "description": "Put the folder in the project's trash with its folders and every document in them.",
+        "operationId": "delete_folder",
+        "parameters": [
+          {
+            "name": "folder_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Folder Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/documents": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "List Documents",
+        "description": "The project's documents, the newest first, those of one folder, of some ids or of a\nstatus alone when asked; a program follows its uploads by their ids until none is queued or\nprocessing.",
+        "operationId": "list_documents",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "folder_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the documents directly in this folder.",
+              "title": "Folder Id"
+            },
+            "description": "Only the documents directly in this folder."
+          },
+          {
+            "name": "ids",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  },
+                  "maxItems": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the documents of these ids.",
+              "title": "Ids"
+            },
+            "description": "Only the documents of these ids."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "queued",
+                    "processing",
+                    "ready",
+                    "failed",
+                    "quarantined"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the documents that stand so.",
+              "title": "Status"
+            },
+            "description": "Only the documents that stand so."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "How many items the page holds.",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "How many items the page holds."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `next` of the page before; none for the first page.",
+              "title": "After"
+            },
+            "description": "The `next` of the page before; none for the first page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Upload Documents",
+        "description": "Upload files into the project, as a multipart form of `files`, each indexed in the\nbackground. The request is refused whole when it carries more files or bytes than one upload\nmay (413; `GET /api/v1/status` says how many), and when the plan has no room for a document\n(402); a file is refused alone, with why, for its size, for bytes that are not the type its\nname says, for the plan, or as a file the project holds already (`duplicate_of`), while the\nothers are kept. With an Idempotency-Key, the upload sent again is given the first one's\nanswer.",
+        "operationId": "upload_documents",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "folder_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The folder the files go into; the root when none.",
+              "title": "Folder Id"
+            },
+            "description": "The folder the files go into; the root when none."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A string of the program's own, at most 255 characters, such as a UUID: the request sent again with it within a day is given the first one's answer, and carried out once.",
+              "title": "Idempotency-Key"
+            },
+            "description": "A string of the program's own, at most 255 characters, such as a UUID: the request sent again with it within a day is given the first one's answer, and carried out once."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_documents"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Upload"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{document_id}": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Get Document",
+        "description": "The document, and how far it is indexed.",
+        "operationId": "get_document",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Document"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Update Document",
+        "description": "Rename the document, move it to another folder, or both.",
+        "operationId": "update_document",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Document"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Delete Document",
+        "description": "Put the document in the project's trash, where nothing reads it until it is restored.",
+        "operationId": "delete_document",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{document_id}/file": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Download File",
+        "description": "The file as it was uploaded, or a redirect to it, once the malware scan has passed (409\nuntil then; 403 for one it flagged). Each download is a row of the organisation's audit\nlog.",
+        "operationId": "download_file",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file.",
+            "content": {
+              "application/octet-stream": {}
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{document_id}/facts": {
+      "get": {
+        "tags": [
+          "facts"
+        ],
+        "summary": "Get Document Facts",
+        "description": "The facts read from the document, by name: every one of them, on one page.",
+        "operationId": "get_document_facts",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/search": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Search",
+        "description": "The project's passages that match best, by keywords and by meaning together, the best\nfirst; by keywords alone while the embeddings are out (`semantic` false).",
+        "operationId": "search",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "What to look for, in words.",
+              "title": "Q"
+            },
+            "description": "What to look for, in words."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "description": "How many passages at most.",
+              "default": 10,
+              "title": "Limit"
+            },
+            "description": "How many passages at most."
+          },
+          {
+            "name": "document_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only in this document.",
+              "title": "Document Id"
+            },
+            "description": "Only in this document."
+          },
+          {
+            "name": "folder_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only in this folder and the folders in it.",
+              "title": "Folder Id"
+            },
+            "description": "Only in this folder and the folders in it."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResults"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/facts": {
+      "get": {
+        "tags": [
+          "facts"
+        ],
+        "summary": "List Facts",
+        "description": "The facts read from the project's documents, the oldest first. A document read again has\nits facts written anew, under new ids.",
+        "operationId": "list_facts",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the facts of this field.",
+              "title": "Name"
+            },
+            "description": "Only the facts of this field."
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the facts whose field or value holds this.",
+              "title": "Q"
+            },
+            "description": "Only the facts whose field or value holds this."
+          },
+          {
+            "name": "document_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this document's.",
+              "title": "Document Id"
+            },
+            "description": "Only this document's."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "How many items the page holds.",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "How many items the page holds."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `next` of the page before; none for the first page.",
+              "title": "After"
+            },
+            "description": "The `next` of the page before; none for the first page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/passages/{passage_id}": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Get Passage",
+        "description": "A passage an answer, a report or a search names: where it is and what it says.",
+        "operationId": "get_passage",
+        "parameters": [
+          {
+            "name": "passage_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Passage Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Passage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/chats": {
+      "get": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "List Chats",
+        "description": "The chats of the project the key's member started, and those shared with it, the newest\nfirst.",
+        "operationId": "list_chats",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "How many items the page holds.",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "How many items the page holds."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `next` of the page before; none for the first page.",
+              "title": "After"
+            },
+            "description": "The `next` of the page before; none for the first page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Create Chat",
+        "description": "Start a chat, private to the key's member; a viewer may, since asking is reading.",
+        "operationId": "create_chat",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A string of the program's own, at most 255 characters, such as a UUID: the request sent again with it within a day is given the first one's answer, and carried out once.",
+              "title": "Idempotency-Key"
+            },
+            "description": "A string of the program's own, at most 255 characters, such as a UUID: the request sent again with it within a day is given the first one's answer, and carried out once."
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Chat"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chats/{chat_id}": {
+      "get": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Get Chat",
+        "operationId": "get_chat",
+        "parameters": [
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Chat Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Chat"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Update Chat",
+        "description": "Rename the chat, share it with the project, or take it private again.",
+        "operationId": "update_chat",
+        "parameters": [
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Chat Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Chat"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Delete Chat",
+        "description": "Put the chat in its starter's trash.",
+        "operationId": "delete_chat",
+        "parameters": [
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Chat Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chats/{chat_id}/messages": {
+      "get": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "List Messages",
+        "description": "The chat's questions and answers, the oldest first.",
+        "operationId": "list_messages",
+        "parameters": [
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Chat Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "How many items the page holds.",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "How many items the page holds."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `next` of the page before; none for the first page.",
+              "title": "After"
+            },
+            "description": "The `next` of the page before; none for the first page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Ask",
+        "description": "Ask a question in a chat the key's member started; the worker writes the answer, which\nis followed by its id. It counts as one of the month's questions (402 past the plan's), and\nis refused with 409 while the chat's last answer is still being written and with 429 while\nthe organisation has too many being written at once. With an Idempotency-Key, the question\nsent again is given the first one's answer, and asked and counted once.",
+        "operationId": "ask",
+        "parameters": [
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Chat Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A string of the program's own, at most 255 characters, such as a UUID: the request sent again with it within a day is given the first one's answer, and carried out once.",
+              "title": "Idempotency-Key"
+            },
+            "description": "A string of the program's own, at most 255 characters, such as a UUID: the request sent again with it within a day is given the first one's answer, and carried out once."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Question"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Asked"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chats/{chat_id}/messages/{message_id}": {
+      "get": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Get Message",
+        "description": "A question or an answer of the chat: while an answer is `streaming`, what it says so\nfar.",
+        "operationId": "get_message",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Message Id"
+            }
+          },
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Chat Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Message"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chats/{chat_id}/messages/{message_id}/events": {
+      "get": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Events",
+        "description": "Follow an answer as it is written, from its start or from the `Last-Event-ID` seen\nlast. The request's session gives its connection back before the stream begins, as the\npage's does (app/api/chats.py).",
+        "operationId": "events",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Message Id"
+            }
+          },
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Chat Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-sent events: `text` ({text}) adds to the answer, `reset` ({content, sources}) replaces it, `sources` ({sources}) adds passages it may cite, and `end` (a Message) ends the stream once it is settled. A stream that ends without `end` is followed again with the `Last-Event-ID` of its last event.",
+            "content": {
+              "text/event-stream": {}
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chats/{chat_id}/messages/{message_id}/stop": {
+      "post": {
+        "tags": [
+          "chats"
+        ],
+        "summary": "Stop",
+        "description": "End the answer with what it says so far.",
+        "operationId": "stop",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Message Id"
+            }
+          },
+          {
+            "name": "chat_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Chat Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Message"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/cross-checks": {
+      "get": {
+        "tags": [
+          "cross-checks"
+        ],
+        "summary": "List Cross Checks",
+        "description": "The project's cross-checks by name, every one of them on one page, each with why it cannot\nbe worked out now, if it cannot; members write them in the app.",
+        "operationId": "list_cross_checks",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrossCheckList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/check-runs": {
+      "post": {
+        "tags": [
+          "check-runs"
+        ],
+        "summary": "Run Checks",
+        "description": "Run the project's cross-checks, those named or all of them, over its documents as they\nread now; the worker works the run out, which is followed by its id. Refused with 409 while\nanother run of the project's is under way, and with 400 when it has no cross-checks. A\nreport counts as one of the month's questions. With an Idempotency-Key, the run asked for\nagain is given the first one's answer, and made once.",
+        "operationId": "run_checks",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A string of the program's own, at most 255 characters, such as a UUID: the request sent again with it within a day is given the first one's answer, and carried out once.",
+              "title": "Idempotency-Key"
+            },
+            "description": "A string of the program's own, at most 255 characters, such as a UUID: the request sent again with it within a day is given the first one's answer, and carried out once."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewCheckRun"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckRun"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "check-runs"
+        ],
+        "summary": "List Runs",
+        "description": "The project's runs, the newest first.",
+        "operationId": "list_runs",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "How many items the page holds.",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "How many items the page holds."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `next` of the page before; none for the first page.",
+              "title": "After"
+            },
+            "description": "The `next` of the page before; none for the first page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckRunList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/check-runs/{run_id}": {
+      "get": {
+        "tags": [
+          "check-runs"
+        ],
+        "summary": "Get Run",
+        "description": "The run: how far it and its report are, what each of its rules found, and the report.",
+        "operationId": "get_run",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckRun"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/check-runs/{run_id}/findings": {
+      "get": {
+        "tags": [
+          "check-runs"
+        ],
+        "summary": "Run Findings",
+        "description": "What one rule of the run found, as it was found: differing first, then missing a value,\nthen holding, each by its document's name.",
+        "operationId": "run_findings",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "rule",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The rule's place in the run's `rules`.",
+              "title": "Rule"
+            },
+            "description": "The rule's place in the run's `rules`."
+          },
+          {
+            "name": "outcome",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "differs",
+                    "missing",
+                    "holds"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only those of it.",
+              "title": "Outcome"
+            },
+            "description": "Only those of it."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "How many items the page holds.",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "How many items the page holds."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `next` of the page before; none for the first page.",
+              "title": "After"
+            },
+            "description": "The `next` of the page before; none for the first page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindingList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Asked": {
+        "properties": {
+          "question": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "answer": {
+            "$ref": "#/components/schemas/Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "question",
+          "answer"
+        ],
+        "title": "Asked",
+        "description": "A question as saved, and its answer, which the worker writes: follow it by its id."
+      },
+      "Body_upload_documents": {
+        "properties": {
+          "files": {
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "paths": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paths",
+            "description": "One for each file, in their order: the folders below `folder_id` it goes into, such as `Invoices/2024`, made where none of their name is, or empty for that folder itself."
+          }
+        },
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "title": "Body_upload_documents"
+      },
+      "Chat": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "project_id": {
+            "type": "integer",
+            "title": "Project Id"
+          },
+          "user_id": {
+            "type": "integer",
+            "title": "User Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "project"
+            ],
+            "title": "Visibility"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "user_id",
+          "title",
+          "visibility",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Chat",
+        "description": "A chat with the agent: private to the member who started it until they share it with the\nproject, whose members then read it; only its starter asks in it."
+      },
+      "ChatChange": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "visibility": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "project"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Visibility"
+          }
+        },
+        "type": "object",
+        "title": "ChatChange",
+        "description": "A chat renamed, shared with the project or taken private again; a field left out stays as\nit is."
+      },
+      "ChatList": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Chat"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "next"
+        ],
+        "title": "ChatList",
+        "description": "A page of the chats of a project the key's member started or that were shared with it,\nthe newest first."
+      },
+      "CheckRun": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "project_id": {
+            "type": "integer",
+            "title": "Project Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "report_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "queued",
+                  "writing",
+                  "done",
+                  "failed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Status"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/Rule"
+            },
+            "type": "array",
+            "title": "Rules"
+          },
+          "counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FindingCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "report": {
+            "type": "string",
+            "title": "Report"
+          },
+          "report_sources": {
+            "items": {
+              "$ref": "#/components/schemas/Source"
+            },
+            "type": "array",
+            "title": "Report Sources"
+          },
+          "report_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Error"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "status",
+          "report_status",
+          "rules",
+          "counts",
+          "error",
+          "report",
+          "report_sources",
+          "report_error",
+          "created_at",
+          "finished_at"
+        ],
+        "title": "CheckRun",
+        "description": "A run of a project's cross-checks. `status` is `queued` or `running` until it is worked\nout, then `done` or `failed`; `report_status` is the discrepancy report's, None when none was\nasked for. The report cites the passages of `report_sources` as [P<id>]."
+      },
+      "CheckRunList": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/CheckRun"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "next"
+        ],
+        "title": "CheckRunList",
+        "description": "A page of a project's runs, the newest first."
+      },
+      "CrossCheck": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "problem"
+        ],
+        "title": "CrossCheck",
+        "description": "A rule a project's documents are checked against one another by, and why it cannot be\nworked out with the project's templates as they are now, if it cannot."
+      },
+      "CrossCheckList": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/CrossCheck"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "next"
+        ],
+        "title": "CrossCheckList",
+        "description": "A project's cross-checks, by name."
+      },
+      "Document": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "project_id": {
+            "type": "integer",
+            "title": "Project Id"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Id"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "mime_type": {
+            "type": "string",
+            "title": "Mime Type"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "processing",
+              "ready",
+              "failed",
+              "quarantined"
+            ],
+            "title": "Status"
+          },
+          "partly_indexed": {
+            "type": "boolean",
+            "title": "Partly Indexed"
+          },
+          "retry_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Count"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "doc_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doc Type"
+          },
+          "doc_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doc Date"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template"
+          },
+          "review": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "to_review",
+                  "approved",
+                  "disputed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review"
+          },
+          "assignee_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignee Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "folder_id",
+          "filename",
+          "mime_type",
+          "size_bytes",
+          "sha256",
+          "status",
+          "partly_indexed",
+          "retry_at",
+          "error",
+          "page_count",
+          "title",
+          "doc_type",
+          "doc_date",
+          "summary",
+          "template",
+          "review",
+          "assignee_id",
+          "created_at"
+        ],
+        "title": "Document",
+        "description": "A document and how far it is indexed. `status` is `queued` or `processing` while it is\nread, `ready` once it can be searched and asked about, `failed` when it could not be read and\n`quarantined` when the malware scan flagged it, `error` saying why. A ready document is\n`partly_indexed` when it went without summaries and facts or without the vectors that search\nby meaning, which the model or the embeddings being out causes; `retry_at` is when a stage\nthat failed for a reason that passes runs again by itself."
+      },
+      "DocumentChange": {
+        "properties": {
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Id"
+          }
+        },
+        "type": "object",
+        "title": "DocumentChange",
+        "description": "A document renamed, moved or both; a field left out stays as it is, and a `folder_id` of\nnull moves it to the root. A new name keeps the file's extension."
+      },
+      "DocumentList": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Document"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "next"
+        ],
+        "title": "DocumentList",
+        "description": "A page of a project's documents, the newest first."
+      },
+      "Error": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "Error",
+        "description": "A refusal: what was refused and what to do next, in a sentence for the person the program\nworks for."
+      },
+      "Fact": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "document_id": {
+            "type": "integer",
+            "title": "Document Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "value_type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "number",
+              "date",
+              "money"
+            ],
+            "title": "Value Type"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "number": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "passage_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passage Id"
+          },
+          "verified": {
+            "type": "boolean",
+            "title": "Verified"
+          },
+          "check": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FactCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "document_id",
+          "name",
+          "value_type",
+          "value",
+          "number",
+          "date",
+          "currency",
+          "quote",
+          "page",
+          "passage_id",
+          "verified",
+          "check"
+        ],
+        "title": "Fact",
+        "description": "A fact read from a document: a field's value as written, typed as a number, a date or an\namount with its currency where it is one, with the words it was read from and where they are.\n`verified` says the words were found in the text; `check` is a member's word on it."
+      },
+      "FactCheck": {
+        "properties": {
+          "checked_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked By"
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Checked At"
+          },
+          "corrected_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corrected From"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "checked_by",
+          "checked_at",
+          "corrected_from",
+          "value"
+        ],
+        "title": "FactCheck",
+        "description": "A member's check of a fact: who and when, the model's value when they corrected it, and\nwhat they said the document states."
+      },
+      "FactList": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Fact"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "next"
+        ],
+        "title": "FactList",
+        "description": "A page of facts, the oldest first."
+      },
+      "Finding": {
+        "properties": {
+          "document_id": {
+            "type": "integer",
+            "title": "Document Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "differs",
+              "missing",
+              "holds"
+            ],
+            "title": "Outcome"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "holds",
+              "differs",
+              "currency",
+              "no_value",
+              "no_key",
+              "no_partner",
+              "no_partner_value",
+              "no_item",
+              "untyped"
+            ],
+            "title": "Reason"
+          },
+          "left": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Fact"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "right": {
+            "items": {
+              "$ref": "#/components/schemas/Fact"
+            },
+            "type": "array",
+            "title": "Right"
+          },
+          "partners": {
+            "items": {
+              "$ref": "#/components/schemas/Partner"
+            },
+            "type": "array",
+            "title": "Partners"
+          },
+          "difference": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difference"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "title",
+          "filename",
+          "outcome",
+          "reason",
+          "left",
+          "right",
+          "partners",
+          "difference"
+        ],
+        "title": "Finding",
+        "description": "What a rule of a run found for a value of a document: whether it differs, is missing or\nholds, and why; the fact checked and those it was compared with, as they were read when the\nrun was made; the documents paired with it; and the checked value less the other (or their\nsum), in days for dates."
+      },
+      "FindingCounts": {
+        "properties": {
+          "differs": {
+            "type": "integer",
+            "title": "Differs"
+          },
+          "missing": {
+            "type": "integer",
+            "title": "Missing"
+          },
+          "holds": {
+            "type": "integer",
+            "title": "Holds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "differs",
+          "missing",
+          "holds"
+        ],
+        "title": "FindingCounts"
+      },
+      "FindingList": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "total",
+          "next"
+        ],
+        "title": "FindingList",
+        "description": "A page of what one rule of a run found, differing first, then missing, then holding, and\nhow many of the outcome asked for (or of all) it found."
+      },
+      "Folder": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "project_id": {
+            "type": "integer",
+            "title": "Project Id"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "document_count": {
+            "type": "integer",
+            "title": "Document Count"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "parent_id",
+          "name",
+          "path",
+          "document_count",
+          "created_at"
+        ],
+        "title": "Folder",
+        "description": "A folder of a project's library, with its path from the root and how many documents it\nholds itself, not counting its folders'."
+      },
+      "FolderChange": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          }
+        },
+        "type": "object",
+        "title": "FolderChange",
+        "description": "A folder renamed, moved or both; a field left out stays as it is, and a `parent_id` of\nnull moves it to the root."
+      },
+      "FolderList": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Folder"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "next"
+        ],
+        "title": "FolderList",
+        "description": "A project's folders, the oldest first; a tree is built from `parent_id`."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "Message": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "chat_id": {
+            "type": "integer",
+            "title": "Chat Id"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "streaming",
+              "done",
+              "stopped",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/Source"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "chat_id",
+          "role",
+          "content",
+          "status",
+          "sources",
+          "notice",
+          "error",
+          "created_at"
+        ],
+        "title": "Message",
+        "description": "A question, or the agent's answer. While an answer's `status` is `streaming` it is being\nwritten and `content` is what was written so far; it ends `done`, `stopped` or `failed`,\n`error` saying why. `notice` is what the answer adds about itself, such as that it stopped."
+      },
+      "MessageList": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "next"
+        ],
+        "title": "MessageList",
+        "description": "A page of a chat's questions and answers, the oldest first."
+      },
+      "NewCheckRun": {
+        "properties": {
+          "check_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array",
+                "maxItems": 100,
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Check Ids"
+          },
+          "report": {
+            "type": "boolean",
+            "title": "Report",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "NewCheckRun",
+        "description": "A run of the project's cross-checks, those named or all of them, and whether the agent\nwrites a discrepancy report once they are worked out, which counts as a question."
+      },
+      "NewFolder": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "NewFolder",
+        "description": "A folder to make, at the project's root or in another of its folders."
+      },
+      "NewProject": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Description",
+            "default": ""
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "organization",
+              "private"
+            ],
+            "title": "Visibility",
+            "default": "organization"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "NewProject",
+        "description": "A project to make: one the organisation sees, or one private to the key's member, and the\norganisation's owners and admins, until they choose others in the app."
+      },
+      "Partner": {
+        "properties": {
+          "document_id": {
+            "type": "integer",
+            "title": "Document Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "title"
+        ],
+        "title": "Partner"
+      },
+      "Passage": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "document_id": {
+            "type": "integer",
+            "title": "Document Id"
+          },
+          "document_title": {
+            "type": "string",
+            "title": "Document Title"
+          },
+          "context": {
+            "type": "string",
+            "title": "Context"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "page_start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Start"
+          },
+          "page_end": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "document_id",
+          "document_title",
+          "context",
+          "text",
+          "page_start",
+          "page_end"
+        ],
+        "title": "Passage",
+        "description": "A passage of a document, as an answer cites it ([P<id>]): the section it is in, its text\nand its pages."
+      },
+      "PlanError": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "limit": {
+            "type": "string",
+            "enum": [
+              "projects",
+              "documents",
+              "storage_bytes",
+              "pages_per_month",
+              "questions_per_month",
+              "members",
+              "daily_spend_micros",
+              "api_access",
+              "connectors"
+            ],
+            "title": "Limit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail",
+          "limit"
+        ],
+        "title": "PlanError",
+        "description": "A refusal by the organisation's plan, with the figure it is held to."
+      },
+      "Project": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "organization",
+              "private"
+            ],
+            "title": "Visibility"
+          },
+          "sample": {
+            "type": "boolean",
+            "title": "Sample"
+          },
+          "document_count": {
+            "type": "integer",
+            "title": "Document Count"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "visibility",
+          "sample",
+          "document_count",
+          "created_at"
+        ],
+        "title": "Project",
+        "description": "A project: its documents are searched and asked about together. The sample project a new\norganisation starts with takes no uploads."
+      },
+      "ProjectChange": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          }
+        },
+        "type": "object",
+        "title": "ProjectChange",
+        "description": "A project renamed or described anew; a field left out stays as it is."
+      },
+      "ProjectList": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Project"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "next"
+        ],
+        "title": "ProjectList",
+        "description": "The projects the key's member sees, the newest first."
+      },
+      "Question": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "Question"
+      },
+      "RejectedFile": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "projects",
+                  "documents",
+                  "storage_bytes",
+                  "pages_per_month",
+                  "questions_per_month",
+                  "members",
+                  "daily_spend_micros",
+                  "api_access",
+                  "connectors"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "duplicate_of": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicate Of"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "filename",
+          "reason",
+          "limit",
+          "duplicate_of"
+        ],
+        "title": "RejectedFile",
+        "description": "A file of an upload that was not kept, by its place among the files sent (from 0) and its\nname, and why: a sentence, the figure of the plan when it was the plan, and the document that\nholds the same bytes when the project holds them already, which is no failure."
+      },
+      "Rule": {
+        "properties": {
+          "rule": {
+            "type": "integer",
+            "title": "Rule"
+          },
+          "check_id": {
+            "type": "integer",
+            "title": "Check Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem"
+          },
+          "counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FindingCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "rule",
+          "check_id",
+          "title",
+          "problem",
+          "counts"
+        ],
+        "title": "Rule",
+        "description": "A rule of a run as it was when the run was made, by its place in the run (`rule` of its\nfindings), the cross-check's id and name, and once the run is worked out why it could not be\nor what it found."
+      },
+      "SearchHit": {
+        "properties": {
+          "passage_id": {
+            "type": "integer",
+            "title": "Passage Id"
+          },
+          "document_id": {
+            "type": "integer",
+            "title": "Document Id"
+          },
+          "document_title": {
+            "type": "string",
+            "title": "Document Title"
+          },
+          "doc_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doc Type"
+          },
+          "context": {
+            "type": "string",
+            "title": "Context"
+          },
+          "snippet": {
+            "type": "string",
+            "title": "Snippet"
+          },
+          "page_start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Start"
+          },
+          "page_end": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page End"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          }
+        },
+        "type": "object",
+        "required": [
+          "passage_id",
+          "document_id",
+          "document_title",
+          "doc_type",
+          "context",
+          "snippet",
+          "page_start",
+          "page_end",
+          "score"
+        ],
+        "title": "SearchHit",
+        "description": "A passage that matched, with the words around the match, and how well it matched."
+      },
+      "SearchResults": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SearchHit"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "semantic": {
+            "type": "boolean",
+            "title": "Semantic"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "semantic"
+        ],
+        "title": "SearchResults",
+        "description": "The passages that match best, the best first; `semantic` is false while search matches\nkeywords alone."
+      },
+      "Service": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "available",
+          "error"
+        ],
+        "title": "Service",
+        "description": "Whether a part of the service can be used just now, and if not, what cannot be done."
+      },
+      "Source": {
+        "properties": {
+          "passage_id": {
+            "type": "integer",
+            "title": "Passage Id"
+          },
+          "document_id": {
+            "type": "integer",
+            "title": "Document Id"
+          },
+          "document_title": {
+            "type": "string",
+            "title": "Document Title"
+          },
+          "page_start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Start"
+          },
+          "page_end": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page End"
+          },
+          "excerpt": {
+            "type": "string",
+            "title": "Excerpt"
+          }
+        },
+        "type": "object",
+        "required": [
+          "passage_id",
+          "document_id",
+          "document_title",
+          "page_start",
+          "page_end",
+          "excerpt"
+        ],
+        "title": "Source",
+        "description": "A passage the agent was shown, which its answer cites as [P<passage_id>]."
+      },
+      "Status": {
+        "properties": {
+          "models": {
+            "$ref": "#/components/schemas/Service"
+          },
+          "search": {
+            "$ref": "#/components/schemas/Service"
+          },
+          "workers": {
+            "$ref": "#/components/schemas/Service"
+          },
+          "uploads": {
+            "$ref": "#/components/schemas/UploadLimits"
+          }
+        },
+        "type": "object",
+        "required": [
+          "models",
+          "search",
+          "workers",
+          "uploads"
+        ],
+        "title": "Status",
+        "description": "What the deployment can do just now: answer questions and read summaries and facts\n(`models`), search by meaning as well as by keywords (`search`), and index uploads and write\nanswers at all (`workers`); and what one upload may carry."
+      },
+      "Upload": {
+        "properties": {
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/Document"
+            },
+            "type": "array",
+            "title": "Documents"
+          },
+          "rejected": {
+            "items": {
+              "$ref": "#/components/schemas/RejectedFile"
+            },
+            "type": "array",
+            "title": "Rejected"
+          }
+        },
+        "type": "object",
+        "required": [
+          "documents",
+          "rejected"
+        ],
+        "title": "Upload",
+        "description": "The documents an upload kept, in the order their files were sent, and the files it did\nnot. Each document is indexed in the background: follow it by its id."
+      },
+      "UploadLimits": {
+        "properties": {
+          "files": {
+            "type": "integer",
+            "title": "Files"
+          },
+          "request_bytes": {
+            "type": "integer",
+            "title": "Request Bytes"
+          },
+          "file_bytes": {
+            "type": "integer",
+            "title": "File Bytes"
+          },
+          "extensions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Extensions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "files",
+          "request_bytes",
+          "file_bytes",
+          "extensions"
+        ],
+        "title": "UploadLimits",
+        "description": "What one upload may carry: how many files, how many bytes together and each, and the file\ntypes the app reads, by their extensions."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

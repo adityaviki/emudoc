@@ -34,9 +34,9 @@ export function describeKey(key: ApiKey): string {
 /** Whether the member may roll the key: only the one it acts as, since whoever holds the new secret acts as them. */
 export const mayRoll = (key: ApiKey, me: Me) => key.user_id === me.id
 
-/** How a program calls the API with the key, from this deployment's address: the projects it may read. */
+/** How a program calls the versioned API with the key, from this deployment's address: the projects it may read. */
 export function callWith(key: string, origin: string): string {
-  return `curl -H "Authorization: Bearer ${key}" ${origin}/api/projects`
+  return `curl -H "Authorization: Bearer ${key}" ${origin}/api/v1/projects`
 }
 
 /** Where the app serves the upload client, which sends a folder into a project, or each file a scanner saves, with a key that writes. */

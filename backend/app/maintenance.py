@@ -116,6 +116,8 @@ from app.entitlements import (
 )
 from app.export import EXPORT_DAYS, EXPORT_KEPT, prune_exports
 from app.flags import FLAGS, choose, chosen, flag_on, rollouts
+from app.idempotency import KEPT as IDEMPOTENCY_KEPT
+from app.idempotency import prune_idempotency_keys
 from app.inbound import NO_DOMAIN, Received, prune_inbound, receive
 from app.jobs import (
     ANSWER_QUESTION,
@@ -532,6 +534,7 @@ def housekeeping(storage: Storage) -> None:
         prune_workers(connection)
         events = prune_events(connection)
         minutes = prune_rate_limits(connection)
+        answers_kept = prune_idempotency_keys(connection)
         chats = prune_chats(connection)
         runs = prune_runs(connection)
         drafts = prune_drafts(connection)
@@ -618,6 +621,12 @@ def housekeeping(storage: Storage) -> None:
         )
     if minutes:
         log.info("Housekeeping: removed the request counts of %s minutes long past", minutes)
+    if answers_kept:
+        log.info(
+            "Housekeeping: forgot %s idempotency keys claimed more than %s hours ago",
+            answers_kept,
+            int(IDEMPOTENCY_KEPT.total_seconds() // 3600),
+        )
     if pruned:
         log.info("Housekeeping: removed %s finished jobs older than %s days", pruned, HISTORY.days)
     if events:

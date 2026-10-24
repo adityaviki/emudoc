@@ -5,6 +5,7 @@ the tree, nor its name among its siblings', until it is restored."""
 from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import Subquery
 
 from app.api.deps import (
     AccountDep,
@@ -22,23 +23,14 @@ from app.trash import trash_folder
 
 router = APIRouter(tags=["folders"])
 
-__all__ = ["folder_paths", "resolve_folder", "router", "subtree_ids"]
+__all__ = ["documents_held", "folder_paths", "resolve_folder", "router", "subtree_ids"]
 
 
 @router.get("/projects/{project_id}/folders", response_model=list[FolderOut])
 def list_folders(project: ProjectDep, session: SessionDep):
     """Every folder of the project, flat, with how many documents each holds itself; the
     client builds the tree from parent_id."""
-    held = (
-        select(Document.folder_id, func.count().label("documents"))
-        .where(
-            Document.project_id == project.id,
-            Document.folder_id.is_not(None),
-            Document.deleted_at.is_(None),
-        )
-        .group_by(Document.folder_id)
-        .subquery()
-    )
+    held = documents_held(project.id)
     rows = session.execute(
         select(Folder, held.c.documents)
         .outerjoin(held, held.c.folder_id == Folder.id)
@@ -75,6 +67,21 @@ def update_folder(folder: EditableFolderDep, body: FolderPatch, session: Session
     folder.name = name
     session.commit()
     return _out(folder, held_by(session, folder))
+
+
+def documents_held(project_id: int) -> Subquery:
+    """How many live documents each folder of the project holds itself, by `folder_id`, as
+    `documents`; a folder that holds none is not in it."""
+    return (
+        select(Document.folder_id, func.count().label("documents"))
+        .where(
+            Document.project_id == project_id,
+            Document.folder_id.is_not(None),
+            Document.deleted_at.is_(None),
+        )
+        .group_by(Document.folder_id)
+        .subquery()
+    )
 
 
 def held_by(session: Session, folder: Folder) -> int:
