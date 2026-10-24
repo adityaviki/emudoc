@@ -738,12 +738,30 @@ class SourceOut(BaseModel):
 MessageStatus = Literal["streaming", "done", "stopped", "failed"]
 
 
+class OfferedDocumentOut(BaseModel):
+    id: int
+    title: str
+
+
+class DraftOfferOut(BaseModel):
+    """The draft an answer offers the member (`create_draft`, app/agent/tools.py), written into
+    the project's drafts once they press it, which they may once."""
+
+    kind: "DraftKind"
+    instructions: str
+    documents: list[OfferedDocumentOut]
+    written: bool
+    # The draft written from it, until that is deleted.
+    draft_id: int | None
+
+
 class ChatMessageOut(_FromORM):
     id: int
     role: Literal["user", "assistant"]
     content: str
     steps: list[ChatStep]
     sources: list[SourceOut]
+    draft: DraftOfferOut | None
     notice: str | None
     error: str | None
     status: MessageStatus

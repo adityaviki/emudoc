@@ -252,7 +252,7 @@ def test_an_answer_lost_on_every_attempt_is_given_up(client, session, services, 
 def test_a_crash_in_the_run_fails_the_answer_and_the_job(
     client, session, services, indexed, monkeypatch
 ):
-    def broken(*args):
+    def broken(*args, **options):
         raise RuntimeError("the loop itself broke")
 
     monkeypatch.setattr(answers_module, "run_agent", broken)
@@ -265,7 +265,7 @@ def test_a_crash_in_the_run_fails_the_answer_and_the_job(
     assert final.status == "failed" and final.error == FAILED
 
     # The lease guards the settling too: a run whose job was taken over settles nothing.
-    def nothing(*args):
+    def nothing(*args, **options):
         yield from ()
 
     monkeypatch.setattr(answers_module, "run_agent", nothing)

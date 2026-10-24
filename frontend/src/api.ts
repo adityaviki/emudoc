@@ -845,12 +845,27 @@ export interface ChatStep {
  */
 export type MessageStatus = 'streaming' | 'done' | 'stopped' | 'failed'
 
+/** What a draft an answer offers is about (`create_draft`, backend/app/agent/tools.py). */
+export interface DraftAsked {
+  kind: DraftKind
+  instructions: string
+  documents: { id: number; title: string }[]
+}
+
+/** The draft an answer offers, written into the project's drafts once its member presses it, which they may once. */
+export interface DraftOffer extends DraftAsked {
+  written: boolean
+  /** The draft written from it, until that is deleted. */
+  draft_id: number | null
+}
+
 export interface ChatMessage {
   id: number
   role: 'user' | 'assistant'
   content: string
   steps: ChatStep[]
   sources: Source[]
+  draft: DraftOffer | null
   notice: string | null
   error: string | null
   status: MessageStatus
@@ -887,6 +902,7 @@ export type ChatEvent =
   | { type: 'tool_call'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; id: string; summary: string; is_error: boolean }
   | { type: 'sources'; sources: Source[] }
+  | ({ type: 'draft' } & DraftAsked)
   | { type: 'notice'; message: string }
   | { type: 'error'; message: string }
   | { type: 'done'; usage: Usage }
@@ -2126,6 +2142,9 @@ export const api = {
   /** Write the chat's last answer again in its place, once it was stopped or failed. */
   retryAnswer: (chatId: number, messageId: number) =>
     request<RetryResult>(`/chats/${chatId}/messages/${messageId}/retry`, { method: 'POST' }),
+  /** Have the draft an answer offers written into the project's drafts; pressed again, the draft written from it. */
+  writeOfferedDraft: (chatId: number, messageId: number) =>
+    request<Draft>(`/chats/${chatId}/messages/${messageId}/draft`, { method: 'POST' }),
 }
 
 export const fileUrl = (documentId: number) => `/api/documents/${documentId}/file`

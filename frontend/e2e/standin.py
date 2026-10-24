@@ -15,6 +15,10 @@ the passages. It answers as a model would that does the least the app asks:
   streamed as the app streams every turn;
 - an agent turn after a search answers with the first sentence of the best passage, cited by
   its [P...] reference;
+- an agent turn offered `create_draft`, for a question that begins "Draft ", offers after its
+  search a draft of the kind the question names (a reply email unless it says dispute, memo,
+  table or report) about the best passage's document, the question its instructions, then says
+  that it is offered;
 - an embedding is the text's words hashed into EMBEDDING_DIM dimensions, so a passage and a
   question that share words are near each other.
 
@@ -58,6 +62,15 @@ HELD_FOR = 60.0
 WORD = re.compile(r"\w+")
 CITED = re.compile(r"^(\[P\d+\]) .*\n(.+)", re.MULTILINE)
 SENTENCE = re.compile(r"(.+?[.!?])(\s|$)")
+# The document of a search's best passage, and the kind of draft a question's word asks for.
+HIT = re.compile(r"^\[P\d+\] doc (\d+)", re.MULTILINE)
+DRAFT_WORDS = (
+    ("dispute", "dispute_letter"),
+    ("memo", "summary_memo"),
+    ("table", "comparison_table"),
+    ("report", "report"),
+)
+OFFERED = "The member is offered a"
 
 # What --fill reads in an indexing request (app/indexing/enrich.py writes them): a section's
 # marker, a block's line, and a block that states a field.
@@ -245,14 +258,23 @@ def text_of(content: Any) -> str:
     return ""
 
 
-def agent_turn(messages: list[dict[str, Any]]) -> dict[str, Any]:
-    """What the model does next: a search for the question, or the answer from its results."""
+def agent_turn(messages: list[dict[str, Any]], tools: list[str]) -> dict[str, Any]:
+    """What the model does next: a search for the question, a draft offered from its results
+    when the question asks for one and the tool is offered, or the answer from them."""
     results = [text_of(m.get("content")) for m in messages if m.get("role") == "tool"]
+    question = next(
+        text_of(m.get("content")) for m in reversed(messages) if m.get("role") == "user"
+    )
     if not results:
-        question = next(
-            text_of(m.get("content")) for m in reversed(messages) if m.get("role") == "user"
-        )
         return {"tool": "search", "arguments": {"query": question}}
+    if "create_draft" in tools and question.startswith("Draft "):
+        if results[-1].startswith(OFFERED):
+            return {"text": "It is offered below as a draft for the project's drafts."}
+        if hit := HIT.search(results[-1]):
+            asked = question.lower()
+            kind = next((kind for word, kind in DRAFT_WORDS if word in asked), "reply_email")
+            arguments = {"kind": kind, "instructions": question, "document_ids": [int(hit[1])]}
+            return {"tool": "create_draft", "arguments": arguments}
     found = CITED.search(results[-1])
     if not found:
         return {"text": "The documents do not say."}
@@ -358,7 +380,8 @@ class Handler(BaseHTTPRequestHandler):
                 Handler.released.wait(HELD_FOR)
                 with Handler.hold_lock:
                     Handler.waiting -= 1
-            reply = agent_turn(body.get("messages", []))
+            offered = [tool.get("function", {}).get("name") for tool in body["tools"]]
+            reply = agent_turn(body.get("messages", []), offered)
             time.sleep(self.first_token)
         else:
             reply = {"text": "OK."}

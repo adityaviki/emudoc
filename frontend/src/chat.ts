@@ -10,7 +10,7 @@ import { onlineManager } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
 import { useSyncExternalStore } from 'react'
 import { ApiError, api, isPlanLimit, streamEvents } from './api.ts'
-import type { AskResult, Chat, ChatDetail, ChatEvent, ChatMessage, MessageStatus, PlanRefusal, Source, Usage } from './api.ts'
+import type { AskResult, Chat, ChatDetail, ChatEvent, ChatMessage, Draft, DraftOffer, MessageStatus, PlanRefusal, Source, Usage } from './api.ts'
 
 export interface Step {
   id: string
@@ -28,6 +28,8 @@ export interface Message {
   content: string
   steps: Step[]
   sources: Record<number, Source>
+  // The draft the answer offers, and once pressed the one written from it.
+  draft?: DraftOffer | null
   status: MessageStatus
   thinking?: boolean
   notice?: string | null
@@ -98,6 +100,7 @@ function empty(message: Message): Message {
     content: '',
     steps: [],
     sources: {},
+    draft: null,
     status: 'streaming',
     thinking: true,
     notice: null,
@@ -138,6 +141,11 @@ export function applyEvent(message: Message, event: ChatEvent): Message {
       return {
         ...message,
         sources: { ...message.sources, ...Object.fromEntries(event.sources.map((s) => [s.id, s])) },
+      }
+    case 'draft':
+      return {
+        ...message,
+        draft: { kind: event.kind, instructions: event.instructions, documents: event.documents, written: false, draft_id: null },
       }
     case 'notice':
       return { ...message, notice: event.message }
@@ -444,4 +452,16 @@ export async function retry(queryClient: QueryClient, chatId: number) {
     return
   }
   await run(queryClient, chatId, following, answer.id, update, after)
+}
+
+/**
+ * Have the draft the answer offers written into the project's drafts, and keep in the chat that it was, with the draft
+ * written from it; pressed again, the server answers that draft.
+ */
+export async function writeOffered(queryClient: QueryClient, chatId: number, messageId: number): Promise<Draft> {
+  const draft = await api.writeOfferedDraft(chatId, messageId)
+  editor(queryClient, chatId).byId(messageId)((message) =>
+    message.draft ? { ...message, draft: { ...message.draft, written: true, draft_id: draft.id } } : message,
+  )
+  return draft
 }

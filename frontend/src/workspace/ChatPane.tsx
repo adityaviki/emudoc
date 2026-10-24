@@ -8,6 +8,7 @@ import {
   ListTree,
   Lock,
   MessagesSquare,
+  PenLine,
   Pencil,
   Plus,
   RotateCcw,
@@ -20,9 +21,9 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import type { KeyboardEvent } from 'react'
+import type { KeyboardEvent, ReactNode } from 'react'
 import { api, organizations, pageLabel, sectionPath, sourceLabel } from '../api.ts'
-import type { Chat, Source } from '../api.ts'
+import type { Chat, DraftKind, Source } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { ask, chatKey, isStreaming, loadChat, mayRetry, resume, retry, splitChats, stop, useStreaming } from '../chat.ts'
 import type { ChatData, Message, Step } from '../chat.ts'
@@ -38,7 +39,9 @@ import { inviteNudgeOf, mayInvite } from '../onboarding.ts'
 import type { InviteNudge } from '../onboarding.ts'
 import { askHeld } from '../status.ts'
 import { trashKey } from '../trash.ts'
+import { KIND_LABELS } from '../drafts.ts'
 import { describeAnswerUsage } from '../usage.ts'
+import { OfferedDraft } from './Drafts.tsx'
 import { InviteTeam } from './InviteTeam.tsx'
 import { useWorkspace } from './state.ts'
 
@@ -485,6 +488,11 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
                 onReconnect={message.lost ? () => reconnect(message) : undefined}
                 onRetry={message === retried && chatId != null ? () => retry(queryClient, chatId) : undefined}
                 retryHeld={!online || unavailable}
+                offer={
+                  message.draft && message.id != null && chatId != null && message.status !== 'streaming' ? (
+                    <OfferedDraft chatId={chatId} messageId={message.id} offer={message.draft} own={!starter} />
+                  ) : null
+                }
               />
             ),
           )}
@@ -586,9 +594,11 @@ interface AnswerProps {
   onRetry?: () => void
   // Offline or without a model the answer cannot be tried again just now.
   retryHeld?: boolean
+  // The draft the answer offers, once it is written.
+  offer?: ReactNode
 }
 
-function Answer({ message, currency, onOpen, onReconnect, onRetry, retryHeld }: AnswerProps) {
+function Answer({ message, currency, onOpen, onReconnect, onRetry, retryHeld, offer }: AnswerProps) {
   // Number the cited passages in the order the answer first mentions them.
   const cited = [...new Set([...message.content.matchAll(/\[P(\d+)\]/g)].map((match) => Number(match[1])))]
     .filter((id) => message.sources[id])
@@ -643,6 +653,7 @@ function Answer({ message, currency, onOpen, onReconnect, onRetry, retryHeld }: 
           }
         />
       )}
+      {offer}
       {message.notice && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <p className="text-sm text-muted">{message.notice}</p>
@@ -754,6 +765,7 @@ const STEP_ICONS: Record<string, LucideIcon> = {
   search: Search,
   query_facts: Table2,
   read: BookOpen,
+  create_draft: PenLine,
 }
 
 function describeStep({ name, input }: Step): string {
@@ -775,6 +787,8 @@ function describeStep({ name, input }: Step): string {
       if (input.section_id != null) return 'Read a section'
       if (input.passage_id != null) return 'Read around a passage'
       return input.page_from != null ? `Read from page ${input.page_from}` : 'Read a document'
+    case 'create_draft':
+      return `Offered a draft: ${KIND_LABELS[input.kind as DraftKind] ?? 'a draft'}`
     default:
       return name
   }

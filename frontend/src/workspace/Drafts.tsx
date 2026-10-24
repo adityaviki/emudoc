@@ -2,8 +2,9 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { ArrowLeft, Download, FileCode, FileText, FileType, LayoutTemplate, ListChecks, PenLine, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { ApiError, api, mayChange } from '../api.ts'
-import type { Document, DraftFormat, DraftKind, DraftVersion, Source } from '../api.ts'
+import type { Document, DraftFormat, DraftKind, DraftOffer, DraftVersion, Source } from '../api.ts'
 import { useMe } from '../auth.ts'
+import { writeOffered } from '../chat.ts'
 import { Confirm } from '../components/Confirm.tsx'
 import { Floating, Menu } from '../components/Menu.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
@@ -23,6 +24,7 @@ import {
   draftStatusWords,
   draftVersionKey,
   draftsKey,
+  offerWords,
   versionWords,
   writing,
 } from '../drafts.ts'
@@ -586,19 +588,28 @@ function WriteAgain({
   )
 }
 
+/** Open the draft in the library's place, whose view takes the focus to its heading from the button that opened it. */
+function useOpenDraft() {
+  const workspace = useWorkspace()
+  return (draftId: number) => {
+    // The button stays where it is while the draft opens in the library's place: let go of the focus, which the
+    // draft's view then takes to its heading, so the keyboard goes on from there.
+    if (window.document.activeElement instanceof HTMLElement) window.document.activeElement.blur()
+    workspace.showDraft(draftId)
+  }
+}
+
 /** A disputed document's way to the letter that disputes it: a draft asked of the model about it, opened as it is written. */
 export function WriteDisputeLetter({ document }: { document: Document }) {
   const workspace = useWorkspace()
   const queryClient = useQueryClient()
+  const open = useOpenDraft()
   const ask = useMutation({
     mutationFn: () => api.askDraft(workspace.project.id, disputeLetter(document)),
     onSuccess: (draft) => {
       queryClient.setQueryData(draftKey(draft.id), draft)
       void queryClient.invalidateQueries({ queryKey: draftsKey(workspace.project.id) })
-      // The button stays beside the document while the draft opens in the library's place: let go of the focus, which
-      // the draft's view then takes to its heading, so the keyboard goes on from there.
-      if (window.document.activeElement instanceof HTMLElement) window.document.activeElement.blur()
-      workspace.showDraft(draft.id)
+      open(draft.id)
     },
   })
   return (
@@ -612,5 +623,57 @@ export function WriteDisputeLetter({ document }: { document: Document }) {
         </span>
       )}
     </>
+  )
+}
+
+/**
+ * The draft an answer offers, under it: what it is about and should say, written into the project's drafts at its
+ * member's press and opened there as it is written; once written, the way to it. A shared chat's reader is shown it,
+ * and the draft once there, but presses nothing, the chat being its starter's.
+ */
+export function OfferedDraft({ chatId, messageId, offer, own }: { chatId: number; messageId: number; offer: DraftOffer; own: boolean }) {
+  const workspace = useWorkspace()
+  const queryClient = useQueryClient()
+  const open = useOpenDraft()
+  const write = useMutation({
+    mutationFn: () => writeOffered(queryClient, chatId, messageId),
+    onSuccess: (draft) => {
+      queryClient.setQueryData(draftKey(draft.id), draft)
+      void queryClient.invalidateQueries({ queryKey: draftsKey(workspace.project.id) })
+      open(draft.id)
+    },
+  })
+  const name = offerWords(offer)
+  return (
+    <section aria-label={`Draft offered: ${name}`} className="space-y-2 rounded-lg border border-line bg-surface px-3.5 py-3 text-[13px] shadow-xs">
+      <p className="flex items-center gap-2 font-medium">
+        <PenLine className="size-3.5 shrink-0 text-accent" />
+        {name}
+      </p>
+      {offer.instructions && <p className="whitespace-pre-line text-muted">{offer.instructions}</p>}
+      <div className="flex flex-wrap items-center gap-2">
+        {offer.draft_id != null ? (
+          <Button icon={<FileText className="size-3.5" />} onClick={() => open(offer.draft_id!)}>
+            Open the draft
+          </Button>
+        ) : offer.written ? (
+          <p className="text-muted">The draft written from it was deleted.</p>
+        ) : (
+          own && (
+            <>
+              <Button variant="primary" icon={<PenLine className="size-3.5" />} disabled={write.isPending} onClick={() => write.mutate()}>
+                {write.isPending ? 'Asking…' : 'Write the draft'}
+              </Button>
+              <span className="text-xs text-muted">Into the project’s drafts, for everyone in it to edit.</span>
+            </>
+          )
+        )}
+        {write.isError && (
+          <span role="alert" className="text-bad">
+            {write.error.message}
+          </span>
+        )}
+      </div>
+    </section>
   )
 }

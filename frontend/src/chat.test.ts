@@ -1,6 +1,6 @@
 import { QueryClient, onlineManager } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { applyEvent, ask, chatKey, isStreaming, loadChat, mayRetry, resume, retry, settle, splitChats, stop } from './chat.ts'
+import { applyEvent, ask, chatKey, isStreaming, loadChat, mayRetry, resume, retry, settle, splitChats, stop, writeOffered } from './chat.ts'
 import type { ChatData, Message } from './chat.ts'
 import type { AskResult, ChatDetail, ChatEvent, ChatMessage, RetryResult, Source } from './api.ts'
 
@@ -16,7 +16,7 @@ const SOURCE: Source = {
 const USAGE = { model: 'google:gemini', calls: 2, input_tokens: 900, output_tokens: 40, cost_micros: 1200 }
 
 function saved(id: number, role: 'user' | 'assistant', content: string, status: ChatMessage['status'] = 'done'): ChatMessage {
-  return { id, role, content, steps: [], sources: [], notice: null, error: null, status, usage: {}, created_at: '2026-10-17T09:00:00Z' }
+  return { id, role, content, steps: [], sources: [], draft: null, notice: null, error: null, status, usage: {}, created_at: '2026-10-17T09:00:00Z' }
 }
 
 function chat(messages: ChatMessage[] = []): ChatDetail {
@@ -69,6 +69,18 @@ describe('applyEvent', () => {
       { type: 'restart' },
     ])
     expect(message).toMatchObject({ content: '', steps: [], sources: {}, notice: null, thinking: true })
+  })
+
+  it('keeps the draft the answer offers, which a run starting over drops', () => {
+    const offered = fold([{ type: 'draft', kind: 'dispute_letter', instructions: 'Ask for a credit note.', documents: [{ id: 4, title: 'INV-1.md' }] }])
+    expect(offered.draft).toEqual({
+      kind: 'dispute_letter',
+      instructions: 'Ask for a credit note.',
+      documents: [{ id: 4, title: 'INV-1.md' }],
+      written: false,
+      draft_id: null,
+    })
+    expect(fold([{ type: 'restart' }], offered).draft).toBeNull()
   })
 
   it('shows an error and a notice beside the text', () => {
@@ -543,5 +555,19 @@ describe('retry', () => {
     expect(messages()[0]).toMatchObject({ id: 10, content: 'Notice period?' })
     expect(messages()[1]).toMatchObject({ id: 11, content: 'Ninety days.', status: 'done', error: null })
     expect(calls[1]).toMatchObject({ method: 'POST', url: '/api/chats/1/messages', body: { content: 'Notice period?' } })
+  })
+})
+
+describe('writeOffered', () => {
+  const offer = { kind: 'report' as const, instructions: 'The delays.', documents: [], written: false, draft_id: null }
+
+  it('has the offered draft written, and keeps in the chat that it was, with its draft', async () => {
+    client.setQueryData(chatKey(1), loadChat(chat([saved(10, 'user', 'Write a report.'), { ...saved(11, 'assistant', 'Offered.'), draft: offer }])))
+    serve(json({ id: 7, kind: 'report' }, 201))
+    const draft = await writeOffered(client, 1, 11)
+    expect(draft.id).toBe(7)
+    expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual(['POST /api/chats/1/messages/11/draft'])
+    expect(messages()[1].draft).toEqual({ ...offer, written: true, draft_id: 7 })
+    expect(messages()[0].draft).toBeNull()
   })
 })

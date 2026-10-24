@@ -213,7 +213,7 @@ def events(chat: ChatDep, message_id: int, request: Request, session: SessionDep
     connections and wait for more at each look (the load test, deploying.md "Load"). It has
     only read, so the commit writes nothing.
     """
-    followed = _message_in(chat, message_id, session).id
+    followed = answer_in(chat, message_id, session).id
     session.commit()
     return StreamingResponse(
         _follow(followed, _last_seen(request), request.app.state.stop),
@@ -227,7 +227,7 @@ def stop(chat: OwnChatDep, message_id: int, session: SessionDep):
     """End the answer with what arrived so far. The row is settled here, not by the worker, so
     that a stop takes effect at once whether or not a worker is alive: the worker's next
     write finds the answer settled and ends its run (app/answers.py)."""
-    message = _message_in(chat, message_id, session)
+    message = answer_in(chat, message_id, session)
     # The lock orders this with the worker's appends: one in flight lands before the fold, and
     # the ones after it find the row settled.
     session.execute(select(ChatMessage.id).where(ChatMessage.id == message.id).with_for_update())
@@ -255,7 +255,7 @@ def retry(chat: OwnChatDep, message_id: int, session: SessionDep, account: Accou
     counts none; it is held to everything else that holds a question, the model's runs in
     flight and the day's spending, since each try is paid for.
     """
-    message = _message_in(chat, message_id, session)
+    message = answer_in(chat, message_id, session)
     # The lock orders this with a stop or a run settling the answer, and with the earlier try's
     # appends, so that no event of it lands after the seq this reads.
     session.execute(select(ChatMessage.id).where(ChatMessage.id == message.id).with_for_update())
@@ -301,7 +301,8 @@ def refuse_past_spending(session: Session, account: Account, what: str) -> None:
         raise PlanRefused(Refusal("daily_spend_micros", reason))
 
 
-def _message_in(chat: Chat, message_id: int, session: Session) -> ChatMessage:
+def answer_in(chat: Chat, message_id: int, session: Session) -> ChatMessage:
+    """The chat's answer with this id, or 404."""
     message = session.scalar(
         select(ChatMessage).where(ChatMessage.id == message_id, ChatMessage.chat_id == chat.id)
     )

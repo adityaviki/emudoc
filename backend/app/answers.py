@@ -23,6 +23,11 @@ streaming again, and a new job writes it, whose run finds the earlier try's even
 carries its try's: the run of an earlier try, still waiting on the model when the member tried
 again, or its job still queued, writes no event into the later try and settles nothing.
 
+An answer to a member who may have a draft written can offer one (`offers_drafts`; the agent's
+`create_draft`, app/agent/tools.py): the offer is an event like the rest and part of the row once
+it is settled, and the member's press has it written (app/api/drafts.py), never the run itself,
+so a run that starts over or is tried again writes no draft twice.
+
 Whatever ends a run, the model calls it made are recorded as the organisation's usage
 (app/usage.py) before it returns: the loop counts them as they are answered, and the run
 records the count at its end, after a stop or a lost lease as much as after the answer. The
@@ -46,11 +51,23 @@ from sqlalchemy.orm import Session
 
 from app.agent.loop import run_agent
 from app.db import BUSY, SessionLocal
+from app.entitlements import read_only
+from app.flags import DRAFTS, flag_on
 from app.indexing.pipeline import Services
 from app.jobs import ANSWER_QUESTION, LIVE, Lease, LeaseLost, enqueue, renew
 from app.logs import about
 from app.metrics import ANSWER_FIRST_TEXT, POOL_TIMEOUTS
-from app.models import Chat, ChatMessage, Draft, Job, Project, WorkflowRun
+from app.models import (
+    ROLES,
+    Chat,
+    ChatMessage,
+    Draft,
+    Job,
+    Membership,
+    Organization,
+    Project,
+    WorkflowRun,
+)
 from app.spending import check_platform_spend, check_spend
 from app.tracing import FIRST_TEXT, WRITE, mark, span
 from app.usage import ANSWER, CHAT_MESSAGE, ModelUsage, record
@@ -86,11 +103,16 @@ _APPEND = text(
 _SETTLE = text(
     """
     UPDATE chat_messages
-    SET content = :content, steps = :steps, sources = :sources, notice = :notice,
-        error = :error, status = :status
+    SET content = :content, steps = :steps, sources = :sources, draft_offer = :draft_offer,
+        notice = :notice, error = :error, status = :status
     WHERE id = :id AND status = 'streaming' AND attempt = :attempt
     """
-).bindparams(bindparam("steps", type_=JSONB), bindparam("sources", type_=JSONB))
+).bindparams(
+    bindparam("steps", type_=JSONB),
+    bindparam("sources", type_=JSONB),
+    # No offer is no value, not JSON's null.
+    bindparam("draft_offer", type_=JSONB(none_as_null=True)),
+)
 _EVENTS = text(
     "SELECT seq, event FROM chat_events WHERE message_id = :id AND seq > :after ORDER BY seq"
 )
@@ -112,6 +134,8 @@ class Reply:
     content: str = ""
     steps: list[dict[str, Any]] = field(default_factory=list)
     sources: dict[int, dict[str, Any]] = field(default_factory=dict)
+    # The draft the answer offers the member: its kind, instructions and documents.
+    draft: dict[str, Any] | None = None
     notice: str | None = None
     error: str | None = None
     # Length of `content` when the current model turn began, to discard a turn that is retried.
@@ -126,7 +150,7 @@ class Reply:
             case "restart":
                 # The run that wrote the events so far was lost; this one starts over.
                 self.content, self.steps, self.sources = "", [], {}
-                self.notice = self.error = None
+                self.draft = self.notice = self.error = None
                 self.turn_start = 0
             case "tool_call":
                 self.steps.append(
@@ -145,6 +169,8 @@ class Reply:
                         step.update(summary=event["summary"], is_error=event["is_error"])
             case "sources":
                 self.sources.update((source["id"], source) for source in event["sources"])
+            case "draft":
+                self.draft = {key: event[key] for key in ("kind", "instructions", "documents")}
             case "notice":
                 self.notice = event["message"]
             case "error":
@@ -156,6 +182,7 @@ class Reply:
             "content": self.content,
             "steps": self.steps,
             "sources": list(self.sources.values()),
+            "draft_offer": self.draft,
             "notice": self.notice,
             "error": self.error,
             "status": status,
@@ -186,7 +213,10 @@ def retry_answer(session: Session, chat: Chat, message: ChatMessage) -> int | No
     last = session.scalar(_NEXT_SEQ, {"id": message.id}) - 1
     for column, value in Reply().columns("streaming").items():
         setattr(message, column, value)
-    # The usage stays: it sums every run the organisation paid for, this one's to come.
+    # The usage stays: it sums every run the organisation paid for, this one's to come. A draft
+    # written from the earlier try's offer stays in the project's drafts, no longer this
+    # answer's.
+    message.draft_id = None
     message.attempt += 1
     _queue(session, session.get(Project, chat.project_id), message)
     return last if last >= 0 else None
@@ -202,6 +232,24 @@ def _queue(session: Session, project: Project, answer: ChatMessage) -> None:
         payload={"message_id": answer.id, "attempt": answer.attempt},
         priority=LIVE,
     )
+
+
+def offers_drafts(session: Session, organization: Organization, user_id: int) -> bool:
+    """Whether an answer to the member may offer a draft: drafts are on for the organisation, and
+    the member could have one written there now, as the route that writes it holds them to
+    (`get_editor` in app/api/deps.py): a role that changes what the organisation holds, in an
+    organisation that is neither set to be deleted nor past its plan. The route checks again
+    when the member presses the offer."""
+    if not flag_on(organization, DRAFTS):
+        return False
+    role = session.scalar(
+        select(Membership.role).where(
+            Membership.org_id == organization.id, Membership.user_id == user_id
+        )
+    )
+    if role is None or ROLES.index(role) > ROLES.index("member"):
+        return False
+    return organization.deletion_due_at is None and read_only(session, organization) is None
 
 
 def answers_in_flight(session: Session, org_id: int) -> int:
@@ -342,6 +390,7 @@ def answer(
         payer = {"org_id": project.org_id, "project_id": project_id, "user_id": chat.user_id}
         about(user_id=chat.user_id)
         over = check_platform_spend(session) or check_spend(session, project.organization)
+        drafting = offers_drafts(session, project.organization, chat.user_id)
         # Answers without text, such as failed ones, are left out of the conversation.
         history = [
             {"role": earlier.role, "content": earlier.content}
@@ -357,7 +406,7 @@ def answer(
         usage = ModelUsage()
         events: Generator[dict[str, Any]]
         if over is None:
-            events = run_agent(services, project_id, history, usage)
+            events = run_agent(services, project_id, history, usage, drafting=drafting)
         else:
             log.info("Answer %s was not run: %s", message_id, over)
             events = _only({"type": "error", "message": over})

@@ -3,7 +3,8 @@ documents, which the worker writes, then edits it into new versions or has it wr
 project's members read its drafts, newest first, and each one's versions, and download a version
 as a Word document, a PDF or its Markdown (app/draft_export.py). How the project's drafts of each
 kind read is its template (app/draft_templates.py): the built-in one, or the project's own in its
-place.
+place. A draft an answer offers (`create_draft`, app/agent/tools.py) is written by the member's
+press under it, as one asked for here.
 
 Every route is behind the flag `drafts` (app/flags.py). Whoever may change the project asks for a
 draft, saves a version and deletes one, and writes its templates, each a row of the
@@ -11,7 +12,7 @@ organisation's audit log naming the draft by its kind and id alone, never what i
 template by its kind and its parts' names; anyone who sees the project reads them, and downloads
 a draft, which the audit log keeps too. A writing is a run of the agent, so asking for one is held
 to what holds a question: the agent's runs in flight, the month's questions, of which it counts
-one, and the day's spending.
+one, and the day's spending; a draft an answer offered counts none, its question counted already.
 """
 
 from typing import Annotated, Any
@@ -21,6 +22,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.accounts import Account
+from app.api.chats import (
+    STILL_ANSWERING,
+    answer_in,
+    refuse_past_answers_in_flight,
+    refuse_past_spending,
+)
 from app.api.check_runs import count_question, refuse_agent_run
 from app.api.deps import (
     AccountDep,
@@ -28,6 +35,8 @@ from app.api.deps import (
     DraftDep,
     EditableDraftDep,
     EditableProjectDep,
+    EditorDep,
+    OwnChatDep,
     ProjectDep,
     SessionDep,
     flagged,
@@ -39,7 +48,7 @@ from app.draft_export import MEDIA_TYPES, ExportFormat, ExportRefused, draft_fil
 from app.draft_templates import Template, template_of, templates_for
 from app.drafts import WRITING, latest_number, queue_draft, save_version, start_draft
 from app.flags import DRAFTS
-from app.models import Document, Draft, DraftTemplate, DraftVersion, Project, User
+from app.models import ChatMessage, Document, Draft, DraftTemplate, DraftVersion, Project, User
 from app.ratelimit import EXPORTS, QUESTIONS
 from app.schemas import (
     DraftDocumentOut,
@@ -70,6 +79,11 @@ SAVED_MEANWHILE = (
 )
 NO_SUCH_VERSION = "This draft has no such version."
 NO_OWN_TEMPLATE = "This project has no template of its own for this kind: the built-in one applies."
+NO_OFFER = "This answer offers no draft. Ask for one in the chat, or on the project's drafts page."
+OFFER_GONE = (
+    "The draft written from this answer was deleted. Ask for a new one on the project's drafts "
+    "page."
+)
 
 # Drafts a page of the project's list.
 DRAFTS_SHOWN = 20
@@ -115,6 +129,71 @@ def ask_draft(
     )
     count_question(session, account, project.id, request)
     _audit(session, account, request, "draft_created", draft, documents=len(asked))
+    session.commit()
+    return _out(session, draft)
+
+
+@router.post(
+    "/chats/{chat_id}/messages/{message_id}/draft",
+    response_model=DraftOut,
+    status_code=201,
+    dependencies=[Depends(limited(QUESTIONS))],
+)
+def write_offered_draft(
+    chat: OwnChatDep,
+    message_id: int,
+    session: SessionDep,
+    account: EditorDep,
+    request: Request,
+    response: Response,
+):
+    """Have the draft the answer offers written, as one asked for on the drafts page: its kind,
+    its instructions and those of its documents still in the project. Its question was counted
+    when it was asked, so this counts none, held to the rest that holds a question, the agent's
+    runs in flight and the day's spending, since the writing is a run of the model of its own.
+    An offer is written once: pressed again, it answers the draft written from it."""
+    message = answer_in(chat, message_id, session)
+    # The lock orders this with a second press, and with a stop or the run settling the answer.
+    session.execute(select(ChatMessage.id).where(ChatMessage.id == message.id).with_for_update())
+    session.refresh(message)
+    if message.status == "streaming":
+        raise HTTPException(409, STILL_ANSWERING)
+    offer = message.draft_offer
+    if offer is None:
+        raise HTTPException(404, NO_OFFER)
+    if offer.get("written"):
+        if message.draft_id is None:
+            raise HTTPException(409, OFFER_GONE)
+        response.status_code = 200
+        return _out(session, session.get_one(Draft, message.draft_id))
+    what = f"The draft of answer {message.id}"
+    refuse_past_answers_in_flight(session, account, what)
+    refuse_past_spending(session, account, what)
+    asked = [named["id"] for named in offer["documents"]]
+    found = {
+        document.id: document
+        for document in session.scalars(
+            select(Document).where(
+                Document.id.in_(asked),
+                Document.project_id == chat.project_id,
+                Document.deleted_at.is_(None),
+            )
+        )
+    }
+    documents = [found[document_id] for document_id in asked if document_id in found]
+    draft = start_draft(
+        session,
+        session.get_one(Project, chat.project_id),
+        account.user.id,
+        offer["kind"],
+        offer["instructions"],
+        documents,
+    )
+    message.draft_offer = {**offer, "written": True}
+    message.draft_id = draft.id
+    _audit(
+        session, account, request, "draft_created", draft, documents=len(documents), chat=chat.id
+    )
     session.commit()
     return _out(session, draft)
 

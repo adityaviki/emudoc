@@ -243,6 +243,8 @@ class FakeLLM:
         self.agent_turns: list[FakeTurn] = []
         self.agent_requests: list[list] = []
         self.agent_prompts: list[str] = []
+        # The names of the tools each agent turn was offered.
+        self.agent_tools: list[list[str]] = []
         # The extraction template a request that lists them names, as the model would.
         self.template: str | None = None
         # Facts every reply that reads a document adds to those the fake finds itself.
@@ -351,6 +353,7 @@ class FakeLLM:
     def stream_agent(self, instructions, messages, tools):
         self.agent_requests.append(list(messages))
         self.agent_prompts.append(instructions)
+        self.agent_tools.append([tool.name for tool in tools])
         return self.agent_turns.pop(0)
 
 

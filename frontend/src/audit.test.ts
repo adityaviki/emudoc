@@ -136,6 +136,7 @@ describe('a row', () => {
     // A draft: its kind, what it was about counted, and how it changed, never what it says.
     expect(describeDetail(event('draft_created', { kind: 'dispute_letter', documents: 1 }))).toBe('Dispute letter, about 1 document')
     expect(describeDetail(event('draft_created', { kind: 'summary_memo', documents: 0 }))).toBe('Summary memo, about what the model finds')
+    expect(describeDetail(event('draft_created', { kind: 'reply_email', documents: 1, chat: 4 }))).toBe('Reply email, about 1 document, from a chat')
     expect(describeDetail(event('draft_changed', { kind: 'report', version: 3 }))).toBe('Report, saved as version 3')
     expect(describeDetail(event('draft_changed', { kind: 'report', rewritten: true }))).toBe('Report, written again by the model')
     expect(describeDetail(event('draft_deleted', { kind: 'reply_email' }))).toBe('Reply email')

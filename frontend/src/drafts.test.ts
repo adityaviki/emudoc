@@ -10,6 +10,7 @@ import {
   draftFileUrl,
   draftProblem,
   draftStatusWords,
+  offerWords,
   versionWords,
   writing,
 } from './drafts.ts'
@@ -72,6 +73,15 @@ describe('drafts', () => {
     })
     expect(draftDeletionQuestion({ ...draft, versions: 1 }).body).toContain('with its version.')
     expect(draftDeletionQuestion({ ...draft, versions: 0 }).body).toContain('with what was asked of it.')
+  })
+
+  it('names the draft an answer offers by its kind and documents', () => {
+    const offer = { kind: 'dispute_letter' as const, instructions: '', documents: [{ id: 4, title: 'INV-1.md' }] }
+    expect(offerWords(offer)).toBe('Dispute letter about INV-1.md')
+    expect(offerWords({ ...offer, documents: [...offer.documents, { id: 5, title: 'b' }, { id: 6, title: 'c' }] })).toBe(
+      'Dispute letter about INV-1.md and 2 more',
+    )
+    expect(offerWords({ ...offer, kind: 'report', documents: [] })).toBe('Report')
   })
 
   it('downloads a version as a Word document first, then a PDF and its Markdown', () => {

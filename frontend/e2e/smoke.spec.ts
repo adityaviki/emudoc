@@ -38,7 +38,8 @@ import { heldTurns, holdNextTurn, refuseEmbeddings, releaseTurns } from './stand
 // view, then disputed again from its tab, whose dispute letter the model drafts, citing where each
 // figure is written, edited into a second version, downloaded as its Markdown with its citation a
 // footnote, the first still read as it was, and the project's dispute letters given a template of
-// their own, which the new draft's form names, then the built-in one again. The answer
+// their own, which the new draft's form names, then the built-in one again, and last a reply email
+// asked for in the chat, which the answer offers as a draft and a press writes into the drafts. The answer
 // is the stand-in's (e2e/standin.py): the first sentence of the passage its search found best,
 // with that passage's reference. Along the way each kind of page, panel and dialog is checked
 // against axe-core's rules for WCAG 2.2 AA in both themes (e2e/axe.ts), and the keyboard's focus
@@ -1343,5 +1344,29 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('listitem').filter({ hasText: 'Made a draft template' })).toContainText('for dispute letters, 7 parts')
     await page.getByLabel('What').selectOption('draft_template_deleted')
     await expect(page.getByRole('listitem').filter({ hasText: 'Used a built-in draft template again' })).toContainText('for dispute letters')
+  })
+
+  await test.step('ask in the chat for a reply email, which the answer offers as a draft, and have it written into the drafts with a press', async () => {
+    await page.goto('/')
+    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
+    await expect(page).not.toHaveURL(/[?&]chat=/)
+    const composer = page.getByPlaceholder('Ask a question about these documents')
+    await composer.fill('Draft a reply email to the supplier about the invoice.')
+    await composer.press('Enter')
+    // The answer offers it, and nothing is written until the member presses it.
+    const offer = page.getByRole('region', { name: /^Draft offered: Reply email about / })
+    await expect(offer).toBeVisible({ timeout: 30_000 })
+    await expect(offer).toContainText('Draft a reply email to the supplier about the invoice.')
+    await expect(page.getByText('Offered a draft: Reply email')).toBeVisible()
+    await expectAccessible(page, 'a draft an answer offers')
+    await offer.getByRole('button', { name: 'Write the draft' }).click()
+
+    // Written into the project's drafts, where it opens with its heading focused; the offer then leads to it.
+    await expect(page.getByRole('heading', { name: /^Reply email: / })).toBeFocused()
+    await expect(page.getByRole('region', { name: 'Version 1' })).toContainText('Written by the model from the project’s documents', { timeout: 30_000 })
+    await expect(offer.getByRole('button', { name: 'Open the draft' })).toBeVisible()
+    await page.goto('/organization/audit')
+    await page.getByLabel('What').selectOption('draft_created')
+    await expect(page.getByRole('listitem').filter({ hasText: 'from a chat' })).toContainText('Reply email, about 1 document, from a chat')
   })
 })

@@ -17,6 +17,15 @@ newest entry first.
 
 Operators:
 
+- Drafts from the chat: asked in a chat for a reply email, a dispute letter, a memo, a table or a
+  report, the agent offers it under its answer as a draft of that kind about the documents it
+  found, with what it should say, and the member's "Write the draft" has it written into the
+  project's drafts and opens it there, counting no question beside the one asked. Nothing is
+  written before the press, so a document cannot make drafts, and only a member who could ask for
+  a draft on the drafts page is offered one. Behind the flag `drafts`, as the drafts are. New
+  columns `chat_messages.draft_offer` and `draft_id` (a migration), the answer's `draft` in the
+  chat's API, and a new route `POST /api/chats/{id}/messages/{id}/draft`, audited as
+  `draft_created` with the chat's id.
 - filelock 4.2.1, past six CVEs Audit found in 4.2.0 (only pip-audit uses it, in the backend's
   `audit` group, never the image). Brotli's CVE-2026-111497 in Caddy's and ClamAV's images is
   accepted in `deploy/.trivyignore.yaml` until 14 November: Alpine fixed it in 1.2.1, which

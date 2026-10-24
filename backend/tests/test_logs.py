@@ -450,7 +450,7 @@ def test_an_answers_lines_name_the_member_who_asked(client, services, account, m
     chat = new_chat(client, project["id"])
     asked = ask(client, chat["id"], SECRET)
 
-    def thinking(services_, project_id, messages, usage):
+    def thinking(services_, project_id, messages, usage, **options):
         logging.getLogger("app.agent.loop").info("Thinking")
         yield from ()
 

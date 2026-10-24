@@ -76,6 +76,8 @@ set to `off` on purpose.
 The agent answers with five tools: `list_documents` and `get_outline` read the map, `search`
 reads the passage index (keywords and meaning, merged), `query_facts` reads the fact table, and
 `read` returns exact source text. Answers cite passages, and each citation opens the source.
+Where drafts are on, a member who may change the project is offered a sixth, `create_draft`, by
+which an answer offers a draft (below).
 
 The facts are read for each document's kind, by extraction templates (`backend/app/extraction.py`;
 being rolled out, behind the flag `extraction_templates`, and read as before where it is off). A
@@ -215,7 +217,13 @@ The agent also writes drafts for the members to edit and send (`backend/app/draf
 /api/projects/{id}/drafts`): a reply email, a dispute letter, a summary memo, a comparison table or
 a report. The library's "Drafts" asks for one of a kind, saying what it should say, about the
 documents open beside the library or about what the agent finds; a disputed document's review
-offers "Write a dispute letter" about it. The background worker has the agent write it from what
+offers "Write a dispute letter" about it; and asked in a chat for something to send, the agent
+offers one under its answer (`create_draft` in `backend/app/agent/tools.py`), its kind, the
+documents it found and what it should say, which the member's "Write the draft" asks for (`POST
+/api/chats/{id}/messages/{id}/draft`), once, counting no question beside the one asked. Nothing is
+written before that press, so a document whose text tells the agent to make drafts makes none,
+and a viewer, or a member of an organisation set to be deleted or past its plan, is offered none.
+The background worker has the agent write it from what
 the code read for it: each document with its facts beside the passages they came from, and what
 the project's newest run of cross-checks found about them, which it states as found; it cites
 passages as an answer does, and reads around them with its tools. A draft keeps every version: the

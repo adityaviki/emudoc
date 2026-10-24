@@ -1756,6 +1756,12 @@ class ChatMessage(Base):
             "chat_id",
             postgresql_where=text("status = 'streaming'"),
         ),
+        # What deleting a draft looks up to forget it: the few answers it was written from.
+        Index(
+            "ix_chat_messages_draft",
+            "draft_id",
+            postgresql_where=text("draft_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -1781,11 +1787,29 @@ class ChatMessage(Base):
     # stopped or failed answer again. Its job carries the number, and a run of an earlier try,
     # still waiting on the model or queued, writes nothing into a later one (app/answers.py).
     attempt: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    # The draft the answer offers the member (`create_draft`, app/agent/tools.py): {kind,
+    # instructions, documents: [{id, title}]}, and `written` once the member had it written
+    # (app/api/drafts.py), which an offer is once; None for an answer that offers none.
+    draft_offer: Mapped[dict | None] = mapped_column(JSONB)
+    # The draft written from the offer, until it is deleted.
+    draft_id: Mapped[int | None] = mapped_column(ForeignKey("drafts.id", ondelete="SET NULL"))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 
     chat: Mapped[Chat] = relationship(back_populates="messages")
+
+    @property
+    def draft(self) -> dict | None:
+        """The offer as the members' pages show it: with whether it was written, and the draft
+        written from it while that is kept."""
+        if self.draft_offer is None:
+            return None
+        return {
+            **self.draft_offer,
+            "written": bool(self.draft_offer.get("written")),
+            "draft_id": self.draft_id,
+        }
 
 
 class ChatEvent(Base):

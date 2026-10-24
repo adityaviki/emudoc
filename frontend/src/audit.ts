@@ -346,6 +346,8 @@ function describeDraft(detail: AuditEvent['detail']): string {
   if (typeof detail.documents === 'number') {
     parts.push(detail.documents ? `about ${detail.documents} document${detail.documents === 1 ? '' : 's'}` : 'about what the model finds')
   }
+  // Offered by an answer, and written at its member's press.
+  if (typeof detail.chat === 'number') parts.push('from a chat')
   const file = DRAFT_FILES.find((option) => option.format === detail.format)
   if (typeof detail.version === 'number') parts.push(file ? `version ${detail.version} as ${file.words}` : `saved as version ${detail.version}`)
   if (detail.rewritten === true) parts.push('written again by the model')

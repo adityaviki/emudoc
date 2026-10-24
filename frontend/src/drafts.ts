@@ -1,8 +1,9 @@
 // Drafts as the drafts' views word them (backend/app/drafts.py, backend/app/api/drafts.py): the kinds the model
 // writes, a draft and its versions in a line, how far its writing is, whether the page should ask again, what a new
-// draft still needs, the files a version downloads as, and what the view asks before deleting one.
+// draft still needs, what an answer offers, the files a version downloads as, and what the view asks before deleting
+// one.
 
-import type { Document, DraftFormat, DraftInput, DraftKind, DraftSummary, DraftVersionSummary } from './api.ts'
+import type { Document, DraftAsked, DraftFormat, DraftInput, DraftKind, DraftSummary, DraftVersionSummary } from './api.ts'
 import type { Question } from './components/Confirm.tsx'
 import { formatDateTime } from './format.ts'
 
@@ -66,6 +67,13 @@ export function draftProblem(input: DraftInput): string | null {
 /** The dispute letter a disputed document's review asks for, about it alone. */
 export function disputeLetter(document: Pick<Document, 'id'>): DraftInput {
   return { kind: 'dispute_letter', instructions: '', document_ids: [document.id] }
+}
+
+/** The draft an answer offers, in a line: "Dispute letter about invoice.md", "Report about a.pdf and 2 more". */
+export function offerWords(offer: DraftAsked): string {
+  const [first, ...more] = offer.documents.map((document) => document.title)
+  const about = first === undefined ? '' : ` about ${first}${more.length ? ` and ${more.length} more` : ''}`
+  return KIND_LABELS[offer.kind] + about
 }
 
 /** The files a version downloads as, in the order the menu offers them, and what each is for. */
