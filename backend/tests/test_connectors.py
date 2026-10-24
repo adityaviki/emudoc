@@ -5,6 +5,7 @@ the document of a file no longer there goes to the trash too, but only when the 
 whole. Google's API is a fake behind httpx's MockTransport, reached at CONNECTOR_BASE_URL."""
 
 import hashlib
+import json
 import re
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -17,7 +18,7 @@ from sqlalchemy import select, update
 from app.api.connectors import Handshake
 from app.billing import change_plan
 from app.config import get_settings
-from app.connectors import google, sync
+from app.connectors import dropbox, google, sync
 from app.connectors.base import CONNECT_COOKIE
 from app.connectors.sync import (
     FOLDER_GONE,
@@ -180,25 +181,170 @@ class FakeDrive:
         return httpx.Response(200, json={"files": files})
 
 
-@pytest.fixture
-def drive(monkeypatch, client):
-    """Google Drive set up, the flag on, and the fake answering both the API's client and the
-    worker's."""
+class FakeDropbox:
+    """Dropbox's consent, token endpoint and API over a tree of paths it keeps: each file and
+    folder has an id, a display path and, for a file, its bytes; each change moves its cursor on.
+    What it answers instead is set by route in `failing`."""
+
+    def __init__(self):
+        self.entries: dict[str, dict] = {}
+        self.content: dict[str, bytes] = {}
+        self.changes = 0
+        self.next_id = 0
+        self.grants: dict[str, bool] = {}
+        self.revoked: list[str] = []
+        self.failing: dict[str, int] = {}
+        self.requests: list[httpx.Request] = []
+        self.transport = httpx.MockTransport(self._answer)
+
+    def folder(self, path: str) -> str:
+        return self._add(path, "folder", None)
+
+    def file(self, path: str, content: bytes, downloadable: bool = True) -> str:
+        ref = self._add(path, "file", content)
+        self.entries[ref]["is_downloadable"] = downloadable
+        if not downloadable:
+            self.entries[ref]["export_info"] = {
+                "export_as": "html",
+                "export_options": ["html", "markdown"],
+            }
+        return ref
+
+    def _add(self, path, tag, content) -> str:
+        self.next_id += 1
+        ref = f"id:{self.next_id}"
+        self.entries[ref] = {
+            ".tag": tag,
+            "id": ref,
+            "name": path.rsplit("/", 1)[-1],
+            "path_display": path,
+            "path_lower": path.lower(),
+        }
+        if content is not None:
+            self.content[ref] = content
+            self.entries[ref]["content_hash"] = hashlib.sha256(content).hexdigest()
+            self.entries[ref]["size"] = len(content)
+        self.changes += 1
+        return ref
+
+    def change(self, ref, content):
+        self.content[ref] = content
+        self.entries[ref]["content_hash"] = hashlib.sha256(content).hexdigest()
+        self.changes += 1
+
+    def remove(self, ref):
+        del self.entries[ref]
+        self.changes += 1
+
+    def _answer(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        path = request.url.path
+        if status := self.failing.get(path):
+            return httpx.Response(status, json={"error_summary": "too_many_requests/"})
+        if path == "/dropbox/api/oauth2/token":
+            form = parse_qs(request.content.decode())
+            if form["grant_type"] == ["authorization_code"]:
+                if form["code"] != ["the-code"]:
+                    return httpx.Response(400, json={"error": "invalid_grant"})
+                token = f"refresh-{len(self.grants) + 1}"
+                self.grants[token] = True
+                return httpx.Response(
+                    200,
+                    json={
+                        "access_token": "access-now",
+                        "refresh_token": token,
+                        "scope": " ".join(dropbox.SCOPES),
+                    },
+                )
+            if not self.grants.get(form["refresh_token"][0]):
+                return httpx.Response(400, json={"error": "invalid_grant"})
+            return httpx.Response(200, json={"access_token": "access-now", "expires_in": 14400})
+        assert request.headers["authorization"] == "Bearer access-now"
+        if path == "/dropbox/content/2/files/download":
+            argument = json.loads(request.headers["dropbox-api-arg"])
+            return httpx.Response(200, content=self.content[argument["path"]])
+        if path == "/dropbox/content/2/files/export":
+            argument = json.loads(request.headers["dropbox-api-arg"])
+            assert argument["export_format"] == "markdown"
+            return httpx.Response(200, content=self.content[argument["path"]])
+        body = json.loads(request.content or b"null")
+        route = path.removeprefix("/dropbox/api/2/")
+        if route == "auth/token/revoke":
+            self.revoked.append("access-now")
+            return httpx.Response(200, json=None)
+        if route == "users/get_current_account":
+            return httpx.Response(
+                200, json={"email": "ann@dropbox.example", "name": {"display_name": "Ann"}}
+            )
+        if route == "files/get_metadata":
+            entry = self.entries.get(body["path"])
+            if entry is None:
+                return httpx.Response(409, json={"error_summary": "path/not_found/.."})
+            return httpx.Response(200, json=entry)
+        if route == "files/list_folder":
+            under = "" if body["path"] == "" else self.entries[body["path"]]["path_lower"]
+            found = [
+                entry
+                for entry in self.entries.values()
+                if entry["path_lower"].startswith(f"{under}/")
+                and (body["recursive"] or "/" not in entry["path_lower"][len(under) + 1 :])
+            ]
+            return httpx.Response(
+                200, json={"entries": found, "cursor": str(self.changes), "has_more": False}
+            )
+        if route == "files/list_folder/continue":
+            changed = self.changes > int(body["cursor"])
+            return httpx.Response(
+                200,
+                json={
+                    "entries": [{}] if changed else [],
+                    "cursor": str(self.changes),
+                    "has_more": False,
+                },
+            )
+        raise AssertionError(path)
+
+
+def serving(monkeypatch, client, fake, **settings) -> None:
+    """The service set up by `settings`, the flag on, and the fake answering both the API's
+    client and the worker's."""
     turn_on(monkeypatch, CONNECTORS)
-    settings = get_settings()
-    monkeypatch.setattr(settings, "google_drive_client_id", "drive-client")
-    monkeypatch.setattr(settings, "google_drive_client_secret", "drive-secret")
-    monkeypatch.setattr(settings, "connector_base_url", BASE)
-    fake = FakeDrive()
+    for name, value in {**settings, "connector_base_url": BASE}.items():
+        monkeypatch.setattr(get_settings(), name, value)
     client.app.state.http = httpx.Client(transport=fake.transport)
     monkeypatch.setattr(sync, "http_client", lambda: httpx.Client(transport=fake.transport))
+
+
+@pytest.fixture
+def drive(monkeypatch, client):
+    fake = FakeDrive()
+    serving(
+        monkeypatch,
+        client,
+        fake,
+        google_drive_client_id="drive-client",
+        google_drive_client_secret="drive-secret",
+    )
     return fake
 
 
-def connected(client, drive: FakeDrive, project_id: int) -> dict:
-    """Connect Google Drive to the project as the page does, through the consent; the
+@pytest.fixture
+def box(monkeypatch, client):
+    fake = FakeDropbox()
+    serving(
+        monkeypatch,
+        client,
+        fake,
+        dropbox_app_key="dropbox-key",
+        dropbox_app_secret="dropbox-secret",
+    )
+    return fake
+
+
+def connected(client, fake, project_id: int, provider: str = "google") -> dict:
+    """Connect the service to the project as the page does, through the consent; the
     connector made, its folder not chosen yet."""
-    started = client.post(f"/api/projects/{project_id}/connectors", json={"provider": "google"})
+    started = client.post(f"/api/projects/{project_id}/connectors", json={"provider": provider})
     assert started.status_code == 200, started.text
     state = parse_qs(urlsplit(started.json()["url"]).query)["state"][0]
     back = client.get(
@@ -208,8 +354,7 @@ def connected(client, drive: FakeDrive, project_id: int) -> dict:
     )
     assert back.status_code == 302
     assert back.headers["location"] == f"/projects/{project_id}?connectors="
-    [connector] = listed(client, project_id)["connectors"]
-    return connector
+    return listed(client, project_id)["connectors"][-1]
 
 
 def listed(client, project_id: int) -> dict:
@@ -218,8 +363,8 @@ def listed(client, project_id: int) -> dict:
     return found.json()
 
 
-def chosen(client, drive, project_id, ref, target=None) -> dict:
-    connector = connected(client, drive, project_id)
+def chosen(client, fake, project_id, ref, target=None, provider="google") -> dict:
+    connector = connected(client, fake, project_id, provider)
     answer = client.put(
         f"/api/projects/{project_id}/connectors/{connector['id']}",
         json={"folder_ref": ref, "target_folder_id": target},
@@ -699,3 +844,77 @@ def test_the_handshake_cookie_round_trips():
     handshake = Handshake("google", "s", "v", 1, 2, 3)
     assert Handshake.decode(handshake.encode()) == handshake
     assert Handshake.decode("not base64!") is None
+
+
+def test_a_dropbox_folder_is_read_in_one_listing_and_asked_after_from_its_cursor(
+    client, session, services, box, sample_pdf, tmp_path
+):
+    project = create_project(client)
+    invoices = box.folder("/Invoices")
+    july = box.folder("/Invoices/July")
+    box.file("/Invoices/July/inv-7.pdf", sample_pdf.read_bytes())
+    notes = box.file("/Invoices/Notes.md", b"# Notes\n\nCall the supplier.")
+    box.file("/Invoices/Plan.paper", b"# Plan\n\nOrder in May.", downloadable=False)
+    box.file("/Elsewhere.md", b"# Not in the folder")
+
+    started = client.post(f"/api/projects/{project['id']}/connectors", json={"provider": "dropbox"})
+    params = parse_qs(urlsplit(started.json()["url"]).query)
+    assert (urlsplit(started.json()["url"]).path, params["token_access_type"]) == (
+        "/dropbox/oauth2/authorize",
+        ["offline"],
+    )
+    # Dropbox asks for the scopes its app names.
+    assert "scope" not in params
+    connector = connected(client, box, project["id"], "dropbox")
+    assert (connector["label"], connector["account"]) == ("Dropbox", "ann@dropbox.example")
+    base = f"/api/projects/{project['id']}/connectors/{connector['id']}/folders"
+    assert [f["name"] for f in client.get(base).json()["folders"]] == ["Dropbox"]
+    assert [f["ref"] for f in client.get(base, params={"parent": "root"}).json()["folders"]] == [
+        invoices
+    ]
+    assert [f["ref"] for f in client.get(base, params={"parent": invoices}).json()["folders"]] == [
+        july
+    ]
+    chose = client.put(
+        f"/api/projects/{project['id']}/connectors/{connector['id']}",
+        json={"folder_ref": invoices, "target_folder_id": None},
+    )
+    assert chose.status_code == 200, chose.text
+    assert chose.json()["folder"] == "Invoices"
+    synced(services)
+    # A Paper document is exported as Markdown; the July folder is made for its file.
+    assert library(session, project["id"]) == ["inv-7.pdf", "Notes.md", "Plan.md"]
+    paths = {row.path for row in session.scalars(select(ConnectorFile))}
+    assert paths == {"July/inv-7.pdf", "Notes.md", "Plan.md"}
+
+    box.requests.clear()
+    due(session)
+    queue_due_syncs()
+    synced(services)
+    assert [r.url.path for r in box.requests][-1] == "/dropbox/api/2/files/list_folder/continue"
+
+    box.change(notes, b"# Notes\n\nCall the supplier on Monday.")
+    due(session)
+    queue_due_syncs()
+    synced(services)
+    assert library(session, project["id"]) == ["inv-7.pdf", "Notes.md", "Plan.md"]
+    assert library(session, project["id"], trashed=True) == ["Notes.md"]
+
+
+def test_a_dropbox_folder_gone_and_a_grant_taken_back_say_so(client, session, services, box):
+    project = create_project(client)
+    invoices = box.folder("/Invoices")
+    box.file("/Invoices/Notes.md", b"# Notes")
+    connector = chosen(client, box, project["id"], invoices, provider="dropbox")
+    synced(services)
+    box.remove(invoices)
+    due(session)
+    queue_due_syncs()
+    synced(services)
+    assert the_connector(session).problem == FOLDER_GONE.format(label="Dropbox")
+    assert library(session, project["id"]) == ["Notes.md"]
+
+    # Disconnecting gives the grant back through an access token of it.
+    base = f"/api/projects/{project['id']}/connectors/{connector['id']}"
+    assert client.delete(base).status_code == 204
+    assert box.revoked == ["access-now"]

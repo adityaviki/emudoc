@@ -459,6 +459,7 @@ def test_production_reads_connected_folders_from_the_services_themselves(deploym
             {"google_drive_client_id": "drive.apps.googleusercontent.com"},
             "GOOGLE_DRIVE_CLIENT_ID is set without GOOGLE_DRIVE_CLIENT_SECRET",
         ),
+        ({"dropbox_app_key": "dropbox-key"}, "DROPBOX_APP_KEY is set without DROPBOX_APP_SECRET"),
     ):
         with pytest.raises(SystemExit) as stop:
             load_settings(**deployment, **change)

@@ -681,6 +681,8 @@ class Settings(BaseSettings):
     # without a client id is not offered.
     google_drive_client_id: str = ""
     google_drive_client_secret: str = ""
+    dropbox_app_key: str = ""
+    dropbox_app_secret: str = ""
     # Where the services are reached in place of their own addresses, each under its name
     # ({CONNECTOR_BASE_URL}/google/…): the browser test's stand-in. Production refuses it.
     connector_base_url: str = ""
@@ -703,6 +705,7 @@ class Settings(BaseSettings):
         "agent_fallback_model",
         "index_fallback_model",
         "google_drive_client_id",
+        "dropbox_app_key",
         "connector_base_url",
         mode="before",
     )
@@ -784,6 +787,7 @@ class Settings(BaseSettings):
         "resend_api_key",
         "resend_webhook_secret",
         "google_drive_client_secret",
+        "dropbox_app_secret",
         mode="before",
     )
     @classmethod
@@ -1180,13 +1184,17 @@ class Settings(BaseSettings):
         if self.connector_base_url:
             problems.append(
                 "CONNECTOR_BASE_URL is set, so the connected folders would be read from it rather "
-                "than from Google Drive itself: it is the browser test's stand-in; remove it."
+                "than from the services themselves: it is the browser test's stand-in; remove it."
             )
-        if self.google_drive_client_id and not self.google_drive_client_secret:
-            problems.append(
-                "GOOGLE_DRIVE_CLIENT_ID is set without GOOGLE_DRIVE_CLIENT_SECRET, so no member "
-                "could connect a folder of their Google Drive; set the client's secret too."
-            )
+        for client, secret, service in (
+            ("GOOGLE_DRIVE_CLIENT_ID", "GOOGLE_DRIVE_CLIENT_SECRET", "Google Drive"),
+            ("DROPBOX_APP_KEY", "DROPBOX_APP_SECRET", "Dropbox"),
+        ):
+            if getattr(self, client.lower()) and not getattr(self, secret.lower()):
+                problems.append(
+                    f"{client} is set without {secret}, so no member could connect a folder of "
+                    f"their {service}; set the client's secret too."
+                )
         if self.inbound_domain and not self.receives_through:
             problems.append(
                 "INBOUND_DOMAIN is set, but no provider hands its mail to the app: set "

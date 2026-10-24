@@ -1651,41 +1651,41 @@ it ("On AWS").
 
 ## Connected folders
 
-A project may keep in step with a folder of a member's Google Drive (`backend/app/connectors/`;
+A project may keep in step with a folder of a member's Google Drive or Dropbox
+(`backend/app/connectors/`;
 behind the flag `connectors`, "The operator's area", on the plans that include connected
 folders, Team and Enterprise, and none on the sample project). In the library's "Connected
-folders", a member who may change the project connects Google Drive: the browser goes to Google
-for their consent to read their files and comes back with a code, which the app redeems for a
+folders", a member who may change the project connects a service: the browser goes to it for
+their consent to read their files and comes back with a code, which the app redeems for a
 refresh token, kept encrypted with `ENCRYPTION_KEYS` ("The encryption keys"); the member then
-browses their own folders (My Drive, the shared drives, what was shared with them) and chooses
-one, once, and where its files go in the project. A project holds at most 10 connected folders;
-another folder of the same Drive is another connector.
+browses their own folders there and chooses one, once, and where its files go in the project.
+A project holds at most 10 connected folders; another folder of the same account is another
+connector.
 
 The worker syncs each every 15 minutes (`SYNC_INTERVAL`), and at a member's "Sync now": its
 heartbeat queues a `sync_connector` job for each connector whose time has come, at the bulk
-priority, so that uploads and answers go first. A sync asks Google whether anything changed
-since the last listing (its change log, one request when nothing did), and otherwise reads the
-folder whole, a request per folder below it, and compares it with what the last sync found: a
+priority, so that uploads and answers go first. A sync asks the service whether anything
+changed since the last listing (Google's change log, Dropbox's cursor: one request when nothing
+did), and otherwise reads the folder whole and compares it with what the last sync found: a
 file not seen before, or whose version changed (its checksum; a Google document's last change),
 is downloaded and taken in through the checks an upload's files go through (its type, its size,
 bytes the project holds already, the plan), into the folders of its path below the target; the
 earlier document of a changed file goes to the project's trash once the new one is kept, and so
-does the document of a file no longer below the folder. Google's own documents are exported, a
-Doc as a Word document, a Sheet as an Excel workbook, Slides and Drawings as PDFs (Google exports
-at most 10 MB); forms, sites and the like cannot be, and are listed as left out. A file is read
+does the document of a file no longer below the folder. What has no bytes of its own is
+exported where the service can (below), and listed as left out where it cannot. A file is read
 once per version: one the project keeps, rejects or a member deleted is not read again until it
 changes. A sync takes at most 100 files (`ROUND_FILES`) and queues the next at once while more
 wait; a folder of more than 5,000 files below it (`MAX_FILES`) syncs nothing. Nothing goes to
-the trash unless the folder was read whole: a Google that stops answering, a folder deleted or
+the trash unless the folder was read whole: a service that stops answering, a folder deleted or
 no longer shared, leaves every document as it is and the connector says why. The documents a
 sync keeps are one upload, its member's, told of as their uploads are, which the project's
-automations see arrive; their audit rows say they came from Google Drive, and the documents a
+automations see arrive; their audit rows say which service they came from, and the documents a
 sync puts in the trash are rows of their own.
 
-A connector pauses, and its member connects it again, when Google no longer takes the grant (the
-member took the access back, or it lapsed), or when the member no longer may change the project;
+A connector pauses, and its member connects it again, when the service no longer takes the grant
+(the member took the access back, or it lapsed), or when the member no longer may change the project;
 it goes, its grant with it, when they leave the organisation or their account is deleted, and
-when a member disconnects it, which gives the grant back to Google. Its documents stay in the
+when a member disconnects it, which gives the grant back to the service. Its documents stay in the
 library either way. A plan without connected folders, a project in the trash, or an organisation
 read-only or set to be deleted holds its syncs back, which the page says. A connector whose
 folder was never chosen is forgotten after a day. The log names a connector by its id, never a
@@ -1693,8 +1693,16 @@ file or a folder; `emudoc_connector_syncs_total` and `emudoc_connector_files_tot
 syncs and the files they read ("Metrics"), and a sync that raised is among the failed jobs,
 named "the connected folder <id>".
 
-Google Drive needs an OAuth client of its own, not sign-in's, since its consent asks to read
-the member's files: in the Google Cloud console, enable the Google Drive API in the client's
+Each service needs an OAuth client of its own, registered with the one redirect URI
+`{APP_URL}/api/connectors/callback`, and is on the subprocessor list as what the folders are read
+from, receiving nothing of the projects'.
+
+**Google Drive.** Browsing starts at My Drive, the shared drives and what was shared with the
+member; a folder is read a request per folder below it, in its shared drive's own corpus where it
+is in one. Google's own documents are exported, a Doc as a Word document, a Sheet as an Excel
+workbook, Slides and Drawings as PDFs (Google exports at most 10 MB); forms, sites and the like
+cannot be. Its client is not sign-in's, since its consent asks to read the member's files: in the
+Google Cloud console, enable the Google Drive API in the client's
 project, add the scope `https://www.googleapis.com/auth/drive.readonly` to its consent screen,
 and make a "Web application" client with the redirect URI `{APP_URL}/api/connectors/callback`,
 whose id and secret are `GOOGLE_DRIVE_CLIENT_ID` and `GOOGLE_DRIVE_CLIENT_SECRET`; without an id
@@ -1703,8 +1711,19 @@ nothing is offered. `drive.readonly` is a restricted scope: until Google has ver
 every year), only the test users listed on the consent screen may connect, at most a hundred,
 and while the app is in testing, Google's grants lapse after seven days, so the connectors pause
 weekly. `drive.file` with Google's Picker would need less verifying, but it reads only files
-picked one by one, and the Picker is Google's script on the app's page. Google Drive is then on
-the subprocessor list as what the folders are read from; it receives nothing of the projects'.
+picked one by one, and the Picker is Google's script on the app's page.
+
+**Dropbox.** Browsing starts at the member's Dropbox; a folder is read in one listing with its
+subfolders, whose cursor is what the next sync asks from, and named by its id, so that it stays
+connected as it moves. A Paper document is exported as Markdown; a file Dropbox will not let be
+downloaded (a Google document kept there) cannot be read. In Dropbox's App Console, make a
+"Scoped access" app with "Full Dropbox" access, give it the permissions
+`files.metadata.read`, `files.content.read` and `account_info.read` (the consent asks for what
+the app has), and add the redirect URI; its App key and App secret are `DROPBOX_APP_KEY` and
+`DROPBOX_APP_SECRET`. An app in development may be linked by at most 500 accounts, and once 50
+are linked Dropbox gives two weeks to apply for production status before it stops linking more:
+apply from the app's page in the console before then.
+
 `CONNECTOR_BASE_URL` points the connectors at the browser test's stand-in instead, which
 production refuses.
 
@@ -4438,6 +4457,7 @@ and the like), named on its models' pages.
 | `MICROSOFT_OAUTH_CLIENT_ID`, `MICROSOFT_OAUTH_CLIENT_SECRET` | none | the client secret is a secret | Sign-in with Microsoft |
 | `MICROSOFT_OAUTH_TENANT` | `common` | | Whose Microsoft accounts may sign in |
 | `GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET` | none | the client secret is a secret | Folders of Google Drive connected to projects ("Connected folders") |
+| `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET` | none | the app secret is a secret | Folders of Dropbox connected to projects ("Connected folders") |
 | `CONNECTOR_BASE_URL` | none | refused | Where the connected folders' services are reached in their place: the browser test's stand-in |
 
 ### Billing

@@ -12,6 +12,7 @@ services do alike, each of the others one service.
 
 from app.config import Settings
 from app.connectors.base import Provider
+from app.connectors.dropbox import Dropbox
 from app.connectors.google import GoogleDrive
 
 # Every service's name in the members' words, the ones a deployment has no client for among
@@ -27,4 +28,6 @@ def providers(settings: Settings) -> dict[str, Provider]:
         found["google"] = GoogleDrive(
             settings.google_drive_client_id, settings.google_drive_client_secret, base
         )
+    if settings.dropbox_app_key:
+        found["dropbox"] = Dropbox(settings.dropbox_app_key, settings.dropbox_app_secret, base)
     return found

@@ -17,6 +17,12 @@ newest entry first.
 
 Operators:
 
+- Connected folders from Dropbox too, where `DROPBOX_APP_KEY` and `DROPBOX_APP_SECRET` name a
+  scoped app with `files.metadata.read`, `files.content.read` and `account_info.read` and the
+  redirect URI `{APP_URL}/api/connectors/callback`: a folder is read in one listing with its
+  subfolders, its cursor what the next sync asks from, and named by its id, so it stays connected
+  as it moves; a Paper document is exported as Markdown. Disconnecting one gives its grant back.
+  The subprocessor list and the privacy policy name Dropbox where it is set up.
 - Connected folders, behind a flag of their own, `connectors`, rolled out to none, on the plans
   that include them (Team and Enterprise): the library's "Connected folders" connects a member's
   Google Drive through Google's consent, the grant kept encrypted with `ENCRYPTION_KEYS`, and the
