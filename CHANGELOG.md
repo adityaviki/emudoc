@@ -17,6 +17,11 @@ newest entry first.
 
 Operators:
 
+- filelock 4.2.1, past six CVEs Audit found in 4.2.0 (only pip-audit uses it, in the backend's
+  `audit` group, never the image). Brotli's CVE-2026-111497 in Caddy's and ClamAV's images is
+  accepted in `deploy/.trivyignore.yaml` until 14 November: Alpine fixed it in 1.2.1, which
+  neither image has been rebuilt with since; in Caddy's only curl links the library, which
+  nothing runs, and in ClamAV's only freshclam's downloads from ClamAV's own mirror reach it.
 - Draft templates: the drafts' "Templates" lists how the project's drafts of each kind read, a
   built-in template for each kind, which whoever may change the project customises into the
   project's own, its tone, its parts in order, which of them every draft has and what else every

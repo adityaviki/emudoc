@@ -3,8 +3,10 @@
 # deploy/aws/compose.yml), that was looked at and
 # accepted until their projects release the fix (Audit, "Images beside the app"). Only those
 # projects can fix them, so each entry names the file in the image it was found in (`paths`, as
-# trivy prints the target: a binary has no leading slash), which keeps it from accepting the
-# same finding in another image; says why it can wait (`statement`); and stops applying at
+# trivy prints the target: a binary has no leading slash), or for an OS package, which has no
+# path, the package and its version (`purls`, without the distribution's qualifiers), which keeps
+# it from accepting the same finding in another image; says why it can wait (`statement`); and
+# stops applying at
 # `expired_at`, after which the morning run fails again: take the release Dependabot proposes,
 # or look again and move the date. An entry whose finding has gone is removed.
 
@@ -98,3 +100,22 @@ vulnerabilities:
       would read alert summaries, which name the environment and no member's data, or drop them;
       the heartbeat it drops with them sets off CloudWatch's `silent` alarm, which pages without
       Alertmanager.
+
+  # Alpine's brotli 1.2.1-r0 fixed this in its decoder, and Caddy's and ClamAV's images were last
+  # rebuilt (21 and 19 October) with 1.2.0. An OS package has no path in trivy's report, so each
+  # is named by its package and version (`purls`), which no other image beside the app holds.
+  - id: CVE-2026-111497
+    purls: [pkg:apk/alpine/brotli-libs@1.2.0-r0]
+    expired_at: 2026-11-14
+    statement: >-
+      In Caddy's image only curl links the library, and nothing in the deployment runs curl
+      there: Caddy is a Go binary of its own, which decodes no brotli.
+
+  - id: CVE-2026-111497
+    purls: [pkg:apk/alpine/brotli-libs@1.2.0-r1]
+    expired_at: 2026-11-14
+    statement: >-
+      In ClamAV's image libcurl links the library for freshclam, which downloads the signatures
+      from database.clamav.net over HTTPS checked against the image's certificates, and for
+      clamsubmit, which nothing runs. A crafted response could reach the decoder only from
+      ClamAV's own mirror, which already supplies what the scanner runs.
