@@ -108,9 +108,9 @@ describe('a row', () => {
     expect(describeDetail(event('template_deleted', { name: 'Supplier invoice', doc_type: 'invoice' }))).toBe('Supplier invoice · for invoice documents')
     // A facts table downloaded: its kind, the file and how it was kept, never a condition's value or the words.
     expect(describeDetail(event('facts_exported', { kind: 'invoice', format: 'csv' }))).toBe('invoice facts as a CSV file')
-    const asked = { kind: 'invoice', format: 'xlsx', sort: 'total_amount', order: 'desc', conditions: ['total_amount:min', 'vendor_name:contains', 'total_amount:max'], words: true, review: true }
+    const asked = { kind: 'invoice', format: 'xlsx', sort: 'total_amount', order: 'desc', conditions: ['total_amount:min', 'vendor_name:contains', 'total_amount:max'], words: true, unchecked: true }
     expect(describeDetail(event('facts_exported', asked))).toBe(
-      'invoice facts as an Excel workbook, sorted by total amount, descending, kept by total amount and vendor name, rows holding the words looked for, those to review',
+      'invoice facts as an Excel workbook, sorted by total amount, descending, kept by total amount and vendor name, rows holding the words looked for, those with unchecked facts',
     )
     // A cross-check made or changed: the kinds and fields it compares and what changed, never a value.
     const rule = { name: 'Prices', left: 'invoice.unit_price', right: 'price list.unit_price', comparison: 'equal' }
@@ -167,6 +167,20 @@ describe('a row', () => {
     expect(describeDetail(event('api_key_rolled', { name: 'Sync' }))).toBe('Sync')
     const through = { filename: 'msa.pdf', api_key: { id: 3, name: 'Sync' } }
     expect(describeDetail(event('document_uploaded', through))).toBe('msa.pdf · with the API key Sync')
+  })
+
+  it("words a document's review by its states and whom it is assigned to, by the members' names", () => {
+    const names = new Map([[9, 'Bob']])
+    const moved = (from: string | null, to: string | null) =>
+      describeDetail(event('document_review_changed', { filename: 'inv-1.pdf', from, to }), names)
+    expect(moved(null, 'to_review')).toBe('inv-1.pdf · not in review → To review')
+    expect(moved('to_review', 'approved')).toBe('inv-1.pdf · To review → Approved')
+    expect(moved('disputed', null)).toBe('inv-1.pdf · Disputed → not in review')
+    const assigned = (from: number | null, to: number | null) =>
+      describeDetail(event('document_assigned', { filename: 'inv-1.pdf', from, to }), names)
+    expect(assigned(null, 9)).toBe('inv-1.pdf · to Bob')
+    expect(assigned(9, 12)).toBe('inv-1.pdf · to a former member')
+    expect(assigned(9, null)).toBe('inv-1.pdf · assigned to nobody, was Bob')
   })
 
   it('words a setting by what it is', () => {

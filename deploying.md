@@ -1409,7 +1409,9 @@ What the app mails, and to whom:
   everyone who sees the project, or nobody), once the run it made after documents arrived is
   worked out and its report written or failed, what its cross-checks found about them, in counts
   and file names, never a value a document states, and nothing when they found nothing about them
-  (`tell_run` in `backend/app/check_runs.py`); and to an organisation's owners and admins, once a month
+  (`tell_run` in `backend/app/check_runs.py`); to the member another assigned a document's review,
+  who did and which file, in the change's transaction (`tell_assigned` in
+  `backend/app/reviews.py`); and to an organisation's owners and admins, once a month
   for each, when its pages or questions for the month reach 80 % of what it may use (its plan's
   and the packs bought for the month), when they reach all of it, and for pages when what is
   left could not take a document. A pack bought afterwards starts the count again. Each notice

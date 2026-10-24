@@ -230,6 +230,34 @@ export interface Document {
   template: string | null
   usage: Partial<Record<UsageKind, Usage>>
   created_at: string
+  /** Its review (backend/app/reviews.py), null for none: the member it is assigned to, by id and name as it is now, and who moved it to its state and when, null for an automation or an account gone. */
+  review: ReviewState | null
+  assignee_id: number | null
+  assignee: string | null
+  review_changer: string | null
+  review_changed_at: string | null
+}
+
+/** Where a document stands in its review: `REVIEW_STATES` in backend/app/models.py. */
+export type ReviewState = 'to_review' | 'approved' | 'disputed'
+
+/** A change to a document's review; a field left out stays as it is. A null state takes it out of review and drops its assignee; an assignee given to a document in no review puts it in review. */
+export interface ReviewInput {
+  state?: ReviewState | null
+  assignee_id?: number | null
+}
+
+/** A member a project's documents may be assigned to. */
+export interface Reviewer {
+  id: number
+  name: string
+}
+
+/** A page of a project's documents in review of one state, and how many there are of each. */
+export interface ReviewsPage {
+  documents: Document[]
+  counts: Record<ReviewState, number>
+  next_after: string | null
 }
 
 /** A page of the documents directly in one folder, in the library's order (by name). */
@@ -375,6 +403,10 @@ export interface FactRow {
   cells: Record<string, Fact[]>
   /** The checks of a field no fact reads any more, by the field's name: made before the document was read again, which read it differently. */
   earlier: Record<string, FactCheck[]>
+  /** The document's review, null for none, and the member it is assigned to, by id and name. */
+  review: ReviewState | null
+  assignee_id: number | null
+  assignee: string | null
 }
 
 /** A page of a kind's facts table (FactTableOut): the template whose fields are its columns, its rows, how many rows its conditions keep and how many of those hold a fact nobody checked, and where its next page starts. */
@@ -382,7 +414,7 @@ export interface FactTable {
   template: ExtractionTemplate
   rows: FactRow[]
   total: number
-  to_review: number
+  unchecked: number
   next_after: string | null
 }
 
@@ -1061,7 +1093,7 @@ export interface Member {
 }
 
 /** The kinds of notice (NOTICE_KINDS in backend/app/models.py, backend/app/notices.py). */
-export type NoticeKind = 'upload_indexed' | 'quota' | 'project_export' | 'checks_run'
+export type NoticeKind = 'upload_indexed' | 'quota' | 'project_export' | 'checks_run' | 'review_assigned'
 
 /** How one kind of notice is told: in the notification centre, by email, both or neither. */
 export interface NoticeChoice {
@@ -1267,6 +1299,8 @@ export type AuditAction =
   | 'document_purged'
   | 'document_quarantined'
   | 'document_requeued'
+  | 'document_review_changed'
+  | 'document_assigned'
   | 'chat_shared'
   | 'chat_unshared'
   | 'chat_deleted'
@@ -1876,6 +1910,17 @@ export const api = {
     request<Automation>(`/projects/${projectId}/automations`, json('POST', body)),
   updateAutomation: (id: number, body: AutomationInput) => request<Automation>(`/automations/${id}`, json('PUT', body)),
   deleteAutomation: (id: number) => request<void>(`/automations/${id}`, { method: 'DELETE' }),
+  /** A page of the project's documents in review of one state, those assigned to the asker alone with `mine`, past `after`. */
+  reviews: (projectId: number, state: ReviewState, mine: boolean, after: string | null = null) => {
+    const query = new URLSearchParams({ state })
+    if (mine) query.set('mine', 'true')
+    if (after) query.set('after', after)
+    return request<ReviewsPage>(`/projects/${projectId}/reviews?${query}`)
+  },
+  /** The members the project's documents may be assigned to, by name. */
+  reviewers: (projectId: number) => request<Reviewer[]>(`/projects/${projectId}/reviewers`),
+  /** Move a document's review, assign it, or both; the member assigned is told. */
+  review: (documentId: number, change: ReviewInput) => request<Document>(`/documents/${documentId}/review`, json('PUT', change)),
 
   folders: (projectId: number) => request<Folder[]>(`/projects/${projectId}/folders`),
   createFolder: (projectId: number, body: { name: string; parent_id: number | null }) =>

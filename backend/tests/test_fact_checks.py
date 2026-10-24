@@ -150,16 +150,16 @@ def test_a_value_is_written_as_its_field_s_type_takes_it(client, session, templa
     assert check(client, total["id"], "1234567.891")["value"] == "1,234,567.891"
 
 
-def test_the_rows_to_review_are_those_with_a_fact_nobody_checked(client, templates_on, three):
+def test_the_unchecked_rows_are_those_with_a_fact_nobody_checked(client, templates_on, three):
     shown = table(client, three)
-    assert (shown["total"], shown["to_review"]) == (3, 3)
+    assert (shown["total"], shown["unchecked"]) == (3, 3)
     for facts in row_of(shown, "globex.pdf")["cells"].values():
         for each in facts:
             check(client, each["id"])
-    shown = table(client, three, review="true")
+    shown = table(client, three, unchecked="true")
     assert names(shown) == ["acme-2.pdf", "acme-10.pdf"]
-    assert (shown["total"], shown["to_review"]) == (2, 2)
-    assert table(client, three)["to_review"] == 2
+    assert (shown["total"], shown["unchecked"]) == (2, 2)
+    assert table(client, three)["unchecked"] == 2
 
     # A field's own condition: one of its facts nobody checked.
     [first, second] = cell(table(client, three), "acme-10.pdf", "line_item")
@@ -256,7 +256,7 @@ def test_a_check_outlives_the_document_s_next_reading(
     assert (price["value"], price["check"]) == ("EUR 1,300.00", None)
     [earlier] = row_of(shown, "msa.pdf")["earlier"]["price"]
     assert (earlier["value"], earlier["corrected_from"]) == ("1,250.00 EUR", "EUR 1,200.00")
-    assert shown["to_review"] == 1
+    assert shown["unchecked"] == 1
 
     # And one that reads the member's own amount takes it again.
     services.llm.more_facts[0] = priced("EUR 1,250", 1250)

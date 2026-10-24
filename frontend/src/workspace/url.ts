@@ -7,7 +7,10 @@ import { useLocation, useNavigate } from 'react-router'
 /** What a document is opened at: a cited passage, a block of its text, or a page. */
 export type Focus = { passage: number } | { block: number } | { page: number }
 
-/** The folder the library shows, and the search running in it; or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, with `changes`, what their last readings changed, with `checks`, its cross-checks, with `check`, what that one finds, and with `run`, a run of them kept with what it found. */
+/** Whose documents in review the reviews view lists: every member's, or those assigned to the member. */
+export type Reviews = 'all' | 'mine'
+
+/** The folder the library shows, and the search running in it; or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, with `changes`, what their last readings changed, with `checks`, its cross-checks, with `check`, what that one finds, with `run`, a run of them kept with what it found, and with `reviews`, its documents in review. */
 export interface LibraryView {
   folderId: number | null
   q: string
@@ -18,6 +21,7 @@ export interface LibraryView {
   checks?: true
   check?: number
   run?: number
+  reviews?: Reviews
 }
 
 export interface OpenDocument {
@@ -53,6 +57,7 @@ export function parseWorkspaceUrl(pathname: string, search: string): WorkspaceUr
   else if (id(params.get('check')) != null) library.check = id(params.get('check')) ?? undefined
   else if (id(params.get('run')) != null) library.run = id(params.get('run')) ?? undefined
   else if (params.has('checks')) library.checks = true
+  else if (params.has('reviews')) library.reviews = params.get('reviews') === 'mine' ? 'mine' : 'all'
 
   let document: OpenDocument | null = null
   let canonical = true
@@ -96,6 +101,7 @@ export function buildWorkspaceUrl(url: Omit<WorkspaceUrl, 'canonical'>): string 
   if (url.library.checks) params.set('checks', '')
   if (url.library.check != null) params.set('check', String(url.library.check))
   if (url.library.run != null) params.set('run', String(url.library.run))
+  if (url.library.reviews) params.set('reviews', url.library.reviews === 'mine' ? 'mine' : '')
   if (url.document) {
     path += `/documents/${url.document.id}`
     const focus = url.document.focus

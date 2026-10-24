@@ -120,7 +120,7 @@ def list_templates(project: ProjectDep, session: SessionDep):
 @dataclass(frozen=True)
 class _Asked:
     """A facts table as a request asks for it: the template in force for its kind, and its
-    sort, conditions, words and rows to review, each checked against the template."""
+    sort, conditions, words and rows with unchecked facts, each checked against the template."""
 
     template: Template
     ask: Ask
@@ -134,12 +134,12 @@ def _asked(
     order: Literal["asc", "desc"] = "asc",
     conditions: Annotated[list[str] | None, Query(alias="filter")] = None,
     q: str = "",
-    review: bool = False,
+    unchecked: bool = False,
 ) -> _Asked:
     """The table the query asks for: of the documents read for the template of the kind, sorted
     by one field (`sort`; the document's name without one), the rows kept by each `filter`
     (`field:has`, `field:lacks`, `field:unchecked`, `field:contains:words`, `field:min:value`,
-    `field:max:value`), the words `q`, in the document's name or its facts, and with `review`
+    `field:max:value`), the words `q`, in the document's name or its facts, and with `unchecked`
     those with a fact no member has checked."""
     doc_type = kind_of(kind)
     template = next((t for t in templates_for(session, project.id) if t.doc_type == doc_type), None)
@@ -156,7 +156,7 @@ def _asked(
         held = tuple(condition_of(template, written) for written in conditions or [])
     except TableRefusal as refusal:
         raise HTTPException(422, str(refusal)) from None
-    return _Asked(template, Ask(sorted_by, order, held, q, review))
+    return _Asked(template, Ask(sorted_by, order, held, q, unchecked))
 
 
 AskedDep = Annotated[_Asked, Depends(_asked)]
@@ -205,11 +205,14 @@ def fact_table(
                     name: [check_out(held) for held in checks]
                     for name, checks in row.earlier.items()
                 },
+                review=row.document.review,
+                assignee_id=row.document.assignee_id,
+                assignee=row.document.assignee,
             )
             for row in table.rows
         ],
         total=table.total,
-        to_review=table.to_review,
+        unchecked=table.unchecked,
         next_after=table.next_after,
     )
 

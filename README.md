@@ -129,14 +129,14 @@ keeps rows by it, the agent is told a member corrected it and what the model rea
 project's export holds it with the check. A check outlives the document's next reading: a fact
 read the same again, or read as the member wrote it, takes it back, and one read otherwise leaves
 it in its cell as made before, to forget. A cell marks facts all checked, and a fact whose quote
-was not found in the text that nobody has checked; "To review" keeps the rows with a fact nobody
+was not found in the text that nobody has checked; "Unchecked" keeps the rows with a fact nobody
 checked, and a field's condition "is not checked" those with one of its own.
 
 The table's "Download" saves every row it keeps, as it is sorted and kept, whatever page it shows
 (`backend/app/fact_export.py`, `GET /api/projects/{id}/fact-table/export`): a CSV file of the table
 as it shows, a cell's several values joined by "; " and a member's correction in the model's place,
-with two more columns naming the fields of each row still to review and those whose quote was not
-found in the text; or an Excel workbook of the same rows, a lone number, amount or date typed so
+with the document's review, then two more columns naming the fields of each row nobody has checked
+and those whose quote was not found in the text; or an Excel workbook of the same rows, a lone number, amount or date typed so
 that a spreadsheet adds and sorts it, and a second sheet of every fact with its page, its quote,
 whether the quote was found, who checked it and when, and what the model read where a member
 corrected it. The model gives no figure for how sure it is of a fact, and one it gave would not be
@@ -193,6 +193,21 @@ automation and what arrived; its report counts as one of the month's questions, 
 day with no room left runs the checks without one, saying why. Whoever may change the project
 makes, changes, turns off and deletes them, each a row of the audit log naming what it watches
 and runs, never a value, and the runs they make are rows of it by Emudoc.
+
+A document may be put in review, the accounts payable's way with an invoice (`backend/app/reviews.py`,
+`PUT /api/documents/{id}/review`): from its menu in the library or its tab, a member puts it "To
+review", assigns it to a member who sees the project and may change it, and approves or disputes
+it; assigning one in no review puts it in review, and taking it out of review drops whom it was
+assigned to. Whoever is assigned it by another is told, in the app and by email as they chose for
+the notice, opening the document. The library marks each row's review beside its status, and so
+does the facts table beside a document's name; the library's "Reviews" button lists the project's
+documents of one state, those still open oldest first and the approved ones newest first, every
+member's or those assigned to the member, each moved and assigned where it is listed (`GET
+/api/projects/{id}/reviews`, `GET /api/projects/{id}/reviewers`). A review is a member's word on
+the document as a whole, never worked out from its facts: the facts table's "Unchecked" is the work
+towards it, and the cross-checks inform it. Each move and assignment is a row of the audit log by
+the document's name and the states or whom it was assigned to, never a value; a document in the
+trash keeps its review, and a member who leaves the organisation is assigned nothing of it.
 
 A project can hold any number of chats. Each one is saved with its answers, including the
 steps the agent took and the passages it was shown, so a chat can be reopened later. An answer

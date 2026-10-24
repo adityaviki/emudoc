@@ -20,7 +20,7 @@ import {
   nextSort,
   operatorsFor,
   quoteWords,
-  reviewWords,
+  uncheckedWords,
   rowsWords,
   sourceOf,
   tableQuery,
@@ -72,31 +72,31 @@ describe('tableQuery', () => {
           { field: 'due_date', op: 'lacks', value: 'ignored' },
         ],
         words: '  bolts ',
-        review: true,
+        unchecked: true,
       },
       'abc',
     )
     expect(query.toString()).toBe(
-      'kind=purchase+order&order=desc&sort=total_amount&filter=vendor_name%3Acontains%3Aacme&filter=due_date%3Alacks&q=bolts&review=true&after=abc',
+      'kind=purchase+order&order=desc&sort=total_amount&filter=vendor_name%3Acontains%3Aacme&filter=due_date%3Alacks&q=bolts&unchecked=true&after=abc',
     )
-    expect(tableQuery({ kind: 'invoice', sort: BY_NAME, conditions: [], words: ' ', review: false }, null).toString()).toBe('kind=invoice&order=asc')
+    expect(tableQuery({ kind: 'invoice', sort: BY_NAME, conditions: [], words: ' ', unchecked: false }, null).toString()).toBe('kind=invoice&order=asc')
   })
 
   it('downloads every row the table asks for, from its first page, as the file chosen', () => {
-    const ask = { kind: 'invoice', sort: { field: 'total_amount', order: 'desc' as const }, conditions: [{ field: 'iban', op: 'has' as const, value: '' }], words: 'acme', review: true }
+    const ask = { kind: 'invoice', sort: { field: 'total_amount', order: 'desc' as const }, conditions: [{ field: 'iban', op: 'has' as const, value: '' }], words: 'acme', unchecked: true }
     expect(exportUrl(3, ask, 'xlsx')).toBe(
-      '/api/projects/3/fact-table/export?kind=invoice&order=desc&sort=total_amount&filter=iban%3Ahas&q=acme&review=true&format=xlsx',
+      '/api/projects/3/fact-table/export?kind=invoice&order=desc&sort=total_amount&filter=iban%3Ahas&q=acme&unchecked=true&format=xlsx',
     )
-    expect(exportUrl(3, { ...ask, sort: BY_NAME, conditions: [], words: '', review: false }, 'csv')).toBe(
+    expect(exportUrl(3, { ...ask, sort: BY_NAME, conditions: [], words: '', unchecked: false }, 'csv')).toBe(
       '/api/projects/3/fact-table/export?kind=invoice&order=asc&format=csv',
     )
   })
 
   it('keys each table by what it asks, so that a page of one never stands for another', () => {
-    const ask = { kind: 'invoice', sort: BY_NAME, conditions: [], words: '', review: false }
+    const ask = { kind: 'invoice', sort: BY_NAME, conditions: [], words: '', unchecked: false }
     expect(factTableKey(3, ask)).toEqual(['fact-table', 3, 'invoice', null, 'asc', [], '', false])
     expect(factTableKey(3, { ...ask, conditions: [{ field: 'iban', op: 'has', value: '' }] })).not.toEqual(factTableKey(3, ask))
-    expect(factTableKey(3, { ...ask, review: true })).not.toEqual(factTableKey(3, ask))
+    expect(factTableKey(3, { ...ask, unchecked: true })).not.toEqual(factTableKey(3, ask))
   })
 })
 
@@ -187,11 +187,11 @@ describe('cells', () => {
     expect(cellMark([fact({ check: checked() })], [checked()])).toBe('changed')
   })
 
-  it('count the rows against the documents of the kind, and those to review', () => {
+  it('count the rows against the documents of the kind, and those with unchecked facts', () => {
     expect(rowsWords(1, 1, false)).toBe('1 document')
     expect(rowsWords(2, 3, true)).toBe('2 of 3 documents')
-    expect(reviewWords(2)).toBe('2 to review')
-    expect(reviewWords(0)).toBe('every fact checked')
+    expect(uncheckedWords(2)).toBe('2 with unchecked facts')
+    expect(uncheckedWords(0)).toBe('every fact checked')
   })
 })
 

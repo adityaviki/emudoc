@@ -90,8 +90,9 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 # The kinds of notice, and the way of telling them this module makes itself; a project's export
-# is told by app/export.py, and what an automation's run found by app/check_runs.py.
-UPLOAD_INDEXED, QUOTA, PROJECT_EXPORT, CHECKS_RUN = NOTICE_KINDS
+# is told by app/export.py, what an automation's run found by app/check_runs.py, and a document's
+# review assigned by app/reviews.py.
+UPLOAD_INDEXED, QUOTA, PROJECT_EXPORT, CHECKS_RUN, REVIEW_ASSIGNED = NOTICE_KINDS
 IN_APP = NOTICE_CHANNELS[0]
 # How long a notice stays in its member's notification centre, read or not; the privacy policy
 # says so.

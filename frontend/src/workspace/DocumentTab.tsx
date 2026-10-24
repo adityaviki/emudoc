@@ -14,6 +14,7 @@ import { notIndexedWords, restHeld, scanPassed, unfinishedStages } from '../inde
 import { describeDocumentUsage } from '../usage.ts'
 import { originalFile } from './files.ts'
 import { documentKey, listingsKey } from './listing.ts'
+import { ReviewControls } from './Reviews.tsx'
 import { useWorkspace } from './state.ts'
 import { followedKey } from './uploads.ts'
 import type { Focus } from './url.ts'
@@ -33,7 +34,10 @@ interface DocumentTabProps {
 /** One open document: a PDF's rendered pages, or anything else's extracted text with the outline beside it. */
 export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps) {
   const workspace = useWorkspace()
-  const changes = mayChange(useMe().role)
+  const me = useMe()
+  const changes = mayChange(me.role)
+  // Its review, while reviews are rolled out to the organisation (backend/app/flags.py).
+  const reviews = me.organization.flags_on.includes('extraction_templates')
   // Where the keyboard goes on from once a button of the header it held is gone.
   const heading = useRef<HTMLHeadingElement>(null)
   const [outlineOpen, setOutlineOpen] = useState(true)
@@ -149,6 +153,11 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
             )}
           </div>
         </div>
+        {reviews && (
+          <div className="mt-2">
+            <ReviewControls document={document} />
+          </div>
+        )}
         {focusLabel && (
           <p className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-md bg-mark/40 py-0.5 pr-0.5 pl-2 text-xs">
             <span className="truncate">Showing: {focusLabel}</span>

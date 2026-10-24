@@ -13,6 +13,22 @@ to: `## YYYY-MM-DD` a day (or `## YYYY-MM-DD to YYYY-MM-DD`), the newest first, 
 and `Operators:`, each a list of `- ` entries whose lines go on indented by two spaces, a day's
 newest entry first.
 
+## 2026-10-24
+
+Operators:
+
+- Documents' reviews, behind the flag `extraction_templates`: a member puts a document in review
+  from its menu in the library or its tab, assigns it to a member who sees the project and may
+  change it, and approves or disputes it; a member assigned by another is told, a new kind of
+  notice, in the app and by email. The library's "Reviews" lists a project's documents of each
+  state, every member's or one's own, and the library and the facts table mark each document's
+  review. The facts table's "To review", the rows with a fact nobody checked, is now "Unchecked"
+  (the query's `unchecked`, the count `unchecked`), and its file gains a "Review" column, its
+  "To review" column now "Unchecked". New columns `documents.review`, `assignee_id`,
+  `review_changed_by` and `review_changed_at`, the notice kind `review_assigned` and the audit
+  actions `document_review_changed` and `document_assigned` (a migration). The privacy policy
+  names the reviews and the notice.
+
 ## 2026-10-23
 
 Members:

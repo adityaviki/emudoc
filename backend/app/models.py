@@ -61,6 +61,10 @@ REPORT_STATUSES = ("queued", "writing", "done", "failed")
 # everyone who sees its project, each as they chose for the kind of notice, or nobody, the run
 # being listed with the project's either way.
 AUTOMATION_AUDIENCES = ("maker", "project", "nobody")
+# Where a document stands in its review (app/reviews.py), the accounts payable's way with an
+# invoice: put in review for a member to look at, then approved, or disputed with whoever sent
+# it. A document in no review has none.
+REVIEW_STATES = ("to_review", "approved", "disputed")
 # From most to least permitted: each role may do everything the roles after it may.
 ROLES = ("owner", "admin", "member", "viewer")
 # The roles an organisation may let everyone at its domains join with (app/invitations.py): none
@@ -111,7 +115,7 @@ QUOTA_FIGURES = ("pages_per_month", "questions_per_month")
 # The kinds of notice the app tells members about their work (app/notices.py), and the ways each
 # reaches them: the notification centre in the app, and email. A member chooses each way of
 # each kind (`User.notices`).
-NOTICE_KINDS = ("upload_indexed", "quota", "project_export", "checks_run")
+NOTICE_KINDS = ("upload_indexed", "quota", "project_export", "checks_run", "review_assigned")
 NOTICE_CHANNELS = ("app", "email")
 # The order the library lists a folder's files in, which the database keeps an index in: by
 # name, with the numbers in a name compared as numbers ("invoice 2" before "invoice 10") and
@@ -132,7 +136,8 @@ NATURAL_ORDER = "natural_order"
 # deleted for good, with no trash, and its facts tables downloaded (app/fact_export.py), which is
 # its documents' content leaving the app; a run of its cross-checks is made, by a member or by an
 # automation, a discrepancy report asked of the agent and the run deleted for good
-# (app/check_runs.py), and its automations made, changed and deleted (app/automations.py).
+# (app/check_runs.py), and its automations made, changed and deleted (app/automations.py). A
+# document's review moves from state to state and is assigned to a member (app/reviews.py).
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -218,6 +223,8 @@ AUDIT_ACTIONS = (
     "document_purged",
     "document_quarantined",
     "document_requeued",
+    "document_review_changed",
+    "document_assigned",
     "chat_shared",
     "chat_unshared",
     "chat_deleted",
@@ -884,6 +891,36 @@ class Document(Base):
         # column serves every lookup by project as well.
         Index("ix_documents_listing", "project_id", "folder_id", "filename", "id"),
         *_trash_indexes("documents", "project_id"),
+        # A null review passes, as a check that is not false does.
+        _one_of("review", REVIEW_STATES, "documents"),
+        # Whoever is assigned a document is assigned its review, which it is in; and a review
+        # has the moment it was moved to its state, which orders the reviews view.
+        CheckConstraint("assignee_id IS NULL OR review IS NOT NULL", name="ck_documents_assignee"),
+        CheckConstraint(
+            "(review IS NULL) = (review_changed_at IS NULL)",
+            name="ck_documents_review_changed_at",
+        ),
+        # A project's reviews of a state in the order the reviews view lists them
+        # (app/reviews.py); the documents in none, nearly all of them, are left out.
+        Index(
+            "ix_documents_review",
+            "project_id",
+            "review",
+            "review_changed_at",
+            "id",
+            postgresql_where=text("review IS NOT NULL"),
+        ),
+        # For the account purge and a member leaving, whose assignments go.
+        Index(
+            "ix_documents_assignee_id",
+            "assignee_id",
+            postgresql_where=text("assignee_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_documents_review_changed_by",
+            "review_changed_by",
+            postgresql_where=text("review_changed_by IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -930,6 +967,25 @@ class Document(Base):
     # extraction.py), which `doc_type` then names too; null when they were read for none, and
     # until the enrich stage has run.
     template: Mapped[str | None] = mapped_column(String(100))
+    # Its review (app/reviews.py): one of REVIEW_STATES, null for none; the member it is
+    # assigned to, null for nobody and once they leave the organisation; and who moved it to its
+    # state and when, null once their account is gone, or for an automation. Each name is read
+    # with the document as it is now, which the library and the reviews view show.
+    review: Mapped[str | None] = mapped_column(String(20))
+    assignee_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    assignee: Mapped[str | None] = column_property(
+        select(User.name).where(User.id == assignee_id).correlate_except(User).scalar_subquery()
+    )
+    review_changed_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    review_changer: Mapped[str | None] = column_property(
+        select(User.name)
+        .where(User.id == review_changed_by)
+        .correlate_except(User)
+        .scalar_subquery()
+    )
+    review_changed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

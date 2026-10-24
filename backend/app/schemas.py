@@ -314,6 +314,10 @@ class DocumentPatch(BaseModel):
     folder_id: int | None = None
 
 
+# REVIEW_STATES in app/models.py.
+ReviewState = Literal["to_review", "approved", "disputed"]
+
+
 class DocumentOut(_FromORM):
     id: int
     project_id: int
@@ -336,6 +340,40 @@ class DocumentOut(_FromORM):
     # By kind: `upload` (bytes, pages), `ocr`, `infer_sections`, `enrich`, `embed`, `render`.
     usage: dict[str, UsageOut]
     created_at: dt.datetime
+    # Its review (app/reviews.py), None for none: the member it is assigned to, by id and their
+    # name as it is now, and who moved it to its state and when, None for an automation or an
+    # account gone.
+    review: ReviewState | None
+    assignee_id: int | None
+    assignee: str | None
+    review_changer: str | None
+    review_changed_at: dt.datetime | None
+
+
+class ReviewIn(BaseModel):
+    """A change to a document's review (app/reviews.py); a field left out stays as it is. A state
+    of None takes it out of review, and its assignee with it; an assignee given to a document in
+    no review puts it in review."""
+
+    state: ReviewState | None = None
+    assignee_id: int | None = None
+
+
+class ReviewerOut(BaseModel):
+    """A member a project's documents may be assigned to."""
+
+    id: int
+    name: str
+
+
+class ReviewsOut(BaseModel):
+    """A page of a project's documents in review of one state, those assigned to the asker alone
+    when asked, with how many there are of each state, so asked, over every page."""
+
+    documents: list[DocumentOut]
+    counts: dict[ReviewState, int]
+    # What to pass as `after` for the next page; None on the last one.
+    next_after: str | None
 
 
 class DocumentPage(BaseModel):
@@ -489,6 +527,11 @@ class FactRowOut(BaseModel):
     # The checks of a field no fact reads any more, by the field's name: made before the
     # document was read again, which read it differently.
     earlier: dict[str, list[FactCheckOut]]
+    # The document's review (app/reviews.py), None for none, and the member it is assigned to, by
+    # id and name.
+    review: ReviewState | None = None
+    assignee_id: int | None = None
+    assignee: str | None = None
 
 
 class FactTableOut(BaseModel):
@@ -499,7 +542,7 @@ class FactTableOut(BaseModel):
     rows: list[FactRowOut]
     total: int
     # How many of those rows hold a fact of the fields no member has checked.
-    to_review: int
+    unchecked: int
     next_after: str | None
 
 
@@ -972,7 +1015,7 @@ class AccountDeletionIn(BaseModel):
 
 
 # The kinds of notice (NOTICE_KINDS in app/models.py, app/notices.py).
-NoticeKind = Literal["upload_indexed", "quota", "project_export", "checks_run"]
+NoticeKind = Literal["upload_indexed", "quota", "project_export", "checks_run", "review_assigned"]
 
 
 class NoticeChoiceIn(BaseModel):
@@ -1987,6 +2030,11 @@ class ExportedDocument(BaseModel):
     template: str | None
     page_count: int | None
     uploaded_at: dt.datetime
+    # Its review, if it is in one: its state, the name of the member it is assigned to, and when
+    # it was moved to its state.
+    review: str | None = None
+    assignee: str | None = None
+    review_changed_at: dt.datetime | None = None
 
 
 class ExportedSection(BaseModel):

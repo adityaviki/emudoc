@@ -13,9 +13,10 @@ without the value goes last whichever way. Pages are keyset pages over the sort'
 document's name and its id, all three in the cursor, so that a row added or removed between two
 pages moves none.
 
-The rows to review are those with a fact of the template's fields no member has checked
-(app/fact_checks.py); a correction is in the fact's own columns, so a row sorts and is kept by the
-member's value.
+The rows with unchecked facts are those with a fact of the template's fields no member has
+checked (app/fact_checks.py); a correction is in the fact's own columns, so a row sorts and is kept
+by the member's value. A document's review (app/reviews.py), approved or disputed, is the member's
+word on it as a whole, which a row shows beside its facts.
 """
 
 import base64
@@ -74,13 +75,14 @@ class Condition:
 @dataclass(frozen=True)
 class Ask:
     """What the table is asked for: the field it is sorted by (None for the document's name) and
-    which way, the conditions and the words its rows hold, and whether only the rows to review."""
+    which way, the conditions and the words its rows hold, and whether only the rows with a fact no
+    member has checked."""
 
     sort: TemplateField | None = None
     order: Order = "asc"
     conditions: tuple[Condition, ...] = ()
     words: str = ""
-    review: bool = False
+    unchecked: bool = False
 
     def given(self) -> dict[str, object]:
         """What was asked, as the audit log records it: the fields and how each was held, never a
@@ -92,8 +94,8 @@ class Ask:
             given["conditions"] = [f"{held.field.name}:{held.op}" for held in self.conditions]
         if self.words.strip():
             given["words"] = True
-        if self.review:
-            given["review"] = True
+        if self.unchecked:
+            given["unchecked"] = True
         return given
 
 
@@ -114,10 +116,10 @@ class Row:
 @dataclass(frozen=True)
 class Table:
     rows: list[Row]
-    # How many rows the conditions keep, over every page, and how many of those are to review;
-    # None when the page was read without counting them.
+    # How many rows the conditions keep, over every page, and how many of those have a fact no
+    # member has checked; None when the page was read without counting them.
     total: int | None
-    to_review: int | None
+    unchecked: int | None
     next_after: str | None
 
 
@@ -187,7 +189,7 @@ def read_table(
     if words.strip():
         held.append(_mentions(project_id, template, words.strip()))
     fields = [field.name for field in template.fields]
-    if ask.review:
+    if ask.unchecked:
         held.append(exists().where(*_of(project_id, *fields), Fact.check_id.is_(None)))
     if sort is None:
         ranked = select(Document.id, name.label("key"), name.label("name")).where(*held)
@@ -202,7 +204,7 @@ def read_table(
         )
     ranked = ranked.subquery()
 
-    total = to_review = None
+    total = unchecked_rows = None
     if counted:
         unchecked = exists().where(
             Fact.document_id == ranked.c.id,
@@ -210,7 +212,7 @@ def read_table(
             Fact.name.in_(fields),
             Fact.check_id.is_(None),
         )
-        total, to_review = session.execute(
+        total, unchecked_rows = session.execute(
             select(func.count(), func.count().filter(unchecked)).select_from(ranked)
         ).one()
     page = select(ranked.c.id, ranked.c.key, ranked.c.name)
@@ -251,7 +253,7 @@ def read_table(
             for document_id in ids
         ],
         total=total,
-        to_review=to_review,
+        unchecked=unchecked_rows,
         next_after=_cursor_of(last.key, last.name, last.id)
         if last is not None and len(found) > limit
         else None,

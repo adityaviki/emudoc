@@ -1,8 +1,13 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  BadgeCheck,
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
+  ClipboardCheck,
+  ClipboardList,
+  ClipboardX,
+  Flag,
   Folder as FolderIcon,
   FolderInput,
   FolderPlus,
@@ -43,6 +48,7 @@ import { cursorAfter } from '../focus.ts'
 import { useFolders, useLocalStorage, useStatus } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
 import { partlyIndexedWords, restHeld, unfinishedStages } from '../indexing.ts'
+import { stateMoves } from '../reviews.ts'
 import { describeChange } from './changes.ts'
 import { chosenFolder, droppedEntries, readEntries } from './dropped.ts'
 import { RunView } from './CheckRuns.tsx'
@@ -52,8 +58,9 @@ import { FactsView } from './FactsTable.tsx'
 import { fileKind, originalFileItem } from './files.ts'
 import { growing, hasMore, listed, showMore, useListings } from './listing.ts'
 import type { Listing } from './listing.ts'
-import { useLibraryMutations } from './mutations.ts'
+import { useLibraryMutations, useReviewChange } from './mutations.ts'
 import type { LibraryMutations } from './mutations.ts'
+import { ReviewMark, ReviewsView } from './Reviews.tsx'
 import { useWorkspace } from './state.ts'
 import { TemplatesView } from './Templates.tsx'
 import { TrashView } from './Trash.tsx'
@@ -101,6 +108,9 @@ const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files'
 const SAMPLE_UPLOADS = 'This is the sample project, which holds Emudoc’s sample documents alone. Create a project of your own to upload yours.'
 // What a browser without the entries API hands over for a dropped folder: an empty, typeless file.
 const NO_FOLDER_DROPS = 'This browser cannot upload a folder dropped on the page: use “Upload a folder”.'
+
+// What each move of a document's review shows in its menu, as the reviews view marks each state.
+const MOVE_ICONS = { to_review: ClipboardList, approved: BadgeCheck, disputed: Flag } as const
 
 /** How a drop or a picker hands the library what to upload into a folder. */
 type Uploads = (transfer: DataTransfer, targetId: number | null) => void
@@ -183,6 +193,7 @@ export function Library() {
   if (workspace.url.library.checks && templates) return <CrossChecksView />
   if (workspace.url.library.check != null && templates) return <FindingsView checkId={workspace.url.library.check} />
   if (workspace.url.library.run != null && templates) return <RunView runId={workspace.url.library.run} />
+  if (workspace.url.library.reviews && templates) return <ReviewsView whose={workspace.url.library.reviews} />
   return (
     <div
       data-tour="library"
@@ -231,6 +242,15 @@ export function Library() {
               onClick={workspace.showChecks}
               title="Cross-checks: rules that compare the facts of one kind of document with another's"
               aria-label="Cross-checks"
+              className="px-2"
+            />
+          )}
+          {templates && (
+            <Button
+              icon={<ClipboardCheck className="size-4" />}
+              onClick={() => workspace.showReviews()}
+              title="Reviews: the documents put in review, approved or disputed, and whom each is assigned to"
+              aria-label="Reviews"
               className="px-2"
             />
           )}
@@ -408,6 +428,7 @@ export function Library() {
             onCreatingChange={setCreating}
             mutations={mutations}
             changes={changes}
+            reviews={templates}
             dragging={dragging}
             onDragChange={(payload) => {
               dragging.current = payload
@@ -600,6 +621,8 @@ interface ListingProps {
   mutations: LibraryMutations
   /** Whether the member's role may change the library; a viewer opens, downloads and selects only. */
   changes: boolean
+  /** Whether documents' reviews are rolled out to the organisation (backend/app/flags.py): each row's mark and menu. */
+  reviews: boolean
   dragging: DragRef
   onDragChange: (payload: DragPayload | null) => void
   onUploadDropped: Uploads
@@ -614,6 +637,7 @@ function Listing({
   onCreatingChange,
   mutations,
   changes,
+  reviews,
   dragging,
   onDragChange,
   onUploadDropped,
@@ -626,6 +650,7 @@ function Listing({
   const health = useStatus()
   const { tree, project } = workspace
   const [openFolders, setOpenFolders] = useLocalStorage<number[]>(treeKey(project.id), [], isIdList)
+  const review = useReviewChange(project.id)
   const openSet = new Set(openFolders)
   // Each folder the tree shows open is listed by itself, a page at a time.
   const listedFolders = foldersShown(tree, folderId, openSet)
@@ -776,6 +801,15 @@ function Listing({
     }
     const reading: MenuItem[] = [{ label: 'Open', onSelect: () => open(item) }, originalFileItem(item.document)]
     if (!changes) return reading
+    // A document's review moves from its menu, while reviews are rolled out to the organisation.
+    const moves: MenuItem[] = reviews
+      ? stateMoves(item.document.review).map(({ state, label }) => ({
+          label,
+          icon: state ? MOVE_ICONS[state] : ClipboardX,
+          onSelect: () =>
+            review.mutate({ id: item.document.id, change: { state } }, { onError: (error) => mutations.setNotice(error.message) }),
+        }))
+      : []
     const unfinished = unfinishedStages(item.document)
     // A partly indexed document runs what it went without, once the services for it are back.
     const rest: MenuItem[] = unfinished.length
@@ -800,6 +834,7 @@ function Listing({
         disabled: item.document.status === 'processing',
         onSelect: () => mutations.reprocess.mutate(item.document.id),
       },
+      ...(moves.length ? ['separator' as const, ...moves] : []),
       'separator',
       del,
     ]
@@ -1272,7 +1307,7 @@ function Row(props: RowProps) {
     id,
     // Its name, and for a file its state as the status icon gives it, rather than all it holds.
     'aria-label': name,
-    'aria-describedby': item.kind === 'file' ? `${id}-status` : undefined,
+    'aria-describedby': item.kind === 'file' ? (item.document.review ? `${id}-status ${id}-review` : `${id}-status`) : undefined,
     'aria-selected': selected,
     'data-key': itemKey(item),
     draggable: movable && !renaming,
@@ -1353,6 +1388,11 @@ function Row(props: RowProps) {
           </p>
         )}
       </div>
+      {item.kind === 'file' && item.document.review && (
+        <span className="ml-2 flex">
+          <ReviewMark id={`${id}-review`} document={item.document} />
+        </span>
+      )}
       {item.kind === 'file' && (
         <span className="ml-2 flex">
           <StatusIcon id={`${id}-status`} document={item.document} />

@@ -3,11 +3,12 @@
 // choices ask for, its days in the browser's own zone.
 
 import { PLAN_LABELS, ROLE_LABELS } from './api.ts'
-import type { AuditAction, AuditEvent, AuditFilter, NoticeKind, Plan, Role } from './api.ts'
+import type { AuditAction, AuditEvent, AuditFilter, NoticeKind, Plan, ReviewState, Role } from './api.ts'
 import { fieldWords } from './factTable.ts'
 import { formatDate, formatDateTime } from './format.ts'
 import { NOTICE_KINDS } from './notifications.ts'
 import { keptWords, languageName, signInWords } from './organizationSettings.ts'
+import { REVIEW_LABELS } from './reviews.ts'
 
 /** The kinds the filter groups the actions under, in its order, as it names them. */
 export const KINDS = {
@@ -109,6 +110,8 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   document_purged: ['Deleted a document for good', 'files'],
   document_quarantined: ['Document quarantined', 'files'],
   document_requeued: ['Document queued again', 'files'],
+  document_review_changed: ["Moved a document's review", 'files'],
+  document_assigned: ['Assigned a document', 'files'],
   chat_shared: ['Shared a chat', 'chats'],
   chat_unshared: ['Made a chat private', 'chats'],
   chat_deleted: ['Deleted a chat', 'chats'],
@@ -179,6 +182,8 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   else if (CROSS_CHECK_ACTIONS.has(event.action)) parts.push(describeCrossCheck(detail))
   else if (RUN_ACTIONS.has(event.action)) parts.push(describeRun(detail))
   else if (AUTOMATION_ACTIONS.has(event.action)) parts.push(describeAutomation(detail))
+  else if (event.action === 'document_review_changed') parts.push(`${review(detail.from)} → ${review(detail.to)}`)
+  else if (event.action === 'document_assigned') parts.push(describeAssignment(detail, names))
   else if ('to' in detail) parts.push(`${word(detail.from)} → ${word(detail.to)}`)
   else if ('from' in detail) parts.push(`was ${word(detail.from)}`)
   if (typeof detail.role === 'string' && !('to' in detail)) parts.push(word(detail.role))
@@ -252,7 +257,7 @@ function describeFactsExport(detail: AuditEvent['detail']): string {
     parts.push(`kept by ${fields.join(' and ')}`)
   }
   if (detail.words === true) parts.push('rows holding the words looked for')
-  if (detail.review === true) parts.push('those to review')
+  if (detail.unchecked === true) parts.push('those with unchecked facts')
   return parts.join(', ')
 }
 
@@ -315,6 +320,15 @@ function describeAutomation(detail: AuditEvent['detail']): string {
     parts.push(`changed ${detail.changed.map((part) => AUTOMATION_PARTS[String(part)] ?? String(part)).join(', ')}`)
   }
   return parts.join(', ')
+}
+
+/** A document's review as a row says it: its state, or none. */
+const review = (value: unknown) => REVIEW_LABELS[value as ReviewState] ?? 'not in review'
+
+/** A document's review assigned, or no longer: to whom, by `names`, the members' names by id. */
+function describeAssignment(detail: AuditEvent['detail'], names: ReadonlyMap<number, string>): string {
+  const whom = (value: unknown) => (typeof value === 'number' ? (names.get(value) ?? 'a former member') : 'nobody')
+  return detail.to === null ? `assigned to nobody, was ${whom(detail.from)}` : `to ${whom(detail.to)}`
 }
 
 const language = (value: unknown) => (typeof value === 'string' ? languageName(value) : 'the default')

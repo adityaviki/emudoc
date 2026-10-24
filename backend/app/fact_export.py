@@ -1,12 +1,13 @@
 """The facts table as a file to save (app/fact_table.py; the route is in app/api/templates.py):
-every row the page's sort, conditions, words and "To review" keep, as a CSV file or an Excel
+every row the page's sort, conditions, words and "Unchecked" keep, as a CSV file or an Excel
 workbook.
 
 The CSV is the table as the page shows it: a row a document, its name first, then a column a
 field of the template in its order, each cell the values of the field's facts as written, or as
-a member corrected them, in the document's order and joined by "; ". Two more columns say what
-the cells' marks say: the fields with a fact no member has checked, and those of them whose quote
-was not found in the document's text. The workbook's first sheet is the same table with each
+a member corrected them, in the document's order and joined by "; ". Then the document's review
+(app/reviews.py), approved or disputed, which a payment run filters by, and two more columns say
+what the cells' marks say: the fields with a fact no member has checked, and those of them whose
+quote was not found in the document's text. The workbook's first sheet is the same table with each
 value typed, a lone number or amount a number and a lone date a date, so that a spreadsheet adds
 and sorts them (an amount shown in its currency); its second sheet is every fact of those cells
 on a row of its own, with where it was found, whether its quote is in the text, who checked it,
@@ -45,6 +46,7 @@ from app.db import SessionLocal
 from app.extraction import Template
 from app.fact_table import Ask, Row, read_table
 from app.models import Fact
+from app.reviews import STATE_WORDS
 
 ExportFormat = Literal["csv", "xlsx"]
 MEDIA_TYPES: dict[str, str] = {
@@ -62,7 +64,8 @@ SHEET_ROWS = 1_048_576
 CELL_CHARS = 32_767
 
 DOCUMENT = "Document"
-TO_REVIEW = "To review"
+REVIEW = "Review"
+UNCHECKED = "Unchecked"
 NOT_FOUND = "Quote not found"
 FACT_COLUMNS = (
     (DOCUMENT, 40),
@@ -103,12 +106,13 @@ class Value:
 
 @dataclass(frozen=True)
 class Line:
-    """A row of the table: the document's name and its facts of each field."""
+    """A row of the table: the document's name, its facts of each field and its review in words."""
 
     document: str
     cells: dict[str, list[Value]]
+    review: str
 
-    def to_review(self) -> list[str]:
+    def unchecked(self) -> list[str]:
         """The fields with a fact no member has checked."""
         return [name for name, facts in self.cells.items() if any(not f.checked for f in facts)]
 
@@ -145,6 +149,7 @@ def _line(row: Row, template: Template) -> Line:
             for field in template.fields
             if field.name in row.cells
         },
+        STATE_WORDS.get(row.document.review, ""),
     )
 
 
@@ -168,7 +173,7 @@ def _value(fact: Fact) -> Value:
 
 
 def headings(template: Template) -> list[str]:
-    return [DOCUMENT, *(field.name for field in template.fields), TO_REVIEW, NOT_FOUND]
+    return [DOCUMENT, *(field.name for field in template.fields), REVIEW, UNCHECKED, NOT_FOUND]
 
 
 def csv_file(project_id: int, template: Template, ask: Ask) -> Iterator[str]:
@@ -187,7 +192,8 @@ def csv_file(project_id: int, template: Template, ask: Ask) -> Iterator[str]:
                         _quoted(JOINED.join(fact.value for fact in line.cells.get(field.name, [])))
                         for field in template.fields
                     ),
-                    JOINED.join(line.to_review()),
+                    line.review,
+                    JOINED.join(line.unchecked()),
                     JOINED.join(line.not_found()),
                 ]
             )
@@ -253,7 +259,8 @@ def write_workbook(file: BinaryIO | Path, project_id: int, template: Template, a
                 [
                     _text(table, line.document),
                     *(_cell(table, values) for values in cells),
-                    _text(table, JOINED.join(line.to_review())),
+                    _text(table, line.review),
+                    _text(table, JOINED.join(line.unchecked())),
                     _text(table, JOINED.join(line.not_found())),
                 ],
             )

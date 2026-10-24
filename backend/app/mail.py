@@ -942,6 +942,31 @@ def checks_run_email(
     return Content(subject, (_greeting(name), said, Link(link, "Open the run")), said)
 
 
+def review_assigned_email(
+    name: str,
+    assigner: str,
+    filename: str,
+    state: str,
+    project: str,
+    organization: str,
+    link: str,
+) -> Content:
+    """To the member another assigned a document's review (app/reviews.py): who did, and which
+    document, by the file's name in the body alone, with where its review stands. The subject
+    names neither, since the log repeats it."""
+    where = f"{filename} in {project} in {organization}"
+    said = {
+        "to_review": f"{assigner} assigned you {where} to review.",
+        "approved": f"{assigner} assigned you {where}, which is approved.",
+        "disputed": f"{assigner} assigned you {where}, which is disputed.",
+    }[state]
+    return Content(
+        "A document was assigned to you",
+        (_greeting(name), said, Link(link, "Open the document")),
+        said,
+    )
+
+
 def quota_email(
     name: str,
     organization: str,

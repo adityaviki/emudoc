@@ -21,7 +21,9 @@ the passages. It answers as a model would that does the least the app asks:
 `POST /hold` makes the next agent turn wait until `POST /release` (or HELD_FOR seconds), as a
 model that thinks for long, so that the browser test stops an answer while it is thought about
 and tries it again: the try's turns are not held, and the held one answers once released, into
-an answer that is no longer its run's. `POST /refuse-embeddings` with `{"containing": word}`
+an answer that is no longer its run's. `GET /held` says how many turns are waiting so, which the
+test waits for before it stops the answer: one stopped before its turn reached the model would
+leave the hold to the try. `POST /refuse-embeddings` with `{"containing": word}`
 refuses the next embeddings request any of whose texts holds the word with a 400, which the app
 does not try again, so that the browser test finds a document partly indexed and indexes the
 rest of it.
@@ -268,8 +270,10 @@ class Handler(BaseHTTPRequestHandler):
     words_per_second = 0.0
     index_seconds = 0.0
     protocol_version = "HTTP/1.1"
-    # How many agent turns to come are held, and what lets the held ones go.
+    # How many agent turns to come are held, how many are waiting so now, and what lets the held
+    # ones go.
     holds = 0
+    waiting = 0
     released = threading.Event()
     hold_lock = threading.Lock()
     # The word whose next embeddings request is refused, once.
@@ -281,6 +285,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path.rstrip("/") in ("/health", "/v1/models"):
             self._json({"object": "list", "data": [{"id": "standin", "object": "model"}]})
+        elif self.path.rstrip("/") == "/held":
+            with Handler.hold_lock:
+                self._json({"waiting": Handler.waiting})
         else:
             self._json({"error": {"message": f"No route {self.path}."}}, 404)
 
@@ -346,8 +353,11 @@ class Handler(BaseHTTPRequestHandler):
                 held = Handler.holds > 0
                 if held:
                     Handler.holds -= 1
+                    Handler.waiting += 1
             if held:
                 Handler.released.wait(HELD_FOR)
+                with Handler.hold_lock:
+                    Handler.waiting -= 1
             reply = agent_turn(body.get("messages", []))
             time.sleep(self.first_token)
         else:

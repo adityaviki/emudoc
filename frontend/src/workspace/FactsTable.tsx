@@ -28,7 +28,7 @@ import {
   nextSort,
   operatorsFor,
   quoteWords,
-  reviewWords,
+  uncheckedWords,
   rowsWords,
   sourceOf,
   tableQuery,
@@ -36,6 +36,7 @@ import {
 } from '../factTable.ts'
 import type { ExportFormat, Operator, TableAsk, TableCondition, TableSort } from '../factTable.ts'
 import { templatesKey } from '../templates.ts'
+import { ReviewMark } from './Reviews.tsx'
 import { useWorkspace } from './state.ts'
 
 /**
@@ -57,7 +58,7 @@ export function FactsView({ kind }: { kind: string }) {
   const [typed, setTyped] = useState('')
   const [words, setWords] = useState('')
   const [adding, setAdding] = useState(false)
-  const [review, setReview] = useState(false)
+  const [unchecked, setUnchecked] = useState(false)
   const grid = useRef<HTMLDivElement>(null)
   // Another kind chosen starts its table afresh, the choice keeping the focus where it is.
   const [shownKind, setShownKind] = useState(kind)
@@ -68,7 +69,7 @@ export function FactsView({ kind }: { kind: string }) {
     setTyped('')
     setWords('')
     setAdding(false)
-    setReview(false)
+    setUnchecked(false)
   }
   useEffect(() => {
     const timer = window.setTimeout(() => setWords(typed.trim()), 300)
@@ -80,7 +81,7 @@ export function FactsView({ kind }: { kind: string }) {
   }, [])
 
   const templates = useQuery({ queryKey: templatesKey(project.id), queryFn: () => api.templates(project.id) })
-  const ask: TableAsk = { kind, sort, conditions, words, review }
+  const ask: TableAsk = { kind, sort, conditions, words, unchecked }
   const table = useInfiniteQuery({
     queryKey: factTableKey(project.id, ask),
     queryFn: ({ pageParam }) => api.factTable(project.id, tableQuery(ask, pageParam)),
@@ -92,8 +93,8 @@ export function FactsView({ kind }: { kind: string }) {
   const first = table.data?.pages[0]
   const template = first?.template
   const rows = table.data?.pages.flatMap((page) => page.rows) ?? []
-  const filtered = conditions.length > 0 || words !== '' || review
-  // A change that took the row holding the focus out of a table of the rows to review: the
+  const filtered = conditions.length > 0 || words !== '' || unchecked
+  // A change that took the row holding the focus out of a table of the unchecked rows: the
   // keyboard goes on from the grid's cell where it was, or the heading once no row is left.
   const restore = () =>
     window.requestAnimationFrame(() => {
@@ -160,8 +161,14 @@ export function FactsView({ kind }: { kind: string }) {
           >
             Condition
           </Button>
-          <Button icon={<ListChecks className="size-4" />} aria-pressed={review} disabled={!template} onClick={() => setReview(!review)}>
-            To review
+          <Button
+            icon={<ListChecks className="size-4" />}
+            aria-pressed={unchecked}
+            disabled={!template}
+            title="Only the documents with a fact nobody has checked"
+            onClick={() => setUnchecked(!unchecked)}
+          >
+            Unchecked
           </Button>
           <DownloadMenu projectId={project.id} ask={ask} disabled={!first || first.total === 0} />
         </div>
@@ -203,7 +210,7 @@ export function FactsView({ kind }: { kind: string }) {
         )}
         {first && (
           <p role="status" className="flex items-center gap-1.5 text-xs text-muted">
-            {rowsWords(first.total, first.template.documents, filtered)}, {reviewWords(first.to_review)}
+            {rowsWords(first.total, first.template.documents, filtered)}, {uncheckedWords(first.unchecked)}
             {table.isPlaceholderData && <Spinner className="size-3" />}
           </p>
         )}
@@ -218,15 +225,15 @@ export function FactsView({ kind }: { kind: string }) {
         {template && first && first.total === 0 && (
           <EmptyState
             title={
-              review && first.template.documents > 0 && conditions.length === 0 && words === ''
+              unchecked && first.template.documents > 0 && conditions.length === 0 && words === ''
                 ? 'Every fact of these documents is checked'
                 : filtered
                   ? 'No document meets these conditions'
                   : `No document has been read for the ${template.title} template yet`
             }
           >
-            {review && conditions.length === 0 && words === ''
-              ? 'Each fact a member checked or corrected is marked in its cell. Turn off “To review” to see every document.'
+            {unchecked && conditions.length === 0 && words === ''
+              ? 'Each fact a member checked or corrected is marked in its cell. Turn off “Unchecked” to see every document.'
               : filtered
               ? 'Remove a condition, or find other words.'
               : `Documents of the kind uploaded from now on are read for it, and those here already once they are read again from the templates.`}
@@ -392,9 +399,10 @@ function Grid({
                   tabIndex={stop(line, 0)}
                   title={row.filename}
                   onClick={() => workspace.openDocument(row.document_id)}
-                  className="block max-w-56 truncate rounded px-1 py-0.5 text-left font-medium transition hover:bg-sunken focus-visible:-outline-offset-2!"
+                  className="flex max-w-56 items-center gap-1.5 rounded px-1 py-0.5 text-left font-medium transition hover:bg-sunken focus-visible:-outline-offset-2!"
                 >
-                  {row.title}
+                  <span className="truncate">{row.title}</span>
+                  <ReviewMark document={row} />
                 </button>
               </th>
               {template.fields.map((field, column) => {

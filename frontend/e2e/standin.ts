@@ -13,6 +13,13 @@ export async function holdNextTurn(request: APIRequestContext) {
   expect200(await request.post(`${STANDIN}/hold`))
 }
 
+/** How many held turns are waiting for their release: an answer that reached the model while a turn was held. */
+export async function heldTurns(request: APIRequestContext): Promise<number> {
+  const response = await request.get(`${STANDIN}/held`)
+  expect200(response)
+  return ((await response.json()) as { waiting: number }).waiting
+}
+
 /** Let the held turns answer. */
 export async function releaseTurns(request: APIRequestContext) {
   expect200(await request.post(`${STANDIN}/release`))

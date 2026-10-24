@@ -39,5 +39,6 @@ export function libraryPlace(view: LibraryView): string {
   if (view.check != null) return `check:${view.check}`
   if (view.run != null) return `run:${view.run}`
   if (view.checks) return 'checks'
+  if (view.reviews) return `reviews:${view.reviews}`
   return view.trash ? 'trash' : view.templates ? 'templates' : `${view.folderId ?? 'root'}?${view.q}`
 }

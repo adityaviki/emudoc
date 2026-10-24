@@ -5,7 +5,7 @@ import type { BrowserContext, Page } from '@playwright/test'
 import { expectAccessible } from './axe.ts'
 import { linkMailedTo, messageTo } from './mail.ts'
 import { makeOperator, movePlan } from './operator.ts'
-import { holdNextTurn, refuseEmbeddings, releaseTurns } from './standin.ts'
+import { heldTurns, holdNextTurn, refuseEmbeddings, releaseTurns } from './standin.ts'
 
 // The member's way through the app, end to end: sign up through the link the app mails, find the
 // organisation's first steps listed, skip the tour the first project shows, ask the sample
@@ -29,11 +29,12 @@ import { holdNextTurn, refuseEmbeddings, releaseTurns } from './standin.ts'
 // again; and last, make the project's own invoice template from the built-in one, a field
 // added, and delete it, then upload an invoice, read for the built-in one, and find its facts in
 // the project's facts table, sorted, kept by a condition and opened where they were found, one
-// checked and another corrected, which the table's rows to review, its CSV file and the audit
+// checked and another corrected, which the table's unchecked rows, its CSV file and the audit
 // log keep, and then a field added to the project's own invoice template and the invoice read again for it,
 // what the reading changed listed, the corrected total kept, the invoice checked against its purchase
-// order by cross-checks, run with a discrepancy report, and last an automation made, which runs them
-// once a second invoice arrives and tells the member what they found. The answer
+// order by cross-checks, run with a discrepancy report, an automation made, which runs them
+// once a second invoice arrives and tells the member what they found, and last the invoice put in
+// review, assigned to the colleague, disputed and approved in the reviews view. The answer
 // is the stand-in's (e2e/standin.py): the first sentence of the passage its search found best,
 // with that passage's reference. Along the way each kind of page, panel and dialog is checked
 // against axe-core's rules for WCAG 2.2 AA in both themes (e2e/axe.ts), and the keyboard's focus
@@ -202,6 +203,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await composer.press('Enter')
     await expect(page).toHaveURL(/[?&]chat=\d+/)
     await expect(page.getByText('Thinking')).toBeVisible()
+    // Stopped once its turn waits on the model: stopped before, it would leave the hold to the try.
+    await expect.poll(() => heldTurns(request)).toBe(1)
     await page.getByRole('button', { name: 'Stop', exact: true }).click()
     await expect(page.getByText('Stopped.', { exact: true })).toBeVisible()
     // Tried again in its place, which counts no question: the month's third, at the end, is the
@@ -861,7 +864,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const row = grid.getByRole('row').filter({ hasText: 'INV-2026-0412' })
     await expect(row).toContainText('EUR 1,250.00')
     await expect(row).toContainText('Acme Logistics Ltd')
-    await expect(page.getByText('1 document, 1 to review', { exact: true })).toBeVisible()
+    await expect(page.getByText('1 document, 1 with unchecked facts', { exact: true })).toBeVisible()
     const total = grid.getByRole('columnheader', { name: 'total amount', exact: true })
     await total.getByRole('button').click()
     await expect(total).toHaveAttribute('aria-sort', 'ascending')
@@ -925,13 +928,13 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.keyboard.press('Escape')
     await expect(row).toContainText('1,205.00 EUR')
 
-    // The rows to review keep it while a fact of it is unchecked.
-    const toReview = page.getByRole('button', { name: 'To review' })
-    await toReview.click()
-    await expect(toReview).toHaveAttribute('aria-pressed', 'true')
-    await expect(page.getByText('1 of 1 document, 1 to review', { exact: true })).toBeVisible()
+    // "Unchecked" keeps it while a fact of it is unchecked.
+    const unchecked = page.getByRole('button', { name: 'Unchecked' })
+    await unchecked.click()
+    await expect(unchecked).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByText('1 of 1 document, 1 with unchecked facts', { exact: true })).toBeVisible()
     await expect(row).toBeVisible()
-    await toReview.click()
+    await unchecked.click()
 
     // Every row it keeps downloads as a CSV file of the table as it shows, the correction in its cell.
     const download = page.getByRole('button', { name: 'Download', exact: true })
@@ -1155,5 +1158,62 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     )
     await page.getByLabel('What').selectOption('cross_checks_run')
     await expect(page.getByRole('listitem').filter({ hasText: 'by the automation “New invoices”' })).toContainText('Emudoc')
+  })
+
+  await test.step('put the invoice in review from its menu, assign it to a colleague in its tab, dispute and approve it in the reviews view, and find it marked in the facts table', async () => {
+    await page.goto('/')
+    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
+    const row = page.getByRole('treeitem', { name: 'invoice.md', exact: true })
+    await row.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Put in review' }).click()
+    await expect(row).toHaveAccessibleDescription(/To review$/)
+
+    // Its tab assigns it, to a colleague who sees the project and may change it.
+    await row.dblclick()
+    await expect(page.getByLabel('Review', { exact: true })).toHaveValue('to_review')
+    const assigning = page.waitForResponse((response) => response.url().endsWith('/review') && response.request().method() === 'PUT')
+    await page.getByLabel('Assigned to').selectOption({ label: 'Grace Hopper' })
+    await assigning
+    await expect(page.getByText(/^Put in review by .+ on /)).toBeVisible()
+    await expect(row).toHaveAccessibleDescription(/To review, assigned to Grace Hopper$/)
+    await expectAccessible(page, "a document's review")
+
+    // The reviews view lists it, and moves it where it is listed: out of the list, the keyboard going on from the heading.
+    await page.getByRole('button', { name: 'Reviews', exact: true }).click()
+    const heading = page.getByRole('heading', { name: 'Reviews' })
+    await expect(heading).toBeFocused()
+    await expect(page.getByRole('button', { name: 'To review (1)' })).toHaveAttribute('aria-pressed', 'true')
+    const waiting = page.getByRole('list', { name: 'To review' }).getByRole('listitem')
+    await expect(waiting).toHaveCount(1)
+    await expect(waiting.getByLabel('Assigned to').locator('option:checked')).toHaveText('Grace Hopper')
+    await expectAccessible(page, 'the reviews')
+    await waiting.getByLabel('Review', { exact: true }).selectOption('disputed')
+    await expect(heading).toBeFocused()
+    await page.getByRole('button', { name: 'Disputed (1)' }).click()
+    const disputed = page.getByRole('list', { name: 'Disputed' }).getByRole('listitem')
+    await expect(disputed).toContainText(/Disputed by .+ on /)
+    await disputed.getByLabel('Review', { exact: true }).selectOption('approved')
+    await page.getByRole('button', { name: 'Approved (1)' }).click()
+    await expect(page.getByRole('list', { name: 'Approved' }).getByRole('listitem')).toContainText(/Approved by .+ on /)
+    // The member's own: none, Grace being the one assigned.
+    await page.getByRole('button', { name: 'Assigned to me' }).click()
+    await expect(page).toHaveURL(/[?&]reviews=mine/)
+    await expect(page.getByText('No approved documents assigned to you')).toBeVisible()
+    await expectAccessible(page, 'the reviews, none of them listed')
+
+    // The facts table marks it beside its name.
+    await page.getByRole('button', { name: 'Back to the library' }).click()
+    await page.getByRole('button', { name: 'Extraction templates' }).click()
+    const invoice = page.getByRole('list', { name: 'Templates' }).locator(':scope > li').filter({ hasText: /^Invoice/ })
+    await invoice.getByRole('button', { name: 'Facts table of Invoice' }).click()
+    const grid = page.getByRole('grid', { name: 'Facts of invoice documents' })
+    await expect(grid.getByRole('img', { name: 'Approved, assigned to Grace Hopper' })).toHaveCount(1)
+
+    // Each move is the organisation's to ask about, by the file and its states, and the assignment by whom.
+    await page.goto('/organization/audit')
+    await page.getByLabel('What').selectOption('document_review_changed')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Disputed → Approved' })).toContainText('invoice.md')
+    await page.getByLabel('What').selectOption('document_assigned')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Assigned a document' })).toContainText('invoice.md · to Grace Hopper')
   })
 })

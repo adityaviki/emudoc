@@ -33,11 +33,11 @@ export interface TableAsk {
   sort: TableSort
   conditions: TableCondition[]
   words: string
-  review: boolean
+  unchecked: boolean
 }
 
 export const factTableKey = (projectId: number, ask: TableAsk) =>
-  [...factTablesKey(projectId), ask.kind, ask.sort.field, ask.sort.order, ask.conditions.map(conditionParam), ask.words.trim(), ask.review] as const
+  [...factTablesKey(projectId), ask.kind, ask.sort.field, ask.sort.order, ask.conditions.map(conditionParam), ask.words.trim(), ask.unchecked] as const
 
 /** The query of a page of the table, past `after` when it is given. */
 export function tableQuery(ask: TableAsk, after: string | null): URLSearchParams {
@@ -45,7 +45,7 @@ export function tableQuery(ask: TableAsk, after: string | null): URLSearchParams
   if (ask.sort.field) params.set('sort', ask.sort.field)
   for (const condition of ask.conditions) params.append('filter', conditionParam(condition))
   if (ask.words.trim()) params.set('q', ask.words.trim())
-  if (ask.review) params.set('review', 'true')
+  if (ask.unchecked) params.set('unchecked', 'true')
   if (after) params.set('after', after)
   return params
 }
@@ -183,9 +183,9 @@ export function rowsWords(total: number, documents: number, filtered: boolean): 
   return filtered ? `${total} of ${noun(documents)}` : noun(total)
 }
 
-/** How many of the rows shown hold a fact nobody has checked. */
-export function reviewWords(toReview: number): string {
-  return toReview === 0 ? 'every fact checked' : `${toReview} to review`
+/** How many of the rows shown hold a fact nobody has checked: "Unchecked" keeps those alone. Not a document's review (src/reviews.ts), which is a member's word on the whole document. */
+export function uncheckedWords(unchecked: number): string {
+  return unchecked === 0 ? 'every fact checked' : `${unchecked} with unchecked facts`
 }
 
 /** What the correction form sends: the value as the field's type takes it, an amount with its currency. */

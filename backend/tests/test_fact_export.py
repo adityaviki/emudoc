@@ -75,7 +75,13 @@ def test_the_csv_is_the_table_as_the_page_shows_it(
         f"Contracts invoice facts {day}.csv"
     )
     rows = read_csv(response)
-    assert list(rows[0]) == ["Document", *INVOICE_FIELDS, "To review", "Quote not found"]
+    assert list(rows[0]) == [
+        "Document",
+        *INVOICE_FIELDS,
+        "Review",
+        "Unchecked",
+        "Quote not found",
+    ]
     # The documents read for the template alone, by name: not the contract, the one in the trash,
     # the one read for none or another project's.
     assert [row["Document"] for row in rows] == ["acme-2.pdf", "acme-10.pdf", "globex.pdf"]
@@ -87,7 +93,8 @@ def test_the_csv_is_the_table_as_the_page_shows_it(
     assert acme["line_item"] == "Bolts, 40 x 10.00; Nuts, 80 x 10.00"
     assert acme["due_date"] == ""
     assert "notes" not in acme
-    assert acme["To review"] == "invoice_number; issue_date; line_item; total_amount"
+    assert acme["Unchecked"] == "invoice_number; issue_date; line_item; total_amount"
+    assert acme["Review"] == ""
 
 
 def test_the_csv_holds_the_table_s_sort_conditions_and_words(client, templates_on, three):
@@ -117,11 +124,11 @@ def test_the_file_says_what_the_members_checked_and_corrected(client, session, t
 
     rows = {row["Document"]: row for row in read_csv(export(client, three))}
     assert rows["acme-10.pdf"]["total_amount"] == "1,250.00"
-    assert rows["acme-10.pdf"]["To review"] == "invoice_number; issue_date; line_item"
-    assert rows["globex.pdf"]["To review"] == ""
+    assert rows["acme-10.pdf"]["Unchecked"] == "invoice_number; issue_date; line_item"
+    assert rows["globex.pdf"]["Unchecked"] == ""
     assert rows["acme-2.pdf"]["Quote not found"] == "vendor_name"
-    # To review alone: the rows with a fact nobody checked.
-    rows = read_csv(export(client, three, review="true"))
+    # Unchecked alone: the rows with a fact nobody checked.
+    rows = read_csv(export(client, three, unchecked="true"))
     assert [row["Document"] for row in rows] == ["acme-2.pdf", "acme-10.pdf"]
 
 
@@ -227,7 +234,7 @@ def test_each_download_is_a_row_of_the_audit_log_without_a_value(
             order="desc",
             filter=["total_amount:min:100", "vendor_name:contains:Acme"],
             q="INV",
-            review="true",
+            unchecked="true",
         )
     )
     assert exported(session) == [
@@ -239,7 +246,7 @@ def test_each_download_is_a_row_of_the_audit_log_without_a_value(
             "order": "desc",
             "conditions": ["total_amount:min", "vendor_name:contains"],
             "words": True,
-            "review": True,
+            "unchecked": True,
         },
     ]
 

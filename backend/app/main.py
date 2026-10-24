@@ -37,6 +37,7 @@ from app.api import (
     organizations,
     projects,
     query,
+    reviews,
     support,
     templates,
     trash,
@@ -445,6 +446,7 @@ KEYED = (
     cross_checks.router,
     check_runs.router,
     automations.router,
+    reviews.router,
 )
 
 

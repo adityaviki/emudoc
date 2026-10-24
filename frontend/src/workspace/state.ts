@@ -3,7 +3,7 @@
 import { createContext, useContext } from 'react'
 import type { Document, Folder, Project } from '../api.ts'
 import type { FolderTree } from '../hooks.ts'
-import type { Focus, WorkspaceUrl } from './url.ts'
+import type { Focus, Reviews, WorkspaceUrl } from './url.ts'
 
 export interface OpenTab {
   id: number
@@ -62,6 +62,8 @@ export interface Workspace {
   showFindings(checkId: number): void
   /** Shows a run of the project's cross-checks, kept with what it found, in the library, likewise. */
   showRun(runId: number): void
+  /** Shows the project's documents in review in the library, every member's or those assigned to the member, likewise. */
+  showReviews(whose?: Reviews): void
   openChat(chatId: number | 'new' | null, options?: { replace?: boolean }): void
   /** Which pane shows on a narrow screen, where only one fits. */
   mobilePane: Pane

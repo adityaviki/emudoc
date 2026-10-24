@@ -30,6 +30,11 @@ const doc = (id: number, filename: string, folderId: number | null = null): Docu
   template: null,
   usage: {},
   created_at: '2026-10-21T09:00:00Z',
+  review: null,
+  assignee_id: null,
+  assignee: null,
+  review_changer: null,
+  review_changed_at: null,
 })
 
 const folders = [folder(1, 'Invoices'), folder(2, '2024', 1), folder(3, 'Contracts')]
