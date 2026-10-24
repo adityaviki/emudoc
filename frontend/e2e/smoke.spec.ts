@@ -60,9 +60,10 @@ const DELIVERIES = join(import.meta.dirname, 'fixtures', 'deliveries')
 const SAMPLE = 'Sample: Acme supplier contract'
 
 test('a new member uploads a contract, finds it, asks about it and opens the cited passage', async ({ page, browser, request }) => {
-  // About 90 s on a machine of its own; CI's runners share one (ci-runner/), where it has taken
-  // over 120 s beside the backend suites and an image build.
-  test.setTimeout(300_000)
+  // About 3.5 minutes on a machine of its own (2026-10-24, with the connected folder's step);
+  // CI's runners share one (ci-runner/), where it took 5 beside the backend suites and an image
+  // build, and ran out of the 5 it had then.
+  test.setTimeout(480_000)
   // The colleague's browser, from the invitation on.
   let theirs: BrowserContext
   let grace: Page
