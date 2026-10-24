@@ -43,3 +43,12 @@ acts as the member who made it, in the organisation's projects alone, either rea
 and changing, for 30, 90 or 365 days or until revoked$api_rate. The key is shown once. A key
 that reads and changes is what the upload client sends a folder or a scanner's files with
 ([Uploading and organising documents](/help/documents)).
+
+A program builds on the versioned API, under `/api/v1`, which changes only by adding to it, so
+that what a program does today it goes on doing. With it a program makes and organises projects,
+folders and documents, follows an upload until it is indexed, searches and reads the facts, asks
+questions and follows their answers as they are written, and runs the cross-checks and reads
+what they found. A request that makes something may carry an `Idempotency-Key` header, a string
+of the program's own such as a UUID: sent again with the same key within $idempotency_hours
+hours, after an answer that did not arrive, it is given the first one's answer and carried out
+once.

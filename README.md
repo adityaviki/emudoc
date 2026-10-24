@@ -914,7 +914,7 @@ Its owners and admins also make its API keys (`backend/app/apikeys.py`), on a pl
 the API (every plan but Free). A program sends a key in a header, needing none of the app's:
 
 ```bash
-curl -H "Authorization: Bearer emk_…" https://emudoc.example.org/api/projects
+curl -H "Authorization: Bearer emk_…" https://emudoc.example.org/api/v1/projects
 ```
 
 A key acts as the member who made it, in the organisation it was made in: it reads what they may
@@ -930,6 +930,32 @@ and is held to 300 requests a minute of its own (`RATE_API_REQUESTS`) as well as
 rates. Each key made, rolled or revoked is a row of the audit log, and so is what a key does, as
 its member's with the key named. On a plan without the API, the keys made before are kept and
 refused until the organisation is on one with it again.
+A program builds on the versioned API under `/api/v1` (`backend/app/api/v1/`), which changes by
+addition alone, where the page's routes under `/api` change with the page (a key reaches those
+too, the upload client among them). It holds the projects, folders and documents (an upload, how
+far each document is indexed, its file and facts), search and the facts of a project, the
+passages answers cite, the chats (a question asked, its answer polled or followed as it is
+written) and the workflows (a project's cross-checks, a run of them and what each rule found,
+with the discrepancy report). It takes a key alone, refusing a request without one with 401,
+and answers in models of its own: a list is a page, `data` with `next`, which `after` takes for
+the page that follows; a refusal is `detail`, a sentence, with `limit` for the plan's, as the
+page's routes answer. A request that makes something (a project, a folder, an upload, a chat, a
+question, a run) may name itself with an `Idempotency-Key` header
+(`backend/app/idempotency.py`): sent again with it within a day, it is given the first one's
+answer, marked `Idempotent-Replayed: true`, and carried out once; the key with another request
+is refused with 422, and while the first is still being carried out with 409, and a request that
+was refused gives its key back. An answer's events are the API's own, whatever the agent does on
+the way: `text` adds to the answer, `reset` puts the answer so far and its sources in place of
+what was sent, `sources` adds passages it may cite, and `end` is the message as it was settled,
+each with an id that `Last-Event-ID` follows again from. The contract is
+`backend/app/api/v1/openapi.json`, which the tests hold to the routes and which `python -m
+app.api.v1.contract` writes again from them, refusing a change that would break a program
+written against it (one gone, renamed or retyped, or one a request must now send):
+
+```bash
+curl -H "Authorization: Bearer emk_…" -H "Idempotency-Key: $(uuidgen)" \
+  -F files=@invoice.pdf https://emudoc.example.org/api/v1/projects/12/documents
+```
 A key that reads and writes also runs the upload client, `emudoc_upload.py`
 (`backend/app/client/`), which the app serves to anyone at `/api/help/emudoc_upload.py`, links
 to from the API keys section and the help, and which any Python from 3.9 runs, needing nothing
@@ -1307,6 +1333,8 @@ backend/app/
                 invitations to an organisation, and joining one by an address's domain
   auth.py       passwords, sessions, one-time links and authenticator codes
   apikeys.py    the API keys a program calls the API with, as the member who made them
+  idempotency.py
+                a program's Idempotency-Key: a request sent again is given the first answer
   keyring.py    the keys of ENCRYPTION_KEYS and the cipher the database's secrets are kept in
   encrypted.py  the columns kept encrypted, the start's check and the encrypt-secrets command
   oidc.py       sign-in with Google and Microsoft
@@ -1335,6 +1363,7 @@ backend/app/
   payments.py   Stripe's API, and the signature on its events
   client/       the upload client members download and run, a script of the standard library
   api/          HTTP endpoints
+  api/v1/       the versioned API programs build on, its models, and its published contract
   headers.py    the headers every response carries for the browser
   answers.py    an answer as a job: the worker writes its events, the API streams them
   llm.py        every call to the AI model, and the fallback when the first model cannot answer
@@ -1383,6 +1412,6 @@ CHANGELOG.md    what each day's commits changed for members and operators
 - The operator's area views a member's account read only, with their leave; it does not act as
   them, nor turn features on per organisation.
 - Billing: the connectors and the model tier the plans declare are not read by anything yet.
-- The public API: keys call today's routes, which may change; versioned routes under
-  `/api/v1`, webhooks for a document ready or failed, and a hosted reference are to come.
+- The public API: webhooks for a document ready or failed and a run worked out, a hosted
+  reference of `/api/v1`, and the upload client moved onto it, are to come.
 - More file types (slides, email, legacy .doc and .xls), and reading order for multi-column PDFs.

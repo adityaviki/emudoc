@@ -216,7 +216,7 @@ def events(chat: ChatDep, message_id: int, request: Request, session: SessionDep
     followed = answer_in(chat, message_id, session).id
     session.commit()
     return StreamingResponse(
-        _follow(followed, _last_seen(request), request.app.state.stop),
+        _follow(followed, last_seen(request), request.app.state.stop),
         media_type="text/event-stream",
         headers=SSE_HEADERS,
     )
@@ -312,7 +312,7 @@ def answer_in(chat: Chat, message_id: int, session: Session) -> ChatMessage:
     return message
 
 
-def _last_seen(request: Request) -> int:
+def last_seen(request: Request) -> int:
     """The seq of the last event the client saw, from the header a reconnecting client sends."""
     try:
         return int(request.headers.get("Last-Event-ID", -1))
@@ -320,7 +320,7 @@ def _last_seen(request: Request) -> int:
         return -1
 
 
-def _poll(message_id: int, after: int) -> tuple[str | None, list[tuple[int, dict]]]:
+def poll_answer(message_id: int, after: int) -> tuple[str | None, list[tuple[int, dict]]]:
     """The answer's status, then the events past `after`: in that order, so that a status that
     says the answer is finished was read before the last events were, never after."""
     with SessionLocal() as session:
@@ -342,7 +342,7 @@ async def _follow(message_id: int, after: int, stop: Stop) -> AsyncIterator[str]
     sent_at = time.monotonic()
     while True:
         try:
-            status, rows = await anyio.to_thread.run_sync(_poll, message_id, after)
+            status, rows = await anyio.to_thread.run_sync(poll_answer, message_id, after)
         except PoolTimeout:
             # Every connection was in use for DB_POOL_TIMEOUT: the stream ends without an end
             # event, and the client follows again from where it was once it notices.

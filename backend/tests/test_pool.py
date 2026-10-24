@@ -124,7 +124,7 @@ def test_an_answer_holds_no_connection_while_the_model_thinks(session, services,
 def test_a_member_following_an_answer_holds_no_connection_while_it_is_written(
     client, session, services, account, indexed
 ):
-    # The stream looks at the table with a session of its own each time (`_poll` in
+    # The stream looks at the table with a session of its own each time (`poll_answer` in
     # app/api/chats.py). The request's own session gives its connection back before the
     # stream begins: twenty members following answers held twenty for the answers' length,
     # and each look waited for a twenty-first, so every answer waited DB_POOL_TIMEOUT and some

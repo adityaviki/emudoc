@@ -17,6 +17,13 @@ newest entry first.
 
 Members:
 
+- Programs build on a versioned API at `/api/v1`, called with an API key, which changes only by
+  adding to it, so that what a program does today it goes on doing: projects, folders, uploads
+  followed until they are indexed, search and facts, questions with their answers followed as
+  they are written, and runs of the cross-checks with what they found. A request that makes
+  something may carry an `Idempotency-Key`, and sent again with it after an answer that did not
+  arrive, it is carried out once. "Organisations, members and roles" in the help says more.
+
 - The upload client sends a folder from your computer into a project, its folders as they are,
   or goes on sending each file a scanner saves to a folder: download `emudoc_upload.py` under API
   keys on the organisation page and run it, by Python 3.9 or later, with a key that reads and
@@ -25,6 +32,13 @@ Members:
   and organising documents" in the help says how to run it.
 
 Operators:
+
+- The versioned API under `/api/v1` (`backend/app/api/v1/`) takes API keys alone and answers in
+  models of its own; its contract is `backend/app/api/v1/openapi.json`, which the suite holds to
+  the routes and `python -m app.api.v1.contract` writes again, refusing a change that would
+  break a program written against it. A request's `Idempotency-Key` is kept with its answer for a
+  day in `idempotency_keys` (migration b613bb7c52ef), which the housekeeping round prunes, as
+  deploying.md's "Retention and deletion" and the privacy policy say.
 
 - `main` takes a commit only through a pull request whose checks passed, CI's fourteen jobs on
   the branch brought up to date (the ruleset in `.github/rulesets/main.json`, which

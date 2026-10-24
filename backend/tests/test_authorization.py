@@ -408,12 +408,14 @@ def statuses(client, routes: list[Route]) -> dict[str, int]:
 def test_every_route_that_names_what_it_acts_on_is_tried(client, world):
     """A route added with an id in its path joins the lists above, or this fails: the lists
     are what the tests below hold to the caller's organisation and role. The account's own
-    routes (/api/auth) are held to the user in test_auth.py."""
+    routes (/api/auth) are held to the user in test_auth.py, the operator's area to the operator
+    in test_operator.py, and the versioned API's (/api/v1), which takes keys alone, to the key's
+    organisation, member and scope in test_api_v1.py."""
     tried = [(method, path) for method, path, _ in scoped(world)]
     untried = [
         f"{method.upper()} {template}"
         for template, operations in client.app.openapi()["paths"].items()
-        if "{" in template and not template.startswith(("/api/auth/", "/api/operator/"))
+        if "{" in template and not template.startswith(("/api/auth/", "/api/operator/", "/api/v1/"))
         for method in operations
         if not any(
             method.upper() == used and re.fullmatch(re.sub(r"\{\w+\}", r"[^/]+", template), path)

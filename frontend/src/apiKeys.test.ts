@@ -37,11 +37,11 @@ describe('API keys', () => {
     expect(mayRoll(key, { id: 8 } as Me)).toBe(false)
   })
 
-  it('shows how a program calls this deployment with the key', () => {
+  it('shows how a program calls the versioned API of this deployment with the key', () => {
     // Made at run time: a key written out here would be one to gitleaks.
     const secret = ['emk', 'x'.repeat(43)].join('_')
     expect(callWith(secret, 'https://emudoc.example.org')).toBe(
-      `curl -H "Authorization: Bearer ${secret}" https://emudoc.example.org/api/projects`,
+      `curl -H "Authorization: Bearer ${secret}" https://emudoc.example.org/api/v1/projects`,
     )
   })
 

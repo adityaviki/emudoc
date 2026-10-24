@@ -131,7 +131,7 @@ def test_a_followers_lines_name_the_answer_they_follow(
 ):
     chat = new_chat(client, indexed.project_id)
     message_id = ask(client, chat["id"], QUESTION)["answer"]["id"]
-    poll = chats._poll
+    poll = chats.poll_answer
 
     def polled(message_id_, after):
         logging.getLogger("app.api.chats").info("Polling")
@@ -139,7 +139,7 @@ def test_a_followers_lines_name_the_answer_they_follow(
         status, rows = poll(message_id_, after)
         return "stopped", rows
 
-    monkeypatch.setattr(chats, "_poll", polled)
+    monkeypatch.setattr(chats, "poll_answer", polled)
     response = client.get(f"/api/chats/{chat['id']}/messages/{message_id}/events")
     assert response.status_code == 200
     (line,) = [line for line in logged() if line["message"] == "Polling"]
