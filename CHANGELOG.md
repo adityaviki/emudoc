@@ -13,6 +13,28 @@ to: `## YYYY-MM-DD` a day (or `## YYYY-MM-DD to YYYY-MM-DD`), the newest first, 
 and `Operators:`, each a list of `- ` entries whose lines go on indented by two spaces, a day's
 newest entry first.
 
+## 2026-10-25
+
+Members:
+
+- Webhooks tell your programs what happens in the organisation as it happens: owners and admins
+  add one under Webhooks on the organisation page, with the address of a program and the events
+  it hears of, a document indexed or one that could not be, and a run of cross-checks worked
+  out. Each event carries what the versioned API answers for the document or the run, signed
+  with the webhook's secret, which is shown once; an event not taken is tried again for about a
+  day and a half, and each webhook's deliveries list what was sent and how it was answered.
+  "Organisations, members and roles" in the help shows how a program checks the signature.
+
+Operators:
+
+- The worker posts the organisations' webhooks (`backend/app/webhooks.py`), a `deliver_webhook`
+  job a try, to addresses on the internet over HTTPS alone, connecting to the address it checked
+  outside the deployment's own network and taking no proxy from the environment: its machine
+  must reach the internet on port 443. Their secrets are encrypted with `ENCRYPTION_KEYS`, which
+  `encrypt-secrets` covers; their delivery logs are kept 30 days (migration bb533acac8ec), and
+  `emudoc_webhook_deliveries_total` counts the tries. deploying.md's "Webhooks" says more. The
+  contract `backend/app/api/v1/openapi.json` lists the events as OpenAPI's `webhooks`.
+
 ## 2026-10-24
 
 Members:

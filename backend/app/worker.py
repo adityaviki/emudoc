@@ -98,6 +98,7 @@ from app.indexing.pipeline import (
 from app.jobs import (
     ANSWER_QUESTION,
     APPLY_LANGUAGE,
+    DELIVER_WEBHOOK,
     EXPORT_PROJECT,
     INDEX_DOCUMENT,
     LEASE,
@@ -149,6 +150,7 @@ from app.tracing import describe, timed, trace_of
 from app.tracking import start_tracking
 from app.version import VERSION
 from app.watch import watch
+from app.webhooks import abandon_delivery, announce_document, announce_run, run_delivery
 
 # By its name rather than `__name__`, which is "__main__" when the module runs as a command.
 log = logging.getLogger("app.worker")
@@ -306,6 +308,15 @@ def _minutes(delta: timedelta) -> str:
     return f"{minutes} minute" if minutes == 1 else f"{minutes} minutes"
 
 
+def _after_index(job: Job, services: Services) -> None:
+    """Once an index job ended: its document's upload may be settled, and the document's webhooks
+    told (app/webhooks.py), the one whichever way the other went."""
+    try:
+        after_index(job, services)
+    finally:
+        announce_document(job.payload["document_id"], job.id)
+
+
 def _abandon_index(job: Job, services: Services) -> None:
     _fail_document(
         job.payload["document_id"],
@@ -352,6 +363,11 @@ def _run_workflow(job: Job, services: Services) -> str | None:
 
 def _abandon_workflow(job: Job, services: Services) -> None:
     abandon_run(job.payload["run_id"], job.max_attempts)
+
+
+def _after_workflow(job: Job, services: Services) -> None:
+    # Worked out, or its report written, however the job ended: the webhooks are told.
+    announce_run(job.payload["run_id"], job.id)
 
 
 def _run_automation(job: Job, services: Services) -> str | None:
@@ -401,19 +417,21 @@ def _abandon_language(job: Job, services: Services) -> None:
 # the runs of cross-checks and the automations that make them the answers', since a member
 # waits for them and their reports are the agent's, and so the drafts; every other kind shares
 # the indexers, a message sent to a project's address among them (app/receiving.py), which is
-# an upload, and so is a connected folder's sync (app/connectors/sync.py).
+# an upload, and so is a connected folder's sync (app/connectors/sync.py), and the deliveries
+# of the webhooks (app/webhooks.py), whose answers come within seconds.
 HANDLERS: dict[str, Handler] = {
-    INDEX_DOCUMENT: Handler(_run_index, _abandon_index, after_index),
+    INDEX_DOCUMENT: Handler(_run_index, _abandon_index, _after_index),
     ANSWER_QUESTION: Handler(run_answer, abandon_answer),
     RENDER_PAGES: Handler(_run_render, _abandon_render),
     SEND_EMAIL: Handler(run_email, abandon_email),
     APPLY_LANGUAGE: Handler(_run_language, _abandon_language),
     EXPORT_PROJECT: Handler(_run_export, _abandon_export),
-    RUN_WORKFLOW: Handler(_run_workflow, _abandon_workflow),
+    RUN_WORKFLOW: Handler(_run_workflow, _abandon_workflow, _after_workflow),
     RUN_AUTOMATION: Handler(_run_automation, _abandon_automation),
     WRITE_DRAFT: Handler(_write_draft, _abandon_draft),
     RECEIVE_MAIL: Handler(_run_receive, _abandon_receive),
     SYNC_CONNECTOR: Handler(_run_sync, _abandon_sync),
+    DELIVER_WEBHOOK: Handler(run_delivery, abandon_delivery),
 }
 LANE_KINDS = {
     ANSWERER: [ANSWER_QUESTION, RUN_WORKFLOW, RUN_AUTOMATION, WRITE_DRAFT],

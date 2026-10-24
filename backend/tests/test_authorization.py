@@ -62,6 +62,7 @@ class World:
     automation_id: int
     draft_id: int
     connector_id: int
+    webhook_id: int
 
 
 @pytest.fixture
@@ -85,6 +86,10 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
     hits = client.get(f"/api/projects/{project['id']}/search", params={"q": "notice"}).json()
     invited = client.post("/api/organization/invitations", json={"email": "ivy@example.com"})
     key = client.post("/api/organization/keys", json={"name": "CI"})
+    hook = client.post(
+        "/api/organization/webhooks",
+        json={"url": "https://hooks.example.com/in", "events": ["document.ready"]},
+    )
     member = make_account("mo@example.com", account.organization, role="member")
     trashed_folder = make_folder(client, project["id"], "Old")
     note = client.post(
@@ -153,6 +158,7 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
         automation.json()["id"],
         draft["id"],
         connector.id,
+        hook.json()["id"],
     )
 
 
@@ -371,6 +377,16 @@ def keys(w: World) -> list[Route]:
     ]
 
 
+def webhooks(w: World) -> list[Route]:
+    """The organisation's webhooks, which only its owners and admins manage (test_webhooks.py)."""
+    return [
+        ("PATCH", f"/api/organization/webhooks/{w.webhook_id}", {"json": {"enabled": False}}),
+        ("POST", f"/api/organization/webhooks/{w.webhook_id}/roll", {}),
+        ("GET", f"/api/organization/webhooks/{w.webhook_id}/deliveries", {}),
+        ("DELETE", f"/api/organization/webhooks/{w.webhook_id}", {}),
+    ]
+
+
 def members(w: World) -> list[Route]:
     """Changing a member's role and removing them, which only the owners and admins may."""
     return [
@@ -393,6 +409,7 @@ def scoped(w: World) -> list[Route]:
         + switches(w)
         + invitations(w)
         + keys(w)
+        + webhooks(w)
         + members(w)
     )
 
@@ -495,7 +512,7 @@ def test_a_viewer_can_read_but_not_change(client, world, account, make_account, 
     assert client.post("/api/projects", json={"name": "Mine"}).status_code == 403
     detail = client.delete(f"/api/documents/{world.document_id}").json()["detail"]
     assert detail.startswith("Your role in this organisation is viewer")
-    managed = statuses(client, invitations(world) + keys(world) + members(world))
+    managed = statuses(client, invitations(world) + keys(world) + webhooks(world) + members(world))
     assert set(managed.values()) == {403}, managed
 
     # Asking questions is reading: a viewer may start a chat of their own.
@@ -509,8 +526,9 @@ def test_a_member_can_change_things(client, world, account, make_account, act_as
     renamed = client.patch(f"/api/projects/{world.project_id}", json={"name": "Ours"})
     assert renamed.status_code == 200
     assert client.delete(f"/api/folders/{world.folder_id}").status_code == 204
-    # The invitations, the API keys and the members' roles are the owners' and admins' to manage.
-    managed = statuses(client, invitations(world) + keys(world) + members(world))
+    # The invitations, the API keys, the webhooks and the members' roles are the owners' and
+    # admins' to manage.
+    managed = statuses(client, invitations(world) + keys(world) + webhooks(world) + members(world))
     assert set(managed.values()) == {403}, managed
 
 

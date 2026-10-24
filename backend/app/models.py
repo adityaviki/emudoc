@@ -88,6 +88,11 @@ PROJECT_VISIBILITIES = ("organization", "private")
 # What an API key may do (app/apikeys.py): read, by the methods that change nothing, or write,
 # which reads too; either within the role of the member who made it.
 API_KEY_SCOPES = ("read", "write")
+# What an organisation's webhooks are told of (app/webhooks.py): a document indexed, one that
+# could not be, and a run of cross-checks worked out; and how a delivery to one stands: being
+# tried, answered with a 2xx, or given up.
+WEBHOOK_EVENTS = ("document.ready", "document.failed", "check_run.completed")
+WEBHOOK_DELIVERY_STATUSES = ("pending", "delivered", "failed")
 # What a background job can be (app/jobs.py). A worker only claims the kinds it has a handler
 # for, so a kind can be queued by a newer API before an older worker knows it.
 JOB_KINDS = (
@@ -102,6 +107,7 @@ JOB_KINDS = (
     "run_automation",
     "write_draft",
     "receive_mail",
+    "deliver_webhook",
 )
 JOB_STATUSES = ("queued", "running", "done", "failed")
 # Why an address is sent no notices (app/bounces.py): mail to it bounced for good, or its reader
@@ -176,7 +182,9 @@ NATURAL_ORDER = "natural_order"
 # which is what documents say leaving the app; a project's own template of a kind of draft is
 # made, changed and deleted for good (app/draft_templates.py). A project's address is made, its
 # senders, folder or address changed, and taken away (app/inbound.py); a document that arrived
-# by it is uploaded by its member, or by nobody for a sender outside the organisation.
+# by it is uploaded by its member, or by nobody for a sender outside the organisation. A webhook
+# the organisation's programs hear of its work by is added, changed, given a new secret and
+# removed (app/webhooks.py), which sends what documents say to an address of its choosing.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -222,6 +230,10 @@ AUDIT_ACTIONS = (
     "api_key_created",
     "api_key_rolled",
     "api_key_revoked",
+    "webhook_created",
+    "webhook_changed",
+    "webhook_rolled",
+    "webhook_deleted",
     "ownership_transferred",
     "invitation_sent",
     "invitation_revoked",
@@ -726,6 +738,71 @@ class IdempotencyKey(Base):
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )
+
+
+class Webhook(Base):
+    """An address an organisation's programs hear of its work at (app/webhooks.py): each event
+    of the kinds it names is posted there, signed with its secret. It is the organisation's,
+    made and managed by its owners and admins, and goes with it."""
+
+    __tablename__ = "webhooks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    url: Mapped[str] = mapped_column(String(2000))
+    # Of WEBHOOK_EVENTS, in their order.
+    events: Mapped[list[str]] = mapped_column(JSONB)
+    # Encrypted for its row (WEBHOOK_SECRETS in app/encrypted.py): it must be read to sign with,
+    # and a copy of the database that held it could sign as Emudoc.
+    secret: Mapped[str] = mapped_column(Text)
+    # Paused by an owner or admin: its events are not posted until it is on again.
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    rolled_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class WebhookDelivery(Base):
+    """One event posted to one webhook, as the delivery log shows it: what it was and how the
+    address answered its last try, never what it said. The event's id is the same through every
+    try, and to every hook it went to; `(webhook_id, job_id)` is unique, so the end of a job
+    looked at twice announces its event once. The housekeeper removes it DELIVERIES_KEPT after
+    it was made."""
+
+    __tablename__ = "webhook_deliveries"
+    __table_args__ = (
+        UniqueConstraint("webhook_id", "job_id"),
+        # The log a hook at a time, the newest first.
+        Index("ix_webhook_deliveries_hook", "webhook_id", "id"),
+        _one_of("event_type", WEBHOOK_EVENTS, "webhook_deliveries"),
+        _one_of("status", WEBHOOK_DELIVERY_STATUSES, "webhook_deliveries"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    webhook_id: Mapped[int] = mapped_column(ForeignKey("webhooks.id", ondelete="CASCADE"))
+    event_id: Mapped[str] = mapped_column(String(40))
+    event_type: Mapped[str] = mapped_column(String(40))
+    # The document's or the run's id, which the event's `data` is, and the job whose end
+    # announced it, no foreign key, since the jobs are pruned first.
+    subject_id: Mapped[int] = mapped_column(BigInteger)
+    job_id: Mapped[int] = mapped_column(BigInteger)
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    # How the last try ended: the address's HTTP status, if it answered, and else, or for a status
+    # that is no delivery, the app's sentence why.
+    response_status: Mapped[int | None] = mapped_column(Integer)
+    error: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    attempted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    # When the next try is due, while one waits.
+    retry_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class SupportGrant(Base):

@@ -49,6 +49,11 @@ organisation uploaded a document about you, ask the organisation first; we help 
   that key and the answer the request was given, which holds what it made, so that the request
   sent again is given the same answer rather than carried out twice. We need them to provide
   the service to the organisation.
+- **Webhooks**: for each webhook an organisation's owner or admin adds for its programs, its
+  address, the events it is told of and who added it, its signing secret, encrypted, and for
+  each event sent to it which it was, about which document or run, when, and how the address
+  answered, never what the event said, so that the organisation's programs hear of its work as
+  it happens. We need them to provide the service to the organisation.
 - **Usage**: the pages, questions and model use your organisation counted, and what they cost,
   each with the member it was for, to hold the organisation to its plan and, on a paid plan,
   to bill it.
@@ -108,6 +113,10 @@ of you.
   addresses of your requests in its audit log. An
   organisation that lets everyone with an address at a domain join it is offered to you once
   you confirm an address there; it learns of you only if you join.
+- **The programs an organisation's owners and admins give webhooks to** receive, at the
+  addresses they chose, what the service tells them of its documents (their names, what was
+  read of them, how far they are indexed) and of its runs of cross-checks (what they found and
+  their reports). The organisation chose them and answers for them; they are not ours.
 - **Authorities**, only where the law obliges us to hand data over.
 
 ## Where it is kept
@@ -145,6 +154,8 @@ $region
 - **API keys**, until they are revoked or the member who made them leaves the organisation, or
   $credential_days days after they ran out.
 - **The answers kept for a program's idempotency keys**, a day, or until its API key goes.
+- **Webhooks**, until an owner or admin removes them or the organisation goes; what was sent to
+  each, $webhook_days days.
 - **Your leave for support**, until you withdraw it or leave the organisation, or
   $credential_days days after it ran out; the audit log keeps when support opened your account.
 - **The browsers you signed in with**, until $browser_days days after their last sign-in.

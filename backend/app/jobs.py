@@ -81,6 +81,7 @@ RUN_AUTOMATION = "run_automation"
 WRITE_DRAFT = "write_draft"
 RECEIVE_MAIL = "receive_mail"
 SYNC_CONNECTOR = "sync_connector"
+DELIVER_WEBHOOK = "deliver_webhook"
 # Lower runs first. An answer is work a user is watching for; an upload is work a user is
 # waiting for; a reprocess of a whole project, or of everything after a model change, is bulk
 # work that should not hold either up.

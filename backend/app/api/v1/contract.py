@@ -2,12 +2,16 @@
 copy published beside them (`openapi.json`, PUBLISHED), which programs and their generated
 clients are written against.
 
+The document lists the events posted to an organisation's webhooks beside the routes (OpenAPI's
+`webhooks`, app/api/v1/webhooks.py), whose bodies a program reads as it reads an answer.
+
 The two are held equal by tests/test_api_v1.py, so that no change to the API goes out unnoticed;
-and a change may only add (`breaking_changes`): a new route, a field more in an answer, a new
-parameter or field a request may leave out. Anything that would stop a program written against
-the published copy (an operation, a parameter, an answer's status or field gone; a field's type
-or values changed; a field an answer always had now sometimes missing; something a request must
-now send) goes into a /api/v2 instead. Written again from the routes, refusing a change that
+and a change may only add (`breaking_changes`): a new route or event, a field more in an answer
+or an event's body, a new parameter or field a request may leave out. Anything that would stop a
+program written against the published copy (an operation, an event, a parameter, an event's
+header, an answer's status or field gone; a field's type or values changed; a field an answer or
+an event always had now sometimes missing; something a request must now send) goes into a
+/api/v2 instead. Written again from the routes, refusing a change that
 breaks, with:
 
     uv --directory emudoc/backend run python -m app.api.v1.contract
@@ -21,6 +25,7 @@ from typing import Any
 from fastapi import FastAPI
 
 from app.api import v1
+from app.api.v1.webhooks import events
 
 PUBLISHED = Path(__file__).with_name("openapi.json")
 TITLE = "Emudoc API"
@@ -35,10 +40,18 @@ _WORDS = frozenset({"title", "description", "examples"})
 
 
 def contract() -> dict[str, Any]:
-    """The OpenAPI document of the versioned API's routes, alone."""
+    """The OpenAPI document of the versioned API's routes and webhooks' events, alone."""
     app = FastAPI(title=TITLE, version=VERSION, description=DESCRIPTION)
     app.include_router(v1.router, prefix="/api")
-    return app.openapi()
+    app.webhooks.include_router(events, generate_unique_id_function=v1.operation_id)
+    document = app.openapi()
+    # FastAPI words an event's answer as a route's, a JSON body and a 422 of its own checks;
+    # Emudoc reads a receiver's status alone, any 2xx.
+    for operations in document.get("webhooks", {}).values():
+        for operation in operations.values():
+            taken = operation["responses"]["200"]["description"]
+            operation["responses"] = {"2XX": {"description": taken}}
+    return document
 
 
 def published() -> dict[str, Any]:
@@ -59,6 +72,13 @@ def breaking_changes(before: dict[str, Any], after: dict[str, Any]) -> list[str]
             problems += _parameters(name, operation, now)
             problems += _body(name, operation, now)
             problems += _answers(name, operation, now)
+    for event, operations in before.get("webhooks", {}).items():
+        for method, operation in operations.items():
+            now = after.get("webhooks", {}).get(event, {}).get(method)
+            if now is None:
+                problems.append(f"The event {event} is no longer sent.")
+                continue
+            problems += _sent(event, operation, now)
     schemas = after.get("components", {}).get("schemas", {})
     inputs, outputs = _uses(before)
     for name, schema in before.get("components", {}).get("schemas", {}).items():
@@ -119,6 +139,25 @@ def _answers(name: str, before: dict, after: dict) -> list[str]:
     return problems
 
 
+def _sent(event: str, before: dict, after: dict) -> list[str]:
+    """An event's headers and body, which a program's own route reads: none gone or changed."""
+    was = {(p["in"], p["name"]): p for p in before.get("parameters", [])}
+    now = {(p["in"], p["name"]): p for p in after.get("parameters", [])}
+    problems = []
+    for (where, called), parameter in was.items():
+        if (where, called) not in now:
+            problems.append(f"The event {event} no longer carries the {where} {called}.")
+        elif _bare(now[(where, called)].get("schema")) != _bare(parameter.get("schema")):
+            problems.append(f"The event {event} carries the {where} {called} as something else.")
+    for media, content in before.get("requestBody", {}).get("content", {}).items():
+        given = after.get("requestBody", {}).get("content", {})
+        if media not in given:
+            problems.append(f"The event {event} is no longer sent as {media}.")
+        elif _bare(given[media].get("schema")) != _bare(content.get("schema")):
+            problems.append(f"The event {event} is sent with something else as {media}.")
+    return problems
+
+
 def _fields(name: str, before: dict, after: dict, taken: bool, given: bool) -> list[str]:
     """A schema's fields: none gone or changed; one that every answer had is in every answer
     still, and a request is asked for no field it was not asked for before."""
@@ -142,8 +181,8 @@ def _fields(name: str, before: dict, after: dict, taken: bool, given: bool) -> l
 
 
 def _uses(document: dict) -> tuple[set[str], set[str]]:
-    """The schemas a request's parameters and body name, and those an answer names, each with
-    the schemas they name in turn."""
+    """The schemas a request's parameters and body name, and those an answer or an event names,
+    each with the schemas they name in turn."""
     schemas = document.get("components", {}).get("schemas", {})
     taken: list[Any] = []
     given: list[Any] = []
@@ -152,6 +191,10 @@ def _uses(document: dict) -> tuple[set[str], set[str]]:
             taken += [p.get("schema") for p in operation.get("parameters", [])]
             taken.append(operation.get("requestBody"))
             given += list(operation.get("responses", {}).values())
+    for operations in document.get("webhooks", {}).values():
+        for operation in operations.values():
+            given += [p.get("schema") for p in operation.get("parameters", [])]
+            given.append(operation.get("requestBody"))
     return _reached(taken, schemas), _reached(given, schemas)
 
 

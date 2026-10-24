@@ -31,7 +31,8 @@ test waits for before it stops the answer: one stopped before its turn reached t
 leave the hold to the try. `POST /refuse-embeddings` with `{"containing": word}`
 refuses the next embeddings request any of whose texts holds the word with a 400, which the app
 does not try again, so that the browser test finds a document partly indexed and indexes the
-rest of it.
+rest of it. `POST /hooks` is a program's webhook (backend/app/webhooks.py): it keeps each event
+with its signature and answers 204, and `GET /hooks` lists what it kept.
 
 Under `/google` it is Google Drive as a connected folder reads it (backend/app/connectors/google.py,
 reached through CONNECTOR_BASE_URL): its consent page sends the browser straight back with a code,
@@ -331,6 +332,8 @@ class Handler(BaseHTTPRequestHandler):
     hold_lock = threading.Lock()
     # The word whose next embeddings request is refused, once.
     refusing: str | None = None
+    # The webhooks' events received, each with its headers, as sent.
+    hooks: list[dict[str, str]] = []
 
     def log_message(self, format: str, *args: Any) -> None:
         """Quiet: Playwright shows a server's output only when asked."""
@@ -343,6 +346,9 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.rstrip("/") == "/held":
             with Handler.hold_lock:
                 self._json({"waiting": Handler.waiting})
+        elif self.path.rstrip("/") == "/hooks":
+            with Handler.hold_lock:
+                self._json({"received": Handler.hooks})
         else:
             self._json({"error": {"message": f"No route {self.path}."}}, 404)
 
@@ -350,6 +356,19 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         if self.path.startswith("/google/"):
             self._google_post(parse_qs(raw.decode()))
+            return
+        if self.path.rstrip("/") == "/hooks":
+            with Handler.hold_lock:
+                Handler.hooks.append(
+                    {
+                        "event": self.headers.get("Emudoc-Event", ""),
+                        "signature": self.headers.get("Emudoc-Signature", ""),
+                        "body": raw.decode(),
+                    }
+                )
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
             return
         body = json.loads(raw or b"{}")
         if self.path.rstrip("/") == "/hold":

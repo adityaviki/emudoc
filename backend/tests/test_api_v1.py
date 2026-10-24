@@ -698,6 +698,7 @@ def test_what_only_adds_breaks_no_program():
         {"name": "q", "in": "query", "required": False, "schema": {"type": "string"}}
     )
     listing["responses"]["418"] = {"description": "A teapot."}
+    after["webhooks"]["document.deleted"] = after["webhooks"]["document.failed"]
     assert breaking_changes(before, after) == []
 
 
@@ -743,6 +744,25 @@ def test_what_only_adds_breaks_no_program():
         (
             lambda d: d["components"]["schemas"].pop("Passage"),
             "The schema Passage is gone.",
+        ),
+        (
+            lambda d: d["webhooks"].pop("document.failed"),
+            "The event document.failed is no longer sent.",
+        ),
+        (
+            lambda d: d["webhooks"]["document.ready"]["post"]["parameters"].pop(0),
+            "The event document.ready no longer carries the header Emudoc-Signature.",
+        ),
+        (
+            lambda d: d["webhooks"]["check_run.completed"]["post"]["requestBody"]["content"][
+                "application/json"
+            ].update(schema={"$ref": "#/components/schemas/Document"}),
+            "The event check_run.completed is sent with something else as application/json.",
+        ),
+        # A body a program receives is read as an answer is: a field it always held stays.
+        (
+            lambda d: d["components"]["schemas"]["DocumentEvent"]["required"].remove("data"),
+            "DocumentEvent no longer always holds data.",
         ),
     ],
 )

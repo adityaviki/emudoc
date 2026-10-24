@@ -1,13 +1,14 @@
 // The organisation the user works in: its name and region, its settings and security settings (its audit log is
-// AuditPage.tsx), the API keys its owners and admins make for its programs, what its plan lets it keep and use (what it holds and used of it is the usage page's, UsagePage.tsx)
+// AuditPage.tsx), the API keys its owners and admins make for its programs and the webhooks its programs hear of its
+// work at, what its plan lets it keep and use (what it holds and used of it is the usage page's, UsagePage.tsx)
 // and buying one, its members, their roles and removing them, handing it over to another of them, the invitations its
 // owners and admins send and the domains whose addresses may join it, leaving it, and its owners deleting it or keeping it; the user's other organisations to switch to and those open to them; and the page that starts a new
 // one. A switch, a join, a new organisation and leaving one start the app again in the organisation the session then
 // works in (`startAgainInOrganization` in auth.ts).
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Copy, CreditCard, History, KeyRound, LogOut, Plus, Trash2, UserMinus, UserPlus } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { DELETION_GRACE_DAYS, PLAN_LABELS, REGION_NAMES, ROLES, ROLE_LABELS, isPlanLimit, isWithin, organizations } from '../api.ts'
@@ -24,6 +25,9 @@ import type {
   PlanChoice,
   Role,
   SoldPlan,
+  Webhook,
+  WebhookEvent,
+  WebhookMade,
 } from '../api.ts'
 import { KEY_DAYS, SCOPES, UPLOAD_CLIENT, callWith, daysOf, describeKey, mayRoll, uploadWith } from '../apiKeys.ts'
 import { ME_KEY, setSignedIn, startAgainInOrganization, useMe } from '../auth.ts'
@@ -32,7 +36,7 @@ import { PasswordField } from '../account/shared.tsx'
 import { NoticeChoices } from '../components/NoticeChoices.tsx'
 import { PlanLimitNotice, PlanOffer } from '../components/PlanLimit.tsx'
 import { Button, Checkbox, Chip, FIELD, InputField, LinkButton, Loading, Notice, Radio, Row, Section, SelectField } from '../components/ui.tsx'
-import { formatDate, formatSize } from '../format.ts'
+import { formatDate, formatDateTime, formatSize } from '../format.ts'
 import { INVITATIONS_SECTION, JOINING_SECTION } from '../onboarding.ts'
 import {
   DELETION_SECTION,
@@ -47,11 +51,14 @@ import {
   sessionDayChoices,
   signInWords,
 } from '../organizationSettings.ts'
+import { EVENT_ORDER, WEBHOOK_EVENTS, chosenEvents, deliveryWords, describeWebhook, subjectWords, webhookProblem } from '../webhooks.ts'
 
 const MEMBERS_KEY = ['organization', 'members'] as const
 const LANGUAGES_KEY = ['organization', 'languages'] as const
 const INVITATIONS_KEY = ['organization', 'invitations'] as const
 const KEYS_KEY = ['organization', 'keys'] as const
+const WEBHOOKS_KEY = ['organization', 'webhooks'] as const
+const WEBHOOK_URL = 'webhook-url'
 const JOIN_ROLES: JoinRole[] = ['member', 'viewer']
 
 const capitalised = (text: string) => text[0].toUpperCase() + text.slice(1)
@@ -71,13 +78,18 @@ export function OrganizationPage() {
       <div className="mx-auto max-w-2xl px-6 py-10">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold tracking-tight">{me.organization.name}</h1>
-          <p className="mt-1 text-[13px] text-muted">The organisation you work in: its name and settings, how its members sign in, its API keys, its plan, its members, who may join it, leaving it, and deleting it.</p>
+          <p className="mt-1 text-[13px] text-muted">The organisation you work in: its name and settings, how its members sign in, its API keys and webhooks, its plan, its members, who may join it, leaving it, and deleting it.</p>
         </div>
         <div className="space-y-5">
           <NameSection me={me} />
           <SettingsSection me={me} />
           <SecuritySection me={me} />
-          {isWithin('admin', me.role) && <ApiKeysSection me={me} />}
+          {isWithin('admin', me.role) && (
+            <>
+              <ApiKeysSection me={me} />
+              <WebhooksSection me={me} />
+            </>
+          )}
           <PlanSection me={me} />
           <MembersSection me={me} />
           {isWithin('admin', me.role) && (
@@ -590,6 +602,338 @@ function ApiKeyRow({ me, apiKey, onRolled }: { me: Me; apiKey: ApiKey; onRolled:
         </div>
       )}
     </li>
+  )
+}
+
+// What happens in the organisation's projects, posted to its programs as it happens (backend/app/webhooks.py): a
+// webhook is an address and the events it is told of, each signed with its secret, which is shown once.
+function WebhooksSection({ me }: { me: Me }) {
+  const queryClient = useQueryClient()
+  const hooks = useQuery({ queryKey: WEBHOOKS_KEY, queryFn: organizations.webhooks })
+  const [shown, setShown] = useState<WebhookMade | null>(null)
+  const make = useMutation({
+    mutationFn: (body: { url: string; events: WebhookEvent[] }) => organizations.makeWebhook(body),
+    onSuccess: (made) => {
+      setShown(made)
+      void queryClient.invalidateQueries({ queryKey: WEBHOOKS_KEY })
+    },
+  })
+
+  return (
+    <Section
+      id="webhooks"
+      title="Webhooks"
+      description="Emudoc posts what happens in the organisation's projects to your programs' addresses as it happens, each event signed with the webhook's secret: a document indexed, or not, and a run of cross-checks worked out."
+    >
+      {shown && <NewSecret made={shown} onDone={() => setShown(null)} />}
+      {me.organization.allowance.api_access ? (
+        <>
+          <WebhookForm
+            action="Add the webhook"
+            pending={make.isPending}
+            onSubmit={(body, done) => make.mutate(body, { onSuccess: done })}
+          />
+          <p className="mt-3 text-[13px] text-muted">
+            Each event carries what the versioned API answers for its document or run, and a signature your program checks
+            with the secret:{' '}
+            <Link to="/help/organisations" className="font-medium text-accent hover:underline">
+              how to check it
+            </Link>
+            .
+          </p>
+        </>
+      ) : (
+        <Notice tone="info">
+          <p className="text-ink">The organisation's plan does not include the API, which webhooks are part of.</p>
+          <PlanOffer limit="api_access" />
+        </Notice>
+      )}
+      {make.isError && (
+        <div className="mt-3">
+          {isPlanLimit(make.error) ? (
+            <PlanLimitNotice refusal={make.error} onDismiss={() => make.reset()} />
+          ) : (
+            <Notice tone="bad">{make.error.message}</Notice>
+          )}
+        </div>
+      )}
+      {hooks.isPending && <Loading />}
+      {hooks.isError && <Notice tone="bad">{hooks.error.message}</Notice>}
+      {hooks.data &&
+        (hooks.data.length ? (
+          <ul className="mt-4 divide-y divide-line border-t border-line">
+            {hooks.data.map((hook) => (
+              <WebhookRow key={hook.id} hook={hook} onRolled={setShown} />
+            ))}
+          </ul>
+        ) : (
+          me.organization.allowance.api_access && <p className="mt-3 text-[13px] text-muted">The organisation has no webhooks yet.</p>
+        ))}
+    </Section>
+  )
+}
+
+/** A webhook's address and events, to add one or change it; `done` clears the form once the server took it. */
+function WebhookForm({
+  hook,
+  action,
+  pending,
+  onSubmit,
+  onCancel,
+}: {
+  hook?: Webhook
+  action: string
+  pending: boolean
+  onSubmit: (body: { url: string; events: WebhookEvent[] }, done: () => void) => void
+  onCancel?: () => void
+}) {
+  const [url, setUrl] = useState(hook?.url ?? '')
+  const [events, setEvents] = useState<WebhookEvent[]>(hook?.events ?? ['document.ready'])
+  const problem = webhookProblem(url)
+
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    if (!url.trim() || problem || !events.length) return
+    onSubmit({ url: url.trim(), events: chosenEvents(events) }, () => {
+      if (!hook) {
+        setUrl('')
+        setEvents(['document.ready'])
+      }
+    })
+  }
+
+  function toggle(event: WebhookEvent, on: boolean) {
+    setEvents((chosen) => (on ? chosenEvents([...chosen, event]) : chosen.filter((other) => other !== event)))
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      <InputField
+        id={hook ? undefined : WEBHOOK_URL}
+        label="Address"
+        required
+        inputMode="url"
+        autoComplete="off"
+        maxLength={2000}
+        placeholder="https://hooks.example.com/emudoc"
+        value={url}
+        onChange={(event) => setUrl(event.target.value)}
+        autoFocus={Boolean(hook)}
+      />
+      {problem && <p className="text-[13px] text-bad">{problem}</p>}
+      <fieldset className="space-y-2">
+        <legend className="mb-1 text-xs font-medium text-muted">What it is told of</legend>
+        {EVENT_ORDER.map((event) => (
+          <Checkbox
+            key={event}
+            label={
+              <>
+                {WEBHOOK_EVENTS[event].label} <code className="font-mono text-xs">{event}</code>
+                <span className="block text-xs text-muted">{WEBHOOK_EVENTS[event].hint}</span>
+              </>
+            }
+            checked={events.includes(event)}
+            onChange={(change) => toggle(event, change.target.checked)}
+          />
+        ))}
+      </fieldset>
+      <div className="flex gap-2">
+        <Button type="submit" variant="primary" disabled={!url.trim() || Boolean(problem) || !events.length || pending}>
+          {action}
+        </Button>
+        {onCancel && (
+          <Button variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+        )}
+      </div>
+    </form>
+  )
+}
+
+/** A webhook just added or rolled, whose secret nothing shows again. The form's button it came from is disabled once
+ * the form is cleared, which drops the focus: the keyboard goes on from the secret's first button. */
+function NewSecret({ made, onDone }: { made: WebhookMade; onDone: () => void }) {
+  const [copied, setCopied] = useState(false)
+  const shown = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    shown.current?.querySelector('button')?.focus()
+  }, [made])
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(made.secret)
+      setCopied(true)
+    } catch {
+      // The clipboard can be unavailable; the secret is on screen to copy by hand.
+    }
+  }
+
+  return (
+    <div ref={shown} className="mb-4 space-y-3 text-[13px]">
+      <Notice tone="warn">
+        Copy the secret of the webhook to {hostOf(made.url)} now: it is not shown again. Your program checks the
+        signature of every event with it, so keep it where you keep passwords.
+      </Notice>
+      <code className="block rounded-md border border-line bg-sunken px-3 py-2 font-mono text-xs break-all select-all">{made.secret}</code>
+      <div className="flex gap-2">
+        <Button icon={copied ? <Check className="size-4" /> : <Copy className="size-4" />} onClick={copy}>
+          {copied ? 'Copied' : 'Copy the secret'}
+        </Button>
+        <Button variant="primary" onClick={onDone}>
+          I have saved it
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
+
+// Rolling and removing each stop the program that checks the events at once, so each asks first; pausing is undone
+// as easily as it is done.
+function WebhookRow({ hook, onRolled }: { hook: Webhook; onRolled: (made: WebhookMade) => void }) {
+  const queryClient = useQueryClient()
+  const [asking, setAsking] = useState<'roll' | 'remove' | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [log, setLog] = useState(false)
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: WEBHOOKS_KEY })
+  const change = useMutation({
+    mutationFn: (body: { url?: string; events?: WebhookEvent[]; enabled?: boolean }) => organizations.changeWebhook(hook.id, body),
+    onSuccess: refresh,
+  })
+  const roll = useMutation({
+    mutationFn: () => organizations.rollWebhook(hook.id),
+    onSuccess: (made) => {
+      setAsking(null)
+      refresh()
+      onRolled(made)
+    },
+  })
+  const remove = useMutation({
+    mutationFn: () => organizations.removeWebhook(hook.id),
+    onSuccess: () => {
+      refresh()
+      // The row and the button that held the focus go: the keyboard goes on from the form.
+      document.getElementById(WEBHOOK_URL)?.focus()
+    },
+  })
+  const busy = change.isPending || roll.isPending || remove.isPending
+  const error = change.error ?? roll.error ?? remove.error
+
+  return (
+    <li className="py-2.5 text-[13px]">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <div className="min-w-56 flex-1">
+          <p className="font-mono text-xs break-all">{hook.url}</p>
+          <p className="text-xs text-muted">{describeWebhook(hook)}</p>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {hook.events.map((event) => (
+              <Chip key={event}>{event}</Chip>
+            ))}
+          </div>
+        </div>
+        <Button variant="ghost" onClick={() => setLog((open) => !open)} aria-expanded={log}>
+          Deliveries
+        </Button>
+        <Button variant="ghost" onClick={() => setEditing(true)} disabled={busy || editing}>
+          Change
+        </Button>
+        <Button variant="ghost" onClick={() => change.mutate({ enabled: !hook.enabled })} disabled={busy}>
+          {hook.enabled ? 'Pause' : 'Turn on'}
+        </Button>
+        <Button variant="ghost" onClick={() => setAsking('roll')} disabled={busy}>
+          Roll the secret
+        </Button>
+        <Button variant="ghost" onClick={() => setAsking('remove')} disabled={busy}>
+          Remove
+        </Button>
+      </div>
+      {editing && (
+        <div className="mt-3">
+          <WebhookForm
+            hook={hook}
+            action="Save"
+            pending={change.isPending}
+            onSubmit={(body) => change.mutate(body, { onSuccess: () => setEditing(false) })}
+            onCancel={() => setEditing(false)}
+          />
+        </div>
+      )}
+      {asking && (
+        <div className="mt-2 space-y-2">
+          <Notice tone="warn">
+            {asking === 'roll'
+              ? 'Roll its secret? You get a new one at once, every event from now on is signed with it, and your program refuses them until it is given it.'
+              : `Remove the webhook to ${hostOf(hook.url)}? Nothing more is sent to it, and its delivery log goes with it.`}
+          </Notice>
+          <div className="flex gap-2">
+            <Button variant="primary" onClick={() => (asking === 'roll' ? roll.mutate() : remove.mutate())} disabled={busy}>
+              {asking === 'roll' ? 'Roll it' : 'Remove it'}
+            </Button>
+            <Button variant="ghost" onClick={() => setAsking(null)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+      {error && (
+        <div className="mt-2">
+          {isPlanLimit(error) ? <PlanLimitNotice refusal={error} /> : <Notice tone="bad">{error.message}</Notice>}
+        </div>
+      )}
+      {log && <DeliveryLog hook={hook} />}
+    </li>
+  )
+}
+
+const TONES = { good: 'text-good', warn: 'text-warn', bad: 'text-bad' } as const
+
+/** A webhook's deliveries, the newest first, a page at a time: what each event was and how its last try went. */
+function DeliveryLog({ hook }: { hook: Webhook }) {
+  const deliveries = useInfiniteQuery({
+    queryKey: [...WEBHOOKS_KEY, hook.id, 'deliveries', hook.last_delivery?.id ?? null],
+    queryFn: ({ pageParam }) => organizations.webhookDeliveries(hook.id, pageParam),
+    initialPageParam: null as number | null,
+    getNextPageParam: (page) => page.next_before,
+  })
+  const shown = deliveries.data?.pages.flatMap((page) => page.deliveries) ?? []
+
+  return (
+    <section aria-label={`Deliveries to ${hostOf(hook.url)}`} className="mt-3 rounded-md border border-line bg-sunken px-3 py-2">
+      {deliveries.isPending && <p className="text-xs text-muted">Loading the deliveries…</p>}
+      {deliveries.isError && <Notice tone="bad">{deliveries.error.message}</Notice>}
+      {deliveries.data && !shown.length && <p className="text-xs text-muted">Nothing was sent to it yet.</p>}
+      {shown.length > 0 && (
+        <ul className="divide-y divide-line">
+          {shown.map((delivery) => {
+            const words = deliveryWords(delivery)
+            return (
+              <li key={delivery.id} className="py-2 text-xs">
+                <p>
+                  <span className={`font-medium ${TONES[words.tone]}`}>{words.state}</span> ·{' '}
+                  <code className="font-mono">{delivery.event_type}</code> · {subjectWords(delivery)} ·{' '}
+                  {formatDateTime(delivery.created_at)}
+                </p>
+                {words.detail && <p className="text-muted">{words.detail}</p>}
+                <p className="font-mono text-muted break-all">{delivery.event_id}</p>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {deliveries.hasNextPage && (
+        <Button variant="ghost" onClick={() => void deliveries.fetchNextPage()} disabled={deliveries.isFetchingNextPage}>
+          Show older deliveries
+        </Button>
+      )}
+    </section>
   )
 }
 

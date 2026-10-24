@@ -9,6 +9,7 @@ plans) is left out where it does not. An article's first line is its title; a li
 """
 
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from string import Template
 
@@ -26,6 +27,7 @@ from app.retention import DELETION_GRACE, RETENTION_HELD
 from app.sample import NAME as SAMPLE_NAME
 from app.support import SUPPORT_SESSION
 from app.trash import TRASH_DAYS
+from app.webhooks import DELIVERIES_KEPT, FIRST_WAIT, MAX_TRIES, MAX_WEBHOOKS, TIMEOUT, TOLERANCE
 
 TEMPLATES = Path(__file__).parent
 # The articles in the order the contents list them, each with the line the contents show of it.
@@ -33,7 +35,7 @@ ARTICLES = (
     ("getting-started", "Projects, uploads and the first question: the way through Emudoc."),
     ("documents", "Uploading, the upload client, how a file is read, folders, trash, downloads."),
     ("asking", "Searching a project, asking about it, citations, and who sees a chat."),
-    ("organisations", "Roles, invitations, private projects, settings and API keys."),
+    ("organisations", "Roles, invitations, private projects, settings, API keys and webhooks."),
     ("plans", "What each plan allows, how usage is counted, and what happens at a limit."),
     ("account", "Your account, signing in, two-factor, notices and letting support in."),
     ("data", "Exporting a project or your account, the trash, and deleting."),
@@ -71,6 +73,12 @@ def articles(settings: Settings) -> list[Article]:
     return found
 
 
+def _span(wait: timedelta, unit: str) -> str:
+    """A wait of a webhook's tries in minutes or hours, as a sentence says it: "34 hours"."""
+    count = round(wait.total_seconds() / (60 if unit == "minute" else 3600))
+    return f"{count} {unit}{'' if count == 1 else 's'}"
+
+
 def _values(settings: Settings) -> dict[str, str]:
     support = settings.support_address
     return {
@@ -101,6 +109,14 @@ def _values(settings: Settings) -> dict[str, str]:
             else ""
         ),
         "idempotency_hours": str(round(IDEMPOTENCY_KEPT.total_seconds() / 3600)),
+        "max_webhooks": str(MAX_WEBHOOKS),
+        "tolerance_minutes": str(TOLERANCE // 60),
+        "tolerance_seconds": str(TOLERANCE),
+        "webhook_timeout": f"{TIMEOUT:g}",
+        "webhook_first_wait": _span(FIRST_WAIT, "minute"),
+        "webhook_tries": str(MAX_TRIES),
+        "webhook_span": _span(FIRST_WAIT * (2 ** (MAX_TRIES - 1) - 1), "hour"),
+        "delivery_days": str(DELIVERIES_KEPT.days),
         "plans": _plans(),
         "chars_per_page": f"{CHARS_PER_PAGE:,}",
         "lifts": _lifts(settings),

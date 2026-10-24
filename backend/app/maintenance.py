@@ -183,6 +183,7 @@ from app.usage import (
     organization_costs,
     summed,
 )
+from app.webhooks import DELIVERIES_KEPT, prune_deliveries
 
 # By its name rather than `__name__`, which is "__main__" when the module runs as a command.
 log = logging.getLogger("app.maintenance")
@@ -535,6 +536,7 @@ def housekeeping(storage: Storage) -> None:
         events = prune_events(connection)
         minutes = prune_rate_limits(connection)
         answers_kept = prune_idempotency_keys(connection)
+        deliveries = prune_deliveries(connection)
         chats = prune_chats(connection)
         runs = prune_runs(connection)
         drafts = prune_drafts(connection)
@@ -626,6 +628,12 @@ def housekeeping(storage: Storage) -> None:
             "Housekeeping: forgot %s idempotency keys claimed more than %s hours ago",
             answers_kept,
             int(IDEMPOTENCY_KEPT.total_seconds() // 3600),
+        )
+    if deliveries:
+        log.info(
+            "Housekeeping: removed %s webhook deliveries older than %s days from their logs",
+            deliveries,
+            DELIVERIES_KEPT.days,
         )
     if pruned:
         log.info("Housekeeping: removed %s finished jobs older than %s days", pruned, HISTORY.days)

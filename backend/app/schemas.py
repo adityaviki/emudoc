@@ -1848,6 +1848,81 @@ class ApiKeyMadeOut(ApiKeyOut):
     key: str
 
 
+# WEBHOOK_EVENTS and WEBHOOK_DELIVERY_STATUSES in app/models.py, which the database's check
+# constraints hold.
+WebhookEvent = Literal["document.ready", "document.failed", "check_run.completed"]
+WebhookDeliveryStatus = Literal["pending", "delivered", "failed"]
+# The longest address a webhook takes, as `webhooks.url` holds it.
+WEBHOOK_URL_CHARS = 2000
+WebhookUrl = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=WEBHOOK_URL_CHARS)
+]
+
+
+class WebhookIn(BaseModel):
+    url: WebhookUrl
+    events: list[WebhookEvent] = Field(min_length=1, max_length=10)
+
+
+class WebhookPatch(BaseModel):
+    """A webhook changed: a field left out stays as it is."""
+
+    url: WebhookUrl | None = None
+    events: list[WebhookEvent] | None = Field(None, min_length=1, max_length=10)
+    # False pauses it: its events are not sent until it is on again.
+    enabled: bool | None = None
+
+
+class WebhookDeliveryOut(BaseModel):
+    """An event sent to a webhook, as its delivery log shows it (app/webhooks.py): never what it
+    said, which the program that took it holds."""
+
+    id: int
+    event_id: str
+    event_type: WebhookEvent
+    # The document's or the run's id.
+    subject_id: int
+    status: WebhookDeliveryStatus
+    attempts: int
+    # How the last try ended: the address's status, and the sentence why it was no delivery.
+    response_status: int | None
+    error: str | None
+    created_at: dt.datetime
+    attempted_at: dt.datetime | None
+    retry_at: dt.datetime | None
+    delivered_at: dt.datetime | None
+
+
+class WebhookOut(BaseModel):
+    """A webhook of the organisation, as its owners and admins see it: never its secret, which
+    is shown once, as it is made or rolled."""
+
+    id: int
+    url: str
+    events: list[WebhookEvent]
+    enabled: bool
+    # Who added it, by name or address as the account is now; None once it is gone.
+    made_by: str | None
+    created_at: dt.datetime
+    rolled_at: dt.datetime | None
+    # Its newest delivery, for the list's line.
+    last_delivery: WebhookDeliveryOut | None
+
+
+class WebhookMadeOut(WebhookOut):
+    """A webhook just added, or given a new secret, with the secret, which nothing shows again."""
+
+    secret: str
+
+
+class WebhookDeliveriesOut(BaseModel):
+    """A page of a webhook's delivery log, the newest first; `next_before` is the `before` of the
+    page that follows, None on the last."""
+
+    deliveries: list[WebhookDeliveryOut]
+    next_before: int | None
+
+
 class InvitationLinkOut(BaseModel):
     """What an invitation's link is for, as its page shows it before anything is done."""
 

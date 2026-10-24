@@ -60,6 +60,7 @@ from app.errors import AppError, summary
 from app.jobs import (
     ANSWER_QUESTION,
     APPLY_LANGUAGE,
+    DELIVER_WEBHOOK,
     EXPORT_PROJECT,
     INDEX_DOCUMENT,
     JOB_STATES,
@@ -109,6 +110,7 @@ JOBS = (
     WRITE_DRAFT,
     RECEIVE_MAIL,
     SYNC_CONNECTOR,
+    DELIVER_WEBHOOK,
 )
 # What a lane of the worker's threads runs (app/worker.py).
 INDEXER = "indexer"
@@ -137,6 +139,9 @@ JOB_OUTCOMES = ("done", "failed", "crashed", "abandoned", "lost", "unsettled")
 # (app/bounces.py).
 MAIL_OUTCOMES = ("sent", "retried", "failed")
 MAIL_EVENT_KINDS = ("bounce", "complaint")
+# How a try of a webhook's delivery ended (app/webhooks.py): answered with a 2xx, tried again
+# later, given up, or refused by the app itself (the address, the plan, the secret).
+WEBHOOK_OUTCOMES = ("delivered", "retried", "failed", "refused")
 # What became of a message sent to a project's address (app/inbound.py): kept, with nothing in it
 # to keep, or turned away by its sender (not listed, not proven, unreadable), its size, the
 # project's trash or the plan; for no project's address; or come while email in was off.
@@ -293,6 +298,14 @@ MAIL_SENT = Counter(
     "last time. The operator's own reports are not counted.",
     ["outcome"],
 )
+WEBHOOK_DELIVERIES = Counter(
+    "emudoc_webhook_deliveries",
+    "Tries of the events posted to the organisations' webhooks, by how each ended: delivered, "
+    "answered with a 2xx; retried, answered otherwise or not at all and queued again; failed, "
+    "the last try; refused, not sent, for an address on the deployment's own network or over "
+    "plain HTTP, a plan without the API, or a secret no key decrypts.",
+    ["outcome"],
+)
 MAIL_EVENTS = Counter(
     "emudoc_mail_events",
     "Addresses the mail provider said not to write to, by why: bounce, mail to it bounced for "
@@ -368,6 +381,8 @@ def _start_at_zero() -> None:
         MAIL_SENT.labels(outcome)
     for kind in MAIL_EVENT_KINDS:
         MAIL_EVENTS.labels(kind)
+    for outcome in WEBHOOK_OUTCOMES:
+        WEBHOOK_DELIVERIES.labels(outcome)
     for outcome in INBOUND_OUTCOMES:
         INBOUND_MESSAGES.labels(outcome)
     for outcome in SYNC_OUTCOMES:

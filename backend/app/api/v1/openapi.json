@@ -3964,6 +3964,155 @@
       }
     }
   },
+  "webhooks": {
+    "document.ready": {
+      "post": {
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "A document is indexed",
+        "description": "A document of the organisation's projects can be searched and asked about: its indexing\nended, and no other is to run after it. Sent again each time it is indexed again.",
+        "operationId": "document_ready",
+        "parameters": [
+          {
+            "description": "`t=<seconds>,v1=<hex>`: the HMAC-SHA256, with the webhook's secret, of the try's Unix time, a full stop and the body as sent. Check it before reading the body, and refuse a time more than 5 minutes from yours.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Emudoc-Signature",
+              "description": "`t=<seconds>,v1=<hex>`: the HMAC-SHA256, with the webhook's secret, of the try's Unix time, a full stop and the body as sent. Check it before reading the body, and refuse a time more than 5 minutes from yours."
+            },
+            "name": "Emudoc-Signature",
+            "in": "header"
+          },
+          {
+            "description": "The event's `type`.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Emudoc-Event",
+              "description": "The event's `type`."
+            },
+            "name": "Emudoc-Event",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "description": "Any 2xx answer is a delivery, its body unread. Anything else, a redirect, or no answer within 10 seconds is tried again, the wait doubling from 1 minute, 12 times in all."
+          }
+        }
+      }
+    },
+    "document.failed": {
+      "post": {
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "A document could not be indexed",
+        "description": "A document could not be read, or the malware scan quarantined it: its indexing ended, and\nno other is to run after it. `data.error` says why.",
+        "operationId": "document_failed",
+        "parameters": [
+          {
+            "description": "`t=<seconds>,v1=<hex>`: the HMAC-SHA256, with the webhook's secret, of the try's Unix time, a full stop and the body as sent. Check it before reading the body, and refuse a time more than 5 minutes from yours.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Emudoc-Signature",
+              "description": "`t=<seconds>,v1=<hex>`: the HMAC-SHA256, with the webhook's secret, of the try's Unix time, a full stop and the body as sent. Check it before reading the body, and refuse a time more than 5 minutes from yours."
+            },
+            "name": "Emudoc-Signature",
+            "in": "header"
+          },
+          {
+            "description": "The event's `type`.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Emudoc-Event",
+              "description": "The event's `type`."
+            },
+            "name": "Emudoc-Event",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "description": "Any 2xx answer is a delivery, its body unread. Anything else, a redirect, or no answer within 10 seconds is tried again, the wait doubling from 1 minute, 12 times in all."
+          }
+        }
+      }
+    },
+    "check_run.completed": {
+      "post": {
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "A run of cross-checks is worked out",
+        "description": "A run of a project's cross-checks was worked out, or failed, and its discrepancy report,\nwhen one was asked for, was written or failed. Sent again when a report is asked for after.",
+        "operationId": "check_run_completed",
+        "parameters": [
+          {
+            "description": "`t=<seconds>,v1=<hex>`: the HMAC-SHA256, with the webhook's secret, of the try's Unix time, a full stop and the body as sent. Check it before reading the body, and refuse a time more than 5 minutes from yours.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Emudoc-Signature",
+              "description": "`t=<seconds>,v1=<hex>`: the HMAC-SHA256, with the webhook's secret, of the try's Unix time, a full stop and the body as sent. Check it before reading the body, and refuse a time more than 5 minutes from yours."
+            },
+            "name": "Emudoc-Signature",
+            "in": "header"
+          },
+          {
+            "description": "The event's `type`.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Emudoc-Event",
+              "description": "The event's `type`."
+            },
+            "name": "Emudoc-Event",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckRunEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "description": "Any 2xx answer is a delivery, its body unread. Anything else, a redirect, or no answer within 10 seconds is tried again, the wait doubling from 1 minute, 12 times in all."
+          }
+        }
+      }
+    }
+  },
   "components": {
     "schemas": {
       "Asked": {
@@ -4251,6 +4400,36 @@
         ],
         "title": "CheckRun",
         "description": "A run of a project's cross-checks. `status` is `queued` or `running` until it is worked\nout, then `done` or `failed`; `report_status` is the discrepancy report's, None when none was\nasked for. The report cites the passages of `report_sources` as [P<id>]."
+      },
+      "CheckRunEvent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "const": "check_run.completed",
+            "title": "Type"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CheckRun"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "created_at",
+          "data"
+        ],
+        "title": "CheckRunEvent",
+        "description": "A run of a project's cross-checks worked out, or failed, and its discrepancy report\nwritten or failed when one was asked for, posted to the organisation's webhooks that listen\nfor it. A report asked for after the run is announced again once it is written. `id` names\nthe event, the same in every try of it."
       },
       "CheckRunList": {
         "properties": {
@@ -4572,6 +4751,39 @@
         "type": "object",
         "title": "DocumentChange",
         "description": "A document renamed, moved or both; a field left out stays as it is, and a `folder_id` of\nnull moves it to the root. A new name keeps the file's extension."
+      },
+      "DocumentEvent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "document.ready",
+              "document.failed"
+            ],
+            "title": "Type"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Document"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "created_at",
+          "data"
+        ],
+        "title": "DocumentEvent",
+        "description": "A document's indexing ended, posted to the organisation's webhooks that listen for it:\n`document.ready` once it can be searched and asked about (`data.partly_indexed` says whether\nit went without a part), `document.failed` once it could not be read or was quarantined\n(`data.error` says why). `id` names the event, the same in every try of it."
       },
       "DocumentList": {
         "properties": {
