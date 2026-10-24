@@ -159,6 +159,8 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/projects/{w.project_id}/drafts", {}),
         ("GET", f"/api/drafts/{w.draft_id}", {}),
         ("GET", f"/api/drafts/{w.draft_id}/versions/1", {}),
+        ("GET", f"/api/drafts/{w.draft_id}/versions/1/export", {}),
+        ("GET", f"/api/projects/{w.project_id}/draft-templates", {}),
         ("GET", f"/api/documents/{w.document_id}", {}),
         ("GET", f"/api/documents/{w.document_id}/file", {}),
         ("GET", f"/api/documents/{w.document_id}/pages/1.png", {}),
@@ -201,6 +203,11 @@ def writes(w: World) -> list[Route]:
         ("POST", f"/api/projects/{w.project_id}/drafts", {"json": {"kind": "report"}}),
         ("POST", f"/api/drafts/{w.draft_id}/versions", {"json": {"text": "Mine.", "base": 1}}),
         ("POST", f"/api/drafts/{w.draft_id}/rewrite", {"json": {}}),
+        (
+            "PUT",
+            f"/api/projects/{w.project_id}/draft-templates/report",
+            {"json": {"tone": "Brief."}},
+        ),
         ("PUT", f"/api/facts/{w.fact_id}/check", {"json": {"value": "120 days"}}),
         (
             "POST",
@@ -214,6 +221,7 @@ def writes(w: World) -> list[Route]:
         ("DELETE", f"/api/fact-checks/{w.check_id}", {}),
         ("DELETE", f"/api/check-runs/{w.run_id}", {}),
         ("DELETE", f"/api/drafts/{w.draft_id}", {}),
+        ("DELETE", f"/api/projects/{w.project_id}/draft-templates/report", {}),
         ("DELETE", f"/api/automations/{w.automation_id}", {}),
         ("DELETE", f"/api/cross-checks/{w.cross_check_id}", {}),
         ("DELETE", f"/api/templates/{w.template_id}", {}),

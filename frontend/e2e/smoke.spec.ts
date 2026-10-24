@@ -36,7 +36,9 @@ import { heldTurns, holdNextTurn, refuseEmbeddings, releaseTurns } from './stand
 // once a second invoice arrives, puts it in review and tells the member what they found, and last
 // the first invoice put in review, assigned to the colleague, disputed and approved in the reviews
 // view, then disputed again from its tab, whose dispute letter the model drafts, citing where each
-// figure is written, edited into a second version, the first still read as it was. The answer
+// figure is written, edited into a second version, downloaded as its Markdown with its citation a
+// footnote, the first still read as it was, and the project's dispute letters given a template of
+// their own, which the new draft's form names, then the built-in one again. The answer
 // is the stand-in's (e2e/standin.py): the first sentence of the passage its search found best,
 // with that passage's reference. Along the way each kind of page, panel and dialog is checked
 // against axe-core's rules for WCAG 2.2 AA in both themes (e2e/axe.ts), and the keyboard's focus
@@ -1228,7 +1230,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('listitem').filter({ hasText: 'Assigned a document' })).toContainText('invoice.md · to Grace Hopper')
   })
 
-  await test.step('dispute the invoice from its tab, have the model draft the dispute letter, edit it into a second version and read the first again', async () => {
+  await test.step('dispute the invoice from its tab, have the model draft the dispute letter, edit it into a second version, download it and read the first again', async () => {
     // Drafts, being rolled out to none, turned on for the organisation by the operator's command.
     chooseFlag(slug, 'drafts', 'on')
     await page.goto('/')
@@ -1265,6 +1267,17 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const second = page.getByRole('region', { name: 'Version 2' })
     await expect(second).toContainText('Dear supplier,')
     await expect(second.getByRole('button', { name: '1', exact: true })).toBeVisible()
+    // Downloaded as its Markdown, its citation a footnote naming the passage, the keyboard back on the button.
+    const download = second.getByRole('button', { name: 'Download', exact: true })
+    await download.click()
+    const downloading = page.waitForEvent('download')
+    await page.getByRole('menu').getByRole('menuitem', { name: 'Markdown, as it is written' }).click()
+    await expect(download).toBeFocused()
+    const file = await downloading
+    expect(file.suggestedFilename()).toMatch(/^Dispute letter .+ \(version 2\)\.md$/)
+    const markdown = await readFile(await file.path(), 'utf8')
+    expect(markdown).toMatch(/^Dear supplier,\n\n/)
+    expect(markdown).toMatch(/\[\^1\]\n?[^]*\n\[\^1\]: \S/)
     // The model's version reads as it was.
     await page.getByLabel('Version', { exact: true }).selectOption({ index: 1 })
     await expect(page.getByRole('region', { name: 'Version 1' })).not.toContainText('Dear supplier')
@@ -1280,5 +1293,55 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('listitem').filter({ hasText: 'Asked for a draft' })).toContainText('Dispute letter, about 1 document')
     await page.getByLabel('What').selectOption('draft_changed')
     await expect(page.getByRole('listitem').filter({ hasText: 'Changed a draft' })).toContainText('Dispute letter, saved as version 2')
+    await page.getByLabel('What').selectOption('draft_exported')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Downloaded a draft' })).toContainText('Dispute letter, version 2 as Markdown')
+  })
+
+  await test.step("give the project's dispute letters a template of its own, which the new draft's form names, then the built-in one again", async () => {
+    await page.goto('/')
+    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
+    await page.getByRole('button', { name: 'Drafts', exact: true }).click()
+    await page.getByRole('button', { name: 'Templates', exact: true }).click()
+    const heading = page.getByRole('heading', { name: 'Draft templates' })
+    await expect(heading).toBeFocused()
+    const letters = page.getByRole('list', { name: 'Draft templates' }).getByRole('listitem').filter({ hasText: 'Dispute letter' })
+    await expect(letters).toContainText('Built in')
+    await expectAccessible(page, 'the draft templates')
+
+    // Customised: the tone first, then a part added, which a draft may leave out.
+    await letters.getByRole('button', { name: 'Customise Dispute letter' }).click()
+    const tone = page.getByLabel('Tone')
+    await expect(tone).toBeFocused()
+    await tone.fill('Formal, in British English.')
+    await page.getByRole('button', { name: 'Add a part' }).click()
+    const added = page.getByRole('group', { name: 'Part 7' })
+    await expect(added.getByLabel('Name')).toBeFocused()
+    await added.getByLabel('Name').fill('Our reference')
+    await added.getByLabel('What goes in it').fill('The order number we gave.')
+    await added.getByLabel('Every draft has it').uncheck()
+    await expectAccessible(page, 'a draft template')
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(heading).toBeFocused()
+    await expect(page.getByText('Saved the project’s own dispute letter template.')).toBeVisible()
+    await expect(letters).toContainText('The project’s own')
+    await expect(letters).toContainText('Our reference (where it applies)')
+
+    // The new draft's form says a dispute letter follows it.
+    await page.getByRole('button', { name: 'Back to the drafts' }).click()
+    await page.getByLabel('Kind', { exact: true }).selectOption('dispute_letter')
+    await expect(page.getByText('Written to the project’s own template for this kind.')).toBeVisible()
+
+    // The built-in one again, after its question.
+    await page.getByRole('button', { name: 'Templates', exact: true }).click()
+    await letters.getByRole('button', { name: 'Use the built-in dispute letter template' }).click()
+    const question = page.getByRole('dialog', { name: 'Use the built-in dispute letter template again?' })
+    await question.getByRole('button', { name: 'Use the built-in one' }).click()
+    await expect(heading).toBeFocused()
+    await expect(letters).toContainText('Built in')
+    await page.goto('/organization/audit')
+    await page.getByLabel('What').selectOption('draft_template_created')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Made a draft template' })).toContainText('for dispute letters, 7 parts')
+    await page.getByLabel('What').selectOption('draft_template_deleted')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Used a built-in draft template again' })).toContainText('for dispute letters')
   })
 })

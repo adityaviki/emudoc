@@ -139,6 +139,15 @@ describe('a row', () => {
     expect(describeDetail(event('draft_changed', { kind: 'report', version: 3 }))).toBe('Report, saved as version 3')
     expect(describeDetail(event('draft_changed', { kind: 'report', rewritten: true }))).toBe('Report, written again by the model')
     expect(describeDetail(event('draft_deleted', { kind: 'reply_email' }))).toBe('Reply email')
+    expect(describeDetail(event('draft_exported', { kind: 'dispute_letter', version: 2, format: 'pdf' }))).toBe('Dispute letter, version 2 as a PDF')
+    expect(describeDetail(event('draft_exported', { kind: 'report', version: 1, format: 'md' }))).toBe('Report, version 1 as Markdown')
+    expect(describeDetail(event('draft_template_created', { kind: 'dispute_letter', sections: ['Date', 'Reference'] }))).toBe(
+      'for dispute letters, 2 parts',
+    )
+    expect(
+      describeDetail(event('draft_template_changed', { kind: 'reply_email', added: ['Reference'], removed: [], changed: ['Closing'], tone: true, guidance: false })),
+    ).toBe('for reply emails, added Reference, changed Closing, its tone changed')
+    expect(describeDetail(event('draft_template_deleted', { kind: 'report' }))).toBe('for reports')
     // A fact checked or corrected: the document and the field, never what it says.
     expect(describeDetail(event('fact_corrected', { filename: 'acme-10.pdf', field: 'total_amount' }))).toBe('acme-10.pdf · total amount')
     // A member's leave for support, support's view of their account, and what was done in it.

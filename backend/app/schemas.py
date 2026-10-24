@@ -1014,6 +1014,65 @@ class DraftsOut(BaseModel):
     next_before: int | None
 
 
+# A draft template's ceilings (app/draft_templates.py), which bound what it adds to every
+# writing's prompt: its parts, and the characters of its tone, of a part's name and of what goes
+# in it, and of the rest it asks.
+MAX_DRAFT_SECTIONS = 20
+TONE_CHARS = 500
+HEADING_CHARS = 100
+SECTION_CHARS = 500
+GUIDANCE_CHARS = 2000
+
+
+class DraftSectionIn(BaseModel):
+    """A part of a kind's drafts: its name, what goes in it, and whether every draft has it or
+    only one whose documents give it something to say."""
+
+    heading: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=HEADING_CHARS)
+    ]
+    description: Annotated[
+        str, StringConstraints(strip_whitespace=True, max_length=SECTION_CHARS)
+    ] = ""
+    required: bool = True
+
+
+class DraftTemplateIn(BaseModel):
+    """A project's own template of a kind of draft, written whole: its tone, its parts in order
+    and what else every draft of the kind should do."""
+
+    tone: Annotated[str, StringConstraints(strip_whitespace=True, max_length=TONE_CHARS)] = ""
+    sections: list[DraftSectionIn] = Field(default_factory=list, max_length=MAX_DRAFT_SECTIONS)
+    guidance: Annotated[
+        str, StringConstraints(strip_whitespace=True, max_length=GUIDANCE_CHARS)
+    ] = ""
+
+
+class DraftSectionOut(BaseModel):
+    heading: str
+    description: str
+    required: bool
+
+
+class DraftTemplateOut(BaseModel):
+    """The template in force for a kind of the project's drafts: its own (`id`, and when it was
+    last changed) or the built-in one."""
+
+    kind: DraftKind
+    id: int | None
+    built_in: bool
+    tone: str
+    sections: list[DraftSectionOut]
+    guidance: str
+    updated_at: dt.datetime | None
+
+
+class DraftTemplatesOut(BaseModel):
+    """The template in force for each kind, in the order the kinds are offered."""
+
+    templates: list[DraftTemplateOut]
+
+
 # Enough to catch a typo; the verification email settles whether the address is real.
 EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 # NIST SP 800-63B: a minimum length and no composition rules; the routes refuse a breached

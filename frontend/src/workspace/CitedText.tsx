@@ -6,15 +6,16 @@ import { CitationChip } from './ChatPane.tsx'
 /**
  * A text the model wrote whole, a discrepancy report or a draft, its citations numbered in the order it first makes
  * them and opening the passages they cite, which it lists below it. A reference to a passage it was never shown stays
- * plain text.
+ * plain text. With `lines`, a line break is kept where it is written, as a letter's address needs and as the draft's
+ * files keep it (backend/app/draft_export.py).
  */
-export function CitedText({ text, sources, onOpen }: { text: string; sources: Source[]; onOpen: (source: Source) => void }) {
+export function CitedText({ text, sources, onOpen, lines = false }: { text: string; sources: Source[]; onOpen: (source: Source) => void; lines?: boolean }) {
   const known = new Map(sources.map((source) => [source.id, source]))
   const cited = [...new Set([...text.matchAll(/\[P(\d+)\]/g)].map((match) => Number(match[1])))].filter((id) => known.has(id))
   const numberOf = (id: number) => cited.indexOf(id) + 1
   return (
     <>
-      <div className="text-[13px]">
+      <div className={lines ? 'text-[13px] [&_p]:whitespace-pre-line' : 'text-[13px]'}>
         <Markdown
           text={text}
           citation={(id) => {

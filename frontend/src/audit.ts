@@ -4,7 +4,7 @@
 
 import { PLAN_LABELS, ROLE_LABELS } from './api.ts'
 import type { AuditAction, AuditEvent, AuditFilter, DraftKind, NoticeKind, Plan, ReviewState, Role } from './api.ts'
-import { KIND_LABELS } from './drafts.ts'
+import { DRAFT_FILES, KIND_LABELS } from './drafts.ts'
 import { fieldWords } from './factTable.ts'
 import { formatDate, formatDateTime } from './format.ts'
 import { NOTICE_KINDS } from './notifications.ts'
@@ -101,6 +101,10 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   draft_created: ['Asked for a draft', 'files'],
   draft_changed: ['Changed a draft', 'files'],
   draft_deleted: ['Deleted a draft', 'files'],
+  draft_exported: ['Downloaded a draft', 'files'],
+  draft_template_created: ['Made a draft template', 'files'],
+  draft_template_changed: ['Changed a draft template', 'files'],
+  draft_template_deleted: ['Used a built-in draft template again', 'files'],
   project_deleted: ['Deleted a project', 'files'],
   project_restored: ['Restored a project', 'files'],
   project_purged: ['Deleted a project for good', 'files'],
@@ -187,6 +191,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   else if (RUN_ACTIONS.has(event.action)) parts.push(describeRun(detail))
   else if (AUTOMATION_ACTIONS.has(event.action)) parts.push(describeAutomation(detail))
   else if (DRAFT_ACTIONS.has(event.action)) parts.push(describeDraft(detail))
+  else if (DRAFT_TEMPLATE_ACTIONS.has(event.action)) parts.push(describeDraftTemplate(detail))
   else if (event.action === 'document_review_changed') parts.push(`${review(detail.from)} → ${review(detail.to)}`)
   else if (event.action === 'document_assigned') parts.push(describeAssignment(detail, names))
   else if ('to' in detail) parts.push(`${word(detail.from)} → ${word(detail.to)}`)
@@ -332,17 +337,33 @@ function describeAutomation(detail: AuditEvent['detail']): string {
   return parts.join(', ')
 }
 
-const DRAFT_ACTIONS = new Set<AuditAction>(['draft_created', 'draft_changed', 'draft_deleted'])
+const DRAFT_ACTIONS = new Set<AuditAction>(['draft_created', 'draft_changed', 'draft_deleted', 'draft_exported'])
 
-/** A draft asked for, changed or deleted: its kind, how many documents it was about, and the version a member saved or the model's writing again, never what it says. */
+/** A draft asked for, changed, deleted or downloaded: its kind, how many documents it was about, the version a member saved or downloaded and as what, or the model's writing again, never what it says. */
 function describeDraft(detail: AuditEvent['detail']): string {
   const kind = typeof detail.kind === 'string' && detail.kind in KIND_LABELS ? KIND_LABELS[detail.kind as DraftKind] : 'a draft'
   const parts = [kind]
   if (typeof detail.documents === 'number') {
     parts.push(detail.documents ? `about ${detail.documents} document${detail.documents === 1 ? '' : 's'}` : 'about what the model finds')
   }
-  if (typeof detail.version === 'number') parts.push(`saved as version ${detail.version}`)
+  const file = DRAFT_FILES.find((option) => option.format === detail.format)
+  if (typeof detail.version === 'number') parts.push(file ? `version ${detail.version} as ${file.words}` : `saved as version ${detail.version}`)
   if (detail.rewritten === true) parts.push('written again by the model')
+  return parts.join(', ')
+}
+
+const DRAFT_TEMPLATE_ACTIONS = new Set<AuditAction>(['draft_template_created', 'draft_template_changed', 'draft_template_deleted'])
+
+/** A project's own draft template made, changed or given up for the built-in one: its kind, and its parts or what became of them, by their names, and whether its tone or the rest it asks changed, never what they say. */
+function describeDraftTemplate(detail: AuditEvent['detail']): string {
+  const parts = [typeof detail.kind === 'string' && detail.kind in KIND_LABELS ? `for ${KIND_LABELS[detail.kind as DraftKind].toLowerCase()}s` : 'for drafts']
+  if (Array.isArray(detail.sections)) parts.push(`${detail.sections.length} part${detail.sections.length === 1 ? '' : 's'}`)
+  for (const change of ['added', 'removed', 'changed'] as const) {
+    const names = detail[change]
+    if (Array.isArray(names) && names.length > 0) parts.push(`${change} ${names.join(', ')}`)
+  }
+  if (detail.tone === true) parts.push('its tone changed')
+  if (detail.guidance === true) parts.push('what else it asks changed')
   return parts.join(', ')
 }
 

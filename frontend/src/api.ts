@@ -587,6 +587,8 @@ export interface RunFindings {
 /** What a draft is (backend/app/drafts.py), and how far the model's writing of it is. */
 export type DraftKind = 'reply_email' | 'dispute_letter' | 'summary_memo' | 'comparison_table' | 'report'
 export type DraftStatus = 'queued' | 'writing' | 'done' | 'failed'
+/** The files a version of a draft downloads as (backend/app/draft_export.py). */
+export type DraftFormat = 'docx' | 'pdf' | 'md'
 
 /** A draft a member asks the model for (DraftIn): its kind, what it should say, and the documents it is about, none to have the model find them. */
 export interface DraftInput {
@@ -632,6 +634,31 @@ export interface Draft extends DraftSummary {
   usage: Record<string, Usage>
   history: DraftVersionSummary[]
   latest: DraftVersion | null
+}
+
+/** A part of a kind's drafts (DraftSectionOut): its name, what goes in it, and whether every draft has it. */
+export interface DraftSection {
+  heading: string
+  description: string
+  required: boolean
+}
+
+/** How a project's drafts of a kind read (DraftTemplateOut): its own template (`id`), or the built-in one. */
+export interface DraftTemplate {
+  kind: DraftKind
+  id: number | null
+  built_in: boolean
+  tone: string
+  sections: DraftSection[]
+  guidance: string
+  updated_at: string | null
+}
+
+/** A project's own template of a kind, written whole (DraftTemplateIn). */
+export interface DraftTemplateInput {
+  tone: string
+  sections: DraftSection[]
+  guidance: string
 }
 
 export interface SearchHit {
@@ -1345,6 +1372,10 @@ export type AuditAction =
   | 'draft_created'
   | 'draft_changed'
   | 'draft_deleted'
+  | 'draft_exported'
+  | 'draft_template_created'
+  | 'draft_template_changed'
+  | 'draft_template_deleted'
   | 'project_deleted'
   | 'project_restored'
   | 'project_purged'
@@ -1995,6 +2026,11 @@ export const api = {
   /** Have the model write the draft again as a new version, with what is asked of it now when given. */
   rewriteDraft: (id: number, body: { instructions?: string }) => request<Draft>(`/drafts/${id}/rewrite`, json('POST', body)),
   deleteDraft: (id: number) => request<void>(`/drafts/${id}`, { method: 'DELETE' }),
+  draftTemplates: (projectId: number) => request<{ templates: DraftTemplate[] }>(`/projects/${projectId}/draft-templates`),
+  saveDraftTemplate: (projectId: number, kind: DraftKind, body: DraftTemplateInput) =>
+    request<DraftTemplate>(`/projects/${projectId}/draft-templates/${kind}`, json('PUT', body)),
+  deleteDraftTemplate: (projectId: number, kind: DraftKind) =>
+    request<void>(`/projects/${projectId}/draft-templates/${kind}`, { method: 'DELETE' }),
 
   folders: (projectId: number) => request<Folder[]>(`/projects/${projectId}/folders`),
   createFolder: (projectId: number, body: { name: string; parent_id: number | null }) =>

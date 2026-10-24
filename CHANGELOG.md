@@ -17,6 +17,25 @@ newest entry first.
 
 Operators:
 
+- Draft templates: the drafts' "Templates" lists how the project's drafts of each kind read, a
+  built-in template for each kind, which whoever may change the project customises into the
+  project's own, its tone, its parts in order, which of them every draft has and what else every
+  draft of the kind should do, and gives back for the built-in one. A writing follows the
+  template in force as it starts; the kind's layout and the rules every draft keeps, its
+  citations and placeholders, stay as they were. New table `draft_templates` and the audit
+  actions `draft_template_created`, `draft_template_changed` and `draft_template_deleted`, by
+  the kind and its parts' names (a migration); new routes `GET
+  /api/projects/{id}/draft-templates` and `PUT|DELETE /api/projects/{id}/draft-templates/{kind}`,
+  which API keys take.
+- A draft's version downloads as a Word document, a PDF or its Markdown from its "Download", its
+  citations numbered notes naming the document, section and pages of each passage, and its line
+  breaks kept, as the draft's page now keeps them too. The PDF is set in Noto Sans, which the
+  image now carries (`backend/app/fonts`, under the SIL Open Font License), for the Latin, Greek
+  and Cyrillic alphabets. New route `GET /api/drafts/{id}/versions/{n}/export?format=docx|pdf|md`,
+  which API keys take, held to `RATE_EXPORTS` with the facts table's files, and the audit action
+  `draft_exported`, by the draft's kind, the version and the format (the same migration).
+  reportlab and markdown-it-py are dependencies of the app now, no longer of its tests and its
+  audit alone.
 - Drafts, behind a flag of their own, `drafts`, rolled out to none: the library's "Drafts" asks
   the model for a reply email, a dispute letter, a summary memo, a comparison table or a report,
   saying what it should say, about the documents open beside the library or about what the model

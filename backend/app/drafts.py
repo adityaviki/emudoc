@@ -9,7 +9,9 @@ discrepancy report's is (app/check_runs.py): what the member asked, each documen
 read from it beside the references of the passages they were read from, which the agent may cite
 from the start, and what the project's newest run of cross-checks with a finding about them found
 (`findings_about`), never the model's choice of what was compared; its five read-only tools read
-around them. Each kind has its own instructions (`KIND_TASKS`), said after the system prompt.
+around them. Each kind is written to its template in force for the project, the built-in one or
+the project's own (app/draft_templates.py), said after the rules every draft keeps (`DRAFT_TASK`),
+which the template cannot change.
 
 A version is never changed: the agent's writing adds one, and so does each member's save
 (`save_version`) and each writing again, the older ones kept to go back to. A version's text cites
@@ -40,6 +42,7 @@ from app.agent.tools import worded_value
 from app.answers import Reply
 from app.check_runs import findings_about, latest_run_about, sources_of
 from app.db import SessionLocal
+from app.draft_templates import kind_task, template_for
 from app.indexing.pipeline import Services
 from app.jobs import LIVE, WRITE_DRAFT, Lease, LeaseLost, enqueue, renew
 from app.models import Document, Draft, DraftVersion, Fact, Project, User, WorkflowRun
@@ -86,31 +89,7 @@ rather than make it up. Use the tools to read what the facts alone do not settle
 
 """
 
-KIND_TASKS = {
-    "reply_email": """\
-The draft is a reply email: a line "Subject: …" first, then a greeting, the reply in short \
-paragraphs answering what the email it replies to asks or says, point by point, and a closing \
-with [Your name]. Courteous and plain, with no headings.""",
-    "dispute_letter": """\
-The draft is a dispute letter to whoever issued the document disputed: the sender's and the \
-recipient's names and addresses as the documents state them, the date, a subject line naming \
-the document (its number and date), then what is disputed and why, each figure beside what it \
-should be by the documents it was checked against, what is asked of them (a corrected document, \
-a credit note, an answer by a date), and a closing with [Your name]. Firm and factual, never \
-accusing.""",
-    "summary_memo": """\
-The draft is a summary memo: To, From, Date and Subject lines, a paragraph summing the matter \
-up, then the points that matter under short headings, and what to do next.""",
-    "comparison_table": """\
-The draft is a comparison table: one sentence saying what is compared, then a Markdown table \
-with a row for each document (or each item, when items are compared) and a column for each \
-field that matters, each value cited in its cell; then two or three sentences on what differs.""",
-    "report": """\
-The draft is a report: a title, a summary of a few sentences, then sections under headings for \
-what was found, each finding cited, and conclusions with what to do next.""",
-}
-
-_CITATION = re.compile(r"\[P(\d+)\]")
+CITATION = re.compile(r"\[P(\d+)\]")
 _REVIEWS = {"to_review": "in review", "approved": "approved", "disputed": "disputed"}
 
 
@@ -205,7 +184,7 @@ def save_version(session: Session, draft: Draft, text: str, user_id: int) -> Dra
 
 def cited_sources(text: str, known: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
     """The passages a text cites, of those known, in the order it first cites them."""
-    cited = dict.fromkeys(int(match) for match in _CITATION.findall(text))
+    cited = dict.fromkeys(int(match) for match in CITATION.findall(text))
     return [known[passage_id] for passage_id in cited if passage_id in known]
 
 
@@ -240,7 +219,9 @@ def _write(draft_id: int, user_id: int | None, services: Services, lease: Lease 
         # reading one afterwards would take a connection back for the whole writing.
         asker = session.scalar(select(User.id).where(User.id == user_id)) if user_id else None
         payer = {"org_id": draft.org_id, "project_id": draft.project_id, "user_id": asker}
-        project_id, kind = draft.project_id, draft.kind
+        project_id = draft.project_id
+        # The kind's template as it is now, as the documents are read as they are now.
+        task = DRAFT_TASK + kind_task(template_for(session, project_id, draft.kind))
         over = check_platform_spend(session) or check_spend(session, project.organization)
         draft.status = "writing"
         _commit(session, lease)
@@ -257,7 +238,7 @@ def _write(draft_id: int, user_id: int | None, services: Services, lease: Lease 
             project_id,
             [{"role": "user", "content": message}],
             usage,
-            task=DRAFT_TASK + KIND_TASKS[kind],
+            task=task,
             sources=sources,
         )
     else:

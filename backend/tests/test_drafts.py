@@ -12,9 +12,9 @@ from sqlalchemy import delete, func, select, update
 
 from app.config import get_settings
 from app.db import engine
+from app.draft_templates import BUILT_IN, kind_task
 from app.drafts import (
     DRAFT_TASK,
-    KIND_TASKS,
     NOTHING_WRITTEN,
     PROJECT_GONE,
     WRITE_FAILED,
@@ -118,7 +118,9 @@ def test_a_draft_is_written_from_its_documents_facts_and_findings(
 
     # The agent was given the kind's task, the documents' facts with their passages, and what
     # the newest run found about them, in the server's words.
-    assert services.llm.agent_prompts[-1].endswith(DRAFT_TASK + KIND_TASKS["dispute_letter"])
+    assert services.llm.agent_prompts[-1].endswith(
+        DRAFT_TASK + kind_task(BUILT_IN["dispute_letter"])
+    )
     asked = services.llm.agent_requests[-1][0].parts[0].content
     assert asked.startswith("The draft to write: dispute letter.")
     assert "What the member asked of it:\nAsk for a credit note." in asked
@@ -217,7 +219,7 @@ def test_a_draft_about_no_document_has_the_agent_find_them(client, session, serv
     )
     asked = services.llm.agent_requests[-1][0].parts[0].content
     assert "No document was named: find those the request is about with your tools." in asked
-    assert services.llm.agent_prompts[-1].endswith(KIND_TASKS["summary_memo"])
+    assert services.llm.agent_prompts[-1].endswith(kind_task(BUILT_IN["summary_memo"]))
     assert ask(client, project["id"], kind="report")["title"] == "Report"
 
 

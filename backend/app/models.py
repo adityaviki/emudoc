@@ -161,7 +161,9 @@ NATURAL_ORDER = "natural_order"
 # (app/check_runs.py), and its automations made, changed and deleted (app/automations.py). A
 # document's review moves from state to state and is assigned to a member (app/reviews.py). A
 # draft is asked of the agent, changed by a member's version or the agent's writing it again, and
-# deleted for good (app/drafts.py).
+# deleted for good (app/drafts.py), and a version of it downloaded as a file (app/draft_export.py),
+# which is what documents say leaving the app; a project's own template of a kind of draft is
+# made, changed and deleted for good (app/draft_templates.py).
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -236,6 +238,10 @@ AUDIT_ACTIONS = (
     "draft_created",
     "draft_changed",
     "draft_deleted",
+    "draft_exported",
+    "draft_template_created",
+    "draft_template_changed",
+    "draft_template_deleted",
     "project_deleted",
     "project_restored",
     "project_purged",
@@ -1651,6 +1657,42 @@ class DraftVersion(Base):
     )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class DraftTemplate(Base):
+    """How a project's drafts of one kind read (app/draft_templates.py): their tone, their parts
+    in order and what else every draft of the kind should do. A project's template replaces the
+    built-in one of its kind, which applies while the project has none of its own."""
+
+    __tablename__ = "draft_templates"
+    __table_args__ = (
+        UniqueConstraint("project_id", "kind"),
+        _one_of("kind", DRAFT_KINDS, "draft_templates"),
+        CheckConstraint("jsonb_typeof(sections) = 'array'", name="ck_draft_templates_sections"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # The tenant, as for every row a member reaches by its id.
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    # One of DRAFT_KINDS.
+    kind: Mapped[str] = mapped_column(String(30))
+    tone: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # [{"heading", "description", "required"}], in the order a draft has them.
+    sections: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    guidance: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # Who made it; null once their account is gone. Indexed for the account purge.
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
 

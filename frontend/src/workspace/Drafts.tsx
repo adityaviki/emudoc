@@ -1,18 +1,23 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ListChecks, PenLine, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import { ArrowLeft, Download, FileCode, FileText, FileType, LayoutTemplate, ListChecks, PenLine, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { ApiError, api, mayChange } from '../api.ts'
-import type { Document, DraftKind, DraftVersion, Source } from '../api.ts'
+import type { Document, DraftFormat, DraftKind, DraftVersion, Source } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { Confirm } from '../components/Confirm.tsx'
+import { Floating, Menu } from '../components/Menu.tsx'
+import type { MenuItem } from '../components/Menu.tsx'
 import { Button, Checkbox, EmptyState, FIELD, IconButton, Loading, Notice, Segmented, SelectField, Spinner } from '../components/ui.tsx'
+import { draftTemplatesKey, writtenToWords } from '../draftTemplates.ts'
 import {
+  DRAFT_FILES,
   DRAFT_KINDS,
   DRAFT_NOTE,
   DRAFT_POLL,
   disputeLetter,
   draftByline,
   draftDeletionQuestion,
+  draftFileUrl,
   draftKey,
   draftProblem,
   draftStatusWords,
@@ -58,6 +63,9 @@ export function DraftsView() {
         <h2 ref={heading} tabIndex={-1} className="flex-1 truncate text-[13px] font-semibold">
           Drafts
         </h2>
+        <Button icon={<LayoutTemplate className="size-4" />} onClick={workspace.showDraftTemplates}>
+          Templates
+        </Button>
       </div>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
         <p className="text-xs text-muted">
@@ -118,6 +126,9 @@ function NewDraft() {
   const open = workspace.openTabs.map((tab) => workspace.openDocuments.get(tab.id)).filter((document): document is Document => document != null)
   const [chosen, setChosen] = useState(() => new Set(workspace.activeDocumentId != null ? [workspace.activeDocumentId] : []))
   const [refused, setRefused] = useState<Error | null>(null)
+  // Whether the kind is written to the project's own template, which the hint says.
+  const templates = useQuery({ queryKey: draftTemplatesKey(workspace.project.id), queryFn: () => api.draftTemplates(workspace.project.id) })
+  const own = writtenToWords(templates.data?.templates.find((template) => template.kind === kind))
   const input = { kind, instructions, document_ids: open.filter((document) => chosen.has(document.id)).map((document) => document.id) }
   const problem = draftProblem(input)
   const ask = useMutation({
@@ -147,7 +158,7 @@ function NewDraft() {
       <SelectField
         label="Kind"
         value={kind}
-        hint={DRAFT_KINDS.find((option) => option.value === kind)?.hint}
+        hint={[DRAFT_KINDS.find((option) => option.value === kind)?.hint, own].filter(Boolean).join(' ')}
         onChange={(event) => setKind(event.target.value as DraftKind)}
       >
         {DRAFT_KINDS.map((option) => (
@@ -387,7 +398,7 @@ export function DraftView({ draftId }: { draftId: number }) {
               ) : version ? (
                 <>
                   <p className="text-xs text-muted">{versionWords(version)}</p>
-                  <CitedText text={version.text} sources={version.sources} onOpen={open} />
+                  <CitedText text={version.text} sources={version.sources} onOpen={open} lines />
                   {version.number === newest && data.notice && <p className="text-xs text-muted">{data.notice}</p>}
                 </>
               ) : older != null && olderVersion.isPending ? (
@@ -395,16 +406,19 @@ export function DraftView({ draftId }: { draftId: number }) {
               ) : (
                 <p className="text-xs text-muted">{writing(data) ? 'The model is writing it.' : 'There is no version of it yet.'}</p>
               )}
-              {changes && idle && (
+              {((changes && idle) || (version && editing == null)) && (
                 <div className="flex flex-wrap gap-2">
-                  {version && (
+                  {changes && idle && version && (
                     <Button icon={<Pencil className="size-4" />} onClick={() => setEditing({ base: newest, from: version })}>
                       {version.number === newest ? 'Edit' : 'Edit from this version'}
                     </Button>
                   )}
-                  <Button icon={<RotateCcw className="size-4" />} onClick={() => setAgain(data.instructions)}>
-                    {newest ? 'Write it again' : 'Try again'}
-                  </Button>
+                  {changes && idle && (
+                    <Button icon={<RotateCcw className="size-4" />} onClick={() => setAgain(data.instructions)}>
+                      {newest ? 'Write it again' : 'Try again'}
+                    </Button>
+                  )}
+                  {version && editing == null && <DownloadDraft draftId={draftId} number={version.number} />}
                 </div>
               )}
               {again != null && (
@@ -431,6 +445,39 @@ export function DraftView({ draftId }: { draftId: number }) {
       </div>
       {deleting && data && <Confirm {...draftDeletionQuestion(data)} onConfirm={() => remove.mutate()} onClose={() => setDeleting(false)} />}
     </div>
+  )
+}
+
+/** A version's way out of the app: a Word document to edit, a PDF to send or its Markdown, its citations numbered notes. */
+function DownloadDraft({ draftId, number }: { draftId: number; number: number }) {
+  const button = useRef<HTMLButtonElement>(null)
+  const [anchor, setAnchor] = useState<DOMRect | null>(null)
+  const close = () => setAnchor(null)
+  // Followed as a click on a link would be, so the download leaves the page where it is.
+  const save = (format: DraftFormat) => () => {
+    const link = window.document.createElement('a')
+    Object.assign(link, { href: draftFileUrl(draftId, number, format), download: '' })
+    link.click()
+  }
+  const icons = { docx: FileText, pdf: FileType, md: FileCode }
+  const items: MenuItem[] = DRAFT_FILES.map((file) => ({ label: file.label, icon: icons[file.format], onSelect: save(file.format) }))
+  return (
+    <>
+      <Button
+        ref={button}
+        icon={<Download className="size-4" />}
+        aria-haspopup="menu"
+        aria-expanded={anchor !== null}
+        onClick={(event) => setAnchor(anchor ? null : event.currentTarget.getBoundingClientRect())}
+      >
+        Download
+      </Button>
+      {anchor && (
+        <Floating anchor={anchor} onClose={close} ignore={button}>
+          <Menu items={items} onClose={close} />
+        </Floating>
+      )}
+    </>
   )
 }
 
@@ -481,7 +528,7 @@ function Editor({
           <p className="mt-1 text-xs text-muted">Markdown. A reference such as [P12] cites a passage this version cites.</p>
         </div>
       ) : (
-        <CitedText text={text} sources={from.sources} onOpen={onOpen} />
+        <CitedText text={text} sources={from.sources} onOpen={onOpen} lines />
       )}
       <div className="flex flex-wrap gap-2">
         <Button variant="primary" disabled={!text.trim() || saving} onClick={() => onSave(text)}>

@@ -228,6 +228,17 @@ question is. The drafts are the project's: everyone who sees it reads them (`GET
 /api/projects/{id}/drafts`, `GET /api/drafts/{id}`, `GET /api/drafts/{id}/versions/{n}`), whoever
 may change it asks for, edits and deletes them, each a row of the audit log by the draft's kind,
 never what it says; a draft is kept as long as a chat, from when it was last written or saved.
+Each version downloads as a Word document, a PDF or its Markdown (`GET
+/api/drafts/{id}/versions/{n}/export?format=docx|pdf|md`, `backend/app/draft_export.py`), its
+citations numbered notes naming the document, section and pages of each passage, and its line
+breaks kept, a row of the audit log too. How a project's drafts of each kind read is its
+template (`backend/app/draft_templates.py`, the drafts' "Templates", `GET
+/api/projects/{id}/draft-templates`, `PUT|DELETE /api/projects/{id}/draft-templates/{kind}`): a
+built-in one for each kind, or the project's own in its place, its tone, its parts in order, which
+of them every draft has, and what else every draft of the kind should do. The kind's layout and
+the rules every draft keeps, its citations and its placeholders, stay the code's whatever a
+template says; a writing follows the template in force as it starts, so a draft written again
+after a change follows the new one.
 
 A project can hold any number of chats. Each one is saved with its answers, including the
 steps the agent took and the passages it was shown, so a chat can be reopened later. An answer

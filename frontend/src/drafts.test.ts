@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import type { DraftSummary } from './api.ts'
-import { DRAFT_KINDS, KIND_LABELS, disputeLetter, draftByline, draftDeletionQuestion, draftProblem, draftStatusWords, versionWords, writing } from './drafts.ts'
+import {
+  DRAFT_FILES,
+  DRAFT_KINDS,
+  KIND_LABELS,
+  disputeLetter,
+  draftByline,
+  draftDeletionQuestion,
+  draftFileUrl,
+  draftProblem,
+  draftStatusWords,
+  versionWords,
+  writing,
+} from './drafts.ts'
 import { formatDateTime } from './format.ts'
 
 const draft: DraftSummary = {
@@ -60,5 +72,10 @@ describe('drafts', () => {
     })
     expect(draftDeletionQuestion({ ...draft, versions: 1 }).body).toContain('with its version.')
     expect(draftDeletionQuestion({ ...draft, versions: 0 }).body).toContain('with what was asked of it.')
+  })
+
+  it('downloads a version as a Word document first, then a PDF and its Markdown', () => {
+    expect(DRAFT_FILES.map((file) => file.format)).toEqual(['docx', 'pdf', 'md'])
+    expect(draftFileUrl(7, 2, 'pdf')).toBe('/api/drafts/7/versions/2/export?format=pdf')
   })
 })

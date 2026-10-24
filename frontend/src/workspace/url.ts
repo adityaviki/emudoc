@@ -10,7 +10,7 @@ export type Focus = { passage: number } | { block: number } | { page: number }
 /** Whose documents in review the reviews view lists: every member's, or those assigned to the member. */
 export type Reviews = 'all' | 'mine'
 
-/** The folder the library shows, and the search running in it; or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, with `changes`, what their last readings changed, with `checks`, its cross-checks, with `check`, what that one finds, with `run`, a run of them kept with what it found, with `reviews`, its documents in review, with `drafts`, the drafts the model wrote from its documents, and with `draft`, one of them. */
+/** The folder the library shows, and the search running in it; or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, with `changes`, what their last readings changed, with `checks`, its cross-checks, with `check`, what that one finds, with `run`, a run of them kept with what it found, with `reviews`, its documents in review, with `drafts`, the drafts the model wrote from its documents, with `draft`, one of them, and with `draftTemplates`, how its drafts of each kind read. */
 export interface LibraryView {
   folderId: number | null
   q: string
@@ -24,6 +24,7 @@ export interface LibraryView {
   reviews?: Reviews
   drafts?: true
   draft?: number
+  draftTemplates?: true
 }
 
 export interface OpenDocument {
@@ -62,6 +63,7 @@ export function parseWorkspaceUrl(pathname: string, search: string): WorkspaceUr
   else if (params.has('reviews')) library.reviews = params.get('reviews') === 'mine' ? 'mine' : 'all'
   else if (id(params.get('draft')) != null) library.draft = id(params.get('draft')) ?? undefined
   else if (params.has('drafts')) library.drafts = true
+  else if (params.has('draft-templates')) library.draftTemplates = true
 
   let document: OpenDocument | null = null
   let canonical = true
@@ -108,6 +110,7 @@ export function buildWorkspaceUrl(url: Omit<WorkspaceUrl, 'canonical'>): string 
   if (url.library.reviews) params.set('reviews', url.library.reviews === 'mine' ? 'mine' : '')
   if (url.library.drafts) params.set('drafts', '')
   if (url.library.draft != null) params.set('draft', String(url.library.draft))
+  if (url.library.draftTemplates) params.set('draft-templates', '')
   if (url.document) {
     path += `/documents/${url.document.id}`
     const focus = url.document.focus

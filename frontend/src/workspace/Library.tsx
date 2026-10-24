@@ -54,6 +54,7 @@ import { describeChange } from './changes.ts'
 import { chosenFolder, droppedEntries, readEntries } from './dropped.ts'
 import { RunView } from './CheckRuns.tsx'
 import { CrossChecksView, FindingsView } from './CrossChecks.tsx'
+import { DraftTemplatesView } from './DraftTemplates.tsx'
 import { DraftView, DraftsView } from './Drafts.tsx'
 import { ChangesView } from './FactChanges.tsx'
 import { FactsView } from './FactsTable.tsx'
@@ -199,6 +200,7 @@ export function Library() {
   if (workspace.url.library.reviews && templates) return <ReviewsView whose={workspace.url.library.reviews} />
   if (workspace.url.library.drafts && drafts) return <DraftsView />
   if (workspace.url.library.draft != null && drafts) return <DraftView draftId={workspace.url.library.draft} />
+  if (workspace.url.library.draftTemplates && drafts) return <DraftTemplatesView />
   return (
     <div
       data-tour="library"

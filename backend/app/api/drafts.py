@@ -1,17 +1,22 @@
 """Drafts (app/drafts.py): a member asks the agent for a draft of a kind about some of a project's
 documents, which the worker writes, then edits it into new versions or has it written again; the
-project's members read its drafts, newest first, and each one's versions.
+project's members read its drafts, newest first, and each one's versions, and download a version
+as a Word document, a PDF or its Markdown (app/draft_export.py). How the project's drafts of each
+kind read is its template (app/draft_templates.py): the built-in one, or the project's own in its
+place.
 
 Every route is behind the flag `drafts` (app/flags.py). Whoever may change the project asks for a
-draft, saves a version and deletes one, each a row of the organisation's audit log naming the
-draft by its kind and id alone, never what it says; anyone who sees the project reads them. A
-writing is a run of the agent, so asking for one is held to what holds a question: the agent's
-runs in flight, the month's questions, of which it counts one, and the day's spending.
+draft, saves a version and deletes one, and writes its templates, each a row of the
+organisation's audit log naming the draft by its kind and id alone, never what it says, and a
+template by its kind and its parts' names; anyone who sees the project reads them, and downloads
+a draft, which the audit log keeps too. A writing is a run of the agent, so asking for one is held
+to what holds a question: the agent's runs in flight, the month's questions, of which it counts
+one, and the day's spending.
 """
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -30,21 +35,29 @@ from app.api.deps import (
 )
 from app.audit import audit
 from app.check_runs import gone_documents
+from app.draft_export import MEDIA_TYPES, ExportFormat, ExportRefused, draft_file, file_name
+from app.draft_templates import Template, template_of, templates_for
 from app.drafts import WRITING, latest_number, queue_draft, save_version, start_draft
 from app.flags import DRAFTS
-from app.models import Document, Draft, DraftVersion, User
-from app.ratelimit import QUESTIONS
+from app.models import Document, Draft, DraftTemplate, DraftVersion, Project, User
+from app.ratelimit import EXPORTS, QUESTIONS
 from app.schemas import (
     DraftDocumentOut,
     DraftIn,
+    DraftKind,
     DraftOut,
     DraftRewriteIn,
+    DraftSectionOut,
     DraftsOut,
     DraftSummaryOut,
+    DraftTemplateIn,
+    DraftTemplateOut,
+    DraftTemplatesOut,
     DraftVersionIn,
     DraftVersionOut,
     DraftVersionSummaryOut,
 )
+from app.storage import content_disposition
 
 router = APIRouter(tags=["drafts"], dependencies=[Depends(flagged(DRAFTS))])
 
@@ -56,6 +69,7 @@ SAVED_MEANWHILE = (
     "the editor: save it again to keep it as the newest version, or cancel to read the other."
 )
 NO_SUCH_VERSION = "This draft has no such version."
+NO_OWN_TEMPLATE = "This project has no template of its own for this kind: the built-in one applies."
 
 # Drafts a page of the project's list.
 DRAFTS_SHOWN = 20
@@ -147,6 +161,48 @@ def get_version(draft: DraftDep, number: Annotated[int, Path(ge=1)], session: Se
     return _version_out(*row)
 
 
+@router.get(
+    "/drafts/{draft_id}/versions/{number}/export",
+    response_class=Response,
+    responses={200: {"content": {media: {} for media in MEDIA_TYPES.values()}}},
+    dependencies=[Depends(limited(EXPORTS))],
+)
+def export_version(
+    draft: DraftDep,
+    number: Annotated[int, Path(ge=1)],
+    session: SessionDep,
+    account: AccountDep,
+    request: Request,
+    written_as: Annotated[ExportFormat, Query(alias="format")] = "docx",
+):
+    """One of the draft's versions as a file to save (app/draft_export.py): a Word document, with
+    `format=pdf` a PDF, with `format=md` its Markdown, each citation a numbered note naming the
+    passage it cites. The download is recorded once the file is made, before it is sent, by the
+    draft's kind, the version and the format, never what it says."""
+    version = session.scalar(
+        select(DraftVersion).where(DraftVersion.draft_id == draft.id, DraftVersion.number == number)
+    )
+    if version is None:
+        raise HTTPException(404, NO_SUCH_VERSION)
+    # The file is made with no transaction held: a long draft's takes a moment.
+    session.commit()
+    try:
+        content = draft_file(
+            written_as, version.text, version.sources, draft.title, version.created_at
+        )
+    except ExportRefused as refusal:
+        raise HTTPException(422, str(refusal)) from None
+    _audit(session, account, request, "draft_exported", draft, version=number, format=written_as)
+    session.commit()
+    return Response(
+        content,
+        media_type=MEDIA_TYPES[written_as],
+        headers={
+            "Content-Disposition": content_disposition(file_name(draft.title, number, written_as))
+        },
+    )
+
+
 @router.post("/drafts/{draft_id}/versions", response_model=DraftOut, status_code=201)
 def save(
     draft: EditableDraftDep,
@@ -203,6 +259,155 @@ def delete_draft(
     _audit(session, account, request, "draft_deleted", draft)
     session.delete(draft)
     session.commit()
+
+
+@router.get("/projects/{project_id}/draft-templates", response_model=DraftTemplatesOut)
+def list_draft_templates(project: ProjectDep, session: SessionDep):
+    """The template in force for each kind of the project's drafts, in the order the kinds are
+    offered: its own, or the built-in one."""
+    return DraftTemplatesOut(
+        templates=[_template_out(template) for template in templates_for(session, project.id)]
+    )
+
+
+@router.put("/projects/{project_id}/draft-templates/{kind}", response_model=DraftTemplateOut)
+def save_draft_template(
+    project: EditableProjectDep,
+    kind: DraftKind,
+    body: DraftTemplateIn,
+    session: SessionDep,
+    account: AccountDep,
+    request: Request,
+):
+    """Write the project's own template of the kind, whole, in the built-in one's place: its
+    tone, its parts in order and what else every draft of the kind should do. The next writing
+    of a draft of the kind follows it."""
+    sections = _sections(body)
+    # Two first saves of one kind at once would both insert.
+    session.execute(select(Project.id).where(Project.id == project.id).with_for_update())
+    row = session.scalar(
+        select(DraftTemplate).where(
+            DraftTemplate.project_id == project.id, DraftTemplate.kind == kind
+        )
+    )
+    if row is None:
+        row = DraftTemplate(
+            org_id=project.org_id,
+            project_id=project.id,
+            kind=kind,
+            tone=body.tone,
+            sections=sections,
+            guidance=body.guidance,
+            created_by=account.user.id,
+        )
+        session.add(row)
+        session.flush()
+        _template_audit(
+            session,
+            account,
+            request,
+            "draft_template_created",
+            row,
+            sections=[section["heading"] for section in sections],
+        )
+    elif (row.tone, row.sections, row.guidance) != (body.tone, sections, body.guidance):
+        before = {section["heading"]: section for section in row.sections}
+        after = {section["heading"]: section for section in sections}
+        _template_audit(
+            session,
+            account,
+            request,
+            "draft_template_changed",
+            row,
+            added=[heading for heading in after if heading not in before],
+            removed=[heading for heading in before if heading not in after],
+            changed=[
+                heading
+                for heading in after
+                if heading in before and after[heading] != before[heading]
+            ],
+            tone=row.tone != body.tone,
+            guidance=row.guidance != body.guidance,
+        )
+        row.tone, row.sections, row.guidance = body.tone, sections, body.guidance
+    session.commit()
+    session.refresh(row)
+    return _template_out(template_of(row))
+
+
+@router.delete("/projects/{project_id}/draft-templates/{kind}", status_code=204)
+def delete_draft_template(
+    project: EditableProjectDep,
+    kind: DraftKind,
+    session: SessionDep,
+    account: AccountDep,
+    request: Request,
+):
+    """Delete the project's own template of the kind for good: the built-in one applies again to
+    the next writing, and the drafts written already stay as they are."""
+    row = session.scalar(
+        select(DraftTemplate)
+        .where(DraftTemplate.project_id == project.id, DraftTemplate.kind == kind)
+        .with_for_update()
+    )
+    if row is None:
+        raise HTTPException(404, NO_OWN_TEMPLATE)
+    _template_audit(session, account, request, "draft_template_deleted", row)
+    session.delete(row)
+    session.commit()
+
+
+def _sections(body: DraftTemplateIn) -> list[dict[str, Any]]:
+    """The template's parts as they are kept, each named once."""
+    named: set[str] = set()
+    for section in body.sections:
+        if section.heading.casefold() in named:
+            raise HTTPException(
+                400,
+                f"Two parts are named “{section.heading}”. Give each part a name of its own.",
+            )
+        named.add(section.heading.casefold())
+    return [section.model_dump() for section in body.sections]
+
+
+def _template_audit(
+    session: Session,
+    account: Account,
+    request: Request,
+    action: str,
+    row: DraftTemplate,
+    **detail: Any,
+) -> None:
+    """The audit row of a draft template, named by its kind, its parts by their names and
+    whether its tone and the rest it asks changed: what they say is the members' wording."""
+    audit(
+        session,
+        account,
+        request,
+        action,
+        project_id=row.project_id,
+        target=("draft_template", row.id),
+        detail={"kind": row.kind, **detail},
+    )
+
+
+def _template_out(template: Template) -> DraftTemplateOut:
+    return DraftTemplateOut(
+        kind=template.kind,
+        id=template.id,
+        built_in=template.id is None,
+        tone=template.tone,
+        sections=[
+            DraftSectionOut(
+                heading=section.heading,
+                description=section.description,
+                required=section.required,
+            )
+            for section in template.sections
+        ],
+        guidance=template.guidance,
+        updated_at=template.updated_at,
+    )
 
 
 def _hold(session: Session, draft: Draft) -> None:

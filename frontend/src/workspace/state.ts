@@ -68,6 +68,8 @@ export interface Workspace {
   showDrafts(): void
   /** Shows one of the project's drafts, with its versions, in the library, likewise. */
   showDraft(draftId: number): void
+  /** Shows how the project's drafts of each kind read in the library, likewise. */
+  showDraftTemplates(): void
   openChat(chatId: number | 'new' | null, options?: { replace?: boolean }): void
   /** Which pane shows on a narrow screen, where only one fits. */
   mobilePane: Pane
