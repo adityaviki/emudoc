@@ -38,7 +38,14 @@ class Member:
             base_url=base,
             headers=HEADERS,
             timeout=httpx.Timeout(600, connect=10),
-            limits=httpx.Limits(max_connections=connections, max_keepalive_connections=connections),
+            # An idle connection goes after 2 s, well before uvicorn closes it at 5 s
+            # (timeout_keep_alive): at httpx's own 5 s a request could leave on a connection the
+            # server was closing that instant and fail with ReadError (CI, 2026-10-24).
+            limits=httpx.Limits(
+                max_connections=connections,
+                max_keepalive_connections=connections,
+                keepalive_expiry=2,
+            ),
             follow_redirects=True,
         )
 
