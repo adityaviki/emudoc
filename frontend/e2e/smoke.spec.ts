@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto'
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,7 +7,7 @@ import type { BrowserContext, Page } from '@playwright/test'
 import { expectAccessible } from './axe.ts'
 import { linkMailedTo, messageTo } from './mail.ts'
 import { INBOUND_DOMAIN, chooseFlag, makeOperator, movePlan, receiveMail } from './operator.ts'
-import { heldTurns, holdNextTurn, refuseEmbeddings, releaseTurns } from './standin.ts'
+import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, releaseTurns } from './standin.ts'
 
 // The member's way through the app, end to end: sign up through the link the app mails, find the
 // organisation's first steps listed, skip the tour the first project shows, ask the sample
@@ -20,8 +21,8 @@ import { heldTurns, holdNextTurn, refuseEmbeddings, releaseTurns } from './stand
 // steps, delete it and keep it, and switch back, and, on Team, invite a colleague as a
 // viewer from under that answer, who makes an account from the invitation's link, ends her tour, finds
 // the project and is offered no change to it until made a member, write to support from the
-// help menu, which mails the page written from, read the help pages and what's new, then make the project
-// private, which she no longer finds until chosen for it, and share the chat, which the
+// help menu, which mails the page written from, read the help pages and what's new, add a webhook,
+// then make the project private, which she no longer finds until chosen for it, and share the chat, which the
 // colleague then reads but does not ask in, and last ask the question that uses the month's
 // questions, which the bell tells, and open that notice from the other organisation; then, made
 // an operator, read the organisation in the operator's area, which nobody else is sent, raise its
@@ -29,8 +30,9 @@ import { heldTurns, holdNextTurn, refuseEmbeddings, releaseTurns } from './stand
 // colleague's account, which she let support see, and switch the model's provider off and on
 // again; and last, make the project's own invoice template from the built-in one, a field
 // added, and delete it, then upload an invoice, read for the built-in one, and find its facts in
-// the project's facts table, sorted, kept by a condition and opened where they were found, one
-// checked and another corrected, which the table's unchecked rows, its CSV file and the audit
+// the project's facts table, sorted, kept by a condition and opened where they were found, the
+// invoice's event posted to the webhook, signed, and its delivery logged, one checked and another
+// corrected, which the table's unchecked rows, its CSV file and the audit
 // log keep, and then a field added to the project's own invoice template and the invoice read again for it,
 // what the reading changed listed, the corrected total kept, the invoice checked against its purchase
 // order by cross-checks, run with a discrepancy report, an automation made, which runs them
@@ -74,6 +76,9 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   const firstSteps = page.getByRole('region', { name: 'Get started' })
   // The chat's suggestion to invite the team, under an answer about the organisation's documents.
   const inviteTeam = page.getByRole('region', { name: 'Invite your team' })
+  // The organisation page's webhooks, and the secret of the one added, which signs its events.
+  const webhooks = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Webhooks', exact: true }) })
+  let hookSecret = ''
 
   await test.step('sign up', async () => {
     // A new address every run, so that a server kept from an earlier run takes it too.
@@ -666,6 +671,25 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(keys.getByRole('listitem').filter({ hasText: 'Invoices sync' })).toContainText('last used')
   })
 
+  await test.step('add a webhook at a program of its own, whose secret is shown once', async () => {
+    await webhooks.getByLabel('Address').fill('hooks.example.com')
+    await expect(webhooks.getByText('Give the webhook an address that starts with https://.')).toBeVisible()
+    await expect(webhooks.getByRole('button', { name: 'Add the webhook' })).toBeDisabled()
+    // The stand-in is the program; development sends to its own machine over HTTP.
+    await webhooks.getByLabel('Address').fill(`${STANDIN}/hooks`)
+    await expect(webhooks.getByLabel(/^A document is indexed/)).toBeChecked()
+    await webhooks.getByRole('button', { name: 'Add the webhook' }).click()
+    // The button went disabled with the form cleared: the keyboard goes on from the secret's.
+    await expect(webhooks.getByRole('button', { name: 'Copy the secret' })).toBeFocused()
+    const secret = webhooks.locator('code', { hasText: /^whsec_/ })
+    hookSecret = (await secret.textContent()) ?? ''
+    expect(hookSecret).toMatch(/^whsec_/)
+    await expectAccessible(page, 'a webhook added')
+    await webhooks.getByRole('button', { name: 'I have saved it' }).click()
+    await expect(secret).toHaveCount(0)
+    await expect(webhooks.getByRole('listitem')).toContainText('nothing sent yet')
+  })
+
   await test.step('make the project private, which a member not chosen no longer finds, then choose her', async () => {
     await page.goto('/')
     const card = page.locator('div.group').filter({ hasText: 'Supplier contracts' })
@@ -975,6 +999,23 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('listitem').filter({ hasText: 'Downloaded a facts table' })).toContainText(
       'invoice facts as a CSV file, sorted by total amount',
     )
+  })
+
+  await test.step("find the invoice's event posted to the webhook, signed with its secret, and its delivery in the log", async () => {
+    await expect.poll(async () => (await hooksReceived(request)).length, { timeout: 30_000 }).toBeGreaterThan(0)
+    const [hooked] = await hooksReceived(request)
+    expect(hooked.event).toBe('document.ready')
+    const event = JSON.parse(hooked.body)
+    expect([event.type, event.data.filename]).toEqual(['document.ready', 'invoice.md'])
+    // What a receiver checks: the HMAC of the time and the body as sent, with the secret.
+    const { t, v1 } = Object.fromEntries(hooked.signature.split(',').map((part) => part.split('=')))
+    expect(createHmac('sha256', hookSecret).update(`${t}.${hooked.body}`).digest('hex')).toBe(v1)
+    await page.goto('/organization')
+    await webhooks.getByRole('button', { name: 'Deliveries' }).click()
+    const log = webhooks.getByRole('region', { name: 'Deliveries to 127.0.0.1:18001' })
+    await expect(log.getByRole('listitem').first()).toContainText('Delivered')
+    await expect(log).toContainText(event.id)
+    await expectAccessible(page, "a webhook's deliveries")
   })
 
   await test.step('add a field to the invoice template, read the invoice again for it, and read what changed', async () => {

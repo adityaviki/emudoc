@@ -1745,6 +1745,36 @@ a key").
 `CONNECTOR_BASE_URL` points the connectors at the browser test's stand-in instead, which
 production refuses.
 
+## Webhooks
+
+An organisation's owners and admins give its programs addresses to hear of its work at
+(`backend/app/webhooks.py`; on the plans that include the API, every plan but Free; the help's
+"Organisations, members and roles" says what a member reads): `document.ready` and
+`document.failed` once a document's indexing ended and none is to run after it,
+`check_run.completed` once a run of cross-checks is worked out and its report, when asked for,
+written. The end of the job that brings each about announces it, and each delivery is a job of
+its own, `deliver_webhook`, with the indexers: the body is the versioned API's document or run
+in an envelope (`{id, type, created_at, data}`, listed in the contract's `webhooks`), signed
+with the webhook's secret as Stripe signs its own (`Emudoc-Signature: t=…,v1=…`), the secret
+kept encrypted with `ENCRYPTION_KEYS` ("The encryption keys", whose `encrypt-secrets` covers it).
+Anything but a 2xx within 10 seconds is tried again, the wait doubling from a minute, 12 times
+over about 34 hours, with the same body; a delivery the worker gives up on is in the
+organisation's delivery log, never among the failed jobs, since what the receiver does is the
+member's to fix. There is nothing to set.
+
+The worker posts to addresses members chose, on the internet, so its machine must reach the
+internet on port 443 (on AWS the instance's security group lets it out). It refuses what a
+member must not reach through it: a name that resolves, wholly or in part, into the deployment's
+own network (a private, loopback, link-local, shared or reserved address, IPv4 inside IPv6
+included, so the instance's metadata too) and plain HTTP, in production; it connects to the
+address it checked rather than to the name, follows no redirect and takes no proxy from the
+environment (`HTTPS_PROXY` is not read), so a deployment whose egress must go through a proxy
+sends no webhooks. Development, whose receivers run beside it, takes both. The log names a
+delivery by its id and the event, never the address; `emudoc_webhook_deliveries_total` counts
+the tries by how they ended ("Metrics"). What the addresses receive (a document's name, title,
+summary and how far it is indexed; a run's counts and report) goes to a company the
+organisation chose, which is not a subprocessor; the privacy policy says so.
+
 ## Billing
 
 With `STRIPE_SECRET_KEY` set the app sells its Pro and Team plans through Stripe
@@ -1898,6 +1928,10 @@ every six hours), and so what the privacy notice can promise:
 - **Idempotency keys** (`idempotency_keys`, `backend/app/idempotency.py`): the key a program sent
   to the versioned API with a request that made something, and the answer it was given, which
   names what it made, go a day after the key was claimed (`KEPT`), or with the API key.
+- **Webhooks' delivery logs** (`webhook_deliveries`, `backend/app/webhooks.py`): which event
+  went to which webhook, about which document or run, and how its address answered, go 30 days
+  after the event (`DELIVERIES_KEPT`), or with the webhook; a try's job holds the event's body
+  until the try is done with it.
 - **Invitations** go when they are accepted or revoked, and an expired one 30 days after it
   expired, with the address it was sent to (`backend/app/invitations.py`).
 - **Audit log rows** go once they are older than the organisation's plan keeps them
@@ -2610,6 +2644,7 @@ across the instances, `sum without (instance)`):
 | `emudoc_mail_events_total` | Addresses the mail provider said not to write to, by `kind`: `bounce`, `complaint`; counted by the API for Resend's, by the worker for SES's ("Mail") |
 | `emudoc_inbound_messages_total` | Messages sent to projects' addresses, by `outcome`: `kept`, `empty` (nothing in it to keep), `refused_sender`, `unauthenticated`, `unreadable`, `too_large`, `refused_project`, `refused_plan`, `unknown_address` (no project's), `off` (the flag off) ("Mail in") |
 | `emudoc_connector_syncs_total` | Syncs of connected folders, by `outcome`: `synced`, `unchanged` (nothing changed since the last), `failed` (stopped partway, or the folder gone), `paused` (the grant or the member), `held` (the project, the plan), `off` (the flag off) ("Connected folders") |
+| `emudoc_webhook_deliveries_total` | Tries of the events posted to the organisations' webhooks, by `outcome`: `delivered` (a 2xx), `retried` (answered otherwise or not at all, and queued again), `failed` (the last try), `refused` (not sent: an address on the deployment's own network or over plain HTTP, a plan without the API, a secret no key decrypts) ("Webhooks") |
 | `emudoc_connector_files_total` | Files of connected folders the syncs read, by `outcome`: `kept`, `rejected`, `trashed` (its file gone), `replaced` (by a new version) ("Connected folders") |
 | `emudoc_renders_total`, `emudoc_render_seconds` | PDF pages drawn as images, by `purpose` (`pane`, `thumbnail`, `ocr`, `ahead`) and `outcome`: `drawn`, `refused` (a page that cannot be drawn), `timeout` (`RENDER_TIMEOUT`), `out_of_memory` (`RENDER_MEMORY_MB`), `crashed` or `unstarted` (no process could draw it); the seconds include the wait for a free process ("Drawing pages") |
 | `process_*`, `python_*` | The process's CPU, memory and open files, and Python's collector |

@@ -1,8 +1,9 @@
 """What the database keeps encrypted (app/keyring.py), and its upkeep.
 
 `COLUMNS` names each column whose values would let a copy of the database act as a member: the
-authenticators' secrets of two-factor sign-in, and the grants members gave to read the folders
-they connected (app/connectors/). The code that writes such a value
+authenticators' secrets of two-factor sign-in, the grants members gave to read the folders
+they connected (app/connectors/), and the secrets the organisations' webhooks are signed with
+(app/webhooks.py), which would let a copy sign as Emudoc. The code that writes such a value
 encrypts it for its row (`encrypt`) and the code that reads it decrypts it (`decrypt`), so the
 rows hold nothing a dump or a backup can use without ENCRYPTION_KEYS. A value kept as it was
 before its column was encrypted still reads as it is, until `encrypt_secrets` encrypts it.
@@ -79,7 +80,15 @@ CONNECTOR_TOKENS = Column(
     "their folders are not synced",
     "the member who connected a folder connects it again",
 )
-COLUMNS = (TOTP_SECRETS, CONNECTOR_TOKENS)
+WEBHOOK_SECRETS = Column(
+    "webhooks",
+    "secret",
+    "webhook secret",
+    "its webhook is sent nothing",
+    "their webhooks are sent nothing",
+    "an owner or admin of the organisation rolls the webhook's secret on its page",
+)
+COLUMNS = (TOTP_SECRETS, CONNECTOR_TOKENS, WEBHOOK_SECRETS)
 
 
 def keys() -> Keyring:

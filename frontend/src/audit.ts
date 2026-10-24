@@ -71,6 +71,10 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   api_key_created: ['Made an API key', 'organization'],
   api_key_rolled: ['Rolled an API key', 'organization'],
   api_key_revoked: ['Revoked an API key', 'organization'],
+  webhook_created: ['Added a webhook', 'organization'],
+  webhook_changed: ['Changed a webhook', 'organization'],
+  webhook_rolled: ["Rolled a webhook's secret", 'organization'],
+  webhook_deleted: ['Removed a webhook', 'organization'],
   sample_added: ['Sample project added', 'organization'],
   database_restored: ['Database restored', 'organization'],
   plan_changed: ['Plan changed', 'billing'],
@@ -201,6 +205,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   else if (DRAFT_TEMPLATE_ACTIONS.has(event.action)) parts.push(describeDraftTemplate(detail))
   else if (MAILBOX_ACTIONS.has(event.action) && event.action !== 'mailbox_deleted') parts.push(describeMailbox(detail))
   else if (CONNECTOR_ACTIONS.has(event.action)) parts.push(describeConnector(detail))
+  else if (WEBHOOK_ACTIONS.has(event.action)) parts.push(describeWebhookChange(detail))
   else if (event.action === 'document_review_changed') parts.push(`${review(detail.from)} → ${review(detail.to)}`)
   else if (event.action === 'document_assigned') parts.push(describeAssignment(detail, names))
   else if ('to' in detail) parts.push(`${word(detail.from)} → ${word(detail.to)}`)
@@ -418,6 +423,22 @@ function describeConnector(detail: AuditEvent['detail']): string {
   if (changed.includes('target') || changed.includes('folder')) {
     parts.push(typeof detail.target === 'string' ? `into ${detail.target}` : 'into the project’s root')
   }
+  return parts.join(', ')
+}
+
+const WEBHOOK_ACTIONS = new Set<AuditAction>(['webhook_created', 'webhook_changed', 'webhook_rolled', 'webhook_deleted'])
+
+const events = (value: unknown) => (Array.isArray(value) ? value.join(', ') : '')
+
+/** A webhook added, changed, rolled or removed: its address's server, never the address, whose path may hold the
+ * receiver's own token, and what changed. */
+function describeWebhookChange(detail: AuditEvent['detail']): string {
+  const parts = [typeof detail.host === 'string' ? detail.host : 'a webhook']
+  if (typeof detail.to_host === 'string') parts.push(`moved to ${detail.to_host}`)
+  if ('to' in detail) parts.push(`${events(detail.from)} → ${events(detail.to)}`)
+  else if (Array.isArray(detail.events)) parts.push(events(detail.events))
+  if (detail.enabled === false) parts.push('paused')
+  if (detail.enabled === true) parts.push('on again')
   return parts.join(', ')
 }
 

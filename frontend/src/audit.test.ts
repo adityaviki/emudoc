@@ -209,6 +209,18 @@ describe('a row', () => {
     expect(describeDetail(event('document_uploaded', through))).toBe('msa.pdf · with the API key Sync')
   })
 
+  it("words a webhook by its address's server alone, and what changed", () => {
+    const added = { host: 'hooks.example.com', events: ['document.ready', 'document.failed'] }
+    expect(describeDetail(event('webhook_created', added))).toBe('hooks.example.com, document.ready, document.failed')
+    const changed = { host: 'hooks.example.com', to_host: 'n8n.example.com', from: ['document.ready'], to: ['check_run.completed'] }
+    expect(describeDetail(event('webhook_changed', changed))).toBe(
+      'hooks.example.com, moved to n8n.example.com, document.ready → check_run.completed',
+    )
+    expect(describeDetail(event('webhook_changed', { host: 'hooks.example.com', enabled: false }))).toBe('hooks.example.com, paused')
+    expect(describeDetail(event('webhook_rolled', { host: 'hooks.example.com' }))).toBe('hooks.example.com')
+    expect(actionLabel('webhook_rolled')).toBe("Rolled a webhook's secret")
+  })
+
   it("words a document's review by its states and whom it is assigned to, by the members' names", () => {
     const names = new Map([[9, 'Bob']])
     const moved = (from: string | null, to: string | null) =>

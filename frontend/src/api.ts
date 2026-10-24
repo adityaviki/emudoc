@@ -1445,6 +1445,10 @@ export type AuditAction =
   | 'api_key_created'
   | 'api_key_rolled'
   | 'api_key_revoked'
+  | 'webhook_created'
+  | 'webhook_changed'
+  | 'webhook_rolled'
+  | 'webhook_deleted'
   | 'ownership_transferred'
   | 'invitation_sent'
   | 'invitation_revoked'
@@ -1557,6 +1561,52 @@ export interface ApiKey {
 /** A key just made or rolled, with the key itself, which nothing shows again. */
 export interface ApiKeyMade extends ApiKey {
   key: string
+}
+
+/** What a webhook is told of (WEBHOOK_EVENTS in backend/app/models.py), and how a delivery to it stands. */
+export type WebhookEvent = 'document.ready' | 'document.failed' | 'check_run.completed'
+export type WebhookDeliveryStatus = 'pending' | 'delivered' | 'failed'
+
+/** An event sent to a webhook, as its delivery log shows it (WebhookDeliveryOut in backend/app/schemas.py): never what it said. */
+export interface WebhookDelivery {
+  id: number
+  event_id: string
+  event_type: WebhookEvent
+  /** The document's or the run's id. */
+  subject_id: number
+  status: WebhookDeliveryStatus
+  attempts: number
+  /** How the last try ended: the address's status, and the sentence why it was no delivery. */
+  response_status: number | null
+  error: string | null
+  created_at: string
+  attempted_at: string | null
+  retry_at: string | null
+  delivered_at: string | null
+}
+
+/** One of the organisation's webhooks, as its owners and admins see it (WebhookOut): never its secret. */
+export interface Webhook {
+  id: number
+  url: string
+  events: WebhookEvent[]
+  enabled: boolean
+  /** Who added it, by name or address as they are now; null once the account is gone. */
+  made_by: string | null
+  created_at: string
+  rolled_at: string | null
+  last_delivery: WebhookDelivery | null
+}
+
+/** A webhook just added or rolled, with its secret, which nothing shows again. */
+export interface WebhookMade extends Webhook {
+  secret: string
+}
+
+/** A page of a webhook's delivery log, the newest first. */
+export interface WebhookDeliveries {
+  deliveries: WebhookDelivery[]
+  next_before: number | null
 }
 
 /** Which rows of the audit log to read: of these actions (any, when none), by this member, about this project, from `since` until before `until` (ISO times). */
@@ -1945,6 +1995,19 @@ export const organizations = {
   /** The member's own key with a new secret; the one before stops at once. */
   rollKey: (id: number) => request<ApiKeyMade>(`/organization/keys/${id}/roll`, { method: 'POST' }),
   revokeKey: (id: number) => request<void>(`/organization/keys/${id}`, { method: 'DELETE' }),
+  /** Owners and admins only, as is everything about webhooks; none of these takes a key. */
+  webhooks: () => request<Webhook[]>('/organization/webhooks'),
+  /** A 400 for an address a webhook may not have, a 402 when the plan does not include the API. */
+  makeWebhook: (body: { url: string; events: WebhookEvent[] }) =>
+    request<WebhookMade>('/organization/webhooks', json('POST', body)),
+  /** A field left out stays as it is; `enabled: false` pauses it. */
+  changeWebhook: (id: number, body: { url?: string; events?: WebhookEvent[]; enabled?: boolean }) =>
+    request<Webhook>(`/organization/webhooks/${id}`, json('PATCH', body)),
+  /** A new secret, every try from now on signed with it; the one before ends at once. */
+  rollWebhook: (id: number) => request<WebhookMade>(`/organization/webhooks/${id}/roll`, { method: 'POST' }),
+  removeWebhook: (id: number) => request<void>(`/organization/webhooks/${id}`, { method: 'DELETE' }),
+  webhookDeliveries: (id: number, before: number | null = null) =>
+    request<WebhookDeliveries>(`/organization/webhooks/${id}/deliveries${before === null ? '' : `?before=${before}`}`),
   /** A domain is added only by someone whose own confirmed address is at it. */
   setJoining: (body: { domains: string[]; role: JoinRole }) => request<Me>('/organization/joining', json('PUT', body)),
   /** One of `me.joinable`. */

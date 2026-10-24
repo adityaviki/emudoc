@@ -46,6 +46,7 @@ from app.api import (
     trash,
     usage,
     v1,
+    webhooks,
 )
 from app.api.deps import (
     RETRY_AFTER,
@@ -507,6 +508,7 @@ def create_app(
         organizations.router,
         invitations.router,
         apikeys.router,
+        webhooks.router,
         *KEYED,
         connectors.router,
         audit.router,

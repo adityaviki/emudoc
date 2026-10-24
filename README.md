@@ -973,6 +973,20 @@ moves or changes a file:
 ```bash
 EMUDOC_API_KEY=emk_… python3 emudoc_upload.py watch --server https://emudoc.example.org --project Invoices ~/Scans
 ```
+Its owners and admins also give its programs webhooks (`backend/app/webhooks.py`), beside the
+API keys and on the same plans: an address and the events posted to it as they happen,
+`document.ready` and `document.failed` once a document's indexing ended, and
+`check_run.completed` once a run of cross-checks is worked out with its report. An event's body
+is what the versioned API answers for the document or the run, in an envelope (`id`, `type`,
+`created_at`, `data`) the contract lists beside the routes, and it is signed with the webhook's
+secret, shown once (`Emudoc-Signature: t=…,v1=…`, the HMAC-SHA256 of the time, a full stop and
+the body). Anything but a 2xx within 10 seconds is tried again, the wait doubling from a
+minute, 12 times, with the same event `id`, so a receiver drops one it has seen; each
+webhook's delivery log keeps what was sent and how it was answered for 30 days, never what it
+said. An address must be on the internet over HTTPS: a delivery goes to the address its name
+was checked to resolve to, outside the deployment's own network, and follows no redirect. Each
+webhook added, changed, rolled or removed is a row of the audit log, which names its server
+alone.
 The roles: a viewer reads the projects and asks about them in chats of their own, a member also
 changes the projects (makes, uploads, organises, deletes), an admin also renames the organisation
 and manages who is in it, and an owner also manages its owners. The page offers each member only

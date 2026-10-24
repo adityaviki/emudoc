@@ -43,6 +43,7 @@ from app.ratelimit import HISTORY
 from app.retention import DELETION_GRACE, RETENTION_HELD, day
 from app.storage import Storage
 from app.trash import TRASH_DAYS
+from app.webhooks import DELIVERIES_KEPT
 from app.worker import HOUSEKEEPING_INTERVAL
 
 TERMS_VERSION = "2026-10-15"
@@ -128,6 +129,7 @@ def privacy_policy(
         notification_days=str(NOTIFICATION_DAYS),
         trash_days=str(TRASH_DAYS),
         export_days=str(EXPORT_DAYS),
+        webhook_days=str(DELIVERIES_KEPT.days),
         # A count is pruned at the first housekeeping after it is HISTORY old.
         count_hours=str(round((HISTORY.total_seconds() + HOUSEKEEPING_INTERVAL) / 3600)),
         deletion_days=str(DELETION_GRACE.days),

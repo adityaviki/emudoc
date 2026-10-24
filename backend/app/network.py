@@ -28,6 +28,8 @@ from sqlalchemy.exc import ArgumentError
 
 # Names that only resolve inside the deployment's own network.
 OWN_SUFFIXES = (".internal", ".local", ".localhost", ".lan", ".home.arpa")
+# The prefix a NAT64 gateway reaches an IPv4 address by, RFC 6052's.
+_NAT64 = ipaddress.IPv6Network("64:ff9b::/96")
 # The providers whose address the environment can move, where a model may run on the
 # deployment's own machines or on a service other than the one the prefix names.
 MODEL_BASE_URLS = {
@@ -60,6 +62,23 @@ def on_own_network(host: str) -> bool:
     except ValueError:
         return "." not in host or host.endswith(OWN_SUFFIXES)
     return address.is_private or address.is_loopback or address.is_link_local
+
+
+def reaches_out(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Whether a connection to `address` leaves the deployment for the internet, which an address
+    a member chose may (a webhook's, app/webhooks.py) where one of the own network may not: a
+    global unicast address, an IPv6 one that carries an IPv4 address (mapped, NAT64's, 6to4's)
+    judged by the IPv4 one it reaches. Stricter than `on_own_network`, which a setting the
+    operator wrote is held to: the shared range of a carrier's NAT, the reserved and the
+    multicast ones are no member's either."""
+    if isinstance(address, ipaddress.IPv6Address):
+        if address.ipv4_mapped is not None:
+            address = address.ipv4_mapped
+        elif address in _NAT64:
+            address = ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
+        elif address.sixtofour is not None:
+            address = address.sixtofour
+    return address.is_global and not address.is_multicast
 
 
 def database_problem(url: str, variable: str = "DATABASE_URL") -> str | None:

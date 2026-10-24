@@ -451,3 +451,27 @@ class FindingList(BaseModel):
     data: list[Finding]
     total: int
     next: str | None
+
+
+class DocumentEvent(BaseModel):
+    """A document's indexing ended, posted to the organisation's webhooks that listen for it:
+    `document.ready` once it can be searched and asked about (`data.partly_indexed` says whether
+    it went without a part), `document.failed` once it could not be read or was quarantined
+    (`data.error` says why). `id` names the event, the same in every try of it."""
+
+    id: str
+    type: Literal["document.ready", "document.failed"]
+    created_at: dt.datetime
+    data: Document
+
+
+class CheckRunEvent(BaseModel):
+    """A run of a project's cross-checks worked out, or failed, and its discrepancy report
+    written or failed when one was asked for, posted to the organisation's webhooks that listen
+    for it. A report asked for after the run is announced again once it is written. `id` names
+    the event, the same in every try of it."""
+
+    id: str
+    type: Literal["check_run.completed"]
+    created_at: dt.datetime
+    data: CheckRun
