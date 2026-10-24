@@ -17,6 +17,14 @@ newest entry first.
 
 Operators:
 
+- Connected folders from OneDrive and SharePoint too, through Microsoft Graph, where
+  `ONEDRIVE_CLIENT_ID` and `ONEDRIVE_CLIENT_SECRET` name an Entra ID app with the delegated
+  permissions `offline_access`, `User.Read`, `Files.Read.All` and `Sites.Read.All` and the
+  redirect URI `{APP_URL}/api/connectors/callback` (`ONEDRIVE_TENANT`, `common` by default, says
+  whose accounts): browsing starts at the member's OneDrive and the libraries of the SharePoint
+  sites they follow, a folder is read by its children and asked after through its drive's delta,
+  and the refresh token Microsoft gives anew with each access token is kept. The subprocessor list
+  and the privacy policy name OneDrive where it is set up.
 - Connected folders from Dropbox too, where `DROPBOX_APP_KEY` and `DROPBOX_APP_SECRET` name a
   scoped app with `files.metadata.read`, `files.content.read` and `account_info.read` and the
   redirect URI `{APP_URL}/api/connectors/callback`: a folder is read in one listing with its

@@ -1651,8 +1651,8 @@ it ("On AWS").
 
 ## Connected folders
 
-A project may keep in step with a folder of a member's Google Drive or Dropbox
-(`backend/app/connectors/`;
+A project may keep in step with a folder of a member's Google Drive, Dropbox, OneDrive or
+SharePoint (`backend/app/connectors/`;
 behind the flag `connectors`, "The operator's area", on the plans that include connected
 folders, Team and Enterprise, and none on the sample project). In the library's "Connected
 folders", a member who may change the project connects a service: the browser goes to it for
@@ -1665,8 +1665,8 @@ connector.
 The worker syncs each every 15 minutes (`SYNC_INTERVAL`), and at a member's "Sync now": its
 heartbeat queues a `sync_connector` job for each connector whose time has come, at the bulk
 priority, so that uploads and answers go first. A sync asks the service whether anything
-changed since the last listing (Google's change log, Dropbox's cursor: one request when nothing
-did), and otherwise reads the folder whole and compares it with what the last sync found: a
+changed since the last listing (Google's change log, Dropbox's cursor, the OneDrive drive's
+delta: one request when nothing did), and otherwise reads the folder whole and compares it with what the last sync found: a
 file not seen before, or whose version changed (its checksum; a Google document's last change),
 is downloaded and taken in through the checks an upload's files go through (its type, its size,
 bytes the project holds already, the plan), into the folders of its path below the target; the
@@ -1723,6 +1723,24 @@ the app has), and add the redirect URI; its App key and App secret are `DROPBOX_
 `DROPBOX_APP_SECRET`. An app in development may be linked by at most 500 accounts, and once 50
 are linked Dropbox gives two weeks to apply for production status before it stops linking more:
 apply from the app's page in the console before then.
+
+**OneDrive and SharePoint**, through Microsoft Graph. Browsing starts at the member's OneDrive
+("My files") and the document libraries of the SharePoint sites they follow (up to 20); a folder
+is named by its drive and its item, read a request per folder below it, and asked after through
+its drive's delta, since Graph keeps a delta below a drive's root for OneDrive alone. A file's
+version is its `cTag`, which changes with its content; a OneNote notebook cannot be read. Microsoft
+gives a new refresh token with each access token, and the app keeps the newest; it has no way to
+give a single grant back, so disconnecting forgets it and the member removes the app from their
+account's "Apps" page if they wish. In Microsoft Entra ID, register an app (its supported
+accounts as `ONEDRIVE_TENANT` says: "common" for work, school and personal accounts, a tenant id
+for one directory alone) with a Web redirect URI, a client secret, and the delegated Microsoft
+Graph permissions `offline_access`, `User.Read`, `Files.Read.All` and `Sites.Read.All`; its
+application (client) id and the secret's value are `ONEDRIVE_CLIENT_ID` and
+`ONEDRIVE_CLIENT_SECRET`. Most directories let their users consent only to apps of a verified
+publisher, and some to none: verify the publisher (Microsoft Partner Network), and an
+organisation's administrator may have to grant the permissions for its users first. A secret
+lasts as long as it was made for, two years at most: make the next before it runs out ("Rotating
+a key").
 
 `CONNECTOR_BASE_URL` points the connectors at the browser test's stand-in instead, which
 production refuses.
@@ -3675,6 +3693,7 @@ of the same tag (the Release workflow).
 | The database's password | `ALTER ROLE emudoc PASSWORD '…'` and the new `DATABASE_URL`, with `DATABASE_LISTEN_URL` and a pooler's `userlist.txt`; on AWS `tofu apply -replace=module.emudoc.random_password.database`, which writes the new URL | Release at once: the processes keep the connections they hold, and new ones fail until then; `/api/health` |
 | `SMTP_URL`'s password | The relay; on AWS `tofu apply -replace='module.emudoc.aws_iam_access_key.smtp[0]'` | A password reset's mail |
 | `GOOGLE_OAUTH_CLIENT_SECRET`, `MICROSOFT_OAUTH_CLIENT_SECRET` | The provider's console, which holds two secrets at once | A sign-in with each, then the old secret deleted there |
+| `GOOGLE_DRIVE_CLIENT_SECRET`, `DROPBOX_APP_SECRET`, `ONEDRIVE_CLIENT_SECRET` | The service's console | "Sync now" on a connected folder of each, then the old secret deleted there |
 | `SENTRY_DSN` | A new client key in the tracker's project | An error reaches the tracker, then the old key disabled |
 | `ENCRYPTION_KEYS` | `openssl rand -base64 32`, put first, the old key after it | `encrypt-secrets`; the old key removed after `BACKUP_DAYS` ("The encryption keys") |
 | The bucket's (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) | The bucket's provider; on AWS there are none, the host renews a role's session every quarter of an hour | The start's line "The bucket keeps …" |
@@ -4458,6 +4477,8 @@ and the like), named on its models' pages.
 | `MICROSOFT_OAUTH_TENANT` | `common` | | Whose Microsoft accounts may sign in |
 | `GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET` | none | the client secret is a secret | Folders of Google Drive connected to projects ("Connected folders") |
 | `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET` | none | the app secret is a secret | Folders of Dropbox connected to projects ("Connected folders") |
+| `ONEDRIVE_CLIENT_ID`, `ONEDRIVE_CLIENT_SECRET` | none | the client secret is a secret | Folders of OneDrive and SharePoint connected to projects ("Connected folders") |
+| `ONEDRIVE_TENANT` | `common` | | Whose Microsoft accounts may connect their folders |
 | `CONNECTOR_BASE_URL` | none | refused | Where the connected folders' services are reached in their place: the browser test's stand-in |
 
 ### Billing

@@ -266,9 +266,9 @@ receives the domain's mail hands each message over as it was sent, with its verd
 sender (`backend/app/receiving.py`): Resend through its webhook and API, Amazon SES through the
 SQS queue its notices reach, which the worker waits on (deploying.md, "Mail in").
 
-A project can also keep in step with a folder of a member's Google Drive or Dropbox, where the
-deployment has an OAuth client for the service, the flag `connectors` is on and the plan
-includes connected folders (`backend/app/connectors/`, `GET|POST
+A project can also keep in step with a folder of a member's Google Drive, Dropbox, OneDrive or
+SharePoint, where the deployment has an OAuth client for the service, the flag `connectors` is
+on and the plan includes connected folders (`backend/app/connectors/`, `GET|POST
 /api/projects/{id}/connectors`): the library's "Connected folders" sends the browser to the
 service for the member's consent to read their files, keeps the grant it gives encrypted, and
 lets the member browse their folders and choose one, and where its files go in the project. The

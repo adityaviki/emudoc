@@ -18,7 +18,7 @@ from sqlalchemy import select, update
 from app.api.connectors import Handshake
 from app.billing import change_plan
 from app.config import get_settings
-from app.connectors import dropbox, google, sync
+from app.connectors import dropbox, google, onedrive, sync
 from app.connectors.base import CONNECT_COOKIE
 from app.connectors.sync import (
     FOLDER_GONE,
@@ -45,6 +45,7 @@ FOLDER = google.FOLDER
 DOC = "application/vnd.google-apps.document"
 FORM = "application/vnd.google-apps.form"
 SYNCS = "emudoc_connector_syncs_total"
+GRAPH = f"{BASE}/onedrive/graph/v1.0"
 
 
 class FakeDrive:
@@ -305,6 +306,151 @@ class FakeDropbox:
         raise AssertionError(path)
 
 
+class FakeGraph:
+    """Microsoft's identity platform and Graph over two drives it keeps, the member's OneDrive
+    and a followed site's library: each item has an id, a name, its parent and, for a file, its
+    bytes and its cTag. A file's content redirects to another host, as Graph's does; a refresh
+    gives a new refresh token each time, as Microsoft's does."""
+
+    DOWNLOADS = "https://files.graph.test"
+
+    def __init__(self):
+        self.items: dict[str, dict] = {
+            "me-root": {
+                "id": "me-root",
+                "name": "root",
+                "drive": "me",
+                "parent": None,
+                "folder": {},
+                "root": {},
+            },
+            "site-root": {
+                "id": "site-root",
+                "name": "root",
+                "drive": "site",
+                "parent": None,
+                "folder": {},
+                "root": {},
+            },
+        }
+        self.content: dict[str, bytes] = {}
+        self.changes = 0
+        self.next_id = 0
+        self.grants: dict[str, bool] = {}
+        self.failing: dict[str, int] = {}
+        self.requests: list[httpx.Request] = []
+        self.transport = httpx.MockTransport(self._answer)
+
+    def folder(self, name, parent="me-root") -> str:
+        return self._add(name, parent, None)
+
+    def file(self, name, content, parent) -> str:
+        return self._add(name, parent, content)
+
+    def _add(self, name, parent, content) -> str:
+        self.next_id += 1
+        ref = f"item{self.next_id}"
+        item = {"id": ref, "name": name, "drive": self.items[parent]["drive"], "parent": parent}
+        if content is None:
+            item["folder"] = {"childCount": 0}
+        else:
+            self.content[ref] = content
+            item["file"] = {}
+            item["size"] = len(content)
+            item["cTag"] = hashlib.md5(content).hexdigest()
+        self.items[ref] = item
+        self.changes += 1
+        return ref
+
+    def change(self, ref, content):
+        self.content[ref] = content
+        self.items[ref]["cTag"] = hashlib.md5(content).hexdigest()
+        self.changes += 1
+
+    def remove(self, ref):
+        del self.items[ref]
+        self.changes += 1
+
+    def _shown(self, item):
+        shown = {k: v for k, v in item.items() if k not in ("drive", "parent")}
+        shown["parentReference"] = {"driveId": item["drive"]}
+        return shown
+
+    def _answer(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        path = request.url.path
+        if status := self.failing.get(path):
+            return httpx.Response(status, json={"error": {"code": "serviceNotAvailable"}})
+        if request.url.host == "files.graph.test":
+            assert "authorization" not in request.headers
+            return httpx.Response(200, content=self.content[path.strip("/")])
+        if path == "/onedrive/login/common/oauth2/v2.0/token":
+            form = parse_qs(request.content.decode())
+            if form["grant_type"] == ["authorization_code"]:
+                if form["code"] != ["the-code"]:
+                    return httpx.Response(400, json={"error": "invalid_grant"})
+                token = f"refresh-{len(self.grants) + 1}"
+                self.grants[token] = True
+                return httpx.Response(
+                    200,
+                    json={
+                        "access_token": "access-now",
+                        "refresh_token": token,
+                        "scope": onedrive.SCOPE,
+                    },
+                )
+            given = form["refresh_token"][0]
+            if not self.grants.get(given):
+                return httpx.Response(400, json={"error": "invalid_grant"})
+            renewed = f"refresh-{len(self.grants) + 1}"
+            self.grants[renewed] = True
+            return httpx.Response(
+                200, json={"access_token": "access-now", "refresh_token": renewed}
+            )
+        assert request.headers["authorization"] == "Bearer access-now"
+        api = path.removeprefix("/onedrive/graph/v1.0")
+        if api == "/me":
+            return httpx.Response(200, json={"mail": "ann@contoso.example"})
+        if api == "/me/drive/root":
+            return httpx.Response(200, json=self._shown(self.items["me-root"]))
+        if api == "/me/followedSites":
+            return httpx.Response(200, json={"value": [{"id": "site1", "displayName": "Finance"}]})
+        if api == "/sites/site1/drive/root":
+            return httpx.Response(200, json=self._shown(self.items["site-root"]))
+        found = re.fullmatch(
+            r"/drives/([^/]+)(?:/items/([^/]+)(/children|/content)?|/root/delta)?", api
+        )
+        assert found, path
+        drive, ref, rest = found.groups()
+        if api.endswith("/root/delta"):
+            if request.url.params.get("token") == "latest":
+                return httpx.Response(
+                    200,
+                    json={
+                        "value": [],
+                        "@odata.deltaLink": f"{GRAPH}/drives/{drive}/root/delta"
+                        f"?since={self.changes}",
+                    },
+                )
+            since = int(request.url.params["since"])
+            return httpx.Response(
+                200, json={"value": [{"id": "x"}] if self.changes > since else []}
+            )
+        if ref is None:
+            return httpx.Response(200, json={"name": "OneDrive" if drive == "me" else "Documents"})
+        item = self.items.get(ref)
+        if item is None:
+            return httpx.Response(404, json={"error": {"code": "itemNotFound"}})
+        if rest == "/children":
+            children = [
+                self._shown(child) for child in self.items.values() if child["parent"] == ref
+            ]
+            return httpx.Response(200, json={"value": children})
+        if rest == "/content":
+            return httpx.Response(302, headers={"Location": f"{self.DOWNLOADS}/{ref}"})
+        return httpx.Response(200, json=self._shown(item))
+
+
 def serving(monkeypatch, client, fake, **settings) -> None:
     """The service set up by `settings`, the flag on, and the fake answering both the API's
     client and the worker's."""
@@ -324,6 +470,19 @@ def drive(monkeypatch, client):
         fake,
         google_drive_client_id="drive-client",
         google_drive_client_secret="drive-secret",
+    )
+    return fake
+
+
+@pytest.fixture
+def graph(monkeypatch, client):
+    fake = FakeGraph()
+    serving(
+        monkeypatch,
+        client,
+        fake,
+        onedrive_client_id="onedrive-client",
+        onedrive_client_secret="onedrive-secret",
     )
     return fake
 
@@ -918,3 +1077,70 @@ def test_a_dropbox_folder_gone_and_a_grant_taken_back_say_so(client, session, se
     base = f"/api/projects/{project['id']}/connectors/{connector['id']}"
     assert client.delete(base).status_code == 204
     assert box.revoked == ["access-now"]
+
+
+def test_a_onedrive_folder_is_read_by_its_children_and_asked_after_from_the_drive_s_delta(
+    client, session, services, graph, sample_pdf
+):
+    project = create_project(client)
+    invoices = graph.folder("Invoices")
+    july = graph.folder("July", invoices)
+    graph.file("inv-7.pdf", sample_pdf.read_bytes(), july)
+    notes = graph.file("Notes.md", b"# Notes\n\nCall the supplier.", invoices)
+    graph.items["book"] = {
+        "id": "book",
+        "name": "Meetings",
+        "drive": "me",
+        "parent": invoices,
+        "package": {"type": "oneNote"},
+    }
+
+    started = client.post(
+        f"/api/projects/{project['id']}/connectors", json={"provider": "onedrive"}
+    )
+    url = urlsplit(started.json()["url"])
+    assert url.path == "/onedrive/login/common/oauth2/v2.0/authorize"
+    assert parse_qs(url.query)["scope"] == [onedrive.SCOPE]
+    connector = connected(client, graph, project["id"], "onedrive")
+    assert connector["account"] == "ann@contoso.example"
+    base = f"/api/projects/{project['id']}/connectors/{connector['id']}/folders"
+    tops = client.get(base).json()["folders"]
+    assert [(f["name"], f["ref"]) for f in tops] == [
+        ("My files", "me/me-root"),
+        ("Finance", "site/site-root"),
+    ]
+    assert [
+        f["name"] for f in client.get(base, params={"parent": "me/me-root"}).json()["folders"]
+    ] == ["Invoices"]
+    chose = client.put(
+        f"/api/projects/{project['id']}/connectors/{connector['id']}",
+        json={"folder_ref": f"me/{invoices}", "target_folder_id": None},
+    )
+    assert chose.status_code == 200, chose.text
+    synced(services)
+    assert library(session, project["id"]) == ["inv-7.pdf", "Notes.md"]
+    rejected = listed(client, project["id"])["connectors"][0]["rejected"]
+    assert rejected == [{"path": "Meetings", "reason": onedrive.PACKAGE}]
+    # Microsoft gives a new refresh token with each access token, and the newest is kept.
+    stored = the_connector(session)
+    assert decrypt(CONNECTOR_TOKENS, stored.id, stored.refresh_token) == max(graph.grants)
+
+    graph.requests.clear()
+    due(session)
+    queue_due_syncs()
+    synced(services)
+    assert "/onedrive/graph/v1.0/drives/me/root/delta" in [r.url.path for r in graph.requests]
+    assert not any(r.url.path.endswith("/children") for r in graph.requests)
+
+    graph.change(notes, b"# Notes\n\nCall the supplier on Monday.")
+    due(session)
+    queue_due_syncs()
+    synced(services)
+    assert library(session, project["id"]) == ["inv-7.pdf", "Notes.md"]
+    assert library(session, project["id"], trashed=True) == ["Notes.md"]
+
+
+def test_a_onedrive_root_chosen_is_named_by_its_drive(client, graph):
+    project = create_project(client)
+    connector = chosen(client, graph, project["id"], "site/site-root", provider="onedrive")
+    assert connector["folder"] == "Documents"

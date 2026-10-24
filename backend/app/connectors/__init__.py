@@ -14,6 +14,7 @@ from app.config import Settings
 from app.connectors.base import Provider
 from app.connectors.dropbox import Dropbox
 from app.connectors.google import GoogleDrive
+from app.connectors.onedrive import OneDrive
 
 # Every service's name in the members' words, the ones a deployment has no client for among
 # them, for a connector made while it had one.
@@ -30,4 +31,11 @@ def providers(settings: Settings) -> dict[str, Provider]:
         )
     if settings.dropbox_app_key:
         found["dropbox"] = Dropbox(settings.dropbox_app_key, settings.dropbox_app_secret, base)
+    if settings.onedrive_client_id:
+        found["onedrive"] = OneDrive(
+            settings.onedrive_client_id,
+            settings.onedrive_client_secret,
+            base,
+            tenant=settings.onedrive_tenant,
+        )
     return found

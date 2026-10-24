@@ -33,6 +33,7 @@ DEVELOPMENT = {
     "microsoft_oauth_client_id": "",
     "google_drive_client_id": "",
     "dropbox_app_key": "",
+    "onedrive_client_id": "",
     "sentry_dsn": "",
     "pwned_passwords_url": "",
     "stripe_secret_key": "",

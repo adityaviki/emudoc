@@ -683,6 +683,10 @@ class Settings(BaseSettings):
     google_drive_client_secret: str = ""
     dropbox_app_key: str = ""
     dropbox_app_secret: str = ""
+    onedrive_client_id: str = ""
+    onedrive_client_secret: str = ""
+    # "common" connects work, school and personal accounts; a tenant id one directory's alone.
+    onedrive_tenant: str = "common"
     # Where the services are reached in place of their own addresses, each under its name
     # ({CONNECTOR_BASE_URL}/google/…): the browser test's stand-in. Production refuses it.
     connector_base_url: str = ""
@@ -706,6 +710,8 @@ class Settings(BaseSettings):
         "index_fallback_model",
         "google_drive_client_id",
         "dropbox_app_key",
+        "onedrive_client_id",
+        "onedrive_tenant",
         "connector_base_url",
         mode="before",
     )
@@ -788,6 +794,7 @@ class Settings(BaseSettings):
         "resend_webhook_secret",
         "google_drive_client_secret",
         "dropbox_app_secret",
+        "onedrive_client_secret",
         mode="before",
     )
     @classmethod
@@ -1189,6 +1196,7 @@ class Settings(BaseSettings):
         for client, secret, service in (
             ("GOOGLE_DRIVE_CLIENT_ID", "GOOGLE_DRIVE_CLIENT_SECRET", "Google Drive"),
             ("DROPBOX_APP_KEY", "DROPBOX_APP_SECRET", "Dropbox"),
+            ("ONEDRIVE_CLIENT_ID", "ONEDRIVE_CLIENT_SECRET", "OneDrive"),
         ):
             if getattr(self, client.lower()) and not getattr(self, secret.lower()):
                 problems.append(
