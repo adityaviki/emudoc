@@ -93,6 +93,9 @@ module "emudoc" {
   alert_email = ""
 
   github_repository = module.shared.github_repository
+  # A release here is a job of the GitHub environment production, which waits for its reviewer
+  # (release.yml); staging's role trusts main, whose every commit CI releases there.
+  github_environment = "production"
 }
 
 output "instance_id" {

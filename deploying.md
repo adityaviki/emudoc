@@ -4076,7 +4076,7 @@ What an environment runs was built by CI from a commit on `main`, after every ch
 no one releases from their own machine, and no AWS key is kept in GitHub.
 
 ```text
-  push to main ─▶ CI ─┬─ Backend ×2, Frontend, OpenTofu, Scripts, Secrets ──────┐
+  push to main ─▶ CI ─┬─ Backend ×6, Frontend, End to end, Load test, … ───────┐
                       └─ Image: build, smoke test, scan, push to ECR <sha> ─────┴─▶ Staging:
                                                                release.sh staging <sha>
   by hand ─▶ Release: production <sha> ─▶ did staging run it? ─▶ release.sh production <sha>
@@ -4097,17 +4097,21 @@ no one releases from their own machine, and no AWS key is kept in GitHub.
 - **Production**, and staging again (a changed setting reaches the containers with a release
   of the same tag), are the Release workflow's: Actions, Release, Run workflow, from `main`,
   with the environment and the commit, its seven-digit SHA as GitHub shows it or the whole.
-  `release.sh` refuses a commit staging never ran. Going back is the same with an earlier
-  commit.
+  A release to production then waits for the reviewer of the GitHub environment `production`
+  (the run's "Review deployments", then "Approve and deploy"; "The repository's rules",
+  below). `release.sh` refuses a commit staging never ran. Going back is the same with an
+  earlier commit.
 - **Credentials**: each job that reaches AWS asks GitHub for a token naming the repository and
   the branch, which AWS trades for an hour of a role through GitHub's OpenID Connect provider
   (the account root makes it). The push role (`emudoc-github-push`, account root) may push to
   the repository and nothing else; each environment's release role
   (`emudoc-<environment>-github-release`, `modules/environment/release.tf`) may find its
   instance, have Systems Manager run the release there, follow it, record the tag and read
-  `APP_URL`, and production's also reads staging's release history. Each trusts a job of a
-  workflow on `main` of `github_repository` (`shared/`) alone: a pull request's token, or
-  another branch's, is refused.
+  `APP_URL`, and production's also reads staging's release history. Staging's trusts a job of
+  a workflow on `main` of `github_repository` (`shared/`) alone, and production's a job of the
+  GitHub environment `production` alone (`github_environment` in its root), whose token names
+  the environment instead of the branch: a pull request's token, another branch's, or a job of
+  `main` that skipped the environment's review, is refused.
 - **The repository takes images from CI alone**: its policy denies the pushes to every
   principal but the push role, the account's administrators included, so an image built on
   someone's machine cannot reach an environment. While GitHub cannot run the workflows, an
@@ -4115,7 +4119,7 @@ no one releases from their own machine, and no AWS key is kept in GitHub.
   'pushers=["arn:aws:iam::<account>:role/<role>"]'`), pushes and releases with the two scripts
   from a clean checkout of the commit, and applies the root again without it afterwards.
 - `tofu apply` stays the operator's: it needs rights over IAM, KMS and the state, which no
-  workflow should hold while anyone who can push to `main` controls what the workflows run.
+  workflow should hold while anyone who can merge into `main` controls what the workflows run.
 
 The repository variables, from the roots' outputs once they are applied (Settings, Secrets and
 variables, Actions, Variables, or `gh`):
@@ -4128,13 +4132,48 @@ gh variable set AWS_REGION --body eu-central-1      # the roots' region, which i
 ```
 
 Without `AWS_PUSH_ROLE` CI checks the image and pushes nothing, and without it or
-`AWS_STAGING_ROLE` the Staging job is skipped, so CI runs before AWS is set up. Two things wait
-for a paid GitHub plan, which a private repository needs for them: protecting `main` (no push
-without a pull request whose checks passed: Backend (postgres), Backend (pgbouncer), Frontend,
-Image, OpenTofu, Scripts and configuration, Secrets), and a `production` environment with
-required reviewers, whose release role would then trust `environment:production` instead of
-`main`. Until then, anyone who may push to `main` may release, and what reaches production is
-held back by staging alone.
+`AWS_STAGING_ROLE` the Staging job is skipped, so CI runs before AWS is set up.
+
+### The repository's rules
+
+`main` takes a commit only through a pull request whose checks passed, and production takes
+only a release its reviewer approved. Both are settings GitHub keeps, which a private
+repository has on a paid plan (Team or Enterprise; the organisation is on Enterprise since
+2026-10-24):
+
+- **`main`** is held by the ruleset `main` (Settings, Rules, Rulesets), written in
+  `.github/rulesets/main.json`: nothing reaches it but a pull request's merge, rebased or
+  squashed so that the history stays one line; it is never deleted or rewritten; and nobody
+  goes past it, the organisation's owners included. A pull request needs no approval (its
+  author may not approve it, and the organisation has one member) but every check CI runs on
+  a pull request, each reported by GitHub Actions, on the branch brought up to date with
+  `main`: the backend's suite in three parts against Postgres and three through pgbouncer
+  ("Backend (postgres, 1 of 3)" and so on), Frontend, End to end, Load test, Image,
+  Embeddings, OpenTofu, Scripts and configuration, and Secrets. Not Staging, which runs after
+  the merge, nor Audit's jobs or Models', which fail on news rather than on the change.
+  `tests/test_repository.py` holds the file to CI's jobs, so a job renamed or added changes the
+  file in the same pull request; GitHub waits for the checks the applied ruleset names, so
+  that pull request is mergeable once its checks passed and its file was applied (the second
+  command below, from its branch), and the other open ones once brought up to date.
+- **`production`** is a GitHub environment (Settings, Environments): a job of it waits until its
+  reviewer approves, only `main` deploys to it, and administrators do not skip the review.
+  The organisation's one member is the reviewer and approves their own releases
+  (`prevent_self_review` false); with a second, make it true.
+
+```bash
+gh api -X POST repos/emudocai/emudoc/rulesets --input .github/rulesets/main.json     # once
+gh api -X PUT "repos/emudocai/emudoc/rulesets/$(gh api repos/emudocai/emudoc/rulesets --jq '.[] | select(.name == "main") | .id')" --input .github/rulesets/main.json   # after a change to the file
+gh api -X PUT repos/emudocai/emudoc/environments/production --input - <<EOF   # the environment, its reviewer by their GitHub login
+{"reviewers": [{"type": "User", "id": $(gh api users/<login> --jq .id)}], "prevent_self_review": false, "can_admins_bypass": false,
+ "deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}
+EOF
+gh api -X POST repos/emudocai/emudoc/environments/production/deployment-branch-policies -f name=main -f type=branch
+```
+
+While GitHub's checks cannot run and a fix cannot wait for them, an owner sets the ruleset's
+enforcement to Disabled, merges, and sets it back to Active; the organisation's audit log keeps
+both changes. A production root applied before 2026-10-24 trusts `main`: `tofu apply` it once,
+or the environment's jobs are refused.
 
 ### The drill on AWS
 

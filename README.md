@@ -1187,6 +1187,7 @@ The development server on :5173 sends none of this; the build served on :8000 do
 
 ```bash
 cd backend && uv run pytest          # needs the database container
+cd backend && uv run pytest --shard 1/3   # a third of the suite, as each of CI's backend jobs runs
 cd frontend && pnpm lint && pnpm test && pnpm build
 cd frontend && pnpm e2e              # after pnpm build; needs the database container
 ```
@@ -1216,7 +1217,7 @@ production asks for.
 
 CI (`.github/workflows/ci.yml`, GitHub Actions) runs all of it on every push to `main` and
 every pull request: the backend's lint, format and suite, once against Postgres and once
-through pgbouncer in transaction mode; the frontend's lint, unit tests and build; the browser
+through pgbouncer in transaction mode, each in three jobs of a third of the tests; the frontend's lint, unit tests and build; the browser
 test, and the load test at a size that takes a minute; the image, built and then
 started by `.github/scripts/check-image.sh` (the migrations, the API and a worker, read-only,
 against the development database); the deployment's embeddings server, started from the
@@ -1229,7 +1230,9 @@ that uv, pnpm, Node and Python are named at the Dockerfile's versions wherever e
 appear (`.github/scripts/check-versions.sh`); and gitleaks over every commit, for keys and for
 any `.env` file whatever it holds (`.gitleaks.toml`, which says what was accepted and why).
 On `main` it also scans the image it checked, pushes it, and once every check passed releases
-it on staging (`deploying.md`, "Releases from CI").
+it on staging (`deploying.md`, "Releases from CI"). `main` takes a commit only through a pull
+request whose checks all passed (`.github/rulesets/main.json`), and a release to production
+waits for its reviewer (`deploying.md`, "The repository's rules").
 
 A key that CI finds has been pushed, and has to be revoked. The pre-commit hook in `.githooks`
 runs the same gitleaks on what is staged and refuses the commit instead; it needs Docker, and
@@ -1364,7 +1367,8 @@ deploy/
   prometheus/   the scrape configuration and the alerting rules, with their promtool tests
 Dockerfile      the one image for every process; .dockerignore names what goes into it
 .github/        CI: the checks of every push and pull request and staging's releases
-                (workflows/ci.yml), a release by hand (workflows/release.yml), the daily
+                (workflows/ci.yml), a release by hand (workflows/release.yml), the rules
+                main is held to (rulesets/main.json), the daily
                 audit of the dependencies and the image (workflows/audit.yml), the daily
                 question to the deployment's models (workflows/models.yml), Dependabot's
                 updates (dependabot.yml), the image's smoke test (scripts/check-image.sh) and

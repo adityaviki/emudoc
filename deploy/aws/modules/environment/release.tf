@@ -1,12 +1,14 @@
 # The role CI releases this environment with (deploy/aws/release.sh from the workflows), taken
-# on by a job of a workflow on main through GitHub's OpenID Connect provider, which the account
-# root makes. It can run a command on the instance, which is root there, so that is all GitHub
+# on through GitHub's OpenID Connect provider, which the account root makes, by a job of a
+# workflow on main, or with github_environment by a job of that GitHub environment alone, whose
+# token names the environment instead of the branch. It can run a command on the instance, which is root there, so that is all GitHub
 # may do with it: find the instance, have Systems Manager run the release, follow it, record
 # the tag, and read where the app answers. Another environment than staging also reads
 # staging's release history, since it takes only a tag staging ran.
 
 locals {
-  github_oidc = "arn:${local.partition}:iam::${local.account}:oidc-provider/token.actions.githubusercontent.com"
+  github_oidc    = "arn:${local.partition}:iam::${local.account}:oidc-provider/token.actions.githubusercontent.com"
+  github_subject = var.github_environment == "" ? "ref:refs/heads/main" : "environment:${var.github_environment}"
 
   release_trust = {
     Version = "2012-10-17"
@@ -17,7 +19,7 @@ locals {
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repository}:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repository}:${local.github_subject}"
         }
       }
     }]
