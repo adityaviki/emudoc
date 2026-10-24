@@ -107,10 +107,12 @@ os.environ["METRICS_ADDRESS"] = ""
 # New passwords are checked against no breach list, which would be a request to Have I Been
 # Pwned; tests/test_passwords.py points the check at `FakePwnedPasswords`.
 os.environ["PWNED_PASSWORDS_URL"] = ""
-# Mail goes to the fakes, whatever `.env` says: no relay, no Resend, no queue of SES's events;
-# tests/test_mail.py and tests/test_bounces.py set them against fakes of their own.
+# Mail goes to the fakes, whatever `.env` says: no relay, no Resend, no queue of SES's events,
+# no project's address; tests/test_mail.py, tests/test_bounces.py, tests/test_inbound.py and
+# tests/test_receiving.py set them against fakes of their own.
 os.environ["SMTP_URL"] = os.environ["RESEND_API_KEY"] = ""
 os.environ["RESEND_WEBHOOK_SECRET"] = os.environ["MAIL_EVENTS_QUEUE"] = ""
+os.environ["INBOUND_DOMAIN"] = ""
 # Nothing is sold, whatever `.env` says; tests/test_billing.py turns billing on against
 # `FakeStripe`.
 os.environ["STRIPE_SECRET_KEY"] = os.environ["STRIPE_WEBHOOK_SECRET"] = ""

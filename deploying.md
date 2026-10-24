@@ -1312,6 +1312,9 @@ change; in development each is a warning.
 - The embeddings endpoint: the compose file's, on the deployment's own network, is where the
   deployment is; a hosted endpoint is placed only at Vertex AI's addresses or OpenAI's
   European one, and any other is refused.
+- The provider that receives the mail sent to the projects' addresses ("Mail in"), which
+  becomes their documents: Resend's receiving server is the domain's to choose in its
+  dashboard, which the settings do not show, so under a region it is refused.
 
 The places the app knows are in `backend/app/residency.py`, as the providers stood in October
 2026; a location it does not know is in no region, and adding one is adding it there.
@@ -1542,7 +1545,8 @@ names the list and its year where a provider reports to the deployment.
   list; `aws sesv2 delete-suppressed-destination --email-address <address>` takes one off it
   once it works again.
 - **Resend**: a webhook at `{APP_URL}/api/mail/events` in Resend's dashboard with the events
-  `email.bounced` and `email.complained` (any other is taken and does nothing), its signing
+  `email.bounced` and `email.complained`, and `email.received` where Resend receives the
+  projects' mail ("Mail in"; any other is taken and does nothing), its signing
   secret (`whsec_…`) in `RESEND_WEBHOOK_SECRET`. A request it did not sign, with that secret,
   within five minutes, is refused with 400 and a warning in the log; without the secret the
   route answers 404.
@@ -1590,11 +1594,31 @@ project's address and mail that came while the flag was off for the organisation
 
 `INBOUND_DOMAIN` is a domain of its own for this, such as `in.example.com`, whose MX names the
 provider that receives it: no mailbox of anyone's is there, and the domain's mail is the
-projects' alone. Without it no project has an address and the page says so. `python -m
+projects' alone. Without it no project has an address and the page says so; with it,
+production refuses to start unless a provider hands its mail over (below). `python -m
 app.maintenance receive-mail <file.eml>` hands a message saved as it was sent to the projects
 its To, Cc and Delivered-To name (or `--to <address>`, again for each), its sender taken as
 proven since the operator vouches for it: for a message the provider kept that the app did
 not take, and for trying an address by hand.
+
+### Through Resend
+
+Resend receives the domain's mail once the domain is added and verified in its dashboard, with
+receiving turned on and the MX record it shows published for the domain (the lowest priority,
+or Resend takes nothing). The webhook that tells the app of bounces (`{APP_URL}/api/mail/events`,
+"Bounces and complaints") takes `email.received` too: an event for a project's address queues a
+`receive_mail` job and the route answers at once, one for any other address is counted as
+`unknown_address` and dropped. The worker then asks Resend's API for the message with
+`RESEND_API_KEY` (a key with full access, since one that may only send cannot read what was
+received) and downloads it as it was sent, with Resend's SPF, DKIM and DMARC verdicts: the
+sender is proven when DMARC passed or DKIM did, which Resend passes only for a signature of
+the From domain. A Resend that is out of reach or answers "later" (429, a 5xx) is asked again
+after 1, 2, 4 and 8 minutes; a message it no longer holds, a refusal, or the fifth try ends the
+job failed, among the jobs given up (`failed-jobs`, which names it by Resend's id), and the
+message stays in Resend's dashboard, whence it can be downloaded and handed over with
+`receive-mail`. Resend is then on the subprocessor list as receiving the projects' mail too.
+Resend receives with sending (`RESEND_API_KEY`, not `SMTP_URL`), and is refused under
+`DATA_REGION` ("Keeping the data in one region").
 
 ## Billing
 
@@ -4300,7 +4324,7 @@ and the like), named on its models' pages.
 | `RESEND_API_KEY` | none | a secret, or `SMTP_URL` | Resend's API key, which sends the mail through Resend instead ("Mail") |
 | `RESEND_WEBHOOK_SECRET` | none | a secret | The signing secret of Resend's webhook, which says what bounced ("Mail") |
 | `MAIL_EVENTS_QUEUE` | none | | The SQS queue of SES's bounces and complaints, which the worker reads ("Mail"; the AWS module writes it) |
-| `INBOUND_DOMAIN` | none | | The domain of the projects' addresses, whose mail becomes their documents ("Mail in") |
+| `INBOUND_DOMAIN` | none | with a provider that hands its mail over | The domain of the projects' addresses, whose mail becomes their documents ("Mail in") |
 | `PWNED_PASSWORDS_URL` | `https://api.pwnedpasswords.com` | | Where new passwords are checked against breaches ("Rates"); empty checks nothing |
 | `ENCRYPTION_KEYS` | development's key, which is in the code | required, a secret | The keys the authenticators' secrets are encrypted with, the first encrypting ("The encryption keys") |
 | `MAIL_FROM` | `Emudoc <no-reply@localhost>` | | The sender |

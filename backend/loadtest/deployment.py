@@ -121,6 +121,7 @@ class Deployment:
             "RESEND_API_KEY": "",
             "RESEND_WEBHOOK_SECRET": "",
             "MAIL_EVENTS_QUEUE": "",
+            "INBOUND_DOMAIN": "",
             "PWNED_PASSWORDS_URL": "",
             # The member's library is the corpus alone, and the jobs the run times its own.
             "SAMPLE_PROJECT": "false",

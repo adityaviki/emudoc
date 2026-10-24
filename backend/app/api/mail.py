@@ -3,12 +3,13 @@ the one-click unsubscribe a notice's headers name (app/postbox.py).
 
 Neither request carries the app's X-Requested-With. Resend's events are proved by their
 signature instead (app/bounces.py), over the body as it came, read raw up to MAX_EVENT_BYTES; a
-bounce or a complaint is kept, and every other event is taken and does nothing. A mail program
-that unsubscribes for its reader (RFC 8058) posts `List-Unsubscribe=One-Click` and nothing of
-the app's, so the token in the address, encrypted for its user, is what says whose notices stop
-by email, and of which kind; the page a notice's footer leads to (`/unsubscribe`) posts the
-same. Turning a user's notices off does them no harm, so the route needs no session, as a mail
-program has none.
+bounce or a complaint is kept, a message received for a project's address queues the job that
+fetches it (app/receiving.py) where Resend receives the deployment's mail, and every other event
+is taken and does nothing. A mail program that unsubscribes for its reader (RFC 8058) posts
+`List-Unsubscribe=One-Click` and nothing of the app's, so the token in the address, encrypted
+for its user, is what says whose notices stop by email, and of which kind; the page a notice's
+footer leads to (`/unsubscribe`) posts the same. Turning a user's notices off does them no harm,
+so the route needs no session, as a mail program has none.
 """
 
 import logging
@@ -21,6 +22,7 @@ from app.bounces import Unsigned, resend_undeliverable, spare, verified_resend_e
 from app.config import get_settings
 from app.models import NOTICE_KINDS, User
 from app.postbox import BY_EMAIL, unsubscriber
+from app.receiving import RECEIVED, RESEND, queue_resend
 
 log = logging.getLogger(__name__)
 
@@ -46,8 +48,9 @@ def resend_event(
     body: Annotated[bytes, Depends(_event_body)], request: Request, session: SessionDep
 ):
     """An event of Resend's, signed with RESEND_WEBHOOK_SECRET. Taking one twice keeps the same
-    address twice, which is once."""
-    secret = get_settings().resend_webhook_secret
+    address twice, which is once, and queues a message's fetch twice, which takes it once."""
+    settings = get_settings()
+    secret = settings.resend_webhook_secret
     if not secret:
         raise HTTPException(404, EVENTS_OFF)
     try:
@@ -55,6 +58,11 @@ def resend_event(
     except Unsigned as bad:
         log.warning("A request to the mail webhook was refused: it carried %s", bad)
         raise HTTPException(400, NOT_RESEND) from None
+    if event["type"] == RECEIVED:
+        if settings.receives_through == RESEND and queue_resend(session, event):
+            session.commit()
+            log.info("Resend received a message for a project's address")
+        return
     if spare(session, resend_undeliverable(event)):
         session.commit()
         log.info("Resend said not to write to an address: %s", event["type"])

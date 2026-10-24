@@ -24,6 +24,8 @@ DEVELOPMENT = {
     "embedding_base_url": "http://127.0.0.1:11434/v1",
     "smtp_url": "",
     "resend_api_key": "",
+    "resend_webhook_secret": "",
+    "inbound_domain": "",
     "hosting_provider": "",
     "data_region": "",
     "google_oauth_client_id": "",
@@ -103,6 +105,15 @@ def test_the_mail_is_listed_by_whichever_sends_it():
     assert mail.purpose.startswith("Sends the emails: the links that make an account")
     assert mail.purpose.endswith("and says which addresses bounce.")
     assert "re_123456" not in str(mail)
+    # Receiving the projects' mail too, it receives documents.
+    receiving = configured(
+        resend_api_key="re_123456", resend_webhook_secret="whsec_abc", inbound_domain="in.x.com"
+    )
+    (mail,) = [entry for entry in subprocessors(receiving, DIRECTORY, {}) if entry.name == "Resend"]
+    assert mail.purpose.endswith(
+        "Receives the mail sent to the projects' addresses, which becomes their documents."
+    )
+    assert "their attachments among them" in mail.data
     # SES's relay is Amazon's; one on the deployment's own network is nobody's.
     ses = configured(smtp_url="smtp://user:secret@email-smtp.eu-central-1.amazonaws.com:587")
     assert "Amazon Web Services" in listed(ses)

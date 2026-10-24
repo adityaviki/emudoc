@@ -246,7 +246,8 @@ def residency_problems(
     each as the step that fixes it; empty without a region and for a deployment that keeps it.
 
     The models, the embeddings endpoint and the bucket are checked, the pieces that receive the
-    documents and what is read from them. The mail relay and the sign-in providers receive
+    documents and what is read from them, and the provider that receives the mail sent to the
+    projects' addresses, which becomes documents. The mail relay and the sign-in providers receive
     names and addresses, not documents, and the error tracker where the code failed and the
     ids it failed for (app/tracking.py), so they are left to the operator (deploying.md); the
     subprocessor list says where each of them is when the settings show it.
@@ -267,6 +268,14 @@ def residency_problems(
         problems.append(problem)
     if problem := _storage_problem(storage, region):
         problems.append(problem)
+    if settings.receives_through == "resend":
+        # Its receiving server is the domain's to choose in its dashboard, which the settings do
+        # not show.
+        problems.append(
+            "Resend receives the mail sent to the projects' addresses at INBOUND_DOMAIN, their "
+            f"attachments among them, and the settings cannot show that it keeps them in "
+            f"{REGIONS[region]}; set INBOUND_DOMAIN empty to receive none."
+        )
     return problems
 
 

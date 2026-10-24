@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from app.audit import audit_event
 from app.db import SessionLocal
 from app.indexing.pipeline import reset_stages
-from app.jobs import INDEX_DOCUMENT, RENDER_PAGES, SEND_EMAIL, queue_index
+from app.jobs import INDEX_DOCUMENT, RECEIVE_MAIL, RENDER_PAGES, SEND_EMAIL, queue_index
 from app.mail import Mailer, Message
 from app.models import STAGES, Document, Job, Organization, Project
 
@@ -98,6 +98,10 @@ def _document_name(job: Job, filename: str | None) -> str | None:
     if job.kind == SEND_EMAIL:
         # The subject is the app's own sentence; the address is in the encrypted message alone.
         return f"the email {job.payload.get('subject', '')!r}"
+    if job.kind == RECEIVE_MAIL:
+        # The provider's id for it, by which its dashboard finds it.
+        payload = job.payload
+        return f"the message {payload.get('email_id', '')} from {payload.get('source', '')}"
     if filename is not None or job.kind not in ABOUT_A_DOCUMENT:
         return filename
     return f"document {job.payload['document_id']} (deleted)"

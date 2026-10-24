@@ -101,6 +101,7 @@ JOB_KINDS = (
     "run_workflow",
     "run_automation",
     "write_draft",
+    "receive_mail",
 )
 JOB_STATUSES = ("queued", "running", "done", "failed")
 # Why an address is sent no notices (app/bounces.py): mail to it bounced for good, or its reader

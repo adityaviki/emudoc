@@ -423,6 +423,26 @@ def test_production_mails_one_way_with_keys_of_their_kind(deployment):
         assert "y" * 20 not in stop.value.code and "z" * 20 not in stop.value.code
 
 
+def test_production_receives_mail_only_through_a_provider_that_hands_it_over(deployment):
+    # A domain whose mail nothing hands to the app would give projects addresses that take
+    # nothing; Resend's key and its webhook's secret are its way in.
+    with pytest.raises(SystemExit) as stop:
+        load_settings(**deployment, inbound_domain="in.example.com")
+    assert "INBOUND_DOMAIN is set, but no provider hands its mail to the app" in stop.value.code
+    del deployment["smtp_url"]
+    resend = load_settings(
+        **deployment,
+        inbound_domain="@In.Example.com",
+        resend_api_key="re_" + "x" * 20,
+        resend_webhook_secret="whsec_" + "y" * 20,
+    )
+    assert resend.production_problems() == []
+    assert (resend.inbound_domain, resend.receives_through) == ("in.example.com", "resend")
+    # A mistake is pydantic's, which names the setting, as rare ones are.
+    with pytest.raises(ValidationError, match="INBOUND_DOMAIN is the domain of the projects'"):
+        load_settings(**deployment, inbound_domain="not a domain")
+
+
 def test_production_runs_without_a_scanner_only_when_told_to(deployment):
     # Unscanned uploads reach every member of a project, so leaving the scanner out is a
     # choice to state, not a default to fall into; development scans nothing by default.

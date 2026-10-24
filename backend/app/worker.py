@@ -99,6 +99,7 @@ from app.jobs import (
     EXPORT_PROJECT,
     INDEX_DOCUMENT,
     LEASE,
+    RECEIVE_MAIL,
     RENDER_PAGES,
     RUN_AUTOMATION,
     RUN_WORKFLOW,
@@ -135,6 +136,7 @@ from app.metrics import (
 from app.models import Document, Job
 from app.notices import after_index
 from app.postbox import abandon_email, run_email
+from app.receiving import abandon_receive, run_receive
 from app.rendering import draw_ahead
 from app.scanning import ScanError, alert_quarantines
 from app.spending import alert_spending, when
@@ -363,6 +365,14 @@ def _abandon_draft(job: Job, services: Services) -> None:
     abandon_draft(job.payload["draft_id"], job.max_attempts)
 
 
+def _run_receive(job: Job, services: Services) -> str | None:
+    return run_receive(job, services.storage, Lease(job.id, job.worker_id))
+
+
+def _abandon_receive(job: Job, services: Services) -> None:
+    abandon_receive(job)
+
+
 def _abandon_automation(job: Job, services: Services) -> None:
     # The arrivals stay with the automation, and the next document that arrives for it runs its
     # checks over them too.
@@ -379,7 +389,8 @@ def _abandon_language(job: Job, services: Services) -> None:
 # a worker that has it. The answers and the mail have a lane of threads each (`LANE_KINDS`),
 # the runs of cross-checks and the automations that make them the answers', since a member
 # waits for them and their reports are the agent's, and so the drafts; every other kind shares
-# the indexers.
+# the indexers, a message sent to a project's address among them (app/receiving.py), which is
+# an upload.
 HANDLERS: dict[str, Handler] = {
     INDEX_DOCUMENT: Handler(_run_index, _abandon_index, after_index),
     ANSWER_QUESTION: Handler(run_answer, abandon_answer),
@@ -390,6 +401,7 @@ HANDLERS: dict[str, Handler] = {
     RUN_WORKFLOW: Handler(_run_workflow, _abandon_workflow),
     RUN_AUTOMATION: Handler(_run_automation, _abandon_automation),
     WRITE_DRAFT: Handler(_write_draft, _abandon_draft),
+    RECEIVE_MAIL: Handler(_run_receive, _abandon_receive),
 }
 LANE_KINDS = {
     ANSWERER: [ANSWER_QUESTION, RUN_WORKFLOW, RUN_AUTOMATION, WRITE_DRAFT],

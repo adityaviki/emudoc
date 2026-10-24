@@ -167,14 +167,27 @@ def subprocessors(
         )
     relay = RESEND_API if settings.resend_api_key else settings.smtp_url
     if relay and (name := _company(relay)):
+        receives = settings.receives_through == "resend"
         found.append(
             Subprocessor(
                 name,
                 "Sends the emails: the links that make an account, confirm an address, reset a "
                 "password or join an organisation, what billing tells an organisation's owners, "
-                "the notices, and the operator's alerts; and says which addresses bounce.",
+                "the notices, and the operator's alerts; and says which addresses bounce."
+                + (
+                    " Receives the mail sent to the projects' addresses, which becomes their "
+                    "documents."
+                    if receives
+                    else ""
+                ),
                 "Members' names and email addresses, the names of their organisations, and in "
-                "the alerts the names of organisations, projects and files.",
+                "the alerts the names of organisations, projects and files."
+                + (
+                    " The messages sent to the projects' addresses, their attachments among "
+                    "them, and their senders' addresses."
+                    if receives
+                    else ""
+                ),
             )
         )
     if settings.sentry_dsn and (name := _company(settings.sentry_dsn)):

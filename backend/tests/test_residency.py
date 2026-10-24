@@ -51,6 +51,21 @@ def bucket(origin: str, location: str | None = None) -> tuple[S3Storage, FakeS3C
     return S3Storage(client, "emudoc"), client
 
 
+def test_mail_received_through_resend_is_kept_in_no_region_the_settings_show():
+    resend = {
+        "resend_api_key": "re_123456",
+        "resend_webhook_secret": "whsec_abc",
+        "inbound_domain": "in.example.com",
+    }
+    assert problems(**resend) == [
+        "Resend receives the mail sent to the projects' addresses at INBOUND_DOMAIN, their "
+        "attachments among them, and the settings cannot show that it keeps them in the "
+        "European Union; set INBOUND_DOMAIN empty to receive none."
+    ]
+    assert problems(**{**resend, "inbound_domain": ""}) == []
+    assert problems(**{**resend, "data_region": ""}) == []
+
+
 def test_without_a_region_nothing_is_held_to_one():
     assert problems(data_region="", index_model="google:gemini-2.5-flash-lite") == []
     assert problems() == []

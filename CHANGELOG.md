@@ -17,6 +17,14 @@ newest entry first.
 
 Operators:
 
+- Mail in through Resend: with `INBOUND_DOMAIN`'s MX at Resend and its webhook taking
+  `email.received` beside the bounces, a message to a project's address queues a job that fetches
+  it from Resend's API (`RESEND_API_KEY` with full access) as it was sent, with Resend's SPF, DKIM
+  and DMARC verdicts, and takes it in; one to any other address is dropped. A Resend out of reach
+  is asked again after 1, 2, 4 and 8 minutes, and a message given up is among the failed jobs,
+  named by Resend's id. Production now refuses `INBOUND_DOMAIN` without a provider that hands its
+  mail over, and Resend receiving it under `DATA_REGION`; the subprocessor list says Resend
+  receives the projects' mail. New job kind `receive_mail` (a migration).
 - Email in, behind a flag of its own, `email_in`, rolled out to none: the library's "Email in"
   gives a project an address of its own at the new setting `INBOUND_DOMAIN`, and whoever may
   change the project lists whom it takes mail from besides themselves, addresses or domains but

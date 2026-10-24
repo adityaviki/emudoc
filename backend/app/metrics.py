@@ -64,6 +64,7 @@ from app.jobs import (
     INDEX_DOCUMENT,
     JOB_STATES,
     QUEUE_BY_STATE,
+    RECEIVE_MAIL,
     RENDER_PAGES,
     RUN_AUTOMATION,
     RUN_WORKFLOW,
@@ -105,6 +106,7 @@ JOBS = (
     RUN_WORKFLOW,
     RUN_AUTOMATION,
     WRITE_DRAFT,
+    RECEIVE_MAIL,
 )
 # What a lane of the worker's threads runs (app/worker.py).
 INDEXER = "indexer"

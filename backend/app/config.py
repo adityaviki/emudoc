@@ -774,6 +774,17 @@ class Settings(BaseSettings):
         return value.strip() if isinstance(value, str) else value
 
     @property
+    def receives_through(self) -> str:
+        """Which provider hands over the mail sent to projects' addresses (app/receiving.py):
+        "resend", through its webhook and API, where INBOUND_DOMAIN is set and so are Resend's
+        key and webhook secret; "" where nothing does."""
+        if not self.inbound_domain:
+            return ""
+        if self.resend_api_key and self.resend_webhook_secret:
+            return "resend"
+        return ""
+
+    @property
     def support_address(self) -> str:
         """Where members write to for help: SUPPORT_EMAIL, else OPERATOR_EMAIL; empty for
         none, which only development runs with."""
@@ -1139,6 +1150,12 @@ class Settings(BaseSettings):
             )
         problems += self._billing_problems()
         problems += self._mail_problems()
+        if self.inbound_domain and not self.receives_through:
+            problems.append(
+                "INBOUND_DOMAIN is set, but no provider hands its mail to the app: set "
+                "RESEND_API_KEY and RESEND_WEBHOOK_SECRET, with the domain's MX at Resend and "
+                "the webhook taking email.received, or set INBOUND_DOMAIN empty."
+            )
         return problems
 
     def _mail_problems(self) -> list[str]:
