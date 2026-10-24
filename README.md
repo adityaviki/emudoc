@@ -956,6 +956,11 @@ written against it (one gone, renamed or retyped, or one a request must now send
 curl -H "Authorization: Bearer emk_…" -H "Idempotency-Key: $(uuidgen)" \
   -F files=@invoice.pdf https://emudoc.example.org/api/v1/projects/12/documents
 ```
+The API reference at `/api-reference` (`frontend/src/reference/`), a page of its own that anyone
+may read, draws each route, the webhooks' events and the schemas from the contract, which the
+API serves at `/api/v1/openapi.json`, public as well, naming the deployment's address as its
+server; each route has a curl request at that address to try. The contract names the key every
+route takes (the security scheme `APIKey`) and the group each is listed in, with its words.
 A key that reads and writes also runs the upload client, `emudoc_upload.py`
 (`backend/app/client/`), which the app serves to anyone at `/api/help/emudoc_upload.py`, links
 to from the API keys section and the help, and which any Python from 3.9 runs, needing nothing
@@ -1389,6 +1394,7 @@ frontend/src/
   pages/        the Projects page and the Workspace (two panes)
   workspace/    the library, tabs, document viewers and the chat pane
   account/      sign-in, sign-up, the email links, and the account page
+  reference/    the API reference at /api-reference, a page of its own drawn from the contract
   api.ts        the typed client for the backend
   auth.ts       who is signed in, for the shell and its pages
   chat.ts       a chat's messages as the chat pane holds them, and the answers being followed
@@ -1426,6 +1432,6 @@ CHANGELOG.md    what each day's commits changed for members and operators
 - The operator's area views a member's account read only, with their leave; it does not act as
   them, nor turn features on per organisation.
 - Billing: the connectors and the model tier the plans declare are not read by anything yet.
-- The public API: webhooks for a document ready or failed and a run worked out, a hosted
-  reference of `/api/v1`, and the upload client moved onto it, are to come.
+- The public API: the upload client moved onto `/api/v1`, and SDKs (Python, TypeScript)
+  generated from its contract, are to come.
 - More file types (slides, email, legacy .doc and .xls), and reading order for multi-column PDFs.

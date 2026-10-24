@@ -30,7 +30,10 @@ def search(
     project: ProjectDep,
     session: SessionDep,
     services: ServicesDep,
-    q: Annotated[str, Query(min_length=1, description="What to look for, in words.")],
+    q: Annotated[
+        str,
+        Query(min_length=1, description="What to look for, in words.", examples=["late delivery"]),
+    ],
     limit: Annotated[int, Query(ge=1, le=50, description="How many passages at most.")] = 10,
     document_id: Annotated[int | None, Query(description="Only in this document.")] = None,
     folder_id: Annotated[

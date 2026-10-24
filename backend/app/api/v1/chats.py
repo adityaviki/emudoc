@@ -186,8 +186,10 @@ def get_message(chat: ChatDep, message_id: int, session: SessionDep):
 )
 def events(chat: ChatDep, message_id: int, request: Request, session: SessionDep):
     """Follow an answer as it is written, from its start or from the `Last-Event-ID` seen
-    last. The request's session gives its connection back before the stream begins, as the
-    page's does (app/api/chats.py)."""
+    last.
+    \f
+    The request's session gives its connection back before the stream begins, as the page's
+    does (app/api/chats.py); FastAPI leaves what follows the form feed out of the contract."""
     followed = chats.answer_in(chat, message_id, session).id
     session.commit()
     return StreamingResponse(

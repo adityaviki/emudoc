@@ -3338,6 +3338,16 @@ without `SCANNER_URL`, buying a plan without Stripe (the pages say to write to s
 breached-password check without `PWNED_PASSWORDS_URL`. Changing what they say is a change to
 the Markdown beside the module; a figure written into them by hand is a bug.
 
+The API reference, `/api-reference`, is public too, for whoever writes a program against the
+deployment, and the help's article on organisations and the organisation page's API keys link
+to it. It is a page of its own (`frontend/reference.html`, built by `pnpm build` beside the
+members' page, its scripts' budget apart in `frontend/scripts/size.ts`), drawn from the
+versioned API's contract, which `GET /api/v1/openapi.json` serves to anyone, without a key, with
+`APP_URL` as its server: each request the page shows is at the deployment's address, and a tool
+that writes a client from the contract calls the deployment. It changes with a release, never by
+hand (the contract is `backend/app/api/v1/openapi.json`). A proxy that lets only some paths
+through lets both.
+
 Members write for help from the same menu: a problem,
 a question or an idea, in their own words. The app mails it to `SUPPORT_EMAIL` (or
 `OPERATOR_EMAIL`, where one address answers both), from `MAIL_FROM`, with a `Reply-To` of the

@@ -35,13 +35,88 @@ DESCRIPTION = (
     "made it. Lists come a page at a time, `next` naming where the next starts; a request that "
     "makes something may carry an Idempotency-Key; a refusal says what to do next in `detail`."
 )
+# The groups the operations and events are listed in (each route's `tags`), in the reference's
+# order, each with what it holds; `x-displayName` is a group's heading, as Redoc reads it too.
+TAGS = [
+    {
+        "name": "status",
+        "x-displayName": "Status",
+        "description": "What the deployment can do just now, and what one upload may carry.",
+    },
+    {
+        "name": "projects",
+        "x-displayName": "Projects",
+        "description": (
+            "The organisation's projects that the key's member sees, each with documents that "
+            "are searched and asked about together."
+        ),
+    },
+    {
+        "name": "folders",
+        "x-displayName": "Folders",
+        "description": "The folders a project's library keeps its documents in.",
+    },
+    {
+        "name": "documents",
+        "x-displayName": "Documents",
+        "description": (
+            "Files uploaded into a project, each indexed in the background before it is "
+            "searched and asked about."
+        ),
+    },
+    {
+        "name": "facts",
+        "x-displayName": "Facts",
+        "description": (
+            "The values read from documents by the project's extraction templates, each with "
+            "the words it was read from."
+        ),
+    },
+    {
+        "name": "search",
+        "x-displayName": "Search",
+        "description": "The passages of a project's documents, found by keywords and by meaning.",
+    },
+    {
+        "name": "chats",
+        "x-displayName": "Chats",
+        "description": (
+            "Questions asked about a project's documents, and the answers the agent writes, "
+            "followed as they are written."
+        ),
+    },
+    {
+        "name": "cross-checks",
+        "x-displayName": "Cross-checks",
+        "description": (
+            "The rules a project's documents are checked against one another by, which members "
+            "write in the app; 404 for an organisation that does not have them yet."
+        ),
+    },
+    {
+        "name": "check-runs",
+        "x-displayName": "Check runs",
+        "description": (
+            "Runs of a project's cross-checks, what each rule found and the discrepancy report; "
+            "404 for an organisation that does not have them yet."
+        ),
+    },
+    {
+        "name": "webhooks",
+        "x-displayName": "Webhooks",
+        "description": (
+            "The events posted to the organisation's webhooks as they happen, which owners and "
+            "admins add on its page."
+        ),
+    },
+]
 # What a schema says about itself rather than about the values it takes, which may change freely.
 _WORDS = frozenset({"title", "description", "examples"})
 
 
 def contract() -> dict[str, Any]:
     """The OpenAPI document of the versioned API's routes and webhooks' events, alone."""
-    app = FastAPI(title=TITLE, version=VERSION, description=DESCRIPTION)
+    app = FastAPI(title=TITLE, version=VERSION, description=DESCRIPTION, openapi_tags=TAGS)
     app.include_router(v1.router, prefix="/api")
     app.webhooks.include_router(events, generate_unique_id_function=v1.operation_id)
     document = app.openapi()

@@ -15,6 +15,7 @@
 !frontend/pnpm-lock.yaml
 !frontend/index.html
 !frontend/operator.html
+!frontend/reference.html
 !frontend/public/
 !frontend/src/
 frontend/src/**/*.test.ts

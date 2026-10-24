@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from app.api.help import NO_SUPPORT
 from app.config import ROOT_DIR, Settings, get_settings
 from app.help import ARTICLES, articles
+from app.main import REFERENCE_PATH
 from app.models import AuditEvent, Job
 from app.parsing import SUPPORTED_EXTENSIONS
 from app.ratelimit import FEEDBACK
@@ -160,9 +161,11 @@ ROUTES = re.compile(r'<Route (?:index |path="([^"]*)")')
 
 
 def pages() -> set[str]:
+    """The members' page's routes, the help's articles and the API reference, a page of its own
+    (frontend/reference.html), which the help's Markdown loads rather than routes."""
     paths = ROUTES.findall((ROOT_DIR / "frontend" / "src" / "App.tsx").read_text())
     named = {f"/{path}" for path in paths if path and ":" not in path and path != "*"}
-    return named | {"/"} | {f"/help/{slug}" for slug, _ in ARTICLES}
+    return named | {"/", f"/{REFERENCE_PATH}"} | {f"/help/{slug}" for slug, _ in ARTICLES}
 
 
 def said(article: dict) -> str:

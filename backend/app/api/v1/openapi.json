@@ -75,7 +75,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "APIKey": []
+          }
+        ]
       }
     },
     "/api/v1/projects": {
@@ -86,6 +91,11 @@
         "summary": "List Projects",
         "description": "The projects the key's member sees, the newest first.",
         "operationId": "list_projects",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "limit",
@@ -200,6 +210,11 @@
         "summary": "Create Project",
         "description": "Make a project, which the organisation's plan holds to how many it may have.",
         "operationId": "create_project",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -311,6 +326,11 @@
         ],
         "summary": "Get Project",
         "operationId": "get_project",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -402,6 +422,11 @@
         "summary": "Update Project",
         "description": "Rename the project, describe it anew, or both.",
         "operationId": "update_project",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -503,6 +528,11 @@
         "summary": "Delete Project",
         "description": "Put the project in the organisation's trash with everything in it, from which a member\nrestores it in the app until it is deleted for good.",
         "operationId": "delete_project",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -589,6 +619,11 @@
         "summary": "List Folders",
         "description": "The project's folders, the oldest first, each with its path and how many documents it\nholds itself.",
         "operationId": "list_folders",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -712,6 +747,11 @@
         "summary": "Create Folder",
         "description": "Make a folder at the project's root or in one of its folders; its name is the only one of\nits folder's, whatever their case.",
         "operationId": "create_folder",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -832,6 +872,11 @@
         ],
         "summary": "Get Folder",
         "operationId": "get_folder",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "folder_id",
@@ -923,6 +968,11 @@
         "summary": "Update Folder",
         "description": "Rename the folder, move it, or both.",
         "operationId": "update_folder",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "folder_id",
@@ -1024,6 +1074,11 @@
         "summary": "Delete Folder",
         "description": "Put the folder in the project's trash with its folders and every document in them.",
         "operationId": "delete_folder",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "folder_id",
@@ -1110,6 +1165,11 @@
         "summary": "List Documents",
         "description": "The project's documents, the newest first, those of one folder, of some ids or of a\nstatus alone when asked; a program follows its uploads by their ids until none is queued or\nprocessing.",
         "operationId": "list_documents",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -1298,6 +1358,11 @@
         "summary": "Upload Documents",
         "description": "Upload files into the project, as a multipart form of `files`, each indexed in the\nbackground. The request is refused whole when it carries more files or bytes than one upload\nmay (413; `GET /api/v1/status` says how many), and when the plan has no room for a document\n(402); a file is refused alone, with why, for its size, for bytes that are not the type its\nname says, for the plan, or as a file the project holds already (`duplicate_of`), while the\nothers are kept. With an Idempotency-Key, the upload sent again is given the first one's\nanswer.",
         "operationId": "upload_documents",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -1437,6 +1502,11 @@
         "summary": "Get Document",
         "description": "The document, and how far it is indexed.",
         "operationId": "get_document",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "document_id",
@@ -1528,6 +1598,11 @@
         "summary": "Update Document",
         "description": "Rename the document, move it to another folder, or both.",
         "operationId": "update_document",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "document_id",
@@ -1629,6 +1704,11 @@
         "summary": "Delete Document",
         "description": "Put the document in the project's trash, where nothing reads it until it is restored.",
         "operationId": "delete_document",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "document_id",
@@ -1715,6 +1795,11 @@
         "summary": "Download File",
         "description": "The file as it was uploaded, or a redirect to it, once the malware scan has passed (409\nuntil then; 403 for one it flagged). Each download is a row of the organisation's audit\nlog.",
         "operationId": "download_file",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "document_id",
@@ -1804,6 +1889,11 @@
         "summary": "Get Document Facts",
         "description": "The facts read from the document, by name: every one of them, on one page.",
         "operationId": "get_document_facts",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "document_id",
@@ -1897,6 +1987,11 @@
         "summary": "Search",
         "description": "The project's passages that match best, by keywords and by meaning together, the best\nfirst; by keywords alone while the embeddings are out (`semantic` false).",
         "operationId": "search",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -1915,6 +2010,9 @@
               "type": "string",
               "minLength": 1,
               "description": "What to look for, in words.",
+              "examples": [
+                "late delivery"
+              ],
               "title": "Q"
             },
             "description": "What to look for, in words."
@@ -2052,6 +2150,11 @@
         "summary": "List Facts",
         "description": "The facts read from the project's documents, the oldest first. A document read again has\nits facts written anew, under new ids.",
         "operationId": "list_facts",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -2231,6 +2334,11 @@
         "summary": "Get Passage",
         "description": "A passage an answer, a report or a search names: where it is and what it says.",
         "operationId": "get_passage",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "passage_id",
@@ -2324,6 +2432,11 @@
         "summary": "List Chats",
         "description": "The chats of the project the key's member started, and those shared with it, the newest\nfirst.",
         "operationId": "list_chats",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -2447,6 +2560,11 @@
         "summary": "Create Chat",
         "description": "Start a chat, private to the key's member; a viewer may, since asking is reading.",
         "operationId": "create_chat",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -2557,6 +2675,11 @@
         ],
         "summary": "Get Chat",
         "operationId": "get_chat",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "chat_id",
@@ -2648,6 +2771,11 @@
         "summary": "Update Chat",
         "description": "Rename the chat, share it with the project, or take it private again.",
         "operationId": "update_chat",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "chat_id",
@@ -2749,6 +2877,11 @@
         "summary": "Delete Chat",
         "description": "Put the chat in its starter's trash.",
         "operationId": "delete_chat",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "chat_id",
@@ -2835,6 +2968,11 @@
         "summary": "List Messages",
         "description": "The chat's questions and answers, the oldest first.",
         "operationId": "list_messages",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "chat_id",
@@ -2958,6 +3096,11 @@
         "summary": "Ask",
         "description": "Ask a question in a chat the key's member started; the worker writes the answer, which\nis followed by its id. It counts as one of the month's questions (402 past the plan's), and\nis refused with 409 while the chat's last answer is still being written and with 429 while\nthe organisation has too many being written at once. With an Idempotency-Key, the question\nsent again is given the first one's answer, and asked and counted once.",
         "operationId": "ask",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "chat_id",
@@ -3079,6 +3222,11 @@
         "summary": "Get Message",
         "description": "A question or an answer of the chat: while an answer is `streaming`, what it says so\nfar.",
         "operationId": "get_message",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "message_id",
@@ -3179,8 +3327,13 @@
           "chats"
         ],
         "summary": "Events",
-        "description": "Follow an answer as it is written, from its start or from the `Last-Event-ID` seen\nlast. The request's session gives its connection back before the stream begins, as the\npage's does (app/api/chats.py).",
+        "description": "Follow an answer as it is written, from its start or from the `Last-Event-ID` seen\nlast.",
         "operationId": "events",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "message_id",
@@ -3279,6 +3432,11 @@
         "summary": "Stop",
         "description": "End the answer with what it says so far.",
         "operationId": "stop",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "message_id",
@@ -3381,6 +3539,11 @@
         "summary": "List Cross Checks",
         "description": "The project's cross-checks by name, every one of them on one page, each with why it cannot\nbe worked out now, if it cannot; members write them in the app.",
         "operationId": "list_cross_checks",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -3474,6 +3637,11 @@
         "summary": "Run Checks",
         "description": "Run the project's cross-checks, those named or all of them, over its documents as they\nread now; the worker works the run out, which is followed by its id. Refused with 409 while\nanother run of the project's is under way, and with 400 when it has no cross-checks. A\nreport counts as one of the month's questions. With an Idempotency-Key, the run asked for\nagain is given the first one's answer, and made once.",
         "operationId": "run_checks",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -3593,6 +3761,11 @@
         "summary": "List Runs",
         "description": "The project's runs, the newest first.",
         "operationId": "list_runs",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "project_id",
@@ -3718,6 +3891,11 @@
         "summary": "Get Run",
         "description": "The run: how far it and its report are, what each of its rules found, and the report.",
         "operationId": "get_run",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "run_id",
@@ -3811,6 +3989,11 @@
         "summary": "Run Findings",
         "description": "What one rule of the run found, as it was found: differing first, then missing a value,\nthen holding, each by its document's name.",
         "operationId": "run_findings",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
         "parameters": [
           {
             "name": "run_id",
@@ -4227,7 +4410,10 @@
                 "type": "null"
               }
             ],
-            "title": "Title"
+            "title": "Title",
+            "examples": [
+              "Invoice checks"
+            ]
           },
           "visibility": {
             "anyOf": [
@@ -4734,7 +4920,10 @@
                 "type": "null"
               }
             ],
-            "title": "Filename"
+            "title": "Filename",
+            "examples": [
+              "invoice-2026-10.pdf"
+            ]
           },
           "folder_id": {
             "anyOf": [
@@ -5241,7 +5430,10 @@
                 "type": "null"
               }
             ],
-            "title": "Name"
+            "title": "Name",
+            "examples": [
+              "Invoices 2026"
+            ]
           },
           "parent_id": {
             "anyOf": [
@@ -5433,7 +5625,10 @@
           "report": {
             "type": "boolean",
             "title": "Report",
-            "default": false
+            "default": false,
+            "examples": [
+              true
+            ]
           }
         },
         "type": "object",
@@ -5446,7 +5641,10 @@
             "type": "string",
             "maxLength": 200,
             "minLength": 1,
-            "title": "Name"
+            "title": "Name",
+            "examples": [
+              "Invoices"
+            ]
           },
           "parent_id": {
             "anyOf": [
@@ -5473,7 +5671,10 @@
             "type": "string",
             "maxLength": 200,
             "minLength": 1,
-            "title": "Name"
+            "title": "Name",
+            "examples": [
+              "Supplier contracts"
+            ]
           },
           "description": {
             "type": "string",
@@ -5666,7 +5867,10 @@
                 "type": "null"
               }
             ],
-            "title": "Name"
+            "title": "Name",
+            "examples": [
+              "Supplier contracts"
+            ]
           },
           "description": {
             "anyOf": [
@@ -5719,7 +5923,10 @@
           "content": {
             "type": "string",
             "minLength": 1,
-            "title": "Content"
+            "title": "Content",
+            "examples": [
+              "Does the invoice match the contract's prices?"
+            ]
           }
         },
         "type": "object",
@@ -6132,6 +6339,66 @@
         ],
         "title": "ValidationError"
       }
+    },
+    "securitySchemes": {
+      "APIKey": {
+        "type": "http",
+        "description": "An API key, which an owner or admin of the organisation makes on its page, sent as `Authorization: Bearer emk_…`. It acts as the member who made it, in the organisation's projects alone, reading or reading and changing as it was made.",
+        "scheme": "bearer",
+        "bearerFormat": "emk_…"
+      }
     }
-  }
+  },
+  "tags": [
+    {
+      "name": "status",
+      "description": "What the deployment can do just now, and what one upload may carry.",
+      "x-displayName": "Status"
+    },
+    {
+      "name": "projects",
+      "description": "The organisation's projects that the key's member sees, each with documents that are searched and asked about together.",
+      "x-displayName": "Projects"
+    },
+    {
+      "name": "folders",
+      "description": "The folders a project's library keeps its documents in.",
+      "x-displayName": "Folders"
+    },
+    {
+      "name": "documents",
+      "description": "Files uploaded into a project, each indexed in the background before it is searched and asked about.",
+      "x-displayName": "Documents"
+    },
+    {
+      "name": "facts",
+      "description": "The values read from documents by the project's extraction templates, each with the words it was read from.",
+      "x-displayName": "Facts"
+    },
+    {
+      "name": "search",
+      "description": "The passages of a project's documents, found by keywords and by meaning.",
+      "x-displayName": "Search"
+    },
+    {
+      "name": "chats",
+      "description": "Questions asked about a project's documents, and the answers the agent writes, followed as they are written.",
+      "x-displayName": "Chats"
+    },
+    {
+      "name": "cross-checks",
+      "description": "The rules a project's documents are checked against one another by, which members write in the app; 404 for an organisation that does not have them yet.",
+      "x-displayName": "Cross-checks"
+    },
+    {
+      "name": "check-runs",
+      "description": "Runs of a project's cross-checks, what each rule found and the discrepancy report; 404 for an organisation that does not have them yet.",
+      "x-displayName": "Check runs"
+    },
+    {
+      "name": "webhooks",
+      "description": "The events posted to the organisation's webhooks as they happen, which owners and admins add on its page.",
+      "x-displayName": "Webhooks"
+    }
+  ]
 }
