@@ -75,7 +75,7 @@ class NewProject(BaseModel):
     """A project to make: one the organisation sees, or one private to the key's member, and the
     organisation's owners and admins, until they choose others in the app."""
 
-    name: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=200, examples=["Supplier contracts"])
     description: str = Field("", max_length=2000)
     visibility: ProjectVisibility = "organization"
 
@@ -83,7 +83,7 @@ class NewProject(BaseModel):
 class ProjectChange(BaseModel):
     """A project renamed or described anew; a field left out stays as it is."""
 
-    name: str | None = Field(None, min_length=1, max_length=200)
+    name: str | None = Field(None, min_length=1, max_length=200, examples=["Supplier contracts"])
     description: str | None = Field(None, max_length=2000)
 
 
@@ -110,7 +110,7 @@ class ProjectList(BaseModel):
 class NewFolder(BaseModel):
     """A folder to make, at the project's root or in another of its folders."""
 
-    name: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=200, examples=["Invoices"])
     parent_id: int | None = None
 
 
@@ -118,7 +118,7 @@ class FolderChange(BaseModel):
     """A folder renamed, moved or both; a field left out stays as it is, and a `parent_id` of
     null moves it to the root."""
 
-    name: str | None = Field(None, min_length=1, max_length=200)
+    name: str | None = Field(None, min_length=1, max_length=200, examples=["Invoices 2026"])
     parent_id: int | None = None
 
 
@@ -146,7 +146,9 @@ class DocumentChange(BaseModel):
     """A document renamed, moved or both; a field left out stays as it is, and a `folder_id` of
     null moves it to the root. A new name keeps the file's extension."""
 
-    filename: str | None = Field(None, min_length=1, max_length=500)
+    filename: str | None = Field(
+        None, min_length=1, max_length=500, examples=["invoice-2026-10.pdf"]
+    )
     folder_id: int | None = None
 
 
@@ -284,7 +286,7 @@ class ChatChange(BaseModel):
     """A chat renamed, shared with the project or taken private again; a field left out stays as
     it is."""
 
-    title: str | None = Field(None, min_length=1, max_length=200)
+    title: str | None = Field(None, min_length=1, max_length=200, examples=["Invoice checks"])
     visibility: ChatVisibility | None = None
 
 
@@ -310,7 +312,7 @@ class ChatList(BaseModel):
 
 
 class Question(BaseModel):
-    content: _Text
+    content: Annotated[_Text, Field(examples=["Does the invoice match the contract's prices?"])]
 
 
 class Source(BaseModel):
@@ -375,7 +377,7 @@ class NewCheckRun(BaseModel):
     writes a discrepancy report once they are worked out, which counts as a question."""
 
     check_ids: list[int] | None = Field(default=None, min_length=1, max_length=100)
-    report: bool = False
+    report: bool = Field(False, examples=[True])
 
 
 class FindingCounts(BaseModel):

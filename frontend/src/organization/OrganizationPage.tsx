@@ -466,6 +466,10 @@ function ApiKeysSection({ me }: { me: Me }) {
             <Link to="/help/documents" className="font-medium text-accent hover:underline">
               how to run it
             </Link>
+            . What a program may ask of the API is in the{' '}
+            <a href="/api-reference" className="font-medium text-accent hover:underline">
+              API reference
+            </a>
             .
           </p>
         </form>

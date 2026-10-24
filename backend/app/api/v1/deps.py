@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Query, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.api.deps import AccountDep, SessionDep
 from app.api.v1.schemas import Error, PlanError
@@ -19,6 +20,19 @@ NO_KEY = (
     "owner or admin of the organisation makes one on its page."
 )
 BAD_CURSOR = "This page cannot be found. List again from the first page."
+# How the contract names the key every route is called with (OpenAPI's security scheme), so that
+# the reference and a generated client say how to send it. It reads nothing itself:
+# `_key_account` in app/api/deps.py finds the key's member.
+KEY = HTTPBearer(
+    scheme_name="APIKey",
+    bearerFormat="emk_…",
+    description=(
+        "An API key, which an owner or admin of the organisation makes on its page, sent as "
+        "`Authorization: Bearer emk_…`. It acts as the member who made it, in the "
+        "organisation's projects alone, reading or reading and changing as it was made."
+    ),
+    auto_error=False,
+)
 
 # How many items a page of a list holds unless the request asks for another number.
 PAGE = 50
@@ -46,7 +60,9 @@ ERRORS: dict[int | str, dict] = {
 }
 
 
-async def require_key(request: Request) -> None:
+async def require_key(
+    request: Request, _: Annotated[HTTPAuthorizationCredentials | None, Depends(KEY)]
+) -> None:
     """Refuse a request without an API key: the versioned API is for programs, which carry no
     cookie, and so needs no defence against a page elsewhere acting with a member's session.
     Async, as nothing here waits."""

@@ -17,6 +17,10 @@ newest entry first.
 
 Members:
 
+- The API reference, at `/api-reference`, describes every route of the versioned API and every
+  event your webhooks are sent: what each takes and answers, and a `curl` request to try at your
+  Emudoc's own address. Anyone may read it, before they hold a key; the API keys section of the
+  organisation page and "Organisations, members and roles" in the help link to it.
 - Webhooks tell your programs what happens in the organisation as it happens: owners and admins
   add one under Webhooks on the organisation page, with the address of a program and the events
   it hears of, a document indexed or one that could not be, and a run of cross-checks worked
@@ -27,6 +31,11 @@ Members:
 
 Operators:
 
+- `GET /api/v1/openapi.json` serves the versioned API's contract to anyone, without a key,
+  naming `APP_URL` as its server, and `/api-reference` is a page of its own drawn from it
+  (`frontend/reference.html`, a third build of `pnpm build`, its scripts' budget apart): a proxy
+  that lets only some paths through lets both (deploying.md, "Support"). The contract now names
+  its key's scheme (`APIKey`), its groups and example values; nothing a program calls changed.
 - The worker posts the organisations' webhooks (`backend/app/webhooks.py`), a `deliver_webhook`
   job a try, to addresses on the internet over HTTPS alone, connecting to the address it checked
   outside the deployment's own network and taking no proxy from the environment: its machine

@@ -2,7 +2,9 @@ import logging
 import re
 from contextlib import asynccontextmanager
 from datetime import UTC
+from functools import cache
 from pathlib import Path
+from typing import Any
 
 import httpx
 from anyio import CapacityLimiter, to_thread
@@ -56,6 +58,7 @@ from app.api.deps import (
     refuse_cross_site,
     refuse_past,
 )
+from app.api.v1.contract import published as published_contract
 from app.billing import BillingRefused
 from app.config import ROOT_DIR, get_settings
 from app.db import BUSY, TOO_SLOW, SessionLocal, canceled, engine
@@ -123,6 +126,10 @@ register_url_convertor("page", PagePath())
 # taken too, so that the file is reached by no other way.
 OPERATOR_PAGE = "operator.html"
 _OPERATOR_PATH = re.compile(r"operator(?:/.*)?|operator\.html")
+# The versioned API's reference (`frontend/reference.html`): a page of its own too, with a bundle
+# of its own, which anyone may read, drawn from the contract served at /api/v1/openapi.json.
+REFERENCE_PAGE = "reference.html"
+REFERENCE_PATH = "api-reference"
 
 
 class BuiltFiles(StaticFiles):
@@ -261,6 +268,20 @@ def list_subprocessors(services: ServicesDep):
         region=settings.data_region or None,
         subprocessors=subprocessors(settings, services.storage),
     )
+
+
+@cache
+def _contract() -> dict[str, Any]:
+    return published_contract()
+
+
+@system.get("/v1/openapi.json", include_in_schema=False)
+def api_contract(request: Request) -> JSONResponse:
+    """The versioned API's published contract (app/api/v1/contract.py), for programs, the
+    clients generated from it and the /api-reference page, with this deployment's address as its
+    server, which the published file cannot know. Public, like the subprocessor list: whoever
+    writes a program reads it before an owner gives them a key, and it holds no data."""
+    return JSONResponse({**_contract(), "servers": [{"url": auth.app_url(request)}]})
 
 
 @system.get("/legal", response_model=LegalOut)
@@ -550,6 +571,8 @@ def create_app(
         # HEAD too, which uptime services often probe the page with.
         @app.api_route("/{path:page}", methods=["GET", "HEAD"], include_in_schema=False)
         async def spa(path: str, request: Request):
+            if path.rstrip("/") == REFERENCE_PATH:
+                return await page.get_response(REFERENCE_PAGE, request.scope)
             if _OPERATOR_PATH.fullmatch(path):
                 # Anyone but an operator gets the members' page, as for a path nobody serves.
                 if await to_thread.run_sync(_from_operator, request):

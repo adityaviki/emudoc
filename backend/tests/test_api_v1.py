@@ -15,11 +15,12 @@ from sqlalchemy import delete, func, select, update
 
 from app.answers import Reply, answer
 from app.api.v1.chats import _Sent
-from app.api.v1.contract import breaking_changes, contract, published
+from app.api.v1.contract import TAGS, breaking_changes, contract, published
 from app.api.v1.deps import BAD_CURSOR, NO_KEY
 from app.apikeys import READ_ONLY_KEY, issue
 from app.billing import change_plan
 from app.check_runs import run_workflow
+from app.config import get_settings
 from app.db import engine
 from app.idempotency import (
     ABANDONED,
@@ -31,9 +32,10 @@ from app.idempotency import (
     prune_idempotency_keys,
 )
 from app.indexing.pipeline import process_document
+from app.main import create_app
 from app.maintenance import housekeeping
 from app.models import ApiKey, ChatEvent, Document, IdempotencyKey, Project
-from tests.conftest import FakeTurn
+from tests.conftest import APP_HEADERS, FakeTurn
 from tests.test_chats import questions_counted
 from tests.test_check_runs import TOTAL, invoices, work
 from tests.test_cross_checks import CROSS_CHECK, DUE
@@ -682,6 +684,61 @@ def test_the_published_contract_is_the_routes():
     assert made_now == kept, (
         "The routes changed: write the contract with python -m app.api.v1.contract"
     )
+
+
+def test_the_contract_is_served_to_anyone_naming_this_deployment(
+    client, signed_in_only, monkeypatch
+):
+    # Whoever writes a program reads it before an owner gives them a key, and the clients
+    # generated from it and the reference take their address from its server.
+    anyone = TestClient(client.app)
+    served = anyone.get("/api/v1/openapi.json")
+    assert served.status_code == 200
+    assert served.headers["cache-control"] == "no-store"
+    document = served.json()
+    assert document.pop("servers") == [{"url": "http://testserver"}]
+    assert document == published()
+    monkeypatch.setattr(get_settings(), "app_url", "https://docs.acme.example/")
+    servers = anyone.get("/api/v1/openapi.json").json()["servers"]
+    assert servers == [{"url": "https://docs.acme.example"}]
+
+
+def test_the_contract_says_how_every_call_is_made_and_where_it_is_listed():
+    # The key every route takes, which the reference and a generated client send, and the
+    # group each operation and event is listed in, which the reference heads with its words.
+    document = contract()
+    scheme = document["components"]["securitySchemes"]["APIKey"]
+    assert (scheme["type"], scheme["scheme"]) == ("http", "bearer")
+    assert "`Authorization: Bearer emk_…`" in scheme["description"]
+    groups = [tag["name"] for tag in TAGS]
+    assert [tag["name"] for tag in document["tags"]] == groups
+    for template, operations in document["paths"].items():
+        for method, operation in operations.items():
+            assert operation["security"] == [{"APIKey": []}], (method, template)
+            assert operation["tags"] in ([group] for group in groups), (method, template)
+    for event, operations in document["webhooks"].items():
+        assert all(operation["tags"] == ["webhooks"] for operation in operations.values()), event
+    used = {
+        operation["tags"][0]
+        for part in ("paths", "webhooks")
+        for operations in document[part].values()
+        for operation in operations.values()
+    }
+    assert used == set(groups), "A group lists nothing: take it out of TAGS."
+
+
+def test_the_reference_is_a_page_of_its_own_that_anyone_reads(services, tmp_path, monkeypatch):
+    (tmp_path / "index.html").write_text("members")
+    (tmp_path / "reference.html").write_text("reference")
+    monkeypatch.setattr("app.main.FRONTEND_DIST", tmp_path)
+    monkeypatch.setattr(get_settings(), "local_account", False)
+    with TestClient(create_app(services=services), headers=APP_HEADERS) as anyone:
+        for path in ("/api-reference", "/api-reference/", "/reference.html"):
+            assert anyone.get(path).text == "reference", path
+        # A path that only begins like it is the members' as any other, and the contract the
+        # page draws is the API's.
+        assert anyone.get("/api-references").text == "members"
+        assert anyone.get("/api/v1/openapi.json").json()["info"]["title"] == "Emudoc API"
 
 
 def test_what_only_adds_breaks_no_program():

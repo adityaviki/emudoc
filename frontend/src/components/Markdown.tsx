@@ -5,6 +5,9 @@ import remarkGfm from 'remark-gfm'
 import { parsePipeTable } from '../format.ts'
 
 const CITATION = /\[P(\d+)\]/g
+// The pages of a bundle of their own that anyone may be sent to, which the browser loads rather
+// than the app's router: the API reference (reference.html).
+const OWN_PAGE = /^\/api-reference(?:[/?#]|$)/
 
 interface MarkdownProps {
   text: string
@@ -15,7 +18,7 @@ interface MarkdownProps {
    * steer: a link there could carry what the model read to another site in its address, one
    * click away. It then shows its text and address, to copy, without leading anywhere. The
    * app's own pages turn it on, and a path on this site opens in the app, but for a file the API
-   * serves, which is downloaded.
+   * serves, which is downloaded, and a page of its own, which the browser loads.
    */
   followLinks?: boolean
 }
@@ -46,6 +49,7 @@ export function Markdown({ text, citation, followLinks = false }: MarkdownProps)
                   {children}
                 </a>
               )
+            if (OWN_PAGE.test(href)) return <a href={href}>{children}</a>
             if (href.startsWith('/') && !href.startsWith('//')) return <Link to={href}>{children}</Link>
             return (
               <a href={href} target="_blank" rel="noreferrer">

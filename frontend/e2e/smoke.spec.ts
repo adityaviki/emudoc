@@ -22,6 +22,7 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // viewer from under that answer, who makes an account from the invitation's link, ends her tour, finds
 // the project and is offered no change to it until made a member, write to support from the
 // help menu, which mails the page written from, read the help pages and what's new, add a webhook,
+// read the API reference the help links to and download the contract it is drawn from,
 // then make the project private, which she no longer finds until chosen for it, and share the chat, which the
 // colleague then reads but does not ask in, and last ask the question that uses the month's
 // questions, which the bell tells, and open that notice from the other organisation; then, made
@@ -688,6 +689,30 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await webhooks.getByRole('button', { name: 'I have saved it' }).click()
     await expect(secret).toHaveCount(0)
     await expect(webhooks.getByRole('listitem')).toContainText('nothing sent yet')
+  })
+
+  await test.step("read the API reference the help links to, its requests at the deployment's address, and download the contract it is drawn from", async () => {
+    const origin = new URL(page.url()).origin
+    // The organisation page offers it beside the keys, as the help does.
+    await expect(page.locator('section').filter({ has: page.getByRole('heading', { name: 'API keys', exact: true }) }).getByRole('link', { name: 'API reference' })).toHaveAttribute('href', '/api-reference')
+    await page.goto('/help/organisations')
+    // A page of its own, which the browser loads rather than the members' page routes.
+    await page.getByRole('article').getByRole('link', { name: 'API reference' }).click()
+    await expect(page).toHaveURL(/\/api-reference$/)
+    await expect(page.getByRole('heading', { name: /^Emudoc API/, level: 1 })).toBeVisible()
+    const made = page.getByRole('article', { name: 'Create Project' })
+    await expect(made.locator('pre')).toContainText(`curl -X POST "${origin}/api/v1/projects"`)
+    await expect(made.locator('pre')).toContainText('-H "Authorization: Bearer $EMUDOC_API_KEY"')
+    // A schema an operation names opens where its fields are.
+    await made.getByRole('link', { name: 'NewProject', exact: true }).click()
+    await expect(page).toHaveURL(/#schema-NewProject$/)
+    await expect(page.getByRole('region', { name: 'NewProject', exact: true })).toBeInViewport()
+    await expect(page.getByRole('article', { name: 'A document is indexed' })).toContainText('Emudoc-Signature')
+    await expectAccessible(page, 'the API reference')
+    // The contract it is drawn from, which a program's tools read, names this deployment.
+    const contract = await request.get((await page.getByRole('link', { name: 'openapi.json' }).getAttribute('href')) ?? '')
+    expect(contract.status()).toBe(200)
+    expect((await contract.json()).servers).toEqual([{ url: origin }])
   })
 
   await test.step('make the project private, which a member not chosen no longer finds, then choose her', async () => {

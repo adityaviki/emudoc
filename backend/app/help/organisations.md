@@ -53,6 +53,12 @@ of the program's own such as a UUID: sent again with the same key within $idempo
 hours, after an answer that did not arrive, it is given the first one's answer and carried out
 once.
 
+The [API reference](/api-reference) describes each of its routes and the events of the
+webhooks below: what they take, what they answer, and a request to try with `curl`. Anyone may
+read it, before they hold a key. The tools that write a client for a program, and those that
+call an API from a flow, read the same as an OpenAPI document,
+[openapi.json](/api/v1/openapi.json).
+
 ## Webhooks
 
 A webhook tells a program what happens in the organisation as it happens, so that it need not
