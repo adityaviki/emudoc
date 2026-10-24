@@ -21,7 +21,14 @@ from sqlalchemy.orm import Session
 from app.audit import audit_event
 from app.db import SessionLocal
 from app.indexing.pipeline import reset_stages
-from app.jobs import INDEX_DOCUMENT, RECEIVE_MAIL, RENDER_PAGES, SEND_EMAIL, queue_index
+from app.jobs import (
+    INDEX_DOCUMENT,
+    RECEIVE_MAIL,
+    RENDER_PAGES,
+    SEND_EMAIL,
+    SYNC_CONNECTOR,
+    queue_index,
+)
 from app.mail import Mailer, Message
 from app.models import STAGES, Document, Job, Organization, Project
 
@@ -102,6 +109,8 @@ def _document_name(job: Job, filename: str | None) -> str | None:
         # The provider's id for it, by which its dashboard finds it.
         payload = job.payload
         return f"the message {payload.get('email_id', '')} from {payload.get('source', '')}"
+    if job.kind == SYNC_CONNECTOR:
+        return f"the connected folder {job.payload.get('connector_id')}"
     if filename is not None or job.kind not in ABOUT_A_DOCUMENT:
         return filename
     return f"document {job.payload['document_id']} (deleted)"

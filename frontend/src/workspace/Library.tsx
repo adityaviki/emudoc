@@ -11,6 +11,7 @@ import {
   Folder as FolderIcon,
   FolderInput,
   FolderPlus,
+  FolderSync,
   FolderUp,
   ListChecks,
   Mail,
@@ -57,6 +58,7 @@ import { RunView } from './CheckRuns.tsx'
 import { CrossChecksView, FindingsView } from './CrossChecks.tsx'
 import { DraftTemplatesView } from './DraftTemplates.tsx'
 import { DraftView, DraftsView } from './Drafts.tsx'
+import { ConnectorsView } from './Connectors.tsx'
 import { MailboxView } from './Mailbox.tsx'
 import { ChangesView } from './FactChanges.tsx'
 import { FactsView } from './FactsTable.tsx'
@@ -150,6 +152,7 @@ export function Library() {
   const templates = me.organization.flags_on.includes('extraction_templates')
   const drafts = me.organization.flags_on.includes('drafts')
   const mail = me.organization.flags_on.includes('email_in')
+  const connectors = me.organization.flags_on.includes('connectors')
   // The sample project takes no uploads: it counts against nothing on the plan (backend/app/sample).
   const uploads = changes && !project.sample
   const health = useStatus()
@@ -205,6 +208,7 @@ export function Library() {
   if (workspace.url.library.draft != null && drafts) return <DraftView draftId={workspace.url.library.draft} />
   if (workspace.url.library.draftTemplates && drafts) return <DraftTemplatesView />
   if (workspace.url.library.mail && mail) return <MailboxView />
+  if (workspace.url.library.connectors && connectors) return <ConnectorsView />
   return (
     <div
       data-tour="library"
@@ -280,6 +284,15 @@ export function Library() {
               onClick={workspace.showMailbox}
               title="Email in: the project’s address, whose mail becomes its documents"
               aria-label="Email in"
+              className="px-2"
+            />
+          )}
+          {connectors && (
+            <Button
+              icon={<FolderSync className="size-4" />}
+              onClick={workspace.showConnectors}
+              title="Connected folders: folders of Google Drive, Dropbox or OneDrive the project keeps in step with"
+              aria-label="Connected folders"
               className="px-2"
             />
           )}

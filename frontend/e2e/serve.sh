@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The app as the end-to-end test drives it (playwright.config.ts starts it): a database of its
 # own on the compose server, made afresh and migrated, files in a directory of their own, and
-# uvicorn in development with its worker threads, serving the last `pnpm build`, the model and
-# the embeddings endpoint being the stand-in (e2e/standin.py, started before this). Every
+# uvicorn in development with its worker threads, serving the last `pnpm build`, the model, the
+# embeddings endpoint and Google Drive being the stand-in (e2e/standin.py, started before this). Every
 # setting the run depends on is set here, so that a developer's .env changes none of them.
 # Everything the server says goes to LOG as well as to standard error, which Playwright shows:
 # the run has no mail relay, so the app logs each message it sends, and the test follows a
@@ -20,6 +20,7 @@ if (($# != 3)); then
 fi
 port=$1
 standin=http://127.0.0.1:$2/v1
+connectors=http://127.0.0.1:$2
 log=$3
 root=$(cd "$(dirname "$0")/../.." && pwd)
 database=emudoc_e2e
@@ -64,6 +65,9 @@ export MAIL_EVENTS_QUEUE=
 export INBOUND_DOMAIN=in.emudoc.test
 export INBOUND_MAIL_QUEUE=
 export PWNED_PASSWORDS_URL=
+export GOOGLE_DRIVE_CLIENT_ID=standin
+export GOOGLE_DRIVE_CLIENT_SECRET=standin
+export CONNECTOR_BASE_URL=$connectors
 export OPERATOR_EMAIL=
 export SUPPORT_EMAIL=support@example.com
 export STATUS_PAGE_URL=https://status.example.com

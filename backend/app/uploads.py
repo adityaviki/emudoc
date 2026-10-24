@@ -1,6 +1,6 @@
-"""Files taken into a project's library: those an upload request carries (app/api/documents.py)
-and those of a message sent to the project's address (app/inbound.py), each through the same
-checks.
+"""Files taken into a project's library: those an upload request carries (app/api/documents.py),
+those of a message sent to the project's address (app/inbound.py) and those of a connected
+folder (app/connectors/sync.py), each through the same checks.
 
 A file is refused with a sentence about it, while the others go in: a type the app does not
 read, nothing in it, more bytes than one file may have, bytes that are not the type its name
@@ -256,10 +256,15 @@ def _spool(upload: BinaryIO, limit: int) -> tuple[Path, int, str]:
     digest = hashlib.sha256()
     size = 0
     with tempfile.NamedTemporaryFile(prefix="emudoc-upload-", delete=False) as spool:
-        while chunk := upload.read(CHUNK):
-            size += len(chunk)
-            if size > limit:
-                break
-            digest.update(chunk)
-            spool.write(chunk)
+        try:
+            while chunk := upload.read(CHUNK):
+                size += len(chunk)
+                if size > limit:
+                    break
+                digest.update(chunk)
+                spool.write(chunk)
+        except BaseException:
+            # A file read as it downloads (app/connectors/) may fail partway.
+            Path(spool.name).unlink(missing_ok=True)
+            raise
     return Path(spool.name), size, digest.hexdigest()

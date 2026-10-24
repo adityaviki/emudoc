@@ -69,6 +69,7 @@ from app.jobs import (
     RUN_AUTOMATION,
     RUN_WORKFLOW,
     SEND_EMAIL,
+    SYNC_CONNECTOR,
     WRITE_DRAFT,
 )
 from app.models import STAGES
@@ -107,6 +108,7 @@ JOBS = (
     RUN_AUTOMATION,
     WRITE_DRAFT,
     RECEIVE_MAIL,
+    SYNC_CONNECTOR,
 )
 # What a lane of the worker's threads runs (app/worker.py).
 INDEXER = "indexer"
@@ -150,6 +152,12 @@ INBOUND_OUTCOMES = (
     "unknown_address",
     "off",
 )
+# How a connected folder's sync went (app/connectors/sync.py): files taken or noted, nothing
+# changed since the last, stopped partway or before it began (the service, the folder), paused
+# (the grant, the member), held back (the project, the plan), or the flag off; and what became of
+# each file it read: kept, rejected, its document to the trash, or replaced by a new version.
+SYNC_OUTCOMES = ("synced", "unchanged", "failed", "paused", "held", "off")
+SYNCED_FILE_OUTCOMES = ("kept", "rejected", "trashed", "replaced")
 UPLOAD_REFUSALS = (
     "too_many",
     "plan",
@@ -298,6 +306,18 @@ INBOUND_MESSAGES = Counter(
     + ".",
     ["outcome"],
 )
+CONNECTOR_SYNCS = Counter(
+    "emudoc_connector_syncs",
+    "Syncs of connected folders, by how each went: " + ", ".join(SYNC_OUTCOMES) + ".",
+    ["outcome"],
+)
+CONNECTOR_FILES = Counter(
+    "emudoc_connector_files",
+    "Files of connected folders the syncs read, by what became of each: "
+    + ", ".join(SYNCED_FILE_OUTCOMES)
+    + ".",
+    ["outcome"],
+)
 RATE_LIMITED = Counter(
     "emudoc_rate_limited",
     "Requests refused for a rate (the RATE_* settings), by the limit's scope.",
@@ -350,6 +370,10 @@ def _start_at_zero() -> None:
         MAIL_EVENTS.labels(kind)
     for outcome in INBOUND_OUTCOMES:
         INBOUND_MESSAGES.labels(outcome)
+    for outcome in SYNC_OUTCOMES:
+        CONNECTOR_SYNCS.labels(outcome)
+    for outcome in SYNCED_FILE_OUTCOMES:
+        CONNECTOR_FILES.labels(outcome)
 
 
 _start_at_zero()

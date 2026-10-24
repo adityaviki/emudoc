@@ -99,6 +99,7 @@ from app.billing import (
 )
 from app.bounces import SUPPRESSED_FOR, prune_suppressions
 from app.config import PACK_UNITS, export_env_file, get_settings
+from app.connectors.sync import prune_connectors
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine, unbounded
 from app.deadletters import NamedJob, describe, failed_jobs, named_jobs, requeue
 from app.encrypted import describe_encrypted, encrypt_secrets, keys
@@ -539,6 +540,7 @@ def housekeeping(storage: Storage) -> None:
         billing_events = prune_billing_events(connection)
         spared = prune_suppressions(connection)
         prune_inbound(connection)
+        prune_connectors(connection)
         prune_quota_notices(connection)
         notifications = prune_notifications(connection)
         exports = prune_exports(connection)

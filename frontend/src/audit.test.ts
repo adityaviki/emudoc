@@ -157,6 +157,22 @@ describe('a row', () => {
     ).toBe('from 3 senders and its members, 2 added, 1 removed')
     expect(describeDetail(event('mailbox_deleted', { senders: 3 }))).toBe('')
     expect(describeDetail(event('document_uploaded', { filename: 'INV-7.pdf', size_bytes: 10, by_email: true }))).toBe('INV-7.pdf · by email')
+    // A connected folder, and the documents its syncs bring and put in the trash.
+    expect(describeDetail(event('connector_created', { provider: 'google' }))).toBe('Google Drive')
+    expect(describeDetail(event('connector_changed', { provider: 'google', changed: ['folder'], folder: 'Invoices', target: null }))).toBe(
+      'Google Drive, Invoices, into the project’s root',
+    )
+    expect(describeDetail(event('connector_changed', { provider: 'google', changed: ['grant'], folder: 'Invoices' }))).toBe(
+      'Google Drive, connected again, Invoices',
+    )
+    expect(describeDetail(event('connector_deleted', { provider: 'dropbox', folder: 'Scans' }))).toBe('Dropbox, Scans')
+    expect(describeDetail(event('document_uploaded', { filename: 'INV-7.pdf', size_bytes: 10, by_connector: 'google' }))).toBe(
+      'INV-7.pdf · from Google Drive',
+    )
+    expect(describeDetail(event('document_deleted', { filename: 'INV-7.pdf', by_connector: 'google' }))).toBe('INV-7.pdf · gone from Google Drive')
+    expect(describeDetail(event('document_deleted', { filename: 'INV-7.pdf', by_connector: 'google', replaced: true }))).toBe(
+      'INV-7.pdf · replaced by a new version from Google Drive',
+    )
     // A fact checked or corrected: the document and the field, never what it says.
     expect(describeDetail(event('fact_corrected', { filename: 'acme-10.pdf', field: 'total_amount' }))).toBe('acme-10.pdf · total amount')
     // A member's leave for support, support's view of their account, and what was done in it.

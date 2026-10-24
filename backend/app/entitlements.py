@@ -50,8 +50,9 @@ beside the platform's own daily limit, since the two are read together. `retenti
 how long a chat is kept after its last question, which the housekeeper holds it to
 (app/retention.py), and `audit_days` how long a row of the audit log is (app/audit.py).
 `api_access` is whether its members may make API keys and call the API with them (`check_api`,
-app/apikeys.py); `model_tier` and `connectors` are declared for the features that will read them
-(the model tiers, the connectors) and enforced by nothing yet.
+app/apikeys.py), and `connectors` whether they may connect folders of Google Drive, Dropbox or
+OneDrive to its projects and have them synced (`check_connectors`, app/connectors/); `model_tier`
+is declared for the model tiers and enforced by nothing yet.
 """
 
 from collections.abc import Iterable
@@ -298,6 +299,23 @@ def check_api(organization: Organization) -> Refusal | None:
         "api_access",
         f"The {_label(organization)} plan does not include the API. {way} to make and use API "
         "keys.",
+    )
+
+
+def check_connectors(organization: Organization) -> Refusal | None:
+    """Why the plan refuses a connected folder, connected or synced, or None when it includes
+    them."""
+    if entitlements_of(organization).connectors:
+        return None
+    way = (
+        "Ask for them in the organisation's terms"
+        if organization.plan == PLAN_NAMES[-1]
+        else "Upgrade your plan"
+    )
+    return Refusal(
+        "connectors",
+        f"The {_label(organization)} plan does not include connected folders. {way} to keep a "
+        "project in step with a folder of Google Drive, Dropbox or OneDrive.",
     )
 
 

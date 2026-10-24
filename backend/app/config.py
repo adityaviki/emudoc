@@ -675,6 +675,16 @@ class Settings(BaseSettings):
     # that organisation's directory.
     microsoft_oauth_tenant: str = "common"
 
+    # Connected folders (app/connectors/; deploying.md, "Connected folders"): an OAuth client per
+    # service, of its own rather than sign-in's, since its consent asks to read the member's
+    # files, registered with the redirect URI {APP_URL}/api/connectors/callback. A service
+    # without a client id is not offered.
+    google_drive_client_id: str = ""
+    google_drive_client_secret: str = ""
+    # Where the services are reached in place of their own addresses, each under its name
+    # ({CONNECTOR_BASE_URL}/google/…): the browser test's stand-in. Production refuses it.
+    connector_base_url: str = ""
+
     @field_validator("database_url")
     @classmethod
     def _names_a_database(cls, value: str) -> str:
@@ -692,6 +702,8 @@ class Settings(BaseSettings):
         "index_model",
         "agent_fallback_model",
         "index_fallback_model",
+        "google_drive_client_id",
+        "connector_base_url",
         mode="before",
     )
     @classmethod
@@ -771,6 +783,7 @@ class Settings(BaseSettings):
         "stripe_webhook_secret",
         "resend_api_key",
         "resend_webhook_secret",
+        "google_drive_client_secret",
         mode="before",
     )
     @classmethod
@@ -1164,6 +1177,16 @@ class Settings(BaseSettings):
             )
         problems += self._billing_problems()
         problems += self._mail_problems()
+        if self.connector_base_url:
+            problems.append(
+                "CONNECTOR_BASE_URL is set, so the connected folders would be read from it rather "
+                "than from Google Drive itself: it is the browser test's stand-in; remove it."
+            )
+        if self.google_drive_client_id and not self.google_drive_client_secret:
+            problems.append(
+                "GOOGLE_DRIVE_CLIENT_ID is set without GOOGLE_DRIVE_CLIENT_SECRET, so no member "
+                "could connect a folder of their Google Drive; set the client's secret too."
+            )
         if self.inbound_domain and not self.receives_through:
             problems.append(
                 "INBOUND_DOMAIN is set, but no provider hands its mail to the app: set "

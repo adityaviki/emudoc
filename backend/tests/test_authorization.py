@@ -10,8 +10,10 @@ from app.answers import answer
 from app.check_runs import run_workflow
 from app.config import get_settings
 from app.drafts import write_draft
-from app.flags import DRAFTS, EMAIL_IN
+from app.encrypted import CONNECTOR_TOKENS, encrypt
+from app.flags import CONNECTORS, DRAFTS, EMAIL_IN
 from app.indexing.pipeline import process_document
+from app.models import Connector
 from tests.conftest import FakeTurn
 from tests.test_api import create_project, upload
 from tests.test_chats import answered, ask, new_chat
@@ -31,9 +33,10 @@ class World:
     draft the model wrote, and a chat holding one answered
     question, and in its trash a folder, a document and a chat; another project in the trash; an
     invitation to the organisation and an API key of it, all made by the local owner in the local
-    organisation, and another member of it; the project has an address. The extraction
-    templates are on for every organisation, and so are the drafts and email in, so that what
-    refuses another organisation is the project's scope, not the flag."""
+    organisation, and another member of it; the project has an address, and a folder of the
+    owner's Google Drive connected. The extraction templates are on for every organisation, and
+    so are the drafts, email in and connected folders, so that what refuses another organisation
+    is the project's scope, not the flag."""
 
     org_id: int
     project_id: int
@@ -58,14 +61,18 @@ class World:
     run_id: int
     automation_id: int
     draft_id: int
+    connector_id: int
 
 
 @pytest.fixture
-def world(client, services, sample_pdf, account, make_account, monkeypatch) -> World:
+def world(client, session, services, sample_pdf, account, make_account, monkeypatch) -> World:
     turn_on(monkeypatch)
     turn_on(monkeypatch, DRAFTS)
     turn_on(monkeypatch, EMAIL_IN)
+    turn_on(monkeypatch, CONNECTORS)
     monkeypatch.setattr(get_settings(), "inbound_domain", "in.emudoc.test")
+    monkeypatch.setattr(get_settings(), "google_drive_client_id", "drive-client")
+    monkeypatch.setattr(get_settings(), "google_drive_client_secret", "drive-secret")
     project = create_project(client)
     folder = make_folder(client, project["id"], "Contracts")
     uploaded = upload(client, project["id"], sample_pdf)
@@ -99,6 +106,21 @@ def world(client, services, sample_pdf, account, make_account, monkeypatch) -> W
     write_draft(draft["id"], account.user.id, services)
     given = client.put(f"/api/projects/{project['id']}/mailbox", json={"senders": ["acme.example"]})
     assert given.status_code == 200, given.text
+    connector = Connector(
+        org_id=account.organization.id,
+        project_id=project["id"],
+        provider="google",
+        user_id=account.user.id,
+        account="owner@example.com",
+        refresh_token="",
+        folder_ref="folder-1",
+        folder_name="Invoices",
+        status="active",
+    )
+    session.add(connector)
+    session.flush()
+    connector.refresh_token = encrypt(CONNECTOR_TOKENS, connector.id, "refresh-1")
+    session.commit()
     for path in (
         f"/api/folders/{trashed_folder['id']}",
         f"/api/documents/{note['id']}",
@@ -130,6 +152,7 @@ def world(client, services, sample_pdf, account, make_account, monkeypatch) -> W
         checked_run["id"],
         automation.json()["id"],
         draft["id"],
+        connector.id,
     )
 
 
@@ -163,6 +186,7 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/projects/{w.project_id}/reviewers", {}),
         ("GET", f"/api/projects/{w.project_id}/drafts", {}),
         ("GET", f"/api/projects/{w.project_id}/mailbox", {}),
+        ("GET", f"/api/projects/{w.project_id}/connectors", {}),
         ("GET", f"/api/drafts/{w.draft_id}", {}),
         ("GET", f"/api/drafts/{w.draft_id}/versions/1", {}),
         ("GET", f"/api/drafts/{w.draft_id}/versions/1/export", {}),
@@ -217,6 +241,15 @@ def writes(w: World) -> list[Route]:
         ("PUT", f"/api/facts/{w.fact_id}/check", {"json": {"value": "120 days"}}),
         ("PUT", f"/api/projects/{w.project_id}/mailbox", {"json": {"senders": ["acme.example"]}}),
         ("POST", f"/api/projects/{w.project_id}/mailbox/address", {}),
+        ("POST", f"/api/projects/{w.project_id}/connectors", {"json": {"provider": "google"}}),
+        # Browsing the member's folders at the service, which is for choosing one: a change.
+        ("GET", f"/api/projects/{w.project_id}/connectors/{w.connector_id}/folders", {}),
+        (
+            "PUT",
+            f"/api/projects/{w.project_id}/connectors/{w.connector_id}",
+            {"json": {"target_folder_id": None}},
+        ),
+        ("POST", f"/api/projects/{w.project_id}/connectors/{w.connector_id}/sync", {}),
         (
             "POST",
             f"/api/projects/{w.project_id}/documents",
@@ -232,6 +265,7 @@ def writes(w: World) -> list[Route]:
         ("DELETE", f"/api/projects/{w.project_id}/draft-templates/report", {}),
         ("DELETE", f"/api/automations/{w.automation_id}", {}),
         ("DELETE", f"/api/projects/{w.project_id}/mailbox", {}),
+        ("DELETE", f"/api/projects/{w.project_id}/connectors/{w.connector_id}", {}),
         ("DELETE", f"/api/cross-checks/{w.cross_check_id}", {}),
         ("DELETE", f"/api/templates/{w.template_id}", {}),
         ("DELETE", f"/api/folders/{w.folder_id}", {}),

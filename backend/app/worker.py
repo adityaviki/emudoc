@@ -29,7 +29,8 @@ so that the next worker takes them at once rather than when the lease would have
 The heartbeat thread also says that the worker runs, at its start and every round, and the stop
 says that it stopped (`beat`, `record_stop` in app/jobs.py): the worker serves nothing to ask,
 so that is how the members' status line and the operator know whether anyone takes the queue's
-work.
+work. Each round it also queues the syncs of the connected folders whose time has come
+(app/connectors/sync.py).
 
 A job is only ever written by one worker at a time. The heartbeat thread extends the leases of
 the jobs this process runs, and the pipeline renews its job's lease in the transaction of every
@@ -80,6 +81,7 @@ from app.answers import abandon_answer, run_answer
 from app.bounces import read_ses_events
 from app.check_runs import abandon_run, run_automation, run_workflow
 from app.config import MAIL_THREADS, Settings, get_settings
+from app.connectors.sync import abandon_sync, queue_due_syncs, run_sync
 from app.db import SessionLocal, connection_lost
 from app.deadletters import alert_failed_jobs
 from app.drafts import abandon_draft, write_draft
@@ -105,6 +107,7 @@ from app.jobs import (
     RUN_WORKFLOW,
     SEEN_WITHIN,
     SEND_EMAIL,
+    SYNC_CONNECTOR,
     WRITE_DRAFT,
     Lease,
     LeaseLost,
@@ -373,6 +376,14 @@ def _abandon_receive(job: Job, services: Services) -> None:
     abandon_receive(job)
 
 
+def _run_sync(job: Job, services: Services) -> str | None:
+    return run_sync(job, services.storage, Lease(job.id, job.worker_id))
+
+
+def _abandon_sync(job: Job, services: Services) -> None:
+    abandon_sync(job)
+
+
 def _abandon_automation(job: Job, services: Services) -> None:
     # The arrivals stay with the automation, and the next document that arrives for it runs its
     # checks over them too.
@@ -390,7 +401,7 @@ def _abandon_language(job: Job, services: Services) -> None:
 # the runs of cross-checks and the automations that make them the answers', since a member
 # waits for them and their reports are the agent's, and so the drafts; every other kind shares
 # the indexers, a message sent to a project's address among them (app/receiving.py), which is
-# an upload.
+# an upload, and so is a connected folder's sync (app/connectors/sync.py).
 HANDLERS: dict[str, Handler] = {
     INDEX_DOCUMENT: Handler(_run_index, _abandon_index, after_index),
     ANSWER_QUESTION: Handler(run_answer, abandon_answer),
@@ -402,6 +413,7 @@ HANDLERS: dict[str, Handler] = {
     RUN_AUTOMATION: Handler(_run_automation, _abandon_automation),
     WRITE_DRAFT: Handler(_write_draft, _abandon_draft),
     RECEIVE_MAIL: Handler(_run_receive, _abandon_receive),
+    SYNC_CONNECTOR: Handler(_run_sync, _abandon_sync),
 }
 LANE_KINDS = {
     ANSWERER: [ANSWER_QUESTION, RUN_WORKFLOW, RUN_AUTOMATION, WRITE_DRAFT],
@@ -716,6 +728,7 @@ class Worker:
         self._beat()
         while not self._stop.wait(HEARTBEAT_SECONDS):
             self._beat()
+            self._queue_syncs()
             with self._held_lock:
                 held = sorted(self._held)
             if not held:
@@ -731,6 +744,14 @@ class Worker:
                     "still running them; their runs stop at their next commit",
                     sorted(lost),
                 )
+
+    def _queue_syncs(self) -> None:
+        """Queue the connected folders' syncs whose time has come (app/connectors/sync.py)."""
+        try:
+            queue_due_syncs()
+        except Exception:
+            # A database out of reach now may be back by the next round, which queues them.
+            log.exception("Could not queue the connected folders' syncs that are due")
 
     def _beat(self) -> None:
         """Say that this worker runs, whether it holds jobs or not (app/jobs.py)."""

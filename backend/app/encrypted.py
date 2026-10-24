@@ -1,7 +1,8 @@
 """What the database keeps encrypted (app/keyring.py), and its upkeep.
 
 `COLUMNS` names each column whose values would let a copy of the database act as a member: the
-authenticators' secrets of two-factor sign-in, for now. The code that writes such a value
+authenticators' secrets of two-factor sign-in, and the grants members gave to read the folders
+they connected (app/connectors/). The code that writes such a value
 encrypts it for its row (`encrypt`) and the code that reads it decrypts it (`decrypt`), so the
 rows hold nothing a dump or a backup can use without ENCRYPTION_KEYS. A value kept as it was
 before its column was encrypted still reads as it is, until `encrypt_secrets` encrypts it.
@@ -50,6 +51,11 @@ class Column:
     column: str
     # What one value is, for the sentences: "authenticator secret".
     noun: str
+    # What a value no key decrypts keeps from its member, for one and for several, and how they
+    # do without it, for the sentences.
+    lost_one: str
+    lost_many: str
+    remedy: str
 
     def place(self, row_id: int) -> str:
         """Where a value is kept, which it is encrypted for. It is part of every value the
@@ -57,8 +63,23 @@ class Column:
         return f"{self.table}.{self.column}:{row_id}"
 
 
-TOTP_SECRETS = Column("users", "totp_secret", "authenticator secret")
-COLUMNS = (TOTP_SECRETS,)
+TOTP_SECRETS = Column(
+    "users",
+    "totp_secret",
+    "authenticator secret",
+    "its member cannot sign in with an authenticator app",
+    "their members cannot sign in with authenticator apps",
+    "a member signs in with a recovery code and sets two-factor sign-in up again",
+)
+CONNECTOR_TOKENS = Column(
+    "connectors",
+    "refresh_token",
+    "connector token",
+    "its folder is not synced",
+    "their folders are not synced",
+    "the member who connected a folder connects it again",
+)
+COLUMNS = (TOTP_SECRETS, CONNECTOR_TOKENS)
 
 
 def keys() -> Keyring:
@@ -236,13 +257,12 @@ def lost_line(counts: Standing) -> str:
     total = counts.lost.total()
     one = total == 1
     keys_named = ", ".join(sorted(counts.lost))
+    column = counts.column
     return (
-        f"{_count(total, counts.column.noun)} {'is' if one else 'are'} encrypted with "
+        f"{_count(total, column.noun)} {'is' if one else 'are'} encrypted with "
         f"{'a key' if len(counts.lost) == 1 else 'keys'} ENCRYPTION_KEYS does not hold "
-        f"({keys_named}), so {'its member' if one else 'their members'} cannot sign in with "
-        f"{'an authenticator app' if one else 'authenticator apps'} until the key is back in "
-        "the list, after the first; without it, a member signs in with a recovery code and "
-        "sets two-factor sign-in up again."
+        f"({keys_named}), so {column.lost_one if one else column.lost_many} until the key is "
+        f"back in the list, after the first; without it, {column.remedy}."
     )
 
 

@@ -72,6 +72,8 @@ export interface Workspace {
   showDraftTemplates(): void
   /** Shows the project's address, whose mail becomes its documents, in the library, likewise. */
   showMailbox(): void
+  /** Shows the project's connected folders in the library, likewise. */
+  showConnectors(): void
   openChat(chatId: number | 'new' | null, options?: { replace?: boolean }): void
   /** Which pane shows on a narrow screen, where only one fits. */
   mobilePane: Pane

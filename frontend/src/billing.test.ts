@@ -69,6 +69,7 @@ const free: Organization = {
     members: 1,
     retention_days: 30,
     api_access: false,
+    connectors: false,
     agreed: [],
     pages_bought: 0,
     questions_bought: 0,

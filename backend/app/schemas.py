@@ -20,6 +20,7 @@ PlanLimit = Literal[
     "members",
     "daily_spend_micros",
     "api_access",
+    "connectors",
 ]
 
 
@@ -965,6 +966,98 @@ class MailboxOut(BaseModel):
     messages: list[InboundMessageOut]
 
 
+class ConnectorServiceOut(BaseModel):
+    """A service the deployment can connect folders from."""
+
+    provider: str
+    label: str
+
+
+class ConnectorFileOut(BaseModel):
+    """A file of a connected folder that is no document of the project, by its path below the
+    folder, and why."""
+
+    path: str
+    reason: str
+
+
+class ConnectorOut(BaseModel):
+    """A folder of a member's Google Drive, Dropbox or OneDrive that the project keeps in step
+    with (app/connectors/): whose it is, how it stands, and what its last sync left out."""
+
+    id: int
+    provider: str
+    label: str
+    # The account at the service it was connected from, and the member who connected it, by
+    # their name as it is now.
+    account: str
+    member: str
+    # Whether it is the reader's own: only its member chooses its folder or connects it again.
+    mine: bool
+    status: Literal["choosing", "active", "paused"]
+    # The folder's name at the service; None while it is being chosen.
+    folder: str | None
+    target_folder_id: int | None
+    # Where its files go, the folder's path as it is now; None for the project's root.
+    target: str | None
+    # Why the last sync did not finish, or why it is paused; empty when all went well.
+    problem: str
+    synced_at: dt.datetime | None
+    # When it is synced next, while it is synced at all.
+    next_sync_at: dt.datetime | None
+    # Whether a sync is queued or running now.
+    syncing: bool
+    # The documents of its files in the library.
+    kept: int
+    # The files that are no document, the first SHOWN of them by path, and how many in all.
+    rejected: list[ConnectorFileOut]
+    rejected_count: int
+
+
+class ConnectorsOut(BaseModel):
+    """The project's connected folders, and the services a member may connect another from."""
+
+    services: list[ConnectorServiceOut]
+    connectors: list[ConnectorOut]
+    max_connectors: int
+    # How often each is synced.
+    interval_minutes: int
+
+
+class ConnectIn(BaseModel):
+    """Connect a service to the project, or connect a paused connector of the member's again
+    (`connector_id`)."""
+
+    provider: Annotated[str, StringConstraints(max_length=20)]
+    connector_id: int | None = None
+
+
+class ConsentOut(BaseModel):
+    """Where to send the browser for the member's consent."""
+
+    url: str
+
+
+class ConnectorIn(BaseModel):
+    """The folder at the service a connector keeps the project in step with, chosen once, while
+    it is being chosen; and where its files go in the project, its root when null."""
+
+    folder_ref: Annotated[str, StringConstraints(min_length=1, max_length=300)] | None = None
+    target_folder_id: int | None = None
+
+
+class RemoteFolderOut(BaseModel):
+    """A folder at the service; `choosable` is False for a place browsing passes through."""
+
+    ref: str
+    name: str
+    choosable: bool
+
+
+class RemoteFoldersOut(BaseModel):
+    folders: list[RemoteFolderOut]
+
+
 class CheckRunsOut(BaseModel):
     """A page of the project's runs, newest first, and the id the next page starts before."""
 
@@ -1344,6 +1437,9 @@ class AllowanceOut(BaseModel):
     retention_days: int | None = None
     # Whether its members may make API keys and call the API with them (app/apikeys.py).
     api_access: bool = False
+    # Whether its members may connect folders of Google Drive, Dropbox or OneDrive to its
+    # projects (app/connectors/).
+    connectors: bool = False
     # Which of them were agreed with the organisation in place of its plan's.
     agreed: list[str]
     # The pages and questions bought in packs for this month, on top of the plan's.

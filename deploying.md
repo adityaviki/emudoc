@@ -1185,8 +1185,8 @@ the disks' keys are the deployment's, the same for every organisation.
 
 The disk's encryption protects a disk taken away, not a copy of the database: a dump, a backup,
 a restore drill's scratch copy, a read through a leaked password. So what in the database would
-let its holder act as a member, the authenticators' secrets of two-factor sign-in, the app
-encrypts itself (AES-256-GCM, each value bound to its row, so a value copied into another
+let its holder act as a member, the authenticators' secrets of two-factor sign-in and the grants
+members gave to read the folders they connected ("Connected folders"), the app encrypts itself (AES-256-GCM, each value bound to its row, so a value copied into another
 account's row decrypts nowhere; `backend/app/keyring.py`, `backend/app/encrypted.py`), with
 keys from `ENCRYPTION_KEYS`, which the database never sees. Passwords and session tokens are
 hashes and need no key.
@@ -1196,8 +1196,9 @@ machine in the settings' file, on AWS under the secrets path ("The settings"). P
 refuses to start without one, and with development's, which is in the code. Keep it apart from
 the database's backups, or encrypting gains nothing; and keep it as surely as the backups, since
 a lost key loses every authenticator it encrypted. A member whose secret no key decrypts is told
-to sign in with a recovery code and set the app up again; the start, the `encrypt-secrets`
-command and the drill name how many there are and which key they need.
+to sign in with a recovery code and set the app up again, and a connected folder whose grant no
+key decrypts pauses until its member connects it again; the start, the `encrypt-secrets` command
+and the drill name how many there are and which key they need.
 
 `ENCRYPTION_KEYS` holds several keys, separated by commas: the first encrypts, and every one
 decrypts what it encrypted (a value names its key by the first eight hex digits of the key's
@@ -1326,7 +1327,9 @@ Setting `DATA_REGION` says they are in the region, and the subprocessor list sho
 the app knowing. The mail relay and the sign-in providers receive members' names and addresses,
 and the alerts name organisations, projects and files, but they receive no documents and are
 not held to the region: a deployment that promises one picks a relay in it (Mailgun's EU host,
-an SES region in the EU) and says so in its privacy notice.
+an SES region in the EU) and says so in its privacy notice. The services folders are connected
+from ("Connected folders") hold the members' own files, which the app reads into the region;
+they receive nothing of the projects' and are not held to it either.
 
 Each organisation records the region it was promised as it is created (`organizations.region`),
 and one made before the deployment named a region is given it at the first start that is not
@@ -1645,6 +1648,65 @@ them. A message no job took is removed after 14 days, as the queue's notice of i
 subprocessor list names Amazon Web Services as receiving it, where the queue's region says; under
 `DATA_REGION` a queue outside the region is refused. On AWS, the module's `inbound` makes all of
 it ("On AWS").
+
+## Connected folders
+
+A project may keep in step with a folder of a member's Google Drive (`backend/app/connectors/`;
+behind the flag `connectors`, "The operator's area", on the plans that include connected
+folders, Team and Enterprise, and none on the sample project). In the library's "Connected
+folders", a member who may change the project connects Google Drive: the browser goes to Google
+for their consent to read their files and comes back with a code, which the app redeems for a
+refresh token, kept encrypted with `ENCRYPTION_KEYS` ("The encryption keys"); the member then
+browses their own folders (My Drive, the shared drives, what was shared with them) and chooses
+one, once, and where its files go in the project. A project holds at most 10 connected folders;
+another folder of the same Drive is another connector.
+
+The worker syncs each every 15 minutes (`SYNC_INTERVAL`), and at a member's "Sync now": its
+heartbeat queues a `sync_connector` job for each connector whose time has come, at the bulk
+priority, so that uploads and answers go first. A sync asks Google whether anything changed
+since the last listing (its change log, one request when nothing did), and otherwise reads the
+folder whole, a request per folder below it, and compares it with what the last sync found: a
+file not seen before, or whose version changed (its checksum; a Google document's last change),
+is downloaded and taken in through the checks an upload's files go through (its type, its size,
+bytes the project holds already, the plan), into the folders of its path below the target; the
+earlier document of a changed file goes to the project's trash once the new one is kept, and so
+does the document of a file no longer below the folder. Google's own documents are exported, a
+Doc as a Word document, a Sheet as an Excel workbook, Slides and Drawings as PDFs (Google exports
+at most 10 MB); forms, sites and the like cannot be, and are listed as left out. A file is read
+once per version: one the project keeps, rejects or a member deleted is not read again until it
+changes. A sync takes at most 100 files (`ROUND_FILES`) and queues the next at once while more
+wait; a folder of more than 5,000 files below it (`MAX_FILES`) syncs nothing. Nothing goes to
+the trash unless the folder was read whole: a Google that stops answering, a folder deleted or
+no longer shared, leaves every document as it is and the connector says why. The documents a
+sync keeps are one upload, its member's, told of as their uploads are, which the project's
+automations see arrive; their audit rows say they came from Google Drive, and the documents a
+sync puts in the trash are rows of their own.
+
+A connector pauses, and its member connects it again, when Google no longer takes the grant (the
+member took the access back, or it lapsed), or when the member no longer may change the project;
+it goes, its grant with it, when they leave the organisation or their account is deleted, and
+when a member disconnects it, which gives the grant back to Google. Its documents stay in the
+library either way. A plan without connected folders, a project in the trash, or an organisation
+read-only or set to be deleted holds its syncs back, which the page says. A connector whose
+folder was never chosen is forgotten after a day. The log names a connector by its id, never a
+file or a folder; `emudoc_connector_syncs_total` and `emudoc_connector_files_total` count the
+syncs and the files they read ("Metrics"), and a sync that raised is among the failed jobs,
+named "the connected folder <id>".
+
+Google Drive needs an OAuth client of its own, not sign-in's, since its consent asks to read
+the member's files: in the Google Cloud console, enable the Google Drive API in the client's
+project, add the scope `https://www.googleapis.com/auth/drive.readonly` to its consent screen,
+and make a "Web application" client with the redirect URI `{APP_URL}/api/connectors/callback`,
+whose id and secret are `GOOGLE_DRIVE_CLIENT_ID` and `GOOGLE_DRIVE_CLIENT_SECRET`; without an id
+nothing is offered. `drive.readonly` is a restricted scope: until Google has verified the app
+(restricted scope verification, with a security assessment by an assessor Google names, renewed
+every year), only the test users listed on the consent screen may connect, at most a hundred,
+and while the app is in testing, Google's grants lapse after seven days, so the connectors pause
+weekly. `drive.file` with Google's Picker would need less verifying, but it reads only files
+picked one by one, and the Picker is Google's script on the app's page. Google Drive is then on
+the subprocessor list as what the folders are read from; it receives nothing of the projects'.
+`CONNECTOR_BASE_URL` points the connectors at the browser test's stand-in instead, which
+production refuses.
 
 ## Billing
 
@@ -2507,6 +2569,8 @@ across the instances, `sum without (instance)`):
 | `emudoc_mail_sent_total` | Tries of the mail the app posted, by `outcome`: `sent`, `retried` (refused for now and queued again), `failed` (refused for good, or for the last time); the operator's own reports are not counted ("Mail") |
 | `emudoc_mail_events_total` | Addresses the mail provider said not to write to, by `kind`: `bounce`, `complaint`; counted by the API for Resend's, by the worker for SES's ("Mail") |
 | `emudoc_inbound_messages_total` | Messages sent to projects' addresses, by `outcome`: `kept`, `empty` (nothing in it to keep), `refused_sender`, `unauthenticated`, `unreadable`, `too_large`, `refused_project`, `refused_plan`, `unknown_address` (no project's), `off` (the flag off) ("Mail in") |
+| `emudoc_connector_syncs_total` | Syncs of connected folders, by `outcome`: `synced`, `unchanged` (nothing changed since the last), `failed` (stopped partway, or the folder gone), `paused` (the grant or the member), `held` (the project, the plan), `off` (the flag off) ("Connected folders") |
+| `emudoc_connector_files_total` | Files of connected folders the syncs read, by `outcome`: `kept`, `rejected`, `trashed` (its file gone), `replaced` (by a new version) ("Connected folders") |
 | `emudoc_renders_total`, `emudoc_render_seconds` | PDF pages drawn as images, by `purpose` (`pane`, `thumbnail`, `ocr`, `ahead`) and `outcome`: `drawn`, `refused` (a page that cannot be drawn), `timeout` (`RENDER_TIMEOUT`), `out_of_memory` (`RENDER_MEMORY_MB`), `crashed` or `unstarted` (no process could draw it); the seconds include the wait for a free process ("Drawing pages") |
 | `process_*`, `python_*` | The process's CPU, memory and open files, and Python's collector |
 
@@ -3336,6 +3400,9 @@ It changes four things, as the commands do:
   unread. `email_in`, a project's address whose mail becomes its documents ("Mail in"), at 0,
   which needs `INBOUND_DOMAIN` too: turned off again, the addresses stay and take nothing, a
   message to one counted as `off` and kept nowhere, and turned on, they take mail again.
+  `connectors`, the folders of the members' Google Drive projects keep in step with ("Connected
+  folders"), at 0, which needs `GOOGLE_DRIVE_CLIENT_ID` too: turned off again, the connectors
+  stay, their syncs counted as `off` and doing nothing, and turned on, they sync again.
 - **Failed documents queued again.** Under Jobs, "Run again" on a failed index job, or "Run
   every failed document again", queues each document from the stage it stopped at, as
   `failed-jobs --requeue` does, once the cause is fixed; the jobs of other kinds are left. Each
@@ -4364,12 +4431,14 @@ and the like), named on its models' pages.
 | `INBOUND_DOMAIN` | none | with a provider that hands its mail over | The domain of the projects' addresses, whose mail becomes their documents ("Mail in") |
 | `INBOUND_MAIL_QUEUE` | none | | The SQS queue of SES's notices of the mail sent to projects' addresses, which the worker waits on ("Mail in"; the AWS module writes it) |
 | `PWNED_PASSWORDS_URL` | `https://api.pwnedpasswords.com` | | Where new passwords are checked against breaches ("Rates"); empty checks nothing |
-| `ENCRYPTION_KEYS` | development's key, which is in the code | required, a secret | The keys the authenticators' secrets are encrypted with, the first encrypting ("The encryption keys") |
+| `ENCRYPTION_KEYS` | development's key, which is in the code | required, a secret | The keys the authenticators' secrets and the connected folders' grants are encrypted with, the first encrypting ("The encryption keys") |
 | `MAIL_FROM` | `Emudoc <no-reply@localhost>` | | The sender |
 | `ALERT_EMAIL` | none | | Where the worker reports ("What the worker mails") |
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | none | the client secret is a secret | Sign-in with Google |
 | `MICROSOFT_OAUTH_CLIENT_ID`, `MICROSOFT_OAUTH_CLIENT_SECRET` | none | the client secret is a secret | Sign-in with Microsoft |
 | `MICROSOFT_OAUTH_TENANT` | `common` | | Whose Microsoft accounts may sign in |
+| `GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET` | none | the client secret is a secret | Folders of Google Drive connected to projects ("Connected folders") |
+| `CONNECTOR_BASE_URL` | none | refused | Where the connected folders' services are reached in their place: the browser test's stand-in |
 
 ### Billing
 

@@ -188,6 +188,7 @@ def test_a_key_is_rotated_by_putting_a_new_one_first(
     assert capsys.readouterr().out.splitlines() == [
         f"Encrypted 1 authenticator secret of an earlier key with key {fingerprint(new)}, the "
         "first of ENCRYPTION_KEYS.",
+        f"Every connector token is encrypted with key {fingerprint(new)} already.",
         "Keep the other keys of ENCRYPTION_KEYS until no backup of the database holds what they "
         "encrypted, BACKUP_DAYS (35 days) from now, since a restore brings those values back as "
         "they were; then remove them.",
@@ -199,7 +200,8 @@ def test_a_key_is_rotated_by_putting_a_new_one_first(
     assert verify(client, following(secret)).status_code == 200
     main(["encrypt-secrets"])
     assert capsys.readouterr().out.splitlines() == [
-        f"Every authenticator secret is encrypted with key {fingerprint(new)} already."
+        f"Every authenticator secret is encrypted with key {fingerprint(new)} already.",
+        f"Every connector token is encrypted with key {fingerprint(new)} already.",
     ]
 
 
@@ -215,7 +217,7 @@ def test_a_secret_from_before_encryption_serves_until_the_command_encrypts_it(
         check_encrypted()
     assert "1 authenticator secret is kept as it was, unencrypted; run" in caplog.text
 
-    (done,) = encrypt_secrets()
+    done, _ = encrypt_secrets()
     assert (done.plain, done.earlier, done.lost.total()) == (1, 0, 0)
     assert describe_encrypted([done], keys(), None) == [
         f"Encrypted 1 authenticator secret kept as it was with key {keys().current}, the first "
@@ -287,6 +289,6 @@ def test_the_command_keeps_an_authenticator_set_up_while_it_runs(
         return encrypt(ring, text, place)
 
     monkeypatch.setattr(Keyring, "encrypt", set_up_meanwhile)
-    (done,) = encrypt_secrets()
+    done, _ = encrypt_secrets()
     assert (done.plain, done.earlier) == (0, 0)
     assert stored(session) == meanwhile

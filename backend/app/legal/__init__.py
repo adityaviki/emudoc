@@ -30,6 +30,9 @@ from app.accounts import Account
 from app.auth import BROWSER_COOKIE, BROWSER_KNOWN_FOR, CREDENTIAL_HISTORY, SESSION_COOKIE
 from app.bounces import SUPPRESSED_FOR
 from app.config import REGIONS, Settings, model_provider, parse_scanner_url
+from app.connectors import providers
+from app.connectors.base import CONNECT_COOKIE, CONNECT_WINDOW_SECONDS
+from app.connectors.sync import CHOOSING_KEPT, SYNC_INTERVAL
 from app.entitlements import CHARS_PER_PAGE, PLANS, Entitlements
 from app.export import EXPORT_DAYS
 from app.inbound import INBOUND_DAYS
@@ -135,6 +138,8 @@ def privacy_policy(
         session_days=str(settings.session_days),
         oauth_cookie=OAUTH_COOKIE,
         oauth_minutes=str(OAUTH_WINDOW_SECONDS // 60),
+        connect_cookie=CONNECT_COOKIE,
+        connect_minutes=str(CONNECT_WINDOW_SECONDS // 60),
         browser_cookie=BROWSER_COOKIE,
         third_parties=(
             "the pages load nothing from other sites but the images of document pages, which "
@@ -163,6 +168,7 @@ def privacy_policy(
                 _billing_records(settings),
                 _undeliverable(settings),
                 _mail_in(settings),
+                _connected_folders(settings),
             )
             if bullet
         ),
@@ -181,6 +187,12 @@ def privacy_policy(
                 f"- **What became of mail sent to a project's address**, {INBOUND_DAYS} days; "
                 "the documents it brought, as any document."
                 if settings.inbound_domain
+                else "",
+                "- **A connected folder's grant and its record of the folder's files**, until "
+                "the folder is disconnected or its member leaves the organisation; one whose "
+                f"folder was never chosen, {CHOOSING_KEPT.days} day. The documents it brought, "
+                "as any document."
+                if providers(settings)
                 else "",
             )
             if bullet
@@ -386,6 +398,26 @@ def _mail_in(settings: Settings) -> str:
     )
 
 
+def _connected_folders(settings: Settings) -> str:
+    """What is kept of a folder a member connects (app/connectors/), where the deployment can
+    connect any."""
+    found = providers(settings)
+    if not found:
+        return ""
+    services = _or([provider.label for provider in found.values()])
+    minutes = int(SYNC_INTERVAL.total_seconds() // 60)
+    return (
+        f"- **Connected folders**: when a member connects a folder of their {services} to a "
+        "project, the access the service gave to read their files (encrypted), the account it "
+        "was given from, the folder chosen, and for each of its files the service's id and "
+        f"version of it and its path, to keep the project in step with it every {minutes} "
+        "minutes: its files become the project's documents, kept as any document is, a file "
+        "changed there is taken again, and the document of a file that left the folder goes "
+        "to the project's trash. Emudoc reads the folder and nothing else of the account, and "
+        "sends the service nothing of the project's."
+    )
+
+
 def _breach_check(url: str) -> str:
     """What the breached-password check (app/passwords.py) is told, where PWNED_PASSWORDS_URL
     names one: by the company on the subprocessor list, or by the deployment itself."""
@@ -430,6 +462,10 @@ def by_plan(days_of: Callable[[Entitlements], int | None], forever: str) -> str:
         f"{_and(names)}: {forever if days is None else f'{days} days'}"
         for days, names in plans.items()
     )
+
+
+def _or(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} or {names[-1]}"
 
 
 def _and(names: list[str]) -> str:

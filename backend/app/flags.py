@@ -53,6 +53,7 @@ class Flag:
 EXTRACTION_TEMPLATES = "extraction_templates"
 DRAFTS = "drafts"
 EMAIL_IN = "email_in"
+CONNECTORS = "connectors"
 
 # Every feature behind a flag, by name, in the order the operator's area lists them.
 FLAGS: dict[str, Flag] = {
@@ -77,6 +78,12 @@ FLAGS: dict[str, Flag] = {
     EMAIL_IN: Flag(
         "Email in: an address for each project whose mail, from the senders its members allow, "
         "becomes its documents"
+    ),
+    # A folder of a member's Google Drive, Dropbox or OneDrive that a project keeps in step with
+    # (app/connectors/): its files become the project's documents, synced as they change.
+    CONNECTORS: Flag(
+        "Connected folders: a folder of a member's Google Drive, Dropbox or OneDrive whose files "
+        "a project keeps in step with"
     ),
 }
 

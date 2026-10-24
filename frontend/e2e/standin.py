@@ -1,4 +1,5 @@
-"""A stand-in for the model and the embeddings endpoint, for the end-to-end test (e2e/).
+"""A stand-in for the model, the embeddings endpoint and Google Drive, for the end-to-end test
+(e2e/).
 
 CI holds no key, and a real model answers differently from one run to the next, so the app is
 pointed at this instead: an OpenAI-compatible server, the API that Ollama speaks, reached as
@@ -32,6 +33,12 @@ refuses the next embeddings request any of whose texts holds the word with a 400
 does not try again, so that the browser test finds a document partly indexed and indexes the
 rest of it.
 
+Under `/google` it is Google Drive as a connected folder reads it (backend/app/connectors/google.py,
+reached through CONNECTOR_BASE_URL): its consent page sends the browser straight back with a code,
+its token endpoint gives a grant for the code and an access token for the grant, and its Drive
+API serves a tree of its own, My Drive holding the folder "Supplier files" with a credit note in
+it and another in a folder below, whose change log never moves.
+
 The load test (backend/loadtest) asks for more, with options the end-to-end test leaves off:
 `--fill` answers an indexing request as a model that read it would (a scanned page gets text
 made up from its picture, a document its title, kind, date, summary, section summaries and the
@@ -55,6 +62,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 # The longest a held agent turn waits for its release.
 HELD_FOR = 60.0
@@ -71,6 +79,29 @@ DRAFT_WORDS = (
     ("report", "report"),
 )
 OFFERED = "The member is offered a"
+
+# Google Drive's tree under /google: each item by its id, its name, its type, its parent, and a
+# file's bytes.
+DRIVE_FOLDER = "application/vnd.google-apps.folder"
+DRIVE = {
+    "root": {"name": "My Drive", "mimeType": DRIVE_FOLDER, "parent": None},
+    "supplier-files": {"name": "Supplier files", "mimeType": DRIVE_FOLDER, "parent": "root"},
+    "archive": {"name": "Archive", "mimeType": DRIVE_FOLDER, "parent": "supplier-files"},
+    "credit-note": {
+        "name": "credit-note-CN-12.md",
+        "mimeType": "text/markdown",
+        "parent": "supplier-files",
+        "content": b"# Credit note CN-12\n\nNorthwind credits 120 EUR against INV-2026-114.\n",
+    },
+    "old-credit-note": {
+        "name": "credit-note-CN-3.md",
+        "mimeType": "text/markdown",
+        "parent": "archive",
+        "content": b"# Credit note CN-3\n\nNorthwind credits 30 EUR against INV-2026-090.\n",
+    },
+}
+DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
+DRIVE_PARENT = re.compile(r"'([^']+)' in parents")
 
 # What --fill reads in an indexing request (app/indexing/enrich.py writes them): a section's
 # marker, a block's line, and a block that states a field.
@@ -305,7 +336,9 @@ class Handler(BaseHTTPRequestHandler):
         """Quiet: Playwright shows a server's output only when asked."""
 
     def do_GET(self) -> None:
-        if self.path.rstrip("/") in ("/health", "/v1/models"):
+        if self.path.startswith("/google/"):
+            self._google_get()
+        elif self.path.rstrip("/") in ("/health", "/v1/models"):
             self._json({"object": "list", "data": [{"id": "standin", "object": "model"}]})
         elif self.path.rstrip("/") == "/held":
             with Handler.hold_lock:
@@ -314,7 +347,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": {"message": f"No route {self.path}."}}, 404)
 
     def do_POST(self) -> None:
-        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+        raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        if self.path.startswith("/google/"):
+            self._google_post(parse_qs(raw.decode()))
+            return
+        body = json.loads(raw or b"{}")
         if self.path.rstrip("/") == "/hold":
             with Handler.hold_lock:
                 Handler.holds += 1
@@ -356,6 +393,67 @@ class Handler(BaseHTTPRequestHandler):
             self._chat(body)
         else:
             self._json({"error": {"message": f"No route {self.path}."}}, 404)
+
+    def _google_get(self) -> None:
+        """Google's consent page, which consents at once, and Drive's API over DRIVE."""
+        url = urlsplit(self.path)
+        query = {name: values[0] for name, values in parse_qs(url.query).items()}
+        if url.path == "/google/auth":
+            given = urlencode({"code": "standin-code", "state": query["state"]})
+            back = f"{query['redirect_uri']}?{given}"
+            self.send_response(302)
+            self.send_header("Location", back)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        api = url.path.removeprefix("/google/drive/v3")
+        if api == "/about":
+            self._json({"user": {"emailAddress": "member@drive.example"}})
+        elif api == "/drives":
+            self._json({"drives": []})
+        elif api == "/changes/startPageToken":
+            self._json({"startPageToken": "1"})
+        elif api == "/changes":
+            self._json({"changes": [], "newStartPageToken": "1"})
+        elif api == "/files":
+            parent = DRIVE_PARENT.search(query.get("q", ""))
+            folders_only = f"mimeType = '{DRIVE_FOLDER}'" in query.get("q", "")
+            found = [
+                drive_item(ref)
+                for ref, item in DRIVE.items()
+                if parent
+                and item["parent"] == parent.group(1)
+                and (not folders_only or item["mimeType"] == DRIVE_FOLDER)
+            ]
+            self._json({"files": sorted(found, key=lambda item: item["name"])})
+        elif (ref := api.removeprefix("/files/")) in DRIVE:
+            if query.get("alt") == "media":
+                data = DRIVE[ref]["content"]
+                self.send_response(200)
+                self.send_header("Content-Type", DRIVE[ref]["mimeType"])
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            else:
+                self._json({**drive_item(ref), "trashed": False})
+        else:
+            self._json({"error": {"code": 404, "errors": [{"reason": "notFound"}]}}, 404)
+
+    def _google_post(self, form: dict[str, list[str]]) -> None:
+        """Google's token endpoint, and its revocation, which takes back nothing."""
+        if self.path == "/google/token" and form.get("grant_type") == ["authorization_code"]:
+            self._json(
+                {
+                    "access_token": "standin-access",
+                    "refresh_token": "standin-refresh",
+                    "scope": DRIVE_SCOPE,
+                    "expires_in": 3599,
+                }
+            )
+        elif self.path == "/google/token":
+            self._json({"access_token": "standin-access", "expires_in": 3599})
+        else:
+            self._json({})
 
     def _chat(self, body: dict[str, Any]) -> None:
         format_ = body.get("response_format") or {}
@@ -467,6 +565,17 @@ def completion(body: dict[str, Any], reply: dict[str, Any]) -> dict[str, Any]:
         ],
         "usage": usage(),
     }
+
+
+def drive_item(ref: str) -> dict[str, Any]:
+    """An item of DRIVE as Drive's API lists it."""
+    item = DRIVE[ref]
+    shown = {"id": ref, "name": item["name"], "mimeType": item["mimeType"]}
+    if "content" in item:
+        shown["md5Checksum"] = hashlib.md5(item["content"]).hexdigest()
+        shown["size"] = str(len(item["content"]))
+    shown["modifiedTime"] = "2026-10-24T09:00:00Z"
+    return shown
 
 
 def main() -> None:

@@ -605,6 +605,52 @@ export interface Mailbox extends MailboxInput {
   messages: InboundMessage[]
 }
 
+/** A service folders can be connected from (backend/app/connectors/). */
+export type ConnectorProvider = 'google' | 'dropbox' | 'onedrive'
+
+/** A folder of a member's Google Drive, Dropbox or OneDrive that the project keeps in step with (ConnectorOut). */
+export interface Connector {
+  id: number
+  provider: ConnectorProvider
+  label: string
+  /** The account at the service it was connected from, and the member who connected it, by their name. */
+  account: string
+  member: string
+  /** Whether it is the reader's own: only its member chooses its folder or connects it again. */
+  mine: boolean
+  status: 'choosing' | 'active' | 'paused'
+  /** The folder's name at the service; null while it is being chosen. */
+  folder: string | null
+  target_folder_id: number | null
+  /** Where its files go, the folder's path; null for the project's root. */
+  target: string | null
+  /** Why the last sync did not finish, or why it is paused; empty when all went well. */
+  problem: string
+  synced_at: string | null
+  next_sync_at: string | null
+  syncing: boolean
+  /** The documents of its files in the library. */
+  kept: number
+  /** The files that are no document and why, the first of them, and how many in all. */
+  rejected: { path: string; reason: string }[]
+  rejected_count: number
+}
+
+/** The project's connected folders, and the services another may be connected from (ConnectorsOut). */
+export interface Connectors {
+  services: { provider: ConnectorProvider; label: string }[]
+  connectors: Connector[]
+  max_connectors: number
+  interval_minutes: number
+}
+
+/** A folder at the service, to browse into or choose; `choosable` is false for a place browsing passes through ("Shared with me"). */
+export interface RemoteFolder {
+  ref: string
+  name: string
+  choosable: boolean
+}
+
 /** A page of what one rule of a run found, as it was found (RunFindingsOut); `gone` the documents it names that were deleted or put in the trash since. */
 export interface RunFindings {
   rule: CheckRunRule
@@ -955,6 +1001,7 @@ export type PlanLimit =
   | 'members'
   | 'daily_spend_micros'
   | 'api_access'
+  | 'connectors'
 
 /** What the organisation's plan turned down: the sentence, and the figure it is held to, null when the server named none. */
 export interface PlanRefusal {
@@ -1009,7 +1056,7 @@ export interface Organization {
 }
 
 /** The names of the feature flags (FLAGS in backend/app/flags.py), so that a page that reads a misspelt one fails the build. */
-export type Flag = 'extraction_templates' | 'drafts' | 'email_in'
+export type Flag = 'extraction_templates' | 'drafts' | 'email_in' | 'connectors'
 
 /** What the organisation page changes about the organisation (OrganizationChangeIn in backend/app/schemas.py). */
 export interface OrganizationChange {
@@ -1102,6 +1149,8 @@ export interface Allowance {
   retention_days: number | null
   /** Whether its members may make API keys and call the API with them (backend/app/apikeys.py). */
   api_access: boolean
+  /** Whether its members may connect folders of Google Drive, Dropbox or OneDrive to its projects (backend/app/connectors/). */
+  connectors: boolean
   /** Which of them were agreed with the organisation in place of its plan's. */
   agreed: string[]
   /** The pages and questions bought in packs for this month, on top of the plan's. */
@@ -1426,6 +1475,9 @@ export type AuditAction =
   | 'mailbox_created'
   | 'mailbox_changed'
   | 'mailbox_deleted'
+  | 'connector_created'
+  | 'connector_changed'
+  | 'connector_deleted'
   | 'project_deleted'
   | 'project_restored'
   | 'project_purged'
@@ -2058,6 +2110,23 @@ export const api = {
   /** A new address in place of the project's, which then reaches nothing. */
   newMailAddress: (projectId: number) => request<Mailbox>(`/projects/${projectId}/mailbox/address`, { method: 'POST' }),
   deleteMailbox: (projectId: number) => request<void>(`/projects/${projectId}/mailbox`, { method: 'DELETE' }),
+  /** The project's connected folders. */
+  connectors: (projectId: number) => request<Connectors>(`/projects/${projectId}/connectors`),
+  /** Where to send the browser for the member's consent to read their files: a new connector, or a paused one of theirs connected again. */
+  connect: (projectId: number, provider: ConnectorProvider, connectorId: number | null = null) =>
+    request<{ url: string }>(`/projects/${projectId}/connectors`, json('POST', { provider, connector_id: connectorId })),
+  /** The folders in one of the member's folders at the service, or where browsing starts. */
+  remoteFolders: (projectId: number, connectorId: number, parent: string | null) =>
+    request<{ folders: RemoteFolder[] }>(
+      `/projects/${projectId}/connectors/${connectorId}/folders${parent ? `?${new URLSearchParams({ parent })}` : ''}`,
+    ),
+  /** Choose the connector's folder, while it is being chosen, and where its files go. */
+  setConnector: (projectId: number, connectorId: number, body: { folder_ref?: string | null; target_folder_id: number | null }) =>
+    request<Connector>(`/projects/${projectId}/connectors/${connectorId}`, json('PUT', body)),
+  syncConnector: (projectId: number, connectorId: number) =>
+    request<Connector>(`/projects/${projectId}/connectors/${connectorId}/sync`, { method: 'POST' }),
+  disconnect: (projectId: number, connectorId: number) =>
+    request<void>(`/projects/${projectId}/connectors/${connectorId}`, { method: 'DELETE' }),
   /** A page of the project's documents in review of one state, those assigned to the asker alone with `mine`, past `after`. */
   reviews: (projectId: number, state: ReviewState, mine: boolean, after: string | null = null) => {
     const query = new URLSearchParams({ state })

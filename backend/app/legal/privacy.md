@@ -94,7 +94,7 @@ of you.
 - **The companies that run the service with us** receive what each needs for its part: the host
   of our servers and database, the AI model providers that read the documents and answer the
   questions, and, where used, the file storage, the email relay, the error tracker, the payment
-  provider and the sign-in providers. The [subprocessor list](/subprocessors) names each company, what it
+  provider, the sign-in providers and the services members connect their folders from. The [subprocessor list](/subprocessors) names each company, what it
   receives and, where known, where it handles it; it is read from the service's own settings,
   so it is always current.
   $models
@@ -158,10 +158,11 @@ $more_retention
 
 ## Cookies and storage in your browser
 
-Emudoc sets three cookies, all needed for the service to work and its accounts to stay secure:
+Emudoc sets four cookies, all needed for the service to work and its accounts to stay secure:
 `$session_cookie`, which keeps you signed in for up to $session_days days, or fewer while you work
 in an organisation that asks its members to sign in more often; `$oauth_cookie`, which
-lasts $oauth_minutes minutes while you sign in with Google or Microsoft; and `$browser_cookie`, a
+lasts $oauth_minutes minutes while you sign in with Google or Microsoft; `$connect_cookie`, which
+lasts $connect_minutes minutes while you connect a folder of yours to a project; and `$browser_cookie`, a
 random code that tells a browser you signed in with from others for $browser_days days after its
 last sign-in, also once you have signed out, and goes with no request but those about signing in
 and your account. Your browser's own storage keeps your choice of a

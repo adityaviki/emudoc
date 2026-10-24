@@ -31,6 +31,7 @@ DEVELOPMENT = {
     "data_region": "",
     "google_oauth_client_id": "",
     "microsoft_oauth_client_id": "",
+    "google_drive_client_id": "",
     "sentry_dsn": "",
     "pwned_passwords_url": "",
     "stripe_secret_key": "",
@@ -97,6 +98,16 @@ def test_a_deployment_lists_every_company_it_sends_data_to_in_order():
     assert purposes["Microsoft"] == "Signs in the members who choose to sign in with Microsoft."
     # The relay's password is in its URL; the list names the company, never the URL.
     assert all("secret" not in str(entry) for entry in entries)
+
+
+def test_a_service_folders_are_connected_from_is_listed_as_read_from():
+    settings = configured(google_drive_client_id="drive", google_drive_client_secret="secret")
+    (drive,) = [
+        entry for entry in subprocessors(settings, DIRECTORY, {}) if entry.name == "Google Drive"
+    ]
+    assert drive.purpose.startswith("Holds the folders members connect to projects")
+    assert drive.data.endswith("It receives nothing of the projects'.")
+    assert all(entry.name != "Google Drive" for entry in subprocessors(configured(), DIRECTORY, {}))
 
 
 def test_the_mail_is_listed_by_whichever_sends_it():

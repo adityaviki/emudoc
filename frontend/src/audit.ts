@@ -3,7 +3,8 @@
 // choices ask for, its days in the browser's own zone.
 
 import { PLAN_LABELS, ROLE_LABELS } from './api.ts'
-import type { AuditAction, AuditEvent, AuditFilter, DraftKind, NoticeKind, Plan, ReviewState, Role } from './api.ts'
+import type { AuditAction, AuditEvent, AuditFilter, ConnectorProvider, DraftKind, NoticeKind, Plan, ReviewState, Role } from './api.ts'
+import { SERVICE_NAMES } from './connectors.ts'
 import { DRAFT_FILES, KIND_LABELS } from './drafts.ts'
 import { fieldWords } from './factTable.ts'
 import { formatDate, formatDateTime } from './format.ts'
@@ -108,6 +109,9 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   mailbox_created: ['Gave a project an address', 'files'],
   mailbox_changed: ['Changed a project’s address', 'files'],
   mailbox_deleted: ['Took a project’s address away', 'files'],
+  connector_created: ['Connected a folder', 'files'],
+  connector_changed: ['Changed a connected folder', 'files'],
+  connector_deleted: ['Disconnected a folder', 'files'],
   project_deleted: ['Deleted a project', 'files'],
   project_restored: ['Restored a project', 'files'],
   project_purged: ['Deleted a project for good', 'files'],
@@ -196,11 +200,18 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   else if (DRAFT_ACTIONS.has(event.action)) parts.push(describeDraft(detail))
   else if (DRAFT_TEMPLATE_ACTIONS.has(event.action)) parts.push(describeDraftTemplate(detail))
   else if (MAILBOX_ACTIONS.has(event.action) && event.action !== 'mailbox_deleted') parts.push(describeMailbox(detail))
+  else if (CONNECTOR_ACTIONS.has(event.action)) parts.push(describeConnector(detail))
   else if (event.action === 'document_review_changed') parts.push(`${review(detail.from)} → ${review(detail.to)}`)
   else if (event.action === 'document_assigned') parts.push(describeAssignment(detail, names))
   else if ('to' in detail) parts.push(`${word(detail.from)} → ${word(detail.to)}`)
   else if ('from' in detail) parts.push(`was ${word(detail.from)}`)
   if (event.action === 'document_uploaded' && detail.by_email === true) parts.push('by email')
+  // A document a connected folder's sync brought, or put in the trash for its file gone or changed there.
+  if (typeof detail.by_connector === 'string') {
+    const service = serviceName(detail.by_connector)
+    if (event.action === 'document_uploaded') parts.push(`from ${service}`)
+    else parts.push(detail.replaced === true ? `replaced by a new version from ${service}` : `gone from ${service}`)
+  }
   // A review an automation's run moved, which the row names as by Emudoc.
   if (REVIEW_ACTIONS.has(event.action) && typeof detail.automation === 'string') parts.push(`by the automation “${detail.automation}”`)
   if (typeof detail.role === 'string' && !('to' in detail)) parts.push(word(detail.role))
@@ -390,6 +401,22 @@ function describeMailbox(detail: AuditEvent['detail']): string {
   }
   if (!changed.length || changed.includes('folder')) {
     if ('folder' in detail) parts.push(typeof detail.folder === 'string' ? `into ${detail.folder}` : 'into the project’s root')
+  }
+  return parts.join(', ')
+}
+
+const CONNECTOR_ACTIONS = new Set<AuditAction>(['connector_created', 'connector_changed', 'connector_deleted'])
+
+const serviceName = (value: unknown) => SERVICE_NAMES[value as ConnectorProvider] ?? 'a service'
+
+/** A folder connected, changed or disconnected: its service, its folder there, and where its files go in the project. */
+function describeConnector(detail: AuditEvent['detail']): string {
+  const parts = [serviceName(detail.provider)]
+  const changed: unknown[] = Array.isArray(detail.changed) ? detail.changed : []
+  if (changed.includes('grant')) parts.push('connected again')
+  if (typeof detail.folder === 'string' && detail.folder) parts.push(detail.folder)
+  if (changed.includes('target') || changed.includes('folder')) {
+    parts.push(typeof detail.target === 'string' ? `into ${detail.target}` : 'into the project’s root')
   }
   return parts.join(', ')
 }

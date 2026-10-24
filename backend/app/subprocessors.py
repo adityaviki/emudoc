@@ -23,6 +23,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from app.config import AGENT, INDEX, Settings, model_provider
+from app.connectors import providers as connector_services
 from app.mail import RESEND_API
 from app.network import MODEL_BASE_URLS, host_of, on_own_network
 from app.oidc import providers
@@ -133,7 +134,9 @@ def subprocessors(
     """The companies the deployment configured by `settings` hands its users' data to: who
     hosts it, then the bucket (`storage`, by the origin its signed URLs lead to; a directory is
     the deployment's own), the models, the embeddings endpoint, the mail relay, the error
-    tracker, the breached-password check, the payment provider and the sign-in providers.
+    tracker, the breached-password check, the payment provider, the sign-in providers and the
+    services folders are connected from (app/connectors/), which receive nothing of the
+    projects' but are read from.
 
     `environ` is where the model libraries read an address that moves a provider
     (`MODEL_BASE_URLS`) and Vertex AI its location, after `export_env_file` has copied `.env`
@@ -247,6 +250,16 @@ def subprocessors(
                 provider.label,
                 f"Signs in the members who choose to sign in with {provider.label}.",
                 "Confirms a member's name and email address. It receives no documents.",
+            )
+        )
+    for service in connector_services(settings).values():
+        found.append(
+            Subprocessor(
+                service.label,
+                f"Holds the folders members connect to projects from their {service.label}, "
+                "whose files the service reads and keeps the projects in step with.",
+                "The requests for a connected folder and its files, with the access its member "
+                "gave. It receives nothing of the projects'.",
             )
         )
     return found

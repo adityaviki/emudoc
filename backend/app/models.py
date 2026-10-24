@@ -144,6 +144,12 @@ NOTICE_CHANNELS = ("app", "email")
 # from it, it was turned away whole (its sender, the project, the plan), or nothing in it could
 # be kept.
 INBOUND_OUTCOMES = ("kept", "refused", "empty")
+# The services a project's folder can be connected from (app/connectors/), and how a connector
+# stands: connected, its folder not chosen yet; kept in step with its folder; or paused until its
+# member connects it again, the service having stopped its access or the member no longer being
+# one who may change the project.
+CONNECTOR_PROVIDERS = ("google", "dropbox", "onedrive")
+CONNECTOR_STATUSES = ("choosing", "active", "paused")
 # The order the library lists a folder's files in, which the database keeps an index in: by
 # name, with the numbers in a name compared as numbers ("invoice 2" before "invoice 10") and
 # case and accents set aside, as the page sorts the folders. An ICU collation, made by the
@@ -252,6 +258,9 @@ AUDIT_ACTIONS = (
     "mailbox_created",
     "mailbox_changed",
     "mailbox_deleted",
+    "connector_created",
+    "connector_changed",
+    "connector_deleted",
     "project_deleted",
     "project_restored",
     "project_purged",
@@ -997,6 +1006,93 @@ class InboundMessage(Base):
     )
     # The upload its documents are, which their notice and the automations follow.
     upload_id: Mapped[int | None] = mapped_column(ForeignKey("uploads.id", ondelete="SET NULL"))
+
+
+class Connector(Base):
+    """A folder of a member's Google Drive, Dropbox or OneDrive that a project keeps in step
+    with (app/connectors/): its files become the project's documents, a file changed there is
+    taken again, and the document of a file that left it goes to the project's trash.
+
+    The member who connected it granted Emudoc access to read their files, which the service
+    keeps as a refresh token: encrypted for its row (app/encrypted.py), since a copy of the
+    database would otherwise read the member's files. A connector goes with its member's
+    membership, as an API key does, so that no grant of someone who left stays behind, and
+    pauses while they no longer may change the project."""
+
+    __tablename__ = "connectors"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["org_id", "user_id"],
+            ["memberships.org_id", "memberships.user_id"],
+            ondelete="CASCADE",
+        ),
+        _one_of("provider", CONNECTOR_PROVIDERS, "connectors"),
+        _one_of("status", CONNECTOR_STATUSES, "connectors"),
+        # What the worker's sweep reads each minute: the connectors whose next sync is due.
+        Index(
+            "ix_connectors_due",
+            "next_sync_at",
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    provider: Mapped[str] = mapped_column(String(20))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # The account at the service the member connected, as it names it (an address, else a
+    # name), for the members to tell connectors apart.
+    account: Mapped[str] = mapped_column(String(320), default="")
+    # Encrypted (CONNECTOR_TOKENS in app/encrypted.py); the service's refresh token.
+    refresh_token: Mapped[str] = mapped_column(Text)
+    # The folder at the service, by its id there, and its name as it was last read; null while
+    # it is being chosen.
+    folder_ref: Mapped[str | None] = mapped_column(String(300))
+    folder_name: Mapped[str] = mapped_column(String(300), default="")
+    # Where its files go in the project; the root when null, or once the folder is gone.
+    target_folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("folders.id", ondelete="SET NULL")
+    )
+    status: Mapped[str] = mapped_column(String(20), default="choosing")
+    # The service's mark of how far its changes were read, which the next sync asks from.
+    cursor: Mapped[str | None] = mapped_column(Text)
+    # Why the last sync did not finish, or why the connector is paused, as its members are
+    # told; empty when it went well.
+    problem: Mapped[str] = mapped_column(Text, default="")
+    synced_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    next_sync_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class ConnectorFile(Base):
+    """A file of a connector's folder as the last sync found it: its id and version at the
+    service, its path below the folder, and the document made of it, or why none was. A file
+    whose version is unchanged is not read again, so a document deleted in the project stays
+    deleted while its file stays as it was."""
+
+    __tablename__ = "connector_files"
+    __table_args__ = (UniqueConstraint("connector_id", "remote_id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    connector_id: Mapped[int] = mapped_column(ForeignKey("connectors.id", ondelete="CASCADE"))
+    remote_id: Mapped[str] = mapped_column(String(300))
+    version: Mapped[str] = mapped_column(String(300))
+    path: Mapped[str] = mapped_column(Text)
+    document_id: Mapped[int | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"), index=True
+    )
+    # Why it is not a document, as an upload rejects a file; empty when it is one.
+    reason: Mapped[str] = mapped_column(Text, default="")
+    seen_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Document(Base):

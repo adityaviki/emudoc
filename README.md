@@ -266,6 +266,23 @@ receives the domain's mail hands each message over as it was sent, with its verd
 sender (`backend/app/receiving.py`): Resend through its webhook and API, Amazon SES through the
 SQS queue its notices reach, which the worker waits on (deploying.md, "Mail in").
 
+A project can also keep in step with a folder of a member's Google Drive, where the deployment
+has an OAuth client for it, the flag `connectors` is on and the plan includes connected folders
+(`backend/app/connectors/`, `GET|POST /api/projects/{id}/connectors`): the library's "Connected
+folders" sends the browser to Google for the member's consent to read their files, keeps the
+grant it gives encrypted, and lets the member browse their folders and choose one, and where its
+files go in the project. The worker syncs it every 15 minutes and at "Sync now": Google's change
+log says whether anything changed, and if so the folder is read whole and compared with what the
+last sync found, so that a new file becomes a document through an upload's checks, in the
+folders of its path, a changed one is taken again with its earlier document in the trash, and
+the document of a file taken out of the folder goes to the trash too; Google's own documents are
+exported as Word, Excel or PDF files. A file is read once per version, so a document deleted in
+the project stays deleted, and nothing goes to the trash unless the folder was read whole. The
+documents a sync brings are its member's upload, told of and seen by the automations as any. A
+connector pauses when Google no longer takes its grant or its member no longer may change the
+project, and goes with its member's membership; disconnecting it gives the grant back and keeps
+its documents (deploying.md, "Connected folders").
+
 A project can hold any number of chats. Each one is saved with its answers, including the
 steps the agent took and the passages it was shown, so a chat can be reopened later. An answer
 is written by the background worker, not by the request that asked the question: the question

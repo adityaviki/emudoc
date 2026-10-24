@@ -443,6 +443,28 @@ def test_production_receives_mail_only_through_a_provider_that_hands_it_over(dep
         load_settings(**deployment, inbound_domain="not a domain")
 
 
+def test_production_reads_connected_folders_from_the_services_themselves(deployment):
+    # The stand-in's address would have members' folders read from it rather than from Google,
+    # and a client without its secret could connect nothing.
+    drive = load_settings(
+        **deployment,
+        google_drive_client_id=" drive.apps.googleusercontent.com ",
+        google_drive_client_secret="GOCSPX-" + "x" * 20,
+    )
+    assert drive.production_problems() == []
+    assert drive.google_drive_client_id == "drive.apps.googleusercontent.com"
+    for change, said in (
+        ({"connector_base_url": "http://127.0.0.1:18001"}, "CONNECTOR_BASE_URL is set"),
+        (
+            {"google_drive_client_id": "drive.apps.googleusercontent.com"},
+            "GOOGLE_DRIVE_CLIENT_ID is set without GOOGLE_DRIVE_CLIENT_SECRET",
+        ),
+    ):
+        with pytest.raises(SystemExit) as stop:
+            load_settings(**deployment, **change)
+        assert said in stop.value.code
+
+
 def test_production_runs_without_a_scanner_only_when_told_to(deployment):
     # Unscanned uploads reach every member of a project, so leaving the scanner out is a
     # choice to state, not a default to fall into; development scans nothing by default.

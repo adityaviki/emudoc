@@ -17,6 +17,25 @@ newest entry first.
 
 Operators:
 
+- Connected folders, behind a flag of their own, `connectors`, rolled out to none, on the plans
+  that include them (Team and Enterprise): the library's "Connected folders" connects a member's
+  Google Drive through Google's consent, the grant kept encrypted with `ENCRYPTION_KEYS`, and the
+  member chooses one of their folders and where its files go. The worker syncs each every 15
+  minutes and at "Sync now", asking Google's change log first: new and changed files become
+  documents through an upload's checks, as their member's upload, with a changed file's earlier
+  document and the document of a file taken out of the folder in the project's trash, but only
+  when the folder was read whole; Google's own documents are exported as Word, Excel or PDF. A
+  connector pauses when Google no longer takes its grant or its member no longer may change the
+  project, and goes with its member's membership; disconnecting it gives the grant back. New
+  settings `GOOGLE_DRIVE_CLIENT_ID` and `GOOGLE_DRIVE_CLIENT_SECRET` (an OAuth client of its own,
+  redirect URI `{APP_URL}/api/connectors/callback`, scope `drive.readonly`, which Google verifies
+  before it serves more than a hundred users) and `CONNECTOR_BASE_URL` (the browser test's
+  stand-in, refused in production); new tables `connectors` and `connector_files`, the audit
+  actions `connector_created`, `connector_changed` and `connector_deleted` (a migration), the job
+  kind `sync_connector` and the metrics `emudoc_connector_syncs_total` and
+  `emudoc_connector_files_total`. The subprocessor list names Google Drive as what the folders
+  are read from, and the privacy policy the grant, the record of the folder's files and the
+  cookie `emudoc_connect`, which holds the consent's handshake for ten minutes.
 - Mail in through Amazon SES: the AWS module's new `inbound` (both roots name `in.<domain>`)
   verifies the domain, points its MX at SES's receiving endpoint, and adds a rule of the
   environment's to the account's one active receipt rule set, which the account root now makes
