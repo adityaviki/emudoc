@@ -1,8 +1,10 @@
 # A release by hand (Actions, Release, Run workflow, from main) of an image CI pushed: to
 # production, which takes only a commit staging ran (deploy/aws/release.sh checks staging's
 # release history), or to staging again, as after a change to its settings. Going back is
-# releasing an earlier commit, unless a migration came between. Every commit on main reaches
-# staging by itself (ci.yml, Staging); deploying.md, "Releases from CI", has the rest.
+# releasing an earlier commit, unless a migration came between. A release to production waits
+# for the reviewer of the GitHub environment production (Settings, Environments), which only
+# main may deploy to. Every commit on main reaches staging by itself (ci.yml, Staging);
+# deploying.md, "Releases from CI", has the rest.
 name: Release
 
 on:
@@ -25,9 +27,13 @@ jobs:
   release:
     name: Release (${{ inputs.environment }})
     runs-on: ubuntu-24.04
+    # Production's release is a job of the environment production, held until its reviewer
+    # approves it; staging's belongs to none (an empty name), as CI's Staging job.
+    environment: ${{ inputs.environment == 'production' && 'production' || '' }}
     # Systems Manager gives the release an hour on the instance (release.sh).
     timeout-minutes: 70
-    # The token AWS trades for the environment's release role, which trusts main alone.
+    # The token AWS trades for the environment's release role: production's trusts the jobs of
+    # the environment production alone, staging's those of main (modules/environment/release.tf).
     permissions:
       contents: read
       id-token: write

@@ -220,3 +220,14 @@ variable "github_repository" {
     error_message = "The repository is owner/name, such as emudocai/emudoc."
   }
 }
+
+variable "github_environment" {
+  description = "The GitHub environment whose jobs alone may release this environment (release.yml's environment:, whose reviewer approves each release and which only main may deploy to); empty trusts any job of a workflow on main instead, such as CI's Staging job (deploying.md, \"Releases from CI\")."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9._-]*$", var.github_environment))
+    error_message = "The environment is a GitHub environment's name, such as production."
+  }
+}

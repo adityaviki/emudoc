@@ -591,17 +591,23 @@ run "staging" {
 
 run "production" {
   variables {
-    environment       = "production"
-    domain            = "emudoc.example.com"
-    dns_zone_id       = "Z0123456789ABCDEFGHIJ"
-    database_multi_az = true
-    backup_days       = 14
-    access_log_days   = 14
-    server_log_days   = 5
-    data_region       = "eu"
-    alert_email       = "operator@example.com"
-    restore_drill     = false
-    mail              = { domain = "mail.example.com", from = "Emudoc <no-reply@mail.example.com>" }
+    environment        = "production"
+    domain             = "emudoc.example.com"
+    dns_zone_id        = "Z0123456789ABCDEFGHIJ"
+    database_multi_az  = true
+    backup_days        = 14
+    access_log_days    = 14
+    server_log_days    = 5
+    data_region        = "eu"
+    alert_email        = "operator@example.com"
+    restore_drill      = false
+    mail               = { domain = "mail.example.com", from = "Emudoc <no-reply@mail.example.com>" }
+    github_environment = "production"
+  }
+
+  assert {
+    condition     = jsondecode(aws_iam_role.release[0].assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:emudocai/emudoc:environment:production"
+    error_message = "Production's role trusts the jobs of the GitHub environment production alone, whose reviewer approves each release, and no other job of main."
   }
 
   assert {
@@ -868,6 +874,14 @@ run "a_repository_without_its_owner" {
     github_repository = "emudoc"
   }
   expect_failures = [var.github_repository]
+}
+
+run "an_environment_that_would_end_the_subject" {
+  command = plan
+  variables {
+    github_environment = "production:main"
+  }
+  expect_failures = [var.github_environment]
 }
 
 run "backup_days_past_rds" {

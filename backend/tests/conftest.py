@@ -78,6 +78,34 @@ def _ensure_database() -> None:
             connection.execute(f'CREATE DATABASE "{TEST_DATABASE}"')
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--shard",
+        metavar="K/N",
+        help="Run the K-th of N parts of the suite, which CI runs in jobs of their own.",
+    )
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """With `--shard K/N`, keep the K-th of N parts. A test's part follows from a hash of its id
+    rather than its place in the collection, so a parametrisation whose order varies between
+    processes still lands each test in exactly one part; the parts come out about as long as
+    each other, a slow file's tests being spread over all of them."""
+    shard = config.getoption("shard")
+    if not shard:
+        return
+    found = re.fullmatch(r"(\d+)/(\d+)", shard)
+    if not found or not 1 <= int(found[1]) <= int(found[2]):
+        raise pytest.UsageError(f"--shard takes K/N, K from 1 to N, such as 1/3, not {shard!r}.")
+    part, parts = int(found[1]) - 1, int(found[2])
+    kept, left = [], []
+    for item in items:
+        digest = hashlib.sha256(item.nodeid.encode()).digest()
+        (kept if int.from_bytes(digest[:8]) % parts == part else left).append(item)
+    config.hook.pytest_deselected(items=left)
+    items[:] = kept
+
+
 # The app reads its settings at import time, so the environment is set before importing it.
 refuse_unless_test_database(TEST_DATABASE_URL)
 _ensure_database()

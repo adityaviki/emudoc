@@ -26,6 +26,15 @@ Members:
 
 Operators:
 
+- `main` takes a commit only through a pull request whose checks passed, CI's fourteen jobs on
+  the branch brought up to date (the ruleset in `.github/rulesets/main.json`, which
+  `tests/test_repository.py` holds to CI's jobs), and a release to production is a job of the
+  GitHub environment `production`, which waits for its reviewer: the production root's release
+  role trusts that environment's jobs alone (`github_environment`), so apply it once. Staging's
+  still trusts `main`. deploying.md, "The repository's rules", has the commands. CI runs the
+  backend's suite in three parts a database (`pytest --shard K/N`) and the load test in a job
+  of its own, so a run takes about half as long.
+
 - The app serves the upload client at `/api/help/emudoc_upload.py` (`backend/app/client/`), a
   script of Python's standard library that sends through the API with a key: `GET /api/status`
   answers a key too, its `uploads` naming the extensions read, and each file an upload refuses
