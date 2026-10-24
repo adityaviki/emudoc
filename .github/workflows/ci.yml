@@ -76,6 +76,13 @@ jobs:
       # --locked: a pyproject.toml changed without its uv.lock fails here.
       - name: Dependencies
         run: uv --directory backend sync --locked
+      # The upload client runs on members' computers from Python 3.9 (backend/app/client/), so
+      # the suite runs it over HTTP by that Python (UPLOAD_CLIENT_PYTHON,
+      # tests/test_upload_client.py), which uv fetches as it fetches the suite's own.
+      - name: Python for the upload client
+        run: |
+          uv python install 3.9
+          echo "UPLOAD_CLIENT_PYTHON=$(uv python find --no-project 3.9)" >> "$GITHUB_ENV"
       # The backend, and the end-to-end test's stand-in model (frontend/e2e/standin.py), which
       # takes the backend's settings.
       - name: Lint

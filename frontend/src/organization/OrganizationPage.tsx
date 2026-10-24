@@ -25,7 +25,7 @@ import type {
   Role,
   SoldPlan,
 } from '../api.ts'
-import { KEY_DAYS, SCOPES, callWith, daysOf, describeKey, mayRoll } from '../apiKeys.ts'
+import { KEY_DAYS, SCOPES, UPLOAD_CLIENT, callWith, daysOf, describeKey, mayRoll, uploadWith } from '../apiKeys.ts'
 import { ME_KEY, setSignedIn, startAgainInOrganization, useMe } from '../auth.ts'
 import { describeBilling, describeChange, describeExcess, describeHeld, mayBuy, mayChange, thisMonth } from '../billing.ts'
 import { PasswordField } from '../account/shared.tsx'
@@ -444,6 +444,18 @@ function ApiKeysSection({ me }: { me: Me }) {
           <Button type="submit" variant="primary" icon={<KeyRound className="size-4" />} disabled={!name.trim() || make.isPending}>
             Make a key
           </Button>
+          <p className="text-[13px] text-muted">
+            With a key that reads and writes, the upload client sends a folder from a computer into a project, or each file a
+            scanner saves to one:{' '}
+            <a href={UPLOAD_CLIENT} download className="font-medium text-accent hover:underline">
+              download the upload client
+            </a>{' '}
+            and read{' '}
+            <Link to="/help/documents" className="font-medium text-accent hover:underline">
+              how to run it
+            </Link>
+            .
+          </p>
         </form>
       ) : (
         <Notice tone="info">
@@ -500,6 +512,12 @@ function NewKey({ made, onDone }: { made: ApiKeyMade; onDone: () => void }) {
         A program sends it in a header, as in{' '}
         <code className="font-mono text-xs break-all">{callWith(made.key, window.location.origin)}</code>
       </p>
+      {made.scope === 'write' && (
+        <p className="text-muted">
+          The upload client takes it from its variable, as in{' '}
+          <code className="font-mono text-xs break-all">{uploadWith(made.key, window.location.origin)}</code>
+        </p>
+      )}
       <div className="flex gap-2">
         <Button icon={copied ? <Check className="size-4" /> : <Copy className="size-4" />} onClick={copy}>
           {copied ? 'Copied' : 'Copy the key'}

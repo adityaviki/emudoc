@@ -37,6 +37,29 @@ holds a folder of the same name already, its files go into that one. A move or a
 toolbar. Two files of the same project cannot hold the same bytes: uploading one again says
 where it is.
 
+## Many files, or a scanner's folder
+
+The upload client sends a folder from your computer into a project, its folders as they are, or
+goes on sending each file a scanner saves to a folder. It is one file,
+[emudoc_upload.py]($upload_client), which Python $oldest_python or later runs: a Mac's own
+`python3` will do, and on Windows install Python and type `py` in place of `python3`. It needs an
+API key that reads and writes, which an owner or admin makes on the organisation page
+([Organisations, members and roles](/help/organisations)), in the variable `$key_variable`
+rather than on the command line (`export $key_variable=emk_…` on a Mac or Linux, `set
+$key_variable=emk_…` on Windows). Then:
+
+    python3 emudoc_upload.py send --server $app_url --project "Invoices" ~/Invoices
+    python3 emudoc_upload.py watch --server $app_url --project "Invoices" --into Scans ~/Scans
+
+`send` files the folder inside the project, or inside the folder `--into` names, says what it
+left out or Emudoc refused and why, then follows the files until they are read. `watch` looks at
+the folder every $watch_seconds seconds and sends a file once it has stayed the same between two
+looks, so that a scan goes once the scanner has written all of it, into the project as it is
+below the folder, until Ctrl+C. Both leave out what Emudoc does not read and hidden files, send
+the rest within the limits above, and never delete, move or change a file. `watch` notes what it
+sent in `$state_file` in the folder, so that each file goes once however it is renamed, and
+Emudoc never takes the same file twice into a project.
+
 ## Deleting and the trash
 
 Deleting a file, a folder or a project puts it in the trash for $trash_days days, from which a

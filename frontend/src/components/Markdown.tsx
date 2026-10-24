@@ -14,7 +14,8 @@ interface MarkdownProps {
    * Whether the text's own links lead anywhere. Off for model output, which a document can
    * steer: a link there could carry what the model read to another site in its address, one
    * click away. It then shows its text and address, to copy, without leading anywhere. The
-   * app's own pages turn it on, and a path on this site opens in the app.
+   * app's own pages turn it on, and a path on this site opens in the app, but for a file the API
+   * serves, which is downloaded.
    */
   followLinks?: boolean
 }
@@ -39,6 +40,12 @@ export function Markdown({ text, citation, followLinks = false }: MarkdownProps)
                 </span>
               )
             }
+            if (href.startsWith('/api/'))
+              return (
+                <a href={href} download>
+                  {children}
+                </a>
+              )
             if (href.startsWith('/') && !href.startsWith('//')) return <Link to={href}>{children}</Link>
             return (
               <a href={href} target="_blank" rel="noreferrer">

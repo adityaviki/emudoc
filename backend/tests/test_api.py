@@ -7,8 +7,8 @@ from sqlalchemy import func, select
 from app.config import get_settings
 from app.indexing.pipeline import process_document
 from app.main import KEYWORDS_ONLY, MODELS_UNAVAILABLE, WORK_STOPPED
-from app.models import Job
-from app.parsing import images
+from app.models import Document, Job
+from app.parsing import SUPPORTED_EXTENSIONS, images
 from tests.conftest import (
     MISSING_KEY,
     FakeEmbedder,
@@ -233,8 +233,15 @@ def test_a_simultaneous_upload_of_the_same_bytes_is_rejected_not_a_crash(
     monkeypatch.setattr(uploads, "unique_filename", after_another_request_commits)
     result = upload(client, project["id"], sample_pdf, sample_docx)
     assert [d["filename"] for d in result["documents"]] == ["policy.docx"]
+    scan = session.scalar(select(Document.id).where(Document.filename == "scan.pdf"))
     assert result["rejected"] == [
-        {"filename": "msa.pdf", "reason": "Already in this project as 'scan.pdf'.", "limit": None}
+        {
+            "filename": "msa.pdf",
+            "reason": "Already in this project as 'scan.pdf'.",
+            "limit": None,
+            "index": 0,
+            "duplicate_of": scan,
+        }
     ]
     names = [d["filename"] for d in listed(client, project["id"])]
     assert names == ["policy.docx", "scan.pdf"]
@@ -451,12 +458,14 @@ def test_status_reports_what_is_missing(client, services, monkeypatch):
     assert health["embeddings"]["ok"] is True
     # The currency the costs on usage are in (PRICE_CURRENCY).
     assert health["currency"] == "USD"
-    # What one upload may carry, by which the page sends a folder of more in several.
+    # What one upload may carry, by which the page sends a folder of more in several, and the
+    # file types read, by which the upload client leaves the others out.
     monkeypatch.setattr(get_settings(), "max_upload_files", 3)
     assert client.get("/api/status").json()["uploads"] == {
         "files": 3,
         "request_bytes": 500 * 1024 * 1024,
         "file_bytes": 100 * 1024 * 1024,
+        "extensions": sorted(SUPPORTED_EXTENSIONS),
     }
 
     # In development whoever reads the status runs the app: what stops it, and what to do.
@@ -492,7 +501,12 @@ def test_a_deployments_status_names_nothing_of_how_it_is_set_up(client, services
         # The suite runs no worker (tests/test_workers.py).
         "workers": {"running": False, "error": WORK_STOPPED},
         "currency": "USD",
-        "uploads": {"files": 100, "request_bytes": 500 * 1024**2, "file_bytes": 100 * 1024**2},
+        "uploads": {
+            "files": 100,
+            "request_bytes": 500 * 1024**2,
+            "file_bytes": 100 * 1024**2,
+            "extensions": sorted(SUPPORTED_EXTENSIONS),
+        },
     }
 
     services.embedder.fail = True

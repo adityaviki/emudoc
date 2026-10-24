@@ -101,6 +101,9 @@ def test_a_key_reaches_what_the_projects_hold_and_nothing_else(client, session, 
     # No key made another.
     assert len(keys(client)) == 1
     assert session.scalars(select(ApiKey.name)).all() == [SYNC]
+    # The status is read, for what one upload may carry, which a program sends its files within.
+    status = api.get("/api/status")
+    assert status.status_code == 200 and status.json()["uploads"]["files"] == 100
 
 
 def test_an_unknown_expired_rolled_or_revoked_key_is_refused(client, session):

@@ -17,7 +17,7 @@ type Rejected = UploadResult['rejected'][number]
 const MB = 1024 * 1024
 
 /** What a deployment allows until its status says: the server's defaults (backend/app/config.py). */
-export const DEFAULT_LIMITS: UploadLimits = { files: 100, request_bytes: 500 * MB, file_bytes: 100 * MB }
+export const DEFAULT_LIMITS: UploadLimits = { files: 100, request_bytes: 500 * MB, file_bytes: 100 * MB, extensions: ACCEPTED_EXTENSIONS }
 
 // Files a folder holds that its owner does not see: hidden by a leading dot, or Windows's own.
 const SYSTEM_FILES = new Set(['thumbs.db', 'ehthumbs.db', 'desktop.ini'])

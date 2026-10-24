@@ -1,5 +1,6 @@
 // The organisation's API keys as its page words them (backend/app/apikeys.py, backend/app/api/apikeys.py): how long a
-// new key may run, what each scope lets it do, a key's line in the list, and how a program calls the API with one.
+// new key may run, what each scope lets it do, a key's line in the list, how a program calls the API with one, and the
+// upload client a key that writes runs (backend/app/client/).
 
 import type { ApiKey, ApiKeyScope, Me } from './api.ts'
 import { formatDate } from './format.ts'
@@ -36,4 +37,12 @@ export const mayRoll = (key: ApiKey, me: Me) => key.user_id === me.id
 /** How a program calls the API with the key, from this deployment's address: the projects it may read. */
 export function callWith(key: string, origin: string): string {
   return `curl -H "Authorization: Bearer ${key}" ${origin}/api/projects`
+}
+
+/** Where the app serves the upload client, which sends a folder into a project, or each file a scanner saves, with a key that writes. */
+export const UPLOAD_CLIENT = '/api/help/emudoc_upload.py'
+
+/** How the upload client sends a folder with the key, from this deployment's address: the key in its variable, not among the arguments. */
+export function uploadWith(key: string, origin: string): string {
+  return `EMUDOC_API_KEY=${key} python3 emudoc_upload.py send --server ${origin} --project "Invoices" ./Invoices`
 }

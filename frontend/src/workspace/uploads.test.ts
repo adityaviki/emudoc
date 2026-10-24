@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ApiError } from '../api.ts'
+import { ACCEPTED_EXTENSIONS, ApiError } from '../api.ts'
 import type { UploadItem, UploadResult, UploadStatus } from '../api.ts'
 import { REFRESH, WAITING_REFRESH } from './listing.ts'
 import {
@@ -23,7 +23,7 @@ import {
 import type { UploadState } from './uploads.ts'
 
 const item = (name: string, size = 10, folder = ''): UploadItem => ({ file: new File(['x'.repeat(size)], name), folder })
-const limits = { files: 2, request_bytes: 25, file_bytes: 20 }
+const limits = { files: 2, request_bytes: 25, file_bytes: 20, extensions: ACCEPTED_EXTENSIONS }
 const names = (items: UploadItem[]) => items.map(({ file, folder }) => (folder ? `${folder}/${file.name}` : file.name))
 
 describe('what an upload leaves out before sending', () => {
@@ -55,7 +55,7 @@ describe('what an upload leaves out before sending', () => {
 
   it('words a file larger than a request may carry by that, when it is the smaller limit', () => {
     const mb = 1024 * 1024
-    const { left } = screen([item('a.pdf', 3 * mb)], { files: 100, request_bytes: 2 * mb, file_bytes: 100 * mb })
+    const { left } = screen([item('a.pdf', 3 * mb)], { files: 100, request_bytes: 2 * mb, file_bytes: 100 * mb, extensions: ACCEPTED_EXTENSIONS })
     expect(left[0].reason).toBe('Larger than 2 MB.')
   })
 })

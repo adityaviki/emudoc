@@ -190,6 +190,7 @@ def test_an_uploaded_folder_is_filed_as_it_was_into_the_folders_of_its_names(cli
         contracts["id"],
     )
     assert result["rejected"] == []
+    acme = next(d for d in result["documents"] if d["filename"] == "acme.txt")
     # A folder of a name already there, whatever its case, takes the files; the others are made,
     # their names' spaces tidied as a new folder's are.
     assert tree(client, project["id"]) == {
@@ -215,6 +216,8 @@ def test_an_uploaded_folder_is_filed_as_it_was_into_the_folders_of_its_names(cli
             "filename": "Signed/acme.txt",
             "reason": "Already in this project as 'acme.txt' in Contracts/signed.",
             "limit": None,
+            "index": 0,
+            "duplicate_of": acme["id"],
         }
     ]
     assert tree(client, project["id"])["Contracts/Drafts"] == ["hooli.txt", "initech.txt"]
@@ -247,8 +250,14 @@ def test_a_path_that_cannot_be_made_rejects_its_file_alone(client):
     )
     assert [d["filename"] for d in result["documents"]] == ["kept.txt"]
     assert result["rejected"] == [
-        {"filename": name, "reason": UNMAKEABLE_FOLDER, "limit": None}
-        for name in ("escape.txt", "long.txt", "deep.txt")
+        {
+            "filename": name,
+            "reason": UNMAKEABLE_FOLDER,
+            "limit": None,
+            "index": index,
+            "duplicate_of": None,
+        }
+        for index, name in enumerate(("escape.txt", "long.txt", "deep.txt"))
     ]
     assert tree(client, project["id"]) == {"Fine": ["kept.txt"]}
     # Exactly as deep as an upload may go is made.

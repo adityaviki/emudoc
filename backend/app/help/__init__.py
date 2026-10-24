@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from string import Template
 
+from app.client import UPLOAD_CLIENT
+from app.client.emudoc_upload import EVERY, KEY_VARIABLE, OLDEST_PYTHON, STATE_NAME
 from app.config import Settings, parse_scanner_url
 from app.entitlements import BY_THE_SEAT, CHARS_PER_PAGE, GB, MB, PLANS
 from app.export import EXPORT_DAYS
@@ -28,7 +30,7 @@ TEMPLATES = Path(__file__).parent
 # The articles in the order the contents list them, each with the line the contents show of it.
 ARTICLES = (
     ("getting-started", "Projects, uploads and the first question: the way through Emudoc."),
-    ("documents", "What can be uploaded, how it is read, folders, the trash and downloads."),
+    ("documents", "Uploading, the upload client, how a file is read, folders, trash, downloads."),
     ("asking", "Searching a project, asking about it, citations, and who sees a chat."),
     ("organisations", "Roles, invitations, private projects, settings and API keys."),
     ("plans", "What each plan allows, how usage is counted, and what happens at a limit."),
@@ -120,6 +122,12 @@ def _values(settings: Settings) -> dict[str, str]:
         "deletion_days": str(DELETION_GRACE.days),
         "support": f"[{support}](mailto:{support})" if support else "[SUPPORT_EMAIL is not set]",
         "status_page": _status_page(settings.status_page_url),
+        "upload_client": f"/api/help/{UPLOAD_CLIENT.name}",
+        "oldest_python": ".".join(map(str, OLDEST_PYTHON)),
+        "key_variable": KEY_VARIABLE,
+        "app_url": settings.app_url.rstrip("/") or "https://emudoc.example.org",
+        "watch_seconds": f"{EVERY:g}",
+        "state_file": STATE_NAME,
     }
 
 

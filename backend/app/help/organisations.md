@@ -40,4 +40,6 @@ sooner. The audit log, under Security, says who did what and when.
 
 On a plan with API access, owners and admins make API keys for programs under API keys. A key
 acts as the member who made it, in the organisation's projects alone, either reading or reading
-and changing, for 30, 90 or 365 days or until revoked$api_rate. The key is shown once.
+and changing, for 30, 90 or 365 days or until revoked$api_rate. The key is shown once. A key
+that reads and changes is what the upload client sends a folder or a scanner's files with
+([Uploading and organising documents](/help/documents)).

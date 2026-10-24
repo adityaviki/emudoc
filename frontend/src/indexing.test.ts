@@ -135,7 +135,7 @@ function status(llm: boolean, embeddings: boolean): SystemStatus {
     embeddings: { ok: embeddings, model: null, error: null },
     workers: { running: true, error: null },
     currency: 'EUR',
-    uploads: { files: 50, request_bytes: 100, file_bytes: 50 },
+    uploads: { files: 50, request_bytes: 100, file_bytes: 50, extensions: ['.pdf'] },
   }
 }
 

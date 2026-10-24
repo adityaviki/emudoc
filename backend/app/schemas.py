@@ -391,6 +391,12 @@ class RejectedFile(BaseModel):
     reason: str
     # The figure of the plan that refused the file, when it was the plan (app/entitlements.py).
     limit: PlanLimit | None = None
+    # The file's place among those the request carried, from 0, so that a program tells apart
+    # two files of one name; the documents kept are the others, in their order.
+    index: int | None = None
+    # The document of the project that holds the same bytes, in its library or its trash, when
+    # that is why: a file sent again is there already rather than refused.
+    duplicate_of: int | None = None
 
 
 class UploadResult(BaseModel):
@@ -2009,11 +2015,14 @@ class WorkerStatus(BaseModel):
 
 class UploadLimitsOut(BaseModel):
     """What one upload request may carry (MAX_UPLOAD_FILES, MAX_UPLOAD_REQUEST_MB, MAX_UPLOAD_MB),
-    so that the page sends a folder of more in several and leaves a file of more unsent."""
+    so that the page sends a folder of more in several and leaves a file of more unsent, and the
+    file types the app reads, by their extensions, which the upload client leaves the others
+    out by (app/client/)."""
 
     files: int
     request_bytes: int
     file_bytes: int
+    extensions: list[str]
 
 
 class StatusOut(BaseModel):

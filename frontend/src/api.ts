@@ -269,8 +269,12 @@ export interface DocumentPage {
 
 export interface UploadResult {
   documents: Document[]
-  /** The files left out, each with why; `limit` names the plan's figure when it was the plan. */
-  rejected: { filename: string; reason: string; limit: PlanLimit | null }[]
+  /**
+   * The files left out, each with why; `limit` names the plan's figure when it was the plan. The server also gives each
+   * its place in the request (`index`) and the document holding the same bytes when that was why (`duplicate_of`), for
+   * a program; the page names a file by its path, and leaves both out of those it leaves out itself.
+   */
+  rejected: { filename: string; reason: string; limit: PlanLimit | null; index?: number | null; duplicate_of?: number | null }[]
   /** The upload the documents kept are on the server, which the library follows as they are indexed; null when it kept none. */
   upload_id: number | null
 }
@@ -314,6 +318,8 @@ export interface UploadLimits {
   files: number
   request_bytes: number
   file_bytes: number
+  /** The extensions the server reads, which the upload client leaves the others out by; the page knows them as ACCEPTED_EXTENSIONS. */
+  extensions: string[]
 }
 
 /** How far a request's body has gone, in bytes, multipart's own lines included. */

@@ -40,6 +40,8 @@ dev = [
 
 [tool.ruff]
 line-length = 100
+# The upload client runs on its members' computers, from Python 3.9 (app/client/).
+per-file-target-version = { "app/client/emudoc_upload.py" = "py39" }
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]

@@ -131,7 +131,13 @@ def test_an_upload_fills_the_plan_file_by_file_and_a_full_plan_refuses_the_reque
     result = upload(client, project["id"], sample_pdf, sample_docx)
     assert [d["filename"] for d in result["documents"]] == ["msa.pdf"]
     assert result["rejected"] == [
-        {"filename": sample_docx.name, "reason": ONE_DOCUMENT, "limit": "documents"}
+        {
+            "filename": sample_docx.name,
+            "reason": ONE_DOCUMENT,
+            "limit": "documents",
+            "index": 1,
+            "duplicate_of": None,
+        }
     ]
     # The one that went in has its job; the one that did not left nothing behind.
     assert session.scalar(select(func.count()).select_from(Document)) == 1
@@ -167,6 +173,8 @@ def test_a_file_that_would_not_fit_the_plans_storage_is_rejected(
                 "upgrade your plan."
             ),
             "limit": "storage_bytes",
+            "index": 1,
+            "duplicate_of": None,
         }
     ]
 

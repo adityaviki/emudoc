@@ -930,6 +930,23 @@ and is held to 300 requests a minute of its own (`RATE_API_REQUESTS`) as well as
 rates. Each key made, rolled or revoked is a row of the audit log, and so is what a key does, as
 its member's with the key named. On a plan without the API, the keys made before are kept and
 refused until the organisation is on one with it again.
+A key that reads and writes also runs the upload client, `emudoc_upload.py`
+(`backend/app/client/`), which the app serves to anyone at `/api/help/emudoc_upload.py`, links
+to from the API keys section and the help, and which any Python from 3.9 runs, needing nothing
+but the standard library. `send` files folders into a project as they are (and files named on
+their own beside them, `--into` a folder of the project), leaving out what the app would refuse
+and hidden files, sends the rest in requests within `GET /api/status`'s upload limits, which a
+key reads, and follows the files until they are read; `watch` looks at a folder every 10 seconds
+and sends a file once its size and time stayed the same from one look to the next, as a scanner
+writes slowly. The key is read from `EMUDOC_API_KEY`; each file's SHA-256 goes into a state file
+(`.emudoc-upload.json` in a watched folder, `--state` for `send`), so a file is sent once however
+it is renamed, and a file the project holds already comes back as `duplicate_of` the document
+that holds it, each refused file naming its place in the request (`index`). It never deletes,
+moves or changes a file:
+
+```bash
+EMUDOC_API_KEY=emk_… python3 emudoc_upload.py watch --server https://emudoc.example.org --project Invoices ~/Scans
+```
 The roles: a viewer reads the projects and asks about them in chats of their own, a member also
 changes the projects (makes, uploads, organises, deletes), an admin also renames the organisation
 and manages who is in it, and an owner also manages its owners. The page offers each member only
@@ -1313,6 +1330,7 @@ backend/app/
   cross_checks.py
                 rules comparing one kind's facts with another's, and what each finds
   payments.py   Stripe's API, and the signature on its events
+  client/       the upload client members download and run, a script of the standard library
   api/          HTTP endpoints
   headers.py    the headers every response carries for the browser
   answers.py    an answer as a job: the worker writes its events, the API streams them

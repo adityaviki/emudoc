@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ApiKey, Me } from './api.ts'
-import { KEY_DAYS, callWith, daysOf, describeKey, mayRoll } from './apiKeys.ts'
+import { KEY_DAYS, UPLOAD_CLIENT, callWith, daysOf, describeKey, mayRoll, uploadWith } from './apiKeys.ts'
 import { formatDate } from './format.ts'
 
 const key: ApiKey = {
@@ -42,6 +42,14 @@ describe('API keys', () => {
     const secret = ['emk', 'x'.repeat(43)].join('_')
     expect(callWith(secret, 'https://emudoc.example.org')).toBe(
       `curl -H "Authorization: Bearer ${secret}" https://emudoc.example.org/api/projects`,
+    )
+  })
+
+  it('shows how the upload client, served by the app, sends a folder with the key', () => {
+    const secret = ['emk', 'x'.repeat(43)].join('_')
+    expect(UPLOAD_CLIENT).toBe('/api/help/emudoc_upload.py')
+    expect(uploadWith(secret, 'https://emudoc.example.org')).toBe(
+      `EMUDOC_API_KEY=${secret} python3 emudoc_upload.py send --server https://emudoc.example.org --project "Invoices" ./Invoices`,
     )
   })
 })

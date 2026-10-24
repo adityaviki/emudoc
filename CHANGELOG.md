@@ -15,7 +15,23 @@ newest entry first.
 
 ## 2026-10-24
 
+Members:
+
+- The upload client sends a folder from your computer into a project, its folders as they are,
+  or goes on sending each file a scanner saves to a folder: download `emudoc_upload.py` under API
+  keys on the organisation page and run it, by Python 3.9 or later, with a key that reads and
+  writes. It leaves out what Emudoc does not read, says why a file was refused and when the files
+  are read, sends each file once however it is renamed, and never deletes or moves one. "Uploading
+  and organising documents" in the help says how to run it.
+
 Operators:
+
+- The app serves the upload client at `/api/help/emudoc_upload.py` (`backend/app/client/`), a
+  script of Python's standard library that sends through the API with a key: `GET /api/status`
+  answers a key too, its `uploads` naming the extensions read, and each file an upload refuses
+  names its place in the request (`index`) and, when the project holds its bytes already, the
+  document that does (`duplicate_of`). The client halves a request a proxy refuses as too large,
+  so a proxy's body limit under `MAX_UPLOAD_REQUEST_MB` costs it requests rather than files.
 
 - Connected folders from OneDrive and SharePoint too, through Microsoft Graph, where
   `ONEDRIVE_CLIENT_ID` and `ONEDRIVE_CLIENT_SECRET` name an Entra ID app with the delegated

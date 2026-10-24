@@ -224,12 +224,16 @@ def test_the_help_names_every_file_type_an_upload_takes(monkeypatch):
         articles(get_settings())
 
 
-def test_every_link_of_the_help_leads_to_an_article_or_a_page():
+def test_every_link_of_the_help_leads_to_an_article_or_a_page(client):
     known = pages()
     assert {"/account", "/organization/usage", "/privacy", "/help"} <= known
     for article in articles(get_settings()):
         for link in re.findall(r"\]\((/[^)]*)\)", article.text):
-            assert link in known, (article.slug, link)
+            # Or to a file the API serves, which the page downloads: the upload client.
+            if link.startswith("/api/"):
+                assert client.get(link).status_code == 200, (article.slug, link)
+            else:
+                assert link in known, (article.slug, link)
 
 
 def test_the_help_names_the_status_page_where_there_is_one(client, monkeypatch):
@@ -262,3 +266,18 @@ def test_the_page_that_cannot_reach_the_database_still_finds_the_status_page(
 def test_a_status_page_is_a_web_address(url):
     with pytest.raises(ValidationError, match="STATUS_PAGE_URL"):
         Settings(_env_file=None, database_url="postgresql+psycopg://db/emudoc", status_page_url=url)
+
+
+def test_the_help_says_how_to_run_the_upload_client_by_its_own_figures(client, monkeypatch):
+    monkeypatch.setattr(get_settings(), "app_url", "https://docs.acme.example/")
+    found = client.get("/api/help").json()["articles"]
+    documents = said(next(article for article in found if article["slug"] == "documents"))
+    assert "[emudoc_upload.py](/api/help/emudoc_upload.py), which Python 3.9 or later runs" in (
+        documents
+    )
+    assert (
+        "python3 emudoc_upload.py watch --server https://docs.acme.example --project "
+        '"Invoices" --into Scans ~/Scans'
+    ) in documents
+    assert "every 10 seconds" in documents and "`.emudoc-upload.json` in the folder" in documents
+    assert "`export EMUDOC_API_KEY=emk_…` on a Mac or Linux" in documents

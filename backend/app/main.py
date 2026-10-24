@@ -73,6 +73,7 @@ from app.logs import REQUEST_ID_HEADER, RequestIds, configure_logging, current_c
 from app.mail import Mailer, mailer_from_settings
 from app.metrics import POOL_TIMEOUTS, HttpMetrics, export_metrics
 from app.operators import operator_of
+from app.parsing import SUPPORTED_EXTENSIONS
 from app.payments import PaymentsError
 from app.ratelimit import PAGE_ERRORS, by_address
 from app.schemas import (
@@ -269,6 +270,7 @@ def upload_limits(settings: Settings) -> UploadLimitsOut:
         files=settings.max_upload_files,
         request_bytes=settings.max_upload_request_mb * megabyte,
         file_bytes=settings.max_upload_mb * megabyte,
+        extensions=sorted(SUPPORTED_EXTENSIONS),
     )
 
 
@@ -545,8 +547,11 @@ def create_app(
     ):
         app.include_router(router, prefix="/api", dependencies=[Depends(refuse_cross_site)])
     # The routes an API key reaches (`_key_account` in app/api/deps.py), by their functions,
-    # which the request's scope names once its route is matched.
-    app.state.keyed = frozenset(route.endpoint for router in KEYED for route in router.routes)
+    # which the request's scope names once its route is matched; and the status, whose upload
+    # limits a program sends its files within, as the page does (app/client/).
+    app.state.keyed = frozenset(
+        [*(route.endpoint for router in KEYED for route in router.routes), status]
+    )
     # Stripe's and Resend's events carry no header of the app's: their signature proves where
     # they came from (app/api/billing.py, app/api/mail.py); nor does a mail program's one-click
     # unsubscribe, whose token says whose notices stop.

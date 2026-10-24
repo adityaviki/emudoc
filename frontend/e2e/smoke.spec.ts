@@ -641,7 +641,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('button', { name: 'Help', exact: true })).not.toHaveAttribute('aria-describedby')
   })
 
-  await test.step('make a read key, which a program lists the projects with and changes nothing by', async () => {
+  await test.step('make a read key, which a program lists the projects with and changes nothing by, beside the upload client', async () => {
     await page.goto('/organization')
     const keys = page.locator('section').filter({ has: page.getByRole('heading', { name: 'API keys', exact: true }) })
     await keys.getByLabel('Name', { exact: true }).fill('Invoices sync')
@@ -655,6 +655,11 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     expect((await listed.json()).map((project: { name: string }) => project.name)).toContain('Supplier contracts')
     expect((await request.post('/api/projects', { headers: bearer, data: { name: 'Mine' } })).status()).toBe(403)
     expect((await request.get('/api/organization/keys', { headers: bearer })).status()).toBe(403)
+    // The upload client the section offers, which the app serves for download.
+    const offered = await keys.getByRole('link', { name: 'download the upload client' }).getAttribute('href')
+    const script = await request.get(offered ?? '')
+    expect(script.headers()['content-disposition']).toBe('attachment; filename="emudoc_upload.py"')
+    expect(await script.text()).toMatch(/^#!\/usr\/bin\/env python3\n/)
     await keys.getByRole('button', { name: 'I have saved it' }).click()
     await expect(keys.locator('code')).toHaveCount(0)
     await page.reload()

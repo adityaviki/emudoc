@@ -92,10 +92,10 @@ def take_files(
     # The folders these files found or made, by their names below the target.
     made: dict[tuple[str, ...], int | None] = {(): target}
 
-    for incoming in files:
+    for index, incoming in enumerate(files):
         name = Path(incoming.name or "unnamed").name
         if incoming.folders is None:
-            rejected.append(RejectedFile(filename=name, reason=UNMAKEABLE_FOLDER))
+            rejected.append(RejectedFile(filename=name, reason=UNMAKEABLE_FOLDER, index=index))
             UPLOAD_REJECTIONS.labels("folder").inc()
             continue
         names = incoming.folders
@@ -105,7 +105,9 @@ def take_files(
         if suffix not in SUPPORTED_EXTENSIONS:
             supported = ", ".join(sorted(SUPPORTED_EXTENSIONS))
             rejected.append(
-                RejectedFile(filename=filename, reason=f"Unsupported type. Use {supported}.")
+                RejectedFile(
+                    filename=filename, reason=f"Unsupported type. Use {supported}.", index=index
+                )
             )
             UPLOAD_REJECTIONS.labels("unsupported").inc()
             continue
@@ -117,18 +119,18 @@ def take_files(
         try:
             if size > limit or size == 0:
                 reason = "Empty file." if size == 0 else f"Larger than {settings.max_upload_mb} MB."
-                rejected.append(RejectedFile(filename=filename, reason=reason))
+                rejected.append(RejectedFile(filename=filename, reason=reason, index=index))
                 UPLOAD_REJECTIONS.labels("empty" if size == 0 else "too_large").inc()
                 continue
             # The extension picks the parser and the type the file is served as, so the bytes
             # must be what it says; refused here, before a duplicate is looked for or the plan
             # is counted, with a sentence about the file rather than a parser's a stage later.
             if reason := wrong_type(spool, suffix):
-                rejected.append(RejectedFile(filename=filename, reason=reason))
+                rejected.append(RejectedFile(filename=filename, reason=reason, index=index))
                 UPLOAD_REJECTIONS.labels("wrong_type").inc()
                 continue
 
-            duplicate = already_present(session, project.id, sha256, filename)
+            duplicate = already_present(session, project.id, sha256, filename, index)
             if duplicate:
                 rejected.append(duplicate)
                 UPLOAD_REJECTIONS.labels("duplicate").inc()
@@ -136,7 +138,12 @@ def take_files(
             # Counted again per file: each one committed above fills the plan a little more.
             if refusal := check_upload(session, organization, size):
                 rejected.append(
-                    RejectedFile(filename=filename, reason=refusal.sentence, limit=refusal.limit)
+                    RejectedFile(
+                        filename=filename,
+                        reason=refusal.sentence,
+                        limit=refusal.limit,
+                        index=index,
+                    )
                 )
                 UPLOAD_REJECTIONS.labels("plan").inc()
                 continue
@@ -167,8 +174,8 @@ def take_files(
                 if _constraint_of(error) != DUPLICATE_CONSTRAINT:
                     raise
                 rejected.append(
-                    already_present(session, project.id, sha256, filename)
-                    or RejectedFile(filename=filename, reason=LOST_RACE)
+                    already_present(session, project.id, sha256, filename, index)
+                    or RejectedFile(filename=filename, reason=LOST_RACE, index=index)
                 )
                 UPLOAD_REJECTIONS.labels("duplicate").inc()
                 continue
@@ -207,23 +214,31 @@ def take_files(
 
 
 def already_present(
-    session: Session, project_id: int, sha256: str, filename: str
+    session: Session, project_id: int, sha256: str, filename: str, index: int | None = None
 ) -> RejectedFile | None:
     """The rejection for a file whose bytes the project already holds, naming where: in the
     library, or in its trash (app/trash.py), from which restoring it costs nothing that
-    indexing it again would."""
+    indexing it again would. `index` is the file's place among those it came with."""
     duplicate = session.scalar(
         select(Document).where(Document.project_id == project_id, Document.sha256 == sha256)
     )
     if duplicate is None:
         return None
     if duplicate.deleted_at is not None:
-        return RejectedFile(filename=filename, reason=_in_trash(session, duplicate))
+        return RejectedFile(
+            filename=filename,
+            reason=_in_trash(session, duplicate),
+            index=index,
+            duplicate_of=duplicate.id,
+        )
     where = ""
     if duplicate.folder_id is not None:
         where = f" in {folder_paths(session, project_id)[duplicate.folder_id]}"
     return RejectedFile(
-        filename=filename, reason=f"Already in this project as {duplicate.filename!r}{where}."
+        filename=filename,
+        reason=f"Already in this project as {duplicate.filename!r}{where}.",
+        index=index,
+        duplicate_of=duplicate.id,
     )
 
 
