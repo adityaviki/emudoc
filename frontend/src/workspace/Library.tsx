@@ -15,6 +15,7 @@ import {
   ListChecks,
   MoreHorizontal,
   Pencil,
+  PenLine,
   RefreshCw,
   Search,
   TableProperties,
@@ -53,6 +54,7 @@ import { describeChange } from './changes.ts'
 import { chosenFolder, droppedEntries, readEntries } from './dropped.ts'
 import { RunView } from './CheckRuns.tsx'
 import { CrossChecksView, FindingsView } from './CrossChecks.tsx'
+import { DraftView, DraftsView } from './Drafts.tsx'
 import { ChangesView } from './FactChanges.tsx'
 import { FactsView } from './FactsTable.tsx'
 import { fileKind, originalFileItem } from './files.ts'
@@ -143,6 +145,7 @@ export function Library() {
   const changes = mayChange(me.role)
   // Behind its flag while it is rolled out (backend/app/flags.py).
   const templates = me.organization.flags_on.includes('extraction_templates')
+  const drafts = me.organization.flags_on.includes('drafts')
   // The sample project takes no uploads: it counts against nothing on the plan (backend/app/sample).
   const uploads = changes && !project.sample
   const health = useStatus()
@@ -194,6 +197,8 @@ export function Library() {
   if (workspace.url.library.check != null && templates) return <FindingsView checkId={workspace.url.library.check} />
   if (workspace.url.library.run != null && templates) return <RunView runId={workspace.url.library.run} />
   if (workspace.url.library.reviews && templates) return <ReviewsView whose={workspace.url.library.reviews} />
+  if (workspace.url.library.drafts && drafts) return <DraftsView />
+  if (workspace.url.library.draft != null && drafts) return <DraftView draftId={workspace.url.library.draft} />
   return (
     <div
       data-tour="library"
@@ -251,6 +256,15 @@ export function Library() {
               onClick={() => workspace.showReviews()}
               title="Reviews: the documents put in review, approved or disputed, and whom each is assigned to"
               aria-label="Reviews"
+              className="px-2"
+            />
+          )}
+          {drafts && (
+            <Button
+              icon={<PenLine className="size-4" />}
+              onClick={workspace.showDrafts}
+              title="Drafts: letters, emails, memos, tables and reports the model writes from the documents"
+              aria-label="Drafts"
               className="px-2"
             />
           )}

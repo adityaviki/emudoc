@@ -105,6 +105,7 @@ from app.models import (
     Chat,
     CrossCheck,
     Document,
+    Draft,
     ExtractionTemplate,
     Fact,
     FactCheck,
@@ -509,6 +510,20 @@ def get_automation(automation_id: int, session: SessionDep, account: AccountDep)
     return automation
 
 
+def get_draft(draft_id: int, session: SessionDep, account: AccountDep) -> Draft:
+    """A draft of a project's (app/drafts.py), provided the account sees the project and it is
+    out of the trash."""
+    draft = session.scalar(
+        select(Draft)
+        .join(Project, Project.id == Draft.project_id)
+        .where(Draft.id == draft_id, visible_to(account))
+    )
+    if draft is None:
+        raise HTTPException(404, "Draft not found")
+    about(project_id=draft.project_id)
+    return draft
+
+
 def get_fact(fact_id: int, session: SessionDep, account: AccountDep) -> Fact:
     """A fact read from a document (app/fact_checks.py), provided the account sees the
     document's project and the document is out of the trash."""
@@ -604,6 +619,19 @@ def get_deletable_run(
     return run
 
 
+def get_editable_draft(
+    draft: Annotated[Draft, Depends(get_draft)], account: AccountDep, session: SessionDep
+) -> Draft:
+    get_editor(account, session)
+    return draft
+
+
+def get_deletable_draft(draft: Annotated[Draft, Depends(get_draft)], account: AccountDep) -> Draft:
+    """The draft, for deleting it: by role alone, as a document is."""
+    _refuse_viewer(account)
+    return draft
+
+
 def get_editable_fact(
     fact: Annotated[Fact, Depends(get_fact)], account: AccountDep, session: SessionDep
 ) -> Fact:
@@ -653,6 +681,9 @@ EditableCrossCheckDep = Annotated[CrossCheck, Depends(get_editable_cross_check)]
 RunDep = Annotated[WorkflowRun, Depends(get_run)]
 EditableRunDep = Annotated[WorkflowRun, Depends(get_editable_run)]
 DeletableRunDep = Annotated[WorkflowRun, Depends(get_deletable_run)]
+DraftDep = Annotated[Draft, Depends(get_draft)]
+EditableDraftDep = Annotated[Draft, Depends(get_editable_draft)]
+DeletableDraftDep = Annotated[Draft, Depends(get_deletable_draft)]
 AutomationDep = Annotated[Automation, Depends(get_automation)]
 EditableAutomationDep = Annotated[Automation, Depends(get_editable_automation)]
 EditableFactDep = Annotated[Fact, Depends(get_editable_fact)]

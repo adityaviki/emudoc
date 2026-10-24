@@ -16,7 +16,7 @@ export interface Stage {
   deferred: boolean
 }
 
-export type UsageKind = 'answer' | 'upload' | 'ocr' | 'infer_sections' | 'enrich' | 'embed' | 'render' | 'report'
+export type UsageKind = 'answer' | 'upload' | 'ocr' | 'infer_sections' | 'enrich' | 'embed' | 'render' | 'report' | 'draft'
 
 /**
  * What one kind of work used for a document, an answer or a run of cross-checks, summed over every run for it. A
@@ -584,6 +584,56 @@ export interface RunFindings {
   gone: number[]
 }
 
+/** What a draft is (backend/app/drafts.py), and how far the model's writing of it is. */
+export type DraftKind = 'reply_email' | 'dispute_letter' | 'summary_memo' | 'comparison_table' | 'report'
+export type DraftStatus = 'queued' | 'writing' | 'done' | 'failed'
+
+/** A draft a member asks the model for (DraftIn): its kind, what it should say, and the documents it is about, none to have the model find them. */
+export interface DraftInput {
+  kind: DraftKind
+  instructions: string
+  document_ids: number[]
+}
+
+/** A draft as the project's list shows it (DraftSummaryOut): who asked for it first (null once their account is gone) and how many versions it has. */
+export interface DraftSummary {
+  id: number
+  project_id: number
+  kind: DraftKind
+  title: string
+  status: DraftStatus
+  created_by: string | null
+  versions: number
+  created_at: string
+  updated_at: string
+}
+
+/** A version as a draft's history lists it (DraftVersionSummaryOut): the model's writing, which `author` asked for, or a member's save. */
+export interface DraftVersionSummary {
+  number: number
+  by_model: boolean
+  author: string | null
+  created_at: string
+}
+
+/** A version whole (DraftVersionOut): its text, citing `sources` as [P<id>] as they were when it was written. */
+export interface DraftVersion extends DraftVersionSummary {
+  text: string
+  sources: Source[]
+}
+
+/** A draft whole (DraftOut): what was asked of it, its documents (`gone` once deleted or in the trash), the run its last writing read, its history newest first and the newest version. */
+export interface Draft extends DraftSummary {
+  instructions: string
+  documents: { id: number; title: string; gone: boolean }[]
+  run_id: number | null
+  error: string | null
+  notice: string | null
+  usage: Record<string, Usage>
+  history: DraftVersionSummary[]
+  latest: DraftVersion | null
+}
+
 export interface SearchHit {
   passage_id: number
   document_id: number
@@ -885,7 +935,7 @@ export interface Organization {
 }
 
 /** The names of the feature flags (FLAGS in backend/app/flags.py), so that a page that reads a misspelt one fails the build. */
-export type Flag = 'extraction_templates'
+export type Flag = 'extraction_templates' | 'drafts'
 
 /** What the organisation page changes about the organisation (OrganizationChangeIn in backend/app/schemas.py). */
 export interface OrganizationChange {
@@ -1292,6 +1342,9 @@ export type AuditAction =
   | 'automation_created'
   | 'automation_changed'
   | 'automation_deleted'
+  | 'draft_created'
+  | 'draft_changed'
+  | 'draft_deleted'
   | 'project_deleted'
   | 'project_restored'
   | 'project_purged'
@@ -1928,6 +1981,20 @@ export const api = {
   reviewers: (projectId: number) => request<Reviewer[]>(`/projects/${projectId}/reviewers`),
   /** Move a document's review, assign it, or both; the member assigned is told. */
   review: (documentId: number, change: ReviewInput) => request<Document>(`/documents/${documentId}/review`, json('PUT', change)),
+  /** A page of the project's drafts, newest first, before the draft `before` names. */
+  drafts: (projectId: number, before: number | null = null) =>
+    request<{ drafts: DraftSummary[]; next_before: number | null }>(
+      `/projects/${projectId}/drafts${before != null ? `?before=${before}` : ''}`,
+    ),
+  /** Have the model write a draft; the worker writes it, which the page follows. */
+  askDraft: (projectId: number, body: DraftInput) => request<Draft>(`/projects/${projectId}/drafts`, json('POST', body)),
+  draft: (id: number) => request<Draft>(`/drafts/${id}`),
+  draftVersion: (id: number, number: number) => request<DraftVersion>(`/drafts/${id}/versions/${number}`),
+  /** Keep a member's text as the newest version, edited from version `base`, which must still be the newest. */
+  saveDraft: (id: number, body: { text: string; base: number }) => request<Draft>(`/drafts/${id}/versions`, json('POST', body)),
+  /** Have the model write the draft again as a new version, with what is asked of it now when given. */
+  rewriteDraft: (id: number, body: { instructions?: string }) => request<Draft>(`/drafts/${id}/rewrite`, json('POST', body)),
+  deleteDraft: (id: number) => request<void>(`/drafts/${id}`, { method: 'DELETE' }),
 
   folders: (projectId: number) => request<Folder[]>(`/projects/${projectId}/folders`),
   createFolder: (projectId: number, body: { name: string; parent_id: number | null }) =>

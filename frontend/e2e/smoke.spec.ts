@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test'
 import type { BrowserContext, Page } from '@playwright/test'
 import { expectAccessible } from './axe.ts'
 import { linkMailedTo, messageTo } from './mail.ts'
-import { makeOperator, movePlan } from './operator.ts'
+import { chooseFlag, makeOperator, movePlan } from './operator.ts'
 import { heldTurns, holdNextTurn, refuseEmbeddings, releaseTurns } from './standin.ts'
 
 // The member's way through the app, end to end: sign up through the link the app mails, find the
@@ -35,7 +35,8 @@ import { heldTurns, holdNextTurn, refuseEmbeddings, releaseTurns } from './stand
 // order by cross-checks, run with a discrepancy report, an automation made, which runs them
 // once a second invoice arrives, puts it in review and tells the member what they found, and last
 // the first invoice put in review, assigned to the colleague, disputed and approved in the reviews
-// view. The answer
+// view, then disputed again from its tab, whose dispute letter the model drafts, citing where each
+// figure is written, edited into a second version, the first still read as it was. The answer
 // is the stand-in's (e2e/standin.py): the first sentence of the passage its search found best,
 // with that passage's reference. Along the way each kind of page, panel and dialog is checked
 // against axe-core's rules for WCAG 2.2 AA in both themes (e2e/axe.ts), and the keyboard's focus
@@ -1225,5 +1226,59 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('listitem').filter({ hasText: 'by the automation “New invoices”' })).toContainText('second-invoice.md')
     await page.getByLabel('What').selectOption('document_assigned')
     await expect(page.getByRole('listitem').filter({ hasText: 'Assigned a document' })).toContainText('invoice.md · to Grace Hopper')
+  })
+
+  await test.step('dispute the invoice from its tab, have the model draft the dispute letter, edit it into a second version and read the first again', async () => {
+    // Drafts, being rolled out to none, turned on for the organisation by the operator's command.
+    chooseFlag(slug, 'drafts', 'on')
+    await page.goto('/')
+    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
+    await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).dblclick()
+    const disputing = page.waitForResponse((response) => response.url().endsWith('/review') && response.request().method() === 'PUT')
+    await page.getByLabel('Review', { exact: true }).selectOption('disputed')
+    await disputing
+    await page.getByRole('button', { name: 'Write a dispute letter' }).click()
+
+    // The draft opens in the library's place, where the model writes it from the invoice's facts.
+    await expect(page.getByRole('heading', { name: /^Dispute letter: / })).toBeFocused()
+    const first = page.getByRole('region', { name: 'Version 1' })
+    const chip = first.getByRole('button', { name: '1', exact: true })
+    await expect(chip).toBeVisible({ timeout: 30_000 })
+    await expect(first).toContainText('Written by the model from the project’s documents')
+    await expect(page.getByText('1 version', { exact: true })).toBeVisible()
+    await expectAccessible(page, 'a draft')
+    await chip.click()
+    await expect(page).toHaveURL(/\/documents\/\d+\?(.*&)?passage=\d+/)
+    await expect(page).toHaveURL(/[?&]draft=\d+/)
+
+    // Edited into a second version, its citation kept, the keyboard going on from its heading once saved.
+    await first.getByRole('button', { name: 'Edit' }).click()
+    const editor = page.getByLabel('Text of the draft')
+    await expect(editor).toBeFocused()
+    const written = await editor.inputValue()
+    await editor.fill(`Dear supplier,\n\n${written}`)
+    await page.getByRole('button', { name: 'Preview' }).click()
+    await expect(page.getByRole('region', { name: 'Editing version 1' }).getByRole('button', { name: '1', exact: true })).toBeVisible()
+    await expectAccessible(page, 'a draft being edited')
+    await page.getByRole('button', { name: 'Save as a new version' }).click()
+    await expect(page.getByRole('heading', { name: 'Version 2' })).toBeFocused()
+    const second = page.getByRole('region', { name: 'Version 2' })
+    await expect(second).toContainText('Dear supplier,')
+    await expect(second.getByRole('button', { name: '1', exact: true })).toBeVisible()
+    // The model's version reads as it was.
+    await page.getByLabel('Version', { exact: true }).selectOption({ index: 1 })
+    await expect(page.getByRole('region', { name: 'Version 1' })).not.toContainText('Dear supplier')
+    await expect(page.getByRole('region', { name: 'Version 1' })).toContainText(/written by the model for /)
+
+    // The project's drafts list it; the audit log keeps it by its kind, never what it says.
+    await page.getByRole('button', { name: 'Back to the drafts' }).click()
+    await expect(page.getByRole('heading', { name: 'Drafts', exact: true })).toBeFocused()
+    await expect(page.getByRole('list', { name: 'Drafts' }).getByRole('listitem')).toContainText('2 versions')
+    await expectAccessible(page, 'the drafts')
+    await page.goto('/organization/audit')
+    await page.getByLabel('What').selectOption('draft_created')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Asked for a draft' })).toContainText('Dispute letter, about 1 document')
+    await page.getByLabel('What').selectOption('draft_changed')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Changed a draft' })).toContainText('Dispute letter, saved as version 2')
   })
 })

@@ -51,6 +51,7 @@ class Flag:
 
 # The flags whose names the code reads, each where its feature is.
 EXTRACTION_TEMPLATES = "extraction_templates"
+DRAFTS = "drafts"
 
 # Every feature behind a flag, by name, in the order the operator's area lists them.
 FLAGS: dict[str, Flag] = {
@@ -63,6 +64,12 @@ FLAGS: dict[str, Flag] = {
         "Extraction templates, the facts table, cross-checks and reviews: the fields each kind "
         "of document is read for, its documents side by side, rules comparing them, and each "
         "document approved or disputed"
+    ),
+    # Drafts the agent writes from a project's documents for its members to edit and send
+    # (app/drafts.py), kept with their versions.
+    DRAFTS: Flag(
+        "Drafts: reply emails, dispute letters, memos, comparison tables and reports the model "
+        "writes from a project's documents, kept with their versions"
     ),
 }
 

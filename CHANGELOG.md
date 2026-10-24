@@ -17,6 +17,23 @@ newest entry first.
 
 Operators:
 
+- Drafts, behind a flag of their own, `drafts`, rolled out to none: the library's "Drafts" asks
+  the model for a reply email, a dispute letter, a summary memo, a comparison table or a report,
+  saying what it should say, about the documents open beside the library or about what the model
+  finds; a disputed document's review offers "Write a dispute letter". The worker has the agent
+  write it from each document's facts beside the passages they came from and from what the
+  project's newest run of cross-checks found about them, citing passages as an answer does. A
+  draft keeps every version: the model's, each member's edit saved as a new version (refused when
+  another was saved meanwhile) and each writing again with what is asked now, each with the
+  passages it cites as they were. Asking for one, or for it again, counts as one of the month's
+  questions and is held to the agent's runs in flight and the day's spending as a question is.
+  New tables `drafts` and `draft_versions`, the job kind `write_draft` in the answerers' lane,
+  the usage kind `draft` and the audit actions `draft_created`, `draft_changed` and
+  `draft_deleted`, by the draft's kind, never what it says (a migration). New routes `GET|POST
+  /api/projects/{id}/drafts`, `GET|DELETE /api/drafts/{id}`, `GET /api/drafts/{id}/versions/{n}`,
+  `POST /api/drafts/{id}/versions` and `POST /api/drafts/{id}/rewrite` (the asking ones held to
+  `RATE_QUESTIONS`), which API keys take. A draft is kept as long as a chat, from when it was last
+  asked for or saved, which the privacy policy now says (the terms' edition is unchanged).
 - An automation may put in review what arrived for it, every document of it or those its
   cross-checks found a difference about, assigned to a member it names, once its run is worked
   out; it never moves a document a member put in review already. Its assignee is told once of

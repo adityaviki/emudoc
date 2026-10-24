@@ -82,6 +82,7 @@ from app.check_runs import abandon_run, run_automation, run_workflow
 from app.config import MAIL_THREADS, Settings, get_settings
 from app.db import SessionLocal, connection_lost
 from app.deadletters import alert_failed_jobs
+from app.drafts import abandon_draft, write_draft
 from app.errors import summary
 from app.export import abandon_export, make_export
 from app.indexing.pipeline import (
@@ -103,6 +104,7 @@ from app.jobs import (
     RUN_WORKFLOW,
     SEEN_WITHIN,
     SEND_EMAIL,
+    WRITE_DRAFT,
     Lease,
     LeaseLost,
     beat,
@@ -351,6 +353,16 @@ def _run_automation(job: Job, services: Services) -> str | None:
     return run_automation(job.payload["automation_id"], Lease(job.id, job.worker_id))
 
 
+def _write_draft(job: Job, services: Services) -> str | None:
+    return write_draft(
+        job.payload["draft_id"], job.payload["user_id"], services, Lease(job.id, job.worker_id)
+    )
+
+
+def _abandon_draft(job: Job, services: Services) -> None:
+    abandon_draft(job.payload["draft_id"], job.max_attempts)
+
+
 def _abandon_automation(job: Job, services: Services) -> None:
     # The arrivals stay with the automation, and the next document that arrives for it runs its
     # checks over them too.
@@ -366,7 +378,8 @@ def _abandon_language(job: Job, services: Services) -> None:
 # The kinds this worker runs. A kind in JOB_KINDS that is missing here is left in the queue for
 # a worker that has it. The answers and the mail have a lane of threads each (`LANE_KINDS`),
 # the runs of cross-checks and the automations that make them the answers', since a member
-# waits for them and their reports are the agent's; every other kind shares the indexers.
+# waits for them and their reports are the agent's, and so the drafts; every other kind shares
+# the indexers.
 HANDLERS: dict[str, Handler] = {
     INDEX_DOCUMENT: Handler(_run_index, _abandon_index, after_index),
     ANSWER_QUESTION: Handler(run_answer, abandon_answer),
@@ -376,8 +389,12 @@ HANDLERS: dict[str, Handler] = {
     EXPORT_PROJECT: Handler(_run_export, _abandon_export),
     RUN_WORKFLOW: Handler(_run_workflow, _abandon_workflow),
     RUN_AUTOMATION: Handler(_run_automation, _abandon_automation),
+    WRITE_DRAFT: Handler(_write_draft, _abandon_draft),
 }
-LANE_KINDS = {ANSWERER: [ANSWER_QUESTION, RUN_WORKFLOW, RUN_AUTOMATION], MAILER: [SEND_EMAIL]}
+LANE_KINDS = {
+    ANSWERER: [ANSWER_QUESTION, RUN_WORKFLOW, RUN_AUTOMATION, WRITE_DRAFT],
+    MAILER: [SEND_EMAIL],
+}
 
 
 class Worker:

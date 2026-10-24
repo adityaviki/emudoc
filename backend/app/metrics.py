@@ -68,6 +68,7 @@ from app.jobs import (
     RUN_AUTOMATION,
     RUN_WORKFLOW,
     SEND_EMAIL,
+    WRITE_DRAFT,
 )
 from app.models import STAGES
 from app.postgres import archive, database_report
@@ -103,6 +104,7 @@ JOBS = (
     EXPORT_PROJECT,
     RUN_WORKFLOW,
     RUN_AUTOMATION,
+    WRITE_DRAFT,
 )
 # What a lane of the worker's threads runs (app/worker.py).
 INDEXER = "indexer"

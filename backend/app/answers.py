@@ -50,7 +50,7 @@ from app.indexing.pipeline import Services
 from app.jobs import ANSWER_QUESTION, LIVE, Lease, LeaseLost, enqueue, renew
 from app.logs import about
 from app.metrics import ANSWER_FIRST_TEXT, POOL_TIMEOUTS
-from app.models import Chat, ChatMessage, Job, Project, WorkflowRun
+from app.models import Chat, ChatMessage, Draft, Job, Project, WorkflowRun
 from app.spending import check_platform_spend, check_spend
 from app.tracing import FIRST_TEXT, WRITE, mark, span
 from app.usage import ANSWER, CHAT_MESSAGE, ModelUsage, record
@@ -205,8 +205,9 @@ def _queue(session: Session, project: Project, answer: ChatMessage) -> None:
 
 
 def answers_in_flight(session: Session, org_id: int) -> int:
-    """How many runs of the agent the organisation has queued or under way: its answers, and
-    the discrepancy reports of its runs of cross-checks (app/check_runs.py)."""
+    """How many runs of the agent the organisation has queued or under way: its answers, the
+    discrepancy reports of its runs of cross-checks (app/check_runs.py) and its drafts being
+    written (app/drafts.py)."""
     answers = session.scalar(
         select(func.count())
         .select_from(ChatMessage)
@@ -219,7 +220,12 @@ def answers_in_flight(session: Session, org_id: int) -> int:
         .select_from(WorkflowRun)
         .where(WorkflowRun.org_id == org_id, WorkflowRun.report_status.in_(("queued", "writing")))
     )
-    return answers + reports
+    drafts = session.scalar(
+        select(func.count())
+        .select_from(Draft)
+        .where(Draft.org_id == org_id, Draft.status.in_(("queued", "writing")))
+    )
+    return answers + reports + drafts
 
 
 def events_after(session: Session, message_id: int, after: int) -> list[tuple[int, dict]]:

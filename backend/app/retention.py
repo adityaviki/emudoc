@@ -177,6 +177,19 @@ _PRUNE_RUNS = text(
            OR workflow_runs.report_status NOT IN ('queued', 'writing'))
     """
 )
+# A draft holds what documents said, as a chat's answers do, and is kept as long, from when it was
+# last asked for, written or saved; never one the worker is writing.
+_PRUNE_DRAFTS = text(
+    f"""
+    DELETE FROM drafts
+    USING organizations,
+          unnest(CAST(:plans AS text[]), CAST(:days AS integer[])) AS kept (plan, days)
+    WHERE organizations.id = drafts.org_id
+      AND organizations.plan = kept.plan
+      AND {_past_retention("drafts.updated_at")}
+      AND drafts.status NOT IN ('queued', 'writing')
+    """
+)
 
 
 @dataclass(frozen=True)
@@ -312,6 +325,12 @@ def prune_runs(connection: Connection) -> int:
     """Delete the runs of cross-checks (app/check_runs.py) made longer ago than their
     organisation keeps a chat; returns how many."""
     return connection.execute(_PRUNE_RUNS, _plans_kept()).rowcount
+
+
+def prune_drafts(connection: Connection) -> int:
+    """Delete the drafts (app/drafts.py) last asked for or saved longer ago than their
+    organisation keeps a chat; returns how many."""
+    return connection.execute(_PRUNE_DRAFTS, _plans_kept()).rowcount
 
 
 def _plans_kept() -> dict[str, list]:

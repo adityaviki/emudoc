@@ -68,6 +68,13 @@ REVIEW_STATES = ("to_review", "approved", "disputed")
 # What an automation's run puts in review (app/reviews.py), of the documents that arrived for it
 # and are in none: those its cross-checks found a difference about, or every one it watches.
 AUTOMATION_REVIEWS = ("differs", "arrived")
+# What a draft is (app/drafts.py), each kind with its own instructions to the agent: a reply to
+# an email, a letter disputing a document, a memo summing documents up, a table setting them side
+# by side, and a report.
+DRAFT_KINDS = ("reply_email", "dispute_letter", "summary_memo", "comparison_table", "report")
+# How far the agent's writing of a draft is: waiting for the worker, being written, kept as the
+# draft's newest version, or failed, the versions before it staying as they were.
+DRAFT_STATUSES = ("queued", "writing", "done", "failed")
 # From most to least permitted: each role may do everything the roles after it may.
 ROLES = ("owner", "admin", "member", "viewer")
 # The roles an organisation may let everyone at its domains join with (app/invitations.py): none
@@ -93,6 +100,7 @@ JOB_KINDS = (
     "sync_connector",
     "run_workflow",
     "run_automation",
+    "write_draft",
 )
 JOB_STATUSES = ("queued", "running", "done", "failed")
 # Why an address is sent no notices (app/bounces.py): mail to it bounced for good, or its reader
@@ -105,9 +113,20 @@ EXPORT_STATUSES = ("queued", "ready", "failed")
 # user, or failed. A question is always `done`.
 MESSAGE_STATUSES = ("streaming", "done", "stopped", "failed")
 # What an organisation is metered for (app/usage.py): the activity a row counts, and what the
-# count is in. The stored `usage` of a document, a message or a run of cross-checks
-# (`Document.usage`, `ChatMessage.usage`, `WorkflowRun.usage`) is keyed by the same kinds.
-USAGE_KINDS = ("answer", "upload", "ocr", "infer_sections", "enrich", "embed", "render", "report")
+# count is in. The stored `usage` of a document, a message, a run of cross-checks or a draft
+# (`Document.usage`, `ChatMessage.usage`, `WorkflowRun.usage`, `Draft.usage`) is keyed by the same
+# kinds.
+USAGE_KINDS = (
+    "answer",
+    "upload",
+    "ocr",
+    "infer_sections",
+    "enrich",
+    "embed",
+    "render",
+    "report",
+    "draft",
+)
 USAGE_UNITS = ("calls", "input_tokens", "output_tokens", "pages", "bytes", "inputs", "questions")
 # What an organisation is entitled to (app/entitlements.py), from the plan with the least to
 # the one with no limits. A new organisation starts on the first.
@@ -140,7 +159,9 @@ NATURAL_ORDER = "natural_order"
 # its documents' content leaving the app; a run of its cross-checks is made, by a member or by an
 # automation, a discrepancy report asked of the agent and the run deleted for good
 # (app/check_runs.py), and its automations made, changed and deleted (app/automations.py). A
-# document's review moves from state to state and is assigned to a member (app/reviews.py).
+# document's review moves from state to state and is assigned to a member (app/reviews.py). A
+# draft is asked of the agent, changed by a member's version or the agent's writing it again, and
+# deleted for good (app/drafts.py).
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -212,6 +233,9 @@ AUDIT_ACTIONS = (
     "automation_created",
     "automation_changed",
     "automation_deleted",
+    "draft_created",
+    "draft_changed",
+    "draft_deleted",
     "project_deleted",
     "project_restored",
     "project_purged",
@@ -1531,6 +1555,101 @@ class AutomationArrival(Base):
     )
     recheck: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     arrived_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class Draft(Base):
+    """A document the agent wrote from a project's documents for its members to edit and send
+    (app/drafts.py): a reply email, a dispute letter, a summary memo, a comparison table or a
+    report, with what was asked of it, the documents it is about, and its versions.
+
+    The agent writes a version whole as a worker's `write_draft` job, which the page follows by
+    `status`; each member's save and each writing again adds another (`DraftVersion`), the older
+    ones kept. A draft is the project's: everyone who sees the project reads it, and whoever may
+    change the project changes it.
+    """
+
+    __tablename__ = "drafts"
+    __table_args__ = (
+        _one_of("kind", DRAFT_KINDS, "drafts"),
+        _one_of("status", DRAFT_STATUSES, "drafts"),
+        # The project's drafts, newest first, as its list pages them.
+        Index("ix_drafts_project", "project_id", "id"),
+        # What the agent's runs in flight count (app/answers.py): the few drafts being written.
+        Index(
+            "ix_drafts_writing", "org_id", postgresql_where=text("status IN ('queued', 'writing')")
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # The tenant, as for every row a member reaches by its id.
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    # Who asked for it first; null once their account is gone. Indexed for the account purge.
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    # One of DRAFT_KINDS.
+    kind: Mapped[str] = mapped_column(String(30))
+    # Its name in the project's list, made from its kind and what it is about when it was asked.
+    title: Mapped[str] = mapped_column(String(300))
+    # What the member asked of it in their own words, which a writing again may change.
+    instructions: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # The documents it is about, as `{"id", "title"}` when it was asked: their ids, which may be
+    # gone since, and their names as they were.
+    documents: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    # The run of the project's cross-checks whose findings about those documents its last
+    # writing was given, the newest that had any; null for none, and once the run is deleted.
+    run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("workflow_runs.id", ondelete="SET NULL"), index=True
+    )
+    # One of DRAFT_STATUSES: the agent's writing, the first or the last asked for.
+    status: Mapped[str] = mapped_column(String(20), default="queued", server_default="queued")
+    # Why the last writing failed, and how it ended when not as it should (cut off), in the
+    # sentences its members read.
+    error: Mapped[str | None] = mapped_column(Text)
+    notice: Mapped[str | None] = mapped_column(Text)
+    # What its writings used, by kind (`draft`: the model's calls, tokens and cost), as
+    # app/usage.py keeps it.
+    usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # When it was last asked for, written or saved, which its retention counts from
+    # (app/retention.py).
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class DraftVersion(Base):
+    """A version of a draft, as the agent wrote it or a member saved it, never changed after.
+
+    Its text cites passages as [P<id>], as an answer does, and keeps the passages it cites as
+    they were (`sources`): a document's passages are written anew at every reading, so a version
+    reads the same after its documents are read again or deleted.
+    """
+
+    __tablename__ = "draft_versions"
+
+    draft_id: Mapped[int] = mapped_column(
+        ForeignKey("drafts.id", ondelete="CASCADE"), primary_key=True
+    )
+    # 1 for the first, each next one more.
+    number: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Before `text`, whose column would hide SQLAlchemy's `text` in the class body.
+    sources: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    text: Mapped[str] = mapped_column(Text)
+    # True for the agent's writing, which `user_id` asked for; false for a member's save.
+    by_model: Mapped[bool] = mapped_column(Boolean)
+    # Who asked for it or saved it; null once their account is gone. Indexed for the purge.
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 

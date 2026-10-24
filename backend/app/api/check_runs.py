@@ -103,10 +103,10 @@ def run_checks(
     ):
         raise HTTPException(409, STILL_RUNNING)
     if body.report:
-        _refuse_report(session, account, f"A report of project {project.id}'s checks")
+        refuse_agent_run(session, account, f"A report of project {project.id}'s checks")
     run = start_run(session, project, account.user.id, list(rows), report=body.report)
     if body.report:
-        _count_question(session, account, project.id, request)
+        count_question(session, account, project.id, request)
     audit(
         session,
         account,
@@ -221,12 +221,12 @@ def ask_report(run: EditableRunDep, session: SessionDep, account: AccountDep, re
         raise HTTPException(409, RUN_FAILED)
     if run.report_status in ("queued", "writing"):
         raise HTTPException(409, WRITING)
-    _refuse_report(session, account, f"A report of run {run.id}")
+    refuse_agent_run(session, account, f"A report of run {run.id}")
     run.report_status = "queued"
     run.report, run.report_sources = "", []
     run.report_notice = run.report_error = None
     queue_run(session, run)
-    _count_question(session, account, run.project_id, request)
+    count_question(session, account, run.project_id, request)
     audit(
         session,
         account,
@@ -256,17 +256,19 @@ def delete_run(run: DeletableRunDep, session: SessionDep, account: AccountDep, r
     session.commit()
 
 
-def _refuse_report(session: Session, account: Account, what: str) -> None:
-    """Refuse a report past what holds a question: the agent's runs in flight, the month's
-    questions and the day's spending."""
+def refuse_agent_run(session: Session, account: Account, what: str) -> None:
+    """Refuse a run of the agent asked for without a question, a report or a draft
+    (app/api/drafts.py), past what holds a question: the agent's runs in flight, the month's
+    questions and the day's spending; `what` names it for the log."""
     refuse_past_answers_in_flight(session, account, what)
     if refusal := check_question(session, account.organization):
         raise PlanRefused(refusal)
     refuse_past_spending(session, account, what)
 
 
-def _count_question(session: Session, account: Account, project_id: int, request: Request) -> None:
-    """Count the report as one of the month's questions, as asking does (app/api/chats.py)."""
+def count_question(session: Session, account: Account, project_id: int, request: Request) -> None:
+    """Count a report or a draft as one of the month's questions, as asking does
+    (app/api/chats.py)."""
     record(
         session,
         org_id=account.organization.id,

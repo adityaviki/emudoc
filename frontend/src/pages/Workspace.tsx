@@ -165,6 +165,14 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
         setMobilePane('library')
         go({ library: { folderId: null, q: '', reviews: whose } })
       },
+      showDrafts() {
+        setMobilePane('library')
+        go({ library: { folderId: null, q: '', drafts: true } })
+      },
+      showDraft(draftId) {
+        setMobilePane('library')
+        go({ library: { folderId: null, q: '', draft: draftId } })
+      },
       openChat(chatId, options) {
         if (chatId === 'new') setMobilePane('chat')
         go({ chatId }, options)

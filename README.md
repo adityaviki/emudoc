@@ -211,6 +211,24 @@ towards it, and the cross-checks inform it. Each move and assignment is a row of
 the document's name and the states or whom it was assigned to, never a value; a document in the
 trash keeps its review, and a member who leaves the organisation is assigned nothing of it.
 
+The agent also writes drafts for the members to edit and send (`backend/app/drafts.py`, `POST
+/api/projects/{id}/drafts`): a reply email, a dispute letter, a summary memo, a comparison table or
+a report. The library's "Drafts" asks for one of a kind, saying what it should say, about the
+documents open beside the library or about what the agent finds; a disputed document's review
+offers "Write a dispute letter" about it. The background worker has the agent write it from what
+the code read for it: each document with its facts beside the passages they came from, and what
+the project's newest run of cross-checks found about them, which it states as found; it cites
+passages as an answer does, and reads around them with its tools. A draft keeps every version: the
+agent's, and each member's edit, saved as a new version from the newest (`POST
+/api/drafts/{id}/versions`, refused when another was saved meanwhile), or the agent's writing it
+again with what is asked now (`POST /api/drafts/{id}/rewrite`), each version with the passages it
+cites as they were, so it reads the same after its documents are read again. Asking for one, or
+for it again, counts as one of the month's questions and is held to the day's spending as a
+question is. The drafts are the project's: everyone who sees it reads them (`GET
+/api/projects/{id}/drafts`, `GET /api/drafts/{id}`, `GET /api/drafts/{id}/versions/{n}`), whoever
+may change it asks for, edits and deletes them, each a row of the audit log by the draft's kind,
+never what it says; a draft is kept as long as a chat, from when it was last written or saved.
+
 A project can hold any number of chats. Each one is saved with its answers, including the
 steps the agent took and the passages it was shown, so a chat can be reopened later. An answer
 is written by the background worker, not by the request that asked the question: the question

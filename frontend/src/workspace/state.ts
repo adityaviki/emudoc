@@ -64,6 +64,10 @@ export interface Workspace {
   showRun(runId: number): void
   /** Shows the project's documents in review in the library, every member's or those assigned to the member, likewise. */
   showReviews(whose?: Reviews): void
+  /** Shows the drafts the model wrote from the project's documents in the library, likewise. */
+  showDrafts(): void
+  /** Shows one of the project's drafts, with its versions, in the library, likewise. */
+  showDraft(draftId: number): void
   openChat(chatId: number | 'new' | null, options?: { replace?: boolean }): void
   /** Which pane shows on a narrow screen, where only one fits. */
   mobilePane: Pane

@@ -3,7 +3,8 @@
 // choices ask for, its days in the browser's own zone.
 
 import { PLAN_LABELS, ROLE_LABELS } from './api.ts'
-import type { AuditAction, AuditEvent, AuditFilter, NoticeKind, Plan, ReviewState, Role } from './api.ts'
+import type { AuditAction, AuditEvent, AuditFilter, DraftKind, NoticeKind, Plan, ReviewState, Role } from './api.ts'
+import { KIND_LABELS } from './drafts.ts'
 import { fieldWords } from './factTable.ts'
 import { formatDate, formatDateTime } from './format.ts'
 import { NOTICE_KINDS } from './notifications.ts'
@@ -97,6 +98,9 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   automation_created: ['Made an automation', 'files'],
   automation_changed: ['Changed an automation', 'files'],
   automation_deleted: ['Deleted an automation', 'files'],
+  draft_created: ['Asked for a draft', 'files'],
+  draft_changed: ['Changed a draft', 'files'],
+  draft_deleted: ['Deleted a draft', 'files'],
   project_deleted: ['Deleted a project', 'files'],
   project_restored: ['Restored a project', 'files'],
   project_purged: ['Deleted a project for good', 'files'],
@@ -182,6 +186,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   else if (CROSS_CHECK_ACTIONS.has(event.action)) parts.push(describeCrossCheck(detail))
   else if (RUN_ACTIONS.has(event.action)) parts.push(describeRun(detail))
   else if (AUTOMATION_ACTIONS.has(event.action)) parts.push(describeAutomation(detail))
+  else if (DRAFT_ACTIONS.has(event.action)) parts.push(describeDraft(detail))
   else if (event.action === 'document_review_changed') parts.push(`${review(detail.from)} → ${review(detail.to)}`)
   else if (event.action === 'document_assigned') parts.push(describeAssignment(detail, names))
   else if ('to' in detail) parts.push(`${word(detail.from)} → ${word(detail.to)}`)
@@ -324,6 +329,20 @@ function describeAutomation(detail: AuditEvent['detail']): string {
   if (Array.isArray(detail.changed) && detail.changed.length > 0) {
     parts.push(`changed ${detail.changed.map((part) => AUTOMATION_PARTS[String(part)] ?? String(part)).join(', ')}`)
   }
+  return parts.join(', ')
+}
+
+const DRAFT_ACTIONS = new Set<AuditAction>(['draft_created', 'draft_changed', 'draft_deleted'])
+
+/** A draft asked for, changed or deleted: its kind, how many documents it was about, and the version a member saved or the model's writing again, never what it says. */
+function describeDraft(detail: AuditEvent['detail']): string {
+  const kind = typeof detail.kind === 'string' && detail.kind in KIND_LABELS ? KIND_LABELS[detail.kind as DraftKind] : 'a draft'
+  const parts = [kind]
+  if (typeof detail.documents === 'number') {
+    parts.push(detail.documents ? `about ${detail.documents} document${detail.documents === 1 ? '' : 's'}` : 'about what the model finds')
+  }
+  if (typeof detail.version === 'number') parts.push(`saved as version ${detail.version}`)
+  if (detail.rewritten === true) parts.push('written again by the model')
   return parts.join(', ')
 }
 

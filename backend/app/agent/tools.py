@@ -342,15 +342,7 @@ def query_facts(ctx: ToolContext, args: QueryFactsInput) -> str:
         "name | value | document | page | source",
     ]
     for fact, document in rows:
-        value = fact.value + (f" ({fact.currency})" if fact.currency else "")
-        if fact.check is not None and fact.check.corrected:
-            # A member's correction is the fact's value; the source passage holds what the
-            # model misread.
-            value += f" (corrected by a member; the indexing model read {fact.check.read_value})"
-        elif fact.check is not None:
-            value += " (checked by a member)"
-        elif not fact.verified:
-            value += " (unverified: quote not found in the source)"
+        value = worded_value(fact)
         passage = passages.get(fact.passage_id)
         source = ctx.cite(passage, document.display_title) if passage else "-"
         lines.append(
@@ -500,6 +492,21 @@ def _document_line(document: Document, folder_paths: dict[int, str]) -> str:
 
 # What a partly indexed document lacks for the model, by the stage it went without.
 _WITHOUT = {"enrich": "no summaries or facts", "embed": "found by keyword search alone"}
+
+
+def worded_value(fact: Fact) -> str:
+    """A fact's value as the model is told it, with its currency and how far it can be trusted:
+    checked or corrected by a member, or a quote the source does not hold."""
+    value = fact.value + (f" ({fact.currency})" if fact.currency else "")
+    if fact.check is not None and fact.check.corrected:
+        # A member's correction is the fact's value; the source passage holds what the model
+        # misread.
+        return value + f" (corrected by a member; the indexing model read {fact.check.read_value})"
+    if fact.check is not None:
+        return value + " (checked by a member)"
+    if not fact.verified:
+        return value + " (unverified: quote not found in the source)"
+    return value
 
 
 def _pages(start: int | None, end: int | None) -> str:

@@ -133,6 +133,12 @@ describe('a row', () => {
     expect(describeDetail(event('cross_checks_run', { names: ['Totals'], report: false, automation: 'New invoices' }))).toBe(
       'Totals, by the automation “New invoices”',
     )
+    // A draft: its kind, what it was about counted, and how it changed, never what it says.
+    expect(describeDetail(event('draft_created', { kind: 'dispute_letter', documents: 1 }))).toBe('Dispute letter, about 1 document')
+    expect(describeDetail(event('draft_created', { kind: 'summary_memo', documents: 0 }))).toBe('Summary memo, about what the model finds')
+    expect(describeDetail(event('draft_changed', { kind: 'report', version: 3 }))).toBe('Report, saved as version 3')
+    expect(describeDetail(event('draft_changed', { kind: 'report', rewritten: true }))).toBe('Report, written again by the model')
+    expect(describeDetail(event('draft_deleted', { kind: 'reply_email' }))).toBe('Reply email')
     // A fact checked or corrected: the document and the field, never what it says.
     expect(describeDetail(event('fact_corrected', { filename: 'acme-10.pdf', field: 'total_amount' }))).toBe('acme-10.pdf · total amount')
     // A member's leave for support, support's view of their account, and what was done in it.

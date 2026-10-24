@@ -22,6 +22,11 @@ export function movePlan(slug: string, plan: string, ...options: string[]) {
   maintenance('plan', slug, plan, ...options)
 }
 
+/** Turn a feature flag on or off for an organisation, or back to its rollout, as the `flags` command does. */
+export function chooseFlag(slug: string, flag: string, choice: 'on' | 'off' | 'rollout') {
+  maintenance('flags', slug, flag, choice)
+}
+
 /** Let the account with the address open the operator's area, as the `operators` command does. */
 export function makeOperator(address: string) {
   maintenance('operators', 'add', address)

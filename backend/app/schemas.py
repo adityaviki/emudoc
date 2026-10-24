@@ -918,6 +918,102 @@ class RunFindingsOut(BaseModel):
     gone: list[int]
 
 
+DraftKind = Literal["reply_email", "dispute_letter", "summary_memo", "comparison_table", "report"]
+DraftStatus = Literal["queued", "writing", "done", "failed"]
+# What a member may write of a draft and of what they ask of it, and the documents one may be about.
+DRAFT_CHARS = 100_000
+INSTRUCTION_CHARS = 4000
+DRAFT_DOCUMENTS = 10
+
+
+class DraftIn(BaseModel):
+    """A draft a member asks the agent for: its kind, what it should say in their words, and
+    the documents it is about, none to have the agent find them."""
+
+    kind: DraftKind
+    instructions: str = Field(default="", max_length=INSTRUCTION_CHARS)
+    document_ids: list[int] = Field(default_factory=list, max_length=DRAFT_DOCUMENTS)
+
+
+class DraftRewriteIn(BaseModel):
+    """A draft written again by the agent as a new version, with what the member asks of it
+    now in place of what they asked before; left out, it stays."""
+
+    instructions: str | None = Field(default=None, max_length=INSTRUCTION_CHARS)
+
+
+class DraftVersionIn(BaseModel):
+    """A member's text of a draft, kept as its newest version, and the number of the newest
+    version they edited it from, which must still be the newest."""
+
+    text: str = Field(min_length=1, max_length=DRAFT_CHARS)
+    base: int = Field(ge=0)
+
+
+class DraftDocumentOut(BaseModel):
+    """A document a draft is about, by its name when the draft was asked for, and whether it was
+    deleted or put in the trash since, which cannot be opened."""
+
+    id: int
+    title: str
+    gone: bool
+
+
+class DraftVersionSummaryOut(BaseModel):
+    """A version of a draft as its history lists it: its number, whether the model wrote it, and
+    who asked for it or saved it (their name as it is now, None once their account is gone)."""
+
+    number: int
+    by_model: bool
+    author: str | None
+    created_at: dt.datetime
+
+
+class DraftVersionOut(DraftVersionSummaryOut):
+    """A version whole: its text, citing passages as [P<id>], and the passages it cites as they
+    were when it was written."""
+
+    text: str
+    sources: list[SourceOut]
+
+
+class DraftSummaryOut(BaseModel):
+    """A draft as the project's list shows it: its kind and name, how far the model's writing of
+    it is, who asked for it first, and how many versions it has."""
+
+    id: int
+    project_id: int
+    kind: DraftKind
+    title: str
+    status: DraftStatus
+    created_by: str | None
+    versions: int
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+
+class DraftOut(DraftSummaryOut):
+    """A draft whole: what was asked of it, the documents it is about, the run whose findings its
+    last writing was given, why that writing failed or how it ended, what its writings used, its
+    versions newest first and the newest one's text."""
+
+    instructions: str
+    documents: list[DraftDocumentOut]
+    run_id: int | None
+    error: str | None
+    notice: str | None
+    usage: dict[str, UsageOut]
+    history: list[DraftVersionSummaryOut]
+    latest: DraftVersionOut | None
+
+
+class DraftsOut(BaseModel):
+    """A page of the project's drafts, newest first, and the id the next page starts before."""
+
+    drafts: list[DraftSummaryOut]
+    next_before: int | None
+
+
 # Enough to catch a typo; the verification email settles whether the address is real.
 EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 # NIST SP 800-63B: a minimum length and no composition rules; the routes refuse a breached

@@ -138,6 +138,7 @@ from app.restore import after_restore, describe_restore
 from app.retention import (
     day,
     prune_chats,
+    prune_drafts,
     prune_runs,
     purge_due_accounts,
     purge_due_organizations,
@@ -521,6 +522,7 @@ def housekeeping(storage: Storage) -> None:
         minutes = prune_rate_limits(connection)
         chats = prune_chats(connection)
         runs = prune_runs(connection)
+        drafts = prune_drafts(connection)
         audited = prune_audit(connection)
         credentials = prune_credentials(connection)
         billing_events = prune_billing_events(connection)
@@ -580,6 +582,8 @@ def housekeeping(storage: Storage) -> None:
         log.info(
             "Housekeeping: deleted %s runs of cross-checks kept past their plan's retention", runs
         )
+    if drafts:
+        log.info("Housekeeping: deleted %s drafts kept past their plan's retention", drafts)
     if emptied.projects or emptied.folders or emptied.documents or emptied.chats:
         log.info(
             "Housekeeping: deleted for good what was in the trash for %s days: %s projects, "

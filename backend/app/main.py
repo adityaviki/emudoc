@@ -26,6 +26,7 @@ from app.api import (
     check_runs,
     cross_checks,
     documents,
+    drafts,
     exports,
     folders,
     help,
@@ -447,6 +448,7 @@ KEYED = (
     check_runs.router,
     automations.router,
     reviews.router,
+    drafts.router,
 )
 
 

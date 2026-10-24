@@ -8,6 +8,8 @@ from pydantic_ai.messages import TextPart
 
 from app.answers import answer
 from app.check_runs import run_workflow
+from app.drafts import write_draft
+from app.flags import DRAFTS
 from app.indexing.pipeline import process_document
 from tests.conftest import FakeTurn
 from tests.test_api import create_project, upload
@@ -24,13 +26,13 @@ AUTOMATION = {"title": "New invoices", "kind": "invoice"}
 @dataclass
 class World:
     """A project with a folder, an indexed document with a fact a member checked, the upload it came
-    in with, an extraction template of its own, a cross-check with a run of it and an automation,
-    and a chat holding one answered
+    in with, an extraction template of its own, a cross-check with a run of it and an automation, a
+    draft the model wrote, and a chat holding one answered
     question, and in its trash a folder, a document and a chat; another project in the trash; an
     invitation to the organisation and an API key of it, all made by the local owner in the local
     organisation, and another member of it. The extraction templates are on for every
-    organisation, so that what refuses another organisation is the project's scope, not the
-    flag."""
+    organisation, and so are the drafts, so that what refuses another organisation is the
+    project's scope, not the flag."""
 
     org_id: int
     project_id: int
@@ -54,11 +56,13 @@ class World:
     cross_check_id: int
     run_id: int
     automation_id: int
+    draft_id: int
 
 
 @pytest.fixture
 def world(client, services, sample_pdf, account, make_account, monkeypatch) -> World:
     turn_on(monkeypatch)
+    turn_on(monkeypatch, DRAFTS)
     project = create_project(client)
     folder = make_folder(client, project["id"], "Contracts")
     uploaded = upload(client, project["id"], sample_pdf)
@@ -87,6 +91,9 @@ def world(client, services, sample_pdf, account, make_account, monkeypatch) -> W
     checked_run = client.post(f"/api/projects/{project['id']}/check-runs", json={}).json()
     run_workflow(checked_run["id"], services)
     automation = client.post(f"/api/projects/{project['id']}/automations", json=AUTOMATION)
+    draft = client.post(f"/api/projects/{project['id']}/drafts", json={"kind": "report"}).json()
+    services.llm.agent_turns.append(FakeTurn(TextPart("A report.")))
+    write_draft(draft["id"], account.user.id, services)
     for path in (
         f"/api/folders/{trashed_folder['id']}",
         f"/api/documents/{note['id']}",
@@ -117,6 +124,7 @@ def world(client, services, sample_pdf, account, make_account, monkeypatch) -> W
         cross_check.json()["id"],
         checked_run["id"],
         automation.json()["id"],
+        draft["id"],
     )
 
 
@@ -148,6 +156,9 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/projects/{w.project_id}/automations", {}),
         ("GET", f"/api/projects/{w.project_id}/reviews", {}),
         ("GET", f"/api/projects/{w.project_id}/reviewers", {}),
+        ("GET", f"/api/projects/{w.project_id}/drafts", {}),
+        ("GET", f"/api/drafts/{w.draft_id}", {}),
+        ("GET", f"/api/drafts/{w.draft_id}/versions/1", {}),
         ("GET", f"/api/documents/{w.document_id}", {}),
         ("GET", f"/api/documents/{w.document_id}/file", {}),
         ("GET", f"/api/documents/{w.document_id}/pages/1.png", {}),
@@ -187,6 +198,9 @@ def writes(w: World) -> list[Route]:
         ("POST", f"/api/check-runs/{w.run_id}/report", {}),
         ("POST", f"/api/projects/{w.project_id}/automations", {"json": AUTOMATION}),
         ("PUT", f"/api/automations/{w.automation_id}", {"json": AUTOMATION}),
+        ("POST", f"/api/projects/{w.project_id}/drafts", {"json": {"kind": "report"}}),
+        ("POST", f"/api/drafts/{w.draft_id}/versions", {"json": {"text": "Mine.", "base": 1}}),
+        ("POST", f"/api/drafts/{w.draft_id}/rewrite", {"json": {}}),
         ("PUT", f"/api/facts/{w.fact_id}/check", {"json": {"value": "120 days"}}),
         (
             "POST",
@@ -199,6 +213,7 @@ def writes(w: World) -> list[Route]:
         ("PUT", f"/api/documents/{w.document_id}/review", {"json": {"state": "approved"}}),
         ("DELETE", f"/api/fact-checks/{w.check_id}", {}),
         ("DELETE", f"/api/check-runs/{w.run_id}", {}),
+        ("DELETE", f"/api/drafts/{w.draft_id}", {}),
         ("DELETE", f"/api/automations/{w.automation_id}", {}),
         ("DELETE", f"/api/cross-checks/{w.cross_check_id}", {}),
         ("DELETE", f"/api/templates/{w.template_id}", {}),

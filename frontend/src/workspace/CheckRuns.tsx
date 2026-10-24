@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, ChevronDown, ChevronRight, FileText, ListChecks, Play, RotateCcw, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
-import { api, mayChange, sourceLabel } from '../api.ts'
+import { api, mayChange } from '../api.ts'
 import type { CheckRun, CheckRunRule, FindingOutcome, Source } from '../api.ts'
 import { useMe } from '../auth.ts'
 import {
@@ -20,13 +20,12 @@ import {
   settling,
 } from '../checkRuns.ts'
 import { Confirm } from '../components/Confirm.tsx'
-import { Markdown } from '../components/Markdown.tsx'
 import { Button, Checkbox, EmptyState, IconButton, Loading, Notice, Segmented, Spinner } from '../components/ui.tsx'
 import { OUTCOMES, OUTCOME_CHOICES, checkSentence, countsWords } from '../crossChecks.ts'
 import { sourceOf } from '../factTable.ts'
 import { useStatus } from '../hooks.ts'
 import { describeAnswerUsage } from '../usage.ts'
-import { CitationChip } from './ChatPane.tsx'
+import { CitedText } from './CitedText.tsx'
 import { FindingItem, Refused } from './Findings.tsx'
 import { useWorkspace } from './state.ts'
 
@@ -262,7 +261,7 @@ function ReportBody({
     const usage = run.usage.report
     return (
       <div className="space-y-2.5">
-        <CitedReport run={run} onOpen={onOpen} />
+        <CitedText text={run.report} sources={run.report_sources} onOpen={onOpen} />
         {run.report_notice && <p className="text-xs text-muted">{run.report_notice}</p>}
         <p className="text-[11px] text-muted">
           Written by the model from what the run found: check a value at its source before acting on it.
@@ -277,46 +276,6 @@ function ReportBody({
       <p className="text-xs text-muted">{run.status === 'done' ? REPORT_NOTE : 'A report can be asked for once the checks are worked out.'}</p>
       {ask('Write a report', false)}
     </div>
-  )
-}
-
-/** The report's words, its citations numbered in the order it first makes them, and the passages they cite. */
-function CitedReport({ run, onOpen }: { run: CheckRun; onOpen: (source: Source) => void }) {
-  const sources = new Map(run.report_sources.map((source) => [source.id, source]))
-  const cited = [...new Set([...run.report.matchAll(/\[P(\d+)\]/g)].map((match) => Number(match[1])))].filter((id) => sources.has(id))
-  const numberOf = (id: number) => cited.indexOf(id) + 1
-  return (
-    <>
-      <div className="text-[13px]">
-        <Markdown
-          text={run.report}
-          citation={(id) => {
-            const source = sources.get(id)
-            // A reference the model was never shown: left as plain text, never linked.
-            return source ? <CitationChip number={numberOf(id)} source={source} onOpen={() => onOpen(source)} /> : <span className="text-muted">[P{id}]</span>
-          }}
-        />
-      </div>
-      {cited.length > 0 && (
-        <div className="border-t border-line pt-2.5">
-          <p className="mb-1 text-[11px] font-medium tracking-wide text-muted uppercase">Sources</p>
-          <ol className="space-y-0.5 text-xs text-muted">
-            {cited.map((id) => (
-              <li key={id}>
-                <button
-                  type="button"
-                  onClick={() => onOpen(sources.get(id)!)}
-                  className="-mx-1 flex gap-2 rounded px-1 py-0.5 text-left transition hover:bg-sunken hover:text-ink"
-                >
-                  <span className="w-3 shrink-0 font-semibold text-accent tabular-nums">{numberOf(id)}</span>
-                  {sourceLabel(sources.get(id)!)}
-                </button>
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-    </>
   )
 }
 

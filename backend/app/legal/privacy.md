@@ -35,8 +35,9 @@ organisation uploaded a document about you, ask the organisation first; we help 
   their pages, summaries, facts and the search index), the facts you checked or corrected with
   when, and the documents you put in review, approved or disputed with when and those assigned
   to you, which your organisation's members see beside your name, your chats with their
-  questions and answers, and the runs of a project's cross-checks you made, with the values
-  they compared and the reports the model wrote from them. We need them to provide the
+  questions and answers, the runs of a project's cross-checks you made, with the values
+  they compared and the reports the model wrote from them, and the drafts you asked the model
+  for or edited, with what you asked of them and every version. We need them to provide the
   service.
 - **Invitations**: the email address a member of an organisation invited to join it, the role
   offered and who sent it, to mail the invitation and let whoever holds the address join; the
@@ -130,6 +131,8 @@ $region
 - **Runs of cross-checks**, with what they found and their reports, for as long as the
   organisation keeps a chat, counted from when the run was made, unless a member deletes them
   sooner.
+- **Drafts**, with their versions, for as long as the organisation keeps a chat, counted from
+  when one was last asked for or saved, unless a member deletes it sooner.
 - **Audit log entries**, for as long as the organisation's plan keeps them
   ($audit_retention), or the terms agreed with the organisation in its place; after a move to
   a plan or terms that keep them for less time, as before for $held_days days after the move.

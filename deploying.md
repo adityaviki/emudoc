@@ -1692,6 +1692,9 @@ every six hours), and so what the privacy notice can promise:
   `backend/app/check_runs.py`) go as a chat would, counted from when the run was made
   (`prune_runs` in `backend/app/retention.py`), never one the worker is still working out or
   writing a report for.
+- **Drafts** (`drafts`, with their versions, `backend/app/drafts.py`) go as a chat would,
+  counted from when one was last asked for, written or saved (`prune_drafts`), never one the
+  worker is writing. A member deletes one for good; drafts have no trash.
 - **The trash**: a project, folder, document or chat a member deleted goes for good, rows and
   files, 30 days after it was deleted (`TRASH_DAYS` in `backend/app/trash.py`, `purge_trash` in
   the housekeeping round), unless a member restores it or deletes it for good there first. Its

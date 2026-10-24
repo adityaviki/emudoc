@@ -47,11 +47,10 @@ INVOICE = {
 }
 
 
-def turn_on(monkeypatch) -> None:
-    """The feature on for every organisation, as once it is rolled out to all."""
-    monkeypatch.setitem(
-        FLAGS, EXTRACTION_TEMPLATES, replace(FLAGS[EXTRACTION_TEMPLATES], share=100)
-    )
+def turn_on(monkeypatch, name: str = EXTRACTION_TEMPLATES) -> None:
+    """The feature on for every organisation, as once it is rolled out to all; another flag's
+    when named (tests/test_drafts.py)."""
+    monkeypatch.setitem(FLAGS, name, replace(FLAGS[name], share=100))
 
 
 @pytest.fixture

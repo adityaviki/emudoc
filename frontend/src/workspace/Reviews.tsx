@@ -16,6 +16,7 @@ import {
   reviewersKey,
   reviewsKey,
 } from '../reviews.ts'
+import { WriteDisputeLetter } from './Drafts.tsx'
 import { fileKind } from './files.ts'
 import { useReviewChange } from './mutations.ts'
 import { useWorkspace } from './state.ts'
@@ -51,12 +52,14 @@ export function ReviewMark({
 
 /**
  * Where a document's review stands and, for a role that may change it, its state and its assignee to choose, each
- * saved as it is chosen. `onChanged` follows a change the server kept, for a list the document may have left.
+ * saved as it is chosen, and once disputed, the way to the letter that disputes it where drafts are on. `onChanged`
+ * follows a change the server kept, for a list the document may have left.
  */
 export function ReviewControls({ document, onChanged }: { document: Document; onChanged?: (document: Document) => void }) {
   const me = useMe()
   const { project } = useWorkspace()
   const changes = mayChange(me.role)
+  const drafts = me.organization.flags_on.includes('drafts')
   const id = useId()
   const change = useReviewChange(project.id)
   const reviewers = useQuery({
@@ -126,6 +129,7 @@ export function ReviewControls({ document, onChanged }: { document: Document; on
         </select>
       </span>
       {changed && <span className="text-muted">{changed}</span>}
+      {drafts && document.review === 'disputed' && !change.isPending && <WriteDisputeLetter document={document} />}
       {change.isError && (
         <span role="alert" className="text-bad">
           {change.error.message}

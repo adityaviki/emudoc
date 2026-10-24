@@ -40,7 +40,7 @@ from dataclasses import asdict, fields
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import delete, exists, func, insert, select, text, update
+from sqlalchemy import delete, exists, func, insert, or_, select, text, update
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
@@ -664,7 +664,7 @@ def report_input(session: Session, run: WorkflowRun) -> tuple[str, dict[int, dic
     and those passages, as the agent's sources, the ones still in the project out of the trash.
     """
     listed = _listed(session, run.id)
-    passages = _passages(session, run.project_id, listed)
+    passages = sources_of(session, run.project_id, _cited(listed))
     lines = [
         f"A run of the project's cross-checks, made {run.created_at:%d %B %Y at %H:%M} UTC over "
         "the documents as they were read then.",
@@ -717,32 +717,88 @@ def describe_rule(kept: dict[str, Any]) -> str:
     return f"{left} {how}{margin} {right}{f', {extra}' if extra else ''}."
 
 
-def _listed(session: Session, run_id: int) -> list[WorkflowFinding]:
+def findings_about(
+    session: Session, run: WorkflowRun, ids: list[int]
+) -> tuple[list[str], dict[int, dict[str, Any]]]:
+    """What the run found about the documents, for a draft's input (app/drafts.py): those of its
+    findings that differ or could not be checked whose document, or a partner, is one of them,
+    in the server's words as a report's input gives them, by rule, at most REPORT_FINDINGS; with
+    the passages their values were read from, as the agent's sources. Nothing for none."""
+    listed = _listed(session, run.id, about=ids)
+    if not listed:
+        return [], {}
+    passages = sources_of(session, run.project_id, _cited(listed))
+    lines = [
+        f"What a run of the project's cross-checks, made {run.created_at:%d %B %Y at %H:%M} UTC "
+        "over the documents as they were read then, found about them:"
+    ]
+    for index, kept in enumerate(run.rules):
+        mine = [finding for finding in listed if finding.rule == index]
+        if mine:
+            lines += ["", f"Rule: {kept['title']}", f"Checks: {describe_rule(kept)}"]
+            lines += [f"- {_finding_line(finding, kept, passages)}" for finding in mine]
+    if len(listed) == REPORT_FINDINGS:
+        lines += ["", "It found more about them, not listed."]
+    return lines, passages
+
+
+def latest_run_about(session: Session, project_id: int, ids: list[int]) -> WorkflowRun | None:
+    """The project's newest run worked out with a finding about one of the documents, of any
+    outcome, as a draft about them reads it; None for none."""
+    if not ids:
+        return None
+    return session.scalar(
+        select(WorkflowRun)
+        .where(
+            WorkflowRun.project_id == project_id,
+            WorkflowRun.status == "done",
+            exists().where(WorkflowFinding.run_id == WorkflowRun.id, _about(ids)),
+        )
+        .order_by(WorkflowRun.id.desc())
+        .limit(1)
+    )
+
+
+def _about(ids: list[int]) -> Any:
+    """That a finding is about one of the documents: its own, or one of its partners'."""
+    partner = text(
+        "EXISTS (SELECT 1 FROM jsonb_array_elements(workflow_findings.partners) AS p "
+        "WHERE (p->>'document_id')::bigint = ANY(:about))"
+    ).bindparams(about=ids)
+    return or_(WorkflowFinding.document_id.in_(ids), partner)
+
+
+def _listed(session: Session, run_id: int, about: list[int] | None = None) -> list[WorkflowFinding]:
     """The findings the report's input lists: those that differ, then those missing what they
-    need, each rule's in its order, at most REPORT_FINDINGS."""
+    need, each rule's in its order, at most REPORT_FINDINGS; those about the documents given
+    alone, when given."""
+    query = select(WorkflowFinding).where(
+        WorkflowFinding.run_id == run_id, WorkflowFinding.outcome != "holds"
+    )
+    if about is not None:
+        query = query.where(_about(about))
     return list(
         session.scalars(
-            select(WorkflowFinding)
-            .where(WorkflowFinding.run_id == run_id, WorkflowFinding.outcome != "holds")
-            .order_by(
+            query.order_by(
                 (WorkflowFinding.outcome != "differs"), WorkflowFinding.rule, WorkflowFinding.seq
-            )
-            .limit(REPORT_FINDINGS)
+            ).limit(REPORT_FINDINGS)
         )
     )
 
 
-def _passages(
-    session: Session, project_id: int, listed: list[WorkflowFinding]
-) -> dict[int, dict[str, Any]]:
-    """The passages the listed values were read from, as the agent's sources, that are still in
-    the project out of the trash: a document read since may have others."""
-    wanted = {
+def _cited(listed: list[WorkflowFinding]) -> set[int]:
+    """The passages the listed findings' values were read from."""
+    return {
         fact["passage_id"]
         for finding in listed
         for fact in ([finding.left] if finding.left else []) + finding.right
         if fact.get("passage_id")
     }
+
+
+def sources_of(session: Session, project_id: int, wanted: set[int]) -> dict[int, dict[str, Any]]:
+    """The passages wanted, as the agent's sources, that are still in the project out of the
+    trash: a document read since may have others."""
     if not wanted:
         return {}
     # The columns alone: a passage's search vector and embedding are no part of a source.
