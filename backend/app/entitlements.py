@@ -50,9 +50,11 @@ beside the platform's own daily limit, since the two are read together. `retenti
 how long a chat is kept after its last question, which the housekeeper holds it to
 (app/retention.py), and `audit_days` how long a row of the audit log is (app/audit.py).
 `api_access` is whether its members may make API keys and call the API with them (`check_api`,
-app/apikeys.py), and `connectors` whether they may connect folders of Google Drive, Dropbox or
-OneDrive to its projects and have them synced (`check_connectors`, app/connectors/); `model_tier`
-is declared for the model tiers and enforced by nothing yet.
+app/apikeys.py), `connectors` whether they may connect folders of Google Drive, Dropbox or
+OneDrive to its projects and have them synced (`check_connectors`, app/connectors/), and
+`share_links` whether they may show a document to someone outside it by a link that needs no
+account (`check_share_links`, app/share_links.py); `model_tier` is declared for the model tiers
+and enforced by nothing yet.
 """
 
 from collections.abc import Iterable
@@ -144,6 +146,9 @@ class Entitlements:
     members: int | None
     api_access: bool
     connectors: bool
+    # Whether its members may share a document by a link that needs no account
+    # (app/share_links.py).
+    share_links: bool
     # How many days a chat is kept after its last question (app/retention.py).
     retention_days: int | None
     # How many days the organisation's audit log keeps a row (app/audit.py): longer than a
@@ -170,6 +175,7 @@ PLANS: dict[str, Entitlements] = {
         members=1,
         api_access=False,
         connectors=False,
+        share_links=False,
         retention_days=30,
         audit_days=90,
         model_tier="standard",
@@ -185,6 +191,7 @@ PLANS: dict[str, Entitlements] = {
         members=1,
         api_access=True,
         connectors=False,
+        share_links=True,
         retention_days=365,
         audit_days=365,
         model_tier="standard",
@@ -202,6 +209,7 @@ PLANS: dict[str, Entitlements] = {
         members=3,
         api_access=True,
         connectors=True,
+        share_links=True,
         retention_days=None,
         audit_days=365,
         model_tier="premium",
@@ -219,6 +227,7 @@ PLANS: dict[str, Entitlements] = {
         members=None,
         api_access=True,
         connectors=True,
+        share_links=True,
         retention_days=None,
         audit_days=None,
         model_tier="premium",
@@ -316,6 +325,22 @@ def check_connectors(organization: Organization) -> Refusal | None:
         "connectors",
         f"The {_label(organization)} plan does not include connected folders. {way} to keep a "
         "project in step with a folder of Google Drive, Dropbox or OneDrive.",
+    )
+
+
+def check_share_links(organization: Organization) -> Refusal | None:
+    """Why the plan refuses a share link, made or opened, or None when it includes them."""
+    if entitlements_of(organization).share_links:
+        return None
+    way = (
+        "Ask for them in the organisation's terms"
+        if organization.plan == PLAN_NAMES[-1]
+        else "Upgrade your plan"
+    )
+    return Refusal(
+        "share_links",
+        f"The {_label(organization)} plan does not include share links. {way} to show a "
+        "document to someone outside the organisation by a link.",
     )
 
 

@@ -45,11 +45,13 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // their own, which the new draft's form names, then the built-in one again, and last a reply email
 // asked for in the chat, which the answer offers as a draft and a press writes into the drafts, and
 // last the project given an address, a supplier's domain listed, whose mail becomes documents and a
-// stranger's is turned away, as the page lists them. The answer
-// is the stand-in's (e2e/standin.py): the first sentence of the passage its search found best,
-// with that passage's reference. Along the way each kind of page, panel and dialog is checked
-// against axe-core's rules for WCAG 2.2 AA in both themes (e2e/axe.ts), and the keyboard's focus
-// is followed where something it was on goes away.
+// stranger's is turned away, as the page lists them, and a folder of the member's Google Drive
+// connected and synced, and last the invoice shared by a link with a password, which someone with
+// no account opens and its member revokes. The answer is the stand-in's (e2e/standin.py): the
+// first sentence of the passage its search found best, with that passage's reference. Along the
+// way each kind of page, panel and dialog is checked against axe-core's rules for WCAG 2.2 AA in
+// both themes (e2e/axe.ts), and the keyboard's focus is followed where something it was on goes
+// away.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
 // An invoice whose fields are lines of their own, which the stand-in reads for the invoice template,
 // and a delivery period, which only a template that asks for it reads.
@@ -1536,5 +1538,71 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('listitem').filter({ hasText: 'Changed a connected folder' })).toContainText(
       'Google Drive, Supplier files, into the project’s root',
     )
+  })
+
+  await test.step('share the invoice by a link with a password, which someone with no account opens, then revoke it', async () => {
+    chooseFlag(slug, 'share_links', 'on')
+    await page.goto('/')
+    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
+    await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).dblclick()
+    const share = page.getByRole('button', { name: 'Share by link' })
+    await share.click()
+    const dialog = page.getByRole('dialog', { name: 'Share “invoice.md”' })
+    await expect(dialog.getByLabel('Runs for')).toBeFocused()
+    await expect(dialog.getByText('No link to this document is running.')).toBeVisible()
+    await expectAccessible(page, "a document's share links")
+    await dialog.getByLabel('Password, if it should have one').fill('harbour lights')
+    await dialog.getByRole('button', { name: 'Make a link' }).click()
+    // Its address is shown once, focused to copy.
+    const field = dialog.getByLabel('The link')
+    await expect(field).toBeFocused()
+    const address = await field.inputValue()
+    expect(address).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/shared#token=[\w-]{43}$/)
+    await expectAccessible(page, 'a share link just made')
+    await dialog.getByRole('button', { name: 'Done' }).click()
+    await expect(dialog.getByRole('listitem')).toContainText('with a password · not opened yet')
+
+    // Someone with no account opens it in a browser of their own, with its password alone.
+    const elsewhere = await browser.newContext()
+    const visitor = await elsewhere.newPage()
+    await visitor.goto(address)
+    await expect(visitor.getByRole('heading', { name: 'This link has a password' })).toBeVisible()
+    await expect(visitor.getByLabel('Password', { exact: true })).toBeFocused()
+    await expectAccessible(visitor, "a share link's password")
+    await visitor.getByLabel('Password', { exact: true }).fill('harbour light')
+    await visitor.getByRole('button', { name: 'Open the document' }).click()
+    await expect(visitor.getByRole('alert')).toHaveText("That is not this link's password. Check it with whoever sent the link.")
+    await visitor.getByLabel('Password', { exact: true }).fill('harbour lights')
+    await visitor.getByRole('button', { name: 'Open the document' }).click()
+    await expect(visitor.getByText(/^Shared by Ada Lovelace of Ada Lovelace's workspace, until /)).toBeVisible()
+    await expect(visitor.getByText('Invoice number: INV-2026-0412')).toBeVisible()
+    await expectAccessible(visitor, 'a shared document')
+    const downloading = visitor.waitForEvent('download')
+    await visitor.getByRole('link', { name: 'Download the file' }).click()
+    expect((await downloading).suggestedFilename()).toBe('invoice.md')
+
+    // Its member sees it opened, and revokes it: it stops at once, the keyboard going on from the heading.
+    await page.keyboard.press('Escape')
+    await expect(share).toBeFocused()
+    await share.click()
+    const link = dialog.getByRole('listitem')
+    await expect(link).toContainText('opened once')
+    await link.getByRole('button', { name: 'Revoke', exact: true }).click()
+    await link.getByRole('button', { name: 'Revoke the link' }).click()
+    await expect(dialog.getByText('No link to this document is running.')).toBeVisible()
+    await expect(dialog.getByRole('heading', { name: 'Share “invoice.md”' })).toBeFocused()
+    await visitor.reload()
+    await expect(visitor.getByRole('heading', { name: 'The link does not open' })).toBeVisible()
+    await expectAccessible(visitor, 'a share link that stopped')
+    await elsewhere.close()
+
+    // The organisation's owners and admins see its links, and read each opening in the audit log, by nobody it knows.
+    await page.goto('/organization')
+    await expect(page.getByText('No share link of the organisation is running.')).toBeVisible()
+    await expect(page.getByLabel(/^Let members share documents by link/)).toBeChecked()
+    await expectAccessible(page, "the organisation's share links")
+    await page.goto('/organization/audit')
+    await page.getByLabel('What').selectOption('share_link_viewed')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Opened a share link' })).toContainText('Someone with the link')
   })
 })

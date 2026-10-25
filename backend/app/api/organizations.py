@@ -234,6 +234,9 @@ def change_organization(
         was = organization.session_days
         changes.append(("settings_changed", _setting("session_days", was, body)))
         organization.session_days = body.session_days
+    if body.share_links is not None and body.share_links != organization.share_links:
+        changes.append(("settings_changed", _setting("share_links", not body.share_links, body)))
+        organization.share_links = body.share_links
     for action, detail in changes:
         audit(session, account, request, action, detail=detail)
     if changes:

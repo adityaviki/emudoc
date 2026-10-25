@@ -184,7 +184,9 @@ NATURAL_ORDER = "natural_order"
 # senders, folder or address changed, and taken away (app/inbound.py); a document that arrived
 # by it is uploaded by its member, or by nobody for a sender outside the organisation. A webhook
 # the organisation's programs hear of its work by is added, changed, given a new secret and
-# removed (app/webhooks.py), which sends what documents say to an address of its choosing.
+# removed (app/webhooks.py), which sends what documents say to an address of its choosing. A
+# link that shows a document to whoever holds it is made and revoked by a member, and opened, and
+# its original downloaded, by nobody the app knows (app/share_links.py).
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -289,6 +291,10 @@ AUDIT_ACTIONS = (
     "document_requeued",
     "document_review_changed",
     "document_assigned",
+    "share_link_created",
+    "share_link_revoked",
+    "share_link_viewed",
+    "share_link_downloaded",
     "chat_shared",
     "chat_unshared",
     "chat_deleted",
@@ -549,6 +555,9 @@ class Organization(Base):
     # than SESSION_DAYS; null for as long as the deployment keeps one.
     mfa_required: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     session_days: Mapped[int | None] = mapped_column(Integer)
+    # Whether its members may share a document by a link that needs no account
+    # (app/share_links.py), where its plan includes them; turned off, every link it has stops.
+    share_links: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
     # The feature flags an operator turned on or off for it (app/flags.py), by name; a flag not
     # named here is on as the share of organisations it is rolled out to takes it.
     flags: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
@@ -2113,6 +2122,73 @@ class ChatEvent(Base):
     # The event as the agent loop yields it (app/agent/loop.py), plus `restart` when a run
     # that was lost starts the answer over.
     event: Mapped[dict] = mapped_column(JSONB)
+
+
+class ShareLink(Base):
+    """A link that shows one document to whoever holds it, without an account, until it expires
+    or is revoked (app/share_links.py), which deletes it.
+
+    It works as its maker's: only while they are a member of the organisation who may change the
+    project and still sees the document, so it goes with their membership by the database's
+    cascade, as an API key does, and stops while they are a viewer or the project is private
+    without them; and only while the organisation's plan includes links, its owners and admins
+    allow them, and the document is out of the trash and its malware scan passed it.
+    """
+
+    __tablename__ = "share_links"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["org_id", "user_id"],
+            ["memberships.org_id", "memberships.user_id"],
+            ondelete="CASCADE",
+        ),
+        # What the housekeeper prunes by.
+        Index("ix_share_links_expires_at", "expires_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    # Its maker, as whom it is checked at each opening.
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # The link carries a random token in its fragment; only its SHA-256 is stored, as for
+    # sessions and API keys, so a copy of the database opens nothing.
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    # The password its maker chose for it, hashed as an account's is; null for none.
+    password_hash: Mapped[str | None] = mapped_column(Text)
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # How often it was opened, and when last, for its maker to see.
+    views: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    last_viewed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ShareView(Base):
+    """One opening of a share link in a browser: the cookie it keeps for the link's pages and
+    file holds a random token, of which only the SHA-256 is stored, as a session's is. It lasts
+    VIEW_FOR (app/share_links.py), or until the link ends, and the link's checks are made again
+    at every request it makes."""
+
+    __tablename__ = "share_views"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    link_id: Mapped[int] = mapped_column(
+        ForeignKey("share_links.id", ondelete="CASCADE"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class Job(Base):

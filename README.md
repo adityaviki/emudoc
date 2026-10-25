@@ -994,6 +994,23 @@ said. An address must be on the internet over HTTPS: a delivery goes to the addr
 was checked to resolve to, outside the deployment's own network, and follows no redirect. Each
 webhook added, changed, rolled or removed is a row of the audit log, which names its server
 alone.
+A member who may change a project shares one of its documents with someone outside the
+organisation by a link that needs no account (`backend/app/share_links.py`, "Share by link" on
+the document's tab), on Pro and above and while the feature is rolled out to the organisation:
+the link runs 1, 7 or 30 days, a week unless chosen, and may have a password, which is sent apart
+from it. Its address carries a random token in the fragment, shown to its maker once and kept as
+a hash only, and opens `/shared`, where the visitor reads the document as a member's tab shows it,
+its text, its pages and its file to download, read only, with who shared it and until when. A
+link works only while its maker could still make it: a member who sees the document, not a
+viewer, not removed, not leaving Emudoc, and the project not made private without them; and only
+while the plan includes links, the organisation allows them (its owners and admins turn them off
+on the organisation page, which stops every link at once, and list and revoke every link there)
+and the document is out of the trash. Every request checks it all again, and the visitor is told
+only that the link no longer works. Opening the link makes a view of an hour, kept in a cookie
+the browser sends to that link's pages and file alone, so the password is asked once an hour;
+wrong passwords pause the link after 10 an hour. Its maker, or an owner or admin, revokes it from
+the document's dialog; each link made, revoked, opened and its file downloaded is a row of the
+audit log, an opening by nobody the app knows with the address it came from.
 The roles: a viewer reads the projects and asks about them in chats of their own, a member also
 changes the projects (makes, uploads, organises, deletes), an admin also renames the organisation
 and manages who is in it, and an owner also manages its owners. The page offers each member only
@@ -1354,6 +1371,8 @@ backend/app/
                 invitations to an organisation, and joining one by an address's domain
   auth.py       passwords, sessions, one-time links and authenticator codes
   apikeys.py    the API keys a program calls the API with, as the member who made them
+  share_links.py
+                links that show one document to whoever holds them, with no account
   idempotency.py
                 a program's Idempotency-Key: a request sent again is given the first answer
   keyring.py    the keys of ENCRYPTION_KEYS and the cipher the database's secrets are kept in

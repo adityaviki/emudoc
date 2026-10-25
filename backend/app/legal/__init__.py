@@ -41,6 +41,8 @@ from app.notices import NOTIFICATION_DAYS
 from app.oidc import OAUTH_COOKIE, OAUTH_WINDOW_SECONDS
 from app.ratelimit import HISTORY
 from app.retention import DELETION_GRACE, RETENTION_HELD, day
+from app.share_links import DAYS as SHARE_DAYS
+from app.share_links import VIEW_COOKIE, VIEW_FOR
 from app.storage import Storage
 from app.trash import TRASH_DAYS
 from app.webhooks import DELIVERIES_KEPT
@@ -143,6 +145,9 @@ def privacy_policy(
         connect_cookie=CONNECT_COOKIE,
         connect_minutes=str(CONNECT_WINDOW_SECONDS // 60),
         browser_cookie=BROWSER_COOKIE,
+        share_cookie=VIEW_COOKIE,
+        share_view_minutes=str(int(VIEW_FOR.total_seconds()) // 60),
+        share_days=str(max(SHARE_DAYS)),
         third_parties=(
             "the pages load nothing from other sites but the images of document pages, which "
             "come straight from the file storage on the subprocessor list,"

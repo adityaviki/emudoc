@@ -1008,6 +1008,7 @@ export type PlanLimit =
   | 'daily_spend_micros'
   | 'api_access'
   | 'connectors'
+  | 'share_links'
 
 /** What the organisation's plan turned down: the sentence, and the figure it is held to, null when the server named none. */
 export interface PlanRefusal {
@@ -1052,6 +1053,8 @@ export interface Organization {
   mfa_required: boolean
   session_days: number | null
   max_session_days: number
+  /** Whether its members may share a document by a link that needs no account, where its plan includes them (backend/app/share_links.py); off, every link it has stops. */
+  share_links: boolean
   /** The domains whose confirmed addresses may join it, and the role they join with (backend/app/invitations.py). */
   join_domains: string[]
   join_role: JoinRole
@@ -1062,7 +1065,7 @@ export interface Organization {
 }
 
 /** The names of the feature flags (FLAGS in backend/app/flags.py), so that a page that reads a misspelt one fails the build. */
-export type Flag = 'extraction_templates' | 'drafts' | 'email_in' | 'connectors'
+export type Flag = 'extraction_templates' | 'drafts' | 'email_in' | 'connectors' | 'share_links'
 
 /** What the organisation page changes about the organisation (OrganizationChangeIn in backend/app/schemas.py). */
 export interface OrganizationChange {
@@ -1073,6 +1076,8 @@ export interface OrganizationChange {
   /** Turned on only by someone who signs in with two-factor themselves. */
   mfa_required?: boolean
   session_days?: number | null
+  /** Off, every share link the organisation has stops. */
+  share_links?: boolean
 }
 
 /** The text search configurations the database has, which an organisation may search its documents in, and the deployment's. */
@@ -1157,6 +1162,8 @@ export interface Allowance {
   api_access: boolean
   /** Whether its members may connect folders of Google Drive, Dropbox or OneDrive to its projects (backend/app/connectors/). */
   connectors: boolean
+  /** Whether its members may share a document by a link that needs no account (backend/app/share_links.py). */
+  share_links: boolean
   /** Which of them were agreed with the organisation in place of its plan's. */
   agreed: string[]
   /** The pages and questions bought in packs for this month, on top of the plan's. */
@@ -1504,6 +1511,10 @@ export type AuditAction =
   | 'document_requeued'
   | 'document_review_changed'
   | 'document_assigned'
+  | 'share_link_created'
+  | 'share_link_revoked'
+  | 'share_link_viewed'
+  | 'share_link_downloaded'
   | 'chat_shared'
   | 'chat_unshared'
   | 'chat_deleted'
@@ -1601,6 +1612,57 @@ export interface Webhook {
 /** A webhook just added or rolled, with its secret, which nothing shows again. */
 export interface WebhookMade extends Webhook {
   secret: string
+}
+
+/** The days a share link may run, of which its maker chooses one (DAYS in backend/app/share_links.py). */
+export const SHARE_DAYS = [1, 7, 30] as const
+export type ShareDays = (typeof SHARE_DAYS)[number]
+export const DEFAULT_SHARE_DAYS: ShareDays = 7
+
+/** A link to a document that has not expired (ShareLinkOut): never its address, which its maker saw once. */
+export interface ShareLink {
+  id: number
+  document_id: number
+  /** Its maker, by id to tell the member's own, and by name as it is now. */
+  user_id: number
+  made_by: string
+  created_at: string
+  expires_at: string
+  /** Whether it asks for a password. */
+  password: boolean
+  /** How often it was opened, and when last. */
+  views: number
+  last_viewed_at: string | null
+}
+
+/** A link just made, with its address, which nothing shows again. */
+export interface ShareLinkMade extends ShareLink {
+  url: string
+}
+
+/** A link of the organisation's, as its owners and admins list them, with what it shows. */
+export interface OrganizationShareLink extends ShareLink {
+  filename: string
+  project_id: number
+  project_name: string
+}
+
+/** What a share link shows its visitor (SharedDocumentOut): the document, read only, and who shared it. */
+export interface SharedDocument {
+  link_id: number
+  filename: string
+  title: string | null
+  doc_type: string | null
+  doc_date: string | null
+  mime_type: string
+  page_count: number | null
+  /** The member who made the link, and their organisation. */
+  shared_by: string
+  organization: string
+  /** When the link ends, and when this opening of it does, after which the page opens it again. */
+  expires_at: string
+  view_ends_at: string
+  content: DocumentContent
 }
 
 /** A page of a webhook's delivery log, the newest first. */
@@ -1773,8 +1835,10 @@ async function send(path: string, init?: RequestInit, onProgress?: Progress): Pr
   }
   const reference = response.headers.get('X-Request-ID')
   if (response.status >= 400 && reference) lastFailure = { reference, status: response.status }
-  if (response.status === 401 && !path.startsWith('/auth/')) onUnauthorized?.()
-  if (response.status === 403 && !path.startsWith('/auth/')) onForbidden?.()
+  // A share link's routes answer for the link, never for the session (backend/app/share_links.py).
+  const forSession = !path.startsWith('/auth/') && !path.startsWith('/shared')
+  if (response.status === 401 && forSession) onUnauthorized?.()
+  if (response.status === 403 && forSession) onForbidden?.()
   if (response.status === 402) onPlanLimit?.()
   if (response.status === 409 && response.headers.has(ORGANIZATION_HEADER)) onSwitched?.()
   return response
@@ -2006,6 +2070,8 @@ export const organizations = {
   /** A new secret, every try from now on signed with it; the one before ends at once. */
   rollWebhook: (id: number) => request<WebhookMade>(`/organization/webhooks/${id}/roll`, { method: 'POST' }),
   removeWebhook: (id: number) => request<void>(`/organization/webhooks/${id}`, { method: 'DELETE' }),
+  /** Owners and admins only: every link of the organisation that has not expired, the newest first. */
+  shareLinks: () => request<OrganizationShareLink[]>('/organization/share-links'),
   webhookDeliveries: (id: number, before: number | null = null) =>
     request<WebhookDeliveries>(`/organization/webhooks/${id}/deliveries${before === null ? '' : `?before=${before}`}`),
   /** A domain is added only by someone whose own confirmed address is at it. */
@@ -2061,6 +2127,8 @@ export const api = {
     request<{ reference: string | null }>('/page-errors', json('POST', report)),
   /** Public, since the sign-in pages lead to help too. */
   help: () => request<Help>('/help'),
+  /** Public: what a share link shows, and its view's cookie; a 401 asks for its password, a 404 says it stopped. */
+  openShared: (token: string, password?: string) => request<SharedDocument>('/shared', json('POST', { token, password })),
   /** Public: what changed for members, the page of days before `before`, the newest first. */
   changelog: (before: string | null) =>
     request<Changelog>(`/changelog${before ? `?${new URLSearchParams({ before })}` : ''}`),
@@ -2324,11 +2392,22 @@ export const api = {
   /** Have the draft an answer offers written into the project's drafts; pressed again, the draft written from it. */
   writeOfferedDraft: (chatId: number, messageId: number) =>
     request<Draft>(`/chats/${chatId}/messages/${messageId}/draft`, { method: 'POST' }),
+
+  /** The document's links that have not expired, the newest first. */
+  shareLinks: (documentId: number) => request<ShareLink[]>(`/documents/${documentId}/share-links`),
+  /** A 402 when the plan does not include links, a 403 when the organisation turned them off. */
+  makeShareLink: (documentId: number, body: { days: ShareDays; password?: string }) =>
+    request<ShareLinkMade>(`/documents/${documentId}/share-links`, json('POST', body)),
+  /** Its maker's, or an owner's or admin's; it stops at once. */
+  revokeShareLink: (id: number) => request<void>(`/share-links/${id}`, { method: 'DELETE' }),
 }
 
 export const fileUrl = (documentId: number) => `/api/documents/${documentId}/file`
 export const pageImageUrl = (documentId: number, page: number) =>
   `/api/documents/${documentId}/pages/${page}.png`
+/** A share link's file and pages, which its view's cookie reaches. */
+export const sharedFileUrl = (linkId: number) => `/api/shared/${linkId}/file`
+export const sharedPageUrl = (linkId: number, page: number) => `/api/shared/${linkId}/pages/${page}.png`
 
 /** The file types the backend indexes (backend/app/parsing/__init__.py), for upload inputs. */
 export const ACCEPTED_EXTENSIONS = ['.pdf', '.docx', '.xlsx', '.csv', '.txt', '.md', '.png', '.jpg', '.jpeg', '.webp']
@@ -2336,9 +2415,9 @@ export const ACCEPTED_TYPES_LABEL = 'PDF, Word, Excel, CSV, text, Markdown and i
 
 export const isIndexing = (document: Document) =>
   document.status === 'queued' || document.status === 'processing'
-export const isPdf = (document: Document) => document.mime_type === 'application/pdf'
-export const isImage = (document: Document) => document.mime_type.startsWith('image/')
-export const isSheet = (document: Document) =>
+export const isPdf = (document: Pick<Document, 'mime_type'>) => document.mime_type === 'application/pdf'
+export const isImage = (document: Pick<Document, 'mime_type'>) => document.mime_type.startsWith('image/')
+export const isSheet = (document: Pick<Document, 'mime_type'>) =>
   document.mime_type === 'text/csv' || document.mime_type.endsWith('spreadsheetml.sheet')
 
 /** An event of an answer, with the id the server gave it; `end` has none. */

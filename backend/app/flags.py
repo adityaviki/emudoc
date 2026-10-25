@@ -54,6 +54,7 @@ EXTRACTION_TEMPLATES = "extraction_templates"
 DRAFTS = "drafts"
 EMAIL_IN = "email_in"
 CONNECTORS = "connectors"
+SHARE_LINKS = "share_links"
 
 # Every feature behind a flag, by name, in the order the operator's area lists them.
 FLAGS: dict[str, Flag] = {
@@ -84,6 +85,12 @@ FLAGS: dict[str, Flag] = {
     CONNECTORS: Flag(
         "Connected folders: a folder of a member's Google Drive, Dropbox or OneDrive whose files "
         "a project keeps in step with"
+    ),
+    # A link that shows one document to whoever holds it, without an account, for a few days,
+    # with a password or not (app/share_links.py).
+    SHARE_LINKS: Flag(
+        "Share links: a link that shows a document to anyone who holds it, without an account, "
+        "until it expires or is revoked"
     ),
 }
 

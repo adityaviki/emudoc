@@ -26,7 +26,7 @@ from app.indexing.pipeline import Services
 from app.keyring import keyring
 from app.main import STORAGE_DOWN, create_app
 from app.maintenance import main
-from app.models import AuditEvent, AuthToken, Document, Invitation, User, UserSession
+from app.models import AuditEvent, AuthToken, Document, Invitation, ShareLink, User, UserSession
 from app.restore import after_restore, describe_restore
 from app.retention import erasure_key
 from app.startup import prepare
@@ -258,8 +258,8 @@ class Played:
 
 
 def play_a_restore(client, session, account, sample_pdf, sample_docx, sample_xlsx) -> Played:
-    """Before the restore point: two documents, a session, a link, an invitation and an account
-    later purged.
+    """Before the restore point: two documents, a session, a link, an invitation, a share link and
+    an account later purged.
     After it: a third document uploaded, the second deleted, the account purged. Then the
     database is restored to the point, which has the deleted document's row and the purged
     account, not the new document's row."""
@@ -282,6 +282,16 @@ def play_a_restore(client, session, account, sample_pdf, sample_docx, sample_xls
     issue_link_token(session, user, "reset_password", user.email, timedelta(hours=1))
     invited = client.post("/api/organization/invitations", json={"email": "ivy@example.com"})
     assert invited.status_code == 201, invited.text
+    session.add(
+        ShareLink(
+            org_id=account.organization.id,
+            project_id=project["id"],
+            document_id=kept["id"],
+            user_id=user.id,
+            token_hash=token_hash(new_token()),
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+    )
     # An account purged since the restore point leaves its record; the restore brings it back.
     purged = User(email="gone@example.com", name="Gone")
     session.add(purged)
@@ -325,7 +335,12 @@ def test_after_a_restore_the_files_ids_and_sign_ins_agree_with_the_database(
     assert [deletion.key for deletion in restored.brought_back] == [played.deleted_key]
     assert storage.get(played.deleted_key) == sample_docx.read_bytes()
     assert restored.advanced == {"documents": lost["id"]}
-    assert (restored.sessions, restored.links, restored.invitations) == (1, 1, 1)
+    assert (restored.sessions, restored.links, restored.invitations, restored.share_links) == (
+        1,
+        1,
+        1,
+        1,
+    )
     assert restored.purged == [purged_id]
     assert restored.missing == [] and restored.unknown == 1
     session.expire_all()
@@ -333,6 +348,7 @@ def test_after_a_restore_the_files_ids_and_sign_ins_agree_with_the_database(
     assert session.get(UserSession, played.signed_in).revoked_at is not None
     assert session.scalar(select(func.count()).where(AuthToken.expires_at > func.now())) == 0
     assert session.scalar(select(func.count()).where(Invitation.expires_at > func.now())) == 0
+    assert session.scalar(select(func.count()).where(ShareLink.expires_at > func.now())) == 0
     (row,) = session.scalars(select(AuditEvent).where(AuditEvent.action == "database_restored"))
     assert (row.org_id, row.user_id) == (account.organization.id, None)
     assert row.detail == {"restored_to": point.isoformat()}
@@ -349,8 +365,9 @@ def test_after_a_restore_the_files_ids_and_sign_ins_agree_with_the_database(
         "It holds 1 organisation, 2 accounts, 1 project, 2 documents and 0 chats.",
         f"Brought back 1 file (0.0 MB) deleted from the bucket since {moment}.",
         f"New ids continue past the storage's: documents after {lost['id']}.",
-        "Ended 1 session, 1 unused link and 1 open invitation: everyone signs in again, links "
-        "mailed before now no longer work, and the invitations still wanted must be sent again.",
+        "Ended 1 session, 1 unused link, 1 open invitation and 1 share link: everyone signs in "
+        "again, links mailed before now no longer work, and the invitations still wanted must be "
+        "sent again and the share links made again.",
         "Recorded the restore in the audit log of 1 organisation.",
         f"Purged again 1 account deleted since the restore point: {purged_id}.",
         "The storage holds the files of 1 document (0.0 MB) that the database does not know, "
@@ -371,8 +388,9 @@ def test_after_a_restore_the_files_ids_and_sign_ins_agree_with_the_database(
     assert again.brought_back == [] and again.advanced == {} and again.organizations == 0
     assert describe_restore(again, point)[3:6] == [
         "New ids already continued past every id the storage holds.",
-        "Ended 0 sessions, 0 unused links and 0 open invitations: everyone signs in again, links "
-        "mailed before now no longer work, and the invitations still wanted must be sent again.",
+        "Ended 0 sessions, 0 unused links, 0 open invitations and 0 share links: everyone signs "
+        "in again, links mailed before now no longer work, and the invitations still wanted must "
+        "be sent again and the share links made again.",
         "Every organisation's audit log records this restore already.",
     ]
 
@@ -426,7 +444,7 @@ def test_a_dry_run_finds_what_a_run_does_and_changes_nothing(
         "It holds 1 organisation, 3 accounts, 1 project, 2 documents and 0 chats.",
         f"Would bring back 1 file (0.0 MB) deleted from the bucket since {moment}.",
         f"New ids would continue past the storage's: documents after {lost['id']}.",
-        "Would end 1 session, 1 unused link and 1 open invitation.",
+        "Would end 1 session, 1 unused link, 1 open invitation and 1 share link.",
         "Would record the restore in the audit log of 1 organisation.",
         f"Would purge again 1 account deleted since the restore point: {purged_id}.",
         "The storage holds the files of 1 document (0.0 MB) that the database does not know, "

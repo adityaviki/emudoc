@@ -64,6 +64,7 @@ from app.models import (
     ProjectExport,
     ProjectMember,
     Section,
+    ShareLink,
     SupportGrant,
     UsageEvent,
     User,
@@ -89,8 +90,10 @@ from app.schemas import (
     ExportedPassage,
     ExportedProject,
     ExportedProjectChat,
+    ExportedProjectShareLink,
     ExportedSection,
     ExportedSession,
+    ExportedShareLink,
     ExportedSpared,
     ExportedTemplate,
     ExportedUsage,
@@ -107,8 +110,9 @@ ABOUT = (
     "your address, how you sign in, the organisations you belong to and the private projects "
     "you were chosen to see, the browsers and devices you signed in from in the last month and "
     "when each browser you signed in with did so first and last, the chats you started with "
-    "every question and answer, the notices in your notification centre, the usage counted to "
-    "you, and what the audit logs of your "
+    "every question and answer, the links you made that show a document to whoever holds "
+    "them, the notices in your notification centre, the usage counted to you, and what the "
+    "audit logs of your "
     "organisations recorded you doing. Answers cite passages of documents as [P<number>]. "
     "The documents themselves are not in this file: they belong to the organisation that holds "
     "them. Your password and recovery codes are kept only as hashes, and they and your "
@@ -135,8 +139,9 @@ PROJECT_ABOUT = (
     "the project and the member's own, whose answers cite passages as [P<number>]. documents/ "
     "holds what was read from each document: its outline, its passages by number, and the facts "
     "found in it, each with the passage it came from. templates holds the project's own "
-    "extraction templates, the fields its documents of each kind are read for. What is in the "
-    "trash is left out, and so are other members' private chats."
+    "extraction templates, the fields its documents of each kind are read for, and share_links "
+    "the links that show its documents to whoever holds them, without their addresses. What "
+    "is in the trash is left out, and so are other members' private chats."
 )
 EXPORT_FAILED = (
     "The export could not be made. Ask for another; if that one fails too, write to support."
@@ -184,6 +189,14 @@ def account_export(session: Session, user: User) -> AccountExport:
         .where(Chat.user_id == user.id)
         .order_by(Chat.created_at, Chat.id)
         .options(selectinload(Chat.messages))
+    ).all()
+    share_links = session.execute(
+        select(ShareLink, Organization.slug, Project.name, Document.filename)
+        .join(Organization, Organization.id == ShareLink.org_id)
+        .join(Project, Project.id == ShareLink.project_id)
+        .join(Document, Document.id == ShareLink.document_id)
+        .where(ShareLink.user_id == user.id, ShareLink.expires_at > func.now())
+        .order_by(ShareLink.id)
     ).all()
     notifications = session.execute(
         select(Notification, Organization.slug)
@@ -280,6 +293,19 @@ def account_export(session: Session, user: User) -> AccountExport:
                 ],
             )
             for chat, project, slug, trashed in chats
+        ],
+        share_links=[
+            ExportedShareLink(
+                organization=slug,
+                project=project,
+                document=filename,
+                created_at=link.created_at,
+                expires_at=link.expires_at,
+                password=link.password_hash is not None,
+                views=link.views,
+                last_viewed_at=link.last_viewed_at,
+            )
+            for link, slug, project, filename in share_links
         ],
         notifications=[
             ExportedNotification(
@@ -381,6 +407,7 @@ def _write(path: Path, export_id: int, storage: Storage) -> int:
             "exported_by": ExportedBy(name=user.name, email=user.email),
             "folders": sorted(folders.values(), key=str.lower),
             "templates": _templates(session, project.id),
+            "share_links": _share_links(session, project.id),
         }
     names = _Names()
     listed: list[ExportedDocument] = []
@@ -612,6 +639,33 @@ def _templates(session: Session, project_id: int) -> list[ExportedTemplate]:
         )
         for template in templates_for(session, project_id)
         if template.id is not None
+    ]
+
+
+def _share_links(session: Session, project_id: int) -> list[ExportedProjectShareLink]:
+    """The links to the project's documents out of the trash that have not expired."""
+    rows = session.execute(
+        select(ShareLink, Document.filename, User.name)
+        .join(Document, Document.id == ShareLink.document_id)
+        .join(User, User.id == ShareLink.user_id)
+        .where(
+            ShareLink.project_id == project_id,
+            ShareLink.expires_at > func.now(),
+            Document.deleted_at.is_(None),
+        )
+        .order_by(ShareLink.id)
+    ).all()
+    return [
+        ExportedProjectShareLink(
+            document_id=link.document_id,
+            document=filename,
+            made_by=made_by,
+            created_at=link.created_at,
+            expires_at=link.expires_at,
+            password=link.password_hash is not None,
+            views=link.views,
+        )
+        for link, filename, made_by in rows
     ]
 
 
