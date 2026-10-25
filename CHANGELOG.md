@@ -17,6 +17,9 @@ newest entry first.
 
 Members:
 
+- Upload web pages (.html, .htm) and RTF documents (.rtf). A saved page keeps its headings,
+  lists and tables and leaves out its menus, scripts and styles, in whatever encoding it was
+  saved in; an RTF document is read paragraph by paragraph.
 - Upload PowerPoint presentations (.pptx): each slide is read as a page, its title a section of
   the outline, with its text, tables and speaker notes, so an answer cites the slide it read. A
   presentation saved in the format from before 2007 (.ppt) is turned away at the upload with how
@@ -65,6 +68,9 @@ Members:
 
 Operators:
 
+- HTML (`.html`, `.htm`, the standard library's parser) and RTF (`.rtf`, the `striprtf`
+  package, BSD) uploads are read in the parse child; an original is served as a download, never
+  as a page.
 - PowerPoint presentations (`.pptx`) are read by python-pptx in the parse child, a slide a page:
   `PARSE_MAX_PAGES` refuses a deck by its slides, and its slides count as pages of the month.
 - TIFF (`.tif`, `.tiff`) and HEIC (`.heic`, `.heif`) uploads: the parse child counts a TIFF's

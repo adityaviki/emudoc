@@ -48,6 +48,9 @@ DOCUMENT_FORMATS = {
     ".docx": "Word (.docx)",
     ".xlsx": "Excel (.xlsx)",
     ".pptx": "PowerPoint (.pptx)",
+    ".rtf": "RTF",
+    ".html": "HTML",
+    ".htm": "HTML",
     ".csv": "CSV",
     ".txt": "plain text",
     ".md": "Markdown",
@@ -186,7 +189,7 @@ def _formats() -> str:
     if missing := SUPPORTED_EXTENSIONS - named.keys():
         raise RuntimeError(f"The help names no file type for {', '.join(sorted(missing))}.")
     taken = SUPPORTED_EXTENSIONS
-    documents = [name for suffix, name in DOCUMENT_FORMATS.items() if suffix in taken]
+    documents = dict.fromkeys(name for suffix, name in DOCUMENT_FORMATS.items() if suffix in taken)
     images = dict.fromkeys(
         name for suffix, name in IMAGE_FORMATS.items() if suffix in IMAGE_TYPES | SCAN_TYPES
     )
