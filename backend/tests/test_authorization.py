@@ -349,6 +349,7 @@ def chat_writes(w: World) -> list[Route]:
         ("POST", f"/api/chats/{w.chat_id}/messages", {"json": {"content": "What is due?"}}),
         ("POST", f"/api/chats/{w.chat_id}/messages/{w.message_id}/stop", {}),
         ("POST", f"/api/chats/{w.chat_id}/messages/{w.message_id}/retry", {}),
+        ("POST", f"/api/chats/{w.chat_id}/messages/{w.message_id}/regenerate", {"json": {}}),
         ("POST", f"/api/chats/{w.chat_id}/messages/{w.message_id}/draft", {}),
         ("DELETE", f"/api/chats/{w.chat_id}", {}),
     ]

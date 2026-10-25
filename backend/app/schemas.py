@@ -716,6 +716,39 @@ class SearchOut(BaseModel):
 
 
 ChatVisibility = Literal["private", "project"]
+# What a chat is about (app/scopes.py), and how many documents it may be about: more is a
+# folder's work.
+ChatScopeKind = Literal["project", "folder", "documents"]
+SCOPE_DOCUMENTS = 20
+
+
+class ChatScopeIn(BaseModel):
+    """What a chat is about: one of the project's folders with its subfolders, or documents
+    chosen from it; neither is the whole project."""
+
+    folder_id: int | None = None
+    document_ids: list[int] = Field([], max_length=SCOPE_DOCUMENTS)
+
+
+class ScopeFolderOut(BaseModel):
+    id: int
+    name: str
+
+
+class ScopeDocumentOut(BaseModel):
+    """A document a chat is about, by the name the library shows it by."""
+
+    id: int
+    filename: str
+
+
+class ChatScopeOut(BaseModel):
+    """What a chat is about, its folder or its documents those of them out of the trash: a
+    folder deleted is none, and documents deleted are left out."""
+
+    kind: ChatScopeKind
+    folder: ScopeFolderOut | None
+    documents: list[ScopeDocumentOut]
 
 
 class ChatOut(_FromORM):
@@ -727,19 +760,34 @@ class ChatOut(_FromORM):
     started_by: str
     title: str
     visibility: ChatVisibility
+    scope: ChatScopeOut
     created_at: dt.datetime
     updated_at: dt.datetime
 
 
+class ChatIn(BaseModel):
+    """A new chat: about the whole project unless `scope` says otherwise."""
+
+    scope: ChatScopeIn | None = None
+
+
 class ChatPatch(BaseModel):
-    """Rename and/or share a chat. A field that is left out is left unchanged."""
+    """Rename and/or share a chat, or change what it is about (an empty scope is the whole
+    project). A field that is left out is left unchanged."""
 
     title: str | None = Field(None, min_length=1, max_length=200)
     visibility: ChatVisibility | None = None
+    scope: ChatScopeIn | None = None
 
 
 class QuestionIn(BaseModel):
     content: str = Field(min_length=1)
+
+
+class RegenerateIn(BaseModel):
+    """The chat's last question as its member edited it, or none to answer it again as it is."""
+
+    question: str | None = Field(None, min_length=1)
 
 
 class ChatStep(BaseModel):
@@ -813,6 +861,13 @@ class AskOut(BaseModel):
 
     question: ChatMessageOut
     answer: ChatMessageOut
+
+
+class RegenerateOut(AskOut):
+    """The chat's last question, edited or not, and its answer emptied and streaming again, with
+    the id of the last event the earlier tries left, as `RetryOut` has it."""
+
+    last_event_id: int | None
 
 
 class RetryOut(BaseModel):

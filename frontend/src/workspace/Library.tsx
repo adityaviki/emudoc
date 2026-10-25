@@ -15,12 +15,15 @@ import {
   FolderPlus,
   FolderSync,
   FolderUp,
+  GitCompareArrows,
   ListChecks,
   Mail,
+  MessageSquare,
   MoreHorizontal,
   Pencil,
   PenLine,
   RefreshCw,
+  ScrollText,
   Search,
   TableProperties,
   Trash2,
@@ -36,10 +39,12 @@ import {
   api,
   mayChange,
   pageLabel,
+  SCOPE_DOCUMENTS,
   sectionPath,
 } from '../api.ts'
-import type { Document, Folder, SearchHit, UploadItem } from '../api.ts'
+import type { Document, Folder, ScopeIn, SearchHit, UploadItem } from '../api.ts'
 import { useMe } from '../auth.ts'
+import { startChat } from '../chat.ts'
 import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
 import { StatusIcon } from '../components/IndexingStatus.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
@@ -50,10 +55,12 @@ import { useContextMenu } from '../components/useContextMenu.tsx'
 import { uploadCutOff, uploadWaiting } from '../connection.ts'
 import { libraryPlace } from '../failures.ts'
 import { cursorAfter } from '../focus.ts'
-import { useFolders, useLocalStorage, useStatus } from '../hooks.ts'
+import { useFolders, useLocalStorage, useOnline, useStatus } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
 import { partlyIndexedWords, restHeld, unfinishedStages } from '../indexing.ts'
 import { stateMoves } from '../reviews.ts'
+import { SUMMARY_QUESTION, comparisonQuestion } from '../scopes.ts'
+import { askHeld } from '../status.ts'
 import { VERSION_EXTENSIONS } from '../versions.ts'
 import { describeChange } from './changes.ts'
 import { chosenFolder, droppedEntries, readEntries } from './dropped.ts'
@@ -745,8 +752,10 @@ function Listing({
 }: ListingProps) {
   const workspace = useWorkspace()
   const queryClient = useQueryClient()
-  // Whether a partly indexed document's rest can run now (`restHeld`).
+  // Whether a partly indexed document's rest can run now (`restHeld`), and a question be asked.
   const health = useStatus()
+  const online = useOnline()
+  const asking = !online || askHeld(health.data) !== null
   const { tree, project } = workspace
   const [openFolders, setOpenFolders] = useLocalStorage<number[]>(treeKey(project.id), [], isIdList)
   const review = useReviewChange(project.id)
@@ -880,7 +889,47 @@ function Listing({
     else mutations.renameDocument.mutate({ id: item.document.id, filename: name })
   }
 
-  /** What can be done to the items; nothing for several at once when the role may not delete them. */
+  /** A new chat about what was chosen, its first question asked at once when there is one. */
+  function askAbout(scope: ScopeIn, question?: string) {
+    if (question === undefined) {
+      workspace.openChat('new', { about: scope })
+      return
+    }
+    startChat(queryClient, project.id, scope, question).then(
+      (chatId) => workspace.openChat(chatId),
+      (error: Error) => mutations.setNotice(`Could not start a chat: ${error.message}`),
+    )
+  }
+
+  /** What chats can be had about the items: about a folder or its summary, a document, or files chosen together, two compared. */
+  function askingMenu(targets: Item[]): MenuItem[] {
+    const files = targets.flatMap((item) => (item.kind === 'file' ? [item.document] : []))
+    if (targets.length === 1 && targets[0].kind === 'folder') {
+      const folder = { folder_id: targets[0].folder.id }
+      return [
+        { label: 'Ask about this folder', icon: MessageSquare, onSelect: () => askAbout(folder) },
+        { label: 'Summarise this folder', icon: ScrollText, disabled: asking, onSelect: () => askAbout(folder, SUMMARY_QUESTION) },
+      ]
+    }
+    if (files.length !== targets.length || files.length > SCOPE_DOCUMENTS) return []
+    const chosen = { document_ids: files.map((document) => document.id) }
+    if (files.length === 1) return [{ label: 'Ask about this document', icon: MessageSquare, onSelect: () => askAbout(chosen) }]
+    return [
+      { label: `Ask about these ${files.length} documents`, icon: MessageSquare, onSelect: () => askAbout(chosen) },
+      ...(files.length === 2
+        ? [
+            {
+              label: 'Compare the two documents',
+              icon: GitCompareArrows,
+              disabled: asking,
+              onSelect: () => askAbout(chosen, comparisonQuestion(files[0].filename, files[1].filename)),
+            },
+          ]
+        : []),
+    ]
+  }
+
+  /** What can be done to the items; for several at once, a chat about them and what the role may change. */
   function itemsMenu(targets: Item[]): MenuItem[] {
     // Moving is what a drag does, for the keyboard, and for a pointer that cannot drag.
     const moveTo: MenuItem = {
@@ -889,16 +938,18 @@ function Listing({
       disabled: placesFor(tree, project.name, payloadOf(outermost(targets, tree))).length === 0,
       onSelect: () => setMoving(targets),
     }
+    const asked = askingMenu(targets)
     if (targets.length > 1) {
-      return changes ? [moveTo, { label: `Delete ${targets.length} items`, icon: Trash2, danger: true, onSelect: () => remove(targets) }] : []
+      const changing: MenuItem[] = changes ? [moveTo, { label: `Delete ${targets.length} items`, icon: Trash2, danger: true, onSelect: () => remove(targets) }] : []
+      return asked.length && changing.length ? [...asked, 'separator', ...changing] : [...asked, ...changing]
     }
     const [item] = targets
     const rename: MenuItem = { label: 'Rename', icon: Pencil, shortcut: 'F2', onSelect: () => setRenaming(itemKey(item)) }
     const del: MenuItem = { label: 'Delete', icon: Trash2, shortcut: 'Del', danger: true, onSelect: () => remove([item]) }
     if (item.kind === 'folder') {
-      return [{ label: 'Open', onSelect: () => open(item) }, ...(changes ? [rename, moveTo, 'separator' as const, del] : [])]
+      return [{ label: 'Open', onSelect: () => open(item) }, ...asked, ...(changes ? ['separator' as const, rename, moveTo, 'separator' as const, del] : [])]
     }
-    const reading: MenuItem[] = [{ label: 'Open', onSelect: () => open(item) }, originalFileItem(item.document)]
+    const reading: MenuItem[] = [{ label: 'Open', onSelect: () => open(item) }, originalFileItem(item.document), ...asked]
     if (!changes) return reading
     // A document's review moves from its menu, while reviews are rolled out to the organisation.
     const moves: MenuItem[] = reviews

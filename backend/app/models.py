@@ -83,6 +83,9 @@ ROLES = ("owner", "admin", "member", "viewer")
 JOIN_ROLES = ("member", "viewer")
 # A chat is private to the member who started it until they share it with the project.
 CHAT_VISIBILITIES = ("private", "project")
+# What a chat is about (app/scopes.py): the project's documents, a folder of it with its
+# subfolders, or documents chosen from it.
+CHAT_SCOPES = ("project", "folder", "documents")
 # A project is seen by everyone in its organisation, or, when private, by the members chosen
 # for it and the organisation's owners and admins (app/access.py).
 PROJECT_VISIBILITIES = ("organization", "private")
@@ -2057,10 +2060,17 @@ class Chat(Base):
     __tablename__ = "chats"
     __table_args__ = (
         _one_of("visibility", CHAT_VISIBILITIES, "chats"),
+        _one_of("scope_kind", CHAT_SCOPES, "chats"),
         *_trash_indexes("chats", "project_id", by=False),
         # A project's chats, and a page of them, the newest first, as the versioned API lists
         # them (app/api/v1/chats.py).
         Index("ix_chats_project_id_id", "project_id", "id"),
+        # What a folder deleted for good looks up to forget: the few chats about it.
+        Index(
+            "ix_chats_scope_folder_id",
+            "scope_folder_id",
+            postgresql_where=text("scope_folder_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -2085,12 +2095,59 @@ class Chat(Base):
     )
     # When its starter deleted it into the trash (app/trash.py), which only they see it in.
     deleted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    # project | folder | documents: what the chat's answers read (app/scopes.py). The kind is
+    # kept apart from the folder and the documents, so that a chat whose folder or documents
+    # were deleted for good reads nothing rather than the whole project.
+    scope_kind: Mapped[str] = mapped_column(String(20), default="project", server_default="project")
+    # The folder a chat about one reads, with its subfolders; null once it is deleted for good.
+    scope_folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("folders.id", ondelete="SET NULL")
+    )
 
     messages: Mapped[list["ChatMessage"]] = relationship(
         back_populates="chat",
         cascade="all, delete-orphan",
         passive_deletes=True,
         order_by="ChatMessage.id",
+    )
+    scope_folder: Mapped[Folder | None] = relationship()
+    # The documents a chat about chosen ones reads, of those not deleted for good.
+    scope_documents: Mapped[list[Document]] = relationship(
+        secondary="chat_scope_documents", order_by=Document.id
+    )
+
+    @property
+    def scope(self) -> dict:
+        """What the chat is about as the members' pages show it: its folder or its documents,
+        those of them out of the trash. A chat about the project reads neither."""
+        folder = self.scope_folder if self.scope_kind == "folder" else None
+        documents = self.scope_documents if self.scope_kind == "documents" else []
+        return {
+            "kind": self.scope_kind,
+            "folder": (
+                {"id": folder.id, "name": folder.name}
+                if folder is not None and folder.deleted_at is None
+                else None
+            ),
+            "documents": [
+                {"id": document.id, "filename": document.filename}
+                for document in documents
+                if document.deleted_at is None
+            ],
+        }
+
+
+class ChatScopeDocument(Base):
+    """A document a chat is about (app/scopes.py); the row goes with either."""
+
+    __tablename__ = "chat_scope_documents"
+
+    chat_id: Mapped[int] = mapped_column(
+        ForeignKey("chats.id", ondelete="CASCADE"), primary_key=True
+    )
+    # Indexed for a document deleted for good, whose rows go with it.
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True, index=True
     )
 
 

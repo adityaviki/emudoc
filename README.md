@@ -301,7 +301,22 @@ worker is alive, even while the question is still being sent; a chat takes one q
 time. The last answer of a member's own chat, once stopped or failed, offers "Try again", which
 empties it and has the worker write it anew from the same question, counting no other question
 against the plan; a run of the earlier try that is still waiting on the model writes nothing
-into the new one, since each try is numbered and its job names its own.
+into the new one, since each try is numbered and its job names its own. A finished last answer
+offers "Regenerate", and the chat's last question "Edit the question": either has the answer
+written again in its place, from the question as it is or as edited (a chat named by its first
+question takes the edit as its name), and counts as a question asked, since the member asked for
+another answer; nothing else in the chat changes, and the answer's share links show it as it is
+written again.
+
+A chat is about the whole project, about one of its folders with the subfolders, or about
+documents chosen from it, which "About: …" above the box says and changes: all the documents,
+any folder, or a document open in a tab. The library starts such chats from a row's menu: "Ask
+about this folder", "Summarise this folder" (which asks for the summary at once), "Ask about
+this document", and for files chosen together "Ask about these n documents" and, for two,
+"Compare the two documents". Each answer reads only what its chat is about as it starts, held by
+the server as the project is (`backend/app/scopes.py`), whatever the model asks for; a chat whose
+folder or documents were deleted, or are in the trash, reads nothing and its answer says so,
+rather than reading the whole project.
 
 A new chat offers a few questions to start from. In the sample project they are its own; in any
 other the indexing model writes three from the project's catalogue (each document's folder,
@@ -1473,6 +1488,7 @@ backend/app/
   api/v1/       the versioned API programs build on, its models, and its published contract
   headers.py    the headers every response carries for the browser
   answers.py    an answer as a job: the worker writes its events, the API streams them
+  scopes.py     what a chat is about, a folder or chosen documents, which its answers read alone
   llm.py        every call to the AI model, and the fallback when the first model cannot answer
   trial.py      the models command: each model asked what the app asks of it
 backend/migrations/
@@ -1486,6 +1502,7 @@ frontend/src/
   api.ts        the typed client for the backend
   auth.ts       who is signed in, for the shell and its pages
   chat.ts       a chat's messages as the chat pane holds them, and the answers being followed
+  scopes.ts     what a chat is about in words, and the questions a chat about part of it asks
   onboarding.ts the first steps' words and ways on, and when the chat suggests inviting the
                 team; tour.ts the workspace's tour, which components/Tour.tsx shows
 deploy/

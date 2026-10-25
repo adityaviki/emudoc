@@ -186,8 +186,9 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
         go({ library: { folderId: null, q: '', connectors: true } })
       },
       openChat(chatId, options) {
-        if (chatId === 'new') setMobilePane('chat')
-        go({ chatId }, options)
+        // Opened from the library too, as a chat about what was chosen there.
+        if (chatId != null) setMobilePane('chat')
+        go({ chatId, about: options?.about ?? null }, { replace: options?.replace })
       },
       mobilePane,
       setMobilePane,

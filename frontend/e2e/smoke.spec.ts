@@ -885,9 +885,9 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(questions).toContainText('agreed')
     await plan.getByRole('button', { name: 'Change the plan' }).click()
     await expect(plan.getByLabel('questions_per_month')).toHaveValue('3')
-    await plan.getByLabel('questions_per_month').fill('10')
+    await plan.getByLabel('questions_per_month').fill('20')
     await plan.getByRole('button', { name: 'Save' }).click()
-    await expect(questions).toContainText('10')
+    await expect(questions).toContainText('20')
     await expect(questions).toContainText('agreed')
     // A feature being rolled out to none, the extraction templates, turned on for it alone.
     const flags = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Feature flags', exact: true }) })
@@ -1754,5 +1754,66 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(next.getByRole('button', { name: 'Which other documents mention it?' })).toBeVisible({ timeout: 30_000 })
     await expect(page.getByRole('button', { name: 'Share the answer' })).toHaveCount(2)
     await expect(next).toHaveCount(1)
+  })
+
+  await test.step("summarise a folder in a chat about it alone, write its answer again and edit its question, then compare two documents", async () => {
+    await page.goto('/')
+    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
+    // The connected folder's Archive holds one credit note, the only one against INV-2026-090: the answer reads it alone.
+    await page.getByRole('treeitem', { name: /^Archive/ }).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Summarise this folder' }).click()
+    // A question is its bubble's paragraph: the chat's header names the chat by its first one too.
+    const question = (words: string) => page.getByRole('paragraph').filter({ hasText: words })
+    const summary = 'Summarise the documents in this folder: what each one is, and what they say together.'
+    await expect(question(summary)).toBeVisible()
+    const chooser = page.getByRole('button', { name: /^About: / })
+    await expect(chooser).toHaveText('About: Archive')
+    const regenerate = page.getByRole('button', { name: 'Regenerate' })
+    await expect(regenerate).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByText(/INV-2026-090/).first()).toBeVisible()
+    await expectAccessible(page, 'a chat about a folder')
+
+    // Written again in its place, which the plan counts as a question.
+    const written = page.waitForResponse((response) => response.url().endsWith('/regenerate') && response.ok())
+    await regenerate.click()
+    await written
+    await expect(regenerate).toBeVisible({ timeout: 30_000 })
+    await expect(question(summary)).toHaveCount(1)
+
+    // The question edited in place: Escape keeps it, and the edit is answered in its place and names the chat.
+    const edit = page.getByRole('button', { name: 'Edit the question' })
+    await edit.click()
+    const editor = page.getByRole('textbox', { name: 'Edit the question' })
+    await expect(editor).toBeFocused()
+    await expectAccessible(page, 'a question being edited')
+    await page.keyboard.press('Escape')
+    await expect(edit).toBeFocused()
+    await edit.click()
+    await editor.fill('What does the credit note in the archive say?')
+    await editor.press('Enter')
+    await expect(page.getByPlaceholder('Ask a question about these documents')).toBeFocused()
+    await expect(question('What does the credit note in the archive say?')).toBeVisible()
+    await expect(question(summary)).toHaveCount(0)
+    await expect(regenerate).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByRole('button', { name: 'What does the credit note in the archive say?', exact: true })).toBeVisible()
+
+    // What the chat is about, changed from above the box: the menu opens at the folder chosen.
+    await chooser.click()
+    await expect(page.getByRole('menuitemradio', { name: 'Archive' })).toBeFocused()
+    await expect(page.getByRole('menuitemradio', { name: 'Archive' })).toHaveAttribute('aria-checked', 'true')
+    await expectAccessible(page, 'what a chat is about, to choose')
+    const scoped = page.waitForResponse((response) => /\/api\/chats\/\d+$/.test(response.url()) && response.request().method() === 'PATCH')
+    await page.getByRole('menuitemradio', { name: 'All documents' }).click()
+    await scoped
+    await expect(chooser).toHaveText('About: All documents')
+
+    // Two invoices chosen together in the library are compared in a chat about them alone.
+    await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).click()
+    await page.getByRole('treeitem', { name: 'second-invoice.md', exact: true }).click({ modifiers: ['ControlOrMeta'] })
+    await page.getByRole('treeitem', { name: 'second-invoice.md', exact: true }).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Compare the two documents' }).click()
+    await expect(question('Compare invoice.md and second-invoice.md: where do they agree, and where do they differ?')).toBeVisible()
+    await expect(chooser).toHaveText('About: invoice.md and second-invoice.md')
+    await expect(regenerate).toBeVisible({ timeout: 30_000 })
   })
 })

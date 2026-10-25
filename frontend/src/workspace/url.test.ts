@@ -12,6 +12,7 @@ const home: WorkspaceUrl = {
   library: { folderId: null, q: '' },
   document: null,
   chatId: null,
+  about: null,
   canonical: true,
 }
 
@@ -29,6 +30,17 @@ describe('parseWorkspaceUrl', () => {
       chatId: 12,
     })
     expect(parse('/projects/3?chat=new')?.chatId).toBe('new')
+  })
+
+  it("reads what a new chat will be about, a folder or documents, and nothing beside another's", () => {
+    expect(parse('/projects/3?chat=new&about=f7')?.about).toEqual({ folder_id: 7 })
+    expect(parse('/projects/3?chat=new&about=d41-42')?.about).toEqual({ document_ids: [41, 42] })
+    expect(parse('/projects/3?chat=new&about=d41')?.about).toEqual({ document_ids: [41] })
+    for (const about of ['', 'f', 'fx', 'd', 'd41-', 'd-41', 'x7']) {
+      expect(parse(`/projects/3?chat=new&about=${about}`)?.about, about).toBeNull()
+    }
+    // A chat that exists says what it is about itself.
+    expect(parse('/projects/3?chat=12&about=f7')?.about).toBeNull()
   })
 
   it('opens a document at a passage before a block, and a block before a page', () => {
@@ -91,6 +103,10 @@ describe('buildWorkspaceUrl', () => {
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', draftTemplates: true } })).toBe('/projects/3?draft-templates=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', mail: true } })).toBe('/projects/3?mail=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', connectors: true } })).toBe('/projects/3?connectors=')
+    expect(buildWorkspaceUrl({ ...home, chatId: 'new', about: { folder_id: 7 } })).toBe('/projects/3?chat=new&about=f7')
+    expect(buildWorkspaceUrl({ ...home, chatId: 'new', about: { document_ids: [41, 42] } })).toBe('/projects/3?chat=new&about=d41-42')
+    expect(buildWorkspaceUrl({ ...home, chatId: 'new', about: {} })).toBe('/projects/3?chat=new')
+    expect(buildWorkspaceUrl({ ...home, chatId: 12, about: { folder_id: 7 } })).toBe('/projects/3?chat=12')
   })
 
   it('reads back what it wrote', () => {
@@ -114,6 +130,8 @@ describe('buildWorkspaceUrl', () => {
       { ...home, library: { folderId: null, q: '', draftTemplates: true } },
       { ...home, library: { folderId: null, q: '', mail: true }, chatId: 12 },
       { ...home, library: { folderId: null, q: '', connectors: true } },
+      { ...home, chatId: 'new', about: { folder_id: 7 } },
+      { ...home, document: { id: 41, focus: null }, chatId: 'new', about: { document_ids: [41, 42] } },
     ]
     for (const url of urls) expect(parse(buildWorkspaceUrl(url))).toEqual(url)
   })

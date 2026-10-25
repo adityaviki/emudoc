@@ -17,10 +17,11 @@ died, or was stopped and handed the job back) starts the answer over on the next
 appends a `restart` event first, so a follower drops what it had, and a run lost `max_attempts`
 times ends the answer `failed` with a sentence that says to try again (`abandon_answer`).
 
-A stopped or failed answer is tried again in its place (`retry_answer`): the row is emptied,
-streaming again, and a new job writes it, whose run finds the earlier try's events and appends
-`restart` as a lost run's does. The tries are numbered (`chat_messages.attempt`) and each job
-carries its try's: the run of an earlier try, still waiting on the model when the member tried
+A stopped or failed answer is tried again in its place (`retry_answer`), and the chat's last answer,
+finished or not, is written again from its question or the question its member edited: the row is
+emptied, streaming again, and a new job writes it, whose run finds the earlier try's events and
+appends `restart` as a lost run's does. The tries are numbered (`chat_messages.attempt`) and each
+job carries its try's: the run of an earlier try, still waiting on the model when the member tried
 again, or its job still queued, writes no event into the later try and settles nothing.
 
 An answer to a member who may have a draft written can offer one (`offers_drafts`; the agent's
@@ -70,6 +71,7 @@ from app.models import (
     Project,
     WorkflowRun,
 )
+from app.scopes import scope_of
 from app.spending import check_platform_spend, check_spend
 from app.tracing import FIRST_TEXT, WRITE, mark, span
 from app.usage import ANSWER, CHAT_MESSAGE, ModelUsage, record
@@ -210,8 +212,8 @@ def start_answer(session: Session, chat: Chat, question: str) -> tuple[ChatMessa
 
 
 def retry_answer(session: Session, chat: Chat, message: ChatMessage) -> int | None:
-    """Empty the stopped or failed answer and queue the job that writes it again, the next try;
-    the caller holds the row's lock and commits.
+    """Empty the answer and queue the job that writes it again, the next try; the caller holds
+    the row's lock and commits.
 
     Returns the seq of the last event the earlier tries left, which a client sends as
     `Last-Event-ID` to follow the new try's events alone: its run appends `restart` after them
@@ -399,6 +401,8 @@ def answer(
         about(user_id=chat.user_id)
         over = check_platform_spend(session) or check_spend(session, project.organization)
         drafting = offers_drafts(session, project.organization, chat.user_id)
+        # What the chat is about as this try starts: a change meanwhile is the next answer's.
+        scope = scope_of(chat)
         # Answers without text, such as failed ones, are left out of the conversation.
         history = [
             {"role": earlier.role, "content": earlier.content}
@@ -415,7 +419,13 @@ def answer(
         events: Generator[dict[str, Any]]
         if over is None:
             events = run_agent(
-                services, project_id, history, usage, drafting=drafting, following=True
+                services,
+                project_id,
+                history,
+                usage,
+                drafting=drafting,
+                following=True,
+                scope=scope,
             )
         else:
             log.info("Answer %s was not run: %s", message_id, over)

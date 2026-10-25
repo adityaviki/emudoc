@@ -1,8 +1,26 @@
 import { QueryClient, onlineManager } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { applyEvent, ask, chatKey, followUpsOf, isStreaming, loadChat, mayRetry, resume, retry, settle, splitChats, stop, writeOffered } from './chat.ts'
+import {
+  applyEvent,
+  ask,
+  chatKey,
+  editableQuestion,
+  followUpsOf,
+  isStreaming,
+  loadChat,
+  mayRegenerate,
+  mayRetry,
+  regenerate,
+  resume,
+  retry,
+  settle,
+  splitChats,
+  startChat,
+  stop,
+  writeOffered,
+} from './chat.ts'
 import type { ChatData, Message } from './chat.ts'
-import type { AskResult, ChatDetail, ChatEvent, ChatMessage, RetryResult, Source } from './api.ts'
+import type { AskResult, Chat, ChatDetail, ChatEvent, ChatMessage, RegenerateResult, RetryResult, Source } from './api.ts'
 
 const SOURCE: Source = {
   id: 812,
@@ -20,7 +38,18 @@ function saved(id: number, role: 'user' | 'assistant', content: string, status: 
 }
 
 function chat(messages: ChatMessage[] = []): ChatDetail {
-  return { id: 1, project_id: 3, user_id: 1, started_by: 'Ada', title: 'Notice', visibility: 'private', created_at: '2026-10-17T09:00:00Z', updated_at: '2026-10-17T09:00:00Z', messages }
+  return {
+    id: 1,
+    project_id: 3,
+    user_id: 1,
+    started_by: 'Ada',
+    title: 'Notice',
+    visibility: 'private',
+    scope: { kind: 'project', folder: null, documents: [] },
+    created_at: '2026-10-17T09:00:00Z',
+    updated_at: '2026-10-17T09:00:00Z',
+    messages,
+  }
 }
 
 const answering: Message = { role: 'assistant', content: '', steps: [], sources: {}, status: 'streaming', thinking: true, turnStart: 0 }
@@ -578,6 +607,95 @@ describe('retry', () => {
     expect(messages()[0]).toMatchObject({ id: 10, content: 'Notice period?' })
     expect(messages()[1]).toMatchObject({ id: 11, content: 'Ninety days.', status: 'done', error: null })
     expect(calls[1]).toMatchObject({ method: 'POST', url: '/api/chats/1/messages', body: { content: 'Notice period?' } })
+  })
+})
+
+describe('mayRegenerate and editableQuestion', () => {
+  it('offers a done answer to write again, and its question to edit, never one still written or lost', () => {
+    const done = loadChat(chat([saved(10, 'user', 'Notice period?'), saved(11, 'assistant', 'Ninety days.')])).messages
+    expect(mayRegenerate(done[1])).toBe(true)
+    expect(editableQuestion(done)).toBe(done[0])
+    // A stopped or failed one is tried again, which counts nothing; its question may still be edited.
+    const stopped = loadChat(chat([saved(10, 'user', 'Notice period?'), saved(11, 'assistant', 'Nin', 'stopped')])).messages
+    expect(mayRegenerate(stopped[1])).toBe(false)
+    expect(editableQuestion(stopped)).toBe(stopped[0])
+    const writing = loadChat(chat([saved(10, 'user', 'Notice period?'), saved(11, 'assistant', '', 'streaming')])).messages
+    expect(editableQuestion(writing)).toBeNull()
+    expect(mayRegenerate({ ...done[1], lost: true })).toBe(false)
+    expect(editableQuestion([done[0], { ...done[1], lost: true }])).toBeNull()
+    expect(mayRegenerate({ ...done[1], refusedByPlan: { message: 'Used.', limit: 'questions_per_month' } })).toBe(false)
+    expect(editableQuestion([])).toBeNull()
+  })
+})
+
+describe('regenerate', () => {
+  const written = (question = 'Notice period?', lastEventId: number | null = 2): RegenerateResult => ({
+    question: saved(10, 'user', question),
+    answer: saved(11, 'assistant', '', 'streaming'),
+    last_event_id: lastEventId,
+  })
+
+  beforeEach(() => client.setQueryData(chatKey(1), loadChat(chat([saved(10, 'user', 'Notice periud?'), saved(11, 'assistant', 'Ninety')]))))
+
+  it('writes the answer again in its place from its question edited, followed past the earlier events', async () => {
+    serve(
+      json(written('What is the notice period?')),
+      events(sse([3, { type: 'restart' }], [4, { type: 'text', text: 'Ninety days.' }], [null, { type: 'end', status: 'done' }])),
+    )
+    const writing = regenerate(client, 1, 'What is the notice period?')
+    // At once: the question as edited, and nothing of the earlier answer.
+    expect(messages()[0].content).toBe('What is the notice period?')
+    expect(messages()[1]).toMatchObject({ content: '', status: 'streaming', thinking: true })
+    await through(writing)
+
+    expect(messages()).toHaveLength(2)
+    expect(messages()[1]).toMatchObject({ id: 11, content: 'Ninety days.', status: 'done' })
+    expect(calls[0]).toMatchObject({ method: 'POST', url: '/api/chats/1/messages/11/regenerate', body: { question: 'What is the notice period?' } })
+    expect(calls[1].headers.get('Last-Event-ID')).toBe('2')
+  })
+
+  it('writes it again from its question as it is when none is given', async () => {
+    serve(json(written('Notice periud?', null)), events(sse([0, { type: 'text', text: 'Ninety days.' }], [null, { type: 'end', status: 'done' }])))
+    await through(regenerate(client, 1))
+    expect(calls[0].body).toEqual({})
+    expect(calls[1].headers.has('Last-Event-ID')).toBe(false)
+    expect(messages().map((message) => message.content)).toEqual(['Notice periud?', 'Ninety days.'])
+  })
+
+  it('puts the question and the answer back as they were, with the refusal', async () => {
+    const limit = 'The Free plan answers 1 question a month.'
+    serve(json({ detail: limit, limit: 'questions_per_month' }, 402))
+    await through(regenerate(client, 1, 'What is the notice period?'))
+    expect(messages()[0].content).toBe('Notice periud?')
+    expect(messages()[1]).toMatchObject({ content: 'Ninety', status: 'done', refusedByPlan: { message: limit, limit: 'questions_per_month' } })
+  })
+
+  it('asks a question the server refused before saving it again, as edited', async () => {
+    client.setQueryData(chatKey(1), loadChat(chat()))
+    serve(json({ detail: 'Too many questions are being answered right now.' }, 429))
+    await through(ask(client, 1, 'Notice periud?'))
+    serve(json(asked('Notice period?'), 201), events(sse([0, { type: 'text', text: 'Ninety days.' }], [null, { type: 'end', status: 'done' }])))
+    await through(regenerate(client, 1, 'Notice period?'))
+    expect(calls[1]).toMatchObject({ method: 'POST', url: '/api/chats/1/messages', body: { content: 'Notice period?' } })
+    expect(messages().map((message) => message.content)).toEqual(['Notice period?', 'Ninety days.'])
+  })
+})
+
+describe('startChat', () => {
+  it('makes the chat about what was chosen, puts it at the top of the list and asks its first question', async () => {
+    const made: Chat = { ...chat(), title: '', scope: { kind: 'folder', folder: { id: 7, name: 'Invoices' }, documents: [] } }
+    client.setQueryData<Chat[]>(['chats', 3], [{ ...made, id: 2, title: 'Earlier' }])
+    serve(json(made, 201), json(asked('Summarise the documents in this folder.'), 201), events(sse([null, { type: 'end', status: 'done' }])))
+    const id = await startChat(client, 3, { folder_id: 7 }, 'Summarise the documents in this folder.')
+    expect(id).toBe(1)
+    expect(client.getQueryData<Chat[]>(['chats', 3])!.map((item) => [item.id, item.title])).toEqual([
+      [1, 'Summarise the documents in this folder.'],
+      [2, 'Earlier'],
+    ])
+    expect(messages()[0]).toMatchObject({ role: 'user', content: 'Summarise the documents in this folder.' })
+    await vi.waitFor(() => expect(calls).toHaveLength(3))
+    expect(calls[0]).toMatchObject({ method: 'POST', url: '/api/projects/3/chats', body: { scope: { folder_id: 7 } } })
+    expect(calls[1]).toMatchObject({ method: 'POST', url: '/api/chats/1/messages' })
   })
 })
 
