@@ -17,6 +17,10 @@ newest entry first.
 
 Members:
 
+- The upload client sends through the versioned API, so a copy downloaded now goes on working
+  as Emudoc changes, and files it sends again after the connection dropped before Emudoc
+  answered are taken once and counted as sent. A copy downloaded before goes on working too;
+  download it again under API keys on the organisation page for this.
 - The API reference, at `/api-reference`, describes every route of the versioned API and every
   event your webhooks are sent: what each takes and answers, and a `curl` request to try at your
   Emudoc's own address. Anyone may read it, before they hold a key; the API keys section of the
@@ -31,6 +35,13 @@ Members:
 
 Operators:
 
+- The upload client sends to `POST /api/v1/projects/{id}/documents`, each request with an
+  `Idempotency-Key`, and follows the documents by `GET /api/v1/projects/{id}/documents?ids=`.
+  The AWS instance's Caddyfile and deploying.md's Caddy and nginx examples let a large body
+  through `^/api/(v1/)?projects/[0-9]+/documents$`, the versioned API's upload as well as the
+  page's: widen a proxy of your own the same way, or the client's requests are held to its
+  small limit and a larger file is refused. Copies from before call the page's routes, which go
+  on answering a key.
 - `GET /api/v1/openapi.json` serves the versioned API's contract to anyone, without a key,
   naming `APP_URL` as its server, and `/api-reference` is a page of its own drawn from it
   (`frontend/reference.html`, a third build of `pnpm build`, its scripts' budget apart): a proxy

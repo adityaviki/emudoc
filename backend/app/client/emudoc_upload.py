@@ -22,7 +22,12 @@ what Emudoc refused and why. Neither deletes, moves or changes a file.
 What was sent is kept in a state file (--state; `watch` keeps one in its folder unless told
 otherwise, `.emudoc-upload.json`) by the SHA-256 of each file's bytes, so that a file is sent
 once, however it is renamed and however often the client starts. Without one, Emudoc itself
-knows a file it holds already, and says where it is.
+knows a file it holds already, and says where it is. Each request carries an Idempotency-Key,
+kept (in the state file too) until its answer arrives, so that files sent again after a lost
+answer are taken once and answered as the first time.
+
+It calls Emudoc's versioned API, /api/v1, which changes by addition alone, so that a copy
+downloaded once goes on working as Emudoc changes.
 
 The exit status is 0 when every file was taken and read, 1 when one was left out, refused or
 could not be read, 2 when the client could not do its work (no key, or an address, key or
@@ -74,10 +79,18 @@ SEPARATOR = "/"
 LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 # The longest a request may take: the largest upload on a slow line.
 TIMEOUT = 600
-# How often `send` asks how far its files are read, and how many uploads one request asks about
-# (MAX_FOLLOWED in backend/app/api/documents.py).
+# How often `send` asks how far its files are read.
 FOLLOW_EVERY = 5
-FOLLOWED = 100
+# The most items a page of the API's lists holds, and so the most documents one request asks
+# about (MOST in backend/app/api/v1/deps.py).
+MOST = 200
+# How long Emudoc keeps the answer to a request for the request sent again with its
+# Idempotency-Key, in seconds (KEPT in backend/app/idempotency.py): a key whose answer never
+# came is forgotten after that.
+KEPT = 24 * 3600
+# What a document that could not be indexed says when Emudoc gives no reason (NOT_INDEXED in
+# backend/app/notices.py).
+NOT_INDEXED = "It could not be indexed."
 # How many times `send` makes a request that failed for a reason that passes (no answer, a
 # server restarting) before it gives up, the wait between doubling up to MAX_WAIT seconds; and
 # the longest a rate limit's Retry-After is waited for.
@@ -107,6 +120,11 @@ class PlanFull(Exception):
 
 class TooLarge(Exception):
     """The server, or a proxy before it, would not take a request of this size."""
+
+
+class Invalid(Unusable):
+    """Emudoc found the request itself wrong (422), such as an Idempotency-Key it holds for
+    another request."""
 
 
 @dataclass
@@ -220,7 +238,10 @@ class Api:
         query: Sequence[tuple[str, Any]] = (),
         body: bytes | None = None,
         content_type: str | None = None,
+        key: str | None = None,
     ) -> Any:
+        """The answer's JSON. `key` is the request's Idempotency-Key, while the request first
+        sent with it is still being carried out waited for as Emudoc asks."""
         url = self.server + path
         if query:
             url += "?" + urllib.parse.urlencode(list(query))
@@ -231,12 +252,21 @@ class Api:
         }
         if content_type:
             headers["Content-Type"] = content_type
+        if key is not None:
+            headers["Idempotency-Key"] = key
         while True:
             response = self.transport(Request(method, url, headers, body))
-            if response.status != 429:
+            if response.status == 429:
+                wait = retry_after(response)
+                self.say(f"{detail(response)} Waiting {wait} seconds, as Emudoc asks.")
+            elif response.status == 409 and key is not None and "retry-after" in response.headers:
+                wait = retry_after(response)
+                self.say(
+                    f"Emudoc is still taking these files from the request before. Waiting {wait} "
+                    "seconds for its answer."
+                )
+            else:
                 break
-            wait = retry_after(response)
-            self.say(f"{detail(response)} Waiting {wait} seconds, as Emudoc asks.")
             self.sleep(wait)
         if 200 <= response.status < 300:
             return response.json()
@@ -250,6 +280,8 @@ class Api:
         if 300 <= response.status < 400:
             where = response.headers.get("location", "another address")
             raise Unusable(f"Emudoc answered from {where}: give that address as --server.")
+        if response.status == 422:
+            raise Invalid(said)
         raise Unusable(said)
 
 
@@ -296,10 +328,22 @@ class Project:
     name: str
 
 
+def every(api: Api, path: str, query: Sequence[tuple[str, Any]] = ()) -> Iterator[Any]:
+    """Each item of a list of the API, page after page."""
+    after = None
+    while True:
+        asked = [*query, ("limit", MOST), *([("after", after)] if after else [])]
+        page = api.call("GET", path, asked)
+        yield from page["data"]
+        after = page.get("next")
+        if not after:
+            return
+
+
 def find_project(api: Api, wanted: str) -> Project:
     """The project a key reaches by its name, as written, or its number, or its name whatever
     its case."""
-    projects = [Project(found["id"], found["name"]) for found in api.call("GET", "/api/projects")]
+    projects = [Project(found["id"], found["name"]) for found in every(api, "/api/v1/projects")]
     wanted = wanted.strip()
     matched = [project for project in projects if project.name == wanted]
     if not matched and re.fullmatch(r"[0-9]+", wanted):
@@ -325,7 +369,8 @@ def find_project(api: Api, wanted: str) -> Project:
 
 @dataclass(frozen=True)
 class Limits:
-    """What one upload request may carry, and the file types Emudoc reads (GET /api/status)."""
+    """What one upload request may carry, and the file types Emudoc reads (GET
+    /api/v1/status)."""
 
     files: int
     request_bytes: int
@@ -349,7 +394,7 @@ def connect(
     api: Api, wanted: str, sleep: Callable[[float], None], say: Callable[[str], None]
 ) -> tuple[Project, Limits]:
     project = patiently(lambda: find_project(api, wanted), sleep, say, TRIES)
-    limits = Limits.of(patiently(lambda: api.call("GET", "/api/status"), sleep, say, TRIES))
+    limits = Limits.of(patiently(lambda: api.call("GET", "/api/v1/status"), sleep, say, TRIES))
     return project, limits
 
 
@@ -487,13 +532,16 @@ class State:
     """What was sent to one project, by the SHA-256 of each file's bytes, kept in a JSON file so
     that a file is sent once however it is renamed and however often the client starts. A file
     Emudoc held already counts as sent; one it refused does not, and is tried again by the
-    client's next run."""
+    client's next run. It also keeps the Idempotency-Key of each request whose answer never
+    came, with the files it carried, so that a later run sending them again is given that
+    answer."""
 
     def __init__(self, path: Path, server: str, project: Project) -> None:
         self.path = path
         self.server = server
         self.project = project.id
         self.sent: dict[str, dict[str, Any]] = {}
+        self.unanswered: dict[str, dict[str, Any]] = {}
         try:
             text = path.read_text("utf-8")
         except FileNotFoundError:
@@ -503,6 +551,11 @@ class State:
         try:
             kept = json.loads(text)
             sent = dict(kept["sent"])
+            # A state file of a client from before the keys holds none.
+            unanswered = dict(kept.get("unanswered", {}))
+            for request in unanswered.values():
+                if "files" not in request or datetime.fromisoformat(request["at"]).tzinfo is None:
+                    raise ValueError
         except (ValueError, KeyError, TypeError):
             raise Unusable(
                 f"{path} is not a state file of this client: give --state another file."
@@ -513,6 +566,7 @@ class State:
                 f"{kept.get('server')}: give --state another file for this project."
             )
         self.sent = sent
+        self.unanswered = unanswered
 
     def holds(self, digest: str) -> bool:
         return digest in self.sent
@@ -525,7 +579,12 @@ class State:
         """Written whole beside itself, then moved over the file, so that a stop halfway leaves
         the one before."""
         written = self.path.with_name(f".{self.path.name}.part")
-        kept = {"server": self.server, "project": self.project, "sent": self.sent}
+        kept = {
+            "server": self.server,
+            "project": self.project,
+            "sent": self.sent,
+            "unanswered": self.unanswered,
+        }
         try:
             written.write_text(json.dumps(kept, indent=1, sort_keys=True), "utf-8")
             os.replace(written, self.path)
@@ -538,9 +597,10 @@ class State:
 
 @dataclass
 class Upload:
-    """One request's files kept, an upload on the server, which follows them as they are read."""
+    """One request's files kept, and the documents Emudoc made of them, followed as they are
+    read."""
 
-    id: int
+    documents: list[int]
     names: list[str]
 
 
@@ -584,6 +644,9 @@ class Sender:
         self.into = into
         self.state = state
         self.tries = tries
+        # The Idempotency-Key of each request whose answer never came, by the files it carried:
+        # the state's, or this run's own without one.
+        self.unanswered = state.unanswered if state is not None else {}
 
     def send(self, files: Sequence[Local], sent: Sent) -> None:
         queue = batches(files, self.limits)
@@ -592,14 +655,14 @@ class Sender:
             loaded = [read for read in (self._read(local, sent) for local in batch) if read]
             if not loaded:
                 continue
-            body, content_type = form(
-                [
-                    (SEPARATOR.join([*self.into, *local.folders]), local.path.name, data)
-                    for local, data, _ in loaded
-                ]
-            )
+            parts = [
+                (SEPARATOR.join([*self.into, *local.folders]), local.path.name, data, digest)
+                for local, data, digest in loaded
+            ]
+            body, content_type = form([(folders, name, data) for folders, name, data, _ in parts])
+            carried = [[folders, name, digest] for folders, name, _, digest in parts]
             try:
-                result = self._post(body, content_type)
+                result = self._post(carried, body, content_type)
             except TooLarge as error:
                 # A proxy before the server may take less than the server says: halves, then
                 # the file alone, which is refused with the proxy's answer.
@@ -624,18 +687,59 @@ class Sender:
                 sent.waiting.extend(local for rest in queue for local in rest)
                 return
 
-    def _post(self, body: bytes, content_type: str) -> Any:
-        return patiently(
-            lambda: self.api.call(
-                "POST",
-                f"/api/projects/{self.project.id}/documents",
-                body=body,
-                content_type=content_type,
-            ),
-            self.api.sleep,
-            self.api.say,
-            self.tries,
-        )
+    def _post(self, carried: list[list[str]], body: bytes, content_type: str) -> Any:
+        """Emudoc's answer to the upload of the files `carried` names (each its folders, name
+        and SHA-256), under an Idempotency-Key kept until an answer comes, so that the files
+        sent again, by this run or a later one, are taken once and given that answer. A key
+        Emudoc refuses, holding it for another request, is put aside for a new one."""
+        key, before = self._key(carried)
+        try:
+            answer = patiently(
+                lambda: self.api.call(
+                    "POST",
+                    f"/api/v1/projects/{self.project.id}/documents",
+                    body=body,
+                    content_type=content_type,
+                    key=key,
+                ),
+                self.api.sleep,
+                self.api.say,
+                self.tries,
+            )
+        except Invalid:
+            self._answered(key)
+            if not before:
+                raise
+            return self._post(carried, body, content_type)
+        except (Unusable, TooLarge, PlanFull):
+            self._answered(key)
+            raise
+        # Without an answer (Emudoc out of reach, Ctrl+C) the key stays for the files sent again;
+        # with one it goes, saved with what the answer settles.
+        del self.unanswered[key]
+        return answer
+
+    def _key(self, carried: list[list[str]]) -> tuple[str, bool]:
+        """The Idempotency-Key of a request carrying these files, and whether it was sent
+        before: that of a request whose answer never came that carried the same files in the
+        same order, unless Emudoc no longer keeps its answer, else a new one, saved before it
+        is sent."""
+        now = datetime.now(timezone.utc)
+        for key, request in list(self.unanswered.items()):
+            if now - datetime.fromisoformat(request["at"]) > timedelta(seconds=KEPT):
+                del self.unanswered[key]
+            elif request["files"] == carried:
+                return key, True
+        key = str(uuid.uuid4())
+        self.unanswered[key] = {"files": carried, "at": now.isoformat(timespec="seconds")}
+        if self.state is not None:
+            self.state.save()
+        return key, False
+
+    def _answered(self, key: str) -> None:
+        del self.unanswered[key]
+        if self.state is not None:
+            self.state.save()
 
     def _read(self, local: Local, sent: Sent) -> tuple[Local, bytes, str] | None:
         try:
@@ -663,12 +767,14 @@ class Sender:
             )
         documents = iter(result["documents"])
         kept: list[str] = []
+        made: list[int] = []
         for index, (local, _, digest) in enumerate(loaded):
             refusal = refusals.get(index)
             if refusal is None:
                 document = next(documents)
                 sent.kept.append(local)
                 kept.append(local.name)
+                made.append(document["id"])
                 if self.state is not None:
                     self.state.keep(digest, local.name, document["id"])
             elif refusal.get("duplicate_of") is not None:
@@ -680,8 +786,8 @@ class Sender:
                 sent.waiting.append(local)
             else:
                 sent.refused.append((local, refusal["reason"]))
-        if result.get("upload_id") is not None:
-            sent.uploads.append(Upload(result["upload_id"], kept))
+        if made:
+            sent.uploads.append(Upload(made, kept))
 
 
 def clock_time(moment: datetime | None = None) -> str:
@@ -689,57 +795,81 @@ def clock_time(moment: datetime | None = None) -> str:
     return (moment or datetime.now()).astimezone().strftime("%H:%M")
 
 
-def standing(api: Api, project: Project, uploads: Sequence[int]) -> dict[str, Any]:
-    """How far the documents of the uploads are read, summed over as many requests as their
-    number takes (GET /api/projects/{id}/uploads)."""
-    total: dict[str, Any] = {
-        "documents": 0,
-        "ready": 0,
-        "partly_indexed": 0,
-        "indexing": 0,
-        "retrying": 0,
-        "failed": 0,
-        "retry_at": None,
-        "failures": [],
-    }
-    for start in range(0, len(uploads), FOLLOWED):
-        ids = [("ids", upload) for upload in uploads[start : start + FOLLOWED]]
-        part = api.call("GET", f"/api/projects/{project.id}/uploads", ids)
-        for count in ("documents", "ready", "partly_indexed", "indexing", "retrying", "failed"):
-            total[count] += part[count]
-        if part["retry_at"] and (total["retry_at"] is None or part["retry_at"] < total["retry_at"]):
-            total["retry_at"] = part["retry_at"]
-        total["failures"].extend(part["failures"])
-    return total
+@dataclass
+class Standing:
+    """Where some documents stand, each counted once: read (partly or not), being read, waiting
+    for Emudoc to try again a stage that failed for a reason that passes, or failed. One deleted
+    since is not counted."""
+
+    documents: int = 0
+    ready: int = 0
+    # Of the ready, those that went without their summaries and facts or their vectors.
+    partly_indexed: int = 0
+    indexing: int = 0
+    retrying: int = 0
+    failed: int = 0
+    # When the soonest retry is due, while one waits.
+    retry_at: datetime | None = None
+    # Each that failed, by its name, with why.
+    failures: list[tuple[str, str]] = field(default_factory=list)
+
+    def count(self, document: Mapping[str, Any]) -> None:
+        """One more document, as the API words it."""
+        self.documents += 1
+        if document.get("retry_at"):
+            self.retrying += 1
+            # Python 3.9 reads no Z.
+            when = datetime.fromisoformat(document["retry_at"].replace("Z", "+00:00"))
+            self.retry_at = min(self.retry_at or when, when)
+        elif document["status"] == "ready":
+            self.ready += 1
+            self.partly_indexed += bool(document.get("partly_indexed"))
+        elif document["status"] in ("queued", "processing"):
+            self.indexing += 1
+        else:
+            self.failed += 1
+            self.failures.append((document["filename"], document.get("error") or NOT_INDEXED))
 
 
-def progress(now: Mapping[str, Any]) -> str:
-    line = f"Reading: {now['ready']} of {now['documents']} ready"
-    if now["failed"]:
-        line += f", {now['failed']} could not be read"
+def standing(api: Api, project: Project, documents: Sequence[int]) -> Standing:
+    """Where the documents stand, asked in as many requests as their number takes (GET
+    /api/v1/projects/{id}/documents with their ids)."""
+    now = Standing()
+    for start in range(0, len(documents), MOST):
+        ids = [("ids", document) for document in documents[start : start + MOST]]
+        for document in every(api, f"/api/v1/projects/{project.id}/documents", ids):
+            now.count(document)
+    now.failures.sort()
+    return now
+
+
+def progress(now: Standing) -> str:
+    line = f"Reading: {now.ready} of {now.documents} ready"
+    if now.failed:
+        line += f", {now.failed} could not be read"
     return line + "."
 
 
-def outcome(now: Mapping[str, Any], of: str) -> list[str]:
+def outcome(now: Standing, of: str) -> list[str]:
     """What became of documents once nothing of theirs is being read, `of` naming them."""
-    documents, ready, failed = now["documents"], now["ready"], now["failed"]
-    if documents == 0:
+    if now.documents == 0:
         return [f"Deleted before being read: {of}."]
-    if ready == documents and not now["partly_indexed"]:
+    if now.ready == now.documents and not now.partly_indexed:
         return [f"Read {of}."]
-    parts = [f"{ready} {'is' if ready == 1 else 'are'} read"]
-    if now["partly_indexed"]:
-        parts[0] += f", {now['partly_indexed']} of them partly (the library says what each lacks)"
-    if failed:
-        parts.append(f"{failed} could not be read")
-    if now["retrying"]:
-        when = datetime.fromisoformat(now["retry_at"].replace("Z", "+00:00"))
-        waits = "waits" if now["retrying"] == 1 else "wait"
-        parts.append(f"{now['retrying']} {waits} for Emudoc to try again at {clock_time(when)}")
+    parts = [f"{now.ready} {'is' if now.ready == 1 else 'are'} read"]
+    if now.partly_indexed:
+        parts[0] += f", {now.partly_indexed} of them partly (the library says what each lacks)"
+    if now.failed:
+        parts.append(f"{now.failed} could not be read")
+    if now.retrying:
+        waits = "waits" if now.retrying == 1 else "wait"
+        parts.append(
+            f"{now.retrying} {waits} for Emudoc to try again at {clock_time(now.retry_at)}"
+        )
     lines = [f"Of {of}, {'; '.join(parts)}."]
-    lines.extend(f"  {failure['filename']}: {failure['reason']}" for failure in now["failures"])
-    if failed > len(now["failures"]):
-        lines.append(f"  and {failed - len(now['failures'])} more, which the library lists.")
+    lines.extend(f"  {name}: {reason}" for name, reason in now.failures[:NAMED])
+    if now.failed > NAMED:
+        lines.append(f"  and {now.failed - NAMED} more, which the library lists.")
     return lines
 
 
@@ -854,7 +984,8 @@ def send(
     failed = False
     if sent.uploads and not arguments.no_wait:
         try:
-            now = follow(api, project, [upload.id for upload in sent.uploads], say)
+            documents = [document for upload in sent.uploads for document in upload.documents]
+            now = follow(api, project, documents, say)
         except KeyboardInterrupt:
             say("Stopped following: Emudoc goes on reading the files sent.")
             return 130
@@ -864,20 +995,20 @@ def send(
         sent_words = "the file sent" if len(sent.kept) == 1 else f"the {len(sent.kept)} files sent"
         for line in outcome(now, sent_words):
             say(line)
-        failed = now["failed"] > 0
+        failed = now.failed > 0
     trouble = left or sent.refused or sent.unread or sent.waiting or unreadable or failed
     return 1 if trouble else 0
 
 
 def follow(
-    api: Api, project: Project, uploads: Sequence[int], say: Callable[[str], None]
-) -> dict[str, Any]:
-    """How far the uploads' documents are read once none is being read, saying how far they are
-    whenever that changes."""
+    api: Api, project: Project, documents: Sequence[int], say: Callable[[str], None]
+) -> Standing:
+    """Where the documents stand once none is being read, saying how far they are whenever that
+    changes."""
     said = None
     while True:
-        now = patiently(lambda: standing(api, project, uploads), api.sleep, say, TRIES)
-        if now["indexing"] == 0:
+        now = patiently(lambda: standing(api, project, documents), api.sleep, say, TRIES)
+        if now.indexing == 0:
             return now
         line = progress(now)
         if line != said:
@@ -975,10 +1106,10 @@ class Watcher:
     def _follow(self) -> None:
         for upload in list(self.uploads):
             try:
-                now = standing(self.sender.api, self.sender.project, [upload.id])
+                now = standing(self.sender.api, self.sender.project, upload.documents)
             except Unavailable:
                 return
-            if now["indexing"] or now["retrying"]:
+            if now.indexing or now.retrying:
                 continue
             self.uploads.remove(upload)
             for line in outcome(now, _named(upload.names)):

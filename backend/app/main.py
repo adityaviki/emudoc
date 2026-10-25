@@ -546,8 +546,9 @@ def create_app(
     app.include_router(v1.router, prefix="/api")
     # The routes an API key reaches (`_key_account` in app/api/deps.py), by their functions,
     # which the request's scope names once its route is matched: the versioned API's, the page's
-    # that a program has a use for, and the status, whose upload limits a program sends its
-    # files within, as the page does (app/client/).
+    # that a program has a use for, and the status, whose upload limits the copies of the upload
+    # client downloaded before it moved onto the versioned API send their files within
+    # (app/client/).
     app.state.keyed = frozenset(
         [
             *(route.endpoint for router in (*KEYED, *v1.ROUTERS) for route in router.routes),
