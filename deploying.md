@@ -1675,9 +1675,10 @@ changed since the last listing (Google's change log, Dropbox's cursor, the OneDr
 delta: one request when nothing did), and otherwise reads the folder whole and compares it with what the last sync found: a
 file not seen before, or whose version changed (its checksum; a Google document's last change),
 is downloaded and taken in through the checks an upload's files go through (its type, its size,
-bytes the project holds already, the plan), into the folders of its path below the target; the
-earlier document of a changed file goes to the project's trash once the new one is kept, and so
-does the document of a file no longer below the folder. What has no bytes of its own is
+bytes the project holds already, the plan), into the folders of its path below the target; a
+changed file is its document's new version, through the same checks, the earlier file kept with
+the document (one whose document is being indexed waits for the next sync), and the document of
+a file no longer below the folder goes to the project's trash. What has no bytes of its own is
 exported where the service can (below), and listed as left out where it cannot. A file is read
 once per version: one the project keeps, rejects or a member deleted is not read again until it
 changes. A sync takes at most 100 files (`ROUND_FILES`) and queues the next at once while more
@@ -2645,14 +2646,14 @@ across the instances, `sum without (instance)`):
 | `emudoc_worker_threads{lane}`, `emudoc_worker_busy{lane}` | A worker's job threads alive and running a job, by `lane` (`indexer`, `answerer`, `mailer`) |
 | `emudoc_parses{state}` | A worker's parses `running`, each a child process (`PARSE_CONCURRENCY` at most), and indexers `waiting` for one to end ("Large documents") |
 | `emudoc_worker_listening` | 1 while a worker hears of queued jobs as they are queued, 0 while it polls for them: behind a pooler in transaction mode without `DATABASE_LISTEN_URL`, or while its listener's lost connection waits to be made again |
-| `emudoc_upload_bytes`, `emudoc_upload_rejections_total` | The sizes of the files the API stored, and the files it refused by `reason`: `too_many` (a whole request), `plan`, `unsupported`, `empty`, `too_large`, `wrong_type`, `duplicate`, `folder` (a folder its path names that cannot be made), `unopened` (a message or a ZIP archive the page uploaded that cannot be opened, one inside another, or a file of an archive that does not unpack) |
+| `emudoc_upload_bytes`, `emudoc_upload_rejections_total` | The sizes of the files the API stored, and the files it refused by `reason`: `too_many` (a whole request), `plan`, `unsupported`, `empty`, `too_large`, `wrong_type`, `duplicate`, `folder` (a folder its path names that cannot be made), `unopened` (a message or a ZIP archive the page uploaded that cannot be opened, one inside another, or a file of an archive that does not unpack), `indexing` (a document's new version while it is being indexed) |
 | `emudoc_rate_limited_total` | Requests refused for a rate, by the limit's `scope` ("Rates") |
 | `emudoc_mail_sent_total` | Tries of the mail the app posted, by `outcome`: `sent`, `retried` (refused for now and queued again), `failed` (refused for good, or for the last time); the operator's own reports are not counted ("Mail") |
 | `emudoc_mail_events_total` | Addresses the mail provider said not to write to, by `kind`: `bounce`, `complaint`; counted by the API for Resend's, by the worker for SES's ("Mail") |
 | `emudoc_inbound_messages_total` | Messages sent to projects' addresses, by `outcome`: `kept`, `empty` (nothing in it to keep), `refused_sender`, `unauthenticated`, `unreadable`, `too_large`, `refused_project`, `refused_plan`, `unknown_address` (no project's), `off` (the flag off) ("Mail in") |
 | `emudoc_connector_syncs_total` | Syncs of connected folders, by `outcome`: `synced`, `unchanged` (nothing changed since the last), `failed` (stopped partway, or the folder gone), `paused` (the grant or the member), `held` (the project, the plan), `off` (the flag off) ("Connected folders") |
 | `emudoc_webhook_deliveries_total` | Tries of the events posted to the organisations' webhooks, by `outcome`: `delivered` (a 2xx), `retried` (answered otherwise or not at all, and queued again), `failed` (the last try), `refused` (not sent: an address on the deployment's own network or over plain HTTP, a plan without the API, a secret no key decrypts) ("Webhooks") |
-| `emudoc_connector_files_total` | Files of connected folders the syncs read, by `outcome`: `kept`, `rejected`, `trashed` (its file gone), `replaced` (by a new version) ("Connected folders") |
+| `emudoc_connector_files_total` | Files of connected folders the syncs read, by `outcome`: `kept`, `rejected`, `trashed` (its file gone), `replaced` (its document given the file's new version) ("Connected folders") |
 | `emudoc_renders_total`, `emudoc_render_seconds` | PDF pages drawn as images, by `purpose` (`pane`, `thumbnail`, `ocr`, `ahead`) and `outcome`: `drawn`, `refused` (a page that cannot be drawn), `timeout` (`RENDER_TIMEOUT`), `out_of_memory` (`RENDER_MEMORY_MB`), `crashed` or `unstarted` (no process could draw it); the seconds include the wait for a free process ("Drawing pages") |
 | `process_*`, `python_*` | The process's CPU, memory and open files, and Python's collector |
 

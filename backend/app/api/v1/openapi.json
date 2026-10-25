@@ -1881,6 +1881,331 @@
         }
       }
     },
+    "/api/v1/documents/{document_id}/versions": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "List Versions",
+        "description": "The document's versions: its current file first, then the files it had before, the latest\nfirst, every one on one page.",
+        "operationId": "list_versions",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Upload Version",
+        "description": "Give the document a new file, as a multipart form of `file`, which it reads in the earlier\none's place, keeping its id, its review and what names it; the earlier file stays as a\nversion to download, and its pages count again as the new one is read. Refused, with nothing\nchanged, for a file an upload would refuse (400, 413), for bytes the project holds already\n(409), while the document is being indexed (409; send it again once it is not), and when the\nplan has no room for its bytes or its pages (402). With an Idempotency-Key, the version sent\nagain is given the first one's answer.",
+        "operationId": "upload_version",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Document Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A string of the program's own, at most 255 characters, such as a UUID: the request sent again with it within a day is given the first one's answer, and carried out once.",
+              "title": "Idempotency-Key"
+            },
+            "description": "A string of the program's own, at most 255 characters, such as a UUID: the request sent again with it within a day is given the first one's answer, and carried out once."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_version"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Document"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{document_id}/versions/{number}/file": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Download Version",
+        "description": "An earlier version's file as it was uploaded, or a redirect to it (404 for a number that is\nno earlier version; the current file is the document's own). One replaced before the malware\nscan passed it is never served (409). Each download is a row of the organisation's audit\nlog.",
+        "operationId": "download_version",
+        "security": [
+          {
+            "APIKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Number"
+            }
+          },
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file.",
+            "content": {
+              "application/octet-stream": {}
+            }
+          },
+          "401": {
+            "description": "No API key, or one revoked, rolled or run out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Past what the organisation's plan allows; `limit` names the figure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The key's scope or its member's role does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nothing of this id that the key's member sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past a rate, or too much at once: send it again after `Retry-After`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/documents/{document_id}/facts": {
       "get": {
         "tags": [
@@ -4347,6 +4672,20 @@
         ],
         "title": "Body_upload_documents"
       },
+      "Body_upload_version": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_version"
+      },
       "Chat": {
         "properties": {
           "id": {
@@ -4879,6 +5218,10 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
           }
         },
         "type": "object",
@@ -4902,7 +5245,8 @@
           "template",
           "review",
           "assignee_id",
-          "created_at"
+          "created_at",
+          "version"
         ],
         "title": "Document",
         "description": "A document and how far it is indexed. `status` is `queued` or `processing` while it is\nread, `ready` once it can be searched and asked about, `failed` when it could not be read and\n`quarantined` when the malware scan flagged it, `error` saying why. A ready document is\n`partly_indexed` when it went without summaries and facts or without the vectors that search\nby meaning, which the model or the embeddings being out causes; `retry_at` is when a stage\nthat failed for a reason that passes runs again by itself."
@@ -6338,6 +6682,92 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "Version": {
+        "properties": {
+          "number": {
+            "type": "integer",
+            "title": "Number"
+          },
+          "current": {
+            "type": "boolean",
+            "title": "Current"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "mime_type": {
+            "type": "string",
+            "title": "Mime Type"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Count"
+          },
+          "uploaded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Uploaded At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "number",
+          "current",
+          "filename",
+          "mime_type",
+          "size_bytes",
+          "sha256",
+          "page_count",
+          "uploaded_at"
+        ],
+        "title": "Version",
+        "description": "A version of a document: its current file, or an earlier one, kept to download, whose text\nnothing searches or answers from any more."
+      },
+      "VersionList": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Version"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "next"
+        ],
+        "title": "VersionList",
+        "description": "A document's versions, the current one first, then the earlier ones, the latest first: every\none of them, on one page."
       }
     },
     "securitySchemes": {

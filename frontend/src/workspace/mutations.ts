@@ -20,6 +20,7 @@ import { useStatus } from '../hooks.ts'
 import { unfinishedStages } from '../indexing.ts'
 import { reviewsKey } from '../reviews.ts'
 import { trashKey } from '../trash.ts'
+import { givenWords, versionsKey } from '../versions.ts'
 import { moved, renamed } from './changes.ts'
 import type { Change, MoveItems, TrashItems } from './changes.ts'
 import { documentKey, editListings, findListed, listed, listingsKey, restore, snapshotListings } from './listing.ts'
@@ -319,6 +320,11 @@ export function useLibraryMutations() {
     onSettled: () => invalidate(documentsKey, openKey, projectKey, uploadsKey),
   })
 
+  // "Upload a new version…" from a file's menu: the library says what became of it.
+  const version = useUploadVersion(projectId)
+  const uploadVersion = (document: Document, file: File) =>
+    version.mutate({ id: document.id, file }, { onSuccess: (given) => setNotice(givenWords(given)), onError: fail })
+
   return {
     notice,
     setNotice,
@@ -343,6 +349,7 @@ export function useLibraryMutations() {
     reprocess,
     indexRest,
     indexProjectRest,
+    uploadVersion,
   }
 }
 
@@ -361,6 +368,26 @@ export function useReviewChange(projectId: number) {
       queryClient.setQueryData(documentKey(document.id), document)
       void queryClient.invalidateQueries({ queryKey: reviewsKey(projectId) })
       void queryClient.invalidateQueries({ queryKey: factTablesKey(projectId) })
+    },
+  })
+}
+
+/**
+ * Give a document a new file (backend/app/versions.py), then show the document as the server keeps it, waiting to
+ * read the new file, wherever the page holds it, and ask again for its versions and what counts its project's documents.
+ */
+export function useUploadVersion(projectId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, file }: { id: number; file: File }) => api.uploadVersion(id, file),
+    onSuccess: (document) => {
+      editListings(queryClient, projectId, (documents) => documents.map((held) => (held.id === document.id ? document : held)))
+      queryClient.setQueryData(documentKey(document.id), document)
+    },
+    onSettled: (_data, _error, { id }) => {
+      for (const queryKey of [listingsKey(projectId), documentKey(id), versionsKey(id), ['project', projectId], followedKey(projectId)]) {
+        void queryClient.invalidateQueries({ queryKey })
+      }
     },
   })
 }

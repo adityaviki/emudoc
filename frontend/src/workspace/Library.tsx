@@ -8,6 +8,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   ClipboardX,
+  FileUp,
   Flag,
   Folder as FolderIcon,
   FolderInput,
@@ -53,6 +54,7 @@ import { useFolders, useLocalStorage, useStatus } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
 import { partlyIndexedWords, restHeld, unfinishedStages } from '../indexing.ts'
 import { stateMoves } from '../reviews.ts'
+import { VERSION_EXTENSIONS } from '../versions.ts'
 import { describeChange } from './changes.ts'
 import { chosenFolder, droppedEntries, readEntries } from './dropped.ts'
 import { photoName } from './uploads.ts'
@@ -161,6 +163,9 @@ export function Library() {
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   const photoInput = useRef<HTMLInputElement>(null)
+  const versionInput = useRef<HTMLInputElement>(null)
+  // The document whose new version the file picker is choosing.
+  const versionOf = useRef<Document | null>(null)
   const dragging = useRef<DragPayload | null>(null)
   const [creating, setCreating] = useState(false)
   const [overPane, setOverPane] = useState(false)
@@ -492,6 +497,14 @@ export function Library() {
             onUploadDropped={uploadDropped}
             onPickFiles={() => fileInput.current?.click()}
             onPickFolder={() => folderInput.current?.click()}
+            onPickVersion={
+              uploads
+                ? (document) => {
+                    versionOf.current = document
+                    versionInput.current?.click()
+                  }
+                : undefined
+            }
           />
         )}
       </ErrorBoundary>
@@ -538,6 +551,19 @@ export function Library() {
               const file = event.target.files?.[0]
               if (file) uploadItems([{ file: new File([file], photoName(file, new Date()), { type: file.type }), folder: '' }], folderId)
               event.target.value = ''
+            }}
+          />
+          {/* A document's new file, chosen from its menu (backend/app/versions.py). */}
+          <input
+            ref={versionInput}
+            type="file"
+            name="version"
+            hidden
+            accept={VERSION_EXTENSIONS.join(',')}
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              event.target.value = ''
+              if (file && versionOf.current) mutations.uploadVersion(versionOf.current, file)
             }}
           />
         </>
@@ -698,6 +724,8 @@ interface ListingProps {
   onUploadDropped: Uploads
   onPickFiles: () => void
   onPickFolder: () => void
+  /** Choose a file to give the document as its new version; none where the library takes no uploads. */
+  onPickVersion?: (document: Document) => void
 }
 
 /** The folders and files in one folder, with selection, renaming, drag and drop and a menu. */
@@ -713,6 +741,7 @@ function Listing({
   onUploadDropped,
   onPickFiles,
   onPickFolder,
+  onPickVersion,
 }: ListingProps) {
   const workspace = useWorkspace()
   const queryClient = useQueryClient()
@@ -892,10 +921,21 @@ function Listing({
           },
         ]
       : []
+    const version: MenuItem[] = onPickVersion
+      ? [
+          {
+            label: 'Upload a new version…',
+            icon: FileUp,
+            disabled: item.document.status === 'processing',
+            onSelect: () => onPickVersion(item.document),
+          },
+        ]
+      : []
     return [
       ...reading,
       rename,
       moveTo,
+      ...version,
       ...rest,
       {
         // On a quarantined document this scans it again, for signatures that have changed.

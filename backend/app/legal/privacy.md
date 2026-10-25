@@ -31,14 +31,14 @@ organisation uploaded a document about you, ask the organisation first; we help 
   (as a hash only) and when it first and last signed in, so that it can still sign in while
   someone guessing your password has paused sign-ins from other browsers. We keep them to keep
   your account secure, which is our legitimate interest.
-- **What you upload and ask**: the documents, what is read from them (their text, images of
-  their pages, summaries, facts and the search index), the facts you checked or corrected with
-  when, and the documents you put in review, approved or disputed with when and those assigned
-  to you, which your organisation's members see beside your name, your chats with their
-  questions and answers, the runs of a project's cross-checks you made, with the values
-  they compared and the reports the model wrote from them, and the drafts you asked the model
-  for or edited, with what you asked of them and every version. We need them to provide the
-  service.
+- **What you upload and ask**: the documents, with the files they had before a new version and the
+  text read from those, what is read from them (their text, images of their pages, summaries, facts
+  and the search index), the facts you checked or corrected with when, and the documents you put in
+  review, approved or disputed with when and those assigned to you, which your organisation's
+  members see beside your name, your chats with their questions and answers, the runs of a project's
+  cross-checks you made, with the values they compared and the reports the model wrote from them,
+  and the drafts you asked the model for or edited, with what you asked of them and every version.
+  We need them to provide the service.
 - **Invitations**: the email address a member of an organisation invited to join it, the role
   offered and who sent it, to mail the invitation and let whoever holds the address join; the
   organisation's owners and admins see it until it is accepted or revoked. We need it to
@@ -141,8 +141,8 @@ $region
 
 ## How long it is kept
 
-- **Documents**, and everything read from them, until a member deletes them or the
-  organisation is deleted, which happens $deletion_days days after an owner asks, with
+- **Documents**, their earlier versions and everything read from them, until a member deletes
+  them or the organisation is deleted, which happens $deletion_days days after an owner asks, with
   everything else it holds, its usage records and audit log among them.
 - **Project exports**: the file of a project's documents and chats that a member asks for is
   kept $export_days days after it is made, for that member alone, and goes sooner with the

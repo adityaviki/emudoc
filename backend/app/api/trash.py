@@ -29,7 +29,7 @@ from app.api.deps import (
 from app.api.folders import held_by
 from app.api.projects import document_count, project_out
 from app.audit import audit
-from app.entitlements import PlanRefused, check_restore
+from app.entitlements import PlanRefused, check_restore, stored_bytes
 from app.models import Document, Project
 from app.schemas import (
     ChatOut,
@@ -201,7 +201,7 @@ def restore_trashed_folder(
     live folder above it, renamed when a live folder there took its name meanwhile."""
     ids, documents = went_with(session, folder)
     project = session.get(Project, folder.project_id)
-    size = sum(document.size_bytes for document in documents)
+    size = sum(document.size_bytes + document.versions_bytes for document in documents)
     if not project.sample and (
         refusal := check_restore(session, account.organization, documents=len(documents), size=size)
     ):
@@ -255,7 +255,10 @@ def restore_trashed_document(
     project = session.get(Project, document.project_id)
     if not project.sample and (
         refusal := check_restore(
-            session, account.organization, documents=1, size=document.size_bytes
+            session,
+            account.organization,
+            documents=1,
+            size=document.size_bytes + document.versions_bytes,
         )
     ):
         raise PlanRefused(refusal)
@@ -325,9 +328,10 @@ def purge_trashed_chat(
 
 
 def _held(session: SessionDep, *conditions: ColumnElement[bool]) -> tuple[int, int]:
-    """How many live documents meet the conditions, and their bytes."""
+    """How many live documents meet the conditions, and their bytes with their earlier
+    versions'."""
     return session.execute(
-        select(func.count(Document.id), func.coalesce(func.sum(Document.size_bytes), 0)).where(
+        select(func.count(Document.id), func.coalesce(func.sum(stored_bytes()), 0)).where(
             *conditions, Document.deleted_at.is_(None)
         )
     ).one()

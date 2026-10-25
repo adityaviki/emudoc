@@ -6,12 +6,16 @@ backends:
     orgs/{org}/projects/{project}/documents/{document}/original.pdf
     orgs/{org}/projects/{project}/documents/{document}/pages/{n}.png
     orgs/{org}/projects/{project}/documents/{document}/thumbnail.png
+    orgs/{org}/projects/{project}/documents/{document}/versions/{n}/original.docx
     orgs/{org}/projects/{project}/exports/{export}.zip
 
 Everything a document owns sits under its prefix and every document of a project under the
 project's, with the project's exports (app/export.py), so deleting either is deleting a prefix.
-The database holds the original's key (`documents.storage_key`) and the other keys derive from
-it (`Document.storage_prefix`).
+A document given a new version (app/versions.py) keeps each earlier file where it was, and the
+new one goes under `versions/{n}/` with its own pages and thumbnail, so that nothing drawn from
+an earlier file is served for the new one. The database holds the original's key
+(`documents.storage_key`, and each earlier version's in `document_versions`) and the other keys
+derive from it (`Document.version_prefix`, `Document.storage_prefix`).
 
 The pages and the thumbnail are a cache: rendered from the original the first time they are
 asked for (a PDF's first pages once it is parsed, app/rendering.py), and removed again once
@@ -84,7 +88,9 @@ URL_LIFETIME = 15 * 60
 DELETE_BATCH = 1000
 # The prefix every key sits under, for a sweep that walks the whole storage.
 ROOT_PREFIX = "orgs/"
-_RENDERED = re.compile(r"orgs/\d+/projects/\d+/documents/\d+/(pages/\d+|thumbnail)\.png")
+_RENDERED = re.compile(
+    r"orgs/\d+/projects/\d+/documents/\d+/(versions/\d+/)?(pages/\d+|thumbnail)\.png"
+)
 _EXPORT = re.compile(r"orgs/\d+/projects/\d+/exports/\d+\.zip")
 # The policy of a file the app sends from its own origin, in place of the page's. A browser that
 # shows the file in a tab after all, a PDF in its viewer, gives it an origin of its own and lets
@@ -124,6 +130,19 @@ def document_prefix(org_id: int, project_id: int, document_id: int) -> str:
 def original_key(org_id: int, project_id: int, document_id: int, suffix: str) -> str:
     """The key of an uploaded file; `suffix` is its lower-cased extension with the dot."""
     return f"{document_prefix(org_id, project_id, document_id)}original{suffix}"
+
+
+def version_key(org_id: int, project_id: int, document_id: int, number: int, suffix: str) -> str:
+    """The key of a document's version after the first (app/versions.py), under the document's
+    prefix; the first is the document's `original_key`."""
+    return f"{document_prefix(org_id, project_id, document_id)}versions/{number}/original{suffix}"
+
+
+def files_prefix(storage_key: str) -> str:
+    """The prefix everything a document owns sits under, from the key of one of its originals:
+    the original's own directory, or for a later version's (`version_key`) the one above its
+    `versions/`."""
+    return storage_key.rpartition("/")[0].partition("/versions/")[0] + "/"
 
 
 def export_key(org_id: int, project_id: int, export_id: int) -> str:

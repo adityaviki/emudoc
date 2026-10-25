@@ -5,13 +5,15 @@
 A sync buys an access token with the member's grant, reads the folder as it is now, and asks the
 service whether anything changed since the last listing's mark: when nothing did, that is all.
 Otherwise it reads every file below the folder and compares them with what the last sync found
-(`connector_files`). A file not seen before, or whose version changed, is downloaded and taken
-in through the checks an upload's files go through (app/uploads.py), into the folders of its
-path below the connector's target; the earlier document of a file whose version changed goes to
-the project's trash once the new one is kept, and so does the document of a file that is no
-longer below the folder. The trash keeps them TRASH_DAYS, so that a file moved by mistake at the
-service costs no chat its sources. The documents a sync keeps are one upload, its member's, so
-that its notice and the project's automations follow as any upload's do.
+(`connector_files`). A file not seen before is downloaded and taken in through the checks an
+upload's files go through (app/uploads.py), into the folders of its path below the connector's
+target. A file whose version changed is its document's new version (app/versions.py), through
+the same checks, so that the document keeps its chats' scope, its review and its members' checks
+where it stands in the library; one whose document is being indexed waits for the next sync. The
+document of a file that is no longer below the folder goes to the project's trash, which keeps
+it TRASH_DAYS, so that a file moved by mistake at the service costs no chat its sources. The
+documents a sync keeps or gives new versions are one upload, its member's, so that its notice
+and the project's automations follow as any upload's do.
 
 A file is read once per version: one the project keeps, rejects or deleted is not read again
 until its version changes, so a document a member deleted stays deleted while its file stays as
@@ -69,6 +71,7 @@ from app.retention import held_for_deletion
 from app.storage import Storage
 from app.trash import trash_document
 from app.uploads import LOST_RACE, Incoming, take_files
+from app.versions import VersionRefused, take_version
 
 log = logging.getLogger(__name__)
 
@@ -300,6 +303,9 @@ class Sync:
         self.kept: list[int] = []
         # The rows of the files no longer below the folder, by their ids at the service.
         self.gone: dict[str, ConnectorFile] = {}
+        # Whether a file's new version waited for its document's indexing, which the next sync
+        # takes: the mark stays where it was, so that the service says the folder changed.
+        self.held_back = False
 
     def run(self, *, forced: bool) -> str:
         """Sync, and say how it went for the metric: synced, unchanged, or failed."""
@@ -384,7 +390,8 @@ class Sync:
         connector.problem = stopped
         if not stopped and left == 0:
             # Only a folder taken whole moves the mark on: the next sync asks from it.
-            connector.cursor = listing.cursor
+            if not self.held_back:
+                connector.cursor = listing.cursor
         elif not stopped:
             queue_sync(self.session, connector, now=True)
         self.commit()
@@ -426,12 +433,12 @@ class Sync:
         for row in gone:
             document = self.session.get(Document, row.document_id) if row.document_id else None
             if document is not None and document.deleted_at is None:
-                self._trash(document, replaced=False)
+                self._trash(document)
             self.session.delete(row)
         if gone:
             self.commit()
 
-    def _trash(self, document: Document, *, replaced: bool) -> None:
+    def _trash(self, document: Document) -> None:
         audit_event(
             self.session,
             "document_deleted",
@@ -439,14 +446,10 @@ class Sync:
             user_id=self.connector.user_id,
             project_id=self.project.id,
             target=("document", document.id),
-            detail={
-                "filename": document.filename,
-                "by_connector": self.provider.name,
-                **({"replaced": True} if replaced else {}),
-            },
+            detail={"filename": document.filename, "by_connector": self.provider.name},
         )
         trash_document(self.session, document, self.connector.user_id)
-        CONNECTOR_FILES.labels("replaced" if replaced else "trashed").inc()
+        CONNECTOR_FILES.labels("trashed").inc()
 
     def _take(self, file: RemoteFile, row: ConnectorFile | None) -> None:
         """Download the file and take it in, or note why it is not."""
@@ -454,8 +457,9 @@ class Sync:
             self._note(file, row, file.unreadable)
             return
         earlier = self.session.get(Document, row.document_id) if row and row.document_id else None
-        if earlier is not None and earlier.deleted_at is not None:
-            earlier = None
+        if earlier is not None and earlier.deleted_at is None:
+            self._version(file, row, earlier)
+            return
         download = self.provider.download(self.http, self.token, file)
         try:
             documents, rejected = take_files(
@@ -466,7 +470,7 @@ class Sync:
                 self._target(),
                 [Incoming(file.name, folder_names("/".join(file.folders)), download)],
                 user_id=self.connector.user_id,
-                audited=self._audited(file, row, earlier),
+                audited=self._audited(file, row),
                 lease=self.lease,
             )
         except ConnectorError as error:
@@ -500,15 +504,67 @@ class Sync:
             self.session.delete(gone)
             self.commit()
             return
-        if earlier is not None and download.sha256 == earlier.sha256:
-            # A new version with the bytes of the last: the document is the file as it is.
-            row = self._row(file)
-            row.version = file.version
-            row.path = file.path
-            row.seen_at = datetime.now(UTC)
-            self.commit()
-            return
         self._note(file, self._row(file), refused.reason)
+
+    def _version(self, file: RemoteFile, row: ConnectorFile, document: Document) -> None:
+        """Download the file and make it its document's new version, or note why it is not."""
+        download = self.provider.download(self.http, self.token, file)
+
+        def audited(action: str, detail: dict) -> None:
+            audit_event(
+                self.session,
+                action,
+                org_id=self.project.org_id,
+                user_id=self.connector.user_id,
+                project_id=self.project.id,
+                target=("document", document.id),
+                detail={**detail, "by_connector": self.provider.name},
+            )
+            if action == "document_version_uploaded":
+                self._seen(row, file)
+
+        try:
+            take_version(
+                self.session,
+                self.storage,
+                self.project,
+                self.organization,
+                document,
+                file.name,
+                download,
+                user_id=self.connector.user_id,
+                audited=audited,
+                lease=self.lease,
+            )
+        except VersionRefused as refused:
+            self.session.rollback()
+            if refused.limit is not None:
+                raise PlanFull(refused.reason) from None
+            if refused.label == "indexing":
+                self.held_back = True
+            elif refused.duplicate_of == document.id:
+                # A new version with the bytes of the last: the document is the file as it is.
+                self._seen(row, file)
+                self.commit()
+            else:
+                self._note(file, row, refused.reason)
+            return
+        except ConnectorError as error:
+            if error.transient or error.revoked:
+                raise
+            self.session.rollback()
+            self._note(file, row, self._shown(error))
+            return
+        finally:
+            download.close()
+        self.kept.append(document.id)
+        CONNECTOR_FILES.labels("replaced").inc()
+
+    def _seen(self, row: ConnectorFile, file: RemoteFile) -> None:
+        row.version = file.version
+        row.path = file.path
+        row.reason = ""
+        row.seen_at = datetime.now(UTC)
 
     def _moved(self, sha256: str | None) -> tuple[ConnectorFile, Document] | None:
         """The row of a file no longer below the folder whose live document has these bytes,
@@ -523,18 +579,12 @@ class Sync:
         return None
 
     def _audited(
-        self, file: RemoteFile, row: ConnectorFile | None, earlier: Document | None
+        self, file: RemoteFile, row: ConnectorFile | None
     ) -> Callable[[Document, int], None]:
-        """What is written in the commit of the document a file became: its audit row, the
-        file's row, and its earlier document in the trash."""
+        """What is written in the commit of the document a file became: its audit row and the
+        file's row."""
 
         def audited(document: Document, size: int) -> None:
-            if earlier is not None:
-                self._trash(earlier, replaced=True)
-                # The new version takes its predecessor's name, which was its own but for the
-                # predecessor beside it; a restore of that one renames it instead.
-                if earlier.folder_id == document.folder_id:
-                    document.filename = earlier.filename
             audit_event(
                 self.session,
                 "document_uploaded",
@@ -549,11 +599,8 @@ class Sync:
                 },
             )
             kept = row if row is not None else self._row(file)
-            kept.version = file.version
-            kept.path = file.path
+            self._seen(kept, file)
             kept.document_id = document.id
-            kept.reason = ""
-            kept.seen_at = datetime.now(UTC)
 
         return audited
 

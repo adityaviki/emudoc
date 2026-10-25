@@ -37,7 +37,7 @@ from itertools import count
 from pathlib import Path, PurePosixPath
 
 from sqlalchemy import Connection, delete, func, or_, select, update
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, selectinload, undefer
 
 from app.accounts import zone_of
 from app.bounces import address_hash
@@ -54,6 +54,7 @@ from app.models import (
     Chat,
     ChatMessage,
     Document,
+    DocumentVersion,
     Fact,
     Identity,
     MailSuppression,
@@ -78,6 +79,7 @@ from app.schemas import (
     AccountExport,
     ExportedAccount,
     ExportedActivity,
+    ExportedBlock,
     ExportedBrowser,
     ExportedBy,
     ExportedChat,
@@ -98,6 +100,8 @@ from app.schemas import (
     ExportedSpared,
     ExportedTemplate,
     ExportedUsage,
+    ExportedVersion,
+    ExportedVersionText,
     ProjectExportFile,
     TemplateFieldOut,
 )
@@ -134,7 +138,8 @@ COMPRESSED = frozenset(
 
 PROJECT_ABOUT = (
     "A copy of a project in Emudoc, for the member named in exported_by. originals/ holds each "
-    "document as it was uploaded, in its folders, once the malware scan passed it. project.json "
+    "document as it was uploaded, in its folders, once the malware scan passed it, and versions/ "
+    "the files a document had before a new version took their place. project.json "
     "lists the project, its folders, its documents and the chats about them: those shared with the "
     "project and the member's own, whose answers cite passages as [P<number>]. documents/ holds "
     "what was read from each document: its outline, its passages by number, and the facts found in "
@@ -417,12 +422,21 @@ def _write(path: Path, export_id: int, storage: Storage) -> int:
             # Read, then let the connection go: copying the originals waits on the storage.
             with SessionLocal() as session:
                 batch = _read(session, ids[start : start + BATCH])
-            for document, data in batch:
+            for document, data, earlier in batch:
                 folder = folders.get(document.folder_id, "") if document.folder_id else ""
                 original = _original(archive, storage, names, document, folder)
                 data_path = f"documents/{document.id}.json"
                 archive.writestr(data_path, data.model_dump_json(indent=2))
-                listed.append(_listed(document, folder, original, data_path))
+                listed.append(
+                    _listed(document, folder, original, data_path).model_copy(
+                        update={
+                            "versions": [
+                                _version(archive, storage, names, version, folder)
+                                for version in earlier
+                            ]
+                        }
+                    )
+                )
         archive.writestr(
             "project.json",
             ProjectExportFile(
@@ -440,12 +454,23 @@ def _write(path: Path, export_id: int, storage: Storage) -> int:
 _EXPORTED = (Document.deleted_at.is_(None), Document.status != "quarantined")
 
 
-def _read(session: Session, ids: Sequence[int]) -> list[tuple[Document, ExportedDocumentData]]:
-    """The documents with these ids, each with what was read from it."""
+def _read(
+    session: Session, ids: Sequence[int]
+) -> list[tuple[Document, ExportedDocumentData, list[DocumentVersion]]]:
+    """The documents with these ids, each with what was read from it and its earlier versions,
+    the latest first."""
     documents = session.scalars(
         select(Document).where(Document.id.in_(ids)).order_by(Document.id)
     ).all()
     sections, passages, facts = defaultdict(list), defaultdict(list), defaultdict(list)
+    earlier: dict[int, list[DocumentVersion]] = defaultdict(list)
+    for row in session.scalars(
+        select(DocumentVersion)
+        .where(DocumentVersion.document_id.in_(ids))
+        .options(undefer(DocumentVersion.blocks))
+        .order_by(DocumentVersion.document_id, DocumentVersion.number.desc())
+    ):
+        earlier[row.document_id].append(row)
     for row in session.scalars(
         select(Section).where(Section.document_id.in_(ids)).order_by(Section.ordinal)
     ):
@@ -513,7 +538,15 @@ def _read(session: Session, ids: Sequence[int]) -> list[tuple[Document, Exported
                 sections=sections[document.id],
                 passages=passages[document.id],
                 facts=facts[document.id],
+                versions=[
+                    ExportedVersionText(
+                        number=version.number,
+                        blocks=[ExportedBlock(**block) for block in version.blocks],
+                    )
+                    for version in earlier[document.id]
+                ],
             ),
+            earlier[document.id],
         )
         for document in documents
     ]
@@ -563,18 +596,61 @@ def _original(
     if not scan_passed(document):
         return None
     name = names.taken(PurePosixPath("originals", *_segments(folder), _segment(document.filename)))
-    compression = (
-        zipfile.ZIP_STORED
-        if PurePosixPath(document.filename).suffix.lower() in COMPRESSED
-        else zipfile.ZIP_DEFLATED
-    )
     try:
         with storage.localize(document.storage_key) as local:
-            archive.write(local, name, compression)
+            archive.write(local, name, _compression(document.filename))
     except FileNotFoundError:
         log.warning("Document %s has no original in the storage to export", document.id)
         return None
     return name
+
+
+def _version(
+    archive: zipfile.ZipFile,
+    storage: Storage,
+    names: "_Names",
+    version: DocumentVersion,
+    folder: str,
+) -> ExportedVersion:
+    """An earlier version as `project.json` lists it, its file copied into the archive under
+    `versions/` and its folder, named for its number; none for one the malware scan had not
+    passed, or whose file the storage lacks."""
+    name = PurePosixPath(_segment(version.filename))
+    path = None
+    if version.scan_passed:
+        path = names.taken(
+            PurePosixPath(
+                "versions",
+                *_segments(folder),
+                f"{name.stem} (version {version.number}){name.suffix}",
+            )
+        )
+        try:
+            with storage.localize(version.storage_key) as local:
+                archive.write(local, path, _compression(version.filename))
+        except FileNotFoundError:
+            log.warning(
+                "A version of document %s has no file in the storage to export", version.document_id
+            )
+            path = None
+    return ExportedVersion(
+        number=version.number,
+        filename=version.filename,
+        original=path,
+        mime_type=version.mime_type,
+        size_bytes=version.size_bytes,
+        sha256=version.sha256,
+        page_count=version.page_count,
+        uploaded_at=version.uploaded_at,
+        replaced_at=version.replaced_at,
+    )
+
+
+def _compression(filename: str) -> int:
+    """How a file goes into the archive: stored as it is when it is compressed already."""
+    if PurePosixPath(filename).suffix.lower() in COMPRESSED:
+        return zipfile.ZIP_STORED
+    return zipfile.ZIP_DEFLATED
 
 
 def _segments(path: str) -> list[str]:
@@ -626,6 +702,7 @@ def _listed(document: Document, folder: str, original: str | None, data: str) ->
         review=document.review,
         assignee=document.assignee,
         review_changed_at=document.review_changed_at,
+        version=document.version,
     )
 
 

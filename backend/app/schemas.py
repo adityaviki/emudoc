@@ -339,9 +339,12 @@ class DocumentOut(_FromORM):
     summary: str | None
     # The kind of the extraction template its facts were read for (app/extraction.py), if any.
     template: str | None
-    # By kind: `upload` (bytes, pages), `ocr`, `infer_sections`, `enrich`, `embed`, `render`.
+    # By kind: `upload` (bytes, pages), `ocr`, `infer_sections`, `enrich`, `embed`, `render`;
+    # its current version's (app/versions.py).
     usage: dict[str, UsageOut]
     created_at: dt.datetime
+    # Which version of the document its file is, from 1 (app/versions.py).
+    version: int
     # Its review (app/reviews.py), None for none: the member it is assigned to, by id and their
     # name as it is now, and who moved it to its state and when, None for an automation or an
     # account gone.
@@ -350,6 +353,26 @@ class DocumentOut(_FromORM):
     assignee: str | None
     review_changer: str | None
     review_changed_at: dt.datetime | None
+
+
+class DocumentVersionOut(BaseModel):
+    """A version of a document (app/versions.py): its current file, or an earlier one kept to open
+    and download."""
+
+    number: int
+    current: bool
+    filename: str
+    mime_type: str
+    size_bytes: int
+    page_count: int | None
+    uploaded_at: dt.datetime
+    # The name of the member who brought it in, as it is now; None for nobody's (a document
+    # from before uploads were kept) or an account gone.
+    uploaded_by: str | None
+    # Whether its file is served: the malware scan passed it, as `download_file` asks.
+    served: bool
+    # Whether its text was read, which an earlier version shows (`…/versions/{n}/content`).
+    has_text: bool
 
 
 class ReviewIn(BaseModel):
@@ -2551,6 +2574,22 @@ class ExportedBy(BaseModel):
     email: str
 
 
+class ExportedVersion(BaseModel):
+    """An earlier version of a document, kept when a new file took its place: what it was, and
+    where the archive holds its file."""
+
+    number: int
+    filename: str
+    # The file's path in the archive; None when the malware scan had not passed it.
+    original: str | None
+    mime_type: str
+    size_bytes: int
+    sha256: str
+    page_count: int | None
+    uploaded_at: dt.datetime
+    replaced_at: dt.datetime
+
+
 class ExportedDocument(BaseModel):
     """A document as `project.json` lists it, with where the archive holds its original and
     what was read from it."""
@@ -2579,6 +2618,27 @@ class ExportedDocument(BaseModel):
     review: str | None = None
     assignee: str | None = None
     review_changed_at: dt.datetime | None = None
+    # Which version its file is, and the files it had before, the latest first
+    # (app/versions.py).
+    version: int = 1
+    versions: list[ExportedVersion] = []
+
+
+class ExportedBlock(BaseModel):
+    """A block of a document's text as its parse read it: a heading, a paragraph, a list item or
+    a table."""
+
+    kind: str
+    level: int | None
+    text: str
+    page: int | None
+
+
+class ExportedVersionText(BaseModel):
+    """An earlier version's text, block by block."""
+
+    number: int
+    blocks: list[ExportedBlock]
 
 
 class ExportedSection(BaseModel):
@@ -2630,6 +2690,8 @@ class ExportedDocumentData(BaseModel):
     sections: list[ExportedSection]
     passages: list[ExportedPassage]
     facts: list[ExportedFact]
+    # The text of each earlier version, the latest first, which nothing reads for answers.
+    versions: list[ExportedVersionText] = []
 
 
 class ExportedProjectChat(BaseModel):

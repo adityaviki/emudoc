@@ -16,7 +16,7 @@ from fastapi.responses import Response
 from sqlalchemy import and_, func, select
 
 from app.access import visible_to
-from app.api import documents, folders, projects
+from app.api import documents, folders, projects, versions
 from app.api.deps import (
     AccountDep,
     DeletableDocumentDep,
@@ -52,16 +52,20 @@ from app.api.v1.schemas import (
     ProjectList,
     RejectedFile,
     Upload,
+    Version,
+    VersionList,
 )
 from app.folders import folder_paths
 from app.idempotency import fingerprint
 from app.indexing.pipeline import unfinished_stages
 from app.models import Document as DocumentRow
+from app.models import DocumentVersion as VersionRow
 from app.models import Fact
 from app.models import Folder as FolderRow
 from app.models import Project as ProjectRow
 from app.ratelimit import UPLOADS
 from app.schemas import DocumentPatch, FolderIn, FolderPatch, NewProjectIn, ProjectIn, ProjectOut
+from app.versions import current_since
 
 router = APIRouter()
 
@@ -326,6 +330,102 @@ def download_file(
     return documents.download_file(document, services, session, account, request)
 
 
+@router.get("/documents/{document_id}/versions", response_model=VersionList, tags=["documents"])
+def list_versions(document: DocumentDep, session: SessionDep):
+    """The document's versions: its current file first, then the files it had before, the latest
+    first, every one on one page."""
+    earlier = session.scalars(
+        select(VersionRow)
+        .where(VersionRow.document_id == document.id)
+        .order_by(VersionRow.number.desc())
+    ).all()
+    current = Version(
+        number=document.version,
+        current=True,
+        filename=document.filename,
+        mime_type=document.mime_type,
+        size_bytes=document.size_bytes,
+        sha256=document.sha256,
+        page_count=document.page_count,
+        uploaded_at=current_since(session, document),
+    )
+    return VersionList(
+        data=[
+            current,
+            *(
+                Version(
+                    number=version.number,
+                    current=False,
+                    filename=version.filename,
+                    mime_type=version.mime_type,
+                    size_bytes=version.size_bytes,
+                    sha256=version.sha256,
+                    page_count=version.page_count,
+                    uploaded_at=version.uploaded_at,
+                )
+                for version in earlier
+            ),
+        ],
+        next=None,
+    )
+
+
+@router.post(
+    "/documents/{document_id}/versions",
+    response_model=Document,
+    status_code=201,
+    dependencies=[Depends(limited(UPLOADS))],
+    tags=["documents"],
+)
+def upload_version(
+    document: EditableDocumentDep,
+    file: UploadFile,
+    session: SessionDep,
+    services: ServicesDep,
+    worker: WorkerDep,
+    account: AccountDep,
+    request: Request,
+    once: OnceDep,
+):
+    """Give the document a new file, as a multipart form of `file`, which it reads in the earlier
+    one's place, keeping its id, its review and what names it; the earlier file stays as a
+    version to download, and its pages count again as the new one is read. Refused, with nothing
+    changed, for a file an upload would refuse (400, 413), for bytes the project holds already
+    (409), while the document is being indexed (409; send it again once it is not), and when the
+    plan has no room for its bytes or its pages (402). With an Idempotency-Key, the version sent
+    again is given the first one's answer."""
+
+    def asked() -> str:
+        return fingerprint(request, {"file": [file.filename, _sha256(file.file)]})
+
+    def work() -> Document:
+        given = versions.upload_version(document, file, session, services, worker, account, request)
+        return document_of(given)
+
+    return once.run(asked, 201, work)
+
+
+@router.get(
+    "/documents/{document_id}/versions/{number}/file",
+    response_class=Response,
+    responses={200: {"content": {"application/octet-stream": {}}, "description": "The file."}},
+    tags=["documents"],
+)
+def download_version(
+    document: DocumentDep,
+    number: int,
+    services: ServicesDep,
+    session: SessionDep,
+    account: AccountDep,
+    request: Request,
+) -> Response:
+    """An earlier version's file as it was uploaded, or a redirect to it (404 for a number that is
+    no earlier version; the current file is the document's own). One replaced before the malware
+    scan passed it is never served (409). Each download is a row of the organisation's audit
+    log."""
+    return versions.download_version(document, number, services, session, account, request)
+
+
 @router.get("/documents/{document_id}/facts", response_model=FactList, tags=["facts"])
 def get_document_facts(document: DocumentDep, session: SessionDep):
     """The facts read from the document, by name: every one of them, on one page."""
@@ -385,6 +485,7 @@ def document_of(document: DocumentRow) -> Document:
         review=document.review,
         assignee_id=document.assignee_id,
         created_at=document.created_at,
+        version=document.version,
     )
 
 

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link2, ListChecks, ListTree, Printer, X } from 'lucide-react'
+import { History, Link2, ListChecks, ListTree, Printer, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { api, fileUrl, hasPages, isImage, isSheet, mayChange, pageImageUrl, pageLabel, sectionPath } from '../api.ts'
 import type { Document, Section } from '../api.ts'
@@ -17,6 +17,7 @@ import { originalFile } from './files.ts'
 import { documentKey, listingsKey } from './listing.ts'
 import { ReviewControls } from './Reviews.tsx'
 import { ShareDialog } from './ShareLinks.tsx'
+import { VersionsDialog } from './Versions.tsx'
 import { useWorkspace } from './state.ts'
 import { followedKey } from './uploads.ts'
 import type { Focus } from './url.ts'
@@ -42,6 +43,7 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
   const heading = useRef<HTMLHeadingElement>(null)
   const [outlineOpen, setOutlineOpen] = useState(true)
   const [sharing, setSharing] = useState(false)
+  const [versioning, setVersioning] = useState(false)
   const status = document.status
   const indexed = document.stages.structure?.status === 'done'
   // The original is served once its malware scan has passed, and never when it was flagged.
@@ -131,6 +133,7 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
                   {document.page_count} page{document.page_count === 1 ? '' : 's'}
                 </span>
               )}
+              {document.version > 1 && <span>version {document.version}</span>}
               {/* What the document cost and where its indexing stands are the app's, not the document's. */}
               <span className="contents print:hidden">
                 {usage && (
@@ -154,6 +157,9 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
                 <Printer className="size-4" />
               </IconButton>
             )}
+            <IconButton label="Versions" onClick={() => setVersioning(true)}>
+              <History className="size-4" />
+            </IconButton>
             {offersLinks(me) && indexed && openable && (
               <IconButton label="Share by link" onClick={() => setSharing(true)}>
                 <Link2 className="size-4" />
@@ -176,6 +182,7 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
           </div>
         )}
         {sharing && <ShareDialog target={{ kind: 'document', id: document.id, name: document.filename }} onClose={() => setSharing(false)} />}
+        {versioning && <VersionsDialog document={document} onClose={() => setVersioning(false)} />}
         {focusLabel && (
           <p className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-md bg-mark/40 py-0.5 pr-0.5 pl-2 text-xs">
             <span className="truncate">Showing: {focusLabel}</span>

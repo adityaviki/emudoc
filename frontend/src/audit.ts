@@ -124,6 +124,7 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   folder_restored: ['Restored a folder', 'files'],
   folder_purged: ['Deleted a folder for good', 'files'],
   document_uploaded: ['Uploaded a document', 'files'],
+  document_version_uploaded: ['Uploaded a new version of a document', 'files'],
   document_downloaded: ['Downloaded a document', 'files'],
   document_deleted: ['Deleted a document', 'files'],
   document_restored: ['Restored a document', 'files'],
@@ -220,13 +221,20 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   else if (WEBHOOK_ACTIONS.has(event.action)) parts.push(describeWebhookChange(detail))
   else if (event.action === 'document_review_changed') parts.push(`${review(detail.from)} → ${review(detail.to)}`)
   else if (event.action === 'document_assigned') parts.push(describeAssignment(detail, names))
+  // A new version of another type took its extension, and its name before is a file's, as it was.
+  else if (event.action === 'document_version_uploaded') {
+    if (typeof detail.from === 'string') parts.push(`was ${detail.from}`)
+  }
   else if ('to' in detail) parts.push(`${word(detail.from)} → ${word(detail.to)}`)
   else if ('from' in detail) parts.push(`was ${word(detail.from)}`)
+  // A document's version (backend/app/versions.py): the one it was given, or the earlier one downloaded.
+  if (event.action.startsWith('document_') && typeof detail.version === 'number') parts.push(`version ${detail.version}`)
   if (event.action === 'document_uploaded' && detail.by_email === true) parts.push('by email')
-  // A document a connected folder's sync brought, or put in the trash for its file gone or changed there.
+  // A document or a version a connected folder's sync brought, or a document it put in the trash
+  // for its file gone there, or, before versions, changed there.
   if (typeof detail.by_connector === 'string') {
     const service = serviceName(detail.by_connector)
-    if (event.action === 'document_uploaded') parts.push(`from ${service}`)
+    if (event.action === 'document_uploaded' || event.action === 'document_version_uploaded') parts.push(`from ${service}`)
     else parts.push(detail.replaced === true ? `replaced by a new version from ${service}` : `gone from ${service}`)
   }
   // A review an automation's run moved, which the row names as by Emudoc.

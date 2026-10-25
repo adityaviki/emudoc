@@ -36,7 +36,7 @@ from app.db import unbounded
 from app.folders import folder_paths, subtree_ids, unique_filename, unique_folder_name
 from app.jobs import queue_index_by_id
 from app.models import Chat, Document, Folder, Project, User
-from app.storage import project_prefix
+from app.storage import files_prefix, project_prefix
 
 # How long what a member deletes stays in the trash before the housekeeper deletes it for good.
 TRASH_DAYS = 30
@@ -256,7 +256,7 @@ def purge_folder(session: Session, folder: Folder) -> list[str]:
     unbounded(session)
     ids = _subtree(_children(session, folder.project_id), folder.id)
     prefixes = [
-        key.rpartition("/")[0] + "/"
+        files_prefix(key)
         for key in session.scalars(select(Document.storage_key).where(Document.folder_id.in_(ids)))
     ]
     # The database's cascade takes the subfolders and the documents with it.
@@ -384,7 +384,7 @@ def empty_trash(session: Session, project: Project, user_id: int) -> Purged:
     gone = set().union(*below.values()) if below else set()
     in_gone = gone | {folder.id for folder in folders}
     prefixes = [
-        key.rpartition("/")[0] + "/"
+        files_prefix(key)
         for key in session.scalars(
             select(Document.storage_key).where(Document.folder_id.in_(in_gone))
         )
@@ -483,5 +483,5 @@ def purge_trash(connection: Connection) -> Emptied:
         folders=folders,
         chats=chats,
         prefixes=[project_prefix(org_id, project_id) for org_id, project_id in projects]
-        + [key.rpartition("/")[0] + "/" for key in keys],
+        + [files_prefix(key) for key in keys],
     )

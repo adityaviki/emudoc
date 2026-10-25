@@ -3,6 +3,7 @@ alone, answered in the API's own models a page at a time, making things once wit
 Idempotency-Key (app/idempotency.py), and held to the contract it was published with."""
 
 import copy
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -35,6 +36,7 @@ from app.indexing.pipeline import process_document
 from app.main import create_app
 from app.maintenance import housekeeping
 from app.models import ApiKey, ChatEvent, Document, IdempotencyKey, Project
+from app.versions import SAME_FILE
 from tests.conftest import APP_HEADERS, FakeTurn
 from tests.test_chats import questions_counted
 from tests.test_check_runs import TOTAL, invoices, work
@@ -510,6 +512,38 @@ def test_the_workflows_are_behind_the_flag(api, monkeypatch):
         assert api.get(path).status_code == 404, path
 
 
+def test_a_program_gives_a_document_a_new_version_once_and_downloads_the_earlier_file(
+    api, services
+):
+    old, new = b"The fee is 100 EUR a month.", b"The fee is 250 EUR a month."
+    project = made(api, "/api/v1/projects", {"name": "Terms"})
+    (document,) = sent(api, project["id"], ("terms.txt", old)).json()["documents"]
+    process_document(document["id"], services)
+    path = f"/api/v1/documents/{document['id']}/versions"
+    key = {"Idempotency-Key": "terms-2"}
+
+    first = api.post(path, files={"file": ("terms.txt", new)}, headers=key)
+    assert first.status_code == 201, first.text
+    assert (first.json()["id"], first.json()["version"]) == (document["id"], 2)
+    # Sent again after a lost answer, it is the first one's answer, not a third version.
+    again = api.post(path, files={"file": ("terms.txt", new)}, headers=key)
+    assert (again.status_code, again.headers["Idempotent-Replayed"]) == (201, "true")
+    assert again.json() == first.json()
+    refused = api.post(path, files={"file": ("terms.txt", new)})
+    assert (refused.status_code, refused.json()["detail"]) == (409, SAME_FILE)
+
+    listed = got(api, path)
+    assert [(v["number"], v["current"], v["sha256"]) for v in listed["data"]] == [
+        (2, True, hashlib.sha256(new).hexdigest()),
+        (1, False, hashlib.sha256(old).hexdigest()),
+    ]
+    assert listed["next"] is None
+    assert api.get(f"{path}/1/file").content == old
+    assert api.get(f"{path}/2/file").status_code == 404
+    process_document(document["id"], services)
+    assert got(api, f"/api/v1/documents/{document['id']}")["status"] == "ready"
+
+
 @dataclass
 class World:
     """A project with a folder, an indexed document, a chat with one answered question and a run
@@ -529,7 +563,11 @@ def world(client, api, session, services, sample_pdf, monkeypatch) -> World:
     turn_on(monkeypatch)
     project = made(api, "/api/v1/projects", {"name": "Contracts"})
     folder = made(api, f"/api/v1/projects/{project['id']}/folders", {"name": "Signed"})
-    (document,) = sent(api, project["id"], ("msa.pdf", sample_pdf.read_bytes())).json()["documents"]
+    # The contract came in as a draft first, the version kept to download.
+    (document,) = sent(api, project["id"], ("msa.txt", b"A draft.")).json()["documents"]
+    process_document(document["id"], services)
+    signed = {"file": ("msa.pdf", sample_pdf.read_bytes())}
+    assert api.post(f"/api/v1/documents/{document['id']}/versions", files=signed).status_code == 201
     process_document(document["id"], services)
     hits = got(api, f"/api/v1/projects/{project['id']}/search", q="notice")
     chat = made(api, f"/api/v1/projects/{project['id']}/chats")
@@ -563,6 +601,8 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/v1/documents/{w.document_id}", {}),
         ("GET", f"/api/v1/documents/{w.document_id}/file", {}),
         ("GET", f"/api/v1/documents/{w.document_id}/facts", {}),
+        ("GET", f"/api/v1/documents/{w.document_id}/versions", {}),
+        ("GET", f"/api/v1/documents/{w.document_id}/versions/1/file", {}),
         ("GET", f"/api/v1/projects/{w.project_id}/search", {"params": {"q": "notice"}}),
         ("GET", f"/api/v1/projects/{w.project_id}/facts", {}),
         ("GET", f"/api/v1/passages/{w.passage_id}", {}),
@@ -586,6 +626,11 @@ def writes(w: World) -> list[Route]:
             {"files": [("files", ("other.txt", b"Some other file."))]},
         ),
         ("PATCH", f"/api/v1/documents/{w.document_id}", {"json": {"filename": "renamed.pdf"}}),
+        (
+            "POST",
+            f"/api/v1/documents/{w.document_id}/versions",
+            {"files": {"file": ("msa.pdf", b"%PDF-1.7 another contract")}},
+        ),
         ("POST", f"/api/v1/projects/{w.project_id}/check-runs", {"json": {}}),
         ("DELETE", f"/api/v1/folders/{w.folder_id}", {}),
         ("DELETE", f"/api/v1/documents/{w.document_id}", {}),

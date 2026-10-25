@@ -178,6 +178,14 @@ describe('a row', () => {
     expect(describeDetail(event('document_deleted', { filename: 'INV-7.pdf', by_connector: 'google', replaced: true }))).toBe(
       'INV-7.pdf · replaced by a new version from Google Drive',
     )
+    // A document's new version, its name before when it took another type's, and an earlier one downloaded.
+    expect(describeDetail(event('document_version_uploaded', { filename: 'msa.pdf', size_bytes: 10, version: 2, from: 'msa.docx' }))).toBe(
+      'msa.pdf · was msa.docx · version 2',
+    )
+    expect(describeDetail(event('document_version_uploaded', { filename: 'Notes.md', size_bytes: 10, version: 3, by_connector: 'dropbox' }))).toBe(
+      'Notes.md · version 3 · from Dropbox',
+    )
+    expect(describeDetail(event('document_downloaded', { filename: 'msa.docx', version: 1 }))).toBe('msa.docx · version 1')
     // A fact checked or corrected: the document and the field, never what it says.
     expect(describeDetail(event('fact_corrected', { filename: 'acme-10.pdf', field: 'total_amount' }))).toBe('acme-10.pdf · total amount')
     // A member's leave for support, support's view of their account, and what was done in it.
