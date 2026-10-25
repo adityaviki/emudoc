@@ -20,7 +20,10 @@ reload the page. Try again, under the last answer of your chat when it was stopp
 writes it anew in its place.
 
 A question can be up to $question_chars characters; for more, upload the text as a document and
-ask about it. New chat starts afresh, and the empty chat suggests a few questions.
+ask about it. New chat starts afresh, and the empty chat suggests a few questions, which the AI
+model writes from the project's documents once they are indexed. Under the last answer of your
+chat, "Ask next" suggests two or three questions that take it further: click one to ask it, as if
+you had typed it. A suggestion is only asked when you click it, and counts as a question.
 
 ## Who sees a chat
 

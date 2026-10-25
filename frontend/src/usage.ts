@@ -12,6 +12,7 @@ export const USAGE_LABELS: Record<UsageKind, string> = {
   render: 'Page renders',
   report: 'Discrepancy report',
   draft: 'Draft',
+  suggestions: 'Suggested questions',
 }
 
 // The order the kinds happen to a document in.

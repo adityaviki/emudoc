@@ -108,6 +108,7 @@ from app.jobs import (
     RUN_WORKFLOW,
     SEEN_WITHIN,
     SEND_EMAIL,
+    SUGGEST_QUESTIONS,
     SYNC_CONNECTOR,
     WRITE_DRAFT,
     Lease,
@@ -146,6 +147,8 @@ from app.scanning import ScanError, alert_quarantines
 from app.spending import alert_spending, when
 from app.startup import prepare
 from app.storage import StorageError
+from app.suggestions import after_index as suggest_after_index
+from app.suggestions import write_suggestions
 from app.tracing import describe, timed, trace_of
 from app.tracking import start_tracking
 from app.version import VERSION
@@ -309,12 +312,17 @@ def _minutes(delta: timedelta) -> str:
 
 
 def _after_index(job: Job, services: Services) -> None:
-    """Once an index job ended: its document's upload may be settled, and the document's webhooks
-    told (app/webhooks.py), the one whichever way the other went."""
+    """Once an index job ended: its document's upload may be settled, the document's webhooks
+    told (app/webhooks.py) and its project's questions written again (app/suggestions.py), each
+    whichever way the others went."""
+    document_id = job.payload["document_id"]
     try:
         after_index(job, services)
     finally:
-        announce_document(job.payload["document_id"], job.id)
+        try:
+            announce_document(document_id, job.id)
+        finally:
+            suggest_after_index(document_id)
 
 
 def _abandon_index(job: Job, services: Services) -> None:
@@ -406,6 +414,16 @@ def _abandon_automation(job: Job, services: Services) -> None:
     pass
 
 
+def _run_suggestions(job: Job, services: Services) -> str | None:
+    write_suggestions(job.project_id, services, Lease(job.id, job.worker_id))
+    return None
+
+
+def _abandon_suggestions(job: Job, services: Services) -> None:
+    # The project keeps the questions it had, and its next upload queues another writing.
+    pass
+
+
 def _abandon_language(job: Job, services: Services) -> None:
     # The passages not moved yet are searched in the language they have, as before the change;
     # the next change of language, or indexing a document again, moves them.
@@ -417,8 +435,9 @@ def _abandon_language(job: Job, services: Services) -> None:
 # the runs of cross-checks and the automations that make them the answers', since a member
 # waits for them and their reports are the agent's, and so the drafts; every other kind shares
 # the indexers, a message sent to a project's address among them (app/receiving.py), which is
-# an upload, and so is a connected folder's sync (app/connectors/sync.py), and the deliveries
-# of the webhooks (app/webhooks.py), whose answers come within seconds.
+# an upload, and so is a connected folder's sync (app/connectors/sync.py), the deliveries
+# of the webhooks (app/webhooks.py), whose answers come within seconds, and the writing of a
+# project's suggested questions (app/suggestions.py), one indexing request.
 HANDLERS: dict[str, Handler] = {
     INDEX_DOCUMENT: Handler(_run_index, _abandon_index, _after_index),
     ANSWER_QUESTION: Handler(run_answer, abandon_answer),
@@ -432,6 +451,7 @@ HANDLERS: dict[str, Handler] = {
     RECEIVE_MAIL: Handler(_run_receive, _abandon_receive),
     SYNC_CONNECTOR: Handler(_run_sync, _abandon_sync),
     DELIVER_WEBHOOK: Handler(run_delivery, abandon_delivery),
+    SUGGEST_QUESTIONS: Handler(_run_suggestions, _abandon_suggestions),
 }
 LANE_KINDS = {
     ANSWERER: [ANSWER_QUESTION, RUN_WORKFLOW, RUN_AUTOMATION, WRITE_DRAFT],

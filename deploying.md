@@ -752,7 +752,10 @@ to end (`emudoc_parses{state="waiting"}`, and `waited` in the run's `parse` span
 ## The models
 
 `INDEX_MODEL` reads every document, to infer its sections, write summaries, pull out facts and
-transcribe scanned pages; `AGENT_MODEL` answers in the Ask tab. Each is written
+transcribe scanned pages, and writes the questions an empty chat offers from each project's
+catalogue (a `suggest_questions` job with the indexers, once a project's documents settle and an
+hour after its last at the soonest, recorded as the usage kind `suggestions`); `AGENT_MODEL`
+answers in the Ask tab. Each is written
 `provider:model`, each may have a fallback, and every one of them is a company the documents
 are sent to ("What leaves the deployment").
 

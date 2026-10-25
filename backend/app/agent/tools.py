@@ -1,13 +1,14 @@
-"""The agent's tools: five that read the project's indexes, and `create_draft`, which offers the
+"""The agent's tools: five that read the project's indexes, `create_draft`, which offers the
 member a draft to have written (app/drafts.py) and is offered itself only to a member who may have
-one. Every query is scoped to one project by the server, not the model, and to what is out of the
-project's trash (app/trash.py): nothing in it is listed, searched, counted or read.
+one, and `suggest_follow_ups`, by which an answer suggests the questions to ask next. Every query
+is scoped to one project by the server, not the model, and to what is out of the project's trash
+(app/trash.py): nothing in it is listed, searched, counted or read.
 
 None of them changes anything. An offer of a draft is the answer's (app/answers.py), shown under
 it, and nothing is written until the member presses it, so a document whose text tells the model
-to make drafts makes none."""
+to make drafts makes none; a follow-up is the same, a question asked only when pressed."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -30,6 +31,11 @@ LIVE = Document.deleted_at.is_(None)
 READ_BUDGET = 12_000
 MAX_OUTLINE_SECTIONS = 400
 
+# How many questions an answer suggests asking next at most, and how long one may be: a question
+# a member reads at a glance, longer than which the model wrote something else.
+FOLLOW_UPS = 3
+SUGGESTED_CHARS = 200
+
 FOLDER_HELP = (
     "Only documents in this folder and its subfolders, given as a path such as Invoices/2024 "
     "(list_documents shows the folders)."
@@ -50,6 +56,8 @@ class ToolContext:
     # Whether the answer offers a draft already, and the draft this call offers, if it does.
     offered: bool = False
     offer: dict[str, Any] | None = None
+    # The questions this call suggests asking next, if it suggests any.
+    follow_ups: list[str] | None = None
     _folder_paths: dict[int, str] | None = field(default=None, repr=False)
 
     def folder_paths(self) -> dict[int, str]:
@@ -143,6 +151,13 @@ class CreateDraftInput(_Input):
         max_length=DRAFT_DOCUMENTS,
         description="The documents it is about, by the ids list_documents and search show. "
         "Leave it empty for the writer to find them.",
+    )
+
+
+class SuggestFollowUpsInput(_Input):
+    questions: list[str] = Field(
+        description="Two or three questions the member might ask next, each one short sentence "
+        "in the language of your answer."
     )
 
 
@@ -506,6 +521,33 @@ def create_draft(ctx: ToolContext, args: CreateDraftInput) -> str:
     )
 
 
+def suggest_follow_ups(ctx: ToolContext, args: SuggestFollowUpsInput) -> str:
+    """Suggest the questions to ask next under the answer: the chat's starter asks one with a
+    press, as if they had typed it."""
+    questions = distinct_questions(args.questions, FOLLOW_UPS)
+    if not questions:
+        return (
+            f"No question can be suggested: each is one question of at most {SUGGESTED_CHARS} "
+            "characters. Finish your answer without them."
+        )
+    ctx.follow_ups = questions
+    return (
+        "The member sees these questions under your answer, to ask one with a press. If your "
+        "answer is not written yet, write it now, without listing them in it."
+    )
+
+
+def distinct_questions(questions: Iterable[str], limit: int) -> list[str]:
+    """Questions as the page offers them: each on one line of at most SUGGESTED_CHARS, none twice
+    whatever its case, the first `limit` of them."""
+    kept: dict[str, str] = {}
+    for question in questions:
+        line = " ".join(question.split())
+        if line and len(line) <= SUGGESTED_CHARS:
+            kept.setdefault(line.casefold(), line)
+    return list(kept.values())[:limit]
+
+
 def _fact_names(ctx: ToolContext) -> str:
     names = ctx.session.execute(
         select(Fact.name, func.count(), func.count(func.distinct(Fact.document_id)))
@@ -675,4 +717,17 @@ DRAFT_TOOL = Tool(
     "instructions, so put in them all it should say.",
     CreateDraftInput,
     create_draft,
+)
+
+# Offered beside TOOLS for answers alone (`run_agent(…, following=True)`): called with the answer's
+# last words, it ends the answer without another turn (app/agent/loop.py).
+FOLLOW_UP_TOOL = Tool(
+    "suggest_follow_ups",
+    "Suggest two or three questions the member might ask next, shown under your answer for them to "
+    "ask with one press. Call it once, in the same reply as your finished answer, never before you "
+    "have answered. Each question is one the project's documents can answer, takes this answer "
+    "further rather than asking what it already says, and is worded as the member would ask it. "
+    "Do not list them in the answer itself.",
+    SuggestFollowUpsInput,
+    suggest_follow_ups,
 )

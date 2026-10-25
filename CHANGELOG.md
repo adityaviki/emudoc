@@ -17,6 +17,9 @@ newest entry first.
 
 Members:
 
+- A new chat now suggests questions written from the project's own documents, once they are
+  indexed, rather than the same three for every project. Under the last answer of your chat, "Ask
+  next" suggests two or three questions that take it further: click one to ask it.
 - A PDF may now have up to 5,000 pages, where it was 500: a long manual, a book or a year of
   statements is read as one document, its outline and its headings over the whole of it, and
   searched and asked about like any other. Its first pages, as many as the AI model reads of one
@@ -100,6 +103,14 @@ Members:
 
 Operators:
 
+- A project's suggested questions are a job of their own, `suggest_questions`, with the
+  indexers at bulk priority: queued when an index job leaves its project with no document still
+  to index, at most one queued a project and due an hour after its last writing at the soonest,
+  one request of `INDEX_MODEL` with the project's catalogue (`app/suggestions.py`). Its calls are
+  the usage kind `suggestions`, by no member, which `costs` and `usage` list; the day's spending
+  limits skip it, and the sample project is never written. An answer's follow-ups are the agent's
+  `suggest_follow_ups`, which ends the answer when sent with its last words, so they cost no
+  further turn. The migration adds `chat_messages.follow_ups` and `projects.suggested_at`.
 - `PARSE_MAX_PAGES` is 5,000 by default, where it was 500. A PDF of more than `PARSE_PART_PAGES`
   (250, new) pages is parsed that many pages a child, each within `PARSE_TIMEOUT` and
   `PARSE_MEMORY_MB`, the pages read kept in the temporary directory (about 2.5 MB for 250 pages

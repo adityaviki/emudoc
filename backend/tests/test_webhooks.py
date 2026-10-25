@@ -352,7 +352,8 @@ def test_an_event_is_given_up_after_its_last_try(client, session, services, rece
     assert (delivery["status"], delivery["retry_at"]) == ("failed", None)
     assert delivery["error"] == "The address answered 503, not 2xx." + GAVE_UP
     # No try is queued after the last, and the worker gave nothing up to the operator.
-    assert session.scalar(select(func.count()).where(Job.status == "queued")) == 0
+    tries = select(func.count()).where(Job.kind == DELIVER_WEBHOOK, Job.status == "queued")
+    assert session.scalar(tries) == 0
     assert session.scalar(select(func.count()).where(Job.status == "failed")) == 0
 
 

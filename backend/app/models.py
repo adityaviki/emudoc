@@ -109,6 +109,7 @@ JOB_KINDS = (
     "write_draft",
     "receive_mail",
     "deliver_webhook",
+    "suggest_questions",
 )
 JOB_STATUSES = ("queued", "running", "done", "failed")
 # Why an address is sent no notices (app/bounces.py): mail to it bounced for good, or its reader
@@ -134,6 +135,7 @@ USAGE_KINDS = (
     "render",
     "report",
     "draft",
+    "suggestions",
 )
 USAGE_UNITS = ("calls", "input_tokens", "output_tokens", "pages", "bytes", "inputs", "questions")
 # What an organisation is entitled to (app/entitlements.py), from the plan with the least to
@@ -937,7 +939,12 @@ class Project(Base):
     # documents count against nothing the plan holds, and nothing is uploaded into it.
     sample: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     # The questions an empty chat offers to ask about its documents; none offers the page's own.
+    # The sample's are its own, and the model writes every other project's from its catalogue
+    # once its documents settle (app/suggestions.py).
     suggestions: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default="{}")
+    # When the model last wrote them, which it does again an hour after at the soonest; null
+    # for never.
+    suggested_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -2142,6 +2149,9 @@ class ChatMessage(Base):
     draft_offer: Mapped[dict | None] = mapped_column(JSONB)
     # The draft written from the offer, until it is deleted.
     draft_id: Mapped[int | None] = mapped_column(ForeignKey("drafts.id", ondelete="SET NULL"))
+    # The questions the answer suggests asking next (`suggest_follow_ups`, app/agent/tools.py),
+    # which the chat's starter asks with a press; none for an answer that suggests none.
+    follow_ups: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default="{}")
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

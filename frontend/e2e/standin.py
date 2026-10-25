@@ -15,7 +15,9 @@ the passages. It answers as a model would that does the least the app asks:
 - an agent turn whose conversation has no tool result yet calls `search` with the question,
   streamed as the app streams every turn;
 - an agent turn after a search answers with the first sentence of the best passage, cited by
-  its [P...] reference;
+  its [P...] reference, and, offered `suggest_follow_ups`, suggests FOLLOW_UPS with those words;
+- a request for a project's suggested questions (a schema of `questions`) asks what each of the
+  first three documents its catalogue lists says;
 - an agent turn offered `create_draft`, for a question that begins "Draft ", offers after its
   search a draft of the kind the question names (a reply email unless it says dispute, memo,
   table or report) about the best passage's document, the question its instructions, then says
@@ -80,6 +82,10 @@ DRAFT_WORDS = (
     ("report", "report"),
 )
 OFFERED = "The member is offered a"
+# The questions an answer suggests asking next, and a document's line in the catalogue that a
+# request for a project's questions lists (`list_documents`, backend/app/agent/tools.py).
+FOLLOW_UPS = ["Which other documents mention it?", "What does the project say about payment?"]
+LISTED_DOCUMENT = re.compile(r"^doc \d+ · (.+?)(?: · |$)", re.MULTILINE)
 
 # Google Drive's tree under /google: each item by its id, its name, its type, its parent, and a
 # file's bytes.
@@ -290,6 +296,14 @@ def text_of(content: Any) -> str:
     return ""
 
 
+def questions_of(messages: list[dict[str, Any]]) -> dict[str, Any]:
+    """The reply to a request for a project's suggested questions (backend/app/suggestions.py):
+    what each of the first three documents its catalogue lists says."""
+    prompt = "\n".join(text_of(m.get("content")) for m in messages if m.get("role") == "user")
+    titles = LISTED_DOCUMENT.findall(prompt)[:3]
+    return {"questions": [f"What does {title} say?" for title in titles]}
+
+
 def agent_turn(messages: list[dict[str, Any]], tools: list[str]) -> dict[str, Any]:
     """What the model does next: a search for the question, a draft offered from its results
     when the question asks for one and the tool is offered, or the answer from them."""
@@ -312,7 +326,11 @@ def agent_turn(messages: list[dict[str, Any]], tools: list[str]) -> dict[str, An
         return {"text": "The documents do not say."}
     ref, passage = found.groups()
     sentence = SENTENCE.match(passage.strip())
-    return {"text": f"{(sentence.group(1) if sentence else passage).strip()} {ref}"}
+    said = (sentence.group(1) if sentence else passage).strip()
+    reply: dict[str, Any] = {"text": f"{said} {ref}"}
+    if "suggest_follow_ups" in tools:
+        reply.update(tool="suggest_follow_ups", arguments={"questions": FOLLOW_UPS})
+    return reply
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -485,6 +503,8 @@ class Handler(BaseHTTPRequestHandler):
                 schema,
                 messages,
             )
+            if "questions" in schema.get("properties", {}):
+                made = questions_of(messages)
             reply: dict[str, Any] = {"text": json.dumps(made)}
             time.sleep(self.index_seconds)
         elif body.get("tools"):
@@ -527,27 +547,33 @@ class Handler(BaseHTTPRequestHandler):
             "created": int(time.time()),
             "model": body.get("model", "standin"),
         }
-        if "tool" in reply:
-            delta: dict[str, Any] = {
-                "role": "assistant",
-                "tool_calls": [
-                    {
-                        "index": 0,
-                        "id": f"call_{int(time.time() * 1000)}",
-                        "type": "function",
-                        "function": {
-                            "name": reply["tool"],
-                            "arguments": json.dumps(reply["arguments"]),
-                        },
-                    }
-                ],
-            }
-            deltas, finish = [delta], "tool_calls"
+        calls = (
+            [
+                {
+                    "index": 0,
+                    "id": f"call_{int(time.time() * 1000)}",
+                    "type": "function",
+                    "function": {
+                        "name": reply["tool"],
+                        "arguments": json.dumps(reply["arguments"]),
+                    },
+                }
+            ]
+            if "tool" in reply
+            else []
+        )
+        deltas: list[dict[str, Any]]
+        if calls and not reply.get("text"):
+            deltas, finish = [{"role": "assistant", "tool_calls": calls}], "tool_calls"
         else:
             # Word by word, as a model streams, so the page shows an answer growing.
             words = re.findall(r"\S+\s*", reply["text"])
             deltas = [{"role": "assistant", "content": ""}] + [{"content": w} for w in words]
             finish = "stop"
+            if calls:
+                # Then the call made with the words, as an answer suggesting what to ask next.
+                deltas.append({"tool_calls": calls})
+                finish = "tool_calls"
         chunks = [{**base, "choices": [{"index": 0, "delta": d}]} for d in deltas]
         chunks.append({**base, "choices": [{"index": 0, "delta": {}, "finish_reason": finish}]})
         chunks.append({**base, "choices": [], "usage": usage()})
