@@ -17,6 +17,9 @@ newest entry first.
 
 Members:
 
+- Upload an email saved from your mail program (.eml): its text becomes a document, headed by who
+  sent it to whom and when, and each file attached to it a document beside it, in the folder you
+  uploaded it into, as mail sent to the project's address arrives.
 - Upload web pages (.html, .htm) and RTF documents (.rtf). A saved page keeps its headings,
   lists and tables and leaves out its menus, scripts and styles, in whatever encoding it was
   saved in; an RTF document is read paragraph by paragraph.
@@ -68,6 +71,11 @@ Members:
 
 Operators:
 
+- An `.eml` the members' page uploads is opened in the API's request (`app/unpacking.py`, up to
+  the 40 MB mail in takes), its text and attachments kept as documents, never the message;
+  `emudoc_upload_rejections_total` counts one that cannot be opened as `unopened`. A request
+  with an API key is refused one, so `/api/status` and `/api/v1/status` list the same extensions
+  as before.
 - HTML (`.html`, `.htm`, the standard library's parser) and RTF (`.rtf`, the `striprtf`
   package, BSD) uploads are read in the parse child; an original is served as a download, never
   as a page.

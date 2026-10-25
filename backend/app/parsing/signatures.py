@@ -15,6 +15,7 @@ child process that parses could run it too.
 
 import codecs
 import mmap
+import re
 import zipfile
 import zlib
 from pathlib import Path
@@ -85,6 +86,10 @@ TEXT_EXTENSIONS = {".csv", ".txt", ".md"}
 # A page names its own encoding, so HTML is held to having no binary bytes, not to UTF-8.
 HTML_EXTENSIONS = {".html", ".htm"}
 RTF = b"{\\rtf"
+# A message saved from a mail program opens with its header fields, each a name and a colon, or
+# with the line a mailbox file puts before each message ("From sender date"), which the parser
+# skips.
+MESSAGE_START = re.compile(rb"[!-9;-~]+:|From ")
 
 RENAME = "Upload the original, or rename it to its real type."
 NOT_UTF8 = "Not UTF-8 text. Save it as UTF-8 and upload it again."
@@ -133,6 +138,10 @@ def wrong_type(path: Path, suffix: str) -> str | None:
         return f"Not an HTML file. {RENAME}" if binary else None
     if suffix == ".rtf":
         return None if head.startswith(RTF) else f"Not an RTF document. {RENAME}"
+    if suffix == ".eml":
+        message = MESSAGE_START.match(head.lstrip(b"\r\n"))
+        binary = head.translate(None, delete=TEXT_BYTES)
+        return None if message and not binary else f"Not an email message. {RENAME}"
     return f"Not a supported type. {RENAME}"
 
 

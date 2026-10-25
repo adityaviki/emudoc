@@ -51,9 +51,9 @@ from app.config import get_settings
 from app.db import SessionLocal
 from app.errors import AppError
 from app.inbound import MAX_MESSAGE_BYTES, Received, receive, token_in
-from app.inbound import sender_of as parse_sender
 from app.jobs import RECEIVE_MAIL, Lease, enqueue
 from app.mail import RESEND_API
+from app.messages import sender_of as parse_sender
 from app.metrics import INBOUND_MESSAGES
 from app.models import InboundMessage, Job
 from app.notices import app_address

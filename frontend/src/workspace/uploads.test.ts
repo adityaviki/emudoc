@@ -44,7 +44,7 @@ describe('what an upload leaves out before sending', () => {
       ['Invoices/locked.pdf'],
     )
     expect(names(items)).toEqual(['a.pdf', 'Invoices/2026/c.MD'])
-    const unsupported = 'Unsupported type. Use .csv, .docx, .heic, .heif, .htm, .html, .jpeg, .jpg, .md, .pdf, .png, .pptx, .rtf, .tif, .tiff, .txt, .webp, .xlsx.'
+    const unsupported = 'Unsupported type. Use .csv, .docx, .eml, .heic, .heif, .htm, .html, .jpeg, .jpg, .md, .pdf, .png, .pptx, .rtf, .tif, .tiff, .txt, .webp, .xlsx.'
     expect(left).toEqual([
       { filename: 'Invoices/locked.pdf', reason: 'Your browser could not read it from your computer.', limit: null },
       { filename: 'Invoices/b.zip', reason: unsupported, limit: null },

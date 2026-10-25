@@ -438,7 +438,11 @@ A project opens as two panes. On the left is the **library**: the project's docu
 folders, with the usual file-manager moves (new folder, rename, drag to move, delete, upload by
 button or by dropping files or folders, search), shown as a tree that opens folders in place, a
 folder's files by name a hundred at a time, with more on request. A folder uploaded is filed as
-it was, its folders made where the one it goes into holds none of their names. An upload goes in
+it was, its folders made where the one it goes into holds none of their names. An email saved
+from a mail program (.eml) is opened as it is uploaded (`app/unpacking.py`): its text becomes a
+document headed by its From, To, Date and Subject, as mail sent to the project's address does,
+each attachment a document beside it, checked as any file is; a program's upload, which pairs
+the documents kept with the files it sent, is refused one. An upload goes in
 as few requests as the deployment's limits allow, one after another, each its own upload for the
 notice that follows it, and a panel shows how far it has gone as a whole and file by file, until
 its Stop; a type Emudoc does not read and a file too large are left out before anything is

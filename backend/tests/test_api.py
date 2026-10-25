@@ -72,8 +72,8 @@ def test_upload_queues_documents_and_rejects_what_it_cannot_take(client, sample_
     assert set(document["stages"]) == {"scan", "parse", "structure", "enrich", "embed"}
     assert {r["filename"]: r["reason"] for r in result["rejected"]} == {
         "archive.zip": (
-            "Unsupported type. Use .csv, .docx, .heic, .heif, .htm, .html, .jpeg, .jpg, .md, .pdf, "
-            ".png, .pptx, .rtf, .tif, .tiff, .txt, .webp, .xlsx."
+            "Unsupported type. Use .csv, .docx, .eml, .heic, .heif, .htm, .html, .jpeg, .jpg, .md, "
+            ".pdf, .png, .pptx, .rtf, .tif, .tiff, .txt, .webp, .xlsx."
         ),
         "empty.txt": "Empty file.",
     }
