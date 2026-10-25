@@ -161,6 +161,7 @@ from app.retention import (
     retention_held,
 )
 from app.sample import INDEX, build_sample, written
+from app.share_links import prune_share_links
 from app.storage import (
     DELETE_BATCH,
     ROOT_PREFIX,
@@ -549,6 +550,7 @@ def housekeeping(storage: Storage) -> None:
         prune_quota_notices(connection)
         notifications = prune_notifications(connection)
         exports = prune_exports(connection)
+        share_links = prune_share_links(connection)
         emptied = purge_trash(connection)
     storage.discard(*emptied.prefixes)
     reapply_erasures(storage)
@@ -574,6 +576,8 @@ def housekeeping(storage: Storage) -> None:
         )
     if billing_events:
         log.info("Housekeeping: forgot %s Stripe events acted on long ago", billing_events)
+    if share_links:
+        log.info("Housekeeping: forgot %s share links that expired", share_links)
     if exports or sweep.exports:
         log.info(
             "Housekeeping: forgot %s project exports and removed %s export files older than %s "

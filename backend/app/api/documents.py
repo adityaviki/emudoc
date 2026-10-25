@@ -14,7 +14,6 @@ from PIL import ImageOps, UnidentifiedImageError
 from sqlalchemy import DateTime, and_, func, literal_column, or_, select, tuple_
 from sqlalchemy.orm import Session
 
-from app.accounts import Account
 from app.api.auth import app_url
 from app.api.deps import (
     AccountDep,
@@ -457,10 +456,7 @@ def download_file(
     Every time the file is sent, or a URL to it signed, is a download in the audit log, the
     image preview's included: the bytes leave either way.
     """
-    _scanned(document)
-    storage = services.storage
-    if not storage.exists(document.storage_key):
-        raise HTTPException(404, MISSING_FILE)
+    response = original_response(services.storage, document)
     audit(
         session,
         account,
@@ -471,6 +467,16 @@ def download_file(
         detail={"filename": document.filename},
     )
     session.commit()
+    return response
+
+
+def original_response(storage: Storage, document: Document) -> Response:
+    """The document's original as `download_file` sends it, refused before anything is sent when
+    the malware scan has not passed it or the storage lacks it; a share link's file too
+    (app/api/share_links.py)."""
+    _scanned(document)
+    if not storage.exists(document.storage_key):
+        raise HTTPException(404, MISSING_FILE)
     return storage.response(
         document.storage_key,
         media_type=document.mime_type,
@@ -491,16 +497,32 @@ async def page_image(
     """A rendered PDF page, for showing where on the page a passage sits. A PDF's first pages
     are drawn once it is parsed (PRERENDER_PAGES, app/rendering.py), any other the first time
     it is asked for, and each is kept beside the original for PAGE_IMAGE_DAYS."""
+    return await page_response(
+        request, session, services.storage, document, page, account.organization.id, account.user.id
+    )
+
+
+async def page_response(
+    request: Request,
+    session: Session,
+    storage: Storage,
+    document: Document,
+    page: int,
+    org_id: int,
+    user_id: int,
+) -> Response:
+    """A page of the document as `page_image` sends it, drawn first when it is not kept, which
+    is charged to the member `user_id` names; a share link's pages too, its maker's
+    (app/api/share_links.py)."""
     if document.mime_type != "application/pdf":
         raise HTTPException(404, "Only PDF documents have page images")
     if not 1 <= page <= (document.page_count or 0):
         raise HTTPException(404, "No such page")
     _scanned(document)
-    storage = services.storage
     key = document.page_image_key(page)
     if not await to_thread.run_sync(storage.exists, key):
         await _drawn(request, session, partial(_draw_page, storage, document, page, key))
-        await to_thread.run_sync(_charge_render, session, account, document)
+        await to_thread.run_sync(_charge_render, session, org_id, user_id, document)
     return storage.response(key, media_type="image/png")
 
 
@@ -519,7 +541,9 @@ async def thumbnail(
     storage = services.storage
     if not await to_thread.run_sync(storage.exists, document.thumbnail_key):
         await _drawn(request, session, partial(_draw_thumbnail, storage, document))
-        await to_thread.run_sync(_charge_render, session, account, document)
+        await to_thread.run_sync(
+            _charge_render, session, account.organization.id, account.user.id, document
+        )
     return storage.response(document.thumbnail_key, media_type="image/png")
 
 
@@ -576,14 +600,14 @@ def _image_thumbnail(path: Path) -> bytes:
     return buffer.getvalue()
 
 
-def _charge_render(session: SessionDep, account: Account, document: Document) -> None:
+def _charge_render(session: Session, org_id: int, user_id: int, document: Document) -> None:
     """A page rendered for the first time is the member's usage; one served again from the
     storage costs nothing more (app/usage.py)."""
     record(
         session,
-        org_id=account.organization.id,
+        org_id=org_id,
         project_id=document.project_id,
-        user_id=account.user.id,
+        user_id=user_id,
         kind=RENDER,
         measures={"pages": 1},
         ref=(DOCUMENT, document.id),

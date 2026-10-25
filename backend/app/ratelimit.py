@@ -132,6 +132,11 @@ FEEDBACK = Limit("feedback", "rate_feedback", "messages to support", HOUR)
 # A member's files of a facts table (app/fact_export.py), each every row of it, and of a draft
 # (app/draft_export.py), each laid out whole.
 EXPORTS = Limit("export", "rate_exports", "downloads of a facts table or a draft")
+# Share links opened (app/share_links.py), which takes no account, per client address; and the
+# wrong passwords of a link, an hour, counted by `tally` once a guess failed, for the link and
+# for the address.
+SHARED_LINKS = Limit("shared_link", "rate_shared_links", "openings of shared links")
+SHARED_PASSWORDS = Limit("shared_password", "rate_shared_passwords", "wrong passwords", HOUR)
 # Each limit's refusals are counted from zero in the metrics (app/metrics.py).
 for _limit in (
     UPLOADS,
@@ -145,6 +150,8 @@ for _limit in (
     API_REQUESTS,
     FEEDBACK,
     EXPORTS,
+    SHARED_LINKS,
+    SHARED_PASSWORDS,
 ):
     RATE_LIMITED.labels(_limit.scope)
 
@@ -176,6 +183,11 @@ def by_email(email: str) -> Key:
 def by_key(key_id: int) -> Key:
     """An API key, by itself, whichever program holds it."""
     return Key(f"key:{key_id}", "with this API key")
+
+
+def by_link(link_id: int) -> Key:
+    """A share link (app/share_links.py), by itself, from wherever it is opened."""
+    return Key(f"link:{link_id}", "for this link")
 
 
 def by_browser(browser_id: int) -> Key:

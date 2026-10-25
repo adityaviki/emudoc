@@ -54,6 +54,15 @@ organisation uploaded a document about you, ask the organisation first; we help 
   each event sent to it which it was, about which document or run, when, and how the address
   answered, never what the event said, so that the organisation's programs hear of its work as
   it happens. We need them to provide the service to the organisation.
+- **Share links**: for each link a member makes that shows a document to whoever holds it, which
+  document, who made it, until when it runs, its password as a hash only if it has one, how
+  often and when it was last opened, and the link itself as a hash only; and for each time it
+  is opened, a random code its browser keeps in a cookie (as a hash only) and until when that
+  lets it read the document. The organisation's audit log records each opening of the link, and
+  each download of the document's file through it, with the IP address it came from: if a
+  document was shared with you by a link, the organisation that shared it sees when, and from
+  which address, you opened it, and nothing else of you. We need them to provide the service to
+  the organisation.
 - **Usage**: the pages, questions and model use your organisation counted, and what they cost,
   each with the member it was for, to hold the organisation to its plan and, on a paid plan,
   to bill it.
@@ -73,8 +82,10 @@ organisation uploaded a document about you, ask the organisation first; we help 
   legitimate interest. It never holds what a document, a question or an answer says.
 - **Abuse protection**: how many requests each account, each IP address, each email address
   (as a hash only), each browser you signed in with and each API key made in a minute, how
-  many wrong passwords and codes they were tried with in an hour, and how many messages each
-  account sent to support in an hour, to slow down password guessing and floods.
+  many wrong passwords and codes they were tried with in an hour, how many share links each IP
+  address opened in a minute and how many wrong passwords each link and address were tried
+  with in an hour, and how many messages each account sent to support in an hour, to slow down
+  password guessing and floods.
 - **Server logs**: the IP address, time and path of each request and the account and project it
   was for, and the service's own record of what it did, to keep it running and to find faults.
   They never hold what a document, a question or an answer says, nor an email address.
@@ -117,6 +128,9 @@ of you.
   addresses they chose, what the service tells them of its documents (their names, what was
   read of them, how far they are indexed) and of its runs of cross-checks (what they found and
   their reports). The organisation chose them and answers for them; they are not ours.
+- **Whoever holds a share link** sees the document it shows, its text, pages and file, with the
+  name of the member who made the link and of their organisation, until it expires or is
+  revoked: the member chose to show it, and so does anyone they pass the link on to.
 - **Authorities**, only where the law obliges us to hand data over.
 
 ## Where it is kept
@@ -153,6 +167,9 @@ $region
   expired.
 - **API keys**, until they are revoked or the member who made them leaves the organisation, or
   $credential_days days after they ran out.
+- **Share links**, until they are revoked or expire, at most $share_days days after they were
+  made, or sooner when the member who made them leaves the organisation; the code of each
+  opening, $share_view_minutes minutes at most.
 - **The answers kept for a program's idempotency keys**, a day, or until its API key goes.
 - **Webhooks**, until an owner or admin removes them or the organisation goes; what was sent to
   each, $webhook_days days.
@@ -173,11 +190,13 @@ $more_retention
 
 ## Cookies and storage in your browser
 
-Emudoc sets four cookies, all needed for the service to work and its accounts to stay secure:
+Emudoc sets five cookies, all needed for the service to work and its accounts to stay secure:
 `$session_cookie`, which keeps you signed in for up to $session_days days, or fewer while you work
 in an organisation that asks its members to sign in more often; `$oauth_cookie`, which
 lasts $oauth_minutes minutes while you sign in with Google or Microsoft; `$connect_cookie`, which
-lasts $connect_minutes minutes while you connect a folder of yours to a project; and `$browser_cookie`, a
+lasts $connect_minutes minutes while you connect a folder of yours to a project; `$share_cookie`, which
+lasts up to $share_view_minutes minutes while you read a document someone shared with you by a
+link, and goes with no request but that link's; and `$browser_cookie`, a
 random code that tells a browser you signed in with from others for $browser_days days after its
 last sign-in, also once you have signed out, and goes with no request but those about signing in
 and your account. Your browser's own storage keeps your choice of a

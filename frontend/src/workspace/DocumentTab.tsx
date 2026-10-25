@@ -1,29 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ListChecks, ListTree, X } from 'lucide-react'
-import { Fragment, useEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import { Link2, ListChecks, ListTree, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { api, fileUrl, isImage, isPdf, isSheet, mayChange, pageImageUrl, pageLabel, sectionPath } from '../api.ts'
-import type { Block, Document, DocumentContent, Section } from '../api.ts'
+import type { Document, Section } from '../api.ts'
 import { useMe } from '../auth.ts'
+import { ImagePreview, PagesView, Scrolled, SheetView, TextView } from '../components/DocumentViews.tsx'
+import type { BlockFocus } from '../components/DocumentViews.tsx'
 import { IndexingStatus } from '../components/IndexingStatus.tsx'
-import { PipeTable } from '../components/Markdown.tsx'
 import { Button, Chip, IconButton, Loading, Notice } from '../components/ui.tsx'
-import { formatDate, parsePipeTable } from '../format.ts'
+import { formatDate } from '../format.ts'
 import { useStatus } from '../hooks.ts'
 import { notIndexedWords, restHeld, scanPassed, unfinishedStages } from '../indexing.ts'
+import { offersLinks } from '../shareLinks.ts'
 import { describeDocumentUsage } from '../usage.ts'
 import { originalFile } from './files.ts'
 import { documentKey, listingsKey } from './listing.ts'
 import { ReviewControls } from './Reviews.tsx'
+import { ShareDialog } from './ShareLinks.tsx'
 import { useWorkspace } from './state.ts'
 import { followedKey } from './uploads.ts'
 import type { Focus } from './url.ts'
-
-/** The blocks to highlight and scroll to; `end` is exclusive. */
-interface BlockFocus {
-  start: number
-  end: number
-}
 
 interface DocumentTabProps {
   document: Document
@@ -41,6 +37,7 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
   // Where the keyboard goes on from once a button of the header it held is gone.
   const heading = useRef<HTMLHeadingElement>(null)
   const [outlineOpen, setOutlineOpen] = useState(true)
+  const [sharing, setSharing] = useState(false)
   const status = document.status
   const indexed = document.stages.structure?.status === 'done'
   // The original is served once its malware scan has passed, and never when it was flagged.
@@ -142,6 +139,11 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
                 <ListTree className="size-4" />
               </IconButton>
             )}
+            {offersLinks(me) && indexed && openable && (
+              <IconButton label="Share by link" onClick={() => setSharing(true)}>
+                <Link2 className="size-4" />
+              </IconButton>
+            )}
             {openable && (
               <a
                 {...original.link}
@@ -158,6 +160,7 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
             <ReviewControls document={document} />
           </div>
         )}
+        {sharing && <ShareDialog document={document} onClose={() => setSharing(false)} />}
         {focusLabel && (
           <p className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-md bg-mark/40 py-0.5 pr-0.5 pl-2 text-xs">
             <span className="truncate">Showing: {focusLabel}</span>
@@ -177,7 +180,7 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
                 ? (document.error ?? 'Indexing failed.')
                 : notIndexedWords(document)}
           </Notice>
-          {isImage(document) && openable && <ImagePreview document={document} />}
+          {isImage(document) && openable && <ImagePreview src={fileUrl(document.id)} alt={document.filename} />}
         </div>
       ) : content.isPending ? (
         <Loading />
@@ -187,11 +190,11 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
         </div>
       ) : pages ? (
         <Scrolled label={`Pages of ${document.filename}`} className="min-h-0 flex-1 overflow-y-auto">
-          <PagesView document={document} content={content.data} focus={blockFocus} />
+          <PagesView pageUrl={(page) => pageImageUrl(document.id, page)} content={content.data} focus={blockFocus} />
         </Scrolled>
       ) : isImage(document) ? (
         <Scrolled label={`Text of ${document.filename}`} className="min-h-0 flex-1 overflow-y-auto">
-          <ImagePreview document={document} />
+          <ImagePreview src={fileUrl(document.id)} alt={document.filename} />
           <TextView blocks={content.data.blocks} focus={blockFocus} />
         </Scrolled>
       ) : isSheet(document) ? (
@@ -264,16 +267,6 @@ function IndexTheRest({ document, onStarted }: { document: Document; onStarted: 
   )
 }
 
-function ImagePreview({ document }: { document: Document }) {
-  return (
-    <div className="flex justify-center bg-sunken p-4">
-      <a href={fileUrl(document.id)} target="_blank" rel="noreferrer" title="Open the original image">
-        <img src={fileUrl(document.id)} alt={document.filename} className="max-h-[50vh] max-w-full rounded object-contain shadow-sm" />
-      </a>
-    </div>
-  )
-}
-
 interface OutlineNodeProps {
   section: Section
   focusStart: number | undefined
@@ -311,195 +304,3 @@ function OutlineNode({ section, focusStart, onSelect }: OutlineNodeProps) {
   )
 }
 
-const inFocus = (block: Block, focus: BlockFocus | null) =>
-  focus != null && block.ordinal >= focus.start && block.ordinal < focus.end
-
-function TextView({ blocks, focus }: { blocks: Block[]; focus: BlockFocus | null }) {
-  // The blocks that open a new page get a divider above them.
-  const opensPage = new Set<number>()
-  let lastPage: number | null = null
-  for (const block of blocks) {
-    if (block.page != null && block.page !== lastPage) {
-      opensPage.add(block.ordinal)
-      lastPage = block.page
-    }
-  }
-  return (
-    <div className="mx-auto max-w-3xl space-y-3 px-8 py-6 leading-relaxed">
-      {blocks.map((block) => (
-        <Fragment key={block.ordinal}>
-          {opensPage.has(block.ordinal) && (
-            <div className="flex items-center gap-3 pt-3 text-[11px] font-medium tracking-wide text-muted uppercase select-none">
-              <span className="h-px flex-1 bg-line" />
-              Page {block.page}
-              <span className="h-px flex-1 bg-line" />
-            </div>
-          )}
-          <div
-            id={`block-${block.ordinal}`}
-            className={`rounded transition-colors ${inFocus(block, focus) ? '-mx-2 bg-mark/50 px-2 py-0.5' : ''}`}
-          >
-            <BlockBody block={block} />
-          </div>
-        </Fragment>
-      ))}
-    </div>
-  )
-}
-
-function BlockBody({ block }: { block: Block }) {
-  if (block.kind === 'heading') {
-    const size = block.level === 1 ? 'text-lg' : block.level === 2 ? 'text-base' : 'text-sm'
-    return <p className={`pt-3 font-semibold tracking-tight ${size}`}>{block.text}</p>
-  }
-  if (block.kind === 'table') {
-    const rows = parsePipeTable(block.text)
-    if (rows) return <PipeTable rows={rows} />
-  }
-  return (
-    <p className={`whitespace-pre-wrap ${block.kind === 'list_item' ? 'pl-5' : ''}`}>{block.text}</p>
-  )
-}
-
-interface PagesViewProps {
-  document: Document
-  content: DocumentContent
-  focus: BlockFocus | null
-}
-
-/**
- * The rendered pages. Each block's text lies invisibly over its place on the page, so the text
- * can be selected, copied and found; the focused blocks are marked where they sit.
- */
-function PagesView({ document, content, focus }: PagesViewProps) {
-  return (
-    <div className="space-y-5 bg-sunken p-5">
-      {content.page_sizes.map(([width, height], index) => {
-        const page = index + 1
-        const placed = content.blocks.filter((block) => block.page === page && block.bbox)
-        return (
-          <div
-            key={page}
-            id={`page-${page}`}
-            className="relative mx-auto max-w-3xl overflow-hidden rounded-md bg-white shadow-md shadow-ink/8 ring-1 ring-ink/8 @container"
-            style={{ aspectRatio: `${width} / ${height}` }}
-          >
-            <img
-              src={pageImageUrl(document.id, page)}
-              alt={`Page ${page}`}
-              loading="lazy"
-              draggable={false}
-              className="size-full select-none"
-            />
-            {placed.map((block) => {
-              const [x0, top, x1, bottom] = block.bbox!
-              const box = {
-                left: `${(x0 / width) * 100}%`,
-                top: `${(top / height) * 100}%`,
-                width: `${((x1 - x0) / width) * 100}%`,
-                height: `${((bottom - top) / height) * 100}%`,
-              }
-              return (
-                <Fragment key={block.ordinal}>
-                  <span
-                    className="page-text"
-                    // Sized in container units so the text scales with the page.
-                    style={{ ...box, fontSize: `${(fitFontSize(block.text, x1 - x0, bottom - top) / width) * 100}cqw` }}
-                  >
-                    {block.text}
-                  </span>
-                  {inFocus(block, focus) && (
-                    <div className="pointer-events-none absolute rounded-sm bg-amber-300/45 mix-blend-multiply" style={box} />
-                  )}
-                </Fragment>
-              )
-            })}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-/**
- * A font size at which `text` about fills a box of `width` x `height`, in the box's units. Taking
- * a glyph as 0.5em wide and a line as 1em tall, the glyphs cover 0.5·size² each, so size² ≈ area / (0.5·n).
- */
-function fitFontSize(text: string, width: number, height: number): number {
-  const chars = Math.max(1, text.length)
-  return Math.min(height, Math.sqrt((width * height) / (0.5 * chars)))
-}
-
-interface Sheet {
-  title: string
-  blocks: Block[]
-}
-
-/** A spreadsheet: one tab per sheet (its heading block), the sheet's tables below. */
-function SheetView({ label, blocks, focus }: { label: string; blocks: Block[]; focus: BlockFocus | null }) {
-  const sheets: Sheet[] = []
-  for (const block of blocks) {
-    if (block.kind === 'heading' && block.level === 1) {
-      sheets.push({ title: block.text, blocks: [] })
-    } else {
-      if (!sheets.length) sheets.push({ title: 'Data', blocks: [] })
-      sheets[sheets.length - 1].blocks.push(block)
-    }
-  }
-  const focusedIndex = sheets.findIndex((sheet) => sheet.blocks.some((block) => inFocus(block, focus)))
-  const [selected, setSelected] = useState(Math.max(0, focusedIndex))
-  // A new focus brings its sheet to the front; the user may then switch sheets freely.
-  const [lastFocused, setLastFocused] = useState(focusedIndex)
-  if (focusedIndex !== lastFocused) {
-    setLastFocused(focusedIndex)
-    if (focusedIndex >= 0) setSelected(focusedIndex)
-  }
-  const sheet = sheets[Math.min(selected, sheets.length - 1)]
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {sheets.length > 1 && (
-        <div className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-line bg-surface px-3 py-1.5 text-[13px]">
-          {sheets.map((item, index) => (
-            <button
-              key={index}
-              type="button"
-              aria-pressed={index === selected}
-              onClick={() => setSelected(index)}
-              className={`h-7 shrink-0 rounded-md px-2.5 transition ${
-                index === selected ? 'bg-sunken font-medium text-ink' : 'text-muted hover:bg-sunken/60 hover:text-ink'
-              }`}
-            >
-              {item.title}
-            </button>
-          ))}
-        </div>
-      )}
-      <Scrolled label={label} className="min-h-0 flex-1 overflow-auto p-4">
-        <div className="space-y-4">
-          {sheet?.blocks.map((block) => (
-            <div
-              key={block.ordinal}
-              id={`block-${block.ordinal}`}
-              className={`rounded ${inFocus(block, focus) ? 'ring-2 ring-accent/60' : ''}`}
-            >
-              <BlockBody block={block} />
-            </div>
-          ))}
-        </div>
-      </Scrolled>
-    </div>
-  )
-}
-
-/**
- * What scrolls in the pane: a stop of the keyboard, named for screen readers, so that the arrows
- * and Page Down scroll a text that holds nothing else to focus.
- */
-function Scrolled({ label, className, children }: { label: string; className: string; children: ReactNode }) {
-  return (
-    <div role="region" aria-label={label} tabIndex={0} className={`focus-visible:-outline-offset-2! ${className}`}>
-      {children}
-    </div>
-  )
-}

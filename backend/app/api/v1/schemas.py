@@ -10,7 +10,7 @@ what the app holds and the contract test notices when that grows.
 """
 
 import datetime as dt
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 
 from pydantic import BaseModel, Field, StringConstraints
 
@@ -20,14 +20,29 @@ from app.schemas import (
     FindingOutcome,
     FindingReason,
     MessageStatus,
-    PlanLimit,
     ProjectVisibility,
     ReportStatus,
     ReviewState,
     RunStatus,
 )
+from app.schemas import PlanLimit as AppPlanLimit
 
 _Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+# The figures of a plan a refusal names, as the API was published with them: a figure the app
+# gained since (share_links) is one no route of the API refuses by, so its contract keeps these.
+PlanLimit = Literal[
+    "projects",
+    "documents",
+    "storage_bytes",
+    "pages_per_month",
+    "questions_per_month",
+    "members",
+    "daily_spend_micros",
+    "api_access",
+    "connectors",
+]
+assert set(get_args(PlanLimit)) <= set(get_args(AppPlanLimit)), "each a figure of the app's"
 
 
 class Error(BaseModel):

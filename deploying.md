@@ -2091,8 +2091,9 @@ or backed up with restic, at least as often as a restore would need, and kept no
    (`backend/app/restore.py`). It brings back from the bucket's versions every file deleted
    since then, whose rows are back; moves the ids of organisations, projects and documents past
    every id the storage holds, since a document's files sit under its ids and a new document
-   given a lost one's would be served its pages; ends every session, unused link and open
-   invitation, since a session signed out or an invitation revoked since would work again;
+   given a lost one's would be served its pages; ends every session, unused link, open
+   invitation and share link, since a session signed out or an invitation or a share link
+   revoked since would work again;
    records the restore in every organisation's audit
    log; purges again the accounts deleted since; and names the documents whose original is
    still missing, which means the storage is older than the database, and the authenticators
@@ -3835,6 +3836,14 @@ confirms a change with the password (a new password, an address, turning two-fac
 deleting the account) is counted for its user instead. The 429 says nothing that differs
 between an address with an account and one without, and the mail goes out after it.
 
+A share link (README, "Accounts") opens with no account, so its openings are counted per
+client address (`RATE_SHARED_LINKS`, 30 a minute), unknown tokens among them, and the wrong
+passwords of a link over the hour, for the link from every address together and for each
+address (`RATE_SHARED_PASSWORDS`, 10): past it the link opens with no password, the right one
+included, until the hour ends, with a 429 that says for how many minutes. Each opening, and
+each download of the file through it, is a row of the organisation's audit log with the
+address it came from.
+
 New passwords, at sign-up, from a reset link or on the account page, are refused when they
 have appeared in a data breach. The check asks `PWNED_PASSWORDS_URL`, Have I Been Pwned's
 range API by default, with the first five characters of the password's SHA-1, which hundreds of
@@ -4545,6 +4554,8 @@ and the like), named on its models' pages.
 | `RATE_FEEDBACK` | `10` | | Messages to support an hour, per member ("Support") |
 | `RATE_BILLING` | `10` | | Billing requests a minute, per member: Checkout, the portal, a payment asked about ("Billing") |
 | `RATE_EXPORTS` | `10` | | Facts tables and drafts downloaded a minute, per member, each every row its conditions keep or the draft laid out whole |
+| `RATE_SHARED_LINKS` | `30` | | Share links opened a minute, per client address ("Rates") |
+| `RATE_SHARED_PASSWORDS` | `10` | | Wrong passwords an hour per share link, from every address and from each, past which it opens with none ("Rates") |
 | `RATE_API_REQUESTS` | `300` | | Requests a minute, per API key, on top of its member's rates ("Rates") |
 
 ### Mail and sign-in

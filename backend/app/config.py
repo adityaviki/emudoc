@@ -562,6 +562,12 @@ class Settings(BaseSettings):
     # every row the table's conditions keep, as many as fifty of its pages, and of its drafts
     # (app/draft_export.py), each laid out whole.
     rate_exports: int = Field(default=10, ge=0)
+    # Share links opened a minute per client address (app/share_links.py): opening one needs no
+    # account, so nothing else holds a script back from trying tokens. And the wrong passwords
+    # an hour a link may be tried with, from every address together and from each by itself,
+    # past which it opens with no password, the right one included, until the hour ends.
+    rate_shared_links: int = Field(default=30, ge=0)
+    rate_shared_passwords: int = Field(default=10, ge=0)
     # Requests a minute per API key (app/apikeys.py), every request it makes, besides the
     # member's own rates above, which a key's uploads, questions and searches count against
     # too: a program that loops goes no faster than this, whatever it asks.

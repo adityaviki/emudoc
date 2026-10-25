@@ -1,6 +1,6 @@
 // The organisation the user works in: its name and region, its settings and security settings (its audit log is
 // AuditPage.tsx), the API keys its owners and admins make for its programs and the webhooks its programs hear of its
-// work at, what its plan lets it keep and use (what it holds and used of it is the usage page's, UsagePage.tsx)
+// work at, its share links (ShareLinksSection.tsx), what its plan lets it keep and use (what it holds and used of it is the usage page's, UsagePage.tsx)
 // and buying one, its members, their roles and removing them, handing it over to another of them, the invitations its
 // owners and admins send and the domains whose addresses may join it, leaving it, and its owners deleting it or keeping it; the user's other organisations to switch to and those open to them; and the page that starts a new
 // one. A switch, a join, a new organisation and leaving one start the app again in the organisation the session then
@@ -52,6 +52,7 @@ import {
   signInWords,
 } from '../organizationSettings.ts'
 import { EVENT_ORDER, WEBHOOK_EVENTS, chosenEvents, deliveryWords, describeWebhook, subjectWords, webhookProblem } from '../webhooks.ts'
+import { ShareLinksSection } from './ShareLinksSection.tsx'
 
 const MEMBERS_KEY = ['organization', 'members'] as const
 const LANGUAGES_KEY = ['organization', 'languages'] as const
@@ -88,6 +89,7 @@ export function OrganizationPage() {
             <>
               <ApiKeysSection me={me} />
               <WebhooksSection me={me} />
+              {me.organization.flags_on.includes('share_links') && <ShareLinksSection me={me} />}
             </>
           )}
           <PlanSection me={me} />

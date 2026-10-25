@@ -43,6 +43,7 @@ from app.api import (
     projects,
     query,
     reviews,
+    share_links,
     support,
     templates,
     trash,
@@ -532,6 +533,10 @@ def create_app(
         webhooks.router,
         *KEYED,
         connectors.router,
+        share_links.router,
+        # A share link's visitor has no account: the link and its view's cookie are checked
+        # instead (app/share_links.py).
+        share_links.public,
         audit.router,
         usage.router,
         billing.router,

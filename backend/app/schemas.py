@@ -21,6 +21,7 @@ PlanLimit = Literal[
     "daily_spend_micros",
     "api_access",
     "connectors",
+    "share_links",
 ]
 
 
@@ -1446,6 +1447,9 @@ class AllowanceOut(BaseModel):
     # Whether its members may connect folders of Google Drive, Dropbox or OneDrive to its
     # projects (app/connectors/).
     connectors: bool = False
+    # Whether its members may share a document by a link that needs no account
+    # (app/share_links.py).
+    share_links: bool = False
     # Which of them were agreed with the organisation in place of its plan's.
     agreed: list[str]
     # The pages and questions bought in packs for this month, on top of the plan's.
@@ -1655,6 +1659,9 @@ class OrganizationOut(_FromORM):
     mfa_required: bool
     session_days: int | None
     max_session_days: int | None = None
+    # Whether its members may share a document by a link that needs no account, where its plan
+    # includes them (app/share_links.py).
+    share_links: bool = True
     # The domains whose confirmed addresses may join it, and the role they join with
     # (app/invitations.py).
     join_domains: list[str]
@@ -1758,6 +1765,8 @@ class OrganizationChangeIn(BaseModel):
     mfa_required: bool | None = None
     # Never more than the deployment's SESSION_DAYS.
     session_days: int | None = Field(None, ge=1, le=36500)
+    # Off, every share link the organisation has stops.
+    share_links: bool | None = None
 
 
 class LanguagesOut(BaseModel):
@@ -1846,6 +1855,79 @@ class ApiKeyMadeOut(ApiKeyOut):
     """A key just made or rolled, with the key itself, which nothing shows again."""
 
     key: str
+
+
+# The days a share link may run (DAYS in app/share_links.py).
+ShareDays = Literal[1, 7, 30]
+
+
+class ShareLinkIn(BaseModel):
+    """A link to make to a document: how many days it runs, and its password, if any."""
+
+    days: ShareDays = 7
+    password: str | None = Field(
+        None, min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH
+    )
+
+
+class ShareLinkOut(_FromORM):
+    """A link to a document that has not expired, as the members see it (app/share_links.py):
+    never its token, which only its maker saw, once."""
+
+    id: int
+    document_id: int
+    # Its maker, by id for the page to tell its member's own, and by name as it is now.
+    user_id: int
+    made_by: str
+    created_at: dt.datetime
+    expires_at: dt.datetime
+    # Whether it asks for a password.
+    password: bool
+    # How often it was opened, and when last.
+    views: int
+    last_viewed_at: dt.datetime | None
+
+
+class ShareLinkMadeOut(ShareLinkOut):
+    """A link just made, with its address, which nothing shows again."""
+
+    url: str
+
+
+class OrganizationShareLinkOut(ShareLinkOut):
+    """A link of the organisation's, as its owners and admins list them, with what it shows."""
+
+    filename: str
+    project_id: int
+    project_name: str
+
+
+class SharedOpenIn(BaseModel):
+    """A share link's token, from its address, and the password it asks for, if it does."""
+
+    token: str = Field(min_length=1, max_length=100)
+    password: str | None = Field(None, max_length=PASSWORD_MAX_LENGTH)
+
+
+class SharedDocumentOut(BaseModel):
+    """What a share link shows (app/share_links.py): the document, read only, with who shared
+    it, and the link's id, whose pages and file the view's cookie reaches."""
+
+    link_id: int
+    filename: str
+    title: str | None
+    doc_type: str | None
+    doc_date: dt.date | None
+    mime_type: str
+    page_count: int | None
+    # The member who made the link, by name as it is now, and their organisation's name.
+    shared_by: str
+    organization: str
+    # When the link ends, and when this opening of it does, after which the page opens the
+    # link again.
+    expires_at: dt.datetime
+    view_ends_at: dt.datetime
+    content: DocumentContent
 
 
 # WEBHOOK_EVENTS and WEBHOOK_DELIVERY_STATUSES in app/models.py, which the database's check
@@ -2370,6 +2452,20 @@ class ExportedNotification(BaseModel):
     read_at: dt.datetime | None
 
 
+class ExportedShareLink(BaseModel):
+    """A link the user made to a document that has not expired (app/share_links.py), never its
+    token."""
+
+    organization: str
+    project: str
+    document: str
+    created_at: dt.datetime
+    expires_at: dt.datetime
+    password: bool
+    views: int
+    last_viewed_at: dt.datetime | None
+
+
 class AccountExport(BaseModel):
     exported_at: dt.datetime
     # What the file holds and what it leaves out, in words, for whoever reads it.
@@ -2379,6 +2475,7 @@ class AccountExport(BaseModel):
     sessions: list[ExportedSession]
     browsers: list[ExportedBrowser]
     chats: list[ExportedChat]
+    share_links: list[ExportedShareLink] = []
     notifications: list[ExportedNotification]
     usage: list[ExportedUsage]
     activity: list[ExportedActivity]
@@ -2516,6 +2613,19 @@ class ExportedTemplate(BaseModel):
     fields: list[TemplateFieldOut]
 
 
+class ExportedProjectShareLink(BaseModel):
+    """A link to one of the project's documents that has not expired, never its token."""
+
+    document_id: int
+    document: str
+    # The name of the member who made it, as it is now.
+    made_by: str
+    created_at: dt.datetime
+    expires_at: dt.datetime
+    password: bool
+    views: int
+
+
 class ProjectExportFile(BaseModel):
     """`project.json` in the archive."""
 
@@ -2531,6 +2641,8 @@ class ProjectExportFile(BaseModel):
     chats: list[ExportedProjectChat]
     # The project's own extraction templates; the built-in ones are Emudoc's, and not in it.
     templates: list[ExportedTemplate]
+    # The links that show its documents to whoever holds them (app/share_links.py).
+    share_links: list[ExportedProjectShareLink] = []
 
 
 # The operator's area (app/operators.py, app/api/operator.py): what the maintenance commands

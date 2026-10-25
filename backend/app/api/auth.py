@@ -1248,6 +1248,7 @@ def organization_out(session: Session, organization: Organization) -> Organizati
                 retention_days=entitlements.retention_days,
                 api_access=entitlements.api_access,
                 connectors=entitlements.connectors,
+                share_links=entitlements.share_links,
                 agreed=[name for name in agreed_with(organization) if name in SHOWN],
                 pages_bought=bought_this_month(session, organization.id, "pages", start),
                 questions_bought=bought_this_month(session, organization.id, "questions", start),

@@ -41,10 +41,12 @@ import { gzipSync } from 'node:zlib'
 // connected folders (271.8 kB): their view, with the folder chooser that browses a member's
 // Google Drive, each folder's standing and the files it left out, and 277 kB on 2026-10-25 by
 // the webhooks (274.5 kB): the organisation page's section that adds, changes, pauses, rolls and
-// removes them, with each one's delivery log.
+// removes them, with each one's delivery log; 281 kB on 2026-10-25 by a document's share links
+// (277.8 kB): the dialog that makes, shows and revokes them, the organisation page's section, and
+// the page a link opens for its visitor.
 // A change that passes it makes the scripts smaller (a dependency left out, a page loaded only
 // when it is opened) or raises this number, saying why in its commit.
-const BUDGET = 277_000
+const BUDGET = 281_000
 // The operator's area (operator.html), a build of its own that only operators are sent: React
 // and the rest again, 102.0 kB on 2026-10-21. Its size costs no member anything, so its budget
 // only catches a dependency pulled in by mistake.

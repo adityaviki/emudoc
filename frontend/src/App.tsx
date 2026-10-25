@@ -39,6 +39,7 @@ import { UsagePage } from './organization/UsagePage.tsx'
 import { ProjectsPage } from './pages/ProjectsPage.tsx'
 import { LegalPage } from './pages/LegalPage.tsx'
 import { SubprocessorsPage } from './pages/SubprocessorsPage.tsx'
+import { SharedPage } from './shared/SharedPage.tsx'
 import { Workspace } from './pages/Workspace.tsx'
 import { linkedOrganization } from './notifications.ts'
 import { describeServices } from './status.ts'
@@ -122,6 +123,8 @@ function App() {
           <Route path="help/:slug" element={<HelpPage />} />
           <Route path="whats-new" element={<WhatsNew />} />
         </Route>
+        {/* A share link's page, for whoever holds the link, with a frame of its own. */}
+        <Route path="shared" element={<SharedPage />} />
         <Route element={<Shell />}>
           <Route index element={<ProjectsPage />} />
           <Route path="account" element={<AccountPage />} />

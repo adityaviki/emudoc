@@ -11,7 +11,7 @@ from app.check_runs import run_workflow
 from app.config import get_settings
 from app.drafts import write_draft
 from app.encrypted import CONNECTOR_TOKENS, encrypt
-from app.flags import CONNECTORS, DRAFTS, EMAIL_IN
+from app.flags import CONNECTORS, DRAFTS, EMAIL_IN, SHARE_LINKS
 from app.indexing.pipeline import process_document
 from app.models import Connector
 from tests.conftest import FakeTurn
@@ -33,10 +33,10 @@ class World:
     draft the model wrote, and a chat holding one answered
     question, and in its trash a folder, a document and a chat; another project in the trash; an
     invitation to the organisation and an API key of it, all made by the local owner in the local
-    organisation, and another member of it; the project has an address, and a folder of the
-    owner's Google Drive connected. The extraction templates are on for every organisation, and
-    so are the drafts, email in and connected folders, so that what refuses another organisation
-    is the project's scope, not the flag."""
+    organisation, and another member of it; the project has an address, a folder of the
+    owner's Google Drive connected, and its document a share link. The extraction templates are
+    on for every organisation, and so are the drafts, email in, connected folders and share
+    links, so that what refuses another organisation is the project's scope, not the flag."""
 
     org_id: int
     project_id: int
@@ -63,6 +63,7 @@ class World:
     draft_id: int
     connector_id: int
     webhook_id: int
+    link_id: int
 
 
 @pytest.fixture
@@ -71,6 +72,7 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
     turn_on(monkeypatch, DRAFTS)
     turn_on(monkeypatch, EMAIL_IN)
     turn_on(monkeypatch, CONNECTORS)
+    turn_on(monkeypatch, SHARE_LINKS)
     monkeypatch.setattr(get_settings(), "inbound_domain", "in.emudoc.test")
     monkeypatch.setattr(get_settings(), "google_drive_client_id", "drive-client")
     monkeypatch.setattr(get_settings(), "google_drive_client_secret", "drive-secret")
@@ -79,6 +81,7 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
     uploaded = upload(client, project["id"], sample_pdf)
     document = uploaded["documents"][0]
     process_document(document["id"], services)
+    link = client.post(f"/api/documents/{document['id']}/share-links", json={})
     chat = new_chat(client, project["id"])
     services.llm.agent_turns.append(FakeTurn(TextPart("Nothing is due.")))
     asked = ask(client, chat["id"], "What is due?")
@@ -159,6 +162,7 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
         draft["id"],
         connector.id,
         hook.json()["id"],
+        link.json()["id"],
     )
 
 
@@ -204,6 +208,7 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/documents/{w.document_id}/outline", {}),
         ("GET", f"/api/documents/{w.document_id}/content", {}),
         ("GET", f"/api/documents/{w.document_id}/facts", {}),
+        ("GET", f"/api/documents/{w.document_id}/share-links", {}),
         ("GET", f"/api/passages/{w.passage_id}", {}),
     ]
 
@@ -265,6 +270,7 @@ def writes(w: World) -> list[Route]:
         ("PATCH", f"/api/documents/{w.document_id}", {"json": {"filename": "renamed.pdf"}}),
         ("POST", f"/api/documents/{w.document_id}/reprocess", {}),
         ("PUT", f"/api/documents/{w.document_id}/review", {"json": {"state": "approved"}}),
+        ("POST", f"/api/documents/{w.document_id}/share-links", {"json": {}}),
         ("DELETE", f"/api/fact-checks/{w.check_id}", {}),
         ("DELETE", f"/api/check-runs/{w.run_id}", {}),
         ("DELETE", f"/api/drafts/{w.draft_id}", {}),
@@ -387,6 +393,12 @@ def webhooks(w: World) -> list[Route]:
     ]
 
 
+def links(w: World) -> list[Route]:
+    """Revoking a document's share link, which its maker or an owner or admin may
+    (test_share_links.py)."""
+    return [("DELETE", f"/api/share-links/{w.link_id}", {})]
+
+
 def members(w: World) -> list[Route]:
     """Changing a member's role and removing them, which only the owners and admins may."""
     return [
@@ -410,6 +422,7 @@ def scoped(w: World) -> list[Route]:
         + invitations(w)
         + keys(w)
         + webhooks(w)
+        + links(w)
         + members(w)
     )
 
@@ -426,13 +439,15 @@ def test_every_route_that_names_what_it_acts_on_is_tried(client, world):
     """A route added with an id in its path joins the lists above, or this fails: the lists
     are what the tests below hold to the caller's organisation and role. The account's own
     routes (/api/auth) are held to the user in test_auth.py, the operator's area to the operator
-    in test_operator.py, and the versioned API's (/api/v1), which takes keys alone, to the key's
-    organisation, member and scope in test_api_v1.py."""
+    in test_operator.py, the versioned API's (/api/v1), which takes keys alone, to the key's
+    organisation, member and scope in test_api_v1.py, and a share link's visitor's
+    (/api/shared), which take no account, to the link's view in test_share_links.py."""
     tried = [(method, path) for method, path, _ in scoped(world)]
     untried = [
         f"{method.upper()} {template}"
         for template, operations in client.app.openapi()["paths"].items()
-        if "{" in template and not template.startswith(("/api/auth/", "/api/operator/", "/api/v1/"))
+        if "{" in template
+        and not template.startswith(("/api/auth/", "/api/operator/", "/api/v1/", "/api/shared/"))
         for method in operations
         if not any(
             method.upper() == used and re.fullmatch(re.sub(r"\{\w+\}", r"[^/]+", template), path)
@@ -485,6 +500,7 @@ def test_a_private_project_is_found_by_nobody_else(client, world, account, make_
         + trash_reads(world)
         + trash_writes(world)
         + starts(world)
+        + links(world)
     )
 
     act_as(make_account("mo.too@example.com", account.organization, role="member"))
@@ -512,7 +528,9 @@ def test_a_viewer_can_read_but_not_change(client, world, account, make_account, 
     assert client.post("/api/projects", json={"name": "Mine"}).status_code == 403
     detail = client.delete(f"/api/documents/{world.document_id}").json()["detail"]
     assert detail.startswith("Your role in this organisation is viewer")
-    managed = statuses(client, invitations(world) + keys(world) + webhooks(world) + members(world))
+    managed = statuses(
+        client, invitations(world) + keys(world) + webhooks(world) + links(world) + members(world)
+    )
     assert set(managed.values()) == {403}, managed
 
     # Asking questions is reading: a viewer may start a chat of their own.
@@ -526,9 +544,11 @@ def test_a_member_can_change_things(client, world, account, make_account, act_as
     renamed = client.patch(f"/api/projects/{world.project_id}", json={"name": "Ours"})
     assert renamed.status_code == 200
     assert client.delete(f"/api/folders/{world.folder_id}").status_code == 204
-    # The invitations, the API keys, the webhooks and the members' roles are the owners' and
-    # admins' to manage.
-    managed = statuses(client, invitations(world) + keys(world) + webhooks(world) + members(world))
+    # The invitations, the API keys, the webhooks, another's share links and the members' roles
+    # are the owners' and admins' to manage.
+    managed = statuses(
+        client, invitations(world) + keys(world) + webhooks(world) + links(world) + members(world)
+    )
     assert set(managed.values()) == {403}, managed
 
 

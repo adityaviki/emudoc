@@ -75,6 +75,9 @@ describe('a row', () => {
     expect(whoDid(event('sign_in', {}, { user_name: '' }))).toBe('ada@example.com')
     expect(whoDid(event('sample_added', {}, { user_id: null, user_name: null, user_email: null }))).toBe('Emudoc')
     expect(whoDid(event('sign_in', {}, { user_name: null, user_email: null }))).toBe('A former member')
+    const nobody = { user_id: null, user_name: null, user_email: null }
+    expect(whoDid(event('share_link_viewed', {}, nobody))).toBe('Someone with the link')
+    expect(whoDid(event('share_link_downloaded', {}, nobody))).toBe('Someone with the link')
   })
 
   it('words its detail from the names and settings it holds', () => {
@@ -207,6 +210,16 @@ describe('a row', () => {
     expect(describeDetail(event('api_key_rolled', { name: 'Sync' }))).toBe('Sync')
     const through = { filename: 'msa.pdf', api_key: { id: 3, name: 'Sync' } }
     expect(describeDetail(event('document_uploaded', through))).toBe('msa.pdf · with the API key Sync')
+  })
+
+  it('words a share link by its document, its days and its password', () => {
+    const made = { filename: 'msa.pdf', link: 4, days: 1, password: true }
+    expect(describeDetail(event('share_link_created', made))).toBe('msa.pdf · for 1 day · with a password')
+    expect(describeDetail(event('share_link_created', { ...made, days: 7, password: false }))).toBe('msa.pdf · for 7 days')
+    expect(describeDetail(event('share_link_viewed', { filename: 'msa.pdf', link: 4 }))).toBe('msa.pdf')
+    expect(describeDetail(event('settings_changed', { setting: 'share_links', from: true, to: false }))).toBe(
+      'Share links turned off',
+    )
   })
 
   it("words a webhook by its address's server alone, and what changed", () => {

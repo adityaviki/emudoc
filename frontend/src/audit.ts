@@ -131,6 +131,10 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   document_requeued: ['Document queued again', 'files'],
   document_review_changed: ["Moved a document's review", 'files'],
   document_assigned: ['Assigned a document', 'files'],
+  share_link_created: ['Made a share link', 'files'],
+  share_link_revoked: ['Revoked a share link', 'files'],
+  share_link_viewed: ['Opened a share link', 'files'],
+  share_link_downloaded: ['Downloaded by a share link', 'files'],
   chat_shared: ['Shared a chat', 'chats'],
   chat_unshared: ['Made a chat private', 'chats'],
   chat_deleted: ['Deleted a chat', 'chats'],
@@ -173,8 +177,12 @@ function midnight(day: string, later = 0): string {
   return new Date(year, month - 1, date + later).toISOString()
 }
 
+const VISITED = new Set<AuditAction>(['share_link_viewed', 'share_link_downloaded'])
+
 /** Who did it, as a row says: the member as their account is now, the app or the operator, or a member whose account is gone. */
 export function whoDid(event: AuditEvent): string {
+  // A share link's visitor has no account (backend/app/share_links.py).
+  if (event.user_id === null && VISITED.has(event.action)) return 'Someone with the link'
   if (event.user_id === null) return 'Emudoc'
   return event.user_name || event.user_email || 'A former member'
 }
@@ -232,6 +240,10 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   if (detail.reason === 'password' || detail.reason === 'code') parts.push(`wrong ${detail.reason}`)
   if (detail.scope === 'read' || detail.scope === 'write') parts.push(detail.scope === 'write' ? 'reads and writes' : 'reads only')
   if (event.action === 'api_key_created') parts.push(typeof detail.days === 'number' ? `for ${detail.days} days` : 'until revoked')
+  if (event.action === 'share_link_created' && typeof detail.days === 'number') {
+    parts.push(`for ${detail.days} day${detail.days === 1 ? '' : 's'}`)
+    if (detail.password === true) parts.push('with a password')
+  }
   // A member's leave for support, and a view of their account, until when.
   if (event.action === 'support_access_granted' && typeof detail.until === 'string') parts.push(`until ${formatDateTime(detail.until)}`)
   if (event.action === 'support_session_started' && typeof detail.ends_at === 'string') parts.push(`until ${formatDateTime(detail.ends_at)}`)
@@ -251,6 +263,7 @@ function describeSetting(detail: AuditEvent['detail']): string {
   if (setting === 'chat_days') return `Chats kept: ${days(from)} → ${days(to)}`
   if (setting === 'session_days') return `Sign in again: ${typeof to === 'number' ? signInWords(to).toLowerCase() : 'as Emudoc asks'}`
   if (setting === 'mfa_required') return to ? 'Two-factor sign-in required' : 'Two-factor sign-in no longer required'
+  if (setting === 'share_links') return to ? 'Share links allowed' : 'Share links turned off'
   if (setting === 'notices') {
     const kind = NOTICE_KINDS[detail.kind as NoticeKind]?.label ?? String(detail.kind)
     return `${kind}, ${detail.way === 'email' ? 'by email' : 'in the app'}: ${to ? 'on' : 'off'}`

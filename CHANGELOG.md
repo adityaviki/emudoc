@@ -17,6 +17,14 @@ newest entry first.
 
 Members:
 
+- Share a document with someone outside the organisation by a link that needs no account: "Share
+  by link" on its tab makes one that runs a day, a week or 30 days, with a password if you
+  choose one, and shows its address once to copy. Whoever holds it reads the document, its text,
+  pages and file, and nothing else; you see how often it was opened, and revoke it at once. A
+  link stops when you no longer may make it, the document goes into the trash, or the
+  organisation's owners and admins turn links off on the organisation page, where they list and
+  revoke every link. Links come with Pro and above, and reach organisations as they are rolled
+  out.
 - The upload client sends through the versioned API, so a copy downloaded now goes on working
   as Emudoc changes, and files it sends again after the connection dropped before Emudoc
   answered are taken once and counted as sent. A copy downloaded before goes on working too;
@@ -35,6 +43,11 @@ Members:
 
 Operators:
 
+- Share links: `RATE_SHARED_LINKS` (30 a minute per client address) holds their openings, and
+  `RATE_SHARED_PASSWORDS` (10 an hour per link and per address) their wrong passwords. The flag
+  `share_links` turns them on for an organisation (`flags`), its plan's `share_links` figure
+  allows them, and `after-restore` ends every link, since one revoked after the moment restored
+  to would work again. The privacy policy names their cookie, `emudoc_shared`.
 - The upload client sends to `POST /api/v1/projects/{id}/documents`, each request with an
   `Idempotency-Key`, and follows the documents by `GET /api/v1/projects/{id}/documents?ids=`.
   The AWS instance's Caddyfile and deploying.md's Caddy and nginx examples let a large body
