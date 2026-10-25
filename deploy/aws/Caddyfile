@@ -14,13 +14,14 @@
 			}
 		}
 	}
-	# The upload route alone takes a large body, MAX_UPLOAD_REQUEST_MB (500 by default); the
-	# proxy refuses a larger one before the app has read it. Every other request is small.
-	@uploads path_regexp ^/api/projects/[0-9]+/documents$
+	# The upload routes alone, the page's and the versioned API's, take a large body,
+	# MAX_UPLOAD_REQUEST_MB (500 by default); the proxy refuses a larger one before the app
+	# has read it. Every other request is small.
+	@uploads path_regexp ^/api/(v1/)?projects/[0-9]+/documents$
 	request_body @uploads {
 		max_size 500MB
 	}
-	@others not path_regexp ^/api/projects/[0-9]+/documents$
+	@others not path_regexp ^/api/(v1/)?projects/[0-9]+/documents$
 	request_body @others {
 		max_size 1MB
 	}

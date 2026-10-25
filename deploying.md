@@ -996,13 +996,14 @@ emudoc.example.com {
             }
         }
     }
-    # The upload route alone takes a large body, MAX_UPLOAD_REQUEST_MB (500 by default); the
-    # proxy refuses a larger one before the app has read it. Every other request is small.
-    @uploads path_regexp ^/api/projects/[0-9]+/documents$
+    # The upload routes alone, the page's and the versioned API's, take a large body,
+    # MAX_UPLOAD_REQUEST_MB (500 by default); the proxy refuses a larger one before the app
+    # has read it. Every other request is small.
+    @uploads path_regexp ^/api/(v1/)?projects/[0-9]+/documents$
     request_body @uploads {
         max_size 500MB
     }
-    @others not path_regexp ^/api/projects/[0-9]+/documents$
+    @others not path_regexp ^/api/(v1/)?projects/[0-9]+/documents$
     request_body @others {
         max_size 1MB
     }
@@ -1045,7 +1046,8 @@ server {
     access_log /var/log/nginx/emudoc.log emudoc;
 
     # Every request is small, except an upload: MAX_UPLOAD_REQUEST_MB, 500 by default, on
-    # that route alone. The proxy refuses a larger body before the app has read it.
+    # its routes alone, the page's and the versioned API's. The proxy refuses a larger body
+    # before the app has read it.
     client_max_body_size 1m;
     # HTTP/1.1 and no Connection header towards the app: the pool above needs both.
     proxy_http_version 1.1;
@@ -1066,7 +1068,7 @@ server {
         proxy_pass http://emudoc;
     }
 
-    location ~ ^/api/projects/[0-9]+/documents$ {
+    location ~ ^/api/(v1/)?projects/[0-9]+/documents$ {
         client_max_body_size 500m;
         proxy_pass http://emudoc;
     }

@@ -1,12 +1,15 @@
 """The upload client (app/client/emudoc_upload.py) run as a member runs it: `send` with folders
 and files and `watch` over looks at a folder, each against the suite's app through the client's
 transport (`through`), and once over HTTP, uvicorn serving the app to the client downloaded from
-it and run by a Python of its own (UPLOAD_CLIENT_PYTHON, the oldest it promises in CI)."""
+it and run by a Python of its own (UPLOAD_CLIENT_PYTHON, the oldest it promises in CI); and the
+copy members downloaded before it moved onto the versioned API, over HTTP likewise."""
 
 import ast
+import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -18,11 +21,12 @@ import urllib.request
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import uvicorn
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.api.deps import get_account
 from app.apikeys import KEY_UNKNOWN, READ_ONLY_KEY
@@ -30,7 +34,7 @@ from app.client import UPLOAD_CLIENT
 from app.client import emudoc_upload as uploader
 from app.config import get_settings
 from app.indexing.pipeline import process_document
-from app.models import Document
+from app.models import Document, IdempotencyKey
 from app.parsing import SUPPORTED_EXTENSIONS
 from app.parsing.signatures import RENAME
 from tests.test_api import create_project, listed
@@ -43,6 +47,10 @@ from tests.test_ratelimit import minute_turned
 SERVER = "https://emudoc.example.org"
 # The Python the client runs by over HTTP: the suite's own, or in CI the oldest it promises.
 PYTHON = os.environ.get("UPLOAD_CLIENT_PYTHON") or sys.executable
+# The client as members downloaded it before it moved onto /api/v1, calling the page's routes.
+BEFORE_V1 = Path(__file__).with_name("upload_client_before_v1.py")
+# The repository, whose proxy configurations the client's uploads must pass.
+REPOSITORY = Path(__file__).resolve().parents[2]
 
 
 def through(client, calls: list | None = None) -> uploader.Transport:
@@ -177,8 +185,11 @@ def test_send_files_a_folder_as_it_is_and_says_once_its_files_are_read(
         "Scans/2026/Supplier files": ["march.txt"],
         "Scans/2026/Supplier files/2024": ["april.md", "Été.txt"],
     }
-    # Every request carries the key alone, and one request carried every file.
+    # Every request is the versioned API's and carries the key alone, and one request carried
+    # every file, under an Idempotency-Key.
+    assert all(call.url.startswith(f"{SERVER}/api/v1/") for call in calls)
     assert {call.headers["Authorization"] for call in calls} == {f"Bearer {key}"}
+    assert all(call.headers.get("Idempotency-Key") for call in posts(calls))
     assert not any("Cookie" in call.headers or "X-Requested-With" in call.headers for call in calls)
     assert [files_in(call) for call in posts(calls)] == [4]
     # Nothing on the computer changed.
@@ -368,6 +379,231 @@ def test_files_go_in_as_many_requests_as_the_server_and_a_proxy_take(
     assert done.out[1].endswith(f"Waiting {waits[0]:g} seconds, as Emudoc asks.")
 
 
+def test_files_sent_again_after_a_lost_answer_are_taken_once_and_answered_as_before(
+    client, session, services, tmp_path
+):
+    project = create_project(client)
+    key = make_key(client, scope="write")["key"]
+    folder = write(tmp_path / "Scans", {"a.txt": "The first scan.", "b.txt": "The second scan."})
+    calls: list[uploader.Request] = []
+    app = through(client, calls)
+    answers: list[uploader.Response] = []
+    kept: list = []
+
+    def cut(request: uploader.Request) -> uploader.Response:
+        answer = app(request)
+        if request.method != "POST":
+            return answer
+        answers.append(answer)
+        if len(answers) > 1:
+            return answer
+        # Emudoc took the files and the connection dropped before its answer came; and when the
+        # client sends them again, the request is still being carried out.
+        kept.extend(session.execute(select(IdempotencyKey.status_code, IdempotencyKey.body)).one())
+        session.execute(update(IdempotencyKey).values(status_code=None))
+        session.commit()
+        raise uploader.Unavailable("Emudoc did not answer (Connection reset by peer).")
+
+    read = reading(session, services)
+    waits: list[float] = []
+
+    def wait(seconds: float) -> None:
+        waits.append(seconds)
+        read(seconds)
+        if len(answers) == 2:
+            # Until it ends, its answer kept.
+            status_code, body = kept
+            session.execute(update(IdempotencyKey).values(status_code=status_code, body=body))
+            session.commit()
+
+    done = run(
+        client, "send", "--project", "Contracts", str(folder), key=key, transport=cut, sleep=wait
+    )
+    assert (done.code, done.err) == (0, [])
+    assert done.out == [
+        "Sending 2 files into Contracts.",
+        "Emudoc did not answer (Connection reset by peer). Trying again in 1 seconds.",
+        "Emudoc is still taking these files from the request before. Waiting 5 seconds for its "
+        "answer.",
+        "Sent 2 files (1 upload).",
+        "Read the 2 files sent.",
+    ]
+    # Each time the same request with the same key, the files kept once, and the documents of
+    # the answer given again followed.
+    assert len({call.headers["Idempotency-Key"] for call in posts(calls)}) == 1
+    assert [answer.status for answer in answers] == [201, 409, 201]
+    assert answers[2].headers["idempotent-replayed"] == "true"
+    assert tree(client, project["id"]) == {"Scans": ["a.txt", "b.txt"]}
+
+
+def test_a_run_cut_off_before_its_answer_leaves_its_key_to_the_next(
+    client, session, services, tmp_path
+):
+    project = create_project(client)
+    key = make_key(client, scope="write")["key"]
+    folder = write(tmp_path / "Scans", {"a.txt": "The first scan.", "b.txt": "The second scan."})
+    state = tmp_path / "sent.json"
+    calls: list[uploader.Request] = []
+    app = through(client, calls)
+
+    def lost(request: uploader.Request) -> uploader.Response:
+        answer = app(request)
+        if request.method == "POST":
+            raise uploader.Unavailable("Emudoc did not answer (Connection reset by peer).")
+        return answer
+
+    cut = run(
+        client,
+        "send",
+        "--project",
+        "Contracts",
+        "--state",
+        str(state),
+        str(folder),
+        key=key,
+        transport=lost,
+    )
+    assert (cut.code, cut.err) == (
+        2,
+        [
+            "emudoc_upload: Emudoc did not answer (Connection reset by peer). The files not "
+            "listed above as sent were not."
+        ],
+    )
+    (first,) = {call.headers["Idempotency-Key"] for call in posts(calls)}
+    kept = json.loads(state.read_text())
+    assert (kept["sent"], list(kept["unanswered"])) == ({}, [first])
+
+    # The next run sends the same files with the key, and is given the answer Emudoc kept.
+    calls.clear()
+    again = run(
+        client,
+        "send",
+        "--project",
+        "Contracts",
+        "--state",
+        str(state),
+        str(folder),
+        key=key,
+        calls=calls,
+        sleep=reading(session, services),
+    )
+    assert (again.code, again.out) == (
+        0,
+        [
+            "Sending 2 files into Contracts.",
+            "Sent 2 files (1 upload).",
+            "Reading: 0 of 2 ready.",
+            "Read the 2 files sent.",
+        ],
+    )
+    assert [call.headers["Idempotency-Key"] for call in posts(calls)] == [first]
+    kept = json.loads(state.read_text())
+    assert (len(kept["sent"]), kept["unanswered"]) == (2, {})
+    assert tree(client, project["id"]) == {"Scans": ["a.txt", "b.txt"]}
+
+
+def test_a_key_emudoc_holds_for_another_request_is_put_aside_for_a_new_one(client, tmp_path):
+    project = create_project(client)
+    key = make_key(client, scope="write")["key"]
+    folder = write(tmp_path / "Scans", {"a.txt": "The first scan."})
+    # The state file keeps a key for these files that Emudoc holds for another request, as after
+    # a change to what Emudoc compares, and one older than Emudoc keeps an answer.
+    taken = "4e1ac0de-0000-4000-8000-000000000001"
+    program = TestClient(client.app, headers={"Authorization": f"Bearer {key}"})
+    other = program.post(
+        f"/api/v1/projects/{project['id']}/documents",
+        files=[("files", ("other.txt", b"Another file."))],
+        headers={"Idempotency-Key": taken},
+    )
+    assert other.status_code == 201
+    now = datetime.now(UTC)
+    state = tmp_path / "sent.json"
+    state.write_text(
+        json.dumps(
+            {
+                "server": SERVER,
+                "project": project["id"],
+                "sent": {},
+                "unanswered": {
+                    taken: {
+                        "files": [
+                            ["Scans", "a.txt", hashlib.sha256(b"The first scan.").hexdigest()]
+                        ],
+                        "at": now.isoformat(),
+                    },
+                    "forgotten": {"files": [], "at": (now - timedelta(days=2)).isoformat()},
+                },
+            }
+        )
+    )
+    calls: list[uploader.Request] = []
+    done = run(
+        client,
+        "send",
+        "--project",
+        "Contracts",
+        "--no-wait",
+        "--state",
+        str(state),
+        str(folder),
+        key=key,
+        calls=calls,
+    )
+    assert (done.code, done.out, done.err) == (
+        0,
+        ["Sending 1 file into Contracts.", "Sent 1 file (1 upload)."],
+        [],
+    )
+    first, second = [call.headers["Idempotency-Key"] for call in posts(calls)]
+    assert first == taken != second
+    assert json.loads(state.read_text())["unanswered"] == {}
+    assert [d["filename"] for d in listed(client, project["id"])] == ["other.txt"]
+    assert tree(client, project["id"]) == {"Scans": ["a.txt"]}
+
+
+def rules(text: str, pattern: str) -> list[str]:
+    found = re.findall(pattern, text, re.MULTILINE)
+    assert found, pattern
+    return found
+
+
+def test_the_proxies_take_a_large_body_on_the_routes_the_clients_upload_to(client, tmp_path):
+    """deploying.md's Caddy and nginx and the AWS instance's Caddyfile let a large body through
+    to the upload routes alone: the versioned API's, which the client sends to, and the page's,
+    which the copies from before send to; every other request is held to a small one."""
+    project = create_project(client)
+    key = make_key(client, scope="write")["key"]
+    calls: list[uploader.Request] = []
+    folder = write(tmp_path / "In", {"a.txt": "A."})
+    assert (
+        run(
+            client, "send", "--project", "Contracts", "--no-wait", str(folder), key=key, calls=calls
+        ).code
+        == 0
+    )
+    (posted,) = posts(calls)
+    uploads = [posted.url.removeprefix(SERVER), f"/api/projects/{project['id']}/documents"]
+    others = [
+        "/api/v1/status",
+        f"/api/v1/projects/{project['id']}/documents/1",
+        f"/api/projects/{project['id']}/documents/upload",
+        f"/api/v2/projects/{project['id']}/documents",
+    ]
+    caddyfile = (REPOSITORY / "deploy" / "aws" / "Caddyfile").read_text()
+    guide = (REPOSITORY / "deploying.md").read_text()
+    for text in (caddyfile, guide):
+        large = rules(text, r"^\s*@uploads path_regexp (\S+)$")
+        small = rules(text, r"^\s*@others not path_regexp (\S+)$")
+        assert large == small
+        for rule in large:
+            assert all(re.search(rule, path) for path in uploads), rule
+            assert not any(re.search(rule, path) for path in others), rule
+    for rule in rules(guide, r"^\s*location ~ (\S+) \{$"):
+        assert all(re.search(rule, path) for path in uploads), rule
+        assert not any(re.search(rule, path) for path in others), rule
+
+
 def test_a_plan_without_room_stops_the_sending_and_says_why(
     member,  # noqa: F811
     plan,  # noqa: F811
@@ -436,14 +672,15 @@ def test_a_key_or_an_address_the_client_cannot_use_stops_it(client, tmp_path):
     ]
 
     def moved(request: uploader.Request) -> uploader.Response:
-        return uploader.Response(308, {"location": "https://emudoc.example.com/api/projects"}, b"")
+        where = "https://emudoc.example.com/api/v1/projects"
+        return uploader.Response(308, {"location": where}, b"")
 
     redirected = run(
         client, "send", "--project", "Contracts", str(folder), key=key, transport=moved
     )
     assert redirected.err == [
-        "emudoc_upload: Emudoc answered from https://emudoc.example.com/api/projects: give that "
-        "address as --server."
+        "emudoc_upload: Emudoc answered from https://emudoc.example.com/api/v1/projects: give "
+        "that address as --server."
     ]
 
     def down(request: uploader.Request) -> uploader.Response:
@@ -754,6 +991,50 @@ def test_the_client_downloaded_from_the_app_sends_a_folder_over_http(
         "Été 2026/Juillet": ["facture.md"],
     }
     assert len(json.loads((tmp_path / "sent.json").read_text())["sent"]) == 2
+
+
+def test_a_copy_from_before_the_versioned_api_goes_on_sending_over_http(
+    client, session, services, tmp_path
+):
+    """The copy members downloaded before the client moved onto /api/v1 calls the page's routes
+    (`GET /api/projects`, `GET /api/status`, `POST /api/projects/{id}/documents`, `GET
+    /api/projects/{id}/uploads`), which go on answering a key; and the client of today takes
+    its state file up."""
+    project = create_project(client, "Factures")
+    key = make_key(client, scope="write")["key"]
+    write(tmp_path / "Scans", {"a.txt": "The first scan.", "b.txt": "The second scan."})
+    read = reading(session, services)
+    with serving(client.app) as server:
+        argv = (
+            "send",
+            "--server",
+            server,
+            "--project",
+            "Factures",
+            "--state",
+            "sent.json",
+            "Scans",
+        )
+        process = started(BEFORE_V1, *argv, key=key, cwd=tmp_path)
+        while process.poll() is None:
+            read(0)
+            time.sleep(0.1)
+        out, err = process.communicate(timeout=10)
+        assert (process.returncode, err.decode()) == (0, "")
+        assert out.decode().splitlines() == [
+            "Sending 2 files into Factures.",
+            "Sent 2 files (1 upload).",
+            "Reading: 0 of 2 ready.",
+            "Read the 2 files sent.",
+        ]
+        today = started(downloaded(server, tmp_path), *argv, key=key, cwd=tmp_path)
+        out, err = today.communicate(timeout=30)
+    assert (today.returncode, err.decode()) == (0, "")
+    assert out.decode().splitlines() == [
+        "Sending 2 files into Factures.",
+        "2 files sent before, as the state file says.",
+    ]
+    assert tree(client, project["id"]) == {"Scans": ["a.txt", "b.txt"]}
 
 
 def test_the_client_downloaded_from_the_app_watches_a_folder_over_http(client, tmp_path):
