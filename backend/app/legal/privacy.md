@@ -54,14 +54,15 @@ organisation uploaded a document about you, ask the organisation first; we help 
   each event sent to it which it was, about which document or run, when, and how the address
   answered, never what the event said, so that the organisation's programs hear of its work as
   it happens. We need them to provide the service to the organisation.
-- **Share links**: for each link a member makes that shows a document to whoever holds it, which
-  document, who made it, until when it runs, its password as a hash only if it has one, how
+- **Share links**: for each link a member makes that shows a document, or an answer with its
+  question and the passages it cites, to whoever holds it, which document or answer, who made
+  it, until when it runs, its password as a hash only if it has one, how
   often and when it was last opened, and the link itself as a hash only; and for each time it
   is opened, a random code its browser keeps in a cookie (as a hash only) and until when that
   lets it read the document. The organisation's audit log records each opening of the link, and
   each download of the document's file through it, with the IP address it came from: if a
-  document was shared with you by a link, the organisation that shared it sees when, and from
-  which address, you opened it, and nothing else of you. We need them to provide the service to
+  document or an answer was shared with you by a link, the organisation that shared it sees when,
+  and from which address, you opened it, and nothing else of you. We need them to provide the service to
   the organisation.
 - **Usage**: the pages, questions and model use your organisation counted, and what they cost,
   each with the member it was for, to hold the organisation to its plan and, on a paid plan,
@@ -128,9 +129,10 @@ of you.
   addresses they chose, what the service tells them of its documents (their names, what was
   read of them, how far they are indexed) and of its runs of cross-checks (what they found and
   their reports). The organisation chose them and answers for them; they are not ours.
-- **Whoever holds a share link** sees the document it shows, its text, pages and file, with the
-  name of the member who made the link and of their organisation, until it expires or is
-  revoked: the member chose to show it, and so does anyone they pass the link on to.
+- **Whoever holds a share link** sees the document it shows, its text, pages and file, or the
+  answer it shows with its question and the passages it cites, with the name of the member who
+  made the link and of their organisation, until it expires or is revoked: the member chose to
+  show it, and so does anyone they pass the link on to.
 - **Authorities**, only where the law obliges us to hand data over.
 
 ## Where it is kept

@@ -17,6 +17,10 @@ newest entry first.
 
 Members:
 
+- Share an answer by a link too: "Share the answer" under a finished answer makes one as for a
+  document. Whoever holds it reads the question, the answer and the passages it cites, each
+  citation leading to its passage, and nothing else of your documents. The link stops when its
+  chat goes into the trash, or when the chat is no longer shared with you.
 - Share a document with someone outside the organisation by a link that needs no account: "Share
   by link" on its tab makes one that runs a day, a week or 30 days, with a password if you
   choose one, and shows its address once to copy. Whoever holds it reads the document, its text,

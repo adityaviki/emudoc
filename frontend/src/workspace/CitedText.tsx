@@ -7,9 +7,21 @@ import { CitationChip } from './ChatPane.tsx'
  * A text the model wrote whole, a discrepancy report or a draft, its citations numbered in the order it first makes
  * them and opening the passages they cite, which it lists below it. A reference to a passage it was never shown stays
  * plain text. With `lines`, a line break is kept where it is written, as a letter's address needs and as the draft's
- * files keep it (backend/app/draft_export.py).
+ * files keep it (backend/app/draft_export.py). `opens` names where a citation opens, when not in the document.
  */
-export function CitedText({ text, sources, onOpen, lines = false }: { text: string; sources: Source[]; onOpen: (source: Source) => void; lines?: boolean }) {
+export function CitedText({
+  text,
+  sources,
+  onOpen,
+  lines = false,
+  opens,
+}: {
+  text: string
+  sources: Source[]
+  onOpen: (source: Source) => void
+  lines?: boolean
+  opens?: string
+}) {
   const known = new Map(sources.map((source) => [source.id, source]))
   const cited = [...new Set([...text.matchAll(/\[P(\d+)\]/g)].map((match) => Number(match[1])))].filter((id) => known.has(id))
   const numberOf = (id: number) => cited.indexOf(id) + 1
@@ -20,7 +32,11 @@ export function CitedText({ text, sources, onOpen, lines = false }: { text: stri
           text={text}
           citation={(id) => {
             const source = known.get(id)
-            return source ? <CitationChip number={numberOf(id)} source={source} onOpen={() => onOpen(source)} /> : <span className="text-muted">[P{id}]</span>
+            return source ? (
+              <CitationChip number={numberOf(id)} source={source} onOpen={() => onOpen(source)} opens={opens} />
+            ) : (
+              <span className="text-muted">[P{id}]</span>
+            )
           }}
         />
       </div>

@@ -7,14 +7,17 @@ from urllib.parse import unquote
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic_ai.messages import TextPart, ToolCallPart
 from sqlalchemy import select, update
 
+from app.answers import answer
 from app.config import get_settings
 from app.export import _share_links, account_export
 from app.flags import SHARE_LINKS
 from app.indexing.pipeline import process_document
 from app.models import Document, Organization, ShareLink, ShareView, UsageEvent
 from app.share_links import (
+    ANSWER_NOT_READY,
     LINK_GONE,
     LINKS_OFF,
     NOT_READY,
@@ -26,9 +29,10 @@ from app.share_links import (
     WRONG_PASSWORD,
     prune_share_links,
 )
-from tests.conftest import APP_HEADERS
+from tests.conftest import APP_HEADERS, FakeTurn
 from tests.test_api import create_project, upload
 from tests.test_audit import actions, rows
+from tests.test_chats import ask, new_chat
 from tests.test_organizations import set_role
 from tests.test_templates import turn_on
 
@@ -384,7 +388,156 @@ def test_the_exports_list_the_links_never_their_addresses(client, session, accou
     exported = account_export(session, account.user)
     assert [(link.document, link.password) for link in exported.share_links] == [("msa.pdf", True)]
     assert token_of(made) not in exported.model_dump_json()
-    listed = _share_links(session, shared["project_id"])
+    listed = _share_links(session, shared["project_id"], account.user.id)
     assert [(link.document_id, link.made_by) for link in listed] == [
         (shared["id"], account.user.name)
     ]
+
+
+# An answer's link
+
+
+@pytest.fixture
+def cited(client, services, shared) -> dict:
+    """An answer about the contract, in the local owner's own chat, that cites the passage on
+    ending it."""
+    hits = client.get(
+        f"/api/projects/{shared['project_id']}/search", params={"q": "terminate notice"}
+    ).json()["hits"]
+    passage_id = hits[0]["passage_id"]
+    services.llm.agent_turns = [
+        FakeTurn(ToolCallPart("search", {"query": "terminate notice"}, "call_1")),
+        FakeTurn(TextPart(f"Either party gives ninety days' written notice [P{passage_id}].")),
+    ]
+    chat = new_chat(client, shared["project_id"])
+    asked = ask(client, chat["id"], "How is the agreement ended?")
+    answer(asked["answer"]["id"], services)
+    return {
+        "chat_id": chat["id"],
+        "message_id": asked["answer"]["id"],
+        "question_id": asked["question"]["id"],
+        "passage_id": passage_id,
+        **{"project_id": shared["project_id"], "document_id": shared["id"]},
+    }
+
+
+def answer_path(cited: dict, message_id: int | None = None) -> str:
+    return f"/api/chats/{cited['chat_id']}/messages/{message_id or cited['message_id']}/share-links"
+
+
+def make_answer(client, cited: dict, **body) -> dict:
+    response = client.post(answer_path(cited), json=body)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_an_answers_link_shows_its_question_text_and_cited_passages_alone(
+    client, session, account, cited, visitor
+):
+    made = make_answer(client, cited)
+    assert (made["kind"], made["message_id"], made["document_id"]) == (
+        "answer",
+        cited["message_id"],
+        None,
+    )
+    assert [link["id"] for link in client.get(answer_path(cited)).json()] == [made["id"]]
+
+    response = opened(visitor, made)
+    assert response.status_code == 200, response.text
+    shown_ = response.json()
+    assert shown_["kind"] == "answer"
+    assert shown_["question"] == "How is the agreement ended?"
+    assert shown_["answer"].startswith("Either party gives ninety days' written notice [P")
+    assert shown_["shared_by"] == account.user.name
+    (passage,) = shown_["passages"]
+    assert passage["id"] == cited["passage_id"]
+    assert passage["document_title"] and "ninety (90) days" in passage["text"]
+    # Nothing else of the document: no view, so neither its pages nor its file.
+    assert "set-cookie" not in response.headers
+    assert visitor.get(f"/api/shared/{made['id']}/file").status_code == 401
+    assert client.get(answer_path(cited)).json()[0]["views"] == 1
+    logged = [(action, detail) for action, detail in actions(session) if "share" in action]
+    assert logged == [
+        (
+            "share_link_created",
+            {"answer": cited["message_id"], "link": made["id"], "days": 7, "password": False},
+        ),
+        ("share_link_viewed", {"answer": cited["message_id"], "link": made["id"]}),
+    ]
+    targets = [(row.target_type, row.target_id) for row in rows(session) if "share" in row.action]
+    assert targets == [("chat", cited["chat_id"])] * 2
+
+
+def test_an_answers_link_drops_a_passage_whose_document_went(client, cited, visitor):
+    made = make_answer(client, cited)
+    assert client.delete(f"/api/documents/{cited['document_id']}").status_code == 204
+    assert opened(visitor, made).json()["passages"] == []
+
+
+def test_only_a_finished_answer_of_a_chat_the_member_sees_is_shared(
+    client, account, cited, make_account, act_as
+):
+    assert client.post(answer_path(cited, cited["question_id"]), json={}).status_code == 404
+    waiting = ask(client, cited["chat_id"], "And who may end it?")
+    unfinished = client.post(answer_path(cited, waiting["answer"]["id"]), json={})
+    assert (unfinished.status_code, unfinished.json()["detail"]) == (409, ANSWER_NOT_READY)
+
+    # Another member does not see the owner's private chat, nor shares from it; once it is
+    # shared with the project, a member may, and a viewer may not.
+    member = make_account("mo@example.com", account.organization, role="member")
+    act_as(member)
+    assert client.post(answer_path(cited), json={}).status_code == 404
+    client.app.dependency_overrides.clear()
+    client.patch(f"/api/chats/{cited['chat_id']}", json={"visibility": "project"})
+    act_as(member)
+    assert client.post(answer_path(cited), json={}).status_code == 201
+    act_as(make_account("vic@example.com", account.organization, role="viewer"))
+    assert client.get(answer_path(cited)).status_code == 200
+    assert client.post(answer_path(cited), json={}).status_code == 403
+
+
+def test_an_answers_link_stops_with_its_chat(client, account, cited, visitor, make_account, act_as):
+    owners = make_answer(client, cited)
+    client.patch(f"/api/chats/{cited['chat_id']}", json={"visibility": "project"})
+    member = make_account("mo@example.com", account.organization, role="member")
+    act_as(member)
+    members = make_answer(client, cited)
+    assert opened(visitor, members).status_code == 200
+
+    # Private again, the chat is its starter's alone: the member's link stops, the owner's runs.
+    client.app.dependency_overrides.clear()
+    client.patch(f"/api/chats/{cited['chat_id']}", json={"visibility": "private"})
+    assert opened(visitor, members).json()["detail"] == LINK_GONE
+    assert opened(visitor, owners).status_code == 200
+
+    # In the trash, it shows nothing; restored, it shows again.
+    assert client.delete(f"/api/chats/{cited['chat_id']}").status_code == 204
+    assert opened(visitor, owners).json()["detail"] == LINK_GONE
+    assert client.post(f"/api/trash/chats/{cited['chat_id']}/restore").status_code == 200
+    assert opened(visitor, owners).status_code == 200
+
+
+def test_the_organisation_lists_an_answers_link_by_no_words_of_its_chat(
+    client, session, cited, account
+):
+    made = make_answer(client, cited)
+    listed = client.get("/api/organization/share-links").json()
+    assert [(link["kind"], link["filename"], link["project_name"]) for link in listed] == [
+        ("answer", None, "Contracts")
+    ]
+    assert client.delete(f"/api/share-links/{made['id']}").status_code == 204
+    revoked = [detail for action, detail in actions(session) if action == "share_link_revoked"]
+    assert revoked == [{"answer": cited["message_id"], "link": made["id"]}]
+    assert account_export(session, account.user).share_links == []
+
+
+def test_the_project_export_lists_the_answers_links_of_the_chats_it_holds(
+    client, session, account, cited, make_account, act_as
+):
+    make_answer(client, cited)
+    other = make_account("max@example.com", account.organization, role="member")
+    assert [link.kind for link in _share_links(session, cited["project_id"], account.user.id)] == [
+        "answer"
+    ]
+    # Another member's export holds the owner's private chat no more than its link.
+    assert _share_links(session, cited["project_id"], other.user.id) == []

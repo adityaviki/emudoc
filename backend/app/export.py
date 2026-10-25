@@ -52,6 +52,7 @@ from app.models import (
     AuditEvent,
     Browser,
     Chat,
+    ChatMessage,
     Document,
     Fact,
     Identity,
@@ -105,18 +106,17 @@ from app.storage import Storage, export_key
 log = logging.getLogger(__name__)
 
 ABOUT = (
-    "What Emudoc keeps about you: your account and the edition of the terms you accepted, "
-    "how you are told each kind of notice and whether the mail provider said not to write to "
-    "your address, how you sign in, the organisations you belong to and the private projects "
-    "you were chosen to see, the browsers and devices you signed in from in the last month and "
-    "when each browser you signed in with did so first and last, the chats you started with "
-    "every question and answer, the links you made that show a document to whoever holds "
-    "them, the notices in your notification centre, the usage counted to you, and what the "
-    "audit logs of your "
-    "organisations recorded you doing. Answers cite passages of documents as [P<number>]. "
-    "The documents themselves are not in this file: they belong to the organisation that holds "
-    "them. Your password and recovery codes are kept only as hashes, and they and your "
-    "authenticator secret are left out."
+    "What Emudoc keeps about you: your account and the edition of the terms you accepted, how you "
+    "are told each kind of notice and whether the mail provider said not to write to your address, "
+    "how you sign in, the organisations you belong to and the private projects you were chosen to "
+    "see, the browsers and devices you signed in from in the last month and when each browser you "
+    "signed in with did so first and last, the chats you started with every question and answer, "
+    "the links you made that show a document or an answer to whoever holds them, the notices in "
+    "your notification centre, the usage counted to you, and what the audit logs of your "
+    "organisations recorded you doing. Answers cite passages of documents as [P<number>]. The "
+    "documents themselves are not in this file: they belong to the organisation that holds them. "
+    "Your password and recovery codes are kept only as hashes, and they and your authenticator "
+    "secret are left out."
 )
 
 # How long a project's export is kept for the member who asked for it, once it is ready: long
@@ -135,13 +135,13 @@ COMPRESSED = frozenset(
 PROJECT_ABOUT = (
     "A copy of a project in Emudoc, for the member named in exported_by. originals/ holds each "
     "document as it was uploaded, in its folders, once the malware scan passed it. project.json "
-    "lists the project, its folders, its documents and the chats about them: those shared with "
-    "the project and the member's own, whose answers cite passages as [P<number>]. documents/ "
-    "holds what was read from each document: its outline, its passages by number, and the facts "
-    "found in it, each with the passage it came from. templates holds the project's own "
-    "extraction templates, the fields its documents of each kind are read for, and share_links "
-    "the links that show its documents to whoever holds them, without their addresses. What "
-    "is in the trash is left out, and so are other members' private chats."
+    "lists the project, its folders, its documents and the chats about them: those shared with the "
+    "project and the member's own, whose answers cite passages as [P<number>]. documents/ holds "
+    "what was read from each document: its outline, its passages by number, and the facts found in "
+    "it, each with the passage it came from. templates holds the project's own extraction "
+    "templates, the fields its documents of each kind are read for, and share_links the links that "
+    "show its documents and the answers of its chats to whoever holds them, without their "
+    "addresses. What is in the trash is left out, and so are other members' private chats."
 )
 EXPORT_FAILED = (
     "The export could not be made. Ask for another; if that one fails too, write to support."
@@ -194,7 +194,7 @@ def account_export(session: Session, user: User) -> AccountExport:
         select(ShareLink, Organization.slug, Project.name, Document.filename)
         .join(Organization, Organization.id == ShareLink.org_id)
         .join(Project, Project.id == ShareLink.project_id)
-        .join(Document, Document.id == ShareLink.document_id)
+        .outerjoin(Document, Document.id == ShareLink.document_id)
         .where(ShareLink.user_id == user.id, ShareLink.expires_at > func.now())
         .order_by(ShareLink.id)
     ).all()
@@ -298,6 +298,7 @@ def account_export(session: Session, user: User) -> AccountExport:
             ExportedShareLink(
                 organization=slug,
                 project=project,
+                kind="document" if link.document_id is not None else "answer",
                 document=filename,
                 created_at=link.created_at,
                 expires_at=link.expires_at,
@@ -407,7 +408,7 @@ def _write(path: Path, export_id: int, storage: Storage) -> int:
             "exported_by": ExportedBy(name=user.name, email=user.email),
             "folders": sorted(folders.values(), key=str.lower),
             "templates": _templates(session, project.id),
-            "share_links": _share_links(session, project.id),
+            "share_links": _share_links(session, project.id, user.id),
         }
     names = _Names()
     listed: list[ExportedDocument] = []
@@ -642,21 +643,31 @@ def _templates(session: Session, project_id: int) -> list[ExportedTemplate]:
     ]
 
 
-def _share_links(session: Session, project_id: int) -> list[ExportedProjectShareLink]:
-    """The links to the project's documents out of the trash that have not expired."""
+def _share_links(session: Session, project_id: int, user_id: int) -> list[ExportedProjectShareLink]:
+    """The links that have not expired to the project's documents out of the trash, and to the
+    answers of the chats the export holds: those shared with the project and the member's own."""
     rows = session.execute(
         select(ShareLink, Document.filename, User.name)
-        .join(Document, Document.id == ShareLink.document_id)
+        .outerjoin(Document, Document.id == ShareLink.document_id)
+        .outerjoin(ChatMessage, ChatMessage.id == ShareLink.message_id)
+        .outerjoin(Chat, Chat.id == ChatMessage.chat_id)
         .join(User, User.id == ShareLink.user_id)
         .where(
             ShareLink.project_id == project_id,
             ShareLink.expires_at > func.now(),
             Document.deleted_at.is_(None),
+            Chat.deleted_at.is_(None),
+            or_(
+                ShareLink.document_id.is_not(None),
+                Chat.visibility == "project",
+                Chat.user_id == user_id,
+            ),
         )
         .order_by(ShareLink.id)
     ).all()
     return [
         ExportedProjectShareLink(
+            kind="document" if link.document_id is not None else "answer",
             document_id=link.document_id,
             document=filename,
             made_by=made_by,

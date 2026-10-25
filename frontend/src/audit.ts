@@ -240,6 +240,8 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   if (detail.reason === 'password' || detail.reason === 'code') parts.push(`wrong ${detail.reason}`)
   if (detail.scope === 'read' || detail.scope === 'write') parts.push(detail.scope === 'write' ? 'reads and writes' : 'reads only')
   if (event.action === 'api_key_created') parts.push(typeof detail.days === 'number' ? `for ${detail.days} days` : 'until revoked')
+  // An answer's link names no words of its chat, which are its members'.
+  if (event.action.startsWith('share_link_') && typeof detail.answer === 'number') parts.push('an answer')
   if (event.action === 'share_link_created' && typeof detail.days === 'number') {
     parts.push(`for ${detail.days} day${detail.days === 1 ? '' : 's'}`)
     if (detail.password === true) parts.push('with a password')

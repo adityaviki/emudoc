@@ -160,7 +160,7 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
             <ReviewControls document={document} />
           </div>
         )}
-        {sharing && <ShareDialog document={document} onClose={() => setSharing(false)} />}
+        {sharing && <ShareDialog target={{ kind: 'document', id: document.id, name: document.filename }} onClose={() => setSharing(false)} />}
         {focusLabel && (
           <p className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-md bg-mark/40 py-0.5 pr-0.5 pl-2 text-xs">
             <span className="truncate">Showing: {focusLabel}</span>

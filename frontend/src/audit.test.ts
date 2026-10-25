@@ -217,6 +217,10 @@ describe('a row', () => {
     expect(describeDetail(event('share_link_created', made))).toBe('msa.pdf · for 1 day · with a password')
     expect(describeDetail(event('share_link_created', { ...made, days: 7, password: false }))).toBe('msa.pdf · for 7 days')
     expect(describeDetail(event('share_link_viewed', { filename: 'msa.pdf', link: 4 }))).toBe('msa.pdf')
+    expect(describeDetail(event('share_link_created', { answer: 31, link: 5, days: 30, password: false }))).toBe(
+      'an answer · for 30 days',
+    )
+    expect(describeDetail(event('share_link_revoked', { answer: 31, link: 5 }))).toBe('an answer')
     expect(describeDetail(event('settings_changed', { setting: 'share_links', from: true, to: false }))).toBe(
       'Share links turned off',
     )
