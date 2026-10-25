@@ -471,7 +471,11 @@ widths. Every menu and panel takes the keyboard as it opens, gives it back
 to its button on Escape, and lets Tab go on past it.
 PDFs show their rendered pages with the extracted text laid invisibly over them, so it can be
 selected and searched, and so do a TIFF's pages and a HEIC photo, which a browser does not show
-itself; spreadsheets show one tab per sheet; images show the picture above the text
+itself. A PDF page whose text runs down, up or upside down as it is shown (a landscape table
+drawn sideways on a portrait page, a page turned by a rotation it did not need) is read the way
+its text runs, and its text and a cited passage's mark lie where the page shows them; a line
+turned against the rest of its page, such as a reference up the margin, is read after the
+page's own text and heads no section; spreadsheets show one tab per sheet; images show the picture above the text
 read from it. Printed, from the tab's "Print" or the browser's own, a document is itself alone
 (`data-print` and the print rules in `frontend/src/index.css`): a PDF its pages, a sheet each and
 as large as the sheet holds, anything else its title and text over as many sheets as it takes,

@@ -1,5 +1,7 @@
 """PDF parsing with pdfplumber: lines grouped into blocks, headings found by font."""
 
+import copy
+import math
 import re
 from bisect import bisect_left, bisect_right
 from collections import Counter
@@ -8,6 +10,7 @@ from pathlib import Path
 
 import pdfplumber
 from pdfminer.pdfdocument import PDFEncryptionError, PDFPasswordIncorrect
+from pdfplumber.page import Page
 from pdfplumber.utils.exceptions import PdfminerException
 
 from app.parsing.types import (
@@ -24,6 +27,9 @@ from app.parsing.types import (
 MARGIN_BAND = 0.08
 HEADING_SIZE_RATIO = 1.15
 MAX_HEADING_CHARS = 200
+# Characters turned against the rest of their page, fewer than this, are left out rather than
+# read in a frame of their own: a turned arrow or symbol, not a line of text.
+MIN_TURNED_CHARS = 4
 
 _BOLD = re.compile(r"bold|black|heavy|semibold|demi", re.IGNORECASE)
 _LIST_START = re.compile(
@@ -45,6 +51,10 @@ NO_PAGES = "This PDF has no pages. Export it again from the program that made it
 
 @dataclass
 class _Line:
+    """A line of text, placed in the frame it was read in: the page turned `turn` degrees
+    anticlockwise from how it is shown, so that the line reads upright, `frame` that turned
+    page's width and height (`_shown` places it on the page as shown)."""
+
     text: str
     x0: float
     top: float
@@ -52,16 +62,28 @@ class _Line:
     bottom: float
     size: float
     bold: bool
+    turn: int
+    frame: tuple[float, float]
 
     @property
     def height(self) -> float:
         return self.bottom - self.top
+
+    @property
+    def shown(self) -> BBox:
+        return _shown((self.x0, self.top, self.x1, self.bottom), self.turn, self.frame)
 
 
 @dataclass
 class _Table:
     bbox: BBox
     markdown: str
+    turn: int
+    frame: tuple[float, float]
+
+    @property
+    def shown(self) -> BBox:
+        return _shown(self.bbox, self.turn, self.frame)
 
 
 @dataclass
@@ -80,6 +102,10 @@ class _Group:
         return all(line.bold for line in self.lines)
 
     @property
+    def turn(self) -> int:
+        return self.lines[0].turn
+
+    @property
     def bbox(self) -> BBox:
         return (
             min(line.x0 for line in self.lines),
@@ -87,6 +113,10 @@ class _Group:
             max(line.x1 for line in self.lines),
             max(line.bottom for line in self.lines),
         )
+
+    @property
+    def shown(self) -> BBox:
+        return _shown(self.bbox, self.turn, self.lines[0].frame)
 
     @property
     def text(self) -> str:
@@ -104,6 +134,8 @@ class _Group:
 def parse_pdf(path: Path, max_pages: int = 0) -> ParsedDocument:
     """Parse the PDF; one with more than `max_pages` pages (0: any number) is refused."""
     pages: list[tuple[list[_Line], list[_Table]]] = []
+    # How far each page's own text is turned; text turned against it is read after it.
+    turns: list[int] = []
     page_sizes: list[tuple[float, float]] = []
     ocr_pages: list[int] = []
 
@@ -118,41 +150,45 @@ def parse_pdf(path: Path, max_pages: int = 0) -> ParsedDocument:
             )
         for number, page in enumerate(pdf.pages, start=1):
             page_sizes.append((float(page.width), float(page.height)))
-            tables = _tables(page)
-            lines = [line for line in _lines(page) if not _inside_any(line, tables)]
+            lines, tables, turn = _read(page)
             if not lines and not tables and page.images:
                 ocr_pages.append(number)
             pages.append((lines, tables))
+            turns.append(turn)
             page.close()
 
-    repeated = _repeated_margin_lines(pages, page_sizes)
+    repeated = _repeated_margin_lines(pages)
     body_size = _body_size(pages)
 
     items: list[_Group | tuple[int, _Table]] = []
     for number, (lines, tables) in enumerate(pages, start=1):
-        height = page_sizes[number - 1][1]
-        kept = [line for line in lines if not _is_margin_noise(line, height, repeated)]
+        kept = [line for line in lines if not _is_margin_noise(line, repeated)]
         groups: list[_Group | tuple[int, _Table]] = list(_group_lines(kept, number))
         for table in sorted(tables, key=lambda t: t.bbox[1]):
+            # Before the first group below it, or after the last read in its frame: the groups
+            # of text turned against the page's come after the page's own.
             position = next(
                 (
                     index
                     for index, item in enumerate(groups)
-                    if isinstance(item, _Group) and item.bbox[1] >= table.bbox[1]
+                    if isinstance(item, _Group)
+                    and (item.turn != table.turn or item.bbox[1] >= table.bbox[1])
                 ),
                 len(groups),
             )
             groups.insert(position, (number, table))
         items.extend(groups)
 
+    # Text turned against its page, a reference up the margin, heads no section.
     heading_levels = _heading_levels(
-        [item for item in items if isinstance(item, _Group)], body_size
+        [item for item in items if isinstance(item, _Group) and item.turn == turns[item.page - 1]],
+        body_size,
     )
     blocks: list[ParsedBlock] = []
     for item in items:
         if isinstance(item, tuple):
             number, table = item
-            blocks.append(ParsedBlock("table", table.markdown, page=number, bbox=table.bbox))
+            blocks.append(ParsedBlock("table", table.markdown, page=number, bbox=table.shown))
             continue
         text = item.text
         level = heading_levels.get(id(item))
@@ -162,7 +198,7 @@ def parse_pdf(path: Path, max_pages: int = 0) -> ParsedDocument:
             kind = "list_item"
         else:
             kind = "paragraph"
-        blocks.append(ParsedBlock(kind, text, level=level, page=item.page, bbox=item.bbox))
+        blocks.append(ParsedBlock(kind, text, level=level, page=item.page, bbox=item.shown))
 
     return ParsedDocument(
         blocks=blocks,
@@ -203,12 +239,76 @@ def _metadata_title(value: object) -> str | None:
     return title
 
 
-def _lines(page) -> list[_Line]:
+def _read(page: Page) -> tuple[list[_Line], list[_Table], int]:
+    """The page's lines and tables, each line read in the frame where its text runs upright,
+    and how far the page's own text is turned (`_turn`).
+
+    pdfminer lays a page out as its /Rotate shows it, so text that runs down, up or upside down
+    as shown (a landscape page drawn sideways on a portrait one, a page turned by a /Rotate that
+    did not need one) comes out a letter a line. The page is read turned the way most of its
+    text runs, tables included; text turned against that (a reference up the margin) is read in
+    a frame of its own, after it.
+    """
+    turns = Counter(_turn(char) for char in page.chars if not char["text"].isspace())
+    main = turns.most_common(1)[0][0] if turns else 0
+    others = sorted(t for t, count in turns.items() if t != main and count >= MIN_TURNED_CHARS)
+    lines: list[_Line] = []
+    tables: list[_Table] = []
+    for turn in [main, *others]:
+        framed = _turned(page, turn)
+        try:
+            if turn == main:
+                tables = _tables(framed, turn)
+            lines.extend(line for line in _lines(framed, turn) if not _inside_any(line, tables))
+        finally:
+            if framed is not page:
+                framed.close()
+    return lines, tables, main
+
+
+def _turn(char: dict) -> int:
+    """How far the character runs turned clockwise from upright on the page as shown, to the
+    nearest quarter: 90 reads down, 180 upside down, 270 up."""
+    a, b = char["matrix"][:2]
+    return round(-math.degrees(math.atan2(b, a)) / 90) % 4 * 90
+
+
+def _turned(page: Page, turn: int) -> Page:
+    """The page turned `turn` degrees anticlockwise from how it is shown, so that text that runs
+    `turn` degrees clockwise reads upright in it."""
+    if not turn:
+        return page
+    obj = copy.copy(page.page_obj)
+    rotation = (page.rotation - turn) % 360
+    # pdfplumber sizes the page by the attribute, pdfminer turns the content by the field.
+    obj.attrs = {**obj.attrs, "Rotate": rotation}
+    obj.rotate = rotation
+    return Page(page.pdf, obj, page_number=page.page_number)
+
+
+def _shown(box: BBox, turn: int, frame: tuple[float, float]) -> BBox:
+    """Where a box read in a frame turned `turn` degrees anticlockwise from the page as shown,
+    `frame` wide and high, sits on the page as shown: the frame turned back, clockwise."""
+    x0, top, x1, bottom = box
+    width, height = frame
+    if turn == 90:
+        return (height - bottom, x0, height - top, x1)
+    if turn == 180:
+        return (width - x1, height - bottom, width - x0, height - top)
+    if turn == 270:
+        return (top, width - x1, bottom, width - x0)
+    return box
+
+
+def _lines(page: Page, turn: int) -> list[_Line]:
+    """The page's lines whose text reads upright in it, `page` being the one as shown turned
+    `turn` degrees (`_turned`)."""
     chars = sorted(
         (c for c in page.chars if not c["text"].isspace()),
         key=lambda c: (c["top"] + c["bottom"]) / 2,
     )
     middles = [(c["top"] + c["bottom"]) / 2 for c in chars]
+    frame = (float(page.width), float(page.height))
     lines = []
     for raw in page.textlinehorizontals:
         text = clean_text(_UNMAPPED_GLYPH.sub("", raw["text"]))
@@ -216,13 +316,18 @@ def _lines(page) -> list[_Line]:
             continue
         sizes: Counter[float] = Counter()
         bold = 0
+        upright = 0
         low = bisect_left(middles, raw["top"])
         high = bisect_right(middles, raw["bottom"])
         for char in chars[low:high]:
             if raw["x0"] - 1 <= (char["x0"] + char["x1"]) / 2 <= raw["x1"] + 1:
                 sizes[round(char["size"] * 2) / 2] += 1
                 bold += bool(_BOLD.search(char["fontname"]))
+                upright += not _turn(char)
         total = sum(sizes.values())
+        if upright * 2 < total:
+            # Text that runs another way, a letter a line here: its own frame reads it.
+            continue
         lines.append(
             _Line(
                 text=text,
@@ -232,48 +337,57 @@ def _lines(page) -> list[_Line]:
                 bottom=float(raw["bottom"]),
                 size=sizes.most_common(1)[0][0] if sizes else 0.0,
                 bold=total > 0 and bold / total > 0.8,
+                turn=turn,
+                frame=frame,
             )
         )
     return lines
 
 
-def _tables(page) -> list[_Table]:
+def _tables(page: Page, turn: int) -> list[_Table]:
+    frame = (float(page.width), float(page.height))
     tables = []
     for found in page.find_tables():
         rows = [row for row in found.extract() if any(cell and cell.strip() for cell in row)]
         if len(rows) < 2 or max(len(row) for row in rows) < 2:
             continue
-        tables.append(_Table(tuple(float(v) for v in found.bbox), table_to_markdown(rows)))
+        bbox = tuple(float(v) for v in found.bbox)
+        tables.append(_Table(bbox, table_to_markdown(rows), turn, frame))
     return tables
 
 
 def _inside_any(line: _Line, tables: list[_Table]) -> bool:
-    x = (line.x0 + line.x1) / 2
-    y = (line.top + line.bottom) / 2
-    return any(t.bbox[0] <= x <= t.bbox[2] and t.bbox[1] <= y <= t.bbox[3] for t in tables)
+    x0, top, x1, bottom = line.shown
+    x = (x0 + x1) / 2
+    y = (top + bottom) / 2
+    return any(
+        left <= x <= right and upper <= y <= lower
+        for left, upper, right, lower in (table.shown for table in tables)
+    )
 
 
-def _in_margin(line: _Line, page_height: float) -> bool:
-    return line.bottom < page_height * MARGIN_BAND or line.top > page_height * (1 - MARGIN_BAND)
+def _in_margin(line: _Line) -> bool:
+    height = line.frame[1]
+    return line.bottom < height * MARGIN_BAND or line.top > height * (1 - MARGIN_BAND)
 
 
 def _margin_key(text: str) -> str:
     return _DIGITS.sub("#", text.lower())
 
 
-def _repeated_margin_lines(pages, page_sizes) -> set[str]:
+def _repeated_margin_lines(pages) -> set[str]:
     """Margin lines that recur across pages: running headers and footers."""
     if len(pages) < 2:
         return set()
     counts: Counter[str] = Counter()
-    for (lines, _), (_, height) in zip(pages, page_sizes, strict=True):
-        counts.update({_margin_key(line.text) for line in lines if _in_margin(line, height)})
+    for lines, _ in pages:
+        counts.update({_margin_key(line.text) for line in lines if _in_margin(line)})
     threshold = max(2, len(pages) * 0.4)
     return {key for key, count in counts.items() if count >= threshold}
 
 
-def _is_margin_noise(line: _Line, page_height: float, repeated: set[str]) -> bool:
-    if not _in_margin(line, page_height):
+def _is_margin_noise(line: _Line, repeated: set[str]) -> bool:
+    if not _in_margin(line):
         return False
     return bool(_PAGE_NUMBER.match(line.text)) or _margin_key(line.text) in repeated
 
@@ -301,6 +415,8 @@ def _group_lines(lines: list[_Line], page: int):
 
 def _continues(group: _Group, line: _Line) -> bool:
     last = group.lines[-1]
+    if line.turn != last.turn:
+        return False
     if abs(line.size - last.size) > 0.6 or line.bold != last.bold:
         return False
     gap = line.top - last.bottom

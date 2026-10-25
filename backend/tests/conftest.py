@@ -1288,6 +1288,57 @@ def protected_pdf(path: Path, password: str) -> Path:
     return path
 
 
+def turned_pdf(path: Path, rotation: int = 0, drawn_turned: int = 0, note: str = "") -> Path:
+    """A price list on an A4 page: a heading, a paragraph of two lines and a table, drawn turned
+    `drawn_turned` degrees anticlockwise (0 or 90) in the content and shown turned `rotation`
+    degrees clockwise by the page's /Rotate. With both 90 it is a landscape page drawn sideways
+    on a portrait one, which a viewer shows upright; with one of them its text runs down or up
+    as shown; `rotation` 180 shows it upside down. `note`, if any, runs up the left margin, in
+    larger type than the paragraph."""
+    import pypdfium2 as pdfium
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen.canvas import Canvas
+    from reportlab.platypus import Table, TableStyle
+
+    width, _ = A4
+    canvas = Canvas(str(path), pagesize=A4)
+    canvas.saveState()
+    if drawn_turned == 90:
+        canvas.translate(width, 0)
+        canvas.rotate(90)
+    # Within 595 points both ways, so that it fits the page whichever way it is drawn.
+    canvas.setFont("Helvetica-Bold", 18)
+    canvas.drawString(72, 540, "Price list 2024")
+    canvas.setFont("Helvetica", 11)
+    canvas.drawString(72, 510, "Prices hold until December and are quoted")
+    canvas.drawString(72, 496, "per unit, before tax.")
+    table = Table(
+        [["Item", "Price"], ["Pallet", "EUR 40"], ["Crate", "EUR 12"]],
+        style=TableStyle([("GRID", (0, 0), (-1, -1), 0.5, colors.black)]),
+    )
+    table.wrapOn(canvas, 400, 400)
+    table.drawOn(canvas, 72, 400)
+    canvas.restoreState()
+    if note:
+        canvas.saveState()
+        canvas.translate(40, 300)
+        canvas.rotate(90)
+        canvas.setFont("Times-Roman", 14)
+        canvas.drawString(0, 0, note)
+        canvas.restoreState()
+    canvas.showPage()
+    canvas.save()
+    if rotation:
+        pdf = pdfium.PdfDocument(str(path))
+        pdf[0].set_rotation(rotation)
+        turned = path.with_suffix(".turned.pdf")
+        pdf.save(str(turned))
+        pdf.close()
+        turned.replace(path)
+    return path
+
+
 def pageless_pdf(path: Path) -> Path:
     """A PDF whose page tree is empty, which pdfplumber opens and pdfium refuses."""
     path.write_bytes(
