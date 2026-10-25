@@ -10,6 +10,7 @@ import {
   followAfter,
   followedBatches,
   isAbort,
+  photoName,
   screen,
   sendInBatches,
   settled,
@@ -57,6 +58,16 @@ describe('what an upload leaves out before sending', () => {
     const mb = 1024 * 1024
     const { left } = screen([item('a.pdf', 3 * mb)], { files: 100, request_bytes: 2 * mb, file_bytes: 100 * mb, extensions: ACCEPTED_EXTENSIONS })
     expect(left[0].reason).toBe('Larger than 2 MB.')
+  })
+})
+
+describe('a photo taken from the library', () => {
+  it('is named by when it was taken, in the browser\'s time, with the extension of its type', () => {
+    const at = new Date(2026, 9, 5, 9, 4, 7)
+    expect(photoName(new File(['x'], 'image.jpg', { type: 'image/jpeg' }), at)).toBe('Photo 2026-10-05 at 09.04.07.jpg')
+    expect(photoName(new File(['x'], 'IMG_0001.HEIC', { type: 'image/heic' }), at)).toBe('Photo 2026-10-05 at 09.04.07.heic')
+    // A type the page does not know keeps the extension it came with.
+    expect(photoName(new File(['x'], 'scan.TIFF', { type: '' }), at)).toBe('Photo 2026-10-05 at 09.04.07.tiff')
   })
 })
 

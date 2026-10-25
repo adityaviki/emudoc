@@ -19,6 +19,18 @@ const MB = 1024 * 1024
 /** What a deployment allows until its status says: the server's defaults (backend/app/config.py). */
 export const DEFAULT_LIMITS: UploadLimits = { files: 100, request_bytes: 500 * MB, file_bytes: 100 * MB, extensions: ACCEPTED_EXTENSIONS }
 
+// The extension a photo the camera took is saved with, by its type; a phone names every one
+// image.jpg, so the page names it by when it was taken (`photoName`).
+const PHOTO_TYPES: Record<string, string> = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/heic': '.heic', 'image/heif': '.heif' }
+
+/** The name a photo taken from the library is uploaded under, "Photo 2026-10-25 at 14.32.07.jpg", in the browser's own time. */
+export function photoName(file: File, at: Date): string {
+  const two = (n: number) => String(n).padStart(2, '0')
+  const day = `${at.getFullYear()}-${two(at.getMonth() + 1)}-${two(at.getDate())}`
+  const time = `${two(at.getHours())}.${two(at.getMinutes())}.${two(at.getSeconds())}`
+  return `Photo ${day} at ${time}${PHOTO_TYPES[file.type] ?? suffixOf(file.name)}`
+}
+
 // Files a folder holds that its owner does not see: hidden by a leading dot, or Windows's own.
 const SYSTEM_FILES = new Set(['thumbs.db', 'ehthumbs.db', 'desktop.ini'])
 

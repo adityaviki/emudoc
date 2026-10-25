@@ -3,7 +3,8 @@
 ## What you can upload
 
 $formats. A file may be up to $max_upload_mb MB. Upload files with Upload, or a folder with the
-folders in it with "Upload a folder", or drop either on the library or on a folder in it. A larger
+folders in it with "Upload a folder", or drop either on the library or on a folder in it. On a
+phone or a tablet, the camera button beside them takes a photo of a page and uploads it. A larger
 upload is sent $max_upload_files files or $max_request_mb MB at a time, and a panel under the
 toolbar shows how far it has gone, file by file under "Each file", until Stop. A file Emudoc does
 not read is left out before anything is sent, and so are a folder's hidden files. A file saved

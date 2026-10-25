@@ -17,6 +17,9 @@ newest entry first.
 
 Members:
 
+- Take a photo of a page from your phone or tablet: the camera button beside "Upload a folder"
+  opens the camera, and the photo is uploaded into the folder you are in, named by when you took
+  it, and read like a scanned page.
 - Upload a ZIP archive: its files go into the folders it holds, as an uploaded folder's do, in a
   folder named after the archive unless everything in it is in one folder already. Each file is
   checked as any upload is, and one that cannot be read is listed with why while the others go

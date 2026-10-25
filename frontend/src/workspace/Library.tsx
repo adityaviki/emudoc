@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BadgeCheck,
+  Camera,
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
@@ -54,6 +55,7 @@ import { partlyIndexedWords, restHeld, unfinishedStages } from '../indexing.ts'
 import { stateMoves } from '../reviews.ts'
 import { describeChange } from './changes.ts'
 import { chosenFolder, droppedEntries, readEntries } from './dropped.ts'
+import { photoName } from './uploads.ts'
 import { RunView } from './CheckRuns.tsx'
 import { CrossChecksView, FindingsView } from './CrossChecks.tsx'
 import { DraftTemplatesView } from './DraftTemplates.tsx'
@@ -158,6 +160,7 @@ export function Library() {
   const health = useStatus()
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
+  const photoInput = useRef<HTMLInputElement>(null)
   const dragging = useRef<DragPayload | null>(null)
   const [creating, setCreating] = useState(false)
   const [overPane, setOverPane] = useState(false)
@@ -332,6 +335,17 @@ export function Library() {
                   title="Upload a folder, with the folders in it"
                   aria-label="Upload a folder"
                   className="px-2"
+                />
+              )}
+              {/* A phone's or a tablet's camera; a computer worked by a mouse has a file for it already. */}
+              {uploads && (
+                <Button
+                  icon={<Camera className="size-4" />}
+                  onClick={() => photoInput.current?.click()}
+                  disabled={upload.isPending}
+                  title="Take a photo of a page"
+                  aria-label="Take a photo"
+                  className="px-2 pointer-fine:hidden"
                 />
               )}
             </>
@@ -509,6 +523,20 @@ export function Library() {
             onChange={(event) => {
               const files = [...(event.target.files ?? [])]
               if (files.length) uploadItems(chosenFolder(files), folderId)
+              event.target.value = ''
+            }}
+          />
+          {/* The camera that faces away, which a phone opens at once; the photo is read by the model as a scan. */}
+          <input
+            ref={photoInput}
+            type="file"
+            name="photo"
+            hidden
+            accept="image/*"
+            capture="environment"
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              if (file) uploadItems([{ file: new File([file], photoName(file, new Date()), { type: file.type }), folder: '' }], folderId)
               event.target.value = ''
             }}
           />

@@ -436,7 +436,8 @@ is indexed sooner next to a free organisation's.
 
 A project opens as two panes. On the left is the **library**: the project's documents filed in
 folders, with the usual file-manager moves (new folder, rename, drag to move, delete, upload by
-button or by dropping files or folders, search), shown as a tree that opens folders in place, a
+button or by dropping files or folders, search, and on a phone or a tablet a photo of a page
+taken with the camera, `capture="environment"`, named by when it was taken), shown as a tree that opens folders in place, a
 folder's files by name a hundred at a time, with more on request. A folder uploaded is filed as
 it was, its folders made where the one it goes into holds none of their names. An email saved
 from a mail program (.eml) is opened as it is uploaded (`app/unpacking.py`): its text becomes a
