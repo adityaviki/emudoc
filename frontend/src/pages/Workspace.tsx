@@ -15,7 +15,7 @@ import { offerTour, workspaceTour } from '../tour.ts'
 import { ChatPane } from '../workspace/ChatPane.tsx'
 import { DocumentTab } from '../workspace/DocumentTab.tsx'
 import { Library } from '../workspace/Library.tsx'
-import { documentQuery, isGone } from '../workspace/listing.ts'
+import { documentQuery, isGone, placeListingsKey } from '../workspace/listing.ts'
 import { WorkspaceShortcuts } from '../workspace/Shortcuts.tsx'
 import { SplitPanes } from '../workspace/SplitPane.tsx'
 import type { Pane as SplitPane } from '../workspace/SplitPane.tsx'
@@ -73,6 +73,16 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
       }
     })
   }, [activeDocumentId, activeFocus, setTabs])
+
+  // A document opened in the middle pane is one of the member's recent ones (backend/app/recents.py);
+  // the list shows it next time it is asked for, and a visit that does not reach the server is let go.
+  useEffect(() => {
+    if (activeDocumentId == null) return
+    api.visitDocument(activeDocumentId).then(
+      () => queryClient.invalidateQueries({ queryKey: placeListingsKey(projectId, { recent: true }) }),
+      () => {},
+    )
+  }, [activeDocumentId, projectId, queryClient])
 
   // Each tab's document is asked for by itself; the library holds only the pages it shows.
   const tabDocuments = useQueries({
@@ -185,6 +195,18 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
       showConnectors() {
         setMobilePane('library')
         go({ library: { folderId: null, q: '', connectors: true } })
+      },
+      showPlace(place) {
+        setMobilePane('library')
+        go({ library: { folderId: null, q: '', ...('tag' in place ? { tag: place.tag } : 'smart' in place ? { smart: place.smart } : place) } })
+      },
+      showTags() {
+        setMobilePane('library')
+        go({ library: { folderId: null, q: '', tags: true } })
+      },
+      showFiling() {
+        setMobilePane('library')
+        go({ library: { folderId: null, q: '', filing: true } })
       },
       openChat(chatId, options) {
         // Opened from the library too, as a chat about what was chosen there.

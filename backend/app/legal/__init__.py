@@ -40,6 +40,7 @@ from app.network import MODEL_BASE_URLS, host_of, on_own_network
 from app.notices import NOTIFICATION_DAYS
 from app.oidc import OAUTH_COOKIE, OAUTH_WINDOW_SECONDS
 from app.ratelimit import HISTORY
+from app.recents import RECENT
 from app.retention import DELETION_GRACE, RETENTION_HELD, day
 from app.share_links import DAYS as SHARE_DAYS
 from app.share_links import VIEW_COOKIE, VIEW_FOR
@@ -130,6 +131,7 @@ def privacy_policy(
         browser_days=str(BROWSER_KNOWN_FOR.days),
         notification_days=str(NOTIFICATION_DAYS),
         trash_days=str(TRASH_DAYS),
+        recent=str(RECENT),
         export_days=str(EXPORT_DAYS),
         webhook_days=str(DELIVERIES_KEPT.days),
         # A count is pruned at the first housekeeping after it is HISTORY old.

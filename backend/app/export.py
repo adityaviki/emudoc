@@ -55,7 +55,9 @@ from app.models import (
     ChatMessage,
     ChatPin,
     Document,
+    DocumentFavorite,
     DocumentVersion,
+    DocumentVisit,
     Fact,
     Identity,
     MailSuppression,
@@ -87,6 +89,7 @@ from app.schemas import (
     ExportedDocument,
     ExportedDocumentData,
     ExportedFact,
+    ExportedFavorite,
     ExportedIdentity,
     ExportedMembership,
     ExportedMessage,
@@ -100,14 +103,17 @@ from app.schemas import (
     ExportedSession,
     ExportedShareLink,
     ExportedSpared,
+    ExportedTag,
     ExportedTemplate,
     ExportedUsage,
     ExportedVersion,
     ExportedVersionText,
+    ExportedVisit,
     ProjectExportFile,
     TemplateFieldOut,
 )
 from app.storage import Storage, export_key
+from app.tags import project_tags
 
 log = logging.getLogger(__name__)
 
@@ -117,12 +123,13 @@ ABOUT = (
     "how you sign in, the organisations you belong to and the private projects you were chosen to "
     "see, the browsers and devices you signed in from in the last month and when each browser you "
     "signed in with did so first and last, the chats you started with every question and answer, "
-    "the chats you pinned, the links you made that show a document or an answer to whoever holds "
-    "them, the notices in your notification centre, the usage counted to you, and what the audit "
-    "logs of your organisations recorded you doing. Answers cite passages of documents as "
-    "[P<number>]. The documents themselves are not in this file: they belong to the organisation "
-    "that holds them. Your password and recovery codes are kept only as hashes, and they and your "
-    "authenticator secret are left out."
+    "the chats you pinned, the documents you starred and the ones you opened lately, the links you "
+    "made that show a document or an answer to whoever holds them, the notices in your "
+    "notification centre, the usage counted to you, and what the audit logs of your organisations "
+    "recorded you doing. Answers cite passages of documents as [P<number>]. The documents "
+    "themselves are not in this file: they belong to the organisation that holds them. Your "
+    "password and recovery codes are kept only as hashes, and they and your authenticator secret "
+    "are left out."
 )
 
 # How long a project's export is kept for the member who asked for it, once it is ready: long
@@ -141,14 +148,14 @@ COMPRESSED = frozenset(
 PROJECT_ABOUT = (
     "A copy of a project in Emudoc, for the member named in exported_by. originals/ holds each "
     "document as it was uploaded, in its folders, once the malware scan passed it, and versions/ "
-    "the files a document had before a new version took their place. project.json "
-    "lists the project, its folders, its documents and the chats about them: those shared with the "
-    "project and the member's own, whose answers cite passages as [P<number>]. documents/ holds "
-    "what was read from each document: its outline, its passages by number, and the facts found in "
-    "it, each with the passage it came from. templates holds the project's own extraction "
-    "templates, the fields its documents of each kind are read for, and share_links the links that "
-    "show its documents and the answers of its chats to whoever holds them, without their "
-    "addresses. What is in the trash is left out, and so are other members' private chats."
+    "the files a document had before a new version took their place. project.json lists the "
+    "project, its folders, its tags, its documents with theirs and the chats about them: those "
+    "shared with the project and the member's own, whose answers cite passages as [P<number>]. "
+    "documents/ holds what was read from each document: its outline, its passages by number, and "
+    "the facts found in it, each with the passage it came from. templates holds the project's own "
+    "extraction templates, the fields its documents of each kind are read for, and share_links the "
+    "links that show its documents and the answers of its chats to whoever holds them, without "
+    "their addresses. What is in the trash is left out, and so are other members' private chats."
 )
 EXPORT_FAILED = (
     "The export could not be made. Ask for another; if that one fails too, write to support."
@@ -204,6 +211,22 @@ def account_export(session: Session, user: User) -> AccountExport:
         .join(Organization, Organization.id == Project.org_id)
         .where(ChatPin.user_id == user.id)
         .order_by(ChatPin.pinned_at, ChatPin.chat_id)
+    ).all()
+    favorites = session.execute(
+        select(DocumentFavorite.starred_at, Organization.slug, Project.name, Document.filename)
+        .join(Document, Document.id == DocumentFavorite.document_id)
+        .join(Project, Project.id == Document.project_id)
+        .join(Organization, Organization.id == Project.org_id)
+        .where(DocumentFavorite.user_id == user.id)
+        .order_by(DocumentFavorite.starred_at, DocumentFavorite.document_id)
+    ).all()
+    visits = session.execute(
+        select(DocumentVisit.opened_at, Organization.slug, Project.name, Document.filename)
+        .join(Document, Document.id == DocumentVisit.document_id)
+        .join(Project, Project.id == Document.project_id)
+        .join(Organization, Organization.id == Project.org_id)
+        .where(DocumentVisit.user_id == user.id)
+        .order_by(DocumentVisit.opened_at, DocumentVisit.document_id)
     ).all()
     share_links = session.execute(
         select(ShareLink, Organization.slug, Project.name, Document.filename)
@@ -313,6 +336,16 @@ def account_export(session: Session, user: User) -> AccountExport:
             ExportedPin(organization=slug, project=project, chat=title, pinned_at=pinned_at)
             for pinned_at, slug, project, title in pins
         ],
+        favorite_documents=[
+            ExportedFavorite(
+                organization=slug, project=project, document=filename, starred_at=starred_at
+            )
+            for starred_at, slug, project, filename in favorites
+        ],
+        recent_documents=[
+            ExportedVisit(organization=slug, project=project, document=filename, opened_at=opened)
+            for opened, slug, project, filename in visits
+        ],
         share_links=[
             ExportedShareLink(
                 organization=slug,
@@ -416,6 +449,8 @@ def _write(path: Path, export_id: int, storage: Storage) -> int:
             .order_by(Document.id)
         ).all()
         chats = _chats(session, project.id, user.id)
+        tags = project_tags(session, project.id)
+        tag_names = {tag.id: tag.name for tag in tags}
         head = {
             "organization": organization.name,
             "project": ExportedProject(
@@ -428,6 +463,7 @@ def _write(path: Path, export_id: int, storage: Storage) -> int:
             "folders": sorted(folders.values(), key=str.lower),
             "templates": _templates(session, project.id),
             "share_links": _share_links(session, project.id, user.id),
+            "tags": [ExportedTag(name=tag.name, color=tag.color) for tag in tags],
         }
     names = _Names()
     listed: list[ExportedDocument] = []
@@ -447,7 +483,8 @@ def _write(path: Path, export_id: int, storage: Storage) -> int:
                             "versions": [
                                 _version(archive, storage, names, version, folder)
                                 for version in earlier
-                            ]
+                            ],
+                            "tags": [tag_names[i] for i in document.tag_ids if i in tag_names],
                         }
                     )
                 )

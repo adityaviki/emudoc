@@ -475,7 +475,7 @@ A project opens as two panes. On the left is the **library**: the project's docu
 folders, with the usual file-manager moves (new folder, rename, drag to move, delete, upload by
 button or by dropping files or folders, search, and on a phone or a tablet a photo of a page
 taken with the camera, `capture="environment"`, named by when it was taken), shown as a tree that opens folders in place, a
-folder's files by name a hundred at a time, with more on request. A folder uploaded is filed as
+folder's files in the order chosen (by name unless another is) a hundred at a time, with more on request. A folder uploaded is filed as
 it was, its folders made where the one it goes into holds none of their names. An email saved
 from a mail program (.eml) is opened as it is uploaded (`app/unpacking.py`): its text becomes a
 document headed by its From, To, Date and Subject, as mail sent to the project's address does,
@@ -498,7 +498,8 @@ the middle, the **document**, with a tab for each open file; the tabs stay open 
 and closing the last one leaves the library and the agent side by side again.
 
 Everything there works by the keyboard as well (WCAG 2.2 AA). The library is one stop of Tab:
-the arrows move through its rows, which a screen reader reads out by name and state, Enter opens
+the arrows move through its rows, which a screen reader reads out by name and state (its tags, its star and,
+in a place across the folders, where it is), or in the grid by a tile and by a row, Enter opens
 one, F2 renames, Delete deletes, and Tab goes on to the actions of the row it is on, whose "Move
 to…" asks for a folder in a dialog, the way to move without a drag. The tabs open with the arrows
 and close with Delete, the text of a document scrolls once focused, and the dividers between the
@@ -538,6 +539,28 @@ prefix in the storage and its text with its row (`document_versions`), for the t
 download it and show its text, the project's export to hold it, and the plan's storage to count
 it. A new version's pages count again as it is read, and it is an upload of its own, its notice,
 automations and `document.ready` following its reading.
+
+The library reads a project more ways than by its folders. A member who may change the project
+gives it **tags** (`backend/app/tags.py`: a name and one of nine colours, a project's own) and
+puts them on its documents from a file's menu, "Tags…", a document holding its tags' ids on its
+own row (`documents.tag_ids`) so that the page of its folder asked again shows them. Above the
+files, the place menu shows instead of the folders, across all of them, a tag's documents, a
+**smart folder**'s (`backend/app/smart_folders.py`: a project's saved filter by tags, any or every
+one, types the model gave, a span of the documents' own dates, review states and a folder with
+its subfolders, which everyone who reads the project sees; a tag or the folder it names gone, it
+lists nothing by that part rather than more), the member's own **favourites** (starred from a
+file's menu) and **recent** documents (the last 20 of the project they opened in the middle pane,
+`backend/app/recents.py`). Any place is listed by name, as added, by the documents' own dates (the
+undated after the dated) or by size, either way, each order a keyset of its own on the
+server, and shown as the tree or as a **grid** of tiles, each file's the thumbnail the server
+draws of a PDF's first page, a scan or an image, the browser remembering both choices. And a
+project's **filing rules** (`backend/app/filing.py`) file what arrives: once a new document is
+read for its type and facts, the first rule that moves and whose condition it meets (its type, a
+fact whose value holds some words, or any document) moves it into a folder or below one in a
+folder of its year, or year and month, made where none is, if it arrived in the project's root and
+not from a connected folder; and every rule that tags and whose condition it meets tags it,
+wherever it arrived. A document is filed once, and those there were before the rules none; the
+rules' changes are in the audit log.
 
 Deleting puts things in a **trash** rather than removing them (`backend/app/trash.py`): a file
 or a folder with everything in it goes into its project's trash, where the library's trash

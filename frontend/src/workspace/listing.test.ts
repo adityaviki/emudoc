@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { REFRESH, WAITING_REFRESH, editListings, fetchListing, findListed, listed, listingKey, partlyCountBehind, refreshAfter, showMore } from './listing.ts'
+import { BY_NAME, REFRESH, WAITING_REFRESH, editListings, fetchListing, findListed, listed, listingKey, partlyCountBehind, refreshAfter, settledMeanwhile, showMore } from './listing.ts'
 import type { ListedPage, Listing } from './listing.ts'
 import type { Document } from '../api.ts'
 
@@ -29,6 +29,7 @@ function doc(id: number, filename: string, folderId: number | null = null): Docu
     assignee: null,
     review_changer: null,
     review_changed_at: null,
+    tag_ids: [],
   }
 }
 
@@ -72,17 +73,19 @@ afterEach(() => {
 })
 
 const [a, b, c, d] = [doc(1, 'a.txt'), doc(2, 'b.txt'), doc(3, 'c.txt'), doc(4, 'd.txt')]
+const ROOT = { folder: null }
+const SEVEN = { folder: 7 }
 
 describe('fetchListing', () => {
   it('asks for the first page without a tag, and again with the tag it was given', async () => {
     replies.push(sent('"one"', [a, b], null))
-    const first = await fetchListing(3, null, undefined)
+    const first = await fetchListing(3, ROOT, BY_NAME, undefined)
     expect(calls).toEqual([{ url: '/api/projects/3/documents', tag: null }])
     expect(first).toEqual({ pages: [page(null, '"one"', [a, b], null)], wanted: 1 })
 
     // Nothing changed: the page held is kept as it was, the same object, so nothing renders again.
     replies.push(unchanged('"one"'))
-    const again = await fetchListing(3, null, first)
+    const again = await fetchListing(3, ROOT, BY_NAME, first)
     expect(calls[1]).toEqual({ url: '/api/projects/3/documents', tag: '"one"' })
     expect(again.pages[0]).toBe(first.pages[0])
   })
@@ -91,7 +94,7 @@ describe('fetchListing', () => {
     const held: Listing = { pages: [page(null, '"p1"', [a, b], 'after-b'), page('after-b', '"p2"', [c, d], null)], wanted: 2 }
     // The first page lost "b.txt", so it ends on "c.txt" now, and the second starts after it.
     replies.push(sent('"p1-new"', [a, c], 'after-c'), sent('"p2-new"', [d], null))
-    const listing = await fetchListing(3, 7, held)
+    const listing = await fetchListing(3, SEVEN, BY_NAME, held)
     expect(calls).toEqual([
       { url: '/api/projects/3/documents?folder_id=7', tag: '"p1"' },
       { url: '/api/projects/3/documents?folder_id=7&after=after-c', tag: null },
@@ -104,16 +107,34 @@ describe('fetchListing', () => {
     const held: Listing = { pages: [page(null, '"p1"', [a, b], 'after-b'), second], wanted: 2 }
     const renamed = { ...a, filename: 'a2.txt' }
     replies.push(sent('"p1-new"', [renamed, b], 'after-b'), unchanged('"p2"'))
-    const listing = await fetchListing(3, 7, held)
+    const listing = await fetchListing(3, SEVEN, BY_NAME, held)
     expect(calls[1]).toEqual({ url: '/api/projects/3/documents?folder_id=7&after=after-b', tag: '"p2"' })
     expect(listing.pages[1]).toBe(second)
     expect(listed(listing)).toEqual([renamed, b, c, d])
   })
 
+  it('asks for a place that is not a folder, and an order that is not the first, by name', async () => {
+    replies.push(sent('"t"', [b, a], null))
+    await fetchListing(3, { tag: 5 }, { sort: 'size', order: 'desc' }, undefined)
+    replies.push(sent('"f"', [a], null), sent('"r"', [b], null), sent('"s"', [], null))
+    await fetchListing(3, { favorites: true }, { sort: 'name', order: 'desc' }, undefined)
+    await fetchListing(3, { recent: true }, BY_NAME, undefined)
+    await fetchListing(3, { smart: 2 }, { sort: 'date', order: 'asc' }, undefined)
+    expect(calls.map((call) => call.url)).toEqual([
+      '/api/projects/3/documents?tag=5&sort=size&order=desc',
+      '/api/projects/3/documents?favorites=true&order=desc',
+      '/api/projects/3/documents?recent=true',
+      '/api/projects/3/documents?smart=2&sort=date',
+    ])
+    // Each place in each order is held apart, a folder by its id as before.
+    expect(listingKey(3, { tag: 5 }, { sort: 'size', order: 'desc' })).toEqual(['documents', 3, 'tag:5', 'size', 'desc'])
+    expect(listingKey(3, SEVEN)).toEqual(['documents', 3, 7, 'name', 'asc'])
+  })
+
   it('stops at the last page, however many were held', async () => {
     const held: Listing = { pages: [page(null, '"p1"', [a, b], 'after-b'), page('after-b', '"p2"', [c], null)], wanted: 2 }
     replies.push(sent('"p1-new"', [a], null))
-    const listing = await fetchListing(3, null, held)
+    const listing = await fetchListing(3, ROOT, BY_NAME, held)
     expect(calls).toHaveLength(1)
     expect(listing).toEqual({ pages: [page(null, '"p1-new"', [a], null)], wanted: 1 })
   })
@@ -121,13 +142,13 @@ describe('fetchListing', () => {
 
 describe('showMore', () => {
   it('holds the next page, asking for the ones held with their tags', async () => {
-    const queryKey = listingKey(3, 7)
-    const queryFn = ({ signal }: { signal: AbortSignal }) => fetchListing(3, 7, client.getQueryData<Listing>(queryKey), signal)
+    const queryKey = listingKey(3, SEVEN)
+    const queryFn = ({ signal }: { signal: AbortSignal }) => fetchListing(3, SEVEN, BY_NAME, client.getQueryData<Listing>(queryKey), signal)
     replies.push(sent('"p1"', [a, b], 'after-b'))
     await client.fetchQuery({ queryKey, queryFn })
 
     replies.push(unchanged('"p1"'), sent('"p2"', [c], null))
-    await showMore(client, 3, 7)
+    await showMore(client, 3, SEVEN, BY_NAME)
     expect(calls.slice(1)).toEqual([
       { url: '/api/projects/3/documents?folder_id=7', tag: '"p1"' },
       { url: '/api/projects/3/documents?folder_id=7&after=after-b', tag: null },
@@ -137,16 +158,30 @@ describe('showMore', () => {
   })
 })
 
+describe('settledMeanwhile', () => {
+  const indexing = { ...doc(5, 'new.pdf'), status: 'processing' as const }
+  it('is a document shown being indexed now ready, gone, or in another folder', () => {
+    expect(settledMeanwhile([indexing, a], [{ ...indexing, status: 'ready' }, a])).toBe(true)
+    expect(settledMeanwhile([indexing], [])).toBe(true)
+    expect(settledMeanwhile([indexing], [{ ...indexing, folder_id: 7 }])).toBe(true)
+  })
+
+  it('is nothing while it is still indexed, nor for a ready one that went', () => {
+    expect(settledMeanwhile([indexing], [indexing])).toBe(false)
+    expect(settledMeanwhile([a, b], [a])).toBe(false)
+  })
+})
+
 describe('editListings', () => {
   it('changes a document on whichever listing of the project holds it, and finds it there', () => {
-    client.setQueryData<Listing>(listingKey(3, null), { pages: [page(null, '"r"', [a], null)], wanted: 1 })
-    client.setQueryData<Listing>(listingKey(3, 7), { pages: [page(null, '"f"', [b, c], null)], wanted: 1 })
-    client.setQueryData<Listing>(listingKey(4, null), { pages: [page(null, '"o"', [doc(2, 'other.txt')], null)], wanted: 1 })
+    client.setQueryData<Listing>(listingKey(3, ROOT), { pages: [page(null, '"r"', [a], null)], wanted: 1 })
+    client.setQueryData<Listing>(listingKey(3, SEVEN), { pages: [page(null, '"f"', [b, c], null)], wanted: 1 })
+    client.setQueryData<Listing>(listingKey(4, ROOT), { pages: [page(null, '"o"', [doc(2, 'other.txt')], null)], wanted: 1 })
 
     editListings(client, 3, (documents) => documents.flatMap((document) => (document.id === 2 ? [] : [document])))
-    expect(listed(client.getQueryData<Listing>(listingKey(3, 7)))).toEqual([c])
+    expect(listed(client.getQueryData<Listing>(listingKey(3, SEVEN)))).toEqual([c])
     // Another project's listing is left alone, though the ids are the same.
-    expect(listed(client.getQueryData<Listing>(listingKey(4, null)))).toHaveLength(1)
+    expect(listed(client.getQueryData<Listing>(listingKey(4, ROOT)))).toHaveLength(1)
     expect(findListed(client, 3, 3)).toEqual(c)
     expect(findListed(client, 3, 2)).toBeUndefined()
   })

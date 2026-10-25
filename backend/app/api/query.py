@@ -11,7 +11,14 @@ from app.api.folders import resolve_folder, subtree_ids
 from app.fact_checks import fact_out
 from app.models import Document, Fact
 from app.ratelimit import SEARCHES
-from app.schemas import FactList, FactName, SearchHitOut, SearchOut, SnippetSegment
+from app.schemas import (
+    DocumentTypeOut,
+    FactList,
+    FactName,
+    SearchHitOut,
+    SearchOut,
+    SnippetSegment,
+)
 from app.search import SearchResult, hybrid_search
 
 router = APIRouter(
@@ -112,3 +119,20 @@ def list_fact_names(project: ProjectDep, session: SessionDep):
         .order_by(func.count().desc(), Fact.name)
     ).all()
     return [FactName(name=name, count=count) for name, count in rows]
+
+
+@router.get("/document-types", response_model=list[DocumentTypeOut])
+def list_document_types(project: ProjectDep, session: SessionDep):
+    """The types the model gave the project's documents out of the trash, the most common first:
+    what a smart folder or a filing rule offers to choose from."""
+    rows = session.execute(
+        select(Document.doc_type, func.count())
+        .where(
+            Document.project_id == project.id,
+            Document.deleted_at.is_(None),
+            Document.doc_type.is_not(None),
+        )
+        .group_by(Document.doc_type)
+        .order_by(func.count().desc(), Document.doc_type)
+    ).all()
+    return [DocumentTypeOut(type=doc_type, count=count) for doc_type, count in rows]

@@ -103,6 +103,12 @@ describe('buildWorkspaceUrl', () => {
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', draftTemplates: true } })).toBe('/projects/3?draft-templates=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', mail: true } })).toBe('/projects/3?mail=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', connectors: true } })).toBe('/projects/3?connectors=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', tag: 4 } })).toBe('/projects/3?tag=4')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', smart: 6 } })).toBe('/projects/3?smart=6')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', favorites: true } })).toBe('/projects/3?favorites=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', recent: true } })).toBe('/projects/3?recent=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', tags: true } })).toBe('/projects/3?tags=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', filing: true } })).toBe('/projects/3?filing=')
     expect(buildWorkspaceUrl({ ...home, chatId: 'new', about: { folder_id: 7 } })).toBe('/projects/3?chat=new&about=f7')
     expect(buildWorkspaceUrl({ ...home, chatId: 'new', about: { document_ids: [41, 42] } })).toBe('/projects/3?chat=new&about=d41-42')
     expect(buildWorkspaceUrl({ ...home, chatId: 'new', about: {} })).toBe('/projects/3?chat=new')
@@ -130,6 +136,12 @@ describe('buildWorkspaceUrl', () => {
       { ...home, library: { folderId: null, q: '', draftTemplates: true } },
       { ...home, library: { folderId: null, q: '', mail: true }, chatId: 12 },
       { ...home, library: { folderId: null, q: '', connectors: true } },
+      { ...home, library: { folderId: null, q: '', tag: 4 }, document: { id: 41, focus: null } },
+      { ...home, library: { folderId: null, q: '', smart: 6 }, chatId: 12 },
+      { ...home, library: { folderId: null, q: '', favorites: true } },
+      { ...home, library: { folderId: null, q: '', recent: true } },
+      { ...home, library: { folderId: null, q: '', tags: true } },
+      { ...home, library: { folderId: null, q: '', filing: true } },
       { ...home, chatId: 'new', about: { folder_id: 7 } },
       { ...home, document: { id: 41, focus: null }, chatId: 'new', about: { document_ids: [41, 42] } },
     ]

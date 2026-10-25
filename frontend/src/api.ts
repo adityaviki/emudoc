@@ -249,6 +249,90 @@ export interface Document {
   assignee: string | null
   review_changer: string | null
   review_changed_at: string | null
+  /** The ids of its tags (backend/app/tags.py), in the order they were put on it. */
+  tag_ids: number[]
+}
+
+/** The orders the library lists documents in (`SORTS` in backend/app/api/documents.py): by name, as added, by the documents' own dates (the undated after the dated either way), by size. */
+export type DocumentSort = 'name' | 'added' | 'date' | 'size'
+export type SortOrder = 'asc' | 'desc'
+
+/**
+ * Where the library lists documents (`list_documents` in backend/app/api/documents.py): directly in a folder, the root's
+ * for null; or wherever they are in the project, those of a tag, of a smart folder, the reader's favourites, or the
+ * documents they opened lately, newest first whatever the order.
+ */
+export type ListingPlace = { folder: number | null } | { tag: number } | { smart: number } | { favorites: true } | { recent: true }
+
+/** TAG_COLORS in backend/app/models.py, each drawn by a token of index.css (`--color-tag-*`). */
+export const TAG_COLORS = ['grey', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'] as const
+export type TagColor = (typeof TAG_COLORS)[number]
+
+/** A tag of a project's (TagOut), and how many of its documents out of the trash carry it. */
+export interface Tag {
+  id: number
+  name: string
+  color: TagColor
+  document_count: number
+}
+
+/** What a smart folder matches (DocumentFilter in backend/app/schemas.py), each part narrowing the others; a part left empty matches every document. */
+export interface DocumentFilter {
+  tags: number[]
+  /** Every one of the tags rather than any. */
+  every_tag: boolean
+  types: string[]
+  /** Dated on or after, and on or before, as `YYYY-MM-DD`; either leaves out the undated. */
+  after: string | null
+  before: string | null
+  reviews: ReviewState[]
+  /** A folder with its subfolders. */
+  folder_id: number | null
+}
+
+/** A project's smart folder (SmartFolderOut): its folder's path as it is now, why it lists nothing if it does not, and who made it. */
+export interface SmartFolder {
+  id: number
+  name: string
+  filter: DocumentFilter
+  folder: string | null
+  problem: string | null
+  made_by: string | null
+  updated_at: string
+}
+
+/** FILING_CONDITIONS and FILING_ACTIONS in backend/app/models.py. */
+export type FilingCondition = 'type' | 'fact' | 'any'
+export type FilingAction = 'folder' | 'by_year' | 'by_month' | 'tag'
+
+/** A filing rule as a member writes it, whole (FilingRuleIn in backend/app/schemas.py). */
+export interface FilingRuleInput {
+  condition: FilingCondition
+  /** The fact's field, for a `fact` condition. */
+  field: string | null
+  /** The type, or the words the fact's value holds; null for any document. */
+  value: string | null
+  action: FilingAction
+  /** The folder it moves into or files below, the root for null. */
+  folder_id: number | null
+  tag_id: number | null
+  enabled: boolean
+}
+
+/** A project's filing rule (FilingRuleOut): its folder's path and its tag's name as they are now, why it files nothing if it does not, and who made it. */
+export interface FilingRule extends FilingRuleInput {
+  id: number
+  folder: string | null
+  tag: string | null
+  problem: string | null
+  made_by: string | null
+  created_at: string
+}
+
+/** A type the model gave a project's documents, and how many of them out of the trash. */
+export interface DocumentType {
+  type: string
+  count: number
 }
 
 /** A version of a document (backend/app/versions.py): its current file, or an earlier one kept to open and download. */
@@ -1540,6 +1624,9 @@ export type AuditAction =
   | 'automation_created'
   | 'automation_changed'
   | 'automation_deleted'
+  | 'filing_rule_created'
+  | 'filing_rule_changed'
+  | 'filing_rule_deleted'
   | 'draft_created'
   | 'draft_changed'
   | 'draft_deleted'
@@ -2396,18 +2483,26 @@ export const api = {
   deleteFolder: (id: number) => request<void>(`/folders/${id}`, { method: 'DELETE' }),
 
   /**
-   * A page of a folder's documents (the root's for null) past `after`, with the ETag that
-   * names it; null when `held`, the tag of the page the caller has, still names it.
+   * A page of a place's documents in an order past `after`, with the ETag that names it; null when `held`, the tag of
+   * the page the caller has, still names it.
    */
   documentPage: async (
     projectId: number,
-    folderId: number | null,
+    place: ListingPlace,
+    order: { sort: DocumentSort; order: SortOrder },
     after: string | null,
     held: string | null = null,
     signal?: AbortSignal,
   ): Promise<(DocumentPage & { etag: string | null }) | null> => {
     const params = new URLSearchParams()
-    if (folderId != null) params.set('folder_id', String(folderId))
+    if ('folder' in place && place.folder != null) params.set('folder_id', String(place.folder))
+    if ('tag' in place) params.set('tag', String(place.tag))
+    if ('smart' in place) params.set('smart', String(place.smart))
+    if ('favorites' in place) params.set('favorites', 'true')
+    if ('recent' in place) params.set('recent', 'true')
+    // The library's first order is the server's when none is named.
+    if (order.sort !== 'name') params.set('sort', order.sort)
+    if (order.order !== 'asc') params.set('order', order.order)
     if (after != null) params.set('after', after)
     const query = params.size ? `?${params}` : ''
     const headers: Record<string, string> = held ? { 'If-None-Match': held } : {}
@@ -2443,6 +2538,34 @@ export const api = {
       { signal },
     ),
   document: (id: number) => request<Document>(`/documents/${id}`),
+  tags: (projectId: number) => request<{ tags: Tag[]; max_tags: number }>(`/projects/${projectId}/tags`),
+  createTag: (projectId: number, body: { name: string; color: TagColor }) =>
+    request<Tag>(`/projects/${projectId}/tags`, json('POST', body)),
+  updateTag: (id: number, body: { name?: string; color?: TagColor }) => request<Tag>(`/tags/${id}`, json('PATCH', body)),
+  /** Deletes the tag for good, taking it off every document and its filing rules with it. */
+  deleteTag: (id: number) => request<void>(`/tags/${id}`, { method: 'DELETE' }),
+  /** Every tag the document carries: one it carries that is left out is taken off. */
+  tagDocument: (id: number, tagIds: number[]) => request<Document>(`/documents/${id}/tags`, json('PUT', { tag_ids: tagIds })),
+  smartFolders: (projectId: number) =>
+    request<{ smart_folders: SmartFolder[]; max_smart_folders: number }>(`/projects/${projectId}/smart-folders`),
+  createSmartFolder: (projectId: number, body: { name: string; filter: DocumentFilter }) =>
+    request<SmartFolder>(`/projects/${projectId}/smart-folders`, json('POST', body)),
+  updateSmartFolder: (id: number, body: { name: string; filter: DocumentFilter }) =>
+    request<SmartFolder>(`/smart-folders/${id}`, json('PUT', body)),
+  deleteSmartFolder: (id: number) => request<void>(`/smart-folders/${id}`, { method: 'DELETE' }),
+  filingRules: (projectId: number) =>
+    request<{ rules: FilingRule[]; max_filing_rules: number }>(`/projects/${projectId}/filing-rules`),
+  createFilingRule: (projectId: number, body: FilingRuleInput) =>
+    request<FilingRule>(`/projects/${projectId}/filing-rules`, json('POST', body)),
+  updateFilingRule: (id: number, body: FilingRuleInput) => request<FilingRule>(`/filing-rules/${id}`, json('PUT', body)),
+  deleteFilingRule: (id: number) => request<void>(`/filing-rules/${id}`, { method: 'DELETE' }),
+  /** The ids of the project's documents the reader starred, the newest star first. */
+  favorites: (projectId: number) => request<{ document_ids: number[] }>(`/projects/${projectId}/favorites`),
+  starDocument: (id: number) => request<void>(`/documents/${id}/favorite`, { method: 'PUT' }),
+  unstarDocument: (id: number) => request<void>(`/documents/${id}/favorite`, { method: 'DELETE' }),
+  /** Tells the server the reader opened the document now, for their recent documents (backend/app/recents.py). */
+  visitDocument: (id: number) => request<void>(`/documents/${id}/visit`, { method: 'PUT' }),
+  documentTypes: (projectId: number) => request<DocumentType[]>(`/projects/${projectId}/document-types`),
   updateDocument: (id: number, body: { filename?: string; folder_id?: number | null }) =>
     request<Document>(`/documents/${id}`, json('PATCH', body)),
   deleteDocument: (id: number) => request<void>(`/documents/${id}`, { method: 'DELETE' }),
@@ -2523,6 +2646,10 @@ export const versionFileUrl = (documentId: number, number: number) =>
   `/api/documents/${documentId}/versions/${number}/file`
 export const pageImageUrl = (documentId: number, page: number) =>
   `/api/documents/${documentId}/pages/${page}.png`
+/** A small picture of the document's first page, or of the image, for the library's grid; its version names the file it was drawn from. */
+export const thumbnailUrl = (document: Document) => `/api/documents/${document.id}/thumbnail.png?v=${document.version}`
+/** The types the server draws a thumbnail of (PAGE_TYPES and IMAGE_TYPES in backend/app/parsing/__init__.py). */
+export const THUMBNAIL_TYPES = new Set(['application/pdf', 'image/tiff', 'image/heic', 'image/heif', 'image/png', 'image/jpeg', 'image/webp'])
 /** A share link's file and pages, which its view's cookie reaches. */
 export const sharedFileUrl = (linkId: number) => `/api/shared/${linkId}/file`
 export const sharedPageUrl = (linkId: number, page: number) => `/api/shared/${linkId}/pages/${page}.png`

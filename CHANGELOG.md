@@ -13,6 +13,34 @@ to: `## YYYY-MM-DD` a day (or `## YYYY-MM-DD to YYYY-MM-DD`), the newest first, 
 and `Operators:`, each a list of `- ` entries whose lines go on indented by two spaces, a day's
 newest entry first.
 
+## 2026-10-26
+
+Members:
+
+- Tags: give a document tags from "Tags…" in its menu in the library, making a new one there if
+  you like, and list a tag's documents wherever they are from the menu above the files, which reads
+  "All files" at first. "Tags…" in that menu renames, recolours and deletes the project's tags.
+- Smart folders: "New smart folder…" in the same menu saves a list of the documents that match
+  what you choose (tags, types, a span of dates, review states, a folder), which everyone in the
+  project sees and which documents join as they are read.
+- Favourites and recent documents: "Add to favourites" in a document's menu stars it, and the menu
+  above the files lists your favourites, or the last documents you opened in the project. Both are
+  yours alone.
+- Order the files by name, date added, the document's own date or size, either way, and show them
+  as a list or as a grid of pictures of their first pages, from beside that menu.
+- Filing rules: under "Filing rules…" a rule files new documents as they are read, by their type
+  (such as invoice), by words a fact read from them holds (such as a supplier's name), or all of
+  them: into a folder, under a folder by year or by year and month, or with a tag. A document you
+  upload into a folder stays where you put it.
+
+Operators:
+
+- Migration ef4d50a71594 adds the tables of tags, smart folders, filing rules, favourites and
+  recent documents, three indexes on `documents` for the library's orders and a GIN index on its
+  new `tag_ids`, and marks every document there is as filed, an update of each row of `documents`
+  once, so that a filing rule made later files only what arrives after it. The audit log records
+  filing rules made, changed and deleted.
+
 ## 2026-10-25
 
 Members:

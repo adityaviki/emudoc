@@ -23,6 +23,7 @@ from app.invitations import INVITATION_TTL
 from app.legal import by_plan
 from app.notices import NOTICE_AFTER, NOTIFICATION_DAYS
 from app.parsing import IMAGE_TYPES, SCAN_TYPES, SUPPORTED_EXTENSIONS
+from app.recents import RECENT
 from app.retention import DELETION_GRACE, RETENTION_HELD
 from app.sample import NAME as SAMPLE_NAME
 from app.support import SUPPORT_SESSION
@@ -118,6 +119,7 @@ def _values(settings: Settings) -> dict[str, str]:
         ),
         "notice_minutes": str(round(NOTICE_AFTER.total_seconds() / 60)),
         "trash_days": str(TRASH_DAYS),
+        "recent": str(RECENT),
         "question_chars": f"{settings.max_question_chars:,}",
         "chat_retention": by_plan(lambda plan: plan.retention_days, "until deleted"),
         "invitation_days": str(INVITATION_TTL.days),

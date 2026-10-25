@@ -1,13 +1,14 @@
-// A folder's documents as the library holds them: the pages it has asked for, each with the
-// tag the server named it by, so that asking again while a document is indexed costs a 304
-// for every page that has not changed (`list_documents` in backend/app/api/documents.py).
-// Each folder is a query of its own, and an open document one more, so no request ever
-// carries the whole project.
+// A place's documents as the library holds them (a folder's, a tag's, a smart folder's, the
+// reader's favourites or recent ones), in an order: the pages it has asked for, each with the tag
+// the server named it by, so that asking again while a document is indexed costs a 304 for every
+// page that has not changed (`list_documents` in backend/app/api/documents.py). Each place in each
+// order is a query of its own, and an open document one more, so no request ever carries the
+// whole project.
 
 import { queryOptions, useQueries, useQueryClient } from '@tanstack/react-query'
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
 import { api, ApiError, isIndexing } from '../api.ts'
-import type { Document, Project } from '../api.ts'
+import type { Document, DocumentSort, ListingPlace, Project, SortOrder } from '../api.ts'
 import { unfinishedStages, waitingRetry } from '../indexing.ts'
 
 /** How often a folder or a document being indexed is asked about again, in milliseconds. */
@@ -54,20 +55,40 @@ export interface Listing {
   wanted: number
 }
 
-export const listingKey = (projectId: number, folderId: number | null) => ['documents', projectId, folderId] as const
+/** The order a listing runs in. */
+export interface Arrangement {
+  sort: DocumentSort
+  order: SortOrder
+}
+/** The library's first order: by name, as the server lists when none is named. */
+export const BY_NAME: Arrangement = { sort: 'name', order: 'asc' }
+
+/** A place as a query key: a folder by its id, the root's null, the others by a word of their own. */
+export function placeKey(place: ListingPlace): number | string | null {
+  if ('folder' in place) return place.folder
+  if ('tag' in place) return `tag:${place.tag}`
+  if ('smart' in place) return `smart:${place.smart}`
+  return 'favorites' in place ? 'favorites' : 'recent'
+}
+
+export const listingKey = (projectId: number, place: ListingPlace, arrangement: Arrangement = BY_NAME) =>
+  ['documents', projectId, placeKey(place), arrangement.sort, arrangement.order] as const
+/** Every order of a place's listing, for a change of what the place holds. */
+export const placeListingsKey = (projectId: number, place: ListingPlace) => ['documents', projectId, placeKey(place)] as const
 /** Every folder's listing of the project, for a change that touches documents wherever they are. */
 export const listingsKey = (projectId: number) => ['documents', projectId] as const
 export const documentKey = (id: number) => ['document', id] as const
 
 /**
- * The folder's documents again: as many pages as are held or wanted, each asked with the tag
+ * The place's documents again: as many pages as are held or wanted, each asked with the tag
  * of the page held for the same cursor, so that a page that has not changed is kept as it was.
  * A page that changed may end on another document, and the pages after it are then asked for
  * without a tag.
  */
 export async function fetchListing(
   projectId: number,
-  folderId: number | null,
+  place: ListingPlace,
+  arrangement: Arrangement,
   held: Listing | undefined,
   signal?: AbortSignal,
 ): Promise<Listing> {
@@ -76,7 +97,7 @@ export async function fetchListing(
   while (pages.length < Math.max(held?.wanted ?? 1, 1)) {
     const previous: ListedPage | undefined = held?.pages[pages.length]
     const known = previous?.after === after ? previous : undefined
-    const fetched = await api.documentPage(projectId, folderId, after, known?.etag ?? null, signal)
+    const fetched = await api.documentPage(projectId, place, arrangement, after, known?.etag ?? null, signal)
     // Null only answers a page asked with the tag of one held, which is then still that page.
     const page: ListedPage = fetched ? { after, etag: fetched.etag, documents: fetched.documents, next_after: fetched.next_after } : known!
     pages.push(page)
@@ -86,9 +107,9 @@ export async function fetchListing(
   return { pages, wanted: pages.length }
 }
 
-/** Hold one page more of the folder: its listing is fetched again with the next page in it. */
-export async function showMore(queryClient: QueryClient, projectId: number, folderId: number | null) {
-  const queryKey = listingKey(projectId, folderId)
+/** Hold one page more of the place: its listing is fetched again with the next page in it. */
+export async function showMore(queryClient: QueryClient, projectId: number, place: ListingPlace, arrangement: Arrangement) {
+  const queryKey = listingKey(projectId, place, arrangement)
   // A fetch under way would put back the listing it began with, and the page wanted with it.
   await queryClient.cancelQueries({ queryKey })
   queryClient.setQueryData<Listing>(queryKey, (listing) => listing && { ...listing, wanted: listing.pages.length + 1 })
@@ -114,22 +135,44 @@ export function partlyCountBehind(before: Document[], after: Document[], counted
 }
 
 /**
- * The listings of these folders, in the same order; each is asked again while it shows a document
- * being indexed or waiting for a retry, and the project again once its count of partly indexed
- * documents is behind what a listing shows.
+ * Whether a document the listing showed being indexed has settled since, or left it: then the folders' counts may have
+ * moved, and so may another listing, since a filing rule files a new document as it is made ready (backend/app/filing.py),
+ * into a folder that may be new.
  */
-export function useListings(projectId: number, folderIds: (number | null)[]) {
+export function settledMeanwhile(before: Document[], after: Document[]): boolean {
+  const now = new Map(after.map((document) => [document.id, document]))
+  return before.some((document) => {
+    if (!isIndexing(document)) return false
+    const found = now.get(document.id)
+    return found === undefined || !isIndexing(found) || found.folder_id !== document.folder_id
+  })
+}
+
+/**
+ * The listings of these places in the order arranged, in the same order; each is asked again while
+ * it shows a document being indexed or waiting for a retry, and the project again once its count
+ * of partly indexed documents is behind what a listing shows.
+ */
+export function useListings(projectId: number, places: ListingPlace[], arrangement: Arrangement) {
   const queryClient = useQueryClient()
   return useQueries({
-    queries: folderIds.map((folderId) =>
+    queries: places.map((place) =>
       queryOptions({
-        queryKey: listingKey(projectId, folderId),
+        queryKey: listingKey(projectId, place, arrangement),
         queryFn: async ({ signal }) => {
-          const held = queryClient.getQueryData<Listing>(listingKey(projectId, folderId))
-          const listing = await fetchListing(projectId, folderId, held, signal)
+          const held = queryClient.getQueryData<Listing>(listingKey(projectId, place, arrangement))
+          const listing = await fetchListing(projectId, place, arrangement, held, signal)
           const counted = queryClient.getQueryData<Project>(['project', projectId])?.partly_indexed_count
           if (partlyCountBehind(listed(held), listed(listing), counted)) {
             void queryClient.invalidateQueries({ queryKey: ['project', projectId], exact: true })
+          }
+          if (settledMeanwhile(listed(held), listed(listing))) {
+            const own = JSON.stringify(listingKey(projectId, place, arrangement))
+            void queryClient.invalidateQueries({ queryKey: ['folders', projectId], exact: true })
+            void queryClient.invalidateQueries({
+              queryKey: listingsKey(projectId),
+              predicate: (query) => JSON.stringify(query.queryKey) !== own,
+            })
           }
           return listing
         },

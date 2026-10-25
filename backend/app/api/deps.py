@@ -110,9 +110,12 @@ from app.models import (
     ExtractionTemplate,
     Fact,
     FactCheck,
+    FilingRule,
     Folder,
     Passage,
     Project,
+    SmartFolder,
+    Tag,
     User,
     UserSession,
     WorkflowRun,
@@ -513,6 +516,36 @@ def get_automation(automation_id: int, session: SessionDep, account: AccountDep)
     return automation
 
 
+def get_tag(tag_id: int, session: SessionDep, account: AccountDep) -> Tag:
+    """A project's tag (app/tags.py), provided the account sees the project and it is out of the
+    trash."""
+    return _of_project(session, account, Tag, tag_id, "Tag not found")
+
+
+def get_smart_folder(smart_folder_id: int, session: SessionDep, account: AccountDep) -> SmartFolder:
+    """A project's smart folder (app/smart_folders.py), under the same terms as a tag."""
+    return _of_project(session, account, SmartFolder, smart_folder_id, "Smart folder not found")
+
+
+def get_filing_rule(rule_id: int, session: SessionDep, account: AccountDep) -> FilingRule:
+    """A project's filing rule (app/filing.py), under the same terms as a tag."""
+    return _of_project(session, account, FilingRule, rule_id, "Filing rule not found")
+
+
+def _of_project[T: (Tag, SmartFolder, FilingRule)](
+    session: Session, account: Account, model: type[T], object_id: int, missing: str
+) -> T:
+    found = session.scalar(
+        select(model)
+        .join(Project, Project.id == model.project_id)
+        .where(model.id == object_id, visible_to(account))
+    )
+    if found is None:
+        raise HTTPException(404, missing)
+    about(project_id=found.project_id)
+    return found
+
+
 def get_draft(draft_id: int, session: SessionDep, account: AccountDep) -> Draft:
     """A draft of a project's (app/drafts.py), provided the account sees the project and it is
     out of the trash."""
@@ -649,6 +682,45 @@ def get_editable_fact_check(
     return check
 
 
+def get_editable_tag(
+    tag: Annotated[Tag, Depends(get_tag)], account: AccountDep, session: SessionDep
+) -> Tag:
+    get_editor(account, session)
+    return tag
+
+
+def get_deletable_tag(tag: Annotated[Tag, Depends(get_tag)], account: AccountDep) -> Tag:
+    """The tag, for deleting it: by role alone, as a document is."""
+    _refuse_viewer(account)
+    return tag
+
+
+def get_editable_smart_folder(
+    smart_folder: Annotated[SmartFolder, Depends(get_smart_folder)],
+    account: AccountDep,
+    session: SessionDep,
+) -> SmartFolder:
+    get_editor(account, session)
+    return smart_folder
+
+
+def get_deletable_smart_folder(
+    smart_folder: Annotated[SmartFolder, Depends(get_smart_folder)], account: AccountDep
+) -> SmartFolder:
+    """The smart folder, for deleting it: by role alone, as a folder is."""
+    _refuse_viewer(account)
+    return smart_folder
+
+
+def get_editable_filing_rule(
+    rule: Annotated[FilingRule, Depends(get_filing_rule)],
+    account: AccountDep,
+    session: SessionDep,
+) -> FilingRule:
+    get_editor(account, session)
+    return rule
+
+
 def get_deletable_project(project: ProjectDep, account: AccountDep) -> Project:
     """The project, for deleting it: by role alone, since deleting is how an organisation past
     its plan gets within it."""
@@ -689,6 +761,12 @@ EditableDraftDep = Annotated[Draft, Depends(get_editable_draft)]
 DeletableDraftDep = Annotated[Draft, Depends(get_deletable_draft)]
 AutomationDep = Annotated[Automation, Depends(get_automation)]
 EditableAutomationDep = Annotated[Automation, Depends(get_editable_automation)]
+EditableTagDep = Annotated[Tag, Depends(get_editable_tag)]
+DeletableTagDep = Annotated[Tag, Depends(get_deletable_tag)]
+SmartFolderDep = Annotated[SmartFolder, Depends(get_smart_folder)]
+EditableSmartFolderDep = Annotated[SmartFolder, Depends(get_editable_smart_folder)]
+DeletableSmartFolderDep = Annotated[SmartFolder, Depends(get_deletable_smart_folder)]
+EditableFilingRuleDep = Annotated[FilingRule, Depends(get_editable_filing_rule)]
 EditableFactDep = Annotated[Fact, Depends(get_editable_fact)]
 EditableFactCheckDep = Annotated[FactCheck, Depends(get_editable_fact_check)]
 DeletableProjectDep = Annotated[Project, Depends(get_deletable_project)]

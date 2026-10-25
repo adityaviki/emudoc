@@ -17,6 +17,8 @@ interface ConfirmProps extends Question {
   onClose: () => void
   /** What the action needs chosen, between the words and the buttons. */
   children?: ReactNode
+  /** Holds the action back while what is chosen could not be done; the words above say why. */
+  disabled?: boolean
 }
 
 /**
@@ -25,7 +27,7 @@ interface ConfirmProps extends Question {
  * Tab stays inside, Escape cancels, it sits above every other layer, and focus goes back to what
  * had it once it closes.
  */
-export function Confirm({ title, body, action, danger = true, onConfirm, onClose, children }: ConfirmProps) {
+export function Confirm({ title, body, action, danger = true, onConfirm, onClose, children, disabled = false }: ConfirmProps) {
   const dialog = useRef<HTMLDialogElement>(null)
   const id = useId()
 
@@ -58,6 +60,7 @@ export function Confirm({ title, body, action, danger = true, onConfirm, onClose
         </Button>
         <Button
           variant={danger ? 'danger' : 'primary'}
+          disabled={disabled}
           onClick={() => {
             dialog.current?.close()
             onConfirm()
