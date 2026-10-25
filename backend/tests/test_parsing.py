@@ -1,3 +1,4 @@
+import io
 import signal
 import subprocess
 import zipfile
@@ -12,7 +13,7 @@ from app.parsing.limits import ParseError, ParseLimits, parse_within_limits
 from app.parsing.signatures import HEAD, wrong_type
 from app.parsing.text import parse_text
 from app.parsing.types import table_to_markdown
-from tests.conftest import compound_file, pageless_pdf, protected_pdf
+from tests.conftest import compound_file, pageless_pdf, protected_pdf, turned_pdf
 
 
 def test_pdf_headings_tables_and_positions(sample_pdf):
@@ -54,6 +55,57 @@ def test_pdf_joins_wrapped_lines_into_one_paragraph(sample_pdf):
     blocks = parse_file(sample_pdf, "msa.pdf").blocks
     opening = next(b for b in blocks if b.text.startswith("This agreement is made"))
     assert opening.text.endswith("consulting services are provided.")
+
+
+PRICE_LIST = [
+    ("heading", "Price list 2024"),
+    ("paragraph", "Prices hold until December and are quoted per unit, before tax."),
+    ("table", "| Item | Price |\n| --- | --- |\n| Pallet | EUR 40 |\n| Crate | EUR 12 |"),
+]
+
+
+def on_the_ink(path, parsed) -> bool:
+    """Whether each block's box holds ink on the page as the pane draws it, and no ink lies
+    outside every box: the text laid over the page and a cited passage's mark sit on it."""
+    from app.parsing.render import draw
+
+    width, height = parsed.page_sizes[0]
+    image = Image.open(io.BytesIO(draw(path, 1, 1.0, 2000))).convert("L")
+    assert abs(image.width / image.height - width / height) < 0.01
+    scale = image.width / width
+    ink = image.point(lambda value: 255 if value < 128 else 0)
+    boxes = [tuple(round(value * scale) for value in block.bbox) for block in parsed.blocks]
+    if any(ink.crop(box).getbbox() is None for box in boxes):
+        return False
+    for x0, top, x1, bottom in boxes:
+        ink.paste(0, (x0 - 2, top - 2, x1 + 2, bottom + 2))
+    return ink.getbbox() is None
+
+
+@pytest.mark.parametrize(
+    ("rotation", "drawn_turned"),
+    [(0, 0), (90, 90), (90, 0), (270, 0), (0, 90), (180, 0)],
+    ids=["upright", "landscape", "reading-down", "reading-up", "drawn-sideways", "upside-down"],
+)
+def test_a_page_is_read_the_way_its_text_runs_and_placed_where_it_is_drawn(
+    tmp_path, rotation, drawn_turned
+):
+    path = turned_pdf(tmp_path / "prices.pdf", rotation, drawn_turned)
+    parsed = parse_file(path, "prices.pdf")
+
+    assert [(block.kind, block.text) for block in parsed.blocks] == PRICE_LIST
+    assert on_the_ink(path, parsed)
+
+
+def test_text_turned_against_its_page_is_read_after_it_and_heads_no_section(tmp_path):
+    path = turned_pdf(tmp_path / "prices.pdf", note="Ref ACME-2024-0042, 1 March 2024")
+    parsed = parse_file(path, "prices.pdf")
+
+    assert [(block.kind, block.text) for block in parsed.blocks] == [
+        *PRICE_LIST,
+        ("paragraph", "Ref ACME-2024-0042, 1 March 2024"),
+    ]
+    assert on_the_ink(path, parsed)
 
 
 def test_docx_styles_become_structure(sample_docx):

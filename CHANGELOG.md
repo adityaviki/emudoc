@@ -17,6 +17,10 @@ newest entry first.
 
 Members:
 
+- A PDF page whose text runs sideways or upside down, such as a wide table printed turned on a
+  portrait page, is now read as words, so it can be searched, asked about and cited, and the
+  cited passage is marked where the page shows it. A line running up the margin, such as a
+  reference number, is read after the rest of its page.
 - Take a photo of a page from your phone or tablet: the camera button beside "Upload a folder"
   opens the camera, and the photo is uploaded into the folder you are in, named by when you took
   it, and read like a scanned page.
