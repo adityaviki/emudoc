@@ -53,6 +53,7 @@ from app.models import (
     Browser,
     Chat,
     ChatMessage,
+    ChatPin,
     Document,
     DocumentVersion,
     Fact,
@@ -91,6 +92,7 @@ from app.schemas import (
     ExportedMessage,
     ExportedNotification,
     ExportedPassage,
+    ExportedPin,
     ExportedProject,
     ExportedProjectChat,
     ExportedProjectShareLink,
@@ -115,12 +117,12 @@ ABOUT = (
     "how you sign in, the organisations you belong to and the private projects you were chosen to "
     "see, the browsers and devices you signed in from in the last month and when each browser you "
     "signed in with did so first and last, the chats you started with every question and answer, "
-    "the links you made that show a document or an answer to whoever holds them, the notices in "
-    "your notification centre, the usage counted to you, and what the audit logs of your "
-    "organisations recorded you doing. Answers cite passages of documents as [P<number>]. The "
-    "documents themselves are not in this file: they belong to the organisation that holds them. "
-    "Your password and recovery codes are kept only as hashes, and they and your authenticator "
-    "secret are left out."
+    "the chats you pinned, the links you made that show a document or an answer to whoever holds "
+    "them, the notices in your notification centre, the usage counted to you, and what the audit "
+    "logs of your organisations recorded you doing. Answers cite passages of documents as "
+    "[P<number>]. The documents themselves are not in this file: they belong to the organisation "
+    "that holds them. Your password and recovery codes are kept only as hashes, and they and your "
+    "authenticator secret are left out."
 )
 
 # How long a project's export is kept for the member who asked for it, once it is ready: long
@@ -194,6 +196,14 @@ def account_export(session: Session, user: User) -> AccountExport:
         .where(Chat.user_id == user.id)
         .order_by(Chat.created_at, Chat.id)
         .options(selectinload(Chat.messages))
+    ).all()
+    pins = session.execute(
+        select(ChatPin.pinned_at, Organization.slug, Project.name, Chat.title)
+        .join(Chat, Chat.id == ChatPin.chat_id)
+        .join(Project, Project.id == Chat.project_id)
+        .join(Organization, Organization.id == Project.org_id)
+        .where(ChatPin.user_id == user.id)
+        .order_by(ChatPin.pinned_at, ChatPin.chat_id)
     ).all()
     share_links = session.execute(
         select(ShareLink, Organization.slug, Project.name, Document.filename)
@@ -298,6 +308,10 @@ def account_export(session: Session, user: User) -> AccountExport:
                 ],
             )
             for chat, project, slug, trashed in chats
+        ],
+        pinned_chats=[
+            ExportedPin(organization=slug, project=project, chat=title, pinned_at=pinned_at)
+            for pinned_at, slug, project, title in pins
         ],
         share_links=[
             ExportedShareLink(

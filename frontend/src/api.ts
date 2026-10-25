@@ -957,6 +957,8 @@ export interface Chat {
   title: string
   visibility: ChatVisibility
   scope: ChatScope
+  /** Whether the reader pinned it to the top of their chat list: each reader's own. */
+  pinned: boolean
   created_at: string
   updated_at: string
 }
@@ -2485,6 +2487,8 @@ export const api = {
   /** Change what the chat is about: its next answer reads it. */
   scopeChat: (id: number, scope: ScopeIn) => request<Chat>(`/chats/${id}`, json('PATCH', { scope })),
   deleteChat: (id: number) => request<void>(`/chats/${id}`, { method: 'DELETE' }),
+  pinChat: (id: number) => request<Chat>(`/chats/${id}/pin`, { method: 'PUT' }),
+  unpinChat: (id: number) => request<Chat>(`/chats/${id}/pin`, { method: 'DELETE' }),
   /** Add a question; the worker writes the answer, which `streamEvents` follows. */
   ask: (chatId: number, content: string) => request<AskResult>(`/chats/${chatId}/messages`, json('POST', { content })),
   /** End an answer with what arrived so far. */

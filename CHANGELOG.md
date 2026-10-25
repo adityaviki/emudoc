@@ -17,6 +17,14 @@ newest entry first.
 
 Members:
 
+- Pin a chat to the top of your chat list: "Pin chat" beside it in the list keeps it under
+  "Pinned", whether you started it or another member shared it with the project, and your pins
+  are yours alone. "Unpin chat" puts it back among the others.
+- Keyboard shortcuts in a project: Ctrl+Shift+O (⌘+Shift+O on a Mac) starts a new chat,
+  Shift+Esc goes to the box you ask in, Esc there stops the answer being written, and Ctrl+/
+  (⌘+/) lists them.
+- What an answer, a draft, a report or a document cost is now shown to the organisation's owners
+  and admins alone. Everyone who reads them still sees the AI model, its calls and its tokens.
 - Ask a chat about one folder or a few documents rather than the whole project: "About" above
   the box you ask in chooses all the documents, a folder or a document open in a tab, and its
   answers read only those. A folder's menu in the library offers "Ask about this folder" and

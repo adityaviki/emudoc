@@ -49,7 +49,8 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // stranger's is turned away, as the page lists them, and a folder of the member's Google Drive
 // connected and synced, and last the invoice shared by a link with a password, which someone with
 // no account opens and prints and its member revokes, and an answer about it shared, its citation leading the
-// visitor to the passage. The answer is the stand-in's (e2e/standin.py): the first sentence of the
+// visitor to the passage, and last a chat pinned to the top of the list and unpinned, the shortcuts listed, a new
+// chat started, its box reached and an answer stopped by the keyboard. The answer is the stand-in's (e2e/standin.py): the first sentence of the
 // passage its search found best, with that passage's reference. Along the way each kind of page,
 // panel and dialog is checked against axe-core's rules for WCAG 2.2 AA in both themes
 // (e2e/axe.ts), and the keyboard's focus is followed where something it was on goes away.
@@ -1815,5 +1816,55 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(question('Compare invoice.md and second-invoice.md: where do they agree, and where do they differ?')).toBeVisible()
     await expect(chooser).toHaveText('About: invoice.md and second-invoice.md')
     await expect(regenerate).toBeVisible({ timeout: 30_000 })
+  })
+
+  await test.step('pin a chat to the top of the list, and start a chat, reach the box and stop an answer by the keyboard', async () => {
+    // Pinned, a chat leads the list under "Pinned", the focus following its row there, and stays so after a reload.
+    const chats = page.getByRole('button', { name: /^Compare invoice\.md and second-invoice\.md/ })
+    await chats.click()
+    const credit = page.getByRole('listitem').filter({ hasText: 'What does the credit note in the archive say?' })
+    await credit.getByRole('button', { name: 'Pin chat' }).click()
+    await expect(credit.getByRole('button', { name: 'Unpin chat' })).toBeFocused()
+    await expect(page.getByText('Pinned', { exact: true })).toBeVisible()
+    await expectAccessible(page, 'the chat list with a pinned chat')
+    await page.reload()
+    await chats.click()
+    await expect(page.getByText('Pinned', { exact: true })).toBeVisible()
+    await credit.getByRole('button', { name: 'Unpin chat' }).click()
+    await expect(credit.getByRole('button', { name: 'Pin chat' })).toBeFocused()
+    await expect(page.getByText('Pinned', { exact: true })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(chats).toBeFocused()
+
+    // The shortcuts, listed by Ctrl+/ (⌘ on a Mac) from anywhere, the focus going back where it was.
+    const tree = page.getByRole('tree')
+    await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).click()
+    await expect(tree).toBeFocused()
+    await page.keyboard.press('ControlOrMeta+/')
+    const shortcuts = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
+    await expect(shortcuts.getByRole('heading', { name: 'Keyboard shortcuts' })).toBeFocused()
+    await expect(shortcuts).toContainText('Start a new chat')
+    await expectAccessible(page, 'the keyboard shortcuts')
+    await page.keyboard.press('Escape')
+    await expect(shortcuts).toHaveCount(0)
+    await expect(tree).toBeFocused()
+
+    // Shift+Esc goes to the box a question is asked in, and Ctrl+Shift+O starts a new chat there.
+    const composer = page.getByPlaceholder('Ask a question about these documents')
+    await page.keyboard.press('Shift+Escape')
+    await expect(composer).toBeFocused()
+    await tree.focus()
+    await page.keyboard.press('ControlOrMeta+Shift+O')
+    await expect(page).toHaveURL(/[?&]chat=new/)
+    await expect(composer).toBeFocused()
+
+    // Escape in the box stops the answer being written.
+    await holdNextTurn(request)
+    await composer.fill('Which supplier sent the invoices?')
+    await composer.press('Enter')
+    await expect.poll(() => heldTurns(request)).toBe(1)
+    await composer.press('Escape')
+    await expect(page.getByText('Stopped.', { exact: true })).toBeVisible()
+    await releaseTurns(request)
   })
 })

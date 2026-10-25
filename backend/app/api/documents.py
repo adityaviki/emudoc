@@ -32,6 +32,7 @@ from app.api.deps import (
 from app.api.folders import resolve_folder
 from app.audit import audit
 from app.config import Settings, get_settings
+from app.costs import costs_shown
 from app.entitlements import PlanRefused, check_upload, size_label
 from app.fact_checks import fact_out
 from app.folders import (
@@ -168,10 +169,12 @@ def _page_tag(rows: Sequence[tuple[int, str]], limit: int) -> str:
     version is its `xmin`, the transaction that wrote it, which every change to it moves,
     an ORM update or a raw one alike; a timestamp of the change would not do, since a
     transaction that began earlier can commit later with an older one. The release is in it
-    too, since a new one may serve the same rows otherwise."""
+    too, since a new one may serve the same rows otherwise, and whether the reader sees what
+    the documents cost, which a change of their role changes (app/costs.py)."""
     shown = ",".join(f"{document_id}:{version}" for document_id, version in rows[:limit])
     more = "more" if len(rows) > limit else "last"
-    return f'"{hashlib.sha256(f"{VERSION}|{shown}|{more}".encode()).hexdigest()[:32]}"'
+    costs = "costs" if costs_shown() else "counts"
+    return f'"{hashlib.sha256(f"{VERSION}|{costs}|{shown}|{more}".encode()).hexdigest()[:32]}"'
 
 
 def _tags_held(request: Request) -> set[str]:

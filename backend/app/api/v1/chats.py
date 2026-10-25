@@ -44,7 +44,7 @@ from app.idempotency import fingerprint
 from app.models import Chat as ChatRow
 from app.models import ChatMessage
 from app.ratelimit import QUESTIONS
-from app.schemas import ChatPatch, QuestionIn
+from app.schemas import ChatOut, ChatPatch, QuestionIn
 from app.shutdown import Stop
 
 log = logging.getLogger(__name__)
@@ -205,7 +205,9 @@ def stop(chat: OwnChatDep, message_id: int, session: SessionDep):
     return message_of(session, chats.stop(chat, message_id, session))
 
 
-def chat_of(chat: ChatRow) -> Chat:
+def chat_of(chat: ChatRow | ChatOut) -> Chat:
+    """The chat as the API words it, from its row or from the page's model that the page's route
+    which made or changed it answered (`create_chat`, `update_chat` in app/api/chats.py)."""
     return Chat(
         id=chat.id,
         project_id=chat.project_id,

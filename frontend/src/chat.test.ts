@@ -14,9 +14,11 @@ import {
   resume,
   retry,
   settle,
+  latestOwn,
   splitChats,
   startChat,
   stop,
+  withPin,
   writeOffered,
 } from './chat.ts'
 import type { ChatData, Message } from './chat.ts'
@@ -46,6 +48,7 @@ function chat(messages: ChatMessage[] = []): ChatDetail {
     title: 'Notice',
     visibility: 'private',
     scope: { kind: 'project', folder: null, documents: [] },
+    pinned: false,
     created_at: '2026-10-17T09:00:00Z',
     updated_at: '2026-10-17T09:00:00Z',
     messages,
@@ -152,13 +155,61 @@ describe('loadChat', () => {
   })
 })
 
+// A chat of the list, by its id, its starter, whether the reader pinned it and the minute of its
+// latest question.
+const listed = (id: number, user_id: number, pinned = false, minute = id) => ({
+  ...chat(),
+  id,
+  user_id,
+  pinned,
+  updated_at: `2026-10-17T09:${String(minute).padStart(2, '0')}:00Z`,
+})
+const ids = (chats: Chat[]) => chats.map((item) => item.id)
+
 describe('splitChats', () => {
   it("parts the member's own chats from those others shared, each in the server's order", () => {
-    const by = (id: number, user_id: number) => ({ ...chat(), id, user_id })
-    const { own, shared } = splitChats([by(5, 2), by(4, 1), by(3, 2), by(2, 1)], 1)
-    expect(own.map((item) => item.id)).toEqual([4, 2])
-    expect(shared.map((item) => item.id)).toEqual([5, 3])
-    expect(splitChats([], 1)).toEqual({ own: [], shared: [] })
+    const { pinned, own, shared } = splitChats([listed(5, 2), listed(4, 1), listed(3, 2), listed(2, 1)], 1)
+    expect(ids(own)).toEqual([4, 2])
+    expect(ids(shared)).toEqual([5, 3])
+    expect(pinned).toEqual([])
+    expect(splitChats([], 1)).toEqual({ pinned: [], own: [], shared: [] })
+  })
+
+  it('puts the pinned chats first, whoever started them, and out of the other parts', () => {
+    const chats = [listed(2, 1, true), listed(5, 2, true), listed(4, 1), listed(3, 2)]
+    const { pinned, own, shared } = splitChats(chats, 1)
+    expect(ids(pinned)).toEqual([2, 5])
+    expect(ids(own)).toEqual([4])
+    expect(ids(shared)).toEqual([3])
+  })
+})
+
+describe('latestOwn', () => {
+  it("is the member's chat asked in last, pinned or not, never another's", () => {
+    expect(latestOwn([listed(2, 1, true, 30), listed(9, 2, false, 50), listed(4, 1, false, 20)], 1)?.id).toBe(2)
+    expect(latestOwn([listed(2, 1, true, 10), listed(4, 1, false, 20)], 1)?.id).toBe(4)
+    expect(latestOwn([listed(9, 2)], 1)).toBeUndefined()
+  })
+})
+
+describe('withPin', () => {
+  // As the server lists them: the pinned newest pin first, then by the latest question.
+  const chats = [listed(3, 1, true, 4), listed(6, 1), listed(5, 2), listed(2, 1)]
+
+  it('puts a new pin first and leaves a pinned chat where it is', () => {
+    expect(ids(withPin(chats, 2, true))).toEqual([2, 3, 6, 5])
+    expect(withPin(chats, 2, true)[0].pinned).toBe(true)
+    expect(withPin(chats, 3, true)).toBe(chats)
+    expect(withPin(chats, 99, true)).toBe(chats)
+  })
+
+  it('takes an unpinned chat back among the others by its latest question', () => {
+    const unpinned = withPin(chats, 3, false)
+    expect(ids(unpinned)).toEqual([6, 5, 3, 2])
+    expect(unpinned[2].pinned).toBe(false)
+    // Asked in last, it leads them; asked in first, it ends them.
+    expect(ids(withPin([listed(3, 1, true, 59), ...chats.slice(1)], 3, false))).toEqual([3, 6, 5, 2])
+    expect(ids(withPin([listed(3, 1, true, 0), ...chats.slice(1)], 3, false))).toEqual([6, 5, 2, 3])
   })
 })
 

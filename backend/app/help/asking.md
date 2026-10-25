@@ -27,6 +27,18 @@ model writes from the project's documents once they are indexed. Under the last 
 chat, "Ask next" suggests two or three questions that take it further: click one to ask it, as if
 you had typed it. A suggestion is only asked when you click it, and counts as a question.
 
+The chat's title, at the top of the chat, opens the list of your chats. Pin chat, beside a chat
+there, keeps it at the top under "Pinned", one you started or one shared with the project; your
+pins are yours alone, and Unpin chat puts it back among the others. Under an answer, a line says
+which AI model wrote it and how many calls and tokens it took, and to the organisation's owners
+and admins what it cost; a document's tab says the same of reading it.
+
+## Keyboard shortcuts
+
+In a project, Ctrl+Shift+O (⌘+Shift+O on a Mac) starts a new chat, Shift+Esc goes to the box you
+ask in, and Esc there stops the answer being written. Ctrl+/ (⌘+/) lists them. They work while
+you type in a field too, and wait while a dialog or a menu is open.
+
 ## Asking about part of the project
 
 About, above the box you ask in, says what the chat is about and changes it: all the documents,

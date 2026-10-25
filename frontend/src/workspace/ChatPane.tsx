@@ -13,6 +13,8 @@ import {
   MessagesSquare,
   PenLine,
   Pencil,
+  Pin,
+  PinOff,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -35,6 +37,7 @@ import {
   editableQuestion,
   followUpsOf,
   isStreaming,
+  latestOwn,
   loadChat,
   mayRegenerate,
   mayRetry,
@@ -45,6 +48,7 @@ import {
   started,
   stop,
   useStreaming,
+  withPin,
 } from '../chat.ts'
 import type { ChatData, Message, Step } from '../chat.ts'
 import { DownloadText } from '../components/DownloadMenu.tsx'
@@ -61,6 +65,7 @@ import { inviteNudgeOf, mayInvite } from '../onboarding.ts'
 import type { InviteNudge } from '../onboarding.ts'
 import { offersLinks } from '../shareLinks.ts'
 import { questionsFor, sameScope, scopeIn, scopeOf, scopeWords } from '../scopes.ts'
+import { askForComposer, listHint, onMac, takeComposerAsk, useComposerAsks } from '../shortcuts.ts'
 import { askHeld } from '../status.ts'
 import { answerFileUrl, chatFileUrl } from '../textFiles.ts'
 import { trashKey } from '../trash.ts'
@@ -97,43 +102,63 @@ export function ChatPane() {
       </div>
     )
   }
-  const { own, shared } = splitChats(chats.data, me.id)
-  // Without a chat in the URL the member's latest opens, never one another member shared. "new"
-  // is an empty chat until its first question.
+  const { pinned, own, shared } = splitChats(chats.data, me.id)
+  // Without a chat in the URL the member's latest opens, pinned or not, never one another member
+  // shared. "new" is an empty chat until its first question.
   const requested = workspace.url.chatId
-  const chatId = requested === 'new' ? null : (requested ?? own[0]?.id ?? null)
+  const chatId = requested === 'new' ? null : (requested ?? latestOwn(chats.data, me.id)?.id ?? null)
+  // What other members shared, pinned or not, the latest first, for a new chat to offer.
+  const others = chats.data
+    .filter((chat) => chat.user_id !== me.id)
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-page">
-      <ChatHeader own={own} shared={shared} activeId={chatId} />
+      <ChatHeader pinned={pinned} own={own} shared={shared} activeId={chatId} />
       {/* A chat that breaks leaves the list, from which another opens. */}
       <ErrorBoundary part="chat" resetKey={chatId ?? 'new'}>
-        <Conversation key={chatId ?? 'new'} chatId={chatId} shared={shared} />
+        <Conversation key={chatId ?? 'new'} chatId={chatId} shared={others} />
       </ErrorBoundary>
     </div>
   )
 }
 
 interface ChatHeaderProps {
-  // The member's own chats, and the ones other members shared with the project.
+  // The chats the member pinned, whoever started them, then the rest: the member's own, and the
+  // ones other members shared with the project.
+  pinned: Chat[]
   own: Chat[]
   shared: Chat[]
   activeId: number | null
 }
 
-function ChatHeader({ own, shared, activeId }: ChatHeaderProps) {
+function ChatHeader({ pinned, own, shared, activeId }: ChatHeaderProps) {
   const workspace = useWorkspace()
+  const me = useMe()
   // How long the organisation keeps a chat after its last question, by its plan or its own choice
   // (backend/app/retention.py).
-  const keptFor = useMe().organization.chat_retention_days
+  const keptFor = me.organization.chat_retention_days
   // Where the list opens: set from the button's position when it is clicked.
   const [anchor, setAnchor] = useState<DOMRect | null>(null)
   const button = useRef<HTMLButtonElement>(null)
-  const mine = own.find((chat) => chat.id === activeId)
-  const active = mine ?? shared.find((chat) => chat.id === activeId)
+  // The chat whose pin was pressed last: its row moves between the list's parts, and the focus
+  // follows it there.
+  const [moved, setMoved] = useState<number | null>(null)
+  const active = [...pinned, ...own, ...shared].find((chat) => chat.id === activeId)
+  const mine = active?.user_id === me.id ? active : undefined
   const title = activeId == null ? 'New chat' : active?.title || 'New chat'
   const ChatIcon = active?.visibility === 'project' ? Users : MessagesSquare
-  const close = () => setAnchor(null)
+  const close = () => {
+    setAnchor(null)
+    setMoved(null)
+  }
+  // The member's own chats are all pinned when none is left below the pinned ones; with none
+  // at all, the list says how to start one.
+  const ownShown = own.length > 0 || !pinned.some((chat) => chat.user_id === me.id)
+  const row = (chat: Chat) => {
+    const props = { chat, active: chat.id === activeId, onOpen: close, focusPin: chat.id === moved, onPin: setMoved }
+    return chat.user_id === me.id ? <ChatRow key={chat.id} {...props} /> : <SharedChatRow key={chat.id} {...props} />
+  }
 
   return (
     <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line bg-surface px-3">
@@ -160,31 +185,37 @@ function ChatHeader({ own, shared, activeId }: ChatHeaderProps) {
         variant="ghost"
         icon={<Plus className="size-4" />}
         disabled={activeId === null}
-        onClick={() => workspace.openChat('new')}
+        onClick={() => {
+          workspace.openChat('new')
+          // The button is held once the new chat shows: its box takes the focus.
+          askForComposer('new')
+        }}
       >
         New chat
       </Button>
       {anchor && (
         <Floating anchor={anchor} onClose={close} ignore={button} className="w-80 max-w-[90vw]">
           <div className="max-h-80 overflow-y-auto p-1">
-            {shared.length > 0 && <ListHeading>Your chats</ListHeading>}
-            {own.length === 0 ? (
-              <p className="px-2.5 py-1.5 text-[13px] text-muted">No chats yet. Ask a question to start one.</p>
-            ) : (
-              <ul className="space-y-0.5">
-                {own.map((chat) => (
-                  <ChatRow key={chat.id} chat={chat} active={chat.id === activeId} onOpen={close} />
-                ))}
-              </ul>
+            {pinned.length > 0 && (
+              <>
+                <ListHeading>Pinned</ListHeading>
+                <ul className="space-y-0.5">{pinned.map(row)}</ul>
+              </>
+            )}
+            {ownShown && (
+              <>
+                {(pinned.length > 0 || shared.length > 0) && <ListHeading>Your chats</ListHeading>}
+                {own.length === 0 ? (
+                  <p className="px-2.5 py-1.5 text-[13px] text-muted">No chats yet. Ask a question to start one.</p>
+                ) : (
+                  <ul className="space-y-0.5">{own.map(row)}</ul>
+                )}
+              </>
             )}
             {shared.length > 0 && (
               <>
                 <ListHeading>Shared with the project</ListHeading>
-                <ul className="space-y-0.5">
-                  {shared.map((chat) => (
-                    <SharedChatRow key={chat.id} chat={chat} active={chat.id === activeId} onOpen={close} />
-                  ))}
-                </ul>
+                <ul className="space-y-0.5">{shared.map(row)}</ul>
               </>
             )}
           </div>
@@ -257,13 +288,63 @@ function sharedBy(chat: Chat): string {
   return `${chat.started_by} · ${formatDate(chat.updated_at)}`
 }
 
-/** A chat another member shared with the project: theirs to rename and delete, so only opened here. */
-function SharedChatRow({ chat, active, onOpen }: { chat: Chat; active: boolean; onOpen: () => void }) {
+interface ChatRowProps {
+  chat: Chat
+  active: boolean
+  onOpen: () => void
+  // Whether the row's pin takes the focus as it mounts: it was pressed, and the row moved.
+  focusPin: boolean
+  onPin: (chatId: number) => void
+}
+
+/** The actions a row shows while hovered or focused, and always on the open chat's row. */
+function rowActions(active: boolean): string {
+  return `flex shrink-0 pr-0.5 ${active ? '' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'}`
+}
+
+/**
+ * Pin the chat to the top of the member's chat list, or take it back among the others. Each
+ * reader pins for themselves, so a chat another member shared is pinned as the member's own is.
+ */
+function PinButton({ chat, focused, onPin }: { chat: Chat; focused: boolean; onPin: (chatId: number) => void }) {
+  const queryClient = useQueryClient()
+  const button = useRef<HTMLButtonElement>(null)
+  const listKey = ['chats', chat.project_id]
+  const pin = useMutation({
+    mutationFn: (pinned: boolean) => (pinned ? api.pinChat(chat.id) : api.unpinChat(chat.id)),
+    // The row moves at once; a refusal puts it back.
+    onMutate: async (pinned) => {
+      await queryClient.cancelQueries({ queryKey: listKey })
+      const previous = queryClient.getQueryData<Chat[]>(listKey)
+      queryClient.setQueryData<Chat[]>(listKey, (chats) => chats && withPin(chats, chat.id, pinned))
+      return { previous }
+    },
+    onError: (_error, _pinned, context) => queryClient.setQueryData(listKey, context?.previous),
+  })
+  useEffect(() => {
+    if (focused) button.current?.focus()
+  }, [focused])
+  return (
+    <IconButton
+      ref={button}
+      label={chat.pinned ? 'Unpin chat' : 'Pin chat'}
+      onClick={() => {
+        onPin(chat.id)
+        pin.mutate(!chat.pinned)
+      }}
+    >
+      {chat.pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+    </IconButton>
+  )
+}
+
+/** A chat another member shared with the project: theirs to rename and delete, so only opened and pinned here. */
+function SharedChatRow({ chat, active, onOpen, focusPin, onPin }: ChatRowProps) {
   const workspace = useWorkspace()
   const streaming = useStreaming(chat.id)
   const title = chat.title || 'New chat'
   return (
-    <li className={`flex items-center rounded-md ${active ? 'bg-sunken' : 'hover:bg-sunken'}`}>
+    <li className={`group flex items-center rounded-md ${active ? 'bg-sunken' : 'hover:bg-sunken'}`}>
       <button
         type="button"
         onClick={() => {
@@ -276,12 +357,18 @@ function SharedChatRow({ chat, active, onOpen }: { chat: Chat; active: boolean; 
         <span className="block truncate text-[13px]">{title}</span>
         <span className="block truncate text-xs text-muted">{sharedBy(chat)}</span>
       </button>
-      {streaming && <Spinner className="mr-2.5 size-3.5 shrink-0" />}
+      {streaming ? (
+        <Spinner className="mr-2.5 size-3.5 shrink-0" />
+      ) : (
+        <span className={rowActions(active)}>
+          <PinButton chat={chat} focused={focusPin} onPin={onPin} />
+        </span>
+      )}
     </li>
   )
 }
 
-function ChatRow({ chat, active, onOpen }: { chat: Chat; active: boolean; onOpen: () => void }) {
+function ChatRow({ chat, active, onOpen, focusPin, onPin }: ChatRowProps) {
   const workspace = useWorkspace()
   const project = workspace.project
   const queryClient = useQueryClient()
@@ -352,7 +439,8 @@ function ChatRow({ chat, active, onOpen }: { chat: Chat; active: boolean; onOpen
         <Spinner className="mr-2.5 size-3.5 shrink-0" />
       ) : (
         !renaming && (
-          <span className={`flex shrink-0 pr-0.5 ${active ? '' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'}`}>
+          <span className={rowActions(active)}>
+            <PinButton chat={chat} focused={focusPin} onPin={onPin} />
             <IconButton label="Rename chat" onClick={() => setRenaming(true)}>
               <Pencil className="size-3.5" />
             </IconButton>
@@ -395,6 +483,11 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
   const [draft, setDraft] = useState('')
   const bottom = useRef<HTMLDivElement>(null)
   const composer = useRef<HTMLTextAreaElement>(null)
+  // A shortcut asked for the composer (src/shortcuts.ts): this one, or a new chat's drawn after it.
+  const composerAsks = useComposerAsks()
+  useEffect(() => {
+    if (takeComposerAsk(chatId)) composer.current?.focus()
+  }, [composerAsks, chatId])
   // The questions a new chat offers are written by the model once the project's documents
   // settle, which may have been since the project was read: a new chat reads it again.
   useEffect(() => {
@@ -470,6 +563,9 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
       send(draft)
+    } else if (event.key === 'Escape' && !event.shiftKey && streaming && chatId != null) {
+      event.preventDefault()
+      stop(chatId)
     }
   }
 
@@ -646,7 +742,11 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
                 className="max-h-40 min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 outline-none placeholder:text-muted"
               />
               {streaming ? (
-                <Button icon={<Square className="size-3.5" />} onClick={() => chatId != null && stop(chatId)}>
+                <Button
+                  icon={<Square className="size-3.5" />}
+                  title="Esc in the box you ask in stops it too"
+                  onClick={() => chatId != null && stop(chatId)}
+                >
                   Stop
                 </Button>
               ) : (
@@ -664,7 +764,7 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
           )}
           <p className="mt-2 text-center text-[11px] text-muted">
             Answers are written by AI and can be wrong: check the cited passages
-            {!starter && ' · Enter to send · Shift+Enter for a new line'}
+            {!starter && ` · Enter to send · Shift+Enter for a new line · ${listHint(onMac())}`}
           </p>
         </div>
       </div>

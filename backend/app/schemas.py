@@ -1,7 +1,9 @@
 import datetime as dt
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_serializer
+
+from app.costs import costs_shown
 
 
 class _FromORM(BaseModel):
@@ -287,7 +289,8 @@ class FolderOut(_FromORM):
 class UsageOut(BaseModel):
     """What one kind of work used for a document or an answer, summed over every run for it:
     the counts by unit, the model when one was called, and the cost in millionths of the
-    currency the status names, when the model has a price."""
+    currency the status names, when the model has a price and the reader is an owner or an
+    admin (app/costs.py); a member or a viewer reads null."""
 
     model: str | None = None
     calls: int = 0
@@ -297,6 +300,10 @@ class UsageOut(BaseModel):
     bytes: int = 0
     inputs: int = 0
     cost_micros: int | None = None
+
+    @field_serializer("cost_micros")
+    def _withheld(self, cost: int | None) -> int | None:
+        return cost if costs_shown() else None
 
 
 class StageOut(BaseModel):
@@ -761,6 +768,8 @@ class ChatOut(_FromORM):
     title: str
     visibility: ChatVisibility
     scope: ChatScopeOut
+    # Whether the reader pinned it to the top of their chat list: each reader's own.
+    pinned: bool = False
     created_at: dt.datetime
     updated_at: dt.datetime
 
@@ -2568,6 +2577,16 @@ class ExportedNotification(BaseModel):
     read_at: dt.datetime | None
 
 
+class ExportedPin(BaseModel):
+    """A chat the user pinned to the top of their chat list: one they started, or one another
+    member shared with the project."""
+
+    organization: str
+    project: str
+    chat: str
+    pinned_at: dt.datetime
+
+
 class ExportedShareLink(BaseModel):
     """A link the user made to a document or an answer that has not expired
     (app/share_links.py), never its token."""
@@ -2593,6 +2612,7 @@ class AccountExport(BaseModel):
     sessions: list[ExportedSession]
     browsers: list[ExportedBrowser]
     chats: list[ExportedChat]
+    pinned_chats: list[ExportedPin] = []
     share_links: list[ExportedShareLink] = []
     notifications: list[ExportedNotification]
     usage: list[ExportedUsage]

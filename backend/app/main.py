@@ -63,6 +63,7 @@ from app.api.deps import (
 from app.api.v1.contract import published as published_contract
 from app.billing import BillingRefused
 from app.config import ROOT_DIR, get_settings
+from app.costs import CostsWithheld
 from app.db import BUSY, TOO_SLOW, SessionLocal, canceled, engine
 from app.entitlements import PlanRefused
 from app.errors import shown, summary
@@ -522,6 +523,9 @@ def create_app(
     # the app answering no cross-origin request. test_no_other_origin_is_answered in
     # tests/test_headers.py says what a frontend on another origin would need instead.
     app.add_middleware(SecurityHeaders)
+    # Every request starts withholding what work cost, until its account shows it to an owner or
+    # an admin (app/costs.py).
+    app.add_middleware(CostsWithheld)
     # Outside the headers, so that a request is timed to the end of all of its answer.
     app.add_middleware(HttpMetrics)
     # Outside the others, so that what they log is logged under the request's id too.

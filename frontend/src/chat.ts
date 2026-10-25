@@ -195,15 +195,41 @@ export function useStreaming(chatId: number | null): boolean {
 }
 
 /**
- * A project's chats as its list holds them, parted by starter: the member's own, which they ask
- * in and share, and the ones other members shared with the project, which they read. Each part
- * keeps the server's order, the latest question first.
+ * A project's chats as its list holds them: those the member pinned, whoever started them, then
+ * the rest parted by starter, the member's own, which they ask in and share, and the ones other
+ * members shared with the project, which they read. Each part keeps the server's order: the
+ * newest pin first, then the latest question first.
  */
-export function splitChats(chats: Chat[], userId: number): { own: Chat[]; shared: Chat[] } {
+export function splitChats(chats: Chat[], userId: number): { pinned: Chat[]; own: Chat[]; shared: Chat[] } {
+  const rest = chats.filter((chat) => !chat.pinned)
   return {
-    own: chats.filter((chat) => chat.user_id === userId),
-    shared: chats.filter((chat) => chat.user_id !== userId),
+    pinned: chats.filter((chat) => chat.pinned),
+    own: rest.filter((chat) => chat.user_id === userId),
+    shared: rest.filter((chat) => chat.user_id !== userId),
   }
+}
+
+/** The member's own chat whose question was asked last, pinned or not: the one that opens without a chat in the URL. */
+export function latestOwn(chats: Chat[], userId: number): Chat | undefined {
+  return chats
+    .filter((chat) => chat.user_id === userId)
+    .reduce<Chat | undefined>((latest, chat) => (latest && latest.updated_at >= chat.updated_at ? latest : chat), undefined)
+}
+
+/**
+ * The list with the chat pinned or not, in the place the server will give it: a new pin first, a
+ * pinned chat where it is, and one unpinned among the others by its latest question.
+ */
+export function withPin(chats: Chat[], chatId: number, pinned: boolean): Chat[] {
+  const chat = chats.find((item) => item.id === chatId)
+  if (!chat || chat.pinned === pinned) return chats
+  const changed = { ...chat, pinned }
+  const rest = chats.filter((item) => item.id !== chatId)
+  if (pinned) return [changed, ...rest]
+  const after = (item: Chat) =>
+    !item.pinned && (item.updated_at < chat.updated_at || (item.updated_at === chat.updated_at && item.id < chat.id))
+  const at = rest.findIndex(after)
+  return at === -1 ? [...rest, changed] : [...rest.slice(0, at), changed, ...rest.slice(at)]
 }
 
 /** Whether the chat's last message is an answer still being written. */

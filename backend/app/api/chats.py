@@ -11,7 +11,7 @@ chosen from it (app/scopes.py), which its starter chooses as it starts and chang
 like. A chat deleted goes into the trash, its starter's alone (app/trash.py); an answer still being
 written there finishes. Whoever reads a chat downloads an answer of it, or the whole chat, as a Word
 document, a PDF or its Markdown (app/chat_export.py), which the audit log keeps by the chat's id and
-the answer's, never their words.
+the answer's, never their words. Each reader pins the chats they read to the top of their own list.
 """
 
 import logging
@@ -22,7 +22,8 @@ from typing import Annotated
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session, selectinload
 
@@ -59,11 +60,12 @@ from app.chat_export import (
     file_name,
 )
 from app.config import get_settings
+from app.costs import costs_shown
 from app.db import SessionLocal
 from app.draft_export import MEDIA_TYPES, ExportFormat, ExportRefused
 from app.entitlements import PlanRefused, Refusal, check_question
 from app.logs import about
-from app.models import Chat, ChatMessage, Document, Folder, Project
+from app.models import Chat, ChatMessage, ChatPin, Document, Folder, Project
 from app.notices import MONTH_QUESTIONS, note_quota
 from app.ratelimit import EXPORTS, QUESTIONS
 from app.schemas import (
@@ -118,9 +120,12 @@ SSE_HEADERS = {"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
 
 @router.get("/projects/{project_id}/chats", response_model=list[ChatOut])
 def list_chats(project: ProjectDep, session: SessionDep, account: AccountDep):
-    """The caller's own chats in the project, and the ones other members shared with it."""
-    return session.scalars(
-        select(Chat)
+    """The caller's own chats in the project, and the ones other members shared with it: those
+    the caller pinned first, the newest pin first, then the rest by their latest question."""
+    pins = and_(ChatPin.chat_id == Chat.id, ChatPin.user_id == account.user.id)
+    rows = session.execute(
+        select(Chat, ChatPin.pinned_at)
+        .outerjoin(ChatPin, pins)
         .where(
             Chat.project_id == project.id,
             Chat.deleted_at.is_(None),
@@ -128,8 +133,9 @@ def list_chats(project: ProjectDep, session: SessionDep, account: AccountDep):
         )
         # What each is about, in a query apiece for the list rather than one a chat.
         .options(selectinload(Chat.scope_folder), selectinload(Chat.scope_documents))
-        .order_by(Chat.updated_at.desc(), Chat.id.desc())
+        .order_by(ChatPin.pinned_at.desc().nulls_last(), Chat.updated_at.desc(), Chat.id.desc())
     ).all()
+    return [as_read(chat, pinned_at is not None) for chat, pinned_at in rows]
 
 
 @router.post("/projects/{project_id}/chats", response_model=ChatOut, status_code=201)
@@ -142,12 +148,12 @@ def create_chat(
         _about(session, chat, body.scope)
     session.add(chat)
     session.commit()
-    return chat
+    return as_read(chat, pinned=False)
 
 
 @router.get("/chats/{chat_id}", response_model=ChatDetail)
-def get_chat(chat: ChatDep):
-    return chat
+def get_chat(chat: ChatDep, session: SessionDep, account: AccountDep):
+    return as_read(chat, pinned_by(session, chat, account), ChatDetail)
 
 
 @router.patch("/chats/{chat_id}", response_model=ChatOut)
@@ -173,7 +179,41 @@ def update_chat(
             target=("chat", chat.id),
         )
     session.commit()
-    return chat
+    return as_read(chat, pinned_by(session, chat, account))
+
+
+@router.put("/chats/{chat_id}/pin", response_model=ChatOut)
+def pin_chat(chat: ChatDep, session: SessionDep, account: AccountDep):
+    """Pin the chat to the top of the caller's chat list: their own, or one shared with the
+    project, which each of its readers pins for themselves. A pinned chat stays where its pin
+    put it."""
+    session.execute(
+        insert(ChatPin)
+        .values(chat_id=chat.id, user_id=account.user.id)
+        .on_conflict_do_nothing(index_elements=[ChatPin.chat_id, ChatPin.user_id])
+    )
+    session.commit()
+    return as_read(chat, pinned=True)
+
+
+@router.delete("/chats/{chat_id}/pin", response_model=ChatOut)
+def unpin_chat(chat: ChatDep, session: SessionDep, account: AccountDep):
+    """Take the chat back among the caller's others, by its latest question."""
+    session.execute(
+        delete(ChatPin).where(ChatPin.chat_id == chat.id, ChatPin.user_id == account.user.id)
+    )
+    session.commit()
+    return as_read(chat, pinned=False)
+
+
+def pinned_by(session: Session, chat: Chat, account: Account) -> bool:
+    """Whether the account's member pinned the chat."""
+    return session.get(ChatPin, (chat.id, account.user.id)) is not None
+
+
+def as_read[T: ChatOut](chat: Chat, pinned: bool, schema: type[T] = ChatOut) -> T:
+    """The chat as its reader sees it, pinned or not by them."""
+    return schema.model_validate(chat).model_copy(update={"pinned": pinned})
 
 
 @router.delete("/chats/{chat_id}", status_code=204)
@@ -254,7 +294,7 @@ def events(chat: ChatDep, message_id: int, request: Request, session: SessionDep
     followed = answer_in(chat, message_id, session).id
     session.commit()
     return StreamingResponse(
-        _follow(followed, last_seen(request), request.app.state.stop),
+        _follow(followed, last_seen(request), request.app.state.stop, costs_shown()),
         media_type="text/event-stream",
         headers=SSE_HEADERS,
     )
@@ -564,11 +604,12 @@ def poll_answer(message_id: int, after: int) -> tuple[str | None, list[tuple[int
         return status, events_after(session, message_id, after)
 
 
-async def _follow(message_id: int, after: int, stop: Stop) -> AsyncIterator[str]:
+async def _follow(message_id: int, after: int, stop: Stop, costs: bool) -> AsyncIterator[str]:
     """Send the events as they are written until the answer is settled, and a keep-alive
     comment whenever nothing was sent for SSE_KEEPALIVE_SECONDS. A server told to stop ends
     the stream without an end event, rather than hold its stop until the answer is written
-    (app/shutdown.py): the client follows again from where it was, on the next server.
+    (app/shutdown.py): the client follows again from where it was, on the next server. The
+    run's `done` event says what it cost only when `costs` (app/costs.py).
 
     Async, so that waiting for the next event holds no request thread; each look at the table
     takes one for the length of a query.
@@ -585,6 +626,8 @@ async def _follow(message_id: int, after: int, stop: Stop) -> AsyncIterator[str]
             )
             return
         for seq, event in rows:
+            if event["type"] == "done" and not costs:
+                event = {**event, "usage": {**event["usage"], "cost_micros": None}}
             yield sse(seq, event)
             after = seq
         if status is None:

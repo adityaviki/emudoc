@@ -332,9 +332,12 @@ def chat_trash(w: World) -> list[Route]:
 
 
 def chat_reads(w: World) -> list[Route]:
-    """The routes that show a chat, which a shared chat shows the project's members."""
+    """The routes that show a chat, which a shared chat shows the project's members, and its pin,
+    which each of its readers puts on their own list (test_pins.py)."""
     return [
         ("GET", f"/api/chats/{w.chat_id}", {}),
+        ("PUT", f"/api/chats/{w.chat_id}/pin", {}),
+        ("DELETE", f"/api/chats/{w.chat_id}/pin", {}),
         ("GET", f"/api/chats/{w.chat_id}/messages/{w.message_id}/events", {}),
         ("GET", f"/api/chats/{w.chat_id}/messages/{w.message_id}/share-links", {}),
         ("GET", f"/api/chats/{w.chat_id}/messages/{w.message_id}/export", {}),
