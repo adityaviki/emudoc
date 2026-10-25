@@ -34,7 +34,8 @@ class World:
     question, and in its trash a folder, a document and a chat; another project in the trash; an
     invitation to the organisation and an API key of it, all made by the local owner in the local
     organisation, and another member of it; the project has an address, a folder of the
-    owner's Google Drive connected, and its document a share link. The extraction templates are
+    owner's Google Drive connected, and its document a share link; the project has a tag its
+    document carries, a smart folder of it and a filing rule. The extraction templates are
     on for every organisation, and so are the drafts, email in, connected folders and share
     links, so that what refuses another organisation is the project's scope, not the flag."""
 
@@ -64,6 +65,9 @@ class World:
     connector_id: int
     webhook_id: int
     link_id: int
+    tag_id: int
+    smart_folder_id: int
+    filing_rule_id: int
 
 
 @pytest.fixture
@@ -134,6 +138,17 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
     session.flush()
     connector.refresh_token = encrypt(CONNECTOR_TOKENS, connector.id, "refresh-1")
     session.commit()
+    tag = client.post(f"/api/projects/{project['id']}/tags", json={"name": "Signed"}).json()
+    tagged = client.put(f"/api/documents/{document['id']}/tags", json={"tag_ids": [tag["id"]]})
+    assert tagged.status_code == 200, tagged.text
+    smart = client.post(
+        f"/api/projects/{project['id']}/smart-folders",
+        json={"name": "Signed ones", "filter": {"tags": [tag["id"]]}},
+    )
+    rule = client.post(
+        f"/api/projects/{project['id']}/filing-rules", json=filing_rule(folder["id"])
+    )
+    assert rule.status_code == 201, rule.text
     for path in (
         f"/api/folders/{trashed_folder['id']}",
         f"/api/documents/{note['id']}",
@@ -168,7 +183,15 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
         connector.id,
         hook.json()["id"],
         link.json()["id"],
+        tag["id"],
+        smart.json()["id"],
+        rule.json()["id"],
     )
+
+
+def filing_rule(folder_id: int) -> dict:
+    """A filing rule of the world's project: its contracts into its folder."""
+    return {"condition": "type", "value": "contract", "action": "folder", "folder_id": folder_id}
 
 
 def reads(w: World) -> list[Route]:
@@ -178,6 +201,18 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/projects/{w.project_id}/access", {}),
         ("GET", f"/api/projects/{w.project_id}/folders", {}),
         ("GET", f"/api/projects/{w.project_id}/documents", {}),
+        ("GET", f"/api/projects/{w.project_id}/documents", {"params": {"tag": w.tag_id}}),
+        (
+            "GET",
+            f"/api/projects/{w.project_id}/documents",
+            {"params": {"smart": w.smart_folder_id}},
+        ),
+        ("GET", f"/api/projects/{w.project_id}/documents", {"params": {"recent": True}}),
+        ("GET", f"/api/projects/{w.project_id}/tags", {}),
+        ("GET", f"/api/projects/{w.project_id}/smart-folders", {}),
+        ("GET", f"/api/projects/{w.project_id}/filing-rules", {}),
+        ("GET", f"/api/projects/{w.project_id}/favorites", {}),
+        ("GET", f"/api/projects/{w.project_id}/document-types", {}),
         ("GET", f"/api/projects/{w.project_id}/uploads", {"params": {"ids": w.upload_id}}),
         ("GET", f"/api/projects/{w.project_id}/chats", {}),
         ("GET", f"/api/projects/{w.project_id}/search", {"params": {"q": "notice"}}),
@@ -237,6 +272,25 @@ def writes(w: World) -> list[Route]:
             {"json": {"kind": "invoice"}},
         ),
         ("POST", f"/api/projects/{w.project_id}/folders", {"json": {"name": "Invoices"}}),
+        ("POST", f"/api/projects/{w.project_id}/tags", {"json": {"name": "Paid"}}),
+        ("PATCH", f"/api/tags/{w.tag_id}", {"json": {"color": "green"}}),
+        ("PUT", f"/api/documents/{w.document_id}/tags", {"json": {"tag_ids": []}}),
+        (
+            "POST",
+            f"/api/projects/{w.project_id}/smart-folders",
+            {"json": {"name": "Contracts", "filter": {"types": ["contract"]}}},
+        ),
+        (
+            "PUT",
+            f"/api/smart-folders/{w.smart_folder_id}",
+            {"json": {"name": "Signed", "filter": {"tags": [w.tag_id]}}},
+        ),
+        (
+            "POST",
+            f"/api/projects/{w.project_id}/filing-rules",
+            {"json": filing_rule(w.folder_id)},
+        ),
+        ("PUT", f"/api/filing-rules/{w.filing_rule_id}", {"json": filing_rule(w.folder_id)}),
         (
             "POST",
             f"/api/projects/{w.project_id}/templates",
@@ -289,6 +343,9 @@ def writes(w: World) -> list[Route]:
         ("DELETE", f"/api/drafts/{w.draft_id}", {}),
         ("DELETE", f"/api/projects/{w.project_id}/draft-templates/report", {}),
         ("DELETE", f"/api/automations/{w.automation_id}", {}),
+        ("DELETE", f"/api/filing-rules/{w.filing_rule_id}", {}),
+        ("DELETE", f"/api/smart-folders/{w.smart_folder_id}", {}),
+        ("DELETE", f"/api/tags/{w.tag_id}", {}),
         ("DELETE", f"/api/projects/{w.project_id}/mailbox", {}),
         ("DELETE", f"/api/projects/{w.project_id}/connectors/{w.connector_id}", {}),
         ("DELETE", f"/api/cross-checks/{w.cross_check_id}", {}),
@@ -342,6 +399,16 @@ def chat_reads(w: World) -> list[Route]:
         ("GET", f"/api/chats/{w.chat_id}/messages/{w.message_id}/share-links", {}),
         ("GET", f"/api/chats/{w.chat_id}/messages/{w.message_id}/export", {}),
         ("GET", f"/api/chats/{w.chat_id}/export", {}),
+    ]
+
+
+def marks(w: World) -> list[Route]:
+    """A reader's own marks on a document, which a viewer makes too and nobody else sees: their
+    star and their visit (test_favorites.py)."""
+    return [
+        ("PUT", f"/api/documents/{w.document_id}/favorite", {}),
+        ("DELETE", f"/api/documents/{w.document_id}/favorite", {}),
+        ("PUT", f"/api/documents/{w.document_id}/visit", {}),
     ]
 
 
@@ -451,6 +518,7 @@ def scoped(w: World) -> list[Route]:
         + links(w)
         + answer_links(w)
         + members(w)
+        + marks(w)
     )
 
 
@@ -529,6 +597,7 @@ def test_a_private_project_is_found_by_nobody_else(client, world, account, make_
         + starts(world)
         + links(world)
         + answer_links(world)
+        + marks(world)
     )
 
     act_as(make_account("mo.too@example.com", account.organization, role="member"))
@@ -541,6 +610,8 @@ def test_a_private_project_is_found_by_nobody_else(client, world, account, make_
         assert [p["id"] for p in client.get("/api/projects").json()] == [world.project_id]
         shown = statuses(client, reads(world) + chat_reads(world) + trash_reads(world))
         assert set(shown.values()) == {200}, shown
+        marked = statuses(client, marks(world))
+        assert set(marked.values()) == {204}, marked
 
 
 def test_a_viewer_can_read_but_not_change(client, world, account, make_account, act_as):
@@ -548,6 +619,8 @@ def test_a_viewer_can_read_but_not_change(client, world, account, make_account, 
     assert [p["id"] for p in client.get("/api/projects").json()] == [world.project_id]
     seen = statuses(client, reads(world) + trash_reads(world))
     assert set(seen.values()) == {200}, seen
+    marked = statuses(client, marks(world))
+    assert set(marked.values()) == {204}, marked
     refused = statuses(client, writes(world) + trash_writes(world) + trashed_project(world))
     assert set(refused.values()) == {403}, refused
     # The owner's chat in the trash is the owner's alone, and so is the private chat's answer.

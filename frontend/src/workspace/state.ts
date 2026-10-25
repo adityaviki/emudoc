@@ -1,7 +1,7 @@
 // What the panes share: the project's data, the open tabs, and the ways to move around.
 
 import { createContext, useContext } from 'react'
-import type { Document, Folder, Project, ScopeIn } from '../api.ts'
+import type { Document, Folder, ListingPlace, Project, ScopeIn } from '../api.ts'
 import type { FolderTree } from '../hooks.ts'
 import type { Focus, Reviews, WorkspaceUrl } from './url.ts'
 
@@ -74,6 +74,12 @@ export interface Workspace {
   showMailbox(): void
   /** Shows the project's connected folders in the library, likewise. */
   showConnectors(): void
+  /** Shows a place of the library that is not a folder (a tag's documents, a smart folder's, the member's favourites or recent ones), likewise. */
+  showPlace(place: Exclude<ListingPlace, { folder: number | null }>): void
+  /** Shows the project's tags to make and change in the library, likewise. */
+  showTags(): void
+  /** Shows the project's filing rules in the library, likewise. */
+  showFiling(): void
   /** Opens a chat on the right, or a new one, about what `about` names until its first question makes it. */
   openChat(chatId: number | 'new' | null, options?: { replace?: boolean; about?: ScopeIn | null }): void
   /** Which pane shows on a narrow screen, where only one fits. */

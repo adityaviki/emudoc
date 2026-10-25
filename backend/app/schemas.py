@@ -360,6 +360,8 @@ class DocumentOut(_FromORM):
     assignee: str | None
     review_changer: str | None
     review_changed_at: dt.datetime | None
+    # The ids of its tags (app/tags.py), in the order they were put on it.
+    tag_ids: list[int] = []
 
 
 class DocumentVersionOut(BaseModel):
@@ -409,12 +411,167 @@ class ReviewsOut(BaseModel):
 
 
 class DocumentPage(BaseModel):
-    """A page of the documents directly in one folder, in the library's order (by name, the
-    `natural_order` collation in app/models.py)."""
+    """A page of the documents the library lists in one place (directly in a folder, of a tag,
+    of a smart folder, the reader's favourites or the documents they opened lately), in the order
+    asked for: by name (the `natural_order` collation in app/models.py) unless another is."""
 
     documents: list[DocumentOut]
     # What to pass as `after` for the next page; None on the last one.
     next_after: str | None
+
+
+# The orders the library lists documents in (`SORTS` in app/api/documents.py): by name, as they
+# were added, by the documents' own dates (the undated after the dated either way), by size.
+DocumentSort = Literal["name", "added", "date", "size"]
+SortOrder = Literal["asc", "desc"]
+# TAG_COLORS in app/models.py.
+TagColor = Literal["grey", "red", "orange", "yellow", "green", "teal", "blue", "purple", "pink"]
+_TagName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)]
+
+
+class TagIn(BaseModel):
+    """A tag as a member makes it (app/tags.py): its name, which no other tag of the project
+    carries whatever its case, and its colour."""
+
+    name: _TagName
+    color: TagColor = "grey"
+
+
+class TagPatch(BaseModel):
+    """Rename and/or recolour a tag. A field that is left out is left unchanged."""
+
+    name: _TagName | None = None
+    color: TagColor | None = None
+
+
+class TagOut(_FromORM):
+    id: int
+    name: str
+    color: TagColor
+    # How many of the project's documents out of the trash carry it.
+    document_count: int = 0
+
+
+class TagsOut(BaseModel):
+    """A project's tags, by name, and how many it may have."""
+
+    tags: list[TagOut]
+    max_tags: int
+
+
+class DocumentTagsIn(BaseModel):
+    """Every tag a document carries, by id: one it carries that is left out is taken off it."""
+
+    tag_ids: list[int] = Field(max_length=20)
+
+
+_TypeName = Annotated[
+    str, StringConstraints(strip_whitespace=True, to_lower=True, min_length=1, max_length=100)
+]
+
+
+class DocumentFilter(BaseModel):
+    """What a smart folder matches (app/smart_folders.py), each part narrowing the others: the
+    documents carrying any of its tags, or every one with `every_tag`; of one of its types, as
+    the model names a document's kind; dated on or after `after` and on or before `before`,
+    which leaves out the undated; in one of its review states; in its folder or below it. A part
+    left out matches every document."""
+
+    tags: list[int] = Field(default_factory=list, max_length=20)
+    every_tag: bool = False
+    types: list[_TypeName] = Field(default_factory=list, max_length=20)
+    after: dt.date | None = None
+    before: dt.date | None = None
+    reviews: list[ReviewState] = Field(default_factory=list, max_length=3)
+    folder_id: int | None = None
+
+
+class SmartFolderIn(BaseModel):
+    """A smart folder as a member writes it, whole: its name and what it matches."""
+
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+    filter: DocumentFilter
+
+
+class SmartFolderOut(SmartFolderIn):
+    id: int
+    # Its folder's path as it is now, from the project's root, to word it by; None for none.
+    folder: str | None
+    # Why it matches nothing as the project stands now (a tag or its folder gone); None when
+    # it lists what it says.
+    problem: str | None
+    # Who made it, by their name as it is now; None once their account is gone.
+    made_by: str | None
+    updated_at: dt.datetime
+
+
+class SmartFoldersOut(BaseModel):
+    """A project's smart folders, by name, and how many it may have."""
+
+    smart_folders: list[SmartFolderOut]
+    max_smart_folders: int
+
+
+# FILING_CONDITIONS and FILING_ACTIONS in app/models.py.
+FilingCondition = Literal["type", "fact", "any"]
+FilingAction = Literal["folder", "by_year", "by_month", "tag"]
+_FilingField = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
+]
+_FilingValue = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)
+]
+
+
+class FilingRuleIn(BaseModel):
+    """A filing rule as a member writes it, whole (app/filing.py): what it looks at in a new
+    document (its `type`, a `fact` read from it by the field's name, or `any` document), what
+    that holds (the type, or words the fact's value holds whatever their case; nothing for any
+    document); what it does to a document it matches (moves it into `folder_id`, files it below
+    `folder_id`, the root when null, in a folder of its year, and of its month in that for
+    `by_month`, or tags it with `tag_id`); and whether it is on."""
+
+    condition: FilingCondition
+    field: _FilingField | None = None
+    value: _FilingValue | None = None
+    action: FilingAction
+    folder_id: int | None = None
+    tag_id: int | None = None
+    enabled: bool = True
+
+
+class FilingRuleOut(FilingRuleIn):
+    id: int
+    # The folder's path as it is now, from the project's root, and the tag's name, to word it
+    # by; None for none.
+    folder: str | None
+    tag: str | None
+    # Why it would file nothing as the project stands now (its folder in the trash); None when
+    # it files as it says.
+    problem: str | None
+    # Who made it, by their name as it is now; None once their account is gone.
+    made_by: str | None
+    created_at: dt.datetime
+
+
+class FilingRulesOut(BaseModel):
+    """A project's filing rules in the order they apply, and how many it may have."""
+
+    rules: list[FilingRuleOut]
+    max_filing_rules: int
+
+
+class FavoritesOut(BaseModel):
+    """The documents of a project the reader starred, by id, the newest star first."""
+
+    document_ids: list[int]
+
+
+class DocumentTypeOut(BaseModel):
+    """A type the model gave a project's documents, and how many of them out of the trash."""
+
+    type: str
+    count: int
 
 
 class RejectedFile(BaseModel):
@@ -2587,6 +2744,25 @@ class ExportedPin(BaseModel):
     pinned_at: dt.datetime
 
 
+class ExportedFavorite(BaseModel):
+    """A document the user starred, which the library lists among their favourites."""
+
+    organization: str
+    project: str
+    document: str
+    starred_at: dt.datetime
+
+
+class ExportedVisit(BaseModel):
+    """A document the user opened lately, which the library lists among their recent ones: the
+    last time they opened it (app/recents.py)."""
+
+    organization: str
+    project: str
+    document: str
+    opened_at: dt.datetime
+
+
 class ExportedShareLink(BaseModel):
     """A link the user made to a document or an answer that has not expired
     (app/share_links.py), never its token."""
@@ -2613,6 +2789,8 @@ class AccountExport(BaseModel):
     browsers: list[ExportedBrowser]
     chats: list[ExportedChat]
     pinned_chats: list[ExportedPin] = []
+    favorite_documents: list[ExportedFavorite] = []
+    recent_documents: list[ExportedVisit] = []
     share_links: list[ExportedShareLink] = []
     notifications: list[ExportedNotification]
     usage: list[ExportedUsage]
@@ -2699,6 +2877,8 @@ class ExportedDocument(BaseModel):
     # (app/versions.py).
     version: int = 1
     versions: list[ExportedVersion] = []
+    # The names of its tags (app/tags.py), as the project's `tags` list them.
+    tags: list[str] = []
 
 
 class ExportedBlock(BaseModel):
@@ -2823,6 +3003,13 @@ class ProjectExportFile(BaseModel):
     templates: list[ExportedTemplate]
     # The links that show its documents to whoever holds them (app/share_links.py).
     share_links: list[ExportedProjectShareLink] = []
+    # Its tags (app/tags.py), by name, which each document lists by name.
+    tags: list["ExportedTag"] = []
+
+
+class ExportedTag(BaseModel):
+    name: str
+    color: str
 
 
 # The operator's area (app/operators.py, app/api/operator.py): what the maintenance commands

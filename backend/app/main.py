@@ -31,6 +31,8 @@ from app.api import (
     documents,
     drafts,
     exports,
+    favorites,
+    filing,
     folders,
     help,
     invitations,
@@ -44,7 +46,9 @@ from app.api import (
     query,
     reviews,
     share_links,
+    smart_folders,
     support,
+    tags,
     templates,
     trash,
     usage,
@@ -452,6 +456,9 @@ KEYED = (
     reviews.router,
     drafts.router,
     mailbox.router,
+    tags.router,
+    smart_folders.router,
+    filing.router,
 )
 
 
@@ -539,6 +546,7 @@ def create_app(
         webhooks.router,
         *KEYED,
         connectors.router,
+        favorites.router,
         share_links.router,
         # A share link's visitor has no account: the link and its view's cookie are checked
         # instead (app/share_links.py).

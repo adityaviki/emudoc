@@ -69,6 +69,15 @@ REVIEW_STATES = ("to_review", "approved", "disputed")
 # What an automation's run puts in review (app/reviews.py), of the documents that arrived for it
 # and are in none: those its cross-checks found a difference about, or every one it watches.
 AUTOMATION_REVIEWS = ("differs", "arrived")
+# The colours a tag of a project's (app/tags.py) is drawn in, each a token of the page's in its
+# light theme and its dark (frontend/src/index.css).
+TAG_COLORS = ("grey", "red", "orange", "yellow", "green", "teal", "blue", "purple", "pink")
+# What a filing rule (app/filing.py) looks at in a document read for its type and facts: the type
+# the model gave it, a fact read from it, or nothing, for every document; and what it does to one
+# it matches: moves it into a folder, files it under a folder in a folder of its document's year,
+# or of its year and then its month, or tags it.
+FILING_CONDITIONS = ("type", "fact", "any")
+FILING_ACTIONS = ("folder", "by_year", "by_month", "tag")
 # What a draft is (app/drafts.py), each kind with its own instructions to the agent: a reply to
 # an email, a letter disputing a document, a memo summing documents up, a table setting them side
 # by side, and a report.
@@ -181,10 +190,11 @@ NATURAL_ORDER = "natural_order"
 # deleted for good, with no trash, and its facts tables downloaded (app/fact_export.py), which is
 # its documents' content leaving the app; a run of its cross-checks is made, by a member or by an
 # automation, a discrepancy report asked of the agent and the run deleted for good
-# (app/check_runs.py), and its automations made, changed and deleted (app/automations.py). A
-# document's review moves from state to state and is assigned to a member (app/reviews.py). A
-# draft is asked of the agent, changed by a member's version or the agent's writing it again, and
-# deleted for good (app/drafts.py), and a version of it downloaded as a file (app/draft_export.py),
+# (app/check_runs.py), and its automations made, changed and deleted (app/automations.py), as
+# are the filing rules that move and tag its new documents (app/filing.py). A document's review
+# moves from state to state and is assigned to a member (app/reviews.py). A draft is asked of the
+# agent, changed by a member's version or the agent's writing it again, and deleted for good
+# (app/drafts.py), and a version of it downloaded as a file (app/draft_export.py),
 # which is what documents say leaving the app; a project's own template of a kind of draft is
 # made, changed and deleted for good (app/draft_templates.py). A project's address is made, its
 # senders, folder or address changed, and taken away (app/inbound.py); a document that arrived
@@ -269,6 +279,9 @@ AUDIT_ACTIONS = (
     "automation_created",
     "automation_changed",
     "automation_deleted",
+    "filing_rule_created",
+    "filing_rule_changed",
+    "filing_rule_deleted",
     "draft_created",
     "draft_changed",
     "draft_deleted",
@@ -1230,6 +1243,13 @@ class Document(Base):
         # A page of a project's documents, the newest first, as the versioned API lists them
         # (app/api/v1/library.py): the same short scan whatever the project holds.
         Index("ix_documents_project_id_id", "project_id", "id"),
+        # A page of a folder in the library's other orders (`SORTS` in app/api/documents.py): as
+        # added, by size, and by the document's own date, those it has before those without one.
+        Index("ix_documents_listing_added", "project_id", "folder_id", "id"),
+        Index("ix_documents_listing_size", "project_id", "folder_id", "size_bytes", "id"),
+        Index("ix_documents_listing_date", "project_id", "folder_id", "doc_date", "id"),
+        # A project's documents of a tag, or of any or all of several (app/tags.py).
+        Index("ix_documents_tag_ids", "tag_ids", postgresql_using="gin"),
         *_trash_indexes("documents", "project_id"),
         # A null review passes, as a check that is not false does.
         _one_of("review", REVIEW_STATES, "documents"),
@@ -1330,6 +1350,17 @@ class Document(Base):
         .scalar_subquery()
     )
     review_changed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    # The ids of its tags (`Tag`), each one of its project's, in the order they were put on it.
+    # On the row rather than in a table of their own, so that tagging a document changes the
+    # row whose version tags the library's pages (`_page_tag` in app/api/documents.py); a tag
+    # deleted is taken out of every document's (app/tags.py).
+    tag_ids: Mapped[list[int]] = mapped_column(
+        ARRAY(Integer), default=list, server_default=text("'{}'::integer[]")
+    )
+    # When its project's filing rules were applied to it (app/filing.py), once, at the end of
+    # the first indexing that read its type and facts; null until then. The documents there were
+    # before the rules were marked filed by the migration that made them.
+    filed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -1408,6 +1439,159 @@ class DocumentVersion(Base):
     )
     uploaded_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
     replaced_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class Tag(Base):
+    """A label of a project's that its members put on its documents (app/tags.py): shown on
+    them in the library, which lists a tag's documents wherever they are, as smart folders and
+    filing rules use them too. A document holds the ids of its tags itself (`Document.tag_ids`)."""
+
+    __tablename__ = "tags"
+    __table_args__ = (
+        # The same name in another case is refused by the route (`name_taken`), which reads
+        # what this cannot.
+        UniqueConstraint("project_id", "name"),
+        _one_of("color", TAG_COLORS, "tags"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # The tenant, as for every row a member reaches by its id.
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(50))
+    # One of TAG_COLORS.
+    color: Mapped[str] = mapped_column(String(20), default="grey", server_default="grey")
+    # Indexed for the account purge.
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class SmartFolder(Base):
+    """A project's saved view of its documents (app/smart_folders.py): those its filter matches,
+    wherever they are, which the library lists as it lists a folder's. Everyone who reads the
+    project sees it; a member who may change the project makes, changes and deletes it."""
+
+    __tablename__ = "smart_folders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # The tenant, as for every row a member reaches by its id.
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(100))
+    # What it matches, as `DocumentFilter` in app/schemas.py writes it: tags, types, a span of
+    # the documents' dates, review states and a folder with its subfolders. A tag or folder it
+    # names that is gone matches nothing, so that it never widens into more than was saved.
+    filter: Mapped[dict] = mapped_column(JSONB)
+    # Indexed for the account purge.
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class FilingRule(Base):
+    """A project's rule for where its new documents go (app/filing.py): once a document has been
+    read for its type and facts, the first rule that moves and whose condition it meets moves it
+    into the rule's folder, or below it by the document's date, if it arrived in the project's
+    root; and every rule that tags and whose condition it meets tags it, wherever it arrived."""
+
+    __tablename__ = "filing_rules"
+    __table_args__ = (
+        _one_of("condition", FILING_CONDITIONS, "filing_rules"),
+        _one_of("action", FILING_ACTIONS, "filing_rules"),
+        # A fact's condition names the field it reads; a type's or a fact's, what it looks for.
+        CheckConstraint("(condition = 'fact') = (field IS NOT NULL)", name="ck_filing_rules_field"),
+        CheckConstraint("(condition = 'any') = (value IS NULL)", name="ck_filing_rules_value"),
+        # A move names its folder (the dated ones may file below the root); a tag, its tag.
+        CheckConstraint(
+            "action <> 'folder' OR folder_id IS NOT NULL", name="ck_filing_rules_folder"
+        ),
+        CheckConstraint("(action = 'tag') = (tag_id IS NOT NULL)", name="ck_filing_rules_tag"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # The tenant, as for every row a member reaches by its id.
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    # One of FILING_CONDITIONS: for `type` the type it is (as `documents.doc_type` writes it,
+    # lowercase), for `fact` the field and what its value holds, whatever its case.
+    condition: Mapped[str] = mapped_column(String(10))
+    field: Mapped[str | None] = mapped_column(String(100))
+    value: Mapped[str | None] = mapped_column(String(200))
+    # One of FILING_ACTIONS. The folder it moves into or files below, null for the root; a folder
+    # or tag deleted for good takes its rules with it.
+    action: Mapped[str] = mapped_column(String(10))
+    folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("folders.id", ondelete="CASCADE"), index=True
+    )
+    tag_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tags.id", ondelete="CASCADE"), index=True
+    )
+    # Off, it files nothing.
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    # Indexed for the account purge.
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class DocumentFavorite(Base):
+    """A document a member starred, which the library lists among their favourites. The member's
+    alone, as a chat's pin is; the row goes with either."""
+
+    __tablename__ = "document_favorites"
+
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+    )
+    # Indexed for an account deleted, whose favourites go with it.
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    starred_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class DocumentVisit(Base):
+    """When a member last opened a document, which the library lists among their recent ones:
+    the newest `RECENT` of each project's are kept (app/recents.py), the rest let go as newer
+    ones come. The member's alone; the row goes with either."""
+
+    __tablename__ = "document_visits"
+
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+    )
+    # Indexed for the member's list, and for an account deleted, whose visits go with it.
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    opened_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 

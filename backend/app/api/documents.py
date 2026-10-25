@@ -1,19 +1,34 @@
 import base64
+import datetime as dt
 import hashlib
 import io
 import json
+import operator
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from anyio import to_thread
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from PIL import ImageOps, UnidentifiedImageError
-from sqlalchemy import DateTime, and_, func, literal_column, or_, select, tuple_
+from sqlalchemy import (
+    ColumnElement,
+    DateTime,
+    Row,
+    and_,
+    func,
+    literal_column,
+    or_,
+    select,
+    text,
+    tuple_,
+)
 from sqlalchemy.orm import Session
 
+from app.accounts import Account
 from app.api.auth import app_url
 from app.api.deps import (
     AccountDep,
@@ -42,26 +57,42 @@ from app.indexing.pipeline import OPTIONAL_STAGES, reset_stages, went_without
 from app.jobs import queue_index
 from app.mail import LISTED
 from app.metrics import UPLOAD_REJECTIONS
-from app.models import STAGES, Block, Document, Fact, Project, Section
+from app.models import (
+    STAGES,
+    Block,
+    Document,
+    DocumentFavorite,
+    DocumentVisit,
+    Fact,
+    Project,
+    Section,
+    SmartFolder,
+    Tag,
+)
 from app.notices import NOT_INDEXED, record_upload, settle_upload
 from app.parsing import IMAGE_TYPES, PAGE_TYPES, FileTooLarge
 from app.parsing.images import open_image
 from app.ratelimit import UPLOADS
+from app.recents import RECENT
 from app.rendering import FOR_PANE, FOR_THUMBNAIL, RenderError, renderer
 from app.sample import SAMPLE_UPLOADS
 from app.scanning import scan_passed
 from app.schemas import (
     DocumentContent,
+    DocumentFilter,
     DocumentOut,
     DocumentPage,
     DocumentPatch,
+    DocumentSort,
     FactOut,
     PassageOut,
     SectionOut,
+    SortOrder,
     UploadFailureOut,
     UploadResult,
     UploadStatusOut,
 )
+from app.smart_folders import matching
 from app.storage import Storage
 from app.trash import trash_document
 from app.uploads import Incoming, take_files
@@ -87,6 +118,19 @@ ONE_PATH_A_FILE = "Give one path for each file uploaded, or none."
 PAGE_SIZE = 100
 MAX_PAGE_SIZE = 500
 BAD_CURSOR = "This page of the folder cannot be found. List the folder again from its start."
+ONE_PLACE = (
+    "Ask for one place of the library at a time: a folder, a tag, a smart folder, your "
+    "favourites or your recent documents."
+)
+# The columns each order of a listing runs by before the id, which `ix_documents_listing` and
+# the `ix_documents_listing_*` indexes serve for a folder; "date" is `doc_date`, its undated
+# documents after the dated (`_listed`).
+SORTS = {
+    "name": (Document.filename,),
+    "added": (),
+    "date": (Document.doc_date,),
+    "size": (Document.size_bytes,),
+}
 # The transaction that wrote a row, which every change to it moves (`_page_tag`).
 ROW_VERSION = literal_column("documents.xmin::text")
 # How many uploads one request may ask about. Each request of the page's upload is an upload of
@@ -126,42 +170,143 @@ _STANDING = (
 def list_documents(
     project: ProjectDep,
     session: SessionDep,
+    account: AccountDep,
     request: Request,
     response: Response,
     folder_id: int | None = None,
+    tag: int | None = None,
+    smart: int | None = None,
+    favorites: bool = False,
+    recent: bool = False,
+    sort: DocumentSort = "name",
+    order: SortOrder = "asc",
     after: str | None = None,
     limit: int = Query(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
-    """A page of the documents directly in a folder (the root when no folder is given), in
-    the library's order, past the one `after` names when it is given.
+    """A page of the documents in one place of the library, in the order asked for, past the one
+    `after` names when it is given: directly in a folder (the root when no folder is given); or
+    wherever they are in the project, those of a tag, of a smart folder (app/smart_folders.py),
+    the reader's favourites, or the documents they opened lately, the newest first (`RECENT` of
+    them, on one page, whatever the order asked for).
 
     The page carries an ETag of exactly what it shows, and a request whose If-None-Match names
     it is answered 304 without a body: the library asks again every moment while a document in
-    the folder is being indexed, and most of those moments change nothing on its page.
+    the place is being indexed, and most of those moments change nothing on its page.
     """
-    folder = resolve_folder(session, project, folder_id)
-    query = select(Document.id, ROW_VERSION).where(
-        Document.project_id == project.id,
-        Document.folder_id == folder.id if folder else Document.folder_id.is_(None),
-        Document.deleted_at.is_(None),
-    )
-    if after is not None:
-        query = query.where(tuple_(Document.filename, Document.id) > tuple_(*_cursor(after)))
-    query = query.order_by(Document.filename, Document.id).limit(limit + 1)
+    place = _place(session, project, account, folder_id, tag, smart, favorites, recent)
+    if place.recent:
+        limit = RECENT
+    cursor = None if after is None or place.recent else _cursor(after, sort, order)
     # The versions alone first: when they are the ones the client holds, nothing more is read
     # or serialised. A page that is sent carries the tag of its own rows, read with them.
-    tag = _page_tag(session.execute(query).all(), limit)
-    if tag in _tags_held(request):
-        return Response(status_code=304, headers={"ETag": tag})
-    rows = session.execute(query.with_only_columns(Document, ROW_VERSION)).all()
+    versions = _listed(session, place, (Document.id, ROW_VERSION), sort, order, cursor, limit)
+    tag_held = _page_tag(versions, limit)
+    if tag_held in _tags_held(request):
+        return Response(status_code=304, headers={"ETag": tag_held})
+    rows = _listed(session, place, (Document, ROW_VERSION), sort, order, cursor, limit)
     response.headers["ETag"] = _page_tag(
         [(document.id, version) for document, version in rows], limit
     )
     documents = [document for document, _ in rows[:limit]]
     return DocumentPage(
         documents=documents,
-        next_after=_cursor_of(documents[-1]) if len(rows) > limit else None,
+        next_after=_cursor_of(documents[-1], sort, order) if len(rows) > limit else None,
     )
+
+
+@dataclass(frozen=True)
+class _Place:
+    """What a listing's documents are: the conditions on them, and the reader's favourites or
+    visits joined to them; `flat` for a place that spans the project's folders."""
+
+    conditions: tuple[ColumnElement, ...]
+    joined: tuple[type[DocumentFavorite] | type[DocumentVisit], ColumnElement] | None = None
+    flat: bool = False
+    recent: bool = False
+
+
+def _place(
+    session: Session,
+    project: Project,
+    account: Account,
+    folder_id: int | None,
+    tag: int | None,
+    smart: int | None,
+    favorites: bool,
+    recent: bool,
+) -> _Place:
+    """The place a listing asks for, the project's own; a folder, tag or smart folder that is not
+    found, and more than one place, are refused."""
+    named = [tag is not None, smart is not None, favorites, recent]
+    if sum(named) > 1 or (any(named) and folder_id is not None):
+        raise HTTPException(422, ONE_PLACE)
+    live = (Document.project_id == project.id, Document.deleted_at.is_(None))
+    if tag is not None:
+        if not session.scalar(select(Tag.id).where(Tag.id == tag, Tag.project_id == project.id)):
+            raise HTTPException(404, "Tag not found")
+        return _Place((*live, Document.tag_ids.contains([tag])), flat=True)
+    if smart is not None:
+        found = session.scalar(
+            select(SmartFolder).where(SmartFolder.id == smart, SmartFolder.project_id == project.id)
+        )
+        if found is None:
+            raise HTTPException(404, "Smart folder not found")
+        chosen = DocumentFilter.model_validate(found.filter)
+        return _Place((*live, *matching(session, project.id, chosen)), flat=True)
+    if favorites or recent:
+        held = DocumentFavorite if favorites else DocumentVisit
+        joined = and_(held.document_id == Document.id, held.user_id == account.user.id)
+        return _Place(live, joined=(held, joined), flat=True, recent=recent)
+    folder = resolve_folder(session, project, folder_id)
+    where = Document.folder_id == folder.id if folder else Document.folder_id.is_(None)
+    return _Place((*live, where))
+
+
+def _listed(
+    session: Session,
+    place: _Place,
+    columns: tuple,
+    sort: str,
+    order: str,
+    cursor: tuple[Any, int] | None,
+    limit: int,
+) -> list[Row]:
+    """The place's rows past the cursor in the order asked for, one more than the page holds
+    when there are more. By a document's date, the dated come first, then the undated, each run
+    by its own index scan, the cursor saying which of the two it is in by its date or its None."""
+    query = select(*columns).where(*place.conditions)
+    if place.joined is not None:
+        query = query.join(*place.joined)
+    if place.recent:
+        latest = DocumentVisit.opened_at.desc(), Document.id.desc()
+        return list(session.execute(query.order_by(*latest).limit(limit)).all())
+    if place.flat:
+        # How many documents a tag or a filter takes decides the plan, so it is planned for
+        # this project rather than once for every one (database.md).
+        session.execute(text("SET LOCAL plan_cache_mode = force_custom_plan"))
+    after = operator.lt if order == "desc" else operator.gt
+    by = (lambda column: column.desc()) if order == "desc" else (lambda column: column.asc())
+    if sort != "date":
+        keys = (*SORTS[sort], Document.id)
+        if cursor is not None:
+            value, document_id = cursor
+            held = (value, document_id) if SORTS[sort] else (document_id,)
+            query = query.where(after(tuple_(*keys), tuple_(*held)))
+        return list(session.execute(query.order_by(*map(by, keys)).limit(limit + 1)).all())
+    rows: list[Row] = []
+    if cursor is None or cursor[0] is not None:
+        dated = query.where(Document.doc_date.is_not(None))
+        if cursor is not None:
+            dated = dated.where(after(tuple_(Document.doc_date, Document.id), tuple_(*cursor)))
+        keys = Document.doc_date, Document.id
+        rows = list(session.execute(dated.order_by(*map(by, keys)).limit(limit + 1)).all())
+    if len(rows) <= limit:
+        undated = query.where(Document.doc_date.is_(None))
+        if cursor is not None and cursor[0] is None:
+            undated = undated.where(after(Document.id, cursor[1]))
+        rest = undated.order_by(by(Document.id)).limit(limit + 1 - len(rows))
+        rows += session.execute(rest).all()
+    return rows
 
 
 def _page_tag(rows: Sequence[tuple[int, str]], limit: int) -> str:
@@ -184,23 +329,56 @@ def _tags_held(request: Request) -> set[str]:
     return {tag.strip().removeprefix("W/") for tag in header.split(",") if tag.strip()}
 
 
-def _cursor_of(document: Document) -> str:
-    """Where the next page starts: after this document's name and id, as `after` takes it. It
-    carries the name rather than the id alone, so that it still holds once the document is
-    renamed, moved or deleted."""
-    encoded = json.dumps([document.filename, document.id]).encode()
+def _cursor_of(document: Document, sort: str, order: str) -> str:
+    """Where the next page starts: after this document's place in the order, as `after` takes
+    it. It carries the value the document is ordered by rather than its id alone, so that it
+    still holds once the document is renamed, moved or deleted; and the order, so that a cursor
+    of another is refused rather than read as this one's. By name ascending, the library's first
+    order, it is the name and id alone, as it was before the others."""
+    if (sort, order) == ("name", "asc"):
+        held: list = [document.filename, document.id]
+    else:
+        value = {
+            "name": document.filename,
+            "added": None,
+            "date": document.doc_date.isoformat() if document.doc_date else None,
+            "size": document.size_bytes,
+        }[sort]
+        held = [f"{sort}:{order}", value, document.id]
+    encoded = json.dumps(held).encode()
     return base64.urlsafe_b64encode(encoded).decode().rstrip("=")
 
 
-def _cursor(after: str) -> tuple[str, int]:
-    """The name and id an `after` carries; anything else is refused rather than guessed at."""
+def _cursor(after: str, sort: str, order: str) -> tuple[Any, int]:
+    """The value and id an `after` carries for the order asked for; anything else, a cursor of
+    another order among them, is refused rather than guessed at."""
     try:
-        name, document_id = json.loads(base64.urlsafe_b64decode(after + "=" * (-len(after) % 4)))
+        held = json.loads(base64.urlsafe_b64decode(after + "=" * (-len(after) % 4)))
     except (ValueError, TypeError):
         raise HTTPException(422, BAD_CURSOR) from None
-    if not isinstance(name, str) or not isinstance(document_id, int) or not 0 < document_id < 2**31:
+    if not isinstance(held, list):
         raise HTTPException(422, BAD_CURSOR)
-    return name, document_id
+    if len(held) == 2:
+        held = ["name:asc", *held]
+    if len(held) != 3 or held[0] != f"{sort}:{order}":
+        raise HTTPException(422, BAD_CURSOR)
+    _, value, document_id = held
+    if not isinstance(document_id, int) or not 0 < document_id < 2**31:
+        raise HTTPException(422, BAD_CURSOR)
+    if sort == "name" and isinstance(value, str):
+        return value, document_id
+    if sort == "added" and value is None:
+        return None, document_id
+    if sort == "size" and type(value) is int and 0 <= value < 2**63:
+        return value, document_id
+    if sort == "date" and value is None:
+        return None, document_id
+    if sort == "date" and isinstance(value, str):
+        try:
+            return dt.date.fromisoformat(value), document_id
+        except ValueError:
+            raise HTTPException(422, BAD_CURSOR) from None
+    raise HTTPException(422, BAD_CURSOR)
 
 
 @router.post(

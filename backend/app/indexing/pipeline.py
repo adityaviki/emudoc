@@ -30,6 +30,7 @@ from app.fact_changes import facts_read, read_now
 from app.fact_changes import record as record_changes
 from app.fact_checks import apply_checks
 from app.fact_checks import hold as hold_checks
+from app.filing import file_if_due
 from app.flags import EXTRACTION_TEMPLATES, flag_on_for
 from app.indexing.enrich import (
     ExtractedFact,
@@ -293,10 +294,12 @@ def process_document(
 
 
 def _make_ready(session: Session, document: Document, lease: Lease | None) -> None:
-    """Make the document ready. The first time, which ends its upload's indexing however many
-    runs and retries that took, the time since the upload is what its members waited
-    (`DOCUMENT_READY`); a later run, after "Index again" or a new embedding model, measures
-    nothing."""
+    """Make the document ready, filed by its project's rules in the same commit if this run read
+    its type and facts for the first time (app/filing.py). The first time, which ends its
+    upload's indexing however many runs and retries that took, the time since the upload is
+    what its members waited (`DOCUMENT_READY`); a later run, after "Index again" or a new
+    embedding model, measures nothing."""
+    file_if_due(session, document)
     document.status = "ready"
     first = document.ready_at is None
     if first:

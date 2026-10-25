@@ -135,6 +135,16 @@ describe('a row', () => {
     expect(describeDetail(event('automation_changed', turnedOff))).toBe(
       'New invoices · any document anywhere, running Totals, off, changed what it watches, on or off',
     )
+    // A filing rule: what it looks at and does, by the type, the field, the folder and the tag, never a fact's words.
+    const filing = { condition: 'type', type: 'invoice', field: null, action: 'by_month', folder: 'Invoices', tag: null, enabled: true }
+    expect(describeDetail(event('filing_rule_created', filing))).toBe('invoice documents, by month under Invoices')
+    const retagged = { ...filing, condition: 'fact', type: null, field: 'supplier_name', action: 'tag', folder: null, tag: 'Acme', enabled: false, changed: ['condition', 'action'] }
+    expect(describeDetail(event('filing_rule_changed', retagged))).toBe(
+      'documents by their supplier name, tagged “Acme”, off, changed what it looks at, what it does',
+    )
+    expect(describeDetail(event('filing_rule_deleted', { ...filing, condition: 'any', type: null, action: 'folder', folder: null }))).toBe(
+      'any document, into the top of the library',
+    )
     expect(describeDetail(event('cross_checks_run', { names: ['Totals'], report: false, automation: 'New invoices' }))).toBe(
       'Totals, by the automation “New invoices”',
     )

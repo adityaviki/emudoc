@@ -104,6 +104,9 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   automation_created: ['Made an automation', 'files'],
   automation_changed: ['Changed an automation', 'files'],
   automation_deleted: ['Deleted an automation', 'files'],
+  filing_rule_created: ['Made a filing rule', 'files'],
+  filing_rule_changed: ['Changed a filing rule', 'files'],
+  filing_rule_deleted: ['Deleted a filing rule', 'files'],
   draft_created: ['Asked for a draft', 'files'],
   draft_changed: ['Changed a draft', 'files'],
   draft_deleted: ['Deleted a draft', 'files'],
@@ -205,7 +208,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   if (event.target_type === 'user' && event.target_id !== null) parts.push(names.get(event.target_id) ?? 'a former member')
   if (typeof detail.entitlement === 'string') parts.push(detail.entitlement.replaceAll('_', ' '))
   // A fact checked or corrected: its field, never what the document says.
-  if (typeof detail.field === 'string') parts.push(fieldWords(detail.field))
+  if (typeof detail.field === 'string' && !FILING_ACTIONS.has(event.action)) parts.push(fieldWords(detail.field))
   if (event.action === 'settings_changed') parts.push(describeSetting(detail))
   else if (event.action === 'flag_changed') parts.push(describeFlag(detail))
   else if (TEMPLATE_ACTIONS.has(event.action)) parts.push(describeTemplate(event.action, detail))
@@ -214,6 +217,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   else if (CROSS_CHECK_ACTIONS.has(event.action)) parts.push(describeCrossCheck(detail))
   else if (RUN_ACTIONS.has(event.action)) parts.push(describeRun(detail))
   else if (AUTOMATION_ACTIONS.has(event.action)) parts.push(describeAutomation(detail))
+  else if (FILING_ACTIONS.has(event.action)) parts.push(describeFilingRule(detail))
   else if (DRAFT_ACTIONS.has(event.action)) parts.push(describeDraft(detail))
   else if (DRAFT_TEMPLATE_ACTIONS.has(event.action)) parts.push(describeDraftTemplate(detail))
   else if (MAILBOX_ACTIONS.has(event.action) && event.action !== 'mailbox_deleted') parts.push(describeMailbox(detail))
@@ -381,6 +385,36 @@ function describeAutomation(detail: AuditEvent['detail']): string {
   if (detail.enabled === false) parts.push('off')
   if (Array.isArray(detail.changed) && detail.changed.length > 0) {
     parts.push(`changed ${detail.changed.map((part) => AUTOMATION_PARTS[String(part)] ?? String(part)).join(', ')}`)
+  }
+  return parts.join(', ')
+}
+
+const FILING_ACTIONS = new Set<AuditAction>(['filing_rule_created', 'filing_rule_changed', 'filing_rule_deleted'])
+
+/** What a change of a filing rule changed, by its parts as the server names them. */
+const FILING_PARTS: Record<string, string> = {
+  condition: 'what it looks at',
+  action: 'what it does',
+  enabled: 'on or off',
+}
+
+/** A project's filing rule made, changed or deleted: what it looks at and what it does, by the type, the field, the folder and the tag, never the words a fact holds. */
+function describeFilingRule(detail: AuditEvent['detail']): string {
+  const parts = [
+    detail.condition === 'type' && typeof detail.type === 'string'
+      ? `${detail.type} documents`
+      : detail.condition === 'fact' && typeof detail.field === 'string'
+        ? `documents by their ${fieldWords(detail.field)}`
+        : 'any document',
+  ]
+  const under = typeof detail.folder === 'string' ? detail.folder : 'the top of the library'
+  if (detail.action === 'folder') parts.push(`into ${under}`)
+  else if (detail.action === 'by_year') parts.push(`by year under ${under}`)
+  else if (detail.action === 'by_month') parts.push(`by month under ${under}`)
+  else if (typeof detail.tag === 'string') parts.push(`tagged “${detail.tag}”`)
+  if (detail.enabled === false) parts.push('off')
+  if (Array.isArray(detail.changed) && detail.changed.length > 0) {
+    parts.push(`changed ${detail.changed.map((part) => FILING_PARTS[String(part)] ?? String(part)).join(', ')}`)
   }
   return parts.join(', ')
 }

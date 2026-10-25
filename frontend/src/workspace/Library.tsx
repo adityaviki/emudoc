@@ -25,14 +25,17 @@ import {
   RefreshCw,
   ScrollText,
   Search,
+  Star,
+  StarOff,
   TableProperties,
+  Tag as TagIcon,
   Trash2,
   Upload,
   WifiOff,
   X,
 } from 'lucide-react'
 import { createElement, Fragment, useEffect, useRef, useState } from 'react'
-import type { DragEvent, KeyboardEvent, MouseEvent, RefObject } from 'react'
+import type { DragEvent, FocusEvent, KeyboardEvent, MouseEvent, RefObject } from 'react'
 import {
   ACCEPTED_EXTENSIONS,
   ACCEPTED_TYPES_LABEL,
@@ -41,8 +44,9 @@ import {
   pageLabel,
   SCOPE_DOCUMENTS,
   sectionPath,
+  thumbnailUrl,
 } from '../api.ts'
-import type { Document, Folder, ScopeIn, SearchHit, UploadItem } from '../api.ts'
+import type { Document, Folder, ListingPlace, ScopeIn, SearchHit, SmartFolder, Tag, UploadItem } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { startChat } from '../chat.ts'
 import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
@@ -58,6 +62,8 @@ import { cursorAfter } from '../focus.ts'
 import { useFolders, useLocalStorage, useOnline, useStatus } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
 import { partlyIndexedWords, restHeld, unfinishedStages } from '../indexing.ts'
+import { SORT_NAMES, emptyPlaceWords, gridMove, hasThumbnail, placeName, placeOf, tagsOf } from '../library.ts'
+import type { LibraryLayout } from '../library.ts'
 import { stateMoves } from '../reviews.ts'
 import { SUMMARY_QUESTION, comparisonQuestion } from '../scopes.ts'
 import { askHeld } from '../status.ts'
@@ -74,12 +80,16 @@ import { MailboxView } from './Mailbox.tsx'
 import { ChangesView } from './FactChanges.tsx'
 import { FactsView } from './FactsTable.tsx'
 import { fileKind, originalFileItem } from './files.ts'
-import { growing, hasMore, listed, showMore, useListings } from './listing.ts'
-import type { Listing } from './listing.ts'
+import { FilingView } from './Filing.tsx'
+import { BY_NAME, growing, hasMore, listed, placeKey, showMore, useListings } from './listing.ts'
+import type { Arrangement, Listing } from './listing.ts'
 import { useLibraryMutations, useReviewChange } from './mutations.ts'
 import type { LibraryMutations } from './mutations.ts'
+import { useDocumentMarks, useDocumentTypes, useFavorites, useOrganizing, useSmartFolders, useTags } from './organizing.ts'
+import { DocumentTagsDialog, PlaceBar, Seen, SmartFolderDialog, TagChips } from './Places.tsx'
 import { ReviewMark, ReviewsView } from './Reviews.tsx'
 import { useWorkspace } from './state.ts'
+import { TagsView } from './Tags.tsx'
 import { TemplatesView } from './Templates.tsx'
 import { TrashView } from './Trash.tsx'
 import { UploadPanel } from './UploadPanel.tsx'
@@ -98,12 +108,12 @@ interface Entry {
 }
 
 /**
- * The line after a folder's files that is not one: while its first page comes, when it has
+ * The line after a place's files that is not one: while its first page comes, when it has
  * more to show, or when it could not be listed.
  */
 interface Gap {
   gap: 'loading' | 'more' | 'failed'
-  folderId: number | null
+  place: ListingPlace
   depth: number
 }
 
@@ -137,6 +147,17 @@ type Uploads = (transfer: DataTransfer, targetId: number | null) => void
 const treeKey = (projectId: number) => `emudoc.tree-open.${projectId}`
 const isIdList = (value: unknown): value is number[] =>
   Array.isArray(value) && value.every((id) => typeof id === 'number')
+// The order and the layout the member chose last, in this browser.
+const ARRANGEMENT_KEY = 'emudoc.library-order'
+const LAYOUT_KEY = 'emudoc.library-layout'
+const isArrangement = (value: unknown): value is Arrangement =>
+  typeof value === 'object' &&
+  value !== null &&
+  SORT_NAMES.includes((value as Arrangement).sort) &&
+  ['asc', 'desc'].includes((value as Arrangement).order)
+const isLayout = (value: unknown): value is LibraryLayout => value === 'list' || value === 'grid'
+// How wide a tile of the grid is at the least, with the gap after it, in pixels.
+const TILE_WIDTH = 128
 
 /**
  * The file manager: a folder's contents, with search over the whole project or the folder. A
@@ -188,6 +209,26 @@ export function Library() {
   const folderName = (id: number | null | undefined) => tree.byId.get(id ?? -1)?.name ?? project.name
   const { followed } = mutations
 
+  // A tag's documents, a smart folder's, the member's favourites or recent ones, each across the
+  // project's folders; else the folder's tree.
+  const place: ListingPlace = placeOf(workspace.url.library) ?? { folder: folderId }
+  const flat = !('folder' in place)
+  const [arrangement, setArrangement] = useLocalStorage<Arrangement>(ARRANGEMENT_KEY, BY_NAME, isArrangement)
+  const [layout, setLayout] = useLocalStorage<LibraryLayout>(LAYOUT_KEY, 'list', isLayout)
+  const tags = useTags(project.id)
+  const smartFolders = useSmartFolders(project.id)
+  const organizing = useOrganizing(project.id)
+  const [smartEditing, setSmartEditing] = useState<{ smart: SmartFolder | null } | null>(null)
+  const [smartAsking, setSmartAsking] = useState<SmartFolder | null>(null)
+  const openSmart = 'smart' in place ? smartFolders.data?.smart_folders.find((smart) => smart.id === place.smart) : undefined
+  // A tag or smart folder deleted, here or elsewhere, falls back to the root.
+  const placeGone =
+    ('tag' in place && tags.isSuccess && !tags.data.tags.some((tag) => tag.id === place.tag)) ||
+    ('smart' in place && smartFolders.isSuccess && openSmart === undefined)
+  useEffect(() => {
+    if (placeGone) workspace.goToFolder(null, { replace: true })
+  }, [placeGone, workspace])
+
   function uploadItems(items: UploadItem[], targetId: number | null, unread: string[] = []) {
     const refusal = project.sample ? SAMPLE_UPLOADS : mutations.startUpload(items, targetId, unread)
     if (refusal) mutations.setNotice(refusal)
@@ -224,6 +265,9 @@ export function Library() {
   if (workspace.url.library.draftTemplates && drafts) return <DraftTemplatesView />
   if (workspace.url.library.mail && mail) return <MailboxView />
   if (workspace.url.library.connectors && connectors) return <ConnectorsView />
+  if (workspace.url.library.tags) return <TagsView />
+  if (workspace.url.library.filing) return <FilingView />
+  const placeLabel = flat ? placeName(place, tags.data?.tags ?? [], smartFolders.data?.smart_folders ?? []) : null
   return (
     <div
       data-tour="library"
@@ -245,8 +289,24 @@ export function Library() {
       }}
     >
       <div className="@container shrink-0 border-b border-line bg-surface">
-        <div className="flex h-11 items-center px-3">
-          <Breadcrumb folderId={folderId} mutations={mutations} dragging={dragging} onUpload={uploads ? uploadDropped : null} />
+        <div className="flex h-11 items-center gap-1 px-3">
+          <Breadcrumb
+            folderId={folderId}
+            placeLabel={placeLabel}
+            mutations={mutations}
+            dragging={dragging}
+            onUpload={uploads ? uploadDropped : null}
+          />
+          {openSmart && changes && (
+            <span className="ml-auto flex shrink-0 gap-0.5">
+              <IconButton label={`Change “${openSmart.name}”`} onClick={() => setSmartEditing({ smart: openSmart })}>
+                <Pencil className="size-3.5" />
+              </IconButton>
+              <IconButton label={`Delete “${openSmart.name}”`} danger onClick={() => setSmartAsking(openSmart)}>
+                <Trash2 className="size-3.5" />
+              </IconButton>
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2 px-3 pb-2.5">
           <SearchBox query={query} scope={folderId == null ? null : currentName} />
@@ -316,7 +376,7 @@ export function Library() {
               <Button
                 icon={<FolderPlus className="size-4" />}
                 onClick={() => setCreating(true)}
-                disabled={!!query}
+                disabled={!!query || flat}
                 title="New folder"
                 aria-label="New folder"
                 className="px-2"
@@ -363,6 +423,20 @@ export function Library() {
             </>
           )}
         </div>
+        <PlaceBar
+          place={place}
+          arrangement={arrangement}
+          onArrange={setArrangement}
+          layout={layout}
+          onLayout={setLayout}
+          tags={tags.data?.tags ?? []}
+          smartFolders={smartFolders.data?.smart_folders ?? []}
+          changes={changes}
+          onPlace={(chosen) => ('folder' in chosen ? workspace.goToFolder(null) : workspace.showPlace(chosen))}
+          onNewSmartFolder={() => setSmartEditing({ smart: null })}
+          onTags={workspace.showTags}
+          onFiling={workspace.showFiling}
+        />
       </div>
 
       <div className="shrink-0 space-y-2 empty:hidden px-3 pt-2">
@@ -490,8 +564,12 @@ export function Library() {
           <SearchResults query={query} folderId={folderId} scope={folderId == null ? null : currentName} />
         ) : (
           <Listing
-            key={folderId ?? 'root'}
-            folderId={folderId}
+            key={`${placeKey(place)}:${layout}`}
+            place={place}
+            arrangement={arrangement}
+            layout={layout}
+            tags={tags.data?.tags ?? []}
+            canTag={(tags.data?.tags.length ?? 0) < (tags.data?.max_tags ?? 0)}
             creating={creating}
             onCreatingChange={setCreating}
             mutations={mutations}
@@ -576,6 +654,36 @@ export function Library() {
         </>
       )}
 
+      {smartEditing && (
+        <SmartFolderEditor
+          editing={smartEditing.smart}
+          tags={tags.data?.tags ?? []}
+          folders={folders.data ?? []}
+          reviews={templates}
+          onSave={(name, filter) =>
+            organizing.saveSmartFolder.mutate(
+              { id: smartEditing.smart?.id ?? null, name, filter },
+              { onSuccess: (saved) => workspace.showPlace({ smart: saved.id }), onError: (error) => mutations.setNotice(error.message) },
+            )
+          }
+          onClose={() => setSmartEditing(null)}
+        />
+      )}
+      {smartAsking && (
+        <Confirm
+          title={`Delete the smart folder “${smartAsking.name}”?`}
+          body="It lists the documents no more; they stay where they are, as they are."
+          action="Delete"
+          onConfirm={() =>
+            organizing.deleteSmartFolder.mutate(smartAsking.id, {
+              onSuccess: () => workspace.goToFolder(null),
+              onError: (error) => mutations.setNotice(error.message),
+            })
+          }
+          onClose={() => setSmartAsking(null)}
+        />
+      )}
+
       {workspace.draggingFiles && overPane && (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-page/80 p-4 backdrop-blur-xs">
           <div className="rounded-xl border-2 border-dashed border-accent/60 bg-surface px-8 py-6 text-center text-sm shadow-lg shadow-ink/5">
@@ -591,8 +699,17 @@ export function Library() {
   )
 }
 
+/** The smart folder form, with the types the model gave the project's documents to choose from, asked for as it opens. */
+function SmartFolderEditor(props: Omit<Parameters<typeof SmartFolderDialog>[0], 'types'>) {
+  const { project } = useWorkspace()
+  const types = useDocumentTypes(project.id)
+  return <SmartFolderDialog {...props} types={types.data ?? []} />
+}
+
 interface BreadcrumbProps {
   folderId: number | null
+  /** The name of a place that is not a folder, which follows the project's in the path; null for a folder's. */
+  placeLabel: string | null
   mutations: LibraryMutations
   dragging: DragRef
   /** Null for a role that may not change the library: then the path takes no drops. */
@@ -600,11 +717,14 @@ interface BreadcrumbProps {
 }
 
 /** The path to the current folder. Each part opens that folder and takes drops into it. */
-function Breadcrumb({ folderId, mutations, dragging, onUpload }: BreadcrumbProps) {
+function Breadcrumb({ folderId, placeLabel, mutations, dragging, onUpload }: BreadcrumbProps) {
   const workspace = useWorkspace()
+  // A place that is not a folder follows the project's root, where nothing is dropped; -1 is no folder's id.
   const crumbs: { id: number | null; name: string }[] = [
     { id: null, name: workspace.project.name },
-    ...workspace.tree.pathTo(folderId).map((folder) => ({ id: folder.id, name: folder.name })),
+    ...(placeLabel === null
+      ? workspace.tree.pathTo(folderId).map((folder) => ({ id: folder.id, name: folder.name }))
+      : [{ id: -1, name: placeLabel }]),
   ]
   const [over, setOver] = useState<number | null | 'none'>('none')
 
@@ -718,7 +838,15 @@ function SearchBox({ query, scope }: { query: string; scope: string | null }) {
 }
 
 interface ListingProps {
-  folderId: number | null
+  /** A folder, shown as a tree of it and the folders in it; or a place across the project's folders, shown flat. */
+  place: ListingPlace
+  arrangement: Arrangement
+  /** Rows, or a grid of tiles of the place itself, its folders opened by going into them. */
+  layout: LibraryLayout
+  /** The project's tags, which each document's are read by. */
+  tags: Tag[]
+  /** Whether the project has room for one more tag, which the tags' dialog then offers to make. */
+  canTag: boolean
   creating: boolean
   onCreatingChange: (creating: boolean) => void
   mutations: LibraryMutations
@@ -735,9 +863,13 @@ interface ListingProps {
   onPickVersion?: (document: Document) => void
 }
 
-/** The folders and files in one folder, with selection, renaming, drag and drop and a menu. */
+/** The folders and files in one place, with selection, renaming, drag and drop and a menu. */
 function Listing({
-  folderId,
+  place,
+  arrangement,
+  layout,
+  tags,
+  canTag,
   creating,
   onCreatingChange,
   mutations,
@@ -759,12 +891,19 @@ function Listing({
   const { tree, project } = workspace
   const [openFolders, setOpenFolders] = useLocalStorage<number[]>(treeKey(project.id), [], isIdList)
   const review = useReviewChange(project.id)
-  const openSet = new Set(openFolders)
-  // Each folder the tree shows open is listed by itself, a page at a time.
-  const listedFolders = foldersShown(tree, folderId, openSet)
-  const listingResults = useListings(project.id, listedFolders)
-  const listings = new Map(listedFolders.map((id, index) => [id, listingResults[index]]))
-  const lines = treeLines(tree, listings, folderId, openSet)
+  const marks = useDocumentMarks(project.id, (error) => mutations.setNotice(error.message))
+  const organizing = useOrganizing(project.id)
+  const favorites = useFavorites(project.id)
+  const flat = !('folder' in place)
+  const grid = layout === 'grid'
+  const folderId = 'folder' in place ? place.folder : null
+  // The grid shows the folder's own contents, its folders opened by going into them; a flat place has no folders.
+  const openSet = flat || grid ? new Set<number>() : new Set(openFolders)
+  // Each folder the tree shows open is listed by itself, a page at a time; a flat place is one listing.
+  const listedPlaces: ListingPlace[] = flat ? [place] : foldersShown(tree, folderId, openSet).map((id) => ({ folder: id }))
+  const listingResults = useListings(project.id, listedPlaces, arrangement)
+  const listings = new Map(listedPlaces.map((listedPlace, index) => [placeKey(listedPlace), listingResults[index]]))
+  const lines = flat ? flatLines(place, listings.get(placeKey(place))) : treeLines(tree, listings, folderId, openSet)
   const entries = lines.filter(isEntry)
   const items = entries.map((entry) => entry.item)
   const keys = items.map(itemKey)
@@ -777,8 +916,11 @@ function Listing({
   const [cursor, setCursor] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
-  // What "Move to…" moves while its dialog asks where.
+  // What "Move to…" moves while its dialog asks where, and the document whose tags are being chosen.
   const [moving, setMoving] = useState<Item[] | null>(null)
+  const [tagging, setTagging] = useState<Document | null>(null)
+  // How many tiles a row of the grid holds, from the listing's width.
+  const [columns, setColumns] = useState(1)
   const menu = useContextMenu()
   const list = useRef<HTMLDivElement>(null)
   // A closed folder held under a drag opens after a moment, so the drag can go deeper.
@@ -799,6 +941,18 @@ function Listing({
     },
     [],
   )
+
+  // The grid's scroller, whose width less its padding the tiles share; there before the first page comes.
+  const scroller = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const element = scroller.current
+    if (!grid || !element) return
+    const measure = () => setColumns(Math.max(1, Math.floor((element.clientWidth - 16 + 8) / TILE_WIDTH)))
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [grid])
 
   function select(key: string, event?: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) {
     setCursor(key)
@@ -825,6 +979,12 @@ function Listing({
     else workspace.openDocument(item.document.id)
   }
 
+  /** The folder a document of a flat place is in, by its path, to say where it is. */
+  function whereOf(document: Document): string {
+    const path = tree.pathTo(document.folder_id).map((folder) => folder.name)
+    return path.length ? path.join(' / ') : project.name
+  }
+
   function setExpanded(id: number, expanded: boolean) {
     // Closing a folder over the cursor moves the cursor up to it.
     const at = cursor ? items[keys.indexOf(cursor)] : undefined
@@ -833,9 +993,9 @@ function Listing({
     setOpenFolders((current) => (expanded ? [...new Set([...current, id])] : current.filter((open) => open !== id)))
   }
 
-  /** A folder opens in place; a file opens in the middle pane. */
+  /** A folder opens in place in the tree, and is gone into in the grid; a file opens in the middle pane. */
   function activate(item: Item) {
-    if (item.kind === 'folder') setExpanded(item.folder.id, !openSet.has(item.folder.id))
+    if (item.kind === 'folder' && !grid) setExpanded(item.folder.id, !openSet.has(item.folder.id))
     else open(item)
   }
 
@@ -949,7 +1109,18 @@ function Listing({
     if (item.kind === 'folder') {
       return [{ label: 'Open', onSelect: () => open(item) }, ...asked, ...(changes ? ['separator' as const, rename, moveTo, 'separator' as const, del] : [])]
     }
-    const reading: MenuItem[] = [{ label: 'Open', onSelect: () => open(item) }, originalFileItem(item.document), ...asked]
+    const starred = favorites.has(item.document.id)
+    const reading: MenuItem[] = [
+      { label: 'Open', onSelect: () => open(item) },
+      originalFileItem(item.document),
+      ...asked,
+      // Each reader's own, a viewer's too.
+      {
+        label: starred ? 'Remove from favourites' : 'Add to favourites',
+        icon: starred ? StarOff : Star,
+        onSelect: () => marks.star.mutate({ id: item.document.id, starred: !starred }),
+      },
+    ]
     if (!changes) return reading
     // A document's review moves from its menu, while reviews are rolled out to the organisation.
     const moves: MenuItem[] = reviews
@@ -984,6 +1155,7 @@ function Listing({
       : []
     return [
       ...reading,
+      { label: 'Tags…', icon: TagIcon, onSelect: () => setTagging(item.document) },
       rename,
       moveTo,
       ...version,
@@ -1002,7 +1174,8 @@ function Listing({
   }
 
   const backgroundMenu: MenuItem[] = [
-    ...(changes
+    // A flat place holds no folder of its own to make one in, and what is uploaded there goes to the root.
+    ...(changes && !flat
       ? ([
           { label: 'New folder', icon: FolderPlus, onSelect: () => onCreatingChange(true) },
           { label: 'Upload files', icon: Upload, onSelect: onPickFiles },
@@ -1011,22 +1184,27 @@ function Listing({
         ] satisfies MenuItem[])
       : []),
     { label: 'Select all', shortcut: 'Ctrl+A', disabled: !items.length, onSelect: () => setSelected(new Set(keys)) },
-    'separator',
-    {
-      label: 'Expand all',
-      icon: ChevronsUpDown,
-      // Every folder below this one that has subfolders or files of its own.
-      onSelect: () => setOpenFolders((current) => [...new Set([...current, ...expandable(tree, folderId)])]),
-    },
-    {
-      label: 'Collapse all',
-      icon: ChevronsDownUp,
-      disabled: !entries.some((entry) => entry.depth > 0),
-      onSelect: () => {
-        const shown = folderId == null ? null : tree.subtree(folderId)
-        setOpenFolders((current) => (shown ? current.filter((id) => id === folderId || !shown.has(id)) : []))
-      },
-    },
+    // Only the tree opens folders in place.
+    ...(flat || grid
+      ? []
+      : ([
+          'separator',
+          {
+            label: 'Expand all',
+            icon: ChevronsUpDown,
+            // Every folder below this one that has subfolders or files of its own.
+            onSelect: () => setOpenFolders((current) => [...new Set([...current, ...expandable(tree, folderId)])]),
+          },
+          {
+            label: 'Collapse all',
+            icon: ChevronsDownUp,
+            disabled: !entries.some((entry) => entry.depth > 0),
+            onSelect: () => {
+              const shown = folderId == null ? null : tree.subtree(folderId)
+              setOpenFolders((current) => (shown ? current.filter((id) => id === folderId || !shown.has(id)) : []))
+            },
+          },
+        ] satisfies MenuItem[])),
   ]
 
   function onContextMenu(event: MouseEvent, item?: Item) {
@@ -1051,6 +1229,13 @@ function Listing({
       event.preventDefault()
       select(keys[Math.max(0, Math.min(keys.length - 1, next))], { ctrlKey: false, metaKey: false, shiftKey: event.shiftKey })
     }
+    // The grid's arrows move by a tile and by a row; its folders are gone into with Enter.
+    if (grid && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) && !event.altKey) {
+      const next = gridMove(event.key, index, columns, keys.length, event.ctrlKey || event.metaKey)
+      event.preventDefault()
+      if (next !== null) moveTo(next)
+      return
+    }
     switch (event.key) {
       case 'ArrowDown':
         return moveTo(index < 0 ? 0 : index + 1)
@@ -1074,7 +1259,7 @@ function Listing({
           event.preventDefault()
           const parent = parentOf(item)
           if (item.kind === 'folder' && openSet.has(item.folder.id)) setExpanded(item.folder.id, false)
-          else if (parent != null && parent !== folderId) moveTo(keys.indexOf(`f:${parent}`))
+          else if (!flat && parent != null && parent !== folderId) moveTo(keys.indexOf(`f:${parent}`))
         }
         return
       case 'Home':
@@ -1171,127 +1356,181 @@ function Listing({
   }
 
   const empty = lines.length === 0 && !creating
+  const emptyState = empty &&
+    (flat ? (
+      <EmptyState icon={<FolderIcon />} title={emptyPlaceWords(place).title}>
+        {emptyPlaceWords(place).body}
+      </EmptyState>
+    ) : (
+      <EmptyState icon={<FolderIcon />} title={folderId == null ? 'This library is empty' : 'This folder is empty'}>
+        {changes ? (
+          <>
+            Upload files or drop them here. Each one is parsed, outlined and indexed in the background.
+            <br />
+            {ACCEPTED_TYPES_LABEL}.
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <Button variant="primary" icon={<Upload className="size-4" />} onClick={onPickFiles}>
+                Upload files
+              </Button>
+              <Button icon={<FolderUp className="size-4" />} onClick={onPickFolder}>
+                Upload a folder
+              </Button>
+            </div>
+          </>
+        ) : (
+          'Nothing has been uploaded here yet. Your role is viewer, so the files a member uploads show here for you to read and ask about.'
+        )}
+      </EmptyState>
+    ))
+  const ghost = creating && (
+    <GhostFolderRow
+      onCommit={(name) => {
+        onCreatingChange(false)
+        const trimmed = name.trim()
+        if (!trimmed) return
+        if (trimmed.includes('/')) {
+          mutations.setNotice("A name cannot contain '/'.")
+          return
+        }
+        mutations.createFolder.mutate({ name: trimmed, parentId: folderId })
+      }}
+      onCancel={() => onCreatingChange(false)}
+    />
+  )
+  const gapOf = (line: Gap) => {
+    const held = listings.get(placeKey(line.place))
+    return (
+      <GapRow
+        key={`gap:${placeKey(line.place) ?? 'root'}`}
+        gap={line}
+        busy={growing(held?.data)}
+        onMore={() => showMore(queryClient, project.id, line.place, arrangement)}
+        onRetry={() => held?.refetch()}
+      />
+    )
+  }
+  const propsOf = (item: Item, depth: number): RowProps => {
+    const key = itemKey(item)
+    return {
+      item,
+      depth,
+      expanded: item.kind === 'folder' && openSet.has(item.folder.id),
+      selected: liveSelected.has(key),
+      isCursor: cursor === key,
+      renaming: renaming === key,
+      // A flat place holds no folder to drag a file into.
+      movable: changes && !flat,
+      dropping: dropTarget === key,
+      tags: item.kind === 'file' ? tagsOf(item.document, tags) : [],
+      favorite: item.kind === 'file' && favorites.has(item.document.id),
+      where: flat && item.kind === 'file' ? whereOf(item.document) : undefined,
+      onSelect: (event) => select(key, event),
+      onOpen: () => activate(item),
+      onToggle: () => item.kind === 'folder' && setExpanded(item.folder.id, !openSet.has(item.folder.id)),
+      onContextMenu: (event) => onContextMenu(event, item),
+      onMenuButton: (element) => {
+        select(key)
+        menu.openAt(element, itemsMenu([item]))
+      },
+      onRename: (value) => commitRename(item, value),
+      onCancelRename: () => setRenaming(null),
+      onDragStart: (event) => onDragStart(event, item),
+      onDragEnd: () => {
+        onDragChange(null)
+        setDropTarget(null)
+        cancelExpand()
+      },
+      onDragOver: changes && item.kind === 'folder' ? (event) => onFolderDragOver(event, item.folder) : undefined,
+      onDragLeave: (event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+        if (dropTarget === key) setDropTarget(null)
+        if (item.kind === 'folder' && expandTimer.current?.id === item.folder.id) cancelExpand()
+      },
+      onDrop: changes && item.kind === 'folder' ? (event) => onFolderDrop(event, item.folder) : undefined,
+      folderCount: item.kind === 'folder' ? (tree.children.get(item.folder.id)?.length ?? 0) + item.folder.document_count : undefined,
+    }
+  }
+  // The listing is one stop of the keyboard, its cursor the row or tile a screen reader reads out; busy while a page of
+  // it comes, when its line says so in a row's place.
+  const keyboard = {
+    ref: list,
+    'aria-label': 'Files',
+    'aria-busy': lines.some((line) => !isEntry(line) && line.gap === 'loading') || undefined,
+    'aria-multiselectable': true,
+    'aria-activedescendant': cursor && present.has(cursor) ? rowId(cursor) : undefined,
+    tabIndex: 0,
+    // Tabbed into without a cursor, the cursor starts on the first row; a click puts it on its own.
+    onFocus: (event: FocusEvent<HTMLDivElement>) => {
+      const tabbed = event.target === event.currentTarget && event.currentTarget.matches(':focus-visible')
+      if (tabbed && !(cursor && present.has(cursor)) && keys.length) setCursor(keys[0])
+    },
+    onKeyDown,
+  }
+  const background = {
+    onContextMenu: (event: MouseEvent) => onContextMenu(event),
+    onClick: (event: MouseEvent) => {
+      if (event.target === event.currentTarget) setSelected(new Set())
+    },
+  }
+  // The grid's rows, each `columns` tiles, a gap after a place's files on a row of its own.
+  const gridRows: Line[][] = []
+  for (const line of lines) {
+    const last = gridRows.at(-1)
+    if (isEntry(line) && last && last.length < columns && isEntry(last[0])) last.push(line)
+    else gridRows.push([line])
+  }
   return (
     <>
-      <div
-        ref={list}
-        role="tree"
-        aria-label="Files"
-        aria-multiselectable
-        // The listing is one stop of the keyboard, its cursor the row a screen reader reads out.
-        aria-activedescendant={cursor && present.has(cursor) ? rowId(cursor) : undefined}
-        tabIndex={0}
-        // Tabbed into without a cursor, the cursor starts on the first row; a click puts it on its own.
-        onFocus={(event) => {
-          const tabbed = event.target === event.currentTarget && event.currentTarget.matches(':focus-visible')
-          if (tabbed && !(cursor && present.has(cursor)) && keys.length) setCursor(keys[0])
-        }}
-        onKeyDown={onKeyDown}
-        onContextMenu={(event) => onContextMenu(event)}
-        onClick={(event) => {
-          if (event.target === event.currentTarget) setSelected(new Set())
-        }}
-        className="group/list min-h-0 flex-1 overflow-y-auto p-2 outline-none"
-      >
-        {empty && (
-          <EmptyState icon={<FolderIcon />} title={folderId == null ? 'This library is empty' : 'This folder is empty'}>
-            {changes ? (
-              <>
-                Upload files or drop them here. Each one is parsed, outlined and indexed in the background.
-                <br />
-                {ACCEPTED_TYPES_LABEL}.
-                <div className="mt-4 flex flex-wrap justify-center gap-2">
-                  <Button variant="primary" icon={<Upload className="size-4" />} onClick={onPickFiles}>
-                    Upload files
-                  </Button>
-                  <Button icon={<FolderUp className="size-4" />} onClick={onPickFolder}>
-                    Upload a folder
-                  </Button>
-                </div>
-              </>
-            ) : (
-              'Nothing has been uploaded here yet. Your role is viewer, so the files a member uploads show here for you to read and ask about.'
-            )}
-          </EmptyState>
-        )}
-        {creating && (
-          <GhostFolderRow
-            onCommit={(name) => {
-              onCreatingChange(false)
-              const trimmed = name.trim()
-              if (!trimmed) return
-              if (trimmed.includes('/')) {
-                mutations.setNotice("A name cannot contain '/'.")
-                return
-              }
-              mutations.createFolder.mutate({ name: trimmed, parentId: folderId })
-            }}
-            onCancel={() => onCreatingChange(false)}
-          />
-        )}
-        {lines.map((line) => {
-          if (!isEntry(line)) {
-            const listing = listings.get(line.folderId)?.data
-            return (
-              <GapRow
-                key={`gap:${line.folderId ?? 'root'}`}
-                gap={line}
-                busy={growing(listing)}
-                onMore={() => showMore(queryClient, project.id, line.folderId)}
-                onRetry={() => listings.get(line.folderId)?.refetch()}
-              />
-            )
-          }
-          const { item, depth } = line
-          const key = itemKey(item)
-          return (
-            <Row
-              key={key}
-              item={item}
-              depth={depth}
-              expanded={item.kind === 'folder' && openSet.has(item.folder.id)}
-              selected={liveSelected.has(key)}
-              isCursor={cursor === key}
-              renaming={renaming === key}
-              movable={changes}
-              dropping={dropTarget === key}
-              onSelect={(event) => select(key, event)}
-              onOpen={() => activate(item)}
-              onToggle={() => item.kind === 'folder' && setExpanded(item.folder.id, !openSet.has(item.folder.id))}
-              onContextMenu={(event) => onContextMenu(event, item)}
-              onMenuButton={(element) => {
-                select(key)
-                menu.openAt(element, itemsMenu([item]))
-              }}
-              onRename={(value) => commitRename(item, value)}
-              onCancelRename={() => setRenaming(null)}
-              onDragStart={(event) => onDragStart(event, item)}
-              onDragEnd={() => {
-                onDragChange(null)
-                setDropTarget(null)
-                cancelExpand()
-              }}
-              onDragOver={changes && item.kind === 'folder' ? (event) => onFolderDragOver(event, item.folder) : undefined}
-              onDragLeave={(event) => {
-                if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
-                if (dropTarget === key) setDropTarget(null)
-                if (item.kind === 'folder' && expandTimer.current?.id === item.folder.id) cancelExpand()
-              }}
-              onDrop={changes && item.kind === 'folder' ? (event) => onFolderDrop(event, item.folder) : undefined}
-              folderCount={
-                item.kind === 'folder' ? (tree.children.get(item.folder.id)?.length ?? 0) + item.folder.document_count : undefined
-              }
-            />
-          )
-        })}
-        {menu.element}
-      </div>
+      {grid ? (
+        <div ref={scroller} {...background} className="min-h-0 flex-1 overflow-y-auto p-2">
+          {emptyState}
+          {ghost}
+          {lines.length > 0 && (
+            <div {...keyboard} role="grid" className="group/list space-y-2 outline-none">
+              {gridRows.map((row) =>
+                isEntry(row[0]) ? (
+                  <div
+                    key={itemKey(row[0].item)}
+                    role="row"
+                    className="grid gap-2"
+                    style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+                  >
+                    {row.flatMap((line) => (isEntry(line) ? [<Tile key={itemKey(line.item)} {...propsOf(line.item, 0)} />] : []))}
+                  </div>
+                ) : (
+                  <div key={`gap:${placeKey((row[0] as Gap).place) ?? 'root'}`} role="row">
+                    <div role="gridcell">{gapOf(row[0] as Gap)}</div>
+                  </div>
+                ),
+              )}
+            </div>
+          )}
+          {menu.element}
+        </div>
+      ) : (
+        <div {...keyboard} {...background} role="tree" className="group/list min-h-0 flex-1 overflow-y-auto p-2 outline-none">
+          {emptyState}
+          {ghost}
+          {lines.map((line) => (isEntry(line) ? <Row key={itemKey(line.item)} {...propsOf(line.item, line.depth)} /> : gapOf(line)))}
+          {menu.element}
+        </div>
+      )}
       {moving && (
         <MoveDialog
           items={moving}
           places={placesFor(tree, project.name, payloadOf(outermost(moving, tree)))}
           onMove={(targetId) => move(moving, targetId)}
           onClose={() => setMoving(null)}
+        />
+      )}
+      {tagging && (
+        <DocumentTagsDialog
+          document={tagging}
+          tags={tags}
+          room={canTag}
+          onCreate={(name, color) => organizing.createTag.mutateAsync({ name, color })}
+          onSave={(tagIds) => marks.tag.mutate({ id: tagging.id, tagIds })}
+          onClose={() => setTagging(null)}
         />
       )}
     </>
@@ -1388,21 +1627,35 @@ function foldersShown(tree: FolderTree, rootId: number | null, open: Set<number>
  * The lines under a folder as the tree shows them: each open folder followed by its contents,
  * the subfolders by name and then the files in the order the server lists them.
  */
-function treeLines(tree: FolderTree, listings: Map<number | null, ListingResult>, rootId: number | null, open: Set<number>): Line[] {
+function treeLines(
+  tree: FolderTree,
+  listings: Map<number | string | null, ListingResult>,
+  rootId: number | null,
+  open: Set<number>,
+): Line[] {
   const lines: Line[] = []
   const visit = (folderId: number | null, depth: number) => {
     for (const folder of tree.children.get(folderId) ?? []) {
       lines.push({ item: { kind: 'folder', folder }, depth })
       if (open.has(folder.id)) visit(folder.id, depth + 1)
     }
-    const listing = listings.get(folderId)
-    if (!listing) return
-    for (const document of listed(listing.data)) lines.push({ item: { kind: 'file', document }, depth })
-    if (listing.isPending) lines.push({ gap: 'loading', folderId, depth })
-    else if (listing.isError && !listing.data) lines.push({ gap: 'failed', folderId, depth })
-    else if (hasMore(listing.data)) lines.push({ gap: 'more', folderId, depth })
+    lines.push(...listingLines({ folder: folderId }, listings.get(folderId), depth))
   }
   visit(rootId, 0)
+  return lines
+}
+
+/** The lines of a place that is not a folder: its documents, wherever they are, and the gap after them. */
+function flatLines(place: ListingPlace, listing: ListingResult | undefined): Line[] {
+  return listingLines(place, listing, 0)
+}
+
+function listingLines(place: ListingPlace, listing: ListingResult | undefined, depth: number): Line[] {
+  if (!listing) return []
+  const lines: Line[] = listed(listing.data).map((document) => ({ item: { kind: 'file', document }, depth }))
+  if (listing.isPending) lines.push({ gap: 'loading', place, depth })
+  else if (listing.isError && !listing.data) lines.push({ gap: 'failed', place, depth })
+  else if (hasMore(listing.data)) lines.push({ gap: 'more', place, depth })
   return lines
 }
 
@@ -1429,6 +1682,12 @@ interface RowProps {
   item: Item
   /** How far below the shown folder the item sits, which is how far it is indented. */
   depth: number
+  /** A file's tags, as its project holds them. */
+  tags: Tag[]
+  /** Whether the reader starred the file. */
+  favorite: boolean
+  /** In a place across the project's folders, the folder a file is in, by its path. */
+  where?: string
   /** Whether a folder shows its contents. */
   expanded: boolean
   selected: boolean
@@ -1458,6 +1717,40 @@ function ItemIcon({ item, className }: { item: Item; className: string }) {
   return createElement(kind.icon, { className: `${className} ${kind.color}`, 'aria-label': kind.label })
 }
 
+/**
+ * What describes a file's row or tile, by the ids of what says it: its state as the status icon gives it, its review, its
+ * tags, its star and where it is, rather than all it holds.
+ */
+function describedBy(id: string, props: RowProps): string | undefined {
+  if (props.item.kind === 'folder') return undefined
+  const parts = [`${id}-status`, props.item.document.review && `${id}-review`, props.tags.length > 0 && `${id}-tags`]
+  return [...parts, props.favorite && `${id}-star`, props.where && `${id}-where`].filter(Boolean).join(' ')
+}
+
+/** A star on a file the reader made a favourite, read out as one in its description (a `hidden` word, as `TagChips`'). */
+function FavoriteMark({ id }: { id: string }) {
+  return (
+    <span className="ml-1.5 flex shrink-0">
+      <Star aria-hidden className="size-3.5 fill-warn text-warn" />
+      <span id={id} hidden>
+        Favourite
+      </span>
+    </span>
+  )
+}
+
+/** Where a file of a place across the folders is, for the eye beside its name and for its description apart. */
+function Where({ id, where, className = '' }: { id: string; where: string; className?: string }) {
+  return (
+    <>
+      <Seen text={`in ${where}`} className={`text-[11px] text-muted ${className}`} />
+      <span id={id} hidden>
+        in {where}
+      </span>
+    </>
+  )
+}
+
 function Row(props: RowProps) {
   const { item, depth, expanded, selected, isCursor, renaming, movable, dropping, folderCount } = props
   const name = itemName(item)
@@ -1466,9 +1759,9 @@ function Row(props: RowProps) {
   const handlers = {
     role: 'treeitem' as const,
     id,
-    // Its name, and for a file its state as the status icon gives it, rather than all it holds.
+    // Its name, and for a file what describes it.
     'aria-label': name,
-    'aria-describedby': item.kind === 'file' ? (item.document.review ? `${id}-status ${id}-review` : `${id}-status`) : undefined,
+    'aria-describedby': describedBy(id, props),
     'aria-selected': selected,
     'data-key': itemKey(item),
     draggable: movable && !renaming,
@@ -1546,9 +1839,12 @@ function Row(props: RowProps) {
         ) : (
           <p className="truncate" title={item.kind === 'file' ? (item.document.title ?? name) : name}>
             {name}
+            {props.where && <Where id={`${id}-where`} where={props.where} className="ml-1.5" />}
           </p>
         )}
       </div>
+      {!renaming && <TagChips tags={props.tags} id={`${id}-tags`} />}
+      {props.favorite && <FavoriteMark id={`${id}-star`} />}
       {item.kind === 'file' && item.document.review && (
         <span className="ml-2 flex">
           <ReviewMark id={`${id}-review`} document={item.document} />
@@ -1560,6 +1856,91 @@ function Row(props: RowProps) {
         </span>
       )}
       <span className="ml-1 flex">{menuButton}</span>
+    </div>
+  )
+}
+
+/**
+ * A folder or a file as a tile of the grid: a file's thumbnail where the server draws one (a PDF, a scan, an image),
+ * else its kind's icon, with its name, state and menu under it, and then its review, tags and star.
+ */
+function Tile(props: RowProps) {
+  const { item, selected, isCursor, renaming, movable, dropping, folderCount } = props
+  const name = itemName(item)
+  const id = rowId(itemKey(item))
+  // A thumbnail the server could not draw (an unreadable page, a missing file) leaves the kind's icon in its place.
+  const [broken, setBroken] = useState(false)
+  const picture = item.kind === 'file' && hasThumbnail(item.document) && !broken
+  const state = `${selected ? 'border-accent bg-accent-soft' : 'border-line bg-surface hover:bg-sunken'} ${
+    isCursor ? 'group-focus/list:ring-2 group-focus/list:ring-accent/50' : ''
+  } ${dropping ? 'bg-accent-soft ring-2 ring-accent' : ''}`
+  return (
+    <div
+      role="gridcell"
+      id={id}
+      aria-label={name}
+      aria-describedby={describedBy(id, props)}
+      aria-selected={selected}
+      data-key={itemKey(item)}
+      draggable={movable && !renaming}
+      onClick={(event) => {
+        event.stopPropagation()
+        if (!renaming) props.onSelect(event)
+      }}
+      onDoubleClick={() => !renaming && props.onOpen()}
+      onContextMenu={props.onContextMenu}
+      onDragStart={props.onDragStart}
+      onDragEnd={props.onDragEnd}
+      onDragOver={props.onDragOver}
+      onDragLeave={props.onDragLeave}
+      onDrop={props.onDrop}
+      className={`group flex min-w-0 flex-col rounded-lg border p-1.5 text-[13px] transition-colors select-none ${state}`}
+    >
+      <div className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-md bg-sunken">
+        {picture ? (
+          <img
+            src={thumbnailUrl(item.document)}
+            alt=""
+            loading="lazy"
+            draggable={false}
+            onError={() => setBroken(true)}
+            className="size-full object-cover object-top"
+          />
+        ) : (
+          <ItemIcon item={item} className="size-8" />
+        )}
+      </div>
+      <div className="mt-1.5 flex min-w-0 items-center gap-1">
+        <div className="min-w-0 flex-1">
+          {renaming ? (
+            <RenameInput value={name} isFile={item.kind === 'file'} onCommit={props.onRename} onCancel={props.onCancelRename} />
+          ) : (
+            <p className="truncate" title={item.kind === 'file' ? (item.document.title ?? name) : name}>
+              {name}
+            </p>
+          )}
+        </div>
+        {item.kind === 'file' && <StatusIcon id={`${id}-status`} document={item.document} />}
+        <IconButton
+          label="More actions"
+          // Tab goes from the grid to the actions of the tile its cursor is on, not through every tile's.
+          tabIndex={isCursor ? 0 : -1}
+          className={`size-6! shrink-0 ${selected ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            props.onMenuButton(event.currentTarget)
+          }}
+        >
+          <MoreHorizontal className="size-4" />
+        </IconButton>
+      </div>
+      <div className="flex min-h-5 min-w-0 items-center text-[11px] text-muted">
+        {item.kind === 'folder' && <Seen text={folderCount === 1 ? '1 item' : `${folderCount ?? 0} items`} />}
+        {item.kind === 'file' && item.document.review && <ReviewMark id={`${id}-review`} document={item.document} />}
+        <TagChips tags={props.tags} id={`${id}-tags`} shown={1} />
+        {props.favorite && <FavoriteMark id={`${id}-star`} />}
+        {props.where && <Where id={`${id}-where`} where={props.where} className="ml-1.5 min-w-0 truncate" />}
+      </div>
     </div>
   )
 }

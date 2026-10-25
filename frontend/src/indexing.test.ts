@@ -47,6 +47,7 @@ function doc(status: Document['status'], stages: Partial<Record<StageName, Parti
     assignee: null,
     review_changer: null,
     review_changed_at: null,
+    tag_ids: [],
   }
 }
 

@@ -130,3 +130,93 @@ def test_a_page_that_does_not_exist_is_refused(client):
         assert response.status_code == 422 and response.json()["detail"] == BAD_CURSOR, after
     assert client.get(url, params={"folder_id": elsewhere["id"]}).status_code == 404
     assert client.get(url, params={"limit": 0}).status_code == 422
+
+
+def ordered(client, project_id, sort, order, limit, **params):
+    """Every page of a place in an order, followed from the first by `next_after`."""
+    params = {"sort": sort, "order": order, "limit": limit, **params}
+    found = []
+    while True:
+        response = client.get(f"/api/projects/{project_id}/documents", params=params)
+        assert response.status_code == 200, response.text
+        page = response.json()
+        found.append([document["filename"] for document in page["documents"]])
+        if page["next_after"] is None:
+            return found
+        params["after"] = page["next_after"]
+
+
+def dated(session, documents, dates):
+    for document, day in zip(documents, dates, strict=True):
+        session.execute(
+            text("UPDATE documents SET doc_date = :day WHERE id = :id"),
+            {"day": day, "id": document["id"]},
+        )
+    session.commit()
+
+
+def test_a_folder_is_listed_in_each_order_the_library_offers(client, session, tmp_path):
+    project = create_project(client)
+    names = ["c.txt", "a.txt", "d.txt", "b.txt", "e.txt"]
+    directory = tmp_path / "f"
+    directory.mkdir()
+    paths = []
+    for index, name in enumerate(names):
+        path = directory / name
+        # Each a size of its own: a's the largest, then c, e, d, b.
+        path.write_text("x" * {"a": 50, "c": 40, "e": 30, "d": 20, "b": 10}[name[0]] + str(index))
+        paths.append(path)
+    documents = upload(client, project["id"], *paths)["documents"]
+    dated(session, documents, ["2024-03-01", None, "2023-01-15", None, "2024-03-01"])
+    added = [document["filename"] for document in documents]
+
+    assert ordered(client, project["id"], "name", "desc", 2) == [
+        ["e.txt", "d.txt"],
+        ["c.txt", "b.txt"],
+        ["a.txt"],
+    ]
+    assert sum(ordered(client, project["id"], "added", "asc", 2), []) == added
+    assert sum(ordered(client, project["id"], "added", "desc", 3), []) == added[::-1]
+    assert sum(ordered(client, project["id"], "size", "desc", 2), []) == [
+        "a.txt",
+        "c.txt",
+        "e.txt",
+        "d.txt",
+        "b.txt",
+    ]
+    # By date, the dated first either way, a tie by the order they were added in, and then the
+    # undated, whichever page the turn from one to the other falls on.
+    for limit in (1, 2, 3, 10):
+        assert sum(ordered(client, project["id"], "date", "asc", limit), []) == [
+            "d.txt",
+            "c.txt",
+            "e.txt",
+            "a.txt",
+            "b.txt",
+        ], limit
+        assert sum(ordered(client, project["id"], "date", "desc", limit), []) == [
+            "e.txt",
+            "c.txt",
+            "d.txt",
+            "b.txt",
+            "a.txt",
+        ], limit
+
+
+def test_a_cursor_holds_only_for_the_order_it_was_given_in(client, tmp_path):
+    project = create_project(client)
+    upload(client, project["id"], *files(tmp_path, ["a.txt", "b.txt", "c.txt"]))
+    url = f"/api/projects/{project['id']}/documents"
+    by_size = client.get(url, params={"sort": "size", "limit": 1}).json()["next_after"]
+    for params in ({}, {"sort": "size", "order": "desc"}, {"sort": "date"}):
+        refused = client.get(url, params={**params, "after": by_size})
+        assert refused.status_code == 422 and refused.json()["detail"] == BAD_CURSOR, params
+    # A cursor by name from before the other orders is still read as one.
+    by_name = client.get(url, params={"limit": 1}).json()["next_after"]
+    assert [
+        d["filename"] for d in client.get(url, params={"after": by_name}).json()["documents"]
+    ] == [
+        "b.txt",
+        "c.txt",
+    ]
+    assert client.get(url, params={"sort": "colour"}).status_code == 422

@@ -46,6 +46,35 @@ holds a folder of the same name already, its files go into that one. A move or a
 toolbar. Two files of the same project cannot hold the same bytes: uploading one again says
 where it is.
 
+## Tags, smart folders and favourites
+
+The library can show a project's documents other ways than by their folders. Choose what it shows
+with the menu above the files, which reads "All files" at first:
+
+- **Tags** mark documents wherever they are. Give a document its tags with "Tags…" in its menu,
+  where you can make a new tag too, and change or delete the project's tags under "Tags…" in the
+  menu above the files. Choose a tag there to list its documents.
+- **Smart folders** list the documents that match what you choose: tags (any of them, or every
+  one), types, a span of dates, review states and a folder. "New smart folder…" makes one;
+  everyone who reads the project sees it, and its documents arrive in it as they are read.
+- **Favourites** are the documents you starred with "Add to favourites" in their menu, and
+  **Recent** the last $recent you opened in the project. Both are yours alone.
+
+Beside it, the order of the files (by name, date added, the document's own date or size, either
+way) and whether they show as a list or as a grid of pictures of their first pages. Your browser
+remembers both.
+
+## Filing rules
+
+A project's filing rules put new documents where they belong as they arrive. Under "Filing
+rules…" in the menu above the files, a rule says what it looks for, a type of document such as
+invoice, words a fact read from it holds (a supplier's name), or every document, and what it does:
+move the document into a folder, file it under a folder by its year, or its year and month, or give
+it a tag. Once a new document has been read for its type and facts, the first rule that moves it
+files it, if it arrived at the top of the library; a document you uploaded into a folder stays
+there. Every rule that tags it tags it. A rule files what arrives after it is made, once: move a
+document elsewhere afterwards and it stays where you put it.
+
 ## New versions
 
 When a file changes, a contract coming back signed or an invoice sent again corrected, give its
