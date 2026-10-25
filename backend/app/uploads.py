@@ -40,7 +40,7 @@ from app.parsing.signatures import wrong_type
 from app.restore import place_taken
 from app.schemas import RejectedFile
 from app.storage import Storage, StorageError, original_key
-from app.unpacking import NESTED, PACKED, Refused, unpacked
+from app.unpacking import NESTED, PACKED, Damaged, Refused, Room, unpacked
 from app.usage import DOCUMENT, UPLOAD, record
 
 CHUNK = 1024 * 1024
@@ -92,6 +92,8 @@ def take_files(
     settings = get_settings()
     limit = settings.max_upload_mb * 1024 * 1024
     taken = SUPPORTED_EXTENSIONS | PACKED if unpack else SUPPORTED_EXTENSIONS
+    # What the archives of this upload may bring between them (app/unpacking.py).
+    room = Room(settings.max_upload_files, settings.max_upload_request_mb * 1024 * 1024)
     documents: list[Document] = []
     rejected: list[RejectedFile] = []
     # The folders these files found or made, by their names below the target.
@@ -126,7 +128,12 @@ def take_files(
         # Spooled to a local temporary file while hashing: the hash finds a re-upload of the
         # same bytes before anything is stored, and the key needs the row's id. The spool goes
         # whether the file is kept, rejected or fails to store.
-        spool, size, sha256 = _spool(incoming.file, limit)
+        try:
+            spool, size, sha256 = _spool(incoming.file, limit)
+        except Damaged as damaged:
+            rejected.append(RejectedFile(filename=filename, reason=str(damaged), index=index))
+            UPLOAD_REJECTIONS.labels("unopened").inc()
+            return
         try:
             if size > limit or size == 0:
                 reason = "Empty file." if size == 0 else f"Larger than {settings.max_upload_mb} MB."
@@ -236,15 +243,20 @@ def take_files(
                 reason = wrong_type(spool, Path(name).suffix.lower())
             if reason is None:
                 try:
-                    inside = unpacked(spool, name)
+                    with unpacked(spool, name, room) as inside:
+                        for found in inside:
+                            folders = found.folders
+                            yield Incoming(
+                                found.name,
+                                None if folders is None else [*incoming.folders, *folders],
+                                found.file,
+                            )
+                            found.file.close()
+                    return
                 except Refused as refused:
                     reason = str(refused)
-            if reason is not None:
-                rejected.append(RejectedFile(filename=filename, reason=reason, index=index))
-                UPLOAD_REJECTIONS.labels("unopened").inc()
-                return
-            for found in inside:
-                yield Incoming(found.name, [*(incoming.folders or []), *found.folders], found.file)
+            rejected.append(RejectedFile(filename=filename, reason=reason, index=index))
+            UPLOAD_REJECTIONS.labels("unopened").inc()
         finally:
             spool.unlink(missing_ok=True)
 

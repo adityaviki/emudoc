@@ -552,7 +552,9 @@ def test_bytes_that_are_not_what_the_extension_says_are_named(
     assert wrong_type(utf16, ".txt") == "Not UTF-8 text. Save it as UTF-8 and upload it again."
     assert wrong_type(binary, ".html") == f"Not an HTML file. {RENAME}"
     assert wrong_type(text, ".rtf") == f"Not an RTF document. {RENAME}"
-    assert wrong_type(text, ".zip") == f"Not a supported type. {RENAME}"
+    assert wrong_type(text, ".zip") == f"Not a ZIP archive. {RENAME}"
+    assert wrong_type(plain_zip, ".zip") is None
+    assert wrong_type(text, ".odt") == f"Not a supported type. {RENAME}"
 
 
 def test_office_files_in_the_older_container_say_how_to_make_them_pass(tmp_path):

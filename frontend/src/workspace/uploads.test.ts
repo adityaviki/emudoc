@@ -31,7 +31,7 @@ describe('what an upload leaves out before sending', () => {
     const { items, left } = screen(
       [
         item('a.pdf'),
-        item('b.zip', 10, 'Invoices'),
+        item('b.odt', 10, 'Invoices'),
         item('big.pdf', 21, 'Invoices'),
         item('.DS_Store', 10, 'Invoices'),
         item('Thumbs.db', 10, 'Invoices/2026'),
@@ -44,10 +44,10 @@ describe('what an upload leaves out before sending', () => {
       ['Invoices/locked.pdf'],
     )
     expect(names(items)).toEqual(['a.pdf', 'Invoices/2026/c.MD'])
-    const unsupported = 'Unsupported type. Use .csv, .docx, .eml, .heic, .heif, .htm, .html, .jpeg, .jpg, .md, .pdf, .png, .pptx, .rtf, .tif, .tiff, .txt, .webp, .xlsx.'
+    const unsupported = 'Unsupported type. Use .csv, .docx, .eml, .heic, .heif, .htm, .html, .jpeg, .jpg, .md, .pdf, .png, .pptx, .rtf, .tif, .tiff, .txt, .webp, .xlsx, .zip.'
     expect(left).toEqual([
       { filename: 'Invoices/locked.pdf', reason: 'Your browser could not read it from your computer.', limit: null },
-      { filename: 'Invoices/b.zip', reason: unsupported, limit: null },
+      { filename: 'Invoices/b.odt', reason: unsupported, limit: null },
       { filename: 'Invoices/big.pdf', reason: 'Larger than 0 MB.', limit: null },
       { filename: '.env', reason: unsupported, limit: null },
     ])

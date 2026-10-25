@@ -2452,7 +2452,7 @@ export const sharedPageUrl = (linkId: number, page: number) => `/api/shared/${li
  * The file types the backend indexes (backend/app/parsing/__init__.py), for upload inputs, and the files the page's upload
  * opens for what they bring (PACKED in backend/app/unpacking.py), which a program's may not send.
  */
-export const ACCEPTED_EXTENSIONS = ['.pdf', '.docx', '.xlsx', '.pptx', '.rtf', '.html', '.htm', '.eml', '.csv', '.txt', '.md', '.png', '.jpg', '.jpeg', '.webp', '.tif', '.tiff', '.heic', '.heif']
+export const ACCEPTED_EXTENSIONS = ['.pdf', '.docx', '.xlsx', '.pptx', '.rtf', '.html', '.htm', '.eml', '.zip', '.csv', '.txt', '.md', '.png', '.jpg', '.jpeg', '.webp', '.tif', '.tiff', '.heic', '.heif']
 export const ACCEPTED_TYPES_LABEL = 'PDF, Word, Excel, PowerPoint, CSV, text, Markdown and images'
 
 export const isIndexing = (document: Document) =>
