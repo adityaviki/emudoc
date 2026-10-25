@@ -37,27 +37,30 @@
   color-scheme: light;
 }
 
-:root[data-theme='dark'] {
-  color-scheme: dark;
-  --color-page: #121214;
-  --color-surface: #1a1a1d;
-  --color-sunken: #232327;
-  --color-line: #2e2e33;
-  --color-ink: #ececee;
-  --color-muted: #9a9aa3;
-  --color-accent: #91a7ff;
-  --color-accent-hover: #a6b8ff;
-  --color-accent-soft: #232a4a;
-  --color-accent-ink: #121214;
-  --color-good: #5fc08a;
-  --color-warn: #e0a64a;
-  --color-bad: #f08a80;
-  --color-mark: #6a5a16;
-  --color-scrim: rgb(0 0 0 / 0.6);
-  --color-file-pdf: #f1946a;
-  --color-file-word: #8db4f5;
-  --color-file-sheet: #6cc391;
-  --color-file-image: #c892e8;
+/* Dark is the screen's alone: paper takes the light tokens. */
+@media not print {
+  :root[data-theme='dark'] {
+    color-scheme: dark;
+    --color-page: #121214;
+    --color-surface: #1a1a1d;
+    --color-sunken: #232327;
+    --color-line: #2e2e33;
+    --color-ink: #ececee;
+    --color-muted: #9a9aa3;
+    --color-accent: #91a7ff;
+    --color-accent-hover: #a6b8ff;
+    --color-accent-soft: #232a4a;
+    --color-accent-ink: #121214;
+    --color-good: #5fc08a;
+    --color-warn: #e0a64a;
+    --color-bad: #f08a80;
+    --color-mark: #6a5a16;
+    --color-scrim: rgb(0 0 0 / 0.6);
+    --color-file-pdf: #f1946a;
+    --color-file-word: #8db4f5;
+    --color-file-sheet: #6cc391;
+    --color-file-image: #c892e8;
+  }
 }
 
 body {
@@ -93,6 +96,40 @@ summary {
   .animate-pulse {
     animation: none !important;
   }
+}
+
+/* Printed, a page that marks what it shows with data-print (a document's tab, a share link's
+   page) prints that alone, as the document reads: everything around it goes, and what holds it
+   gives up the panes' fixed heights, scrolling and spacing, which would cut a long document at
+   one screen and push a PDF's first page off the first sheet. A page with nothing marked prints
+   as it is. */
+@media print {
+  body:has([data-print]) :not([data-print], [data-print] *, :has([data-print])) {
+    display: none !important;
+  }
+  body :has([data-print]),
+  [data-print] {
+    display: block !important;
+    width: auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+  body {
+    background: none;
+  }
+  /* Where the keyboard was is the screen's. */
+  :focus-visible {
+    outline: none;
+  }
+}
+
+/* What marks a cited passage keeps its colour on paper, which leaves backgrounds out by default. */
+@utility print-exact {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 
 /* Thin, unobtrusive scrollbars everywhere. */

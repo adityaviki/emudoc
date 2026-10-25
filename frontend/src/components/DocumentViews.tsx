@@ -3,7 +3,7 @@
 // a share link's page its visitor's (shared/SharedPage.tsx), each giving where its files are.
 
 import { Fragment, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import type { Block, DocumentContent } from '../api.ts'
 import { parsePipeTable } from '../format.ts'
 import { PipeTable } from './Markdown.tsx'
@@ -41,7 +41,7 @@ export function TextView({ blocks, focus }: { blocks: Block[]; focus: BlockFocus
     }
   }
   return (
-    <div className="mx-auto max-w-3xl space-y-3 px-8 py-6 leading-relaxed">
+    <div className="mx-auto max-w-3xl space-y-3 px-8 py-6 leading-relaxed print:max-w-none print:px-0">
       {blocks.map((block) => (
         <Fragment key={block.ordinal}>
           {opensPage.has(block.ordinal) && (
@@ -53,7 +53,7 @@ export function TextView({ blocks, focus }: { blocks: Block[]; focus: BlockFocus
           )}
           <div
             id={`block-${block.ordinal}`}
-            className={`rounded transition-colors ${inFocus(block, focus) ? '-mx-2 bg-mark/50 px-2 py-0.5' : ''}`}
+            className={`rounded transition-colors ${inFocus(block, focus) ? '-mx-2 bg-mark/50 px-2 py-0.5 print-exact' : ''}`}
           >
             <BlockBody block={block} />
           </div>
@@ -66,7 +66,7 @@ export function TextView({ blocks, focus }: { blocks: Block[]; focus: BlockFocus
 function BlockBody({ block }: { block: Block }) {
   if (block.kind === 'heading') {
     const size = block.level === 1 ? 'text-lg' : block.level === 2 ? 'text-base' : 'text-sm'
-    return <p className={`pt-3 font-semibold tracking-tight ${size}`}>{block.text}</p>
+    return <p className={`pt-3 font-semibold tracking-tight print:break-after-avoid ${size}`}>{block.text}</p>
   }
   if (block.kind === 'table') {
     const rows = parsePipeTable(block.text)
@@ -86,11 +86,12 @@ interface PagesViewProps {
 
 /**
  * The rendered pages. Each block's text lies invisibly over its place on the page, so the text
- * can be selected, copied and found; the focused blocks are marked where they sit.
+ * can be selected, copied and found; the focused blocks are marked where they sit. Printed, each
+ * page is a sheet of its own, as large as the sheet holds it.
  */
 export function PagesView({ pageUrl, content, focus }: PagesViewProps) {
   return (
-    <div className="space-y-5 bg-sunken p-5">
+    <div className="space-y-5 bg-sunken p-5 print:space-y-0 print:bg-transparent print:p-0">
       {content.page_sizes.map(([width, height], index) => {
         const page = index + 1
         const placed = content.blocks.filter((block) => block.page === page && block.bbox)
@@ -98,8 +99,9 @@ export function PagesView({ pageUrl, content, focus }: PagesViewProps) {
           <div
             key={page}
             id={`page-${page}`}
-            className="relative mx-auto max-w-3xl overflow-hidden rounded-md bg-white shadow-md shadow-ink/8 ring-1 ring-ink/8 @container"
-            style={{ aspectRatio: `${width} / ${height}` }}
+            // Printed, no wider than the sheet's width or than its height allows: vh is the sheet's in print.
+            className="relative mx-auto max-w-3xl overflow-hidden rounded-md bg-white shadow-md shadow-ink/8 ring-1 ring-ink/8 @container print:w-[min(100%,100vh*var(--page-ratio))] print:break-inside-avoid print:break-after-page print:rounded-none print:shadow-none print:ring-0 print:last:break-after-auto"
+            style={{ aspectRatio: `${width} / ${height}`, '--page-ratio': width / height } as CSSProperties}
           >
             <img
               src={pageUrl(page)}
@@ -126,7 +128,7 @@ export function PagesView({ pageUrl, content, focus }: PagesViewProps) {
                     {block.text}
                   </span>
                   {inFocus(block, focus) && (
-                    <div className="pointer-events-none absolute rounded-sm bg-amber-300/45 mix-blend-multiply" style={box} />
+                    <div className="pointer-events-none absolute rounded-sm bg-amber-300/45 mix-blend-multiply print-exact" style={box} />
                   )}
                 </Fragment>
               )
@@ -152,7 +154,7 @@ interface Sheet {
   blocks: Block[]
 }
 
-/** A spreadsheet: one tab per sheet (its heading block), the sheet's tables below. */
+/** A spreadsheet: one tab per sheet (its heading block), the sheet's tables below; printed, the sheet shown under its name. */
 export function SheetView({ label, blocks, focus }: { label: string; blocks: Block[]; focus: BlockFocus | null }) {
   const sheets: Sheet[] = []
   for (const block of blocks) {
@@ -174,9 +176,9 @@ export function SheetView({ label, blocks, focus }: { label: string; blocks: Blo
   const sheet = sheets[Math.min(selected, sheets.length - 1)]
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col print:block">
       {sheets.length > 1 && (
-        <div className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-line bg-surface px-3 py-1.5 text-[13px]">
+        <div className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-line bg-surface px-3 py-1.5 text-[13px] print:hidden">
           {sheets.map((item, index) => (
             <button
               key={index}
@@ -192,7 +194,8 @@ export function SheetView({ label, blocks, focus }: { label: string; blocks: Blo
           ))}
         </div>
       )}
-      <Scrolled label={label} className="min-h-0 flex-1 overflow-auto p-4">
+      <Scrolled label={label} className="min-h-0 flex-1 overflow-auto p-4 print:px-0">
+        {sheets.length > 1 && sheet && <p className="mb-3 hidden text-base font-semibold tracking-tight print:block">{sheet.title}</p>}
         <div className="space-y-4">
           {sheet?.blocks.map((block) => (
             <div
@@ -211,11 +214,11 @@ export function SheetView({ label, blocks, focus }: { label: string; blocks: Blo
 
 /**
  * What scrolls in the pane: a stop of the keyboard, named for screen readers, so that the arrows
- * and Page Down scroll a text that holds nothing else to focus.
+ * and Page Down scroll a text that holds nothing else to focus. Printed, it runs on over the sheets.
  */
 export function Scrolled({ label, className, children }: { label: string; className: string; children: ReactNode }) {
   return (
-    <div role="region" aria-label={label} tabIndex={0} className={`focus-visible:-outline-offset-2! ${className}`}>
+    <div role="region" aria-label={label} tabIndex={0} className={`focus-visible:-outline-offset-2! print:overflow-visible ${className}`}>
       {children}
     </div>
   )

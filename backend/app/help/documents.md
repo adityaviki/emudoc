@@ -68,9 +68,13 @@ The library's Trash button opens the project's trash, and the projects page list
 in the trash. Nothing in the trash is searched, asked about or counted against your plan. The
 library also offers to undo a deletion at once.
 
-## Downloading
+## Downloading and printing
 
 Open a document to read its text and its pages; "Download original file", in its menu in the
 library or on its tab, gives you the file as it was uploaded.
+"Print", on its tab, or your browser's own printing, prints the document alone, as it reads: a
+PDF its pages, a sheet each, anything else its title and text, without the library, the chat or
+the buttons around it. A passage opened from a citation keeps its highlight; clear it first for
+a clean copy. To keep a copy as a file, choose "Save as PDF" where the browser asks for a printer.
 A whole project, with its documents and what was read from them, is exported from its card on
 the projects page ([Your data](/help/data)).

@@ -7,14 +7,15 @@ import type { BrowserContext, Page } from '@playwright/test'
 import { expectAccessible } from './axe.ts'
 import { linkMailedTo, messageTo } from './mail.ts'
 import { INBOUND_DOMAIN, chooseFlag, makeOperator, movePlan, receiveMail } from './operator.ts'
+import { printed } from './print.ts'
 import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, releaseTurns } from './standin.ts'
 
 // The member's way through the app, end to end: sign up through the link the app mails, find the
 // organisation's first steps listed, skip the tour the first project shows, ask the sample
-// project the organisation starts with one of its questions, make a project, upload a contract,
+// project the organisation starts with one of its questions, print its contract's pages, make a project, upload a contract,
 // begun offline and waiting for the connection, wait for it to be indexed, find it by searching, ask about it, stop the
 // answer while the model thinks and try it again, open the passage the answer
-// cites, which the Free plan's chat follows with the way to a plan for a team, upload a folder,
+// cites and print the contract as it reads, which the Free plan's chat follows with the way to a plan for a team, upload a folder,
 // whose panel follows each file while its request is held, and put it in the trash, export the project,
 // download it and open the bell's notice that it is ready, start a second
 // organisation, choose its settings, read them in its audit log and download it, hide its first
@@ -47,7 +48,7 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // last the project given an address, a supplier's domain listed, whose mail becomes documents and a
 // stranger's is turned away, as the page lists them, and a folder of the member's Google Drive
 // connected and synced, and last the invoice shared by a link with a password, which someone with
-// no account opens and its member revokes, and an answer about it shared, its citation leading the
+// no account opens and prints and its member revokes, and an answer about it shared, its citation leading the
 // visitor to the passage. The answer is the stand-in's (e2e/standin.py): the first sentence of the
 // passage its search found best, with that passage's reference. Along the way each kind of page,
 // panel and dialog is checked against axe-core's rules for WCAG 2.2 AA in both themes
@@ -134,6 +135,16 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     // The sample's answer suggests no invitation: its documents are no work a team shares.
     await expect(inviteTeam).toHaveCount(0)
     await expectAccessible(page, 'a project with an answer')
+    // Printed, a PDF is its pages alone, a sheet each, under the document's name, the app's again after.
+    await page.getByRole('treeitem', { name: 'acme-service-contract.pdf' }).dblclick()
+    await expect(page.getByRole('heading', { name: 'Master Services Agreement', exact: true })).toBeVisible()
+    await expect(page.getByRole('img', { name: 'Page 1' })).toBeVisible()
+    expect(await printed(page)).toEqual({ sheets: 2, title: 'Master Services Agreement' })
+    await expect(page).toHaveTitle('Emudoc')
+    const pdfTab = page.getByRole('tab', { name: /^acme-service-contract\.pdf/ })
+    await pdfTab.focus()
+    await page.keyboard.press('Delete')
+    await expect(pdfTab).toHaveCount(0)
     // A menu takes the keyboard to its first item, and Escape gives it back to its button.
     const account = page.getByRole('button', { name: 'AL, your account' })
     await account.click()
@@ -249,6 +260,34 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByText('Showing: 4 Termination')).toBeVisible()
     await expect(page.getByText(/^Either party may end this contract .* on the first page\.$/)).toBeInViewport()
     await expectAccessible(page, 'a document beside its chat')
+    // Printed, it is the document alone, as it reads: none of the app around it and none of its
+    // controls, its highlight still saying what it shows, and its text, which scrolls in its pane
+    // on a short window, running on instead.
+    const text = page.getByRole('region', { name: 'Text of service-contract.md' })
+    const around = [
+      page.getByRole('banner'),
+      page.getByRole('tree', { name: 'Files' }),
+      page.getByRole('tablist'),
+      page.getByPlaceholder('Ask a question about these documents'),
+      page.getByRole('button', { name: 'Clear highlight' }),
+      page.getByRole('button', { name: 'Print', exact: true }),
+    ]
+    const viewport = page.viewportSize()!
+    await page.setViewportSize({ width: viewport.width, height: 400 })
+    for (const part of around) await expect(part).toBeVisible()
+    expect(await text.evaluate((region) => region.scrollHeight > region.clientHeight)).toBe(true)
+    await page.emulateMedia({ media: 'print' })
+    for (const part of around) await expect(part).toBeHidden()
+    await expect(page.getByRole('heading', { name: 'Service contract', exact: true })).toBeVisible()
+    await expect(page.getByText('Showing: 4 Termination')).toBeVisible()
+    expect(await text.evaluate((region) => region.scrollHeight > region.clientHeight)).toBe(false)
+    await page.emulateMedia({ media: null })
+    await page.setViewportSize(viewport)
+    expect(await printed(page)).toEqual({ sheets: 1, title: 'Service contract' })
+    // Its Print button prints it as Ctrl+P does.
+    await page.evaluate(`window.print = () => { document.body.dataset.printed = 'yes' }`)
+    await page.getByRole('button', { name: 'Print', exact: true }).click()
+    await expect(page.locator('body')).toHaveAttribute('data-printed', 'yes')
     // Its tab closes by the keyboard, and the keyboard goes back to the library with the pane.
     const tab = page.getByRole('tab', { name: /^service-contract\.md/ })
     await expect(tab).toHaveAttribute('aria-selected', 'true')
@@ -1577,6 +1616,14 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(visitor.getByText(/^Shared by Ada Lovelace of Ada Lovelace's workspace, until /)).toBeVisible()
     await expect(visitor.getByText('Invoice number: INV-2026-0412')).toBeVisible()
     await expectAccessible(visitor, 'a shared document')
+    // Printed, it is the invoice alone, under its name: not the page's header, who shared it or its buttons.
+    await visitor.emulateMedia({ media: 'print' })
+    for (const part of [visitor.getByRole('banner'), visitor.getByText(/^Shared by /), visitor.getByRole('link', { name: 'Download the file' })]) {
+      await expect(part).toBeHidden()
+    }
+    await expect(visitor.getByText('Invoice number: INV-2026-0412')).toBeVisible()
+    await visitor.emulateMedia({ media: null })
+    expect((await printed(visitor)).title).toBe(await visitor.getByRole('heading', { level: 1 }).textContent())
     const downloading = visitor.waitForEvent('download')
     await visitor.getByRole('link', { name: 'Download the file' }).click()
     expect((await downloading).suggestedFilename()).toBe('invoice.md')

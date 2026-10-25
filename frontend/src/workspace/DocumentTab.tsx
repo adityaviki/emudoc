@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link2, ListChecks, ListTree, X } from 'lucide-react'
+import { Link2, ListChecks, ListTree, Printer, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { api, fileUrl, isImage, isPdf, isSheet, mayChange, pageImageUrl, pageLabel, sectionPath } from '../api.ts'
 import type { Document, Section } from '../api.ts'
@@ -9,7 +9,7 @@ import type { BlockFocus } from '../components/DocumentViews.tsx'
 import { IndexingStatus } from '../components/IndexingStatus.tsx'
 import { Button, Chip, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
-import { useStatus } from '../hooks.ts'
+import { usePrintTitle, useStatus } from '../hooks.ts'
 import { notIndexedWords, restHeld, scanPassed, unfinishedStages } from '../indexing.ts'
 import { offersLinks } from '../shareLinks.ts'
 import { describeDocumentUsage } from '../usage.ts'
@@ -27,7 +27,11 @@ interface DocumentTabProps {
   onClearFocus: () => void
 }
 
-/** One open document: a PDF's rendered pages, or anything else's extracted text with the outline beside it. */
+/**
+ * One open document: a PDF's rendered pages, or anything else's extracted text with the outline beside it.
+ * Printed, it is the document alone (data-print, index.css): a PDF its pages, anything else its
+ * heading and text, and none of the controls.
+ */
 export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps) {
   const workspace = useWorkspace()
   const me = useMe()
@@ -57,6 +61,8 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
     queryFn: () => api.content(document.id),
     enabled: indexed,
   })
+  // A PDF saved from the print is named after the document rather than the app.
+  usePrintTitle(document.title ?? document.filename)
   const passageId = focus && 'passage' in focus ? focus.passage : null
   const passage = useQuery({
     queryKey: ['passage', passageId],
@@ -103,14 +109,15 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
           : null
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <header className="shrink-0 border-b border-line bg-surface px-4 py-2.5">
+    <div data-print className="flex h-full min-h-0 flex-col">
+      {/* A PDF's pages say on themselves what it is; its first page starts the first sheet. */}
+      <header className={`shrink-0 border-b border-line bg-surface px-4 py-2.5 ${pages ? 'print:hidden' : 'print:px-0'}`}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2
               ref={heading}
               tabIndex={-1}
-              className="truncate text-[15px] font-semibold tracking-tight"
+              className="truncate text-[15px] font-semibold tracking-tight print:whitespace-normal"
               title={document.title ?? document.filename}
             >
               {document.title ?? document.filename}
@@ -124,19 +131,27 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
                   {document.page_count} page{document.page_count === 1 ? '' : 's'}
                 </span>
               )}
-              {usage && (
-                <span title={usage.detail}>{usage.summary}</span>
-              )}
-              <IndexingStatus document={document} />
-              {changes && unfinishedStages(document).length > 0 && (
-                <IndexTheRest document={document} onStarted={() => heading.current?.focus()} />
-              )}
+              {/* What the document cost and where its indexing stands are the app's, not the document's. */}
+              <span className="contents print:hidden">
+                {usage && (
+                  <span title={usage.detail}>{usage.summary}</span>
+                )}
+                <IndexingStatus document={document} />
+                {changes && unfinishedStages(document).length > 0 && (
+                  <IndexTheRest document={document} onStarted={() => heading.current?.focus()} />
+                )}
+              </span>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-1.5">
+          <div className="flex shrink-0 items-center gap-1.5 print:hidden">
             {hasOutline && outline.data && outline.data.length > 0 && (
               <IconButton label={outlineOpen ? 'Hide outline' : 'Show outline'} onClick={() => setOutlineOpen((open) => !open)}>
                 <ListTree className="size-4" />
+              </IconButton>
+            )}
+            {content.isSuccess && (
+              <IconButton label="Print" onClick={() => window.print()}>
+                <Printer className="size-4" />
               </IconButton>
             )}
             {offersLinks(me) && indexed && openable && (
@@ -156,7 +171,7 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
           </div>
         </div>
         {reviews && (
-          <div className="mt-2">
+          <div className="mt-2 print:hidden">
             <ReviewControls document={document} />
           </div>
         )}
@@ -164,7 +179,7 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
         {focusLabel && (
           <p className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-md bg-mark/40 py-0.5 pr-0.5 pl-2 text-xs">
             <span className="truncate">Showing: {focusLabel}</span>
-            <IconButton label="Clear highlight" onClick={onClearFocus} className="size-5!">
+            <IconButton label="Clear highlight" onClick={onClearFocus} className="size-5! print:hidden">
               <X className="size-3.5" />
             </IconButton>
           </p>
@@ -200,9 +215,9 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
       ) : isSheet(document) ? (
         <SheetView label={`Rows of ${document.filename}`} blocks={content.data.blocks} focus={blockFocus} />
       ) : (
-        <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 print:block">
           {outlineOpen && outline.data && outline.data.length > 0 && (
-            <aside aria-label="Outline" className="w-60 shrink-0 overflow-y-auto border-r border-line bg-surface p-2">
+            <aside aria-label="Outline" className="w-60 shrink-0 overflow-y-auto border-r border-line bg-surface p-2 print:hidden">
               <p className="px-2 pt-1 pb-2 text-[11px] font-medium tracking-wide text-muted uppercase">Outline</p>
               <ul>
                 {outline.data.map((section) => (
