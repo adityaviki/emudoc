@@ -31,6 +31,7 @@ from app.indexing.pipeline import Services
 from app.languages import answer_language
 from app.llm import LLMError
 from app.models import Project
+from app.scopes import NOTHING_LEFT, Scope, readable, told
 from app.tracing import TOOL, UNKNOWN_TOOL, span
 from app.usage import ModelUsage
 
@@ -104,6 +105,7 @@ def run_agent(
     sources: dict[int, dict[str, Any]] | None = None,
     drafting: bool = False,
     following: bool = False,
+    scope: Scope | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Run one user turn to completion, yielding events for the client as it goes.
 
@@ -128,11 +130,15 @@ def run_agent(
     `following` offers `suggest_follow_ups`, for an answer: the questions it suggests asking next
     are a `follow_ups` event, never a step, and a reply whose only calls are to it ends the run
     with its text, the answer having nothing left to ask of the model.
+
+    `scope` is the folder or the documents the chat is about (app/scopes.py): the prompt says so
+    and every tool reads them alone.
     """
     if usage is None:
         usage = ModelUsage()
     with SessionLocal() as session:
         project = session.get_one(Project, project_id)
+        about = told(scope, readable(session, project_id, scope)) if scope else ""
         system = (
             f"{SYSTEM_PROMPT}\n\nProject: {project.name}"
             + (f" ({project.description})" if project.description else "")
@@ -140,6 +146,7 @@ def run_agent(
             # cannot move it; the label tells the model which zone the date is in.
             + f"\nToday's date (UTC): {datetime.now(UTC).date().isoformat()}"
             + answer_language(project.organization)
+            + about
             + (f"\n\n{DRAFTING}" if drafting else "")
             + (f"\n\n{FOLLOWING}" if following else "")
             + (f"\n\n{task}" if task else "")
@@ -248,6 +255,7 @@ def run_agent(
                     session,
                     services.embedder,
                     project_id,
+                    scope=scope,
                     sources=sources,
                     offered=offer is not None,
                 )
@@ -332,6 +340,10 @@ def _run_tool(
     tool = offered.get(name)
     if tool is None:
         return f"Unknown tool {name!r}.", True
+    if name in TOOLS and context.within() == []:
+        # The chat's folder or documents are gone: whatever it was asked, a reading tool would
+        # find nothing, and the model is told why rather than that nothing matched.
+        return NOTHING_LEFT, False
     try:
         arguments = tool.input_model.model_validate(raw_input)
     except ValidationError as error:

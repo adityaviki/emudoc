@@ -17,6 +17,14 @@ newest entry first.
 
 Members:
 
+- Ask a chat about one folder or a few documents rather than the whole project: "About" above
+  the box you ask in chooses all the documents, a folder or a document open in a tab, and its
+  answers read only those. A folder's menu in the library offers "Ask about this folder" and
+  "Summarise this folder", a document's "Ask about this document", and files chosen together
+  "Ask about these documents" or, for two, "Compare the two documents".
+- "Regenerate" under the last answer of your chat writes it again from the same question, and
+  "Edit the question" beside your last question lets you change it and have it answered again in
+  its place. Each counts as a question.
 - A new chat now suggests questions written from the project's own documents, once they are
   indexed, rather than the same three for every project. Under the last answer of your chat, "Ask
   next" suggests two or three questions that take it further: click one to ask it.
@@ -103,6 +111,12 @@ Members:
 
 Operators:
 
+- A chat is about the project, a folder or chosen documents (`app/scopes.py`): every tool of the
+  agent reads only the chat's live documents, held by the server, and the prompt names them by id.
+  `POST /api/chats/{id}/messages/{id}/regenerate` writes a chat's last answer again, its question
+  edited or not, and is held and counted as `ask` is: the questions' rate limit, `MAX_ANSWERS`,
+  the day's spending and the month's questions. The migration adds `chats.scope_kind` and
+  `scope_folder_id` and the table `chat_scope_documents`.
 - A project's suggested questions are a job of their own, `suggest_questions`, with the
   indexers at bulk priority: queued when an index job leaves its project with no document still
   to index, at most one queued a project and due an hour after its last writing at the soonest,

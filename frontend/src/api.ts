@@ -931,6 +931,23 @@ export interface Source {
 /** A chat is private to whoever started it until they share it with the project. */
 export type ChatVisibility = 'private' | 'project'
 
+/** How many documents a chat may be about: more is a folder's work. */
+export const SCOPE_DOCUMENTS = 20
+
+/**
+ * What a chat is about, which its answers read alone: the whole project, a folder with its
+ * subfolders, or documents chosen from it. The folder is null once it was deleted or put in the
+ * trash, and the documents leave out those that were.
+ */
+export interface ChatScope {
+  kind: 'project' | 'folder' | 'documents'
+  folder: { id: number; name: string } | null
+  documents: { id: number; filename: string }[]
+}
+
+/** What a chat is made about: a folder, or documents; neither is the whole project. */
+export type ScopeIn = { folder_id: number } | { document_ids: number[] } | Record<string, never>
+
 export interface Chat {
   id: number
   project_id: number
@@ -939,6 +956,7 @@ export interface Chat {
   started_by: string
   title: string
   visibility: ChatVisibility
+  scope: ChatScope
   created_at: string
   updated_at: string
 }
@@ -1006,6 +1024,11 @@ export interface AskResult {
  */
 export interface RetryResult {
   answer: ChatMessage
+  last_event_id: number | null
+}
+
+/** The chat's last question, edited or not, and its answer written again, followed as a try's is. */
+export interface RegenerateResult extends AskResult {
   last_event_id: number | null
 }
 
@@ -2452,11 +2475,15 @@ export const api = {
     request<{ name: string; count: number }[]>(`/projects/${projectId}/facts/names`),
 
   chats: (projectId: number) => request<Chat[]>(`/projects/${projectId}/chats`),
-  createChat: (projectId: number) => request<Chat>(`/projects/${projectId}/chats`, { method: 'POST' }),
+  /** A new chat, about the whole project or about what `scope` names. */
+  createChat: (projectId: number, scope: ScopeIn = {}) =>
+    request<Chat>(`/projects/${projectId}/chats`, json('POST', { scope })),
   chat: (id: number) => request<ChatDetail>(`/chats/${id}`),
   renameChat: (id: number, title: string) => request<Chat>(`/chats/${id}`, json('PATCH', { title })),
   shareChat: (id: number, visibility: ChatVisibility) =>
     request<Chat>(`/chats/${id}`, json('PATCH', { visibility })),
+  /** Change what the chat is about: its next answer reads it. */
+  scopeChat: (id: number, scope: ScopeIn) => request<Chat>(`/chats/${id}`, json('PATCH', { scope })),
   deleteChat: (id: number) => request<void>(`/chats/${id}`, { method: 'DELETE' }),
   /** Add a question; the worker writes the answer, which `streamEvents` follows. */
   ask: (chatId: number, content: string) => request<AskResult>(`/chats/${chatId}/messages`, json('POST', { content })),
@@ -2466,6 +2493,9 @@ export const api = {
   /** Write the chat's last answer again in its place, once it was stopped or failed. */
   retryAnswer: (chatId: number, messageId: number) =>
     request<RetryResult>(`/chats/${chatId}/messages/${messageId}/retry`, { method: 'POST' }),
+  /** Write the chat's last answer again in its place, from its question or `question` in its place; it counts a question. */
+  regenerateAnswer: (chatId: number, messageId: number, question?: string) =>
+    request<RegenerateResult>(`/chats/${chatId}/messages/${messageId}/regenerate`, json('POST', question === undefined ? {} : { question })),
   /** Have the draft an answer offers written into the project's drafts; pressed again, the draft written from it. */
   writeOfferedDraft: (chatId: number, messageId: number) =>
     request<Draft>(`/chats/${chatId}/messages/${messageId}/draft`, { method: 'POST' }),

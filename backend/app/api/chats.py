@@ -1,14 +1,17 @@
 """Chats with the agent: any number per project, each saved with its answers.
 
-A question is answered by the worker, not in the request (app/answers.py): `ask` saves the
-question and an empty answer, queues the job and returns both at once; the client then follows
-the answer's events through `events`, a server-sent event stream read from the table, and can
-pick it up again from the last event it saw after a reload or a dropped connection. `stop`
-ends an answer early with what arrived so far, and `retry` writes a stopped or failed answer
-again in its place. A chat deleted goes into the trash, its starter's alone (app/trash.py); an
-answer still being written there finishes. Whoever reads a chat downloads an answer of it, or the
-whole chat, as a Word document, a PDF or its Markdown (app/chat_export.py), which the audit log
-keeps by the chat's id and the answer's, never their words.
+A question is answered by the worker, not in the request (app/answers.py): `ask` saves the question
+and an empty answer, queues the job and returns both at once; the client then follows the answer's
+events through `events`, a server-sent event stream read from the table, and can pick it up again
+from the last event it saw after a reload or a dropped connection. `stop` ends an answer early with
+what arrived so far, `retry` writes a stopped or failed answer again in its place, and `regenerate`
+writes the chat's last answer again, from its question or the question its member edited, which the
+plan counts as a question asked. A chat is about the whole project, one of its folders or documents
+chosen from it (app/scopes.py), which its starter chooses as it starts and changes whenever they
+like. A chat deleted goes into the trash, its starter's alone (app/trash.py); an answer still being
+written there finishes. Whoever reads a chat downloads an answer of it, or the whole chat, as a Word
+document, a PDF or its Markdown (app/chat_export.py), which the audit log keeps by the chat's id and
+the answer's, never their words.
 """
 
 import logging
@@ -21,7 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import TimeoutError as PoolTimeout
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.accounts import Account, zone_of
 from app.answers import (
@@ -60,16 +63,20 @@ from app.db import SessionLocal
 from app.draft_export import MEDIA_TYPES, ExportFormat, ExportRefused
 from app.entitlements import PlanRefused, Refusal, check_question
 from app.logs import about
-from app.models import Chat, ChatMessage, Project
+from app.models import Chat, ChatMessage, Document, Folder, Project
 from app.notices import MONTH_QUESTIONS, note_quota
 from app.ratelimit import EXPORTS, QUESTIONS
 from app.schemas import (
     AskOut,
     ChatDetail,
+    ChatIn,
     ChatMessageOut,
     ChatOut,
     ChatPatch,
+    ChatScopeIn,
     QuestionIn,
+    RegenerateIn,
+    RegenerateOut,
     RetryOut,
 )
 from app.share_links import question_of
@@ -89,6 +96,10 @@ STILL_ANSWERING = (
     "This chat is still being answered. Wait for the answer, or stop it, before asking again."
 )
 NOT_THE_LAST = "Only the chat's last answer can be tried again. Ask the question again instead."
+NOT_THE_LAST_QUESTION = (
+    "Only the chat's last question can be answered again or edited. Ask a new question instead."
+)
+BOTH_SCOPES = "A chat is about one folder or about chosen documents, not both. Choose one."
 FINISHED = "This answer is finished, so there is nothing to try again. Ask a follow-up instead."
 STILL_WRITTEN = "This answer is still being written. Download it once it is finished."
 NOTHING_ASKED = "Nothing has been asked in this chat yet, so there is nothing to download."
@@ -115,13 +126,20 @@ def list_chats(project: ProjectDep, session: SessionDep, account: AccountDep):
             Chat.deleted_at.is_(None),
             or_(Chat.user_id == account.user.id, Chat.visibility == "project"),
         )
+        # What each is about, in a query apiece for the list rather than one a chat.
+        .options(selectinload(Chat.scope_folder), selectinload(Chat.scope_documents))
         .order_by(Chat.updated_at.desc(), Chat.id.desc())
     ).all()
 
 
 @router.post("/projects/{project_id}/chats", response_model=ChatOut, status_code=201)
-def create_chat(project: ProjectDep, session: SessionDep, account: AccountDep):
+def create_chat(
+    project: ProjectDep, session: SessionDep, account: AccountDep, body: ChatIn | None = None
+):
+    """Start a chat, about the whole project or about the folder or documents `scope` names."""
     chat = Chat(project_id=project.id, user_id=account.user.id)
+    if body is not None and body.scope is not None:
+        _about(session, chat, body.scope)
     session.add(chat)
     session.commit()
     return chat
@@ -136,9 +154,12 @@ def get_chat(chat: ChatDep):
 def update_chat(
     chat: OwnChatDep, body: ChatPatch, session: SessionDep, account: AccountDep, request: Request
 ):
-    """Rename the chat, or share it with the project and take it private again."""
+    """Rename the chat, share it with the project and take it private again, or change what it
+    is about: its next answer reads what it is about then."""
     if body.title is not None:
         chat.title = body.title.strip()
+    if body.scope is not None:
+        _about(session, chat, body.scope)
     if body.visibility is not None and body.visibility != chat.visibility:
         chat.visibility = body.visibility
         # The title stays out of the row: it is the chat's first question until renamed.
@@ -293,6 +314,67 @@ def retry(chat: OwnChatDep, message_id: int, session: SessionDep, account: Accou
     return RetryOut(answer=message, last_event_id=last_event_id)
 
 
+@router.post(
+    "/chats/{chat_id}/messages/{message_id}/regenerate",
+    response_model=RegenerateOut,
+    dependencies=[Depends(limited(QUESTIONS))],
+)
+def regenerate(
+    chat: OwnChatDep,
+    message_id: int,
+    body: RegenerateIn,
+    session: SessionDep,
+    account: AccountDep,
+    request: Request,
+):
+    """Write the chat's last answer again in its place, finished or not, from its question as it
+    is or as `question` edits it: the row is emptied and streaming, and the worker writes it as
+    for a new question, which `events` streams.
+
+    The member asks for another answer, so the plan counts a question, as `ask` does, and holds it
+    to everything that holds one. The answer's share links show it as it is written again.
+    """
+    message = answer_in(chat, message_id, session)
+    # The lock orders this with a run settling the answer, as `retry` takes it.
+    session.execute(select(ChatMessage.id).where(ChatMessage.id == message.id).with_for_update())
+    session.refresh(message)
+    if message.status == "streaming":
+        raise HTTPException(409, STILL_ANSWERING)
+    if chat.messages[-1].id != message.id:
+        raise HTTPException(409, NOT_THE_LAST_QUESTION)
+    asked = question_of(session, message)
+    if asked is None:
+        raise HTTPException(409, NOT_THE_LAST_QUESTION)
+    edited = None
+    if body.question is not None:
+        if not (edited := body.question.strip()):
+            raise HTTPException(422, "Send a question to get an answer.")
+        if len(edited) > (cap := get_settings().max_question_chars):
+            raise HTTPException(413, too_long(len(edited), cap))
+    refuse_past_answers_in_flight(session, account, f"A question in chat {chat.id}")
+    if refusal := check_question(session, account.organization):
+        raise PlanRefused(refusal)
+    refuse_past_spending(session, account, f"A question in chat {chat.id}")
+    if edited is not None and edited != asked.content:
+        # A title the first question gave follows it; one the member chose stays.
+        if chat.title == _title(asked.content) and chat.messages[0].id == asked.id:
+            chat.title = _title(edited)
+        asked.content = edited
+    chat.updated_at = func.now()
+    last_event_id = retry_answer(session, chat, message)
+    record(
+        session,
+        org_id=account.organization.id,
+        project_id=chat.project_id,
+        user_id=account.user.id,
+        kind=ANSWER,
+        measures={"questions": 1},
+    )
+    note_quota(session, account.organization, MONTH_QUESTIONS, app_url(request))
+    session.commit()
+    return RegenerateOut(question=asked, answer=message, last_event_id=last_event_id)
+
+
 @router.get(
     "/chats/{chat_id}/messages/{message_id}/export",
     response_class=Response,
@@ -375,6 +457,43 @@ def export_chat(
     )
     session.commit()
     return _file_response(content, file_name(title, written_as, "Chat"), written_as)
+
+
+def _about(session: Session, chat: Chat, scope: ChatScopeIn) -> None:
+    """Make the chat about what `scope` names, of its project and out of the trash: a folder,
+    documents, or with neither the whole project."""
+    if scope.folder_id is not None and scope.document_ids:
+        raise HTTPException(422, BOTH_SCOPES)
+    folder = None
+    documents: list[Document] = []
+    if scope.folder_id is not None:
+        folder = session.scalar(
+            select(Folder).where(
+                Folder.id == scope.folder_id,
+                Folder.project_id == chat.project_id,
+                Folder.deleted_at.is_(None),
+            )
+        )
+        if folder is None:
+            raise HTTPException(404, "Folder not found")
+    if scope.document_ids:
+        wanted = set(scope.document_ids)
+        documents = list(
+            session.scalars(
+                select(Document)
+                .where(
+                    Document.id.in_(wanted),
+                    Document.project_id == chat.project_id,
+                    Document.deleted_at.is_(None),
+                )
+                .order_by(Document.id)
+            )
+        )
+        if len(documents) != len(wanted):
+            raise HTTPException(404, "Document not found")
+    chat.scope_kind = "folder" if folder else "documents" if documents else "project"
+    chat.scope_folder = folder
+    chat.scope_documents = documents
 
 
 def _asked(session: Session, chat: Chat, account: Account) -> Asked:

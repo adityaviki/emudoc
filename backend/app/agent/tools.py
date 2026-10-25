@@ -1,8 +1,9 @@
 """The agent's tools: five that read the project's indexes, `create_draft`, which offers the
 member a draft to have written (app/drafts.py) and is offered itself only to a member who may have
 one, and `suggest_follow_ups`, by which an answer suggests the questions to ask next. Every query
-is scoped to one project by the server, not the model, and to what is out of the project's trash
-(app/trash.py): nothing in it is listed, searched, counted or read.
+is scoped to one project by the server, not the model, to what is out of the project's trash
+(app/trash.py): nothing in it is listed, searched, counted or read, and in a chat about a folder or
+chosen documents to those (app/scopes.py).
 
 None of them changes anything. An offer of a draft is the answer's (app/answers.py), shown under
 it, and nothing is written until the member presses it, so a document whose text tells the model
@@ -14,8 +15,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai.tools import ToolDefinition
-from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy import ColumnElement, and_, func, or_, select
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.embeddings import Embedder
 from app.folders import PATH_SEPARATOR, folder_paths
@@ -23,6 +24,7 @@ from app.indexing.enrich import parse_iso_date
 from app.indexing.pipeline import unfinished_stages
 from app.models import Document, Fact, Passage, Section
 from app.schemas import DRAFT_DOCUMENTS, INSTRUCTION_CHARS, DraftKind
+from app.scopes import Scope, readable
 from app.search import hybrid_search
 
 # The documents the tools see: those out of the trash. A folder in the trash holds none of them.
@@ -45,12 +47,15 @@ FOLDER_HELP = (
 @dataclass
 class ToolContext:
     """What one tool call runs with: a session of its own, opened for the call by the agent
-    loop and closed with it, and the passages the answer has shown the model so far, which
-    the calls of one answer share."""
+    loop and closed with it, what the chat is about, and the passages the answer has shown the
+    model so far, which the calls of one answer share."""
 
     session: Session
     embedder: Embedder
     project_id: int
+    # The folder or documents the chat is about (app/scopes.py), which every tool reads alone;
+    # None for the whole project.
+    scope: Scope | None = None
     # Passages shown to the model, keyed by id: the only references an answer may cite.
     sources: dict[int, dict[str, Any]] = field(default_factory=dict)
     # Whether the answer offers a draft already, and the draft this call offers, if it does.
@@ -59,12 +64,33 @@ class ToolContext:
     # The questions this call suggests asking next, if it suggests any.
     follow_ups: list[str] | None = None
     _folder_paths: dict[int, str] | None = field(default=None, repr=False)
+    _within: list[int] | None = field(default=None, repr=False)
 
     def folder_paths(self) -> dict[int, str]:
         """Folder id → path, read once per tool call."""
         if self._folder_paths is None:
             self._folder_paths = folder_paths(self.session, self.project_id)
         return self._folder_paths
+
+    def within(self) -> list[int] | None:
+        """The ids of the documents the chat is about, read once per tool call; None when it is
+        about the whole project."""
+        if self.scope is None:
+            return None
+        if self._within is None:
+            self._within = readable(self.session, self.project_id, self.scope)
+        return self._within
+
+    def scoped(self, column: InstrumentedAttribute[int]) -> list[ColumnElement[bool]]:
+        """The condition that holds a query's document `column` to what the chat is about, as a
+        list to spread among the others: none for the whole project."""
+        within = self.within()
+        return [] if within is None else [column.in_(within)]
+
+    @property
+    def place(self) -> str:
+        """Where a tool looked, for a result that found nothing there."""
+        return "in this project" if self.scope is None else "among the documents this chat is about"
 
     def cite(self, passage: Passage, title: str) -> str:
         self.sources[passage.id] = {
@@ -162,7 +188,7 @@ class SuggestFollowUpsInput(_Input):
 
 
 def list_documents(ctx: ToolContext, args: ListDocumentsInput) -> str:
-    conditions = [Document.project_id == ctx.project_id, LIVE]
+    conditions = [Document.project_id == ctx.project_id, LIVE, *ctx.scoped(Document.id)]
     if args.folder:
         scope = _folder_scope(ctx, args.folder)
         if isinstance(scope, str):
@@ -193,13 +219,19 @@ def list_documents(ctx: ToolContext, args: ListDocumentsInput) -> str:
 
     types = ctx.session.execute(
         select(Document.doc_type, func.count())
-        .where(Document.project_id == ctx.project_id, LIVE, Document.doc_type.is_not(None))
+        .where(
+            Document.project_id == ctx.project_id,
+            LIVE,
+            *ctx.scoped(Document.id),
+            Document.doc_type.is_not(None),
+        )
         .group_by(Document.doc_type)
         .order_by(func.count().desc())
     ).all()
     lines = [f"Documents {args.offset + 1}-{args.offset + len(documents)} of {total}."]
     if types:
-        lines.append("Types in this project: " + ", ".join(f"{name} ({n})" for name, n in types))
+        where = "this chat's documents" if ctx.scope else "this project"
+        lines.append(f"Types in {where}: " + ", ".join(f"{name} ({n})" for name, n in types))
     folders = _folder_summary(ctx)
     if folders:
         lines.append(folders)
@@ -213,22 +245,27 @@ def list_documents(ctx: ToolContext, args: ListDocumentsInput) -> str:
 
 
 def _folder_summary(ctx: ToolContext) -> str:
-    """The project's folders with their document counts, so the model learns the tree."""
+    """The project's folders with their document counts, so the model learns the tree; in a
+    chat about part of the project, the folders that hold what it is about."""
     paths = ctx.folder_paths()
     if not paths:
         return ""
     counts = dict(
         ctx.session.execute(
             select(Document.folder_id, func.count())
-            .where(Document.project_id == ctx.project_id, LIVE)
+            .where(Document.project_id == ctx.project_id, LIVE, *ctx.scoped(Document.id))
             .group_by(Document.folder_id)
         ).all()
     )
+    if ctx.scope is not None:
+        paths = {folder_id: path for folder_id, path in paths.items() if folder_id in counts}
     listed = ", ".join(
         f"{path} ({counts.get(folder_id, 0)})"
         for folder_id, path in sorted(paths.items(), key=lambda item: item[1].lower())
     )
     at_root = counts.get(None, 0)
+    if not listed:
+        return f"At the root: {at_root}."
     return f"Folders (documents in each): {listed}. At the root: {at_root}."
 
 
@@ -257,14 +294,18 @@ def _folder_scope(ctx: ToolContext, folder: str) -> list[int] | str:
         if path == root or path.startswith(f"{root}{PATH_SEPARATOR}")
     ]
     return list(
-        ctx.session.scalars(select(Document.id).where(Document.folder_id.in_(subtree), LIVE)).all()
+        ctx.session.scalars(
+            select(Document.id).where(
+                Document.folder_id.in_(subtree), LIVE, *ctx.scoped(Document.id)
+            )
+        ).all()
     )
 
 
 def get_outline(ctx: ToolContext, args: GetOutlineInput) -> str:
     document = _document(ctx, args.document_id)
     if document is None:
-        return f"No document with id {args.document_id} in this project."
+        return f"No document with id {args.document_id} {ctx.place}."
     sections = ctx.session.scalars(
         select(Section).where(Section.document_id == document.id).order_by(Section.ordinal)
     ).all()
@@ -288,6 +329,11 @@ def get_outline(ctx: ToolContext, args: GetOutlineInput) -> str:
 
 def search(ctx: ToolContext, args: SearchInput) -> str:
     document_ids = args.document_ids
+    if (within := ctx.within()) is not None:
+        # An empty list would search the whole project.
+        document_ids = [d for d in within if document_ids is None or d in document_ids]
+        if not document_ids:
+            return "None of those documents is one this chat is about, so none was searched."
     if args.folder:
         scope = _folder_scope(ctx, args.folder)
         if isinstance(scope, str):
@@ -353,7 +399,7 @@ def query_facts(ctx: ToolContext, args: QueryFactsInput) -> str:
 
     if len(filters) == 1:
         return _fact_names(ctx)
-    filters.append(LIVE)
+    filters.extend([LIVE, *ctx.scoped(Fact.document_id)])
 
     joined = select(Fact, Document).join(Document, Document.id == Fact.document_id)
     total = ctx.session.scalar(
@@ -420,16 +466,21 @@ def read(ctx: ToolContext, args: ReadInput) -> str:
     query = (
         select(Passage)
         .join(Document, Document.id == Passage.document_id)
-        .where(Passage.project_id == ctx.project_id, LIVE)
+        .where(Passage.project_id == ctx.project_id, LIVE, *ctx.scoped(Passage.document_id))
     )
     if args.section_id is not None:
         section = ctx.session.scalar(
             select(Section)
             .join(Document, Document.id == Section.document_id)
-            .where(Section.id == args.section_id, Section.project_id == ctx.project_id, LIVE)
+            .where(
+                Section.id == args.section_id,
+                Section.project_id == ctx.project_id,
+                LIVE,
+                *ctx.scoped(Section.document_id),
+            )
         )
         if section is None:
-            return f"No section with id {args.section_id} in this project."
+            return f"No section with id {args.section_id} {ctx.place}."
         query = query.where(
             Passage.document_id == section.document_id,
             Passage.block_start >= section.block_start,
@@ -438,7 +489,7 @@ def read(ctx: ToolContext, args: ReadInput) -> str:
     elif args.passage_id is not None:
         center = ctx.session.scalar(query.where(Passage.id == args.passage_id))
         if center is None:
-            return f"No passage with id {args.passage_id} in this project."
+            return f"No passage with id {args.passage_id} {ctx.place}."
         query = query.where(
             Passage.document_id == center.document_id,
             Passage.ordinal.between(center.ordinal - 2, center.ordinal + 2),
@@ -494,13 +545,17 @@ def create_draft(ctx: ToolContext, args: CreateDraftInput) -> str:
         document.id: document
         for document in ctx.session.scalars(
             select(Document).where(
-                Document.id.in_(asked), Document.project_id == ctx.project_id, LIVE
+                Document.id.in_(asked),
+                Document.project_id == ctx.project_id,
+                LIVE,
+                *ctx.scoped(Document.id),
             )
         )
     }
     if missing := [document_id for document_id in asked if document_id not in found]:
+        whose = "of this project" if ctx.scope is None else "this chat is about"
         return (
-            f"No document of this project has the id {', '.join(map(str, missing))}. Use the ids "
+            f"No document {whose} has the id {', '.join(map(str, missing))}. Use the ids "
             "list_documents and search show, or none for the writer to find the documents."
         )
     documents = [found[document_id] for document_id in asked]
@@ -552,7 +607,7 @@ def _fact_names(ctx: ToolContext) -> str:
     names = ctx.session.execute(
         select(Fact.name, func.count(), func.count(func.distinct(Fact.document_id)))
         .join(Document, Document.id == Fact.document_id)
-        .where(Fact.project_id == ctx.project_id, LIVE)
+        .where(Fact.project_id == ctx.project_id, LIVE, *ctx.scoped(Fact.document_id))
         .group_by(Fact.name)
         .order_by(func.count().desc(), Fact.name)
     ).all()
@@ -570,7 +625,10 @@ def _fact_names(ctx: ToolContext) -> str:
 def _document(ctx: ToolContext, document_id: int) -> Document | None:
     return ctx.session.scalar(
         select(Document).where(
-            Document.id == document_id, Document.project_id == ctx.project_id, LIVE
+            Document.id == document_id,
+            Document.project_id == ctx.project_id,
+            LIVE,
+            *ctx.scoped(Document.id),
         )
     )
 

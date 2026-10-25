@@ -2,6 +2,7 @@
 // and the menus built on them: a context menu with keyboard navigation. A layer sits in the
 // keyboard's order as if it came right after what opened it, which is where focus goes back.
 
+import { Check } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode, RefObject } from 'react'
@@ -157,6 +158,8 @@ export type MenuItem =
       shortcut?: string
       danger?: boolean
       disabled?: boolean
+      /** Set on each of a menu of choices, true on the one chosen: a radio item. */
+      checked?: boolean
       onSelect: () => void
     }
   | 'separator'
@@ -171,7 +174,9 @@ export function Menu({ items, onClose }: MenuProps) {
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    ref.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
+    // A menu of choices opens at the one chosen.
+    const chosen = ref.current?.querySelector<HTMLButtonElement>('button[aria-checked="true"]:not(:disabled)')
+    ;(chosen ?? ref.current?.querySelector<HTMLButtonElement>('button:not(:disabled)'))?.focus()
   }, [])
 
   function onKeyDown(event: KeyboardEvent) {
@@ -199,7 +204,8 @@ export function Menu({ items, onClose }: MenuProps) {
           <button
             key={index}
             type="button"
-            role="menuitem"
+            role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
+            aria-checked={item.checked}
             // The arrows move between the items; Tab leaves the menu (Floating).
             tabIndex={-1}
             disabled={item.disabled}
@@ -212,7 +218,8 @@ export function Menu({ items, onClose }: MenuProps) {
             }`}
           >
             {item.icon && <item.icon className="size-4 shrink-0 opacity-70" />}
-            <span className="flex-1">{item.label}</span>
+            <span className="min-w-0 flex-1 truncate">{item.label}</span>
+            {item.checked && <Check className="size-4 shrink-0 text-accent" />}
             {item.shortcut && <span className="text-[11px] text-muted">{item.shortcut}</span>}
           </button>
         ),

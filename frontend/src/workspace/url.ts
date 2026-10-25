@@ -3,6 +3,7 @@
 
 import { useCallback, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router'
+import type { ScopeIn } from '../api.ts'
 
 /** What a document is opened at: a cited passage, a block of its text, or a page. */
 export type Focus = { passage: number } | { block: number } | { page: number }
@@ -40,6 +41,8 @@ export interface WorkspaceUrl {
   /** The document in the middle pane; null leaves the library and the agent side by side. */
   document: OpenDocument | null
   chatId: number | 'new' | null
+  /** What a new chat will be about, until its first question makes it; null for the whole project. */
+  about: ScopeIn | null
   /** False for an old URL shape (/ask, /search) that should be rewritten to the current one. */
   canonical: boolean
 }
@@ -83,7 +86,22 @@ export function parseWorkspaceUrl(pathname: string, search: string): WorkspaceUr
   } else if (rest !== '') {
     return null
   }
-  return { projectId, library, document, chatId, canonical }
+  const about = chatId === 'new' ? parseAbout(params.get('about')) : null
+  return { projectId, library, document, chatId, about, canonical }
+}
+
+/** A new chat's scope as the URL writes it: `f12` a folder, `d3-5` documents. */
+function parseAbout(value: string | null): ScopeIn | null {
+  const folder = /^f(\d+)$/.exec(value ?? '')
+  if (folder) return { folder_id: Number(folder[1]) }
+  if (value && /^d\d+(-\d+)*$/.test(value)) return { document_ids: value.slice(1).split('-').map(Number) }
+  return null
+}
+
+function writeAbout(about: ScopeIn): string | null {
+  if ('folder_id' in about) return `f${about.folder_id}`
+  if ('document_ids' in about && about.document_ids.length) return `d${about.document_ids.join('-')}`
+  return null
 }
 
 function parseFocus(params: URLSearchParams): Focus | null {
@@ -127,6 +145,8 @@ export function buildWorkspaceUrl(url: Omit<WorkspaceUrl, 'canonical'>): string 
     }
   }
   if (url.chatId != null) params.set('chat', String(url.chatId))
+  const about = url.chatId === 'new' && url.about ? writeAbout(url.about) : null
+  if (about) params.set('about', about)
   const query = params.toString()
   return query ? `${path}?${query}` : path
 }

@@ -1,10 +1,12 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowUp,
   BookOpen,
   ChevronDown,
   ExternalLink,
   FileText,
+  Files,
+  Folder,
   Link2,
   ListTree,
   Lock,
@@ -12,6 +14,7 @@ import {
   PenLine,
   Pencil,
   Plus,
+  RefreshCw,
   RotateCcw,
   Search,
   Square,
@@ -24,14 +27,31 @@ import type { LucideIcon } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { api, organizations, pageLabel, sectionPath, sourceLabel } from '../api.ts'
-import type { Chat, DraftKind, Source, TextFormat } from '../api.ts'
+import type { Chat, ChatScope, DraftKind, ScopeIn, Source, TextFormat } from '../api.ts'
 import { useMe } from '../auth.ts'
-import { ask, chatKey, followUpsOf, isStreaming, loadChat, mayRetry, resume, retry, splitChats, stop, useStreaming } from '../chat.ts'
+import {
+  ask,
+  chatKey,
+  editableQuestion,
+  followUpsOf,
+  isStreaming,
+  loadChat,
+  mayRegenerate,
+  mayRetry,
+  regenerate,
+  resume,
+  retry,
+  splitChats,
+  started,
+  stop,
+  useStreaming,
+} from '../chat.ts'
 import type { ChatData, Message, Step } from '../chat.ts'
 import { DownloadText } from '../components/DownloadMenu.tsx'
 import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
 import { Markdown, SourceText } from '../components/Markdown.tsx'
-import { Floating } from '../components/Menu.tsx'
+import { Floating, Menu } from '../components/Menu.tsx'
+import type { MenuItem } from '../components/Menu.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, IconButton, Loading, Notice, Spinner } from '../components/ui.tsx'
 import { ANSWER_OFFLINE, QUESTION_OFFLINE } from '../connection.ts'
@@ -40,6 +60,7 @@ import { useOnline, useStatus } from '../hooks.ts'
 import { inviteNudgeOf, mayInvite } from '../onboarding.ts'
 import type { InviteNudge } from '../onboarding.ts'
 import { offersLinks } from '../shareLinks.ts'
+import { questionsFor, sameScope, scopeIn, scopeOf, scopeWords } from '../scopes.ts'
 import { askHeld } from '../status.ts'
 import { answerFileUrl, chatFileUrl } from '../textFiles.ts'
 import { trashKey } from '../trash.ts'
@@ -47,6 +68,7 @@ import { KIND_LABELS } from '../drafts.ts'
 import { describeAnswerUsage } from '../usage.ts'
 import { OfferedDraft } from './Drafts.tsx'
 import { InviteTeam } from './InviteTeam.tsx'
+import { documentQuery } from './listing.ts'
 import { ShareDialog } from './ShareLinks.tsx'
 import { useWorkspace } from './state.ts'
 
@@ -378,19 +400,38 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
   useEffect(() => {
     if (chatId == null) void queryClient.invalidateQueries({ queryKey: ['project', project.id], exact: true })
   }, [chatId, project.id, queryClient])
-  // A chat is created with its first question, and the URL then moves to it.
+  // A chat is created with its first question, about what the URL says, and the URL then moves to it.
+  const about = chatId == null ? workspace.url.about : null
   const create = useMutation({
-    mutationFn: (question: string) => api.createChat(project.id).then((created) => ({ created, question })),
+    mutationFn: (question: string) => api.createChat(project.id, about ?? {}).then((created) => ({ created, question })),
     onSuccess: ({ created, question }) => {
-      queryClient.setQueryData<ChatData>(chatKey(created.id), { ...created, messages: [] })
-      queryClient.setQueryData<Chat[]>(['chats', project.id], (chats) => [
-        { ...created, title: question },
-        ...(chats ?? []),
-      ])
+      started(queryClient, created, question)
       workspace.openChat(created.id, { replace: true })
       ask(queryClient, created.id, question)
     },
   })
+  // What the chat is about: its own, or a new chat's from the URL, named from what the page holds.
+  const aboutIds = about && 'document_ids' in about ? about.document_ids : []
+  const aboutDocuments = useQueries({ queries: aboutIds.map((id) => documentQuery(queryClient, project.id, id)) })
+  const scope =
+    chat.data?.scope ??
+    scopeOf(
+      about,
+      (id) => workspace.tree.byId.get(id)?.name,
+      (id) => aboutDocuments[aboutIds.indexOf(id)]?.data?.filename,
+    )
+  const rescope = useMutation({
+    mutationFn: (changed: ScopeIn) => api.scopeChat(chatId!, changed),
+    onSuccess: (changed) => {
+      queryClient.setQueryData<Chat[]>(['chats', project.id], (chats) => chats?.map((item) => (item.id === changed.id ? changed : item)))
+      queryClient.setQueryData<ChatData>(chatKey(changed.id), (data) => data && { ...data, scope: changed.scope })
+    },
+  })
+  // A new chat's scope is the URL's until its first question; a chat's own is changed on the server.
+  function choose(changed: ScopeIn) {
+    if (chatId == null) workspace.openChat('new', { replace: true, about: changed })
+    else rescope.mutate(changed)
+  }
 
   const loading = chatId != null && chat.isPending
   const messages = chat.data?.messages ?? NO_MESSAGES
@@ -445,6 +486,17 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
   // member's shared chat is read, not asked in.
   const last = messages[messages.length - 1]
   const retried = !starter && !streaming && last !== undefined && mayRetry(last) ? last : null
+  // Its last answer, done, is written again on a press, and its last question edited and answered again.
+  const regenerated = !starter && !streaming && last !== undefined && mayRegenerate(last) ? last : null
+  const editable = !starter && !streaming && chatId != null ? editableQuestion(messages) : null
+  const pathOf = (id: number) =>
+    workspace.tree
+      .pathTo(id)
+      .map((folder) => folder.name)
+      .join('/')
+  const scoped = scopeWords(scope, pathOf)
+  // A chat about part of the project offers questions about that part; one about all of it, the project's.
+  const offered = questionsFor(scope) ?? (project.suggestions.length ? project.suggestions : SUGGESTIONS)
   // What the last answer suggests asking next, which its starter asks with a press.
   const next = starter || streaming ? [] : followUpsOf(messages)
   return (
@@ -469,14 +521,16 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
               <div className="mx-auto mb-4 flex size-11 items-center justify-center rounded-xl bg-accent-soft text-accent">
                 <MessagesSquare className="size-5" />
               </div>
-              <p className="text-base font-semibold tracking-tight">Ask about the documents in {project.name}</p>
+              <p className="text-base font-semibold tracking-tight">
+                {scope.kind === 'project' ? `Ask about the documents in ${project.name}` : `Ask about ${scoped}`}
+              </p>
               <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
                 Answers are written by an AI model from the documents, and cite the passages they rely on;
                 citations open the document in the library. A model can misread a document or miss a passage,
                 so check the cited passages before you rely on an answer.
               </p>
               <div className="mt-6 flex flex-col gap-2 text-left">
-                {(project.suggestions.length ? project.suggestions : SUGGESTIONS).map((suggestion) => (
+                {offered.map((suggestion) => (
                   <button
                     key={suggestion}
                     onClick={() => send(suggestion)}
@@ -493,11 +547,20 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
           )}
           {messages.map((message, index) =>
             message.role === 'user' ? (
-              <div key={index} className="flex justify-end">
-                <p className="max-w-[85%] rounded-2xl rounded-br-md bg-accent-soft px-4 py-2.5 leading-relaxed whitespace-pre-wrap">
-                  {message.content}
-                </p>
-              </div>
+              <Question
+                key={index}
+                message={message}
+                held={!online || unavailable}
+                onEdit={
+                  message === editable && chatId != null
+                    ? (question) => {
+                        regenerate(queryClient, chatId, question === message.content ? undefined : question)
+                        // The edit goes with the press: the composer takes the focus, for the next question.
+                        composer.current?.focus()
+                      }
+                    : undefined
+                }
+              />
             ) : (
               <Answer
                 key={index}
@@ -506,6 +569,7 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
                 onOpen={openSource}
                 onReconnect={message.lost ? () => reconnect(message) : undefined}
                 onRetry={message === retried && chatId != null ? () => retry(queryClient, chatId) : undefined}
+                onRegenerate={message === regenerated && chatId != null ? () => regenerate(queryClient, chatId) : undefined}
                 retryHeld={!online || unavailable}
                 onShare={
                   offersLinks(me) && chatId != null && message.id != null && message.status === 'done' && message.content
@@ -552,6 +616,18 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
               <Notice>{QUESTION_OFFLINE}</Notice>
             </div>
           )}
+          <div className="mb-1.5 flex min-w-0 items-center gap-2">
+            {starter ? (
+              <p className="min-w-0 truncate px-1 text-xs text-muted">About: {scoped}</p>
+            ) : (
+              <ScopeChooser scope={scope} words={scoped} pathOf={pathOf} pending={rescope.isPending} onChoose={choose} />
+            )}
+            {rescope.isError && (
+              <span role="alert" title={rescope.error.message} className="min-w-0 truncate text-xs text-bad">
+                {rescope.error.message}
+              </span>
+            )}
+          </div>
           {starter ? (
             <p className="rounded-xl border border-line bg-surface px-4 py-3 text-center text-[13px] text-muted">
               {starter} shared this chat with the project. You can read it; to ask a question of your own, start a new
@@ -622,6 +698,174 @@ function AskNext({ questions, disabled, onAsk }: { questions: string[]; disabled
   )
 }
 
+interface ScopeChooserProps {
+  scope: ChatScope
+  words: string
+  pathOf: (folderId: number) => string
+  pending: boolean
+  onChoose: (scope: ScopeIn) => void
+}
+
+/**
+ * What the chat is about, above the box the member asks in, and the menu that changes it: all the
+ * documents, a folder, or one of the documents open in tabs. Documents chosen together in the
+ * library stay among the choices while the chat is about them.
+ */
+function ScopeChooser({ scope, words, pathOf, pending, onChoose }: ScopeChooserProps) {
+  const workspace = useWorkspace()
+  const [anchor, setAnchor] = useState<DOMRect | null>(null)
+  const button = useRef<HTMLButtonElement>(null)
+  const current = scopeIn(scope)
+  const choice = (label: string, icon: LucideIcon, choose: ScopeIn): MenuItem => ({
+    label,
+    icon,
+    checked: sameScope(choose, current),
+    onSelect: () => {
+      if (!sameScope(choose, current)) onChoose(choose)
+    },
+  })
+  const folders = [...workspace.tree.byId.values()]
+    .map((folder) => ({ id: folder.id, path: pathOf(folder.id) }))
+    .sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: 'base' }))
+  const open = workspace.openTabs.flatMap((tab) => {
+    const document = workspace.openDocuments.get(tab.id)
+    return document ? [document] : []
+  })
+  const listed = open.some((document) => sameScope({ document_ids: [document.id] }, current))
+  const items: MenuItem[] = [
+    choice('All documents', Files, {}),
+    // Documents chosen in the library, or a folder or documents gone, are what the chat is about until changed.
+    ...(scope.kind === 'documents' && !listed ? [choice(words, FileText, current)] : []),
+    ...(scope.kind === 'folder' && !scope.folder ? [choice(words, Folder, current)] : []),
+    ...(folders.length ? ['separator' as const, ...folders.map((folder) => choice(folder.path, Folder, { folder_id: folder.id }))] : []),
+    ...(open.length
+      ? ['separator' as const, ...open.map((document) => choice(document.filename, FileText, { document_ids: [document.id] }))]
+      : []),
+  ]
+  const Icon = scope.kind === 'folder' ? Folder : scope.kind === 'documents' ? FileText : Files
+  return (
+    <>
+      <button
+        ref={button}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={anchor !== null}
+        disabled={pending}
+        title="What this chat's answers read: all the documents, a folder or chosen documents"
+        onClick={(event) => setAnchor(anchor ? null : event.currentTarget.getBoundingClientRect())}
+        className="flex h-6 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-xs text-muted transition hover:bg-sunken hover:text-ink disabled:cursor-wait"
+      >
+        <Icon className="size-3.5 shrink-0" />
+        <span className="min-w-0 truncate">About: {words}</span>
+        <ChevronDown className="size-3 shrink-0" />
+      </button>
+      {anchor && (
+        <Floating anchor={anchor} onClose={() => setAnchor(null)} ignore={button} className="w-80 max-w-[90vw]">
+          <div className="max-h-80 overflow-y-auto">
+            <Menu items={items} onClose={() => setAnchor(null)} />
+          </div>
+        </Floating>
+      )}
+    </>
+  )
+}
+
+/** A question of the chat; the last one, in the member's own chat, edited in place and answered again. */
+function Question({ message, held, onEdit }: { message: Message; held: boolean; onEdit?: (question: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  const button = useRef<HTMLButtonElement>(null)
+  // Cancelled, the editor gives the focus back to the button that opened it.
+  const restore = useRef(false)
+  useEffect(() => {
+    if (!editing && restore.current) {
+      restore.current = false
+      button.current?.focus()
+    }
+  }, [editing])
+
+  if (editing && onEdit) {
+    return (
+      <QuestionEditor
+        initial={message.content}
+        held={held}
+        onCancel={() => {
+          restore.current = true
+          setEditing(false)
+        }}
+        onSend={(question) => {
+          setEditing(false)
+          onEdit(question)
+        }}
+      />
+    )
+  }
+  return (
+    <div className="flex items-start justify-end gap-1">
+      {onEdit && (
+        <IconButton ref={button} label="Edit the question" disabled={held} onClick={() => setEditing(true)} className="mt-1.5">
+          <Pencil className="size-3.5" />
+        </IconButton>
+      )}
+      <p className="max-w-[85%] rounded-2xl rounded-br-md bg-accent-soft px-4 py-2.5 leading-relaxed whitespace-pre-wrap">{message.content}</p>
+    </div>
+  )
+}
+
+function QuestionEditor({
+  initial,
+  held,
+  onCancel,
+  onSend,
+}: {
+  initial: string
+  held: boolean
+  onCancel: () => void
+  onSend: (question: string) => void
+}) {
+  const [text, setText] = useState(initial)
+  const field = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    // The caret at the end, where an edit usually goes.
+    const length = field.current?.value.length ?? 0
+    field.current?.focus()
+    field.current?.setSelectionRange(length, length)
+  }, [])
+  const question = text.trim()
+
+  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      onCancel()
+    } else if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      if (question && !held) onSend(question)
+    }
+  }
+
+  return (
+    <div className="ml-auto w-full max-w-[85%] rounded-2xl rounded-br-md border border-line bg-surface p-2 shadow-xs focus-within:border-accent focus-within:ring-3 focus-within:ring-accent/15">
+      <textarea
+        ref={field}
+        value={text}
+        aria-label="Edit the question"
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={onKeyDown}
+        rows={Math.min(6, Math.max(2, text.split('\n').length))}
+        className="max-h-40 w-full resize-none bg-transparent px-2 py-1.5 leading-relaxed outline-none"
+      />
+      <div className="flex items-center justify-end gap-2">
+        <p className="mr-auto px-2 text-[11px] text-muted">Its answer is written again, and counts as a question.</p>
+        <Button variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button variant="primary" disabled={!question || held} onClick={() => onSend(question)}>
+          Send
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 /** The latest chats other members shared with the project, offered beside a new chat's suggestions. */
 function RecentlyShared({ chats }: { chats: Chat[] }) {
   const workspace = useWorkspace()
@@ -658,6 +902,8 @@ interface AnswerProps {
   onReconnect?: () => void
   // Offered on the last answer of the member's own chat once it was stopped or failed.
   onRetry?: () => void
+  // Offered on the last answer of the member's own chat once it is done: written again, counting a question.
+  onRegenerate?: () => void
   // Offline or without a model the answer cannot be tried again just now.
   retryHeld?: boolean
   // The draft the answer offers, once it is written.
@@ -675,7 +921,7 @@ function answerFileOf(chatId: number | null, message: Message): ((format: TextFo
   return (format) => answerFileUrl(chatId, id, format)
 }
 
-function Answer({ message, currency, onOpen, onReconnect, onRetry, retryHeld, offer, onShare, fileOf }: AnswerProps) {
+function Answer({ message, currency, onOpen, onReconnect, onRetry, onRegenerate, retryHeld, offer, onShare, fileOf }: AnswerProps) {
   // Number the cited passages in the order the answer first mentions them.
   const cited = [...new Set([...message.content.matchAll(/\[P(\d+)\]/g)].map((match) => Number(match[1])))]
     .filter((id) => message.sources[id])
@@ -771,8 +1017,20 @@ function Answer({ message, currency, onOpen, onReconnect, onRetry, retryHeld, of
           {describeAnswerUsage(message.usage, currency)}
         </p>
       ) : null}
-      {(onShare || fileOf) && (
+      {(onShare || fileOf || onRegenerate) && (
         <div className="-ml-2 flex flex-wrap items-center gap-1">
+          {onRegenerate && (
+            <Button
+              variant="ghost"
+              className="h-6 px-2"
+              icon={<RefreshCw className="size-3.5" />}
+              onClick={onRegenerate}
+              disabled={retryHeld}
+              title="Write this answer again from its question. It counts as a question."
+            >
+              Regenerate
+            </Button>
+          )}
           {onShare && (
             <Button variant="ghost" className="h-6 px-2" icon={<Link2 className="size-3.5" />} onClick={onShare}>
               Share the answer

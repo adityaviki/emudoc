@@ -17,13 +17,25 @@ its passage with a numbered chip: click it to open the document at that passage 
 Answers are written by an AI model and can be wrong; the citations are there so that you can
 tell. Stop ends an answer early, and an answer goes on while you look elsewhere, or after you
 reload the page. Try again, under the last answer of your chat when it was stopped or failed,
-writes it anew in its place.
+writes it anew in its place. Regenerate, under the last answer once it is finished, writes it
+again from the same question, and Edit the question, beside your last question, lets you change
+it and have it answered again in its place; each counts as a question.
 
 A question can be up to $question_chars characters; for more, upload the text as a document and
 ask about it. New chat starts afresh, and the empty chat suggests a few questions, which the AI
 model writes from the project's documents once they are indexed. Under the last answer of your
 chat, "Ask next" suggests two or three questions that take it further: click one to ask it, as if
 you had typed it. A suggestion is only asked when you click it, and counts as a question.
+
+## Asking about part of the project
+
+About, above the box you ask in, says what the chat is about and changes it: all the documents,
+a folder with its subfolders, or a document open in a tab. The assistant then reads only those,
+whatever the question, and tells you when you ask about anything else. The library starts such a
+chat from a folder's or a document's menu: Ask about this folder; Summarise this folder, which
+asks for its summary at once; and Ask about this document. Choose several files with Ctrl (or ⌘)
+and a click for Ask about these documents, or two of them for Compare the two documents. A chat
+whose folder or documents were deleted reads nothing until you choose again what it is about.
 
 ## Who sees a chat
 

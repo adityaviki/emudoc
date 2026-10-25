@@ -4,13 +4,14 @@
 // component, and a chat opened while its answer is still being written picks the stream up.
 // Offline, the page waits for the connection and follows on from where it was; an answer it gave
 // up on is followed again from its first event on the member's word, and a stopped or failed one
-// is tried again in its place.
+// is tried again in its place. The chat's last answer is written again on the member's word, from
+// its question or the question they edited, and a chat starts about what was chosen for it.
 
 import { onlineManager } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
 import { useSyncExternalStore } from 'react'
 import { ApiError, api, isPlanLimit, streamEvents } from './api.ts'
-import type { AskResult, Chat, ChatDetail, ChatEvent, ChatMessage, Draft, DraftOffer, MessageStatus, PlanRefusal, Source, Usage } from './api.ts'
+import type { AskResult, Chat, ChatDetail, ChatEvent, ChatMessage, Draft, DraftOffer, MessageStatus, PlanRefusal, ScopeIn, Source, Usage } from './api.ts'
 
 export interface Step {
   id: string
@@ -223,6 +224,25 @@ export function mayRetry(message: Message): boolean {
     !message.lost &&
     !message.refusedByPlan
   )
+}
+
+/**
+ * Whether the answer, the last of its chat, may be written again: it is done. Not one the page
+ * lost, nor one the plan refused, whose notice offers what lifts the limit; a stopped or failed
+ * one is tried again instead, which counts no question.
+ */
+export function mayRegenerate(message: Message): boolean {
+  return message.role === 'assistant' && message.status === 'done' && !message.lost && !message.refusedByPlan
+}
+
+/**
+ * The chat's last question, which its member may edit and have answered again in its place: none
+ * while its answer is written, or once the page lost it.
+ */
+export function editableQuestion(messages: Message[]): Message | null {
+  const [question, answer] = messages.slice(-2)
+  if (question?.role !== 'user' || answer?.role !== 'assistant') return null
+  return answer.status === 'streaming' || answer.lost ? null : question
 }
 
 /**
@@ -467,6 +487,61 @@ export async function retry(queryClient: QueryClient, chatId: number) {
     return
   }
   await run(queryClient, chatId, following, answer.id, update, after)
+}
+
+/**
+ * Write the chat's last answer again in its place (`mayRegenerate`), from its question or from
+ * `question` in its place (`editableQuestion`): the server empties it, counting a question, and its
+ * worker writes it anew, followed from past the events the earlier tries left. An answer the
+ * server never saved, its question refused, is asked again instead. A refusal puts the question and
+ * the answer back as they were, with the refusal.
+ */
+export async function regenerate(queryClient: QueryClient, chatId: number, question?: string) {
+  if (running.has(chatId)) return
+  const { edit, byId } = editor(queryClient, chatId)
+  const messages = queryClient.getQueryData<ChatData>(chatKey(chatId))?.messages ?? []
+  const [asked, answer] = messages.slice(-2)
+  if (asked?.role !== 'user' || answer?.role !== 'assistant') return
+  if (asked.id == null || answer.id == null) {
+    edit((all) => all.slice(0, -2))
+    return ask(queryClient, chatId, question ?? asked.content)
+  }
+  const askedAs = byId(asked.id)
+  const update = byId(answer.id)
+  const following = begin(chatId)
+  if (question !== undefined) askedAs((message) => ({ ...message, content: question }))
+  update(empty)
+  let after: number | null
+  try {
+    await stopping.get(chatId)
+    const written = await api.regenerateAnswer(chatId, answer.id, question)
+    askedAs(() => fromSaved(written.question))
+    after = written.last_event_id
+  } catch (error) {
+    letGo(chatId)
+    askedAs(() => asked)
+    update(() => ({ ...answer, ...refused(error), status: answer.status }))
+    return
+  }
+  await run(queryClient, chatId, following, answer.id, update, after)
+}
+
+/** Put a chat just made for its first question where the page reads it: its own data and the list's top. */
+export function started(queryClient: QueryClient, chat: Chat, question: string) {
+  queryClient.setQueryData<ChatData>(chatKey(chat.id), { ...chat, messages: [] })
+  queryClient.setQueryData<Chat[]>(['chats', chat.project_id], (chats) => [{ ...chat, title: question }, ...(chats ?? [])])
+}
+
+/**
+ * Start a chat about what `scope` names with its first question, and follow its answer into it, as
+ * the library's "Summarise this folder" and "Compare" do; the chat's id once the server made it,
+ * with the question and its answer begun in it.
+ */
+export async function startChat(queryClient: QueryClient, projectId: number, scope: ScopeIn, question: string): Promise<number> {
+  const chat = await api.createChat(projectId, scope)
+  started(queryClient, chat, question)
+  void ask(queryClient, chat.id, question)
+  return chat.id
 }
 
 /**
