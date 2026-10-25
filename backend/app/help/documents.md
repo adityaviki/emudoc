@@ -10,7 +10,10 @@ not read is left out before anything is sent, and so are a folder's hidden files
 with a password cannot be read: save it again without one. A scanned page, and each page of a
 TIFF, is read by the AI model as an image$ocr_pages. An email saved from your mail program
 (.eml) is opened: its text becomes a document headed by who sent it to whom and when, and each
-file attached to it a document beside it. $scanning
+file attached to it a document beside it. A ZIP archive is unpacked as your computer would,
+into a folder of its name unless it holds one folder already, its folders made as an uploaded
+folder's are; the archives of one upload may bring $max_upload_files files and $max_request_mb MB
+unpacked between them. $scanning
 
 ## How a document is read
 

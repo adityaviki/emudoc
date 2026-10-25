@@ -289,8 +289,9 @@ UPLOAD_REJECTIONS = Counter(
     "Uploaded files the API refused, by why: too_many (a request past MAX_UPLOAD_FILES or "
     "MAX_UPLOAD_REQUEST_MB, counted once), plan (the plan has no room), unsupported, empty, "
     "too_large (past MAX_UPLOAD_MB), wrong_type (the bytes are not what the name says), "
-    "duplicate, folder (a folder of its path that cannot be made), unopened (a message the page "
-    "uploaded that cannot be opened, or one inside another).",
+    "duplicate, folder (a folder of its path that cannot be made), unopened (a message or an "
+    "archive the page uploaded that cannot be opened, or one inside another, or a file of an "
+    "archive that does not unpack).",
     ["reason"],
 )
 MAIL_SENT = Counter(

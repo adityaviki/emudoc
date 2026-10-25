@@ -33,6 +33,8 @@ CONTENT_TYPES_MAX = 1024 * 1024
 PNG = b"\x89PNG\r\n\x1a\n"
 JPEG = b"\xff\xd8\xff"
 ZIP = b"PK\x03\x04"
+# An archive with no files is its end record alone.
+EMPTY_ZIP = b"PK\x05\x06"
 # A TIFF's byte order and version, little- or big-endian, classic or BigTIFF.
 TIFF = (b"II*\x00", b"MM\x00*", b"II+\x00", b"MM\x00+")
 # A HEIF file opens with an ISO media file's `ftyp` box naming its brands; those of HEVC's
@@ -138,6 +140,8 @@ def wrong_type(path: Path, suffix: str) -> str | None:
         return f"Not an HTML file. {RENAME}" if binary else None
     if suffix == ".rtf":
         return None if head.startswith(RTF) else f"Not an RTF document. {RENAME}"
+    if suffix == ".zip":
+        return None if head.startswith((ZIP, EMPTY_ZIP)) else f"Not a ZIP archive. {RENAME}"
     if suffix == ".eml":
         message = MESSAGE_START.match(head.lstrip(b"\r\n"))
         binary = head.translate(None, delete=TEXT_BYTES)

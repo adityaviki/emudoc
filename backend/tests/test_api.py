@@ -59,7 +59,7 @@ def test_project_crud(client):
 
 def test_upload_queues_documents_and_rejects_what_it_cannot_take(client, sample_pdf, tmp_path):
     project = create_project(client)
-    unsupported = tmp_path / "archive.zip"
+    unsupported = tmp_path / "setup.exe"
     unsupported.write_bytes(b"data")
     empty = tmp_path / "empty.txt"
     empty.write_bytes(b"")
@@ -71,9 +71,9 @@ def test_upload_queues_documents_and_rejects_what_it_cannot_take(client, sample_
     assert document["status"] == "queued"
     assert set(document["stages"]) == {"scan", "parse", "structure", "enrich", "embed"}
     assert {r["filename"]: r["reason"] for r in result["rejected"]} == {
-        "archive.zip": (
+        "setup.exe": (
             "Unsupported type. Use .csv, .docx, .eml, .heic, .heif, .htm, .html, .jpeg, .jpg, .md, "
-            ".pdf, .png, .pptx, .rtf, .tif, .tiff, .txt, .webp, .xlsx."
+            ".pdf, .png, .pptx, .rtf, .tif, .tiff, .txt, .webp, .xlsx, .zip."
         ),
         "empty.txt": "Empty file.",
     }

@@ -441,8 +441,12 @@ folder's files by name a hundred at a time, with more on request. A folder uploa
 it was, its folders made where the one it goes into holds none of their names. An email saved
 from a mail program (.eml) is opened as it is uploaded (`app/unpacking.py`): its text becomes a
 document headed by its From, To, Date and Subject, as mail sent to the project's address does,
-each attachment a document beside it, checked as any file is; a program's upload, which pairs
-the documents kept with the files it sent, is refused one. An upload goes in
+each attachment a document beside it, checked as any file is, and a ZIP archive is unpacked
+into the folders its paths name (into a folder of its own name unless it holds one folder
+already), the archives of one upload bringing `MAX_UPLOAD_FILES` files and
+`MAX_UPLOAD_REQUEST_MB` unpacked between them, read from their directories before a byte is
+inflated, so a zip bomb is refused unopened; a program's upload, which pairs the documents
+kept with the files it sent, is refused either. An upload goes in
 as few requests as the deployment's limits allow, one after another, each its own upload for the
 notice that follows it, and a panel shows how far it has gone as a whole and file by file, until
 its Stop; a type Emudoc does not read and a file too large are left out before anything is

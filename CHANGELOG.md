@@ -17,6 +17,11 @@ newest entry first.
 
 Members:
 
+- Upload a ZIP archive: its files go into the folders it holds, as an uploaded folder's do, in a
+  folder named after the archive unless everything in it is in one folder already. Each file is
+  checked as any upload is, and one that cannot be read is listed with why while the others go
+  in. An archive locked with a password, or one that would unpack to more than one upload may
+  hold, is turned away with what to do.
 - Upload an email saved from your mail program (.eml): its text becomes a document, headed by who
   sent it to whom and when, and each file attached to it a document beside it, in the folder you
   uploaded it into, as mail sent to the project's address arrives.
@@ -71,6 +76,11 @@ Members:
 
 Operators:
 
+- A `.zip` the members' page uploads is unpacked in the API's request (`app/unpacking.py`), the
+  archives of one upload bringing `MAX_UPLOAD_FILES` files and `MAX_UPLOAD_REQUEST_MB` unpacked
+  between them, read from their directories before anything is inflated; what a packer adds
+  (`__MACOSX`, dotted names, `Thumbs.db`) is left out, and an archive locked, damaged or packed
+  with Deflate64 is refused as `unopened`. A request with an API key is refused one.
 - An `.eml` the members' page uploads is opened in the API's request (`app/unpacking.py`, up to
   the 40 MB mail in takes), its text and attachments kept as documents, never the message;
   `emudoc_upload_rejections_total` counts one that cannot be opened as `unopened`. A request
