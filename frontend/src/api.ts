@@ -16,7 +16,17 @@ export interface Stage {
   deferred: boolean
 }
 
-export type UsageKind = 'answer' | 'upload' | 'ocr' | 'infer_sections' | 'enrich' | 'embed' | 'render' | 'report' | 'draft'
+export type UsageKind =
+  | 'answer'
+  | 'upload'
+  | 'ocr'
+  | 'infer_sections'
+  | 'enrich'
+  | 'embed'
+  | 'render'
+  | 'report'
+  | 'draft'
+  | 'suggestions'
 
 /**
  * What one kind of work used for a document, an answer or a run of cross-checks, summed over every run for it. A
@@ -969,6 +979,8 @@ export interface ChatMessage {
   steps: ChatStep[]
   sources: Source[]
   draft: DraftOffer | null
+  /** The questions the answer suggests asking next, which its chat's starter asks with a press. */
+  follow_ups: string[]
   notice: string | null
   error: string | null
   status: MessageStatus
@@ -1006,6 +1018,7 @@ export type ChatEvent =
   | { type: 'tool_result'; id: string; summary: string; is_error: boolean }
   | { type: 'sources'; sources: Source[] }
   | ({ type: 'draft' } & DraftAsked)
+  | { type: 'follow_ups'; questions: string[] }
   | { type: 'notice'; message: string }
   | { type: 'error'; message: string }
   | { type: 'done'; usage: Usage }

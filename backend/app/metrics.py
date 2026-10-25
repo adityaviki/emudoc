@@ -70,6 +70,7 @@ from app.jobs import (
     RUN_AUTOMATION,
     RUN_WORKFLOW,
     SEND_EMAIL,
+    SUGGEST_QUESTIONS,
     SYNC_CONNECTOR,
     WRITE_DRAFT,
 )
@@ -111,6 +112,7 @@ JOBS = (
     RECEIVE_MAIL,
     SYNC_CONNECTOR,
     DELIVER_WEBHOOK,
+    SUGGEST_QUESTIONS,
 )
 # What a lane of the worker's threads runs (app/worker.py).
 INDEXER = "indexer"

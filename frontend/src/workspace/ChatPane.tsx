@@ -21,12 +21,12 @@ import {
   WifiOff,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { api, organizations, pageLabel, sectionPath, sourceLabel } from '../api.ts'
 import type { Chat, DraftKind, Source, TextFormat } from '../api.ts'
 import { useMe } from '../auth.ts'
-import { ask, chatKey, isStreaming, loadChat, mayRetry, resume, retry, splitChats, stop, useStreaming } from '../chat.ts'
+import { ask, chatKey, followUpsOf, isStreaming, loadChat, mayRetry, resume, retry, splitChats, stop, useStreaming } from '../chat.ts'
 import type { ChatData, Message, Step } from '../chat.ts'
 import { DownloadText } from '../components/DownloadMenu.tsx'
 import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
@@ -372,6 +372,12 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
   const streaming = useStreaming(chatId) || isStreaming(chat.data)
   const [draft, setDraft] = useState('')
   const bottom = useRef<HTMLDivElement>(null)
+  const composer = useRef<HTMLTextAreaElement>(null)
+  // The questions a new chat offers are written by the model once the project's documents
+  // settle, which may have been since the project was read: a new chat reads it again.
+  useEffect(() => {
+    if (chatId == null) void queryClient.invalidateQueries({ queryKey: ['project', project.id], exact: true })
+  }, [chatId, project.id, queryClient])
   // A chat is created with its first question, and the URL then moves to it.
   const create = useMutation({
     mutationFn: (question: string) => api.createChat(project.id).then((created) => ({ created, question })),
@@ -439,6 +445,8 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
   // member's shared chat is read, not asked in.
   const last = messages[messages.length - 1]
   const retried = !starter && !streaming && last !== undefined && mayRetry(last) ? last : null
+  // What the last answer suggests asking next, which its starter asks with a press.
+  const next = starter || streaming ? [] : followUpsOf(messages)
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto px-5">
@@ -513,6 +521,17 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
               />
             ),
           )}
+          {next.length > 0 && (
+            <AskNext
+              questions={next}
+              disabled={!online || unavailable}
+              onAsk={(question) => {
+                send(question)
+                // The questions go with the press: the composer takes the focus, for the next.
+                composer.current?.focus()
+              }}
+            />
+          )}
           {nudge && <InviteTeam room={nudge.room} onInvited={() => setInvitedFrom(nudge)} />}
           {sharing != null && chatId != null && (
             <ShareDialog target={{ kind: 'answer', chatId, id: sharing }} onClose={() => setSharing(null)} />
@@ -541,6 +560,7 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
           ) : (
             <div className="flex min-w-0 items-end gap-2 rounded-xl border border-line bg-surface p-2 shadow-xs transition focus-within:border-accent focus-within:ring-3 focus-within:ring-accent/15">
               <textarea
+                ref={composer}
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={onKeyDown}
@@ -571,6 +591,32 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
             {!starter && ' · Enter to send · Shift+Enter for a new line'}
           </p>
         </div>
+      </div>
+    </div>
+  )
+}
+
+/** The questions the chat's last answer suggests asking next, each asked with a press. */
+function AskNext({ questions, disabled, onAsk }: { questions: string[]; disabled: boolean; onAsk: (question: string) => void }) {
+  const label = useId()
+  return (
+    <div role="group" aria-labelledby={label}>
+      <p id={label} className="mb-1.5 text-[11px] font-medium tracking-wide text-muted uppercase">
+        Ask next
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {questions.map((question) => (
+          <button
+            key={question}
+            type="button"
+            onClick={() => onAsk(question)}
+            disabled={disabled}
+            className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1.5 text-left text-[13px] shadow-xs transition hover:border-ink/15 hover:bg-sunken/50 disabled:cursor-not-allowed disabled:bg-sunken disabled:text-muted"
+          >
+            {question}
+            <ArrowUp className="size-3.5 shrink-0 rotate-45 text-muted" />
+          </button>
+        ))}
       </div>
     </div>
   )

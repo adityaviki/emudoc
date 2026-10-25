@@ -16,7 +16,8 @@ for the viewer (`render`: the member's by app/api/documents.py, the organisation
 first pages drawn ahead by app/rendering.py), and the model calls of a discrepancy report the
 agent writes from a run of cross-checks (`report`, by app/check_runs.py) and of a draft it
 writes (`draft`, by app/drafts.py), whose asking counts as a question (`answer` in `questions`,
-by app/api/check_runs.py and app/api/drafts.py), what the plan holds the agent's runs to.
+by app/api/check_runs.py and app/api/drafts.py), what the plan holds the agent's runs to, and the
+model calls that write a project's suggested questions (`suggestions`, by app/suggestions.py).
 
 The code that spent something records it, from what it counted, when its work ends however it
 ends: a stop, a lost lease or a crash ends an answer's run too, and the calls it made were
@@ -75,6 +76,7 @@ EMBED = "embed"
 RENDER = "render"
 REPORT = "report"
 DRAFT = "draft"
+SUGGESTIONS = "suggestions"
 CHAT_MESSAGE = "chat_message"
 DOCUMENT = "document"
 WORKFLOW_RUN = "workflow_run"

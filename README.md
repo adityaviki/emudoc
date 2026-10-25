@@ -303,6 +303,17 @@ empties it and has the worker write it anew from the same question, counting no 
 against the plan; a run of the earlier try that is still waiting on the model writes nothing
 into the new one, since each try is numbered and its job names its own.
 
+A new chat offers a few questions to start from. In the sample project they are its own; in any
+other the indexing model writes three from the project's catalogue (each document's folder,
+type, date and summary) once its documents are indexed, a background job that runs when no
+document of the project is still waiting, and again an hour after the last writing at the
+soonest, in the organisation's language (`backend/app/suggestions.py`). Without the model, or past
+the day's spending limit, a project keeps the questions it has, or the page's own three. An
+answer suggests two or three questions to ask next with its last words (the agent's
+`suggest_follow_ups`, which ends the answer without another turn of the model), shown as "Ask
+next" under the chat's last answer to its starter; a press asks one as if it were typed, and
+counts as a question. A suggestion is only ever asked by a member's press.
+
 A chat is its starter's alone until they share it with the project ("Share" in the chat's
 header, "Make private" to take it back). Everyone who sees the project then finds it under
 "Shared with the project" in the chat list, and a new chat offers the latest three, each with
@@ -589,7 +600,7 @@ servers. Port 8000 still serves the last build, so it does not show your edits.
 
 | Missing          | Still works                                           | Does not                                          |
 | ---------------- | ----------------------------------------------------- | ------------------------------------------------- |
-| Model API key    | Parsing, outlines from headings, search, the viewer   | Summaries, facts, scans and images, the Ask tab   |
+| Model API key    | Parsing, outlines from headings, search, the viewer   | Summaries, facts, scans and images, the Ask tab, suggested questions |
 | Embeddings       | Keyword search, everything else                       | Search by meaning                                 |
 | ClamAV           | Everything; each document says it was not scanned     | Malware scanning of uploads (off by choice only in production) |
 

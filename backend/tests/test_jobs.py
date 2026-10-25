@@ -29,6 +29,7 @@ from app.db import engine
 from app.indexing.pipeline import process_document
 from app.jobs import (
     BULK,
+    INDEX_DOCUMENT,
     LEASE,
     MAX_ATTEMPTS,
     SHARE_WINDOW,
@@ -349,8 +350,10 @@ def test_worker_indexes_queued_documents_and_recovers_interrupted_ones(
     finally:
         worker.stop()
     assert interrupted.stages["embed"]["status"] == "done"
-    assert {(job.status, job.attempts) for job in all_jobs(session)} == {("done", 1), ("done", 2)}
-    assert all(job.lease_until is None and job.finished_at for job in all_jobs(session))
+    # The project's questions are written by a job of their own once both are indexed.
+    indexed = [job for job in all_jobs(session) if job.kind == INDEX_DOCUMENT]
+    assert {(job.status, job.attempts) for job in indexed} == {("done", 1), ("done", 2)}
+    assert all(job.lease_until is None and job.finished_at for job in indexed)
 
 
 def test_a_job_lost_on_every_attempt_is_given_up(session, services, make_document, sample_pdf):
@@ -974,7 +977,8 @@ def test_the_worker_retries_until_the_outage_passes(
     # The run's own mark says nothing of the retry it was.
     assert set(document.stages["enrich"]) == {"status", "detail"}
     assert "Retrying" not in document.stages["enrich"]["detail"]
-    assert [job.payload.get("retry", 0) for job in all_jobs(session)] == [0, 1]
+    indexed = [job for job in all_jobs(session) if job.kind == INDEX_DOCUMENT]
+    assert [job.payload.get("retry", 0) for job in indexed] == [0, 1]
 
 
 # The `jobs` command: what the queue holds now, and where one document's indexing stands, for

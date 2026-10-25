@@ -32,8 +32,8 @@ organisation uploaded a document about you, ask the organisation first; we help 
   someone guessing your password has paused sign-ins from other browsers. We keep them to keep
   your account secure, which is our legitimate interest.
 - **What you upload and ask**: the documents, with the files they had before a new version and the
-  text read from those, what is read from them (their text, images of their pages, summaries, facts
-  and the search index), the facts you checked or corrected with when, and the documents you put in
+  text read from those, what is read from them (their text, images of their pages, summaries, facts,
+  the search index and the questions suggested about them), the facts you checked or corrected with when, and the documents you put in
   review, approved or disputed with when and those assigned to you, which your organisation's
   members see beside your name, your chats with their questions and answers, the runs of a project's
   cross-checks you made, with the values they compared and the reports the model wrote from them,
