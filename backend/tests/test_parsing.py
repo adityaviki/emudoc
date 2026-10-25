@@ -3,17 +3,26 @@ import signal
 import subprocess
 import zipfile
 from contextlib import contextmanager
+from dataclasses import replace
 
 import pytest
 from pdfplumber.utils.exceptions import PdfminerException
 from PIL import Image
 
 from app.parsing import FileTooLarge, UnreadableFile, UnsupportedFile, limits, parse_file, sheet
-from app.parsing.limits import ParseError, ParseLimits, parse_within_limits
+from app.parsing.limits import ParseError, ParseLimits, PartsRead, parse_within_limits
+from app.parsing.pdf import read_pdf
 from app.parsing.signatures import HEAD, wrong_type
 from app.parsing.text import parse_text
 from app.parsing.types import table_to_markdown
-from tests.conftest import columns_pdf, compound_file, pageless_pdf, protected_pdf, turned_pdf
+from tests.conftest import (
+    book_pdf,
+    columns_pdf,
+    compound_file,
+    pageless_pdf,
+    protected_pdf,
+    turned_pdf,
+)
 
 
 def test_pdf_headings_tables_and_positions(sample_pdf):
@@ -383,6 +392,105 @@ def test_the_callers_slot_is_held_from_the_childs_start_to_its_end(
     assert held == ["entered", "left"] * 2 and len(children) == 2
     assert parse_within_limits(tmp_path / "scan.png", "scan.png", ParseLimits(), slot=slot)
     assert len(held) == 4
+
+
+def test_a_pdf_read_in_parts_is_the_pdf_read_whole(tmp_path, children, monkeypatch):
+    book = book_pdf(tmp_path / "book.pdf")
+    whole = parse_within_limits(book, "book.pdf", ParseLimits(part_pages=0))
+    assert whole == parse_file(book, "book.pdf")
+    assert [(block.page, block.level, block.text) for block in whole.blocks if block.level] == [
+        (1, 1, "Supplier handbook"),
+        (1, 1, "1. Ordering"),
+        (2, 2, "1.1 Order numbers"),
+        (4, 1, "2. Delivery"),
+        # Ranked among the whole document's headings: within the pages 5 and 6 alone, this
+        # would be the largest and so a chapter.
+        (5, 2, "2.1 Late deliveries"),
+        (5, 3, "2.1.1 Credits"),
+    ]
+    # The running header and the page numbers are the whole document's margins.
+    assert not any(block.text.startswith(("Acme Corp", "Page ")) for block in whole.blocks)
+    assert whole.ocr_pages == [6] and whole.page_count == 6
+
+    # The parts are kept in a temporary directory of their own, which goes with the parse.
+    monkeypatch.setattr(limits.tempfile, "tempdir", str(temporary := tmp_path / "temporary"))
+    temporary.mkdir()
+    for size, started in [
+        (2, ["--pages=1-2", "--pages=3-4", "--pages=5-6", "--assemble"]),
+        (4, ["--pages=1-4", "--pages=5-8", "--assemble"]),
+        # A PDF of no more pages than a part is read whole by the first child.
+        (6, ["--pages=1-6"]),
+        (0, [""]),
+    ]:
+        children.clear()
+        read = []
+        limited = ParseLimits(part_pages=size)
+        assert parse_within_limits(book, "book.pdf", limited, progress=read.append) == whole
+        assert children == started
+        assert list(temporary.iterdir()) == []
+    # A PDF read whole tells nothing on the way; one read in parts tells after each how far the
+    # reading has gone, with the scans it found.
+    assert read == []
+    parse_within_limits(book, "book.pdf", ParseLimits(part_pages=2), progress=read.append)
+    assert read == [PartsRead(6, 2, 0), PartsRead(6, 4, 0), PartsRead(6, 6, 1)]
+
+
+def test_a_pdf_read_in_parts_is_refused_as_soon_as_a_part_shows_it(tmp_path, children):
+    book = book_pdf(tmp_path / "book.pdf")
+    in_parts = ParseLimits(part_pages=2)
+
+    # Too many pages: the first child, before it reads one.
+    with pytest.raises(ParseError) as caught:
+        parse_within_limits(book, "book.pdf", replace(in_parts, max_pages=5))
+    assert str(caught.value) == (
+        "This PDF has 6 pages, more than the 5 that can be indexed. Split it and upload the parts."
+    )
+    assert children == ["--pages=1-2"]
+
+    # Too much text: the parts' text is added up as they are read, and the next part is not
+    # started once it is past the document's, nor one part written with more.
+    first, second = (read_pdf(book, 0, page, page + 1).chars for page in (1, 3))
+    for max_chars, started in [
+        (first + second - 1, ["--pages=1-2", "--pages=3-4"]),
+        (first - 1, ["--pages=1-2"]),
+    ]:
+        children.clear()
+        with pytest.raises(ParseError) as caught:
+            parse_within_limits(book, "book.pdf", replace(in_parts, max_chars=max_chars))
+        assert str(caught.value) == (
+            f"This file holds more than {max_chars:,} characters of text, the most one document "
+            "can have. Split it and upload the parts."
+        )
+        assert children == started
+
+    # What the caller learns from a part can stop the parse there.
+    def refuse(read: PartsRead) -> None:
+        if read.read == 4:
+            raise RuntimeError("Not this one.")
+
+    children.clear()
+    with pytest.raises(RuntimeError):
+        parse_within_limits(book, "book.pdf", in_parts, progress=refuse)
+    assert children == ["--pages=1-2", "--pages=3-4"]
+
+
+def test_a_part_that_runs_too_long_says_which_pages_it_was(tmp_path, monkeypatch):
+    book = book_pdf(tmp_path / "book.pdf")
+    run = limits._run
+
+    def second_too_long(command, file, limits_, pages=None):
+        if "--pages=3-4" in command:
+            limits_ = replace(limits_, timeout=0.01)
+        return run(command, file, limits_, pages)
+
+    monkeypatch.setattr(limits, "_run", second_too_long)
+    with pytest.raises(ParseError) as caught:
+        parse_within_limits(book, "book.pdf", ParseLimits(part_pages=2))
+    assert str(caught.value) == (
+        "Parsing pages 3 to 4 of the file did not finish within 0.01 seconds and was stopped. "
+        "Split the file into smaller parts and upload those."
+    )
+    assert not caught.value.transient
 
 
 def test_a_parse_that_needs_too_much_memory_is_stopped(tmp_path):

@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import READ_ONLY
 from app.billing import change_plan, plan_problem
+from app.config import get_settings
 from app.entitlements import (
     CHARS_PER_PAGE,
     MONTHS,
@@ -32,6 +33,7 @@ from app.entitlements import (
     size_label,
     text_pages,
 )
+from app.indexing import pipeline
 from app.indexing.pipeline import process_document, reset_stages
 from app.jobs import INDEX_DOCUMENT, claim, enqueue
 from app.maintenance import main
@@ -46,6 +48,7 @@ from app.models import (
     UsageEvent,
 )
 from app.usage import DOCUMENT, UPLOAD, record
+from tests.conftest import book_pdf
 from tests.test_api import create_project, upload
 from tests.test_audit import actions
 from tests.test_auth import me, signup
@@ -261,6 +264,45 @@ def test_the_parse_stage_refuses_a_document_the_month_has_no_pages_left_for(
     reset_stages(document, "parse")
     session.commit()
     assert process_document(document.id, services) == []
+
+
+def test_a_pdf_read_in_parts_is_refused_for_the_month_once_its_first_part_has_its_pages(
+    session, services, account, plan, make_document, tmp_path, monkeypatch, children
+):
+    account.organization.plan = "free"
+    session.commit()
+    plan(pages_per_month=5)
+    monkeypatch.setattr(get_settings(), "parse_part_pages", 2)
+    document = make_document(book_pdf(tmp_path / "book.pdf"))
+
+    (failure,) = process_document(document.id, services)
+    _, following = this_month()
+    assert failure.message == (
+        "This document has 6 pages, more than the 5 left of the Free plan's 5 a month. "
+        f"Upgrade your plan, or index it again from 1 {following}."
+    )
+    # The first part told the pages, and nothing more of the file was read.
+    assert children == ["--pages=1-2"]
+    assert services.llm.calls == []
+
+    # With room for them, the month is checked once, and the stage holds no transaction while
+    # the parts after the first are read.
+    plan(pages_per_month=6)
+    reset_stages(document, "parse")
+    session.commit()
+    children.clear()
+    done_reading = pipeline._done_reading
+    monkeypatch.setattr(
+        pipeline, "_done_reading", lambda s: children.append("done reading") or done_reading(s)
+    )
+    assert process_document(document.id, services) == []
+    assert children[:5] == [
+        "--pages=1-2",
+        "done reading",
+        "--pages=3-4",
+        "--pages=5-6",
+        "--assemble",
+    ]
 
 
 def test_a_document_without_pages_counts_against_the_month_by_its_text(

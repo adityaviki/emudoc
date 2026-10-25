@@ -141,14 +141,57 @@ class _Group:
         return " ".join(parts)
 
 
+@dataclass
+class _PageRead:
+    """What reading one page found, before the margins, the body's size and the headings of
+    the whole document are known: its lines and tables, how far its own text is turned (text
+    turned against it is read after it), and whether it is a picture alone, a scan."""
+
+    number: int
+    size: tuple[float, float]
+    turn: int
+    lines: list[_Line]
+    tables: list[_Table]
+    scanned: bool
+
+
+@dataclass
+class PdfPart:
+    """Pages of a PDF read, in order, with what the file says of itself.
+
+    A PDF too long for one parse child is read a range of pages at a time (app/parsing/
+    limits.py), each range a part kept as JSON (`part_to_json`) until every part is read, and
+    the document is made of them all at once (`assemble`): a running header is one that recurs
+    across the whole document, and a heading's level is ranked among all its headings.
+    """
+
+    page_count: int
+    title: str | None
+    pages: list[_PageRead]
+
+    @property
+    def chars(self) -> int:
+        """The characters of text its pages hold, about those they bring the document."""
+        return sum(
+            sum(len(line.text) for line in page.lines)
+            + sum(len(table.markdown) for table in page.tables)
+            for page in self.pages
+        )
+
+    @property
+    def scanned(self) -> int:
+        return sum(page.scanned for page in self.pages)
+
+
 def parse_pdf(path: Path, max_pages: int = 0) -> ParsedDocument:
     """Parse the PDF; one with more than `max_pages` pages (0: any number) is refused."""
-    pages: list[tuple[list[_Line], list[_Table]]] = []
-    # How far each page's own text is turned; text turned against it is read after it.
-    turns: list[int] = []
-    page_sizes: list[tuple[float, float]] = []
-    ocr_pages: list[int] = []
+    return assemble([read_pdf(path, max_pages)])
 
+
+def read_pdf(path: Path, max_pages: int = 0, first: int = 1, last: int = 0) -> PdfPart:
+    """Read pages `first` to `last` of the PDF (0: to its end). One with more than `max_pages`
+    pages (0: any number) is refused before a page is read, whichever are asked for."""
+    pages: list[_PageRead] = []
     with _open(path) as pdf:
         title = _metadata_title(pdf.metadata.get("Title"))
         if not pdf.pages:
@@ -158,25 +201,33 @@ def parse_pdf(path: Path, max_pages: int = 0) -> ParsedDocument:
                 f"This PDF has {len(pdf.pages):,} pages, more than the {max_pages:,} that can be "
                 "indexed. Split it and upload the parts."
             )
-        for number, page in enumerate(pdf.pages, start=1):
-            page_sizes.append((float(page.width), float(page.height)))
+        for number, page in enumerate(pdf.pages[first - 1 : last or None], start=first):
             lines, tables, turn = _read(page)
-            if not lines and not tables and page.images:
-                ocr_pages.append(number)
-            pages.append((lines, tables))
-            turns.append(turn)
+            scanned = not lines and not tables and bool(page.images)
+            size = (float(page.width), float(page.height))
+            pages.append(_PageRead(number, size, turn, lines, tables, scanned))
             page.close()
+        return PdfPart(len(pdf.pages), title, pages)
 
+
+def assemble(parts: list[PdfPart]) -> ParsedDocument:
+    """The document that the parts' pages make, which must be every page of the PDF once and
+    in order."""
+    read = [page for part in parts for page in part.pages]
+    if [page.number for page in read] != list(range(1, parts[0].page_count + 1)):
+        raise ValueError("The parts do not hold every page of the PDF in order.")
+    pages = [(page.lines, page.tables) for page in read]
     repeated = _repeated_margin_lines(pages)
     body_size = _body_size(pages)
+    turns = [page.turn for page in read]
 
     items: list[_Group | tuple[int, _Table]] = []
     for number, (lines, tables) in enumerate(pages, start=1):
         kept = [line for line in lines if not _is_margin_noise(line, repeated)]
         own = [line for line in kept if line.turn == turns[number - 1]]
         aside = [line for line in kept if line.turn != turns[number - 1]]
-        parts = _in_reading_order(list(_group_lines(own, number)), tables)
-        for part_groups, part_tables in [*parts, (list(_group_lines(aside, number)), [])]:
+        parts_read = _in_reading_order(list(_group_lines(own, number)), tables)
+        for part_groups, part_tables in [*parts_read, (list(_group_lines(aside, number)), [])]:
             groups: list[_Group | tuple[int, _Table]] = list(part_groups)
             for table in sorted(part_tables, key=lambda t: t.bbox[1]):
                 position = next(
@@ -213,10 +264,70 @@ def parse_pdf(path: Path, max_pages: int = 0) -> ParsedDocument:
 
     return ParsedDocument(
         blocks=blocks,
-        page_count=len(page_sizes),
-        page_sizes=page_sizes,
-        title=title,
-        ocr_pages=ocr_pages,
+        page_count=len(read),
+        page_sizes=[page.size for page in read],
+        title=parts[0].title,
+        ocr_pages=[page.number for page in read if page.scanned],
+    )
+
+
+def part_to_json(part: PdfPart) -> dict:
+    """The part as JSON (`part_from_json` reads it back), a line or a table as a list of its
+    fields: a part of a few hundred pages holds tens of thousands of lines."""
+    return {
+        "page_count": part.page_count,
+        "title": part.title,
+        "pages": [
+            {
+                "number": page.number,
+                "size": page.size,
+                "turn": page.turn,
+                "scanned": page.scanned,
+                "lines": [_line_fields(line) for line in page.lines],
+                "tables": [
+                    [table.bbox, table.markdown, table.turn, table.frame] for table in page.tables
+                ],
+            }
+            for page in part.pages
+        ],
+    }
+
+
+def _line_fields(line: _Line) -> list:
+    return [
+        line.text,
+        line.x0,
+        line.top,
+        line.x1,
+        line.bottom,
+        line.size,
+        line.bold,
+        line.turn,
+        line.frame,
+    ]
+
+
+def part_from_json(data: dict) -> PdfPart:
+    return PdfPart(
+        page_count=data["page_count"],
+        title=data["title"],
+        pages=[
+            _PageRead(
+                number=page["number"],
+                size=tuple(page["size"]),
+                turn=page["turn"],
+                lines=[
+                    _Line(text, x0, top, x1, bottom, size, bold, turn, tuple(frame))
+                    for text, x0, top, x1, bottom, size, bold, turn, frame in page["lines"]
+                ],
+                tables=[
+                    _Table(tuple(bbox), markdown, turn, tuple(frame))
+                    for bbox, markdown, turn, frame in page["tables"]
+                ],
+                scanned=page["scanned"],
+            )
+            for page in data["pages"]
+        ],
     )
 
 

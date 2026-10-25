@@ -48,7 +48,9 @@ minutes or a minute of silence, which the chat shows as an error. The parse stag
 parser in a process of its own with a time limit, a memory limit and caps on the pages of a PDF
 or a TIFF, the slides of a presentation and the rows of a sheet (`PARSE_TIMEOUT`,
 `PARSE_MEMORY_MB`, `PARSE_MAX_PAGES`, `PARSE_MAX_ROWS`), so a file that would take hours or all
-the memory stops that process alone, and the document says which limit it hit. Before any of
+the memory stops that process alone, and the document says which limit it hit. A long PDF is
+read `PARSE_PART_PAGES` pages a process, each within those limits, and its document made of the
+parts by one more, its outline over the whole file as if it had been read at once. Before any of
 that, the upload checks that a file's bytes are what its name says (a PDF's header, an image's
 signature, the part a Word document, a workbook or a presentation declares, an RTF document's
 opening, UTF-8 text with no binary in it, an HTML page with none in any encoding) and rejects one that is not with the reason, while the other files of the same
@@ -793,7 +795,7 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   storage is then more likely another deployment's than all orphans; the message says what to
   check.
 - `PARSE_TIMEOUT`, `PARSE_MEMORY_MB`, `PARSE_MAX_PAGES`, `PARSE_MAX_ROWS` and
-  `PARSE_MAX_CHARS` bound the parsing of an upload: 300 seconds, 2048 MB of address space, 500
+  `PARSE_MAX_CHARS` bound the parsing of an upload: 300 seconds, 2048 MB of address space, 5,000
   pages of a PDF or a TIFF or slides of a presentation, 100,000 filled rows on one sheet and
   20,000,000 characters of text in one document by default; `0` removes a limit. The parser runs in a child process of the worker
   that is killed at the time limit and caps its own memory, so a file that is too big fails with
@@ -801,7 +803,9 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   untouched; a file with more text is refused before the worker holds any of it, since every
   later stage pays for the text (its passages, about one per 1,200 to 2,000 characters, are
   written, indexed and embedded). `PARSE_CONCURRENCY` parses run at once, each with its own
-  memory on top of the worker's. An image of more than 50 megapixels is refused the same way,
+  memory on top of the worker's. A PDF of more than `PARSE_PART_PAGES` (250) pages is read
+  that many pages a child, each within the limits, and its document made of the parts by one
+  more; `0` reads every PDF in one child. An image of more than 50 megapixels is refused the same way,
   by OCR and by the thumbnail alike, from its header and before a pixel of it is decoded.
   `OCR_MAX_PAGES` (100) is how many pages of one document the model may read as scans, each a
   model call: a document with more fails before a page is read, with a message that says to

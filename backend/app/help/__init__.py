@@ -98,6 +98,11 @@ def _values(settings: Settings) -> dict[str, str]:
         "sample": _sample(settings.sample_project),
         "formats": _formats(),
         "max_upload_mb": f"{settings.max_upload_mb:,}",
+        "max_pages": (
+            f", and a PDF, a TIFF or a presentation up to {settings.parse_max_pages:,} pages"
+            if settings.parse_max_pages
+            else ""
+        ),
         "max_upload_files": f"{settings.max_upload_files:,}",
         "max_request_mb": f"{settings.max_upload_request_mb:,}",
         "ocr_pages": (

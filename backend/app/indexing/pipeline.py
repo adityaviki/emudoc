@@ -56,7 +56,7 @@ from app.parsing import (
     UnsupportedFile,
 )
 from app.parsing.images import open_image
-from app.parsing.limits import ParseLimits, parse_within_limits
+from app.parsing.limits import ParseLimits, PartsRead, parse_within_limits
 from app.parsing.types import ParsedDocument, clean_text
 from app.rendering import FOR_OCR, RenderError, renderer
 from app.scanning import NOT_SCANNED, UNSCANNED, Scanner, quarantine_message
@@ -592,7 +592,12 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
     # this machine for the stage; the local storage hands out the file itself.
     with services.storage.localize(document.storage_key) as path:
         parsed = parse_within_limits(
-            path, document.filename, _parse_limits(), document.id, slot=PARSING.held
+            path,
+            document.filename,
+            _parse_limits(),
+            document.id,
+            slot=PARSING.held,
+            progress=_refused_early(session, document),
         )
         # The pages are a measure of the upload, counted when the first parse learns how many
         # there are; a parse run again for "Index again" brings nothing new in. The plan's
@@ -711,16 +716,41 @@ def _wait_for_the_day(session: Session, document: Document) -> None:
         raise StageDeferred(reason, day_of()[1])
 
 
-def _too_many_scans(pages: int) -> str | None:
+def _too_many_scans(pages: int, *, so_far: bool = False) -> str | None:
     """Why the document's scanned pages are more than OCR_MAX_PAGES lets the model read, or
-    None when they fit (or the limit is off)."""
+    None when they fit (or the limit is off); `so_far` when they are those of the pages read so
+    far, more pages being still to read."""
     cap = get_settings().ocr_max_pages
     if not cap or pages <= cap:
         return None
     return (
-        f"This file has {pages} scanned pages to read, more than the {cap} one document can "
-        "have. Split it and upload the parts."
+        f"This file has {'at least ' if so_far else ''}{pages} scanned pages to read, more than "
+        f"the {cap} one document can have. Split it and upload the parts."
     )
+
+
+def _refused_early(session: Session, document: Document) -> Callable[[PartsRead], None]:
+    """What a PDF read in parts checks after each part (app/parsing/limits.py): the refusals of
+    the stage that need no more than what the parts read so far show, its scanned pages over
+    OCR_MAX_PAGES and its pages more than the month has left, so that a file of thousands of
+    pages is not read for minutes to its end to be refused. The stage makes both again once the
+    whole file is read."""
+    month_checked = False
+
+    def check(read: PartsRead) -> None:
+        nonlocal month_checked
+        if reason := _too_many_scans(read.scanned, so_far=read.read < read.page_count):
+            raise PipelineError(reason)
+        if not month_checked:
+            month_checked = True
+            new_pages = 0 if _pages_counted(document) else read.page_count
+            refusal = check_pages(session, document.project.organization, new_pages)
+            # The parts still to read take minutes, across which no transaction is held.
+            _done_reading(session)
+            if refusal:
+                raise PagesShort(refusal.sentence)
+
+    return check
 
 
 def _parse_limits() -> ParseLimits:
@@ -731,6 +761,7 @@ def _parse_limits() -> ParseLimits:
         max_pages=settings.parse_max_pages,
         max_rows=settings.parse_max_rows,
         max_chars=settings.parse_max_chars,
+        part_pages=settings.parse_part_pages,
     )
 
 

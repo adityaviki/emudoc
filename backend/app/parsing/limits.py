@@ -23,6 +23,17 @@ model, which is not picklable and is faked in tests.
 How many children a worker runs at once is the caller's (`slot`, PARSE_CONCURRENCY in the
 pipeline), held from the child's start to its end, so that the memory they take is bounded by
 the parses and not by the threads that call this.
+
+A PDF is read `part_pages` pages a child (`_in_parts`), since its pages take a parse's time one
+after another, some 0.1 s each, and a book of thousands would need a time limit that let any
+file run for an hour. The first child reads the first part and says how many pages there are,
+or replies the whole document when that part was all of it, as most PDFs are; otherwise each
+part's child writes the pages it read to a file of a temporary directory and replies how much
+text they hold, which the parent adds up against `max_chars` so that a part never brings a file
+over it to the disk; and a last child makes the document of the parts (`assemble` in
+app/parsing/pdf.py), where the running headers, the body's size and the headings' levels are
+the whole document's, as a PDF read in one child would give them. The slot is let go between
+children, so another document's parse goes between two parts.
 """
 
 import argparse
@@ -34,6 +45,7 @@ import resource
 import signal
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import asdict, dataclass
@@ -48,7 +60,9 @@ from app.parsing import (
     UnreadableFile,
     UnsupportedFile,
     parse_file,
+    within_text,
 )
+from app.parsing.types import too_much_text
 
 log = logging.getLogger(__name__)
 
@@ -74,11 +88,22 @@ class ParseError(AppError):
 class ParseLimits:
     """What a parse may use. Zero removes a limit."""
 
-    timeout: float = 300.0  # seconds, by the parent's clock
+    timeout: float = 300.0  # seconds, by the parent's clock, of each child
     memory_mb: int = 2048  # the child's address space
-    max_pages: int = 500  # of a PDF
+    max_pages: int = 5_000  # of a PDF
     max_rows: int = 100_000  # of one sheet
     max_chars: int = 20_000_000  # of the text of one document
+    part_pages: int = 250  # of a PDF, read by one child; 0 reads it whole in one
+
+
+@dataclass(frozen=True)
+class PartsRead:
+    """How far a PDF read in parts has been read: its pages, those read so far, and the scans
+    among them."""
+
+    page_count: int
+    read: int
+    scanned: int
 
 
 def parse_within_limits(
@@ -87,11 +112,14 @@ def parse_within_limits(
     limits: ParseLimits,
     document_id: int | None = None,
     slot: Callable[[], AbstractContextManager[object]] = nullcontext,
+    progress: Callable[[PartsRead], None] | None = None,
 ) -> ParsedDocument:
     """Parse the file in a child process that stays within `limits`, started once `slot()`
-    is entered and ended before it is left.
+    is entered and ended before it is left; a PDF of more than `limits.part_pages` pages in a
+    child a part, each in a slot of its own, and `progress` told after each part how far it
+    went, which may raise to stop the parse there.
 
-    Raises `UnsupportedFile` for an extension nothing parses and `ParseError` when the child was
+    Raises `UnsupportedFile` for an extension nothing parses and `ParseError` when a child was
     stopped, refused the file or failed; the parse itself is `parse_file`. The log names the
     file by `document_id` and its extension, never by its name, which can say what it holds;
     so does the child's command line, which every user of the machine can read.
@@ -101,7 +129,53 @@ def parse_within_limits(
         # An image needs no parser (the parent sends it to OCR), and anything else is refused;
         # neither is worth a process.
         return parse_file(path, filename)
-    command = [
+    file = _named(suffix, document_id)
+    if suffix == ".pdf" and limits.part_pages:
+        return _in_parts(path, file, limits, slot, progress)
+    with slot():
+        code, out, err = _run(_command(path, suffix, limits), file, limits)
+    return _decode(_reply(file, code, out, err, limits))
+
+
+def _in_parts(
+    path: Path,
+    file: str,
+    limits: ParseLimits,
+    slot: Callable[[], AbstractContextManager[object]],
+    progress: Callable[[PartsRead], None] | None,
+) -> ParsedDocument:
+    """Parse a PDF `limits.part_pages` pages a child, then the document of the parts in one
+    more (the module's docstring says why)."""
+    with tempfile.TemporaryDirectory(prefix="emudoc-parse-") as folder:
+        first, page_count, chars, scanned = 1, None, 0, 0
+        while page_count is None or first <= page_count:
+            last = first + limits.part_pages - 1
+            # The first part may be the whole file, whose pages it is the first to learn.
+            pages = None if page_count is None else _pages(first, min(last, page_count))
+            into = Path(folder, f"{first:07}.json")
+            command = _command(path, ".pdf", limits, f"--pages={first}-{last}", f"--into={into}")
+            with slot():
+                code, out, err = _run(command, file, limits, pages)
+            reply = _reply(file, code, out, err, limits, pages)
+            if "part" not in reply:
+                return _decode(reply)
+            page_count = reply["part"]["page_count"]
+            chars += reply["part"]["chars"]
+            scanned += reply["part"]["scanned"]
+            if limits.max_chars and chars > limits.max_chars:
+                raise ParseError(too_much_text(limits.max_chars))
+            if progress:
+                progress(PartsRead(page_count, min(last, page_count), scanned))
+            first = last + 1
+        with slot():
+            code, out, err = _run(
+                _command(Path(folder), ".pdf", limits, "--assemble"), file, limits
+            )
+        return _decode(_reply(file, code, out, err, limits))
+
+
+def _command(path: Path, suffix: str, limits: ParseLimits, *more: str) -> list[str]:
+    return [
         sys.executable,
         "-m",
         "app.parsing.limits",
@@ -112,13 +186,18 @@ def parse_within_limits(
         f"--max-pages={limits.max_pages}",
         f"--max-rows={limits.max_rows}",
         f"--max-chars={limits.max_chars}",
+        *more,
     ]
-    with slot():
-        code, out, err = _run(command, _named(suffix, document_id), limits)
-    return _outcome(_named(suffix, document_id), code, out, err, limits)
 
 
-def _run(command: list[str], file: str, limits: ParseLimits) -> tuple[int, bytes, bytes]:
+def _pages(first: int, last: int) -> str:
+    """A part as a sentence names it: "pages 251 to 500"."""
+    return f"page {first:,}" if first == last else f"pages {first:,} to {last:,}"
+
+
+def _run(
+    command: list[str], file: str, limits: ParseLimits, pages: str | None = None
+) -> tuple[int, bytes, bytes]:
     """Run the child to its end, killed at the time limit: its exit code and output."""
     try:
         child = subprocess.Popen(
@@ -142,8 +221,8 @@ def _run(command: list[str], file: str, limits: ParseLimits) -> tuple[int, bytes
             out, err = child.communicate()
             _log_failure(file, child.returncode, err)
             raise ParseError(
-                f"Parsing did not finish within {_duration(limits.timeout)} and was stopped. "
-                "Split the file into smaller parts and upload those."
+                f"{_parsing(pages)} did not finish within {_duration(limits.timeout)} and was "
+                "stopped. Split the file into smaller parts and upload those."
             ) from None
     finally:
         if child.poll() is None:
@@ -157,11 +236,22 @@ def _named(suffix: str, document_id: int | None) -> str:
     return f"document {document_id} ({suffix})" if document_id is not None else f"a {suffix} file"
 
 
-def _outcome(file: str, code: int, out: bytes, err: bytes, limits: ParseLimits) -> ParsedDocument:
+def _parsing(pages: str | None) -> str:
+    """What a sentence says was being parsed: the file, or a part of it."""
+    return f"Parsing {pages} of the file" if pages else "Parsing"
+
+
+def _reply(
+    file: str, code: int, out: bytes, err: bytes, limits: ParseLimits, pages: str | None = None
+) -> dict:
+    """The child's reply, or the `ParseError` that says how it ended otherwise."""
     if code == 0:
         try:
-            return _decode(json.loads(out))
-        except (ValueError, KeyError, TypeError) as error:
+            reply = json.loads(out)
+            if not isinstance(reply, dict):
+                raise TypeError(type(reply).__name__)
+            return reply
+        except (ValueError, TypeError) as error:
             _log_failure(file, code, err)
             raise ParseError(
                 "The parser's reply could not be read. Ask support about this file."
@@ -178,15 +268,15 @@ def _outcome(file: str, code: int, out: bytes, err: bytes, limits: ParseLimits) 
         )
     if code == OUT_OF_MEMORY:
         raise ParseError(
-            f"Parsing needs more than {_memory(limits)} and was stopped. Split the file into "
-            "smaller parts and upload those."
+            f"{_parsing(pages)} needs more than {_memory(limits)} and was stopped. Split the "
+            "file into smaller parts and upload those."
         )
     if code == -signal.SIGXCPU:
         # The child's own CPU limit stopped it, which only happens after the parent's timeout
         # would have, so the parent was late or gone.
         raise ParseError(
-            f"Parsing did not finish within {_duration(limits.timeout)} and was stopped. "
-            "Split the file into smaller parts and upload those."
+            f"{_parsing(pages)} did not finish within {_duration(limits.timeout)} and was "
+            "stopped. Split the file into smaller parts and upload those."
         )
     if code < 0:
         raise ParseError(
@@ -209,22 +299,27 @@ def _reported(out: bytes, fallback: str) -> str:
 
 
 def _decode(data: dict) -> ParsedDocument:
-    return ParsedDocument(
-        blocks=[
-            ParsedBlock(
-                block["kind"],
-                block["text"],
-                level=block["level"],
-                page=block["page"],
-                bbox=tuple(block["bbox"]) if block["bbox"] else None,
-            )
-            for block in data["blocks"]
-        ],
-        page_count=data["page_count"],
-        page_sizes=[(width, height) for width, height in data["page_sizes"]],
-        title=data["title"],
-        ocr_pages=list(data["ocr_pages"]),
-    )
+    try:
+        return ParsedDocument(
+            blocks=[
+                ParsedBlock(
+                    block["kind"],
+                    block["text"],
+                    level=block["level"],
+                    page=block["page"],
+                    bbox=tuple(block["bbox"]) if block["bbox"] else None,
+                )
+                for block in data["blocks"]
+            ],
+            page_count=data["page_count"],
+            page_sizes=[(width, height) for width, height in data["page_sizes"]],
+            title=data["title"],
+            ocr_pages=list(data["ocr_pages"]),
+        )
+    except (ValueError, KeyError, TypeError) as error:
+        raise ParseError(
+            "The parser's reply could not be read. Ask support about this file."
+        ) from error
 
 
 def _log_failure(file: str, code: int | None, err: bytes) -> None:
@@ -260,9 +355,21 @@ def main(argv: list[str] | None = None) -> int:
         "parse stage runs this as a child so that a file it cannot handle takes down only this "
         "process. It prints the parsed document as JSON.",
     )
-    parser.add_argument("path", type=Path)
+    parser.add_argument(
+        "path", type=Path, help="the file, or with --assemble the folder of its parts"
+    )
     parser.add_argument(
         "filename", help="a name whose extension picks the parser; the parent passes upload.<ext>"
+    )
+    parser.add_argument(
+        "--pages",
+        type=_page_range,
+        help="FIRST-LAST: read only these pages of a PDF, as a part written --into a file, "
+        "unless they are all of it",
+    )
+    parser.add_argument("--into", type=Path, help="the file a part of a PDF is written to")
+    parser.add_argument(
+        "--assemble", action="store_true", help="make the PDF of the parts in the folder"
     )
     parser.add_argument("--memory-mb", type=int, default=0, help="address space; 0 is unlimited")
     parser.add_argument("--cpu-seconds", type=int, default=0, help="0 is unlimited")
@@ -283,14 +390,20 @@ def main(argv: list[str] | None = None) -> int:
         _cap(resource.RLIMIT_CPU, args.cpu_seconds)
 
     try:
-        parsed = parse_file(
-            args.path,
-            args.filename,
-            max_pages=args.max_pages,
-            max_rows=args.max_rows,
-            max_chars=args.max_chars,
-        )
-        payload, code = asdict(parsed), 0
+        if args.assemble:
+            payload = asdict(_assembled(args.path, args.max_chars))
+        elif args.pages:
+            payload = _part(args.path, args.pages, args.into, args.max_pages, args.max_chars)
+        else:
+            parsed = parse_file(
+                args.path,
+                args.filename,
+                max_pages=args.max_pages,
+                max_rows=args.max_rows,
+                max_chars=args.max_chars,
+            )
+            payload = asdict(parsed)
+        code = 0
     except MemoryError:
         # Making a reply would take memory this process no longer gets.
         os._exit(OUT_OF_MEMORY)
@@ -309,6 +422,34 @@ def main(argv: list[str] | None = None) -> int:
     except MemoryError:
         os._exit(OUT_OF_MEMORY)
     return code
+
+
+def _page_range(value: str) -> tuple[int, int]:
+    first, _, last = value.partition("-")
+    return int(first), int(last)
+
+
+def _part(path: Path, pages: tuple[int, int], into: Path, max_pages: int, max_chars: int) -> dict:
+    """Read the pages of the PDF into a part, or the document when they are all of it."""
+    from app.parsing.pdf import assemble, part_to_json, read_pdf
+
+    first, last = pages
+    part = read_pdf(path, max_pages, first, last)
+    if first == 1 and last >= part.page_count:
+        return asdict(within_text(assemble([part]), max_chars))
+    # A part with more text than the whole document may hold goes no further than this.
+    if max_chars and part.chars > max_chars:
+        raise FileTooLarge(too_much_text(max_chars))
+    into.write_text(json.dumps(part_to_json(part)))
+    return {"part": {"page_count": part.page_count, "chars": part.chars, "scanned": part.scanned}}
+
+
+def _assembled(folder: Path, max_chars: int) -> ParsedDocument:
+    """The document of the parts in the folder, read in the order of their names."""
+    from app.parsing.pdf import assemble, part_from_json
+
+    parts = [part_from_json(json.loads(file.read_text())) for file in sorted(folder.iterdir())]
+    return within_text(assemble(parts), max_chars)
 
 
 def _out_of_memory(error: BaseException | None) -> bool:

@@ -85,7 +85,12 @@ def parse_file(
     of text is refused with `FileTooLarge`; 0 takes any size. A PDF locked with a password or
     without pages, and a presentation without slides, are refused with `UnreadableFile`.
     """
-    parsed = _parsed(path, filename, max_pages, max_rows, max_chars)
+    return within_text(_parsed(path, filename, max_pages, max_rows, max_chars), max_chars)
+
+
+def within_text(parsed: ParsedDocument, max_chars: int) -> ParsedDocument:
+    """The document, or `FileTooLarge` when its blocks hold more than `max_chars` characters of
+    text (0: any number)."""
     if max_chars and sum(len(block.text) for block in parsed.blocks) > max_chars:
         raise FileTooLarge(too_much_text(max_chars))
     return parsed
@@ -153,4 +158,5 @@ __all__ = [
     "UnreadableFile",
     "UnsupportedFile",
     "parse_file",
+    "within_text",
 ]
