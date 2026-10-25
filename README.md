@@ -275,8 +275,8 @@ lets the member browse their folders and choose one, and where its files go in t
 worker syncs it every 15 minutes and at "Sync now": Google's change log or Dropbox's cursor says
 whether anything changed, and if so the folder is read whole and compared with what the last
 sync found, so that a new file becomes a document through an upload's checks, in the folders of
-its path, a changed one is taken again with its earlier document in the trash, and the document
-of a file taken out of the folder goes to the trash too; Google's own documents are exported as
+its path, a changed one becomes its document's new version (below, "The workspace"), and the
+document of a file taken out of the folder goes to the trash; Google's own documents are exported as
 Word, Excel or PDF files, and Dropbox's Paper documents as Markdown. A file is read once per
 version, so a document deleted in the project stays deleted, and nothing goes to the trash
 unless the folder was read whole. The documents a sync brings are its member's upload, told of
@@ -490,6 +490,17 @@ link's page prints the same way. On the right is the **agent**. Clicking a citat
 document in the middle at that passage, with the library still beside it. The agent sees the
 folders too: ask about "the invoices in Finance/2026" and `list_documents`, `search` and
 `query_facts` work within that folder.
+
+A document is given a **new version** from its menu in the library or its tab's "Versions"
+(`backend/app/versions.py`, `POST /api/documents/{id}/versions`): a file of any type the upload
+takes, through the same checks, which the document reads in its earlier file's place, keeping its
+id and so its chats' scope, its review (an approved or disputed one opened again, to review), its
+share links and its members' checks of facts that read the same. Only the current file is
+searched, asked about and read for facts; each earlier one is kept, its file under the document's
+prefix in the storage and its text with its row (`document_versions`), for the tab's "Versions" to
+download it and show its text, the project's export to hold it, and the plan's storage to count
+it. A new version's pages count again as it is read, and it is an upload of its own, its notice,
+automations and `document.ready` following its reading.
 
 Deleting puts things in a **trash** rather than removing them (`backend/app/trash.py`): a file
 or a folder with everything in it goes into its project's trash, where the library's trash
@@ -1497,3 +1508,6 @@ CHANGELOG.md    what each day's commits changed for members and operators
 - The public API: SDKs (Python, TypeScript) generated from its contract are to come.
 - Office files in the format from before 2007 (.doc, .xls, .ppt), which the upload turns away
   with how to save them as today's.
+- A document's earlier version made the current one again: it is downloaded and uploaded as a new
+  version; an upload of a file of the same name as one in its folder is a new document, never a
+  version, until asked.

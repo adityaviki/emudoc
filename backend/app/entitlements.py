@@ -61,7 +61,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, fields, replace
 from datetime import UTC, date, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -359,35 +359,61 @@ def check_upload(
             f"The {label} plan allows {_count(plan.documents, 'document')}, and this "
             f"organisation has {count}. Delete some, or {upgrade(organization)} to add more.",
         )
-    if plan.storage_bytes is not None:
-        if held >= plan.storage_bytes:
-            return Refusal(
-                "storage_bytes",
-                f"The {label} plan allows {size_label(plan.storage_bytes)} of documents, and "
-                f"this organisation holds {size_label(held)}. Delete some, or "
-                f"{upgrade(organization)} to add more.",
-            )
-        if size is not None and held + size > plan.storage_bytes:
-            return Refusal(
-                "storage_bytes",
-                f"This file is {size_label(size)}, more than the "
-                f"{size_label(plan.storage_bytes - held)} left of the {label} plan's "
-                f"{size_label(plan.storage_bytes)}. Delete some documents, or "
-                f"{upgrade(organization)}.",
-            )
-    if size is None and plan.pages_per_month is not None:
-        start, following = month_of()
-        used = pages_this_month(session, organization.id, start)
-        bought = bought_this_month(session, organization.id, "pages", start)
-        if used >= plan.pages_per_month + bought:
-            return Refusal(
-                "pages_per_month",
-                f"The {label} plan indexes {_count(plan.pages_per_month, 'page')} a month"
-                f"{_and_bought(bought, start)}, and this organisation has indexed {used:,} in "
-                f"{_month(start)}. {upgrade(organization).capitalize()}, or upload again from "
-                f"1 {_month(following)}.",
-            )
+    refusal = _no_room(organization, held, size)
+    if refusal is None and size is None:
+        refusal = _no_pages(session, organization)
+    return refusal
+
+
+def check_version(session: Session, organization: Organization, size: int) -> Refusal | None:
+    """Why the plan refuses a document a new version of `size` bytes (app/versions.py), or None
+    when it has room: one adds no document, but its bytes are held beside the earlier file's,
+    and its pages are counted again as it is read."""
+    _, held = _documents(session, organization.id)
+    return _no_room(organization, held, size) or _no_pages(session, organization)
+
+
+def _no_room(organization: Organization, held: int, size: int | None) -> Refusal | None:
+    """Why the plan's storage takes nothing more, or not a file of `size` bytes."""
+    plan = entitlements_of(organization)
+    label = _label(organization)
+    if plan.storage_bytes is None:
+        return None
+    if held >= plan.storage_bytes:
+        return Refusal(
+            "storage_bytes",
+            f"The {label} plan allows {size_label(plan.storage_bytes)} of documents, and "
+            f"this organisation holds {size_label(held)}. Delete some, or "
+            f"{upgrade(organization)} to add more.",
+        )
+    if size is not None and held + size > plan.storage_bytes:
+        return Refusal(
+            "storage_bytes",
+            f"This file is {size_label(size)}, more than the "
+            f"{size_label(plan.storage_bytes - held)} left of the {label} plan's "
+            f"{size_label(plan.storage_bytes)}. Delete some documents, or "
+            f"{upgrade(organization)}.",
+        )
     return None
+
+
+def _no_pages(session: Session, organization: Organization) -> Refusal | None:
+    """Why the month's pages are all used, the packs bought for it with them."""
+    plan = entitlements_of(organization)
+    if plan.pages_per_month is None:
+        return None
+    start, following = month_of()
+    used = pages_this_month(session, organization.id, start)
+    bought = bought_this_month(session, organization.id, "pages", start)
+    if used < plan.pages_per_month + bought:
+        return None
+    return Refusal(
+        "pages_per_month",
+        f"The {_label(organization)} plan indexes {_count(plan.pages_per_month, 'page')} a month"
+        f"{_and_bought(bought, start)}, and this organisation has indexed {used:,} in "
+        f"{_month(start)}. {upgrade(organization).capitalize()}, or upload again from "
+        f"1 {_month(following)}.",
+    )
 
 
 def check_restore(
@@ -657,15 +683,21 @@ def _projects(session: Session, org_id: int) -> int:
 
 
 def _documents(session: Session, org_id: int) -> tuple[int, int]:
-    """How many documents the organisation holds, and their bytes, the sample project's left
-    out (they are the app's own, and none can be uploaded there) and those in the trash, by
-    themselves or in a project there."""
+    """How many documents the organisation holds, and their bytes with their earlier versions'
+    (app/versions.py), the sample project's left out (they are the app's own, and none can be
+    uploaded there) and those in the trash, by themselves or in a project there."""
     count, held = session.execute(
-        select(func.count(Document.id), func.coalesce(func.sum(Document.size_bytes), 0))
+        select(func.count(Document.id), func.coalesce(func.sum(stored_bytes()), 0))
         .join(Project, Project.id == Document.project_id)
         .where(*_live_documents(org_id), Project.sample.is_(False))
     ).one()
     return count, held
+
+
+def stored_bytes() -> ColumnElement[int]:
+    """What a document holds in the storage against the plan: its file and its earlier
+    versions' (app/versions.py)."""
+    return Document.size_bytes + Document.versions_bytes
 
 
 def sample_documents(session: Session, org_id: int) -> int:

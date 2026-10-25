@@ -168,6 +168,7 @@ from app.storage import (
     LocalStorage,
     Storage,
     StorageError,
+    files_prefix,
     is_export,
     is_rendered,
     project_prefix,
@@ -489,7 +490,7 @@ def _live_prefixes(connection: Connection, prefixes: set[str]) -> set[str]:
     live: set[str] = set()
     if documents:
         keys = connection.scalars(_DOCUMENT_KEYS, {"ids": [_last_id(p) for p in documents]})
-        live.update(key.rpartition("/")[0] + "/" for key in keys)
+        live.update(files_prefix(key) for key in keys)
     if projects:
         rows = connection.execute(_PROJECT_IDS, {"ids": [_last_id(p) for p in projects]})
         live.update(project_prefix(org_id, project_id) for org_id, project_id in rows)

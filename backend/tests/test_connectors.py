@@ -39,6 +39,7 @@ from tests.test_entitlements import member as member  # noqa: F401 (a fixture)
 from tests.test_folders import make_folder
 from tests.test_metrics import Counted
 from tests.test_templates import turn_on
+from tests.test_versions import versions
 
 BASE = "https://drive.test"
 FOLDER = google.FOLDER
@@ -666,7 +667,7 @@ def test_a_sync_with_no_change_asks_the_change_log_alone(
     assert the_connector(session).next_sync_at > datetime.now(UTC) + timedelta(minutes=14)
 
 
-def test_a_changed_file_is_taken_again_and_a_removed_one_goes_to_the_trash(
+def test_a_changed_file_is_its_documents_new_version_and_a_removed_one_goes_to_the_trash(
     client, session, services, drive, sample_pdf, sample_docx, tmp_path
 ):
     from docx import Document as Word
@@ -678,6 +679,7 @@ def test_a_changed_file_is_taken_again_and_a_removed_one_goes_to_the_trash(
     chosen(client, drive, project["id"], invoices)
     synced(services)
     assert library(session, project["id"]) == ["inv-7.pdf", "policy.docx"]
+    policy = session.scalar(select(Document).where(Document.filename == "policy.docx"))
 
     revised = Word()
     revised.add_paragraph("Book flights at least 21 days ahead.")
@@ -687,16 +689,51 @@ def test_a_changed_file_is_taken_again_and_a_removed_one_goes_to_the_trash(
     due(session)
     queue_due_syncs()
     synced(services)
-    # The new version is the document under its name; the earlier one is in the trash.
+    # The new version is the document's, which keeps its id and its earlier file; the removed
+    # file's document is in the trash.
     assert library(session, project["id"]) == ["policy.docx"]
-    assert library(session, project["id"], trashed=True) == ["inv-7.pdf", "policy.docx"]
-    deleted = session.scalars(select(AuditEvent).where(AuditEvent.action == "document_deleted"))
-    assert sorted(
-        (row.detail["filename"], row.detail.get("replaced", False)) for row in deleted
-    ) == [
-        ("inv-7.pdf", False),
-        ("policy.docx", True),
+    assert library(session, project["id"], trashed=True) == ["inv-7.pdf"]
+    session.refresh(policy)
+    assert policy.version == 2
+    assert policy.sha256 == hashlib.sha256((tmp_path / "revised.docx").read_bytes()).hexdigest()
+    assert [version["number"] for version in versions(client, policy.id)] == [2, 1]
+    logged = session.scalars(
+        select(AuditEvent)
+        .where(AuditEvent.action.in_(("document_deleted", "document_version_uploaded")))
+        .order_by(AuditEvent.id)
+    )
+    assert [(row.action, row.detail["filename"], row.detail["by_connector"]) for row in logged] == [
+        ("document_version_uploaded", "policy.docx", "google"),
+        ("document_deleted", "inv-7.pdf", "google"),
     ]
+
+
+def test_a_changed_file_whose_document_is_being_indexed_waits_for_the_next_sync(
+    client, session, services, drive
+):
+    project = create_project(client)
+    invoices = drive.folder("Invoices")
+    notes = drive.file("notes.txt", b"Call the supplier.", invoices, "text/plain")
+    chosen(client, drive, project["id"], invoices)
+    synced(services)
+    document = session.scalar(select(Document))
+    document.status = "processing"
+    session.commit()
+
+    drive.change(notes, b"Call the supplier on Monday.")
+    due(session)
+    queue_due_syncs()
+    synced(services)
+    session.refresh(document)
+    assert document.version == 1
+    # The mark stayed, so the service says the folder changed until the version is taken.
+    document.status = "ready"
+    session.commit()
+    due(session)
+    queue_due_syncs()
+    synced(services)
+    session.refresh(document)
+    assert document.version == 2
 
 
 def test_a_folder_of_a_shared_drive_is_read_from_that_drive(
@@ -1057,7 +1094,8 @@ def test_a_dropbox_folder_is_read_in_one_listing_and_asked_after_from_its_cursor
     queue_due_syncs()
     synced(services)
     assert library(session, project["id"]) == ["inv-7.pdf", "Notes.md", "Plan.md"]
-    assert library(session, project["id"], trashed=True) == ["Notes.md"]
+    assert library(session, project["id"], trashed=True) == []
+    assert session.scalar(select(Document.version).where(Document.filename == "Notes.md")) == 2
 
 
 def test_a_dropbox_folder_gone_and_a_grant_taken_back_say_so(client, session, services, box):
@@ -1137,7 +1175,8 @@ def test_a_onedrive_folder_is_read_by_its_children_and_asked_after_from_the_driv
     queue_due_syncs()
     synced(services)
     assert library(session, project["id"]) == ["inv-7.pdf", "Notes.md"]
-    assert library(session, project["id"], trashed=True) == ["Notes.md"]
+    assert library(session, project["id"], trashed=True) == []
+    assert session.scalar(select(Document.version).where(Document.filename == "Notes.md")) == 2
 
 
 def test_a_onedrive_root_chosen_is_named_by_its_drive(client, graph):

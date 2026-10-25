@@ -196,12 +196,37 @@ class Document(BaseModel):
     review: ReviewState | None
     assignee_id: int | None
     created_at: dt.datetime
+    # Which version of the document its file is, from 1: a new version is a file the document
+    # reads in the earlier one's place, keeping its id.
+    version: int
 
 
 class DocumentList(BaseModel):
     """A page of a project's documents, the newest first."""
 
     data: list[Document]
+    next: str | None
+
+
+class Version(BaseModel):
+    """A version of a document: its current file, or an earlier one, kept to download, whose text
+    nothing searches or answers from any more."""
+
+    number: int
+    current: bool
+    filename: str
+    mime_type: str
+    size_bytes: int
+    sha256: str
+    page_count: int | None
+    uploaded_at: dt.datetime
+
+
+class VersionList(BaseModel):
+    """A document's versions, the current one first, then the earlier ones, the latest first: every
+    one of them, on one page."""
+
+    data: list[Version]
     next: str | None
 
 

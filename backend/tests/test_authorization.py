@@ -15,7 +15,7 @@ from app.flags import CONNECTORS, DRAFTS, EMAIL_IN, SHARE_LINKS
 from app.indexing.pipeline import process_document
 from app.models import Connector
 from tests.conftest import FakeTurn
-from tests.test_api import create_project, upload
+from tests.test_api import create_project
 from tests.test_chats import answered, ask, new_chat
 from tests.test_cross_checks import CROSS_CHECK
 from tests.test_folders import make_folder
@@ -78,8 +78,13 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
     monkeypatch.setattr(get_settings(), "google_drive_client_secret", "drive-secret")
     project = create_project(client)
     folder = make_folder(client, project["id"], "Contracts")
-    uploaded = upload(client, project["id"], sample_pdf)
+    # The contract came in as a draft first, the version kept to open.
+    draft_file = [("files", ("msa.txt", b"A draft of the services agreement."))]
+    uploaded = client.post(f"/api/projects/{project['id']}/documents", files=draft_file).json()
     document = uploaded["documents"][0]
+    process_document(document["id"], services)
+    signed = {"file": ("msa.pdf", sample_pdf.read_bytes())}
+    assert client.post(f"/api/documents/{document['id']}/versions", files=signed).status_code == 201
     process_document(document["id"], services)
     link = client.post(f"/api/documents/{document['id']}/share-links", json={})
     chat = new_chat(client, project["id"])
@@ -209,6 +214,9 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/documents/{w.document_id}/content", {}),
         ("GET", f"/api/documents/{w.document_id}/facts", {}),
         ("GET", f"/api/documents/{w.document_id}/share-links", {}),
+        ("GET", f"/api/documents/{w.document_id}/versions", {}),
+        ("GET", f"/api/documents/{w.document_id}/versions/1/file", {}),
+        ("GET", f"/api/documents/{w.document_id}/versions/1/content", {}),
         ("GET", f"/api/passages/{w.passage_id}", {}),
     ]
 
@@ -269,6 +277,11 @@ def writes(w: World) -> list[Route]:
         ("PATCH", f"/api/folders/{w.folder_id}", {"json": {"name": "Renamed"}}),
         ("PATCH", f"/api/documents/{w.document_id}", {"json": {"filename": "renamed.pdf"}}),
         ("POST", f"/api/documents/{w.document_id}/reprocess", {}),
+        (
+            "POST",
+            f"/api/documents/{w.document_id}/versions",
+            {"files": {"file": ("msa.pdf", b"%PDF-1.7 another contract")}},
+        ),
         ("PUT", f"/api/documents/{w.document_id}/review", {"json": {"state": "approved"}}),
         ("POST", f"/api/documents/{w.document_id}/share-links", {"json": {}}),
         ("DELETE", f"/api/fact-checks/{w.check_id}", {}),

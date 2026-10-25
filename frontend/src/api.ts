@@ -228,14 +228,34 @@ export interface Document {
   summary: string | null
   /** The kind of the extraction template its facts were read for (backend/app/extraction.py), if any. */
   template: string | null
+  /** Its current version's (backend/app/versions.py). */
   usage: Partial<Record<UsageKind, Usage>>
   created_at: string
+  /** Which version of the document its file is, from 1 (backend/app/versions.py). */
+  version: number
   /** Its review (backend/app/reviews.py), null for none: the member it is assigned to, by id and name as it is now, and who moved it to its state and when, null for an automation or an account gone. */
   review: ReviewState | null
   assignee_id: number | null
   assignee: string | null
   review_changer: string | null
   review_changed_at: string | null
+}
+
+/** A version of a document (backend/app/versions.py): its current file, or an earlier one kept to open and download. */
+export interface DocumentVersion {
+  number: number
+  current: boolean
+  filename: string
+  mime_type: string
+  size_bytes: number
+  page_count: number | null
+  uploaded_at: string
+  /** Who brought it in, by their name as it is now; null for nobody's or an account gone. */
+  uploaded_by: string | null
+  /** Whether its file is served: the malware scan passed it. */
+  served: boolean
+  /** Whether its text was read, which an earlier version shows. */
+  has_text: boolean
 }
 
 /** Where a document stands in its review: `REVIEW_STATES` in backend/app/models.py. */
@@ -1503,6 +1523,7 @@ export type AuditAction =
   | 'folder_restored'
   | 'folder_purged'
   | 'document_uploaded'
+  | 'document_version_uploaded'
   | 'document_downloaded'
   | 'document_deleted'
   | 'document_restored'
@@ -2391,6 +2412,15 @@ export const api = {
     request<Document>(`/documents/${id}/reprocess?from_stage=${fromStage}`, { method: 'POST' }),
   outline: (id: number) => request<Section[]>(`/documents/${id}/outline`),
   content: (id: number) => request<DocumentContent>(`/documents/${id}/content`),
+  versions: (id: number) => request<DocumentVersion[]>(`/documents/${id}/versions`),
+  /** Give the document a new file, which it reads in the earlier one's place. */
+  uploadVersion: (id: number, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request<Document>(`/documents/${id}/versions`, { method: 'POST', body: form })
+  },
+  versionContent: (id: number, number: number) =>
+    request<DocumentContent>(`/documents/${id}/versions/${number}/content`),
   documentFacts: (id: number) => request<Fact[]>(`/documents/${id}/facts`),
   passage: (id: number) => request<Passage>(`/passages/${id}`),
 
@@ -2442,6 +2472,8 @@ export const api = {
 }
 
 export const fileUrl = (documentId: number) => `/api/documents/${documentId}/file`
+export const versionFileUrl = (documentId: number, number: number) =>
+  `/api/documents/${documentId}/versions/${number}/file`
 export const pageImageUrl = (documentId: number, page: number) =>
   `/api/documents/${documentId}/pages/${page}.png`
 /** A share link's file and pages, which its view's cookie reaches. */

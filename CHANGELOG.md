@@ -17,6 +17,13 @@ newest entry first.
 
 Members:
 
+- Give a document a new version when its file changes, such as a contract that comes back
+  signed: "Upload a new version" in its menu in the library, or "Versions" on its tab. The
+  document keeps its place, its chats, its share links, its review and your checks of its facts,
+  and reads the new file in place of the old one; an approved or disputed review is opened again.
+  Its earlier files stay under "Versions", each to download or to read its text, and in the
+  project's export. A file of a connected folder that changes there now becomes its document's
+  new version too, rather than a new document with the old one in the trash.
 - Scanned pages and photos are read the way their text runs, even when photographed sideways,
   handwriting included: a word the AI model cannot read is marked [illegible], a signature
   [signature] and a ticked box [x], and a table is kept as a table, ruled or not, so its rows
@@ -89,6 +96,16 @@ Members:
 
 Operators:
 
+- A document's new version (`app/versions.py`, `POST /api/documents/{id}/versions` and
+  `/api/v1/documents/{id}/versions`) keeps the document's row and reads the new file from its
+  scan on; the earlier file stays at its key, the new one under the document's prefix at
+  `versions/{n}/original.<ext>`, and `document_versions` holds the earlier ones with their text
+  (migration b244c80cacf0). The plan's storage counts the earlier files, and the new file's pages
+  count again. The orphan sweep, the trash's purge and `after-restore` read a document's whole
+  prefix; `after-restore` names a document missing one of its versions' originals. A version
+  refused while its document is being indexed counts `indexing` in
+  `emudoc_upload_rejections_total`, and a connected folder's changed file counts `replaced` as it
+  becomes its document's new version.
 - A `.zip` the members' page uploads is unpacked in the API's request (`app/unpacking.py`), the
   archives of one upload bringing `MAX_UPLOAD_FILES` files and `MAX_UPLOAD_REQUEST_MB` unpacked
   between them, read from their directories before anything is inflated; what a packer adds

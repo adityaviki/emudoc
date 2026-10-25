@@ -64,7 +64,15 @@ from app.retention import (
     reapply_erasures,
     reapply_organization_erasures,
 )
-from app.storage import ROOT_PREFIX, Deletion, S3Storage, Storage, StoredObject, is_rendered
+from app.storage import (
+    ROOT_PREFIX,
+    Deletion,
+    S3Storage,
+    Storage,
+    StoredObject,
+    files_prefix,
+    is_rendered,
+)
 
 AFTER_RESTORE_COMMAND = "uv run python -m app.maintenance after-restore <time>"
 # The tables whose ids name places in the storage, and how a key names them.
@@ -86,7 +94,12 @@ _END_LINKS = text(
 _END_INVITATIONS = text("UPDATE invitations SET expires_at = now() WHERE expires_at > now()")
 # A share link revoked after the moment restored to would work again (app/share_links.py).
 _END_SHARE_LINKS = text("UPDATE share_links SET expires_at = now() WHERE expires_at > now()")
-_DOCUMENT_KEYS = text("SELECT id, storage_key FROM documents ORDER BY id")
+# Every original the database names: each document's file, then its earlier versions'
+# (app/versions.py), whose document is missing an original as much when one of theirs is gone.
+_DOCUMENT_KEYS = text(
+    "SELECT id, storage_key FROM documents "
+    "UNION ALL SELECT document_id, storage_key FROM document_versions ORDER BY 1"
+)
 # The organisations whose log does not record this restore yet, so that a second run, after
 # the storage was restored again, adds no second row.
 _UNRECORDED = text(
@@ -219,9 +232,11 @@ def after_restore(storage: Storage, restored_to: datetime, *, dry_run: bool = Fa
             audit_event(session, "database_restored", org_id=org_id, detail=detail)
             restored.organizations += 1
         known: set[str] = set()
+        missing: set[int] = set()
         for document_id, key in session.execute(_DOCUMENT_KEYS):
-            known.add(key.rpartition("/")[0] + "/")
-            if key not in survey.originals:
+            known.add(files_prefix(key))
+            if key not in survey.originals and document_id not in missing:
+                missing.add(document_id)
                 restored.missing.append(document_id)
         if dry_run:
             session.rollback()

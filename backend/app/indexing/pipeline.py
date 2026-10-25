@@ -239,7 +239,9 @@ def process_document(
     is recorded as the organisation's usage at the end of each stage (app/usage.py).
     """
     with SessionLocal() as session:
-        document = session.get(Document, document_id)
+        # Held until the run says it is processing: a new version (app/versions.py) takes the
+        # row before it gives the document another file, so the run reads the file it runs on.
+        document = session.get(Document, document_id, with_for_update=True)
         if document is None:
             return []
         if document.deleted_at is not None or document.project.deleted_at is not None:

@@ -49,6 +49,7 @@ from app.api import (
     trash,
     usage,
     v1,
+    versions,
     webhooks,
 )
 from app.api.deps import (
@@ -439,6 +440,7 @@ KEYED = (
     exports.router,
     folders.router,
     documents.router,
+    versions.router,
     query.router,
     chats.router,
     trash.router,

@@ -25,6 +25,7 @@ from sqlalchemy.orm import Mapped, column_property, mapped_column, relationship
 
 from app.config import PACK_UNITS, REGIONS, get_settings
 from app.db import Base
+from app.storage import files_prefix
 
 _settings = get_settings()
 
@@ -284,6 +285,7 @@ AUDIT_ACTIONS = (
     "folder_restored",
     "folder_purged",
     "document_uploaded",
+    "document_version_uploaded",
     "document_downloaded",
     "document_deleted",
     "document_restored",
@@ -1261,9 +1263,13 @@ class Document(Base):
     mime_type: Mapped[str] = mapped_column(String(200))
     size_bytes: Mapped[int] = mapped_column(BigInteger)
     sha256: Mapped[str] = mapped_column(String(64))
-    # The key of the uploaded file in the storage (app/storage.py); the document's other
-    # objects sit under the same prefix.
+    # The key of the uploaded file in the storage (app/storage.py), its current version's
+    # (app/versions.py); the document's other objects sit under the same prefix.
     storage_key: Mapped[str] = mapped_column(Text)
+    # Which version of the document the file is, from 1, and the bytes of its earlier versions
+    # (`DocumentVersion`), which the plan's storage counts with the file's own.
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))
+    versions_bytes: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))
     # The upload it came in with, and so who brought it in (`Upload`); null for a document from
     # before uploads were kept, and while its request is still storing the others.
     upload_id: Mapped[int | None] = mapped_column(
@@ -1339,15 +1345,61 @@ class Document(Base):
 
     @property
     def storage_prefix(self) -> str:
-        """The prefix in the storage that everything this document owns sits under."""
+        """The prefix in the storage that everything this document owns sits under, every
+        version's files with it."""
+        return files_prefix(self.storage_key)
+
+    @property
+    def version_prefix(self) -> str:
+        """The prefix of the current version's files: its original, and the pages and the
+        thumbnail drawn from it."""
         return self.storage_key.rpartition("/")[0] + "/"
 
     def page_image_key(self, page: int) -> str:
-        return f"{self.storage_prefix}pages/{page}.png"
+        return f"{self.version_prefix}pages/{page}.png"
 
     @property
     def thumbnail_key(self) -> str:
-        return f"{self.storage_prefix}thumbnail.png"
+        return f"{self.version_prefix}thumbnail.png"
+
+
+class DocumentVersion(Base):
+    """An earlier version of a document, kept once a new file took its place (app/versions.py):
+    its file, as it was uploaded, and its text as the parse read it, to open and download. Only
+    the document's current file is searched, asked about and read for facts; the document row
+    is that file, so everything that names the document goes on naming it."""
+
+    __tablename__ = "document_versions"
+    __table_args__ = (UniqueConstraint("document_id", "number"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"))
+    number: Mapped[int] = mapped_column(Integer)
+    # The document's name, type and file while this was its version.
+    filename: Mapped[str] = mapped_column(String(500))
+    mime_type: Mapped[str] = mapped_column(String(200))
+    size_bytes: Mapped[int] = mapped_column(BigInteger)
+    sha256: Mapped[str] = mapped_column(String(64))
+    storage_key: Mapped[str] = mapped_column(Text)
+    page_count: Mapped[int | None] = mapped_column(Integer)
+    # Whether its file may be served: the malware scan had passed it (or there was no scanner)
+    # and had not flagged it when the next version replaced it. One replaced before its scan
+    # is kept unserved, as a document waiting for its scan is.
+    scan_passed: Mapped[bool] = mapped_column(Boolean)
+    # Its text: the blocks the parse read, in order, as [{kind, level, text, page}]; empty for a
+    # version replaced before it was read. Loaded only when asked for.
+    blocks: Mapped[list] = mapped_column(JSONB, deferred=True)
+    # What bringing it in and indexing it used, as `Document.usage` held it (app/usage.py).
+    usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    # The upload it came in with, and so who brought it in (`Upload`); null as the document's
+    # own would be.
+    upload_id: Mapped[int | None] = mapped_column(
+        ForeignKey("uploads.id", ondelete="SET NULL"), index=True
+    )
+    uploaded_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    replaced_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class Block(Base):

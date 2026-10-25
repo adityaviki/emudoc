@@ -3,8 +3,9 @@
 ## Exporting a project
 
 A member exports a whole project from its card on the [projects page](/): one ZIP file with every
-document as it was uploaded, in its folders, what was read from each (its outline, passages and
-facts) and the chats shared with the project and their own. It is made in the background, the
+document as it was uploaded, in its folders, with the files it had before a new version and their
+text, what was read from each (its outline, passages and facts) and the chats shared with the
+project and their own. It is made in the background, the
 bell says when it is ready, and it is kept $export_days days for whoever asked for it.
 
 ## A copy of your account

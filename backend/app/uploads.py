@@ -116,11 +116,8 @@ def take_files(
             UPLOAD_REJECTIONS.labels("unopened").inc()
             return
         if suffix not in SUPPORTED_EXTENSIONS:
-            supported = ", ".join(sorted(taken))
             rejected.append(
-                RejectedFile(
-                    filename=filename, reason=f"Unsupported type. Use {supported}.", index=index
-                )
+                RejectedFile(filename=filename, reason=unsupported_type(taken), index=index)
             )
             UPLOAD_REJECTIONS.labels("unsupported").inc()
             return
@@ -129,23 +126,16 @@ def take_files(
         # same bytes before anything is stored, and the key needs the row's id. The spool goes
         # whether the file is kept, rejected or fails to store.
         try:
-            spool, size, sha256 = _spool(incoming.file, limit)
+            spool, size, sha256 = spooled(incoming.file, limit)
         except Damaged as damaged:
             rejected.append(RejectedFile(filename=filename, reason=str(damaged), index=index))
             UPLOAD_REJECTIONS.labels("unopened").inc()
             return
         try:
-            if size > limit or size == 0:
-                reason = "Empty file." if size == 0 else f"Larger than {settings.max_upload_mb} MB."
+            if screening := screened(spool, size, suffix):
+                reason, label = screening
                 rejected.append(RejectedFile(filename=filename, reason=reason, index=index))
-                UPLOAD_REJECTIONS.labels("empty" if size == 0 else "too_large").inc()
-                return
-            # The extension picks the parser and the type the file is served as, so the bytes
-            # must be what it says; refused here, before a duplicate is looked for or the plan
-            # is counted, with a sentence about the file rather than a parser's a stage later.
-            if reason := wrong_type(spool, suffix):
-                rejected.append(RejectedFile(filename=filename, reason=reason, index=index))
-                UPLOAD_REJECTIONS.labels("wrong_type").inc()
+                UPLOAD_REJECTIONS.labels(label).inc()
                 return
 
             duplicate = already_present(session, project.id, sha256, filename, index)
@@ -189,7 +179,7 @@ def take_files(
                     session.add(document)
                     session.flush()
             except IntegrityError as error:
-                if _constraint_of(error) != DUPLICATE_CONSTRAINT:
+                if constraint_of(error) != DUPLICATE_CONSTRAINT:
                     raise
                 rejected.append(
                     already_present(session, project.id, sha256, filename, index)
@@ -234,13 +224,10 @@ def take_files(
         into, or nothing when it is refused, as any file would be or as one that cannot be
         opened; the file itself is spooled while what it brings is taken, and never kept."""
         filename = PATH_SEPARATOR.join([*(incoming.folders or []), name])
-        spool, size, _ = _spool(incoming.file, limit)
+        spool, size, _ = spooled(incoming.file, limit)
         try:
-            reason = None
-            if size > limit or size == 0:
-                reason = "Empty file." if size == 0 else f"Larger than {settings.max_upload_mb} MB."
-            else:
-                reason = wrong_type(spool, Path(name).suffix.lower())
+            screening = screened(spool, size, Path(name).suffix.lower())
+            reason = screening[0] if screening else None
             if reason is None:
                 try:
                     with unpacked(spool, name, room) as inside:
@@ -268,6 +255,30 @@ def take_files(
         else:
             take(index, incoming)
     return documents, rejected
+
+
+def unsupported_type(taken: Iterable[str]) -> str:
+    """The rejection of a file whose extension is none of `taken`, naming them."""
+    return f"Unsupported type. Use {', '.join(sorted(taken))}."
+
+
+def screened(spool: Path, size: int, suffix: str) -> tuple[str, str] | None:
+    """Why a spooled file of `size` bytes is refused before anything else is asked of it, with
+    the label its rejection is counted by: nothing in it, more bytes than one file may have,
+    or bytes that are not the type its extension `suffix` names; None for a file to go on with.
+
+    The extension picks the parser and the type the file is served as, so the bytes must be what
+    it says; refused here, before a duplicate is looked for or the plan is counted, with a
+    sentence about the file rather than a parser's a stage later.
+    """
+    settings = get_settings()
+    if size == 0:
+        return "Empty file.", "empty"
+    if size > settings.max_upload_mb * 1024 * 1024:
+        return f"Larger than {settings.max_upload_mb} MB.", "too_large"
+    if reason := wrong_type(spool, suffix):
+        return reason, "wrong_type"
+    return None
 
 
 def already_present(
@@ -313,13 +324,13 @@ def _in_trash(session: Session, document: Document) -> str:
     )
 
 
-def _constraint_of(error: IntegrityError) -> str | None:
+def constraint_of(error: IntegrityError) -> str | None:
     """The name of the constraint the database refused the statement on, as psycopg reports it."""
     diagnostics = getattr(error.orig, "diag", None)
     return getattr(diagnostics, "constraint_name", None)
 
 
-def _spool(upload: BinaryIO, limit: int) -> tuple[Path, int, str]:
+def spooled(upload: BinaryIO, limit: int) -> tuple[Path, int, str]:
     """Copy the upload to a temporary file, up to the limit, hashing it on the way.
 
     Returns the file, how many bytes were read and the hash; a file over the limit stops at the
