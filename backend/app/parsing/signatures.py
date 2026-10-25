@@ -73,14 +73,18 @@ OLDER_FORMATS = {
     ),
 }
 LOCKED = "Protected by a password. Save a copy without the password and upload that."
-# The marks of the Unicode encodings the text parsers do not read.
+# The marks of the Unicode encodings the text parsers do not read; the HTML parser does.
 OTHER_UNICODE_MARKS = (b"\xff\xfe", b"\xfe\xff", b"\x00\x00\xfe\xff")
+UNICODE_MARKS = (b"\xef\xbb\xbf", *OTHER_UNICODE_MARKS)
 # The bytes no text file holds, as file(1) draws the line: the control characters apart from
 # bell to carriage return and escape. Text in another encoding has none of them, so they tell
 # a binary file from text that only needs saving again as UTF-8.
 NOT_TEXT = bytes([*range(0x00, 0x07), *range(0x0E, 0x1B), *range(0x1C, 0x20)])
 TEXT_BYTES = bytes(byte for byte in range(256) if byte not in NOT_TEXT)
 TEXT_EXTENSIONS = {".csv", ".txt", ".md"}
+# A page names its own encoding, so HTML is held to having no binary bytes, not to UTF-8.
+HTML_EXTENSIONS = {".html", ".htm"}
+RTF = b"{\\rtf"
 
 RENAME = "Upload the original, or rename it to its real type."
 NOT_UTF8 = "Not UTF-8 text. Save it as UTF-8 and upload it again."
@@ -124,6 +128,11 @@ def wrong_type(path: Path, suffix: str) -> str | None:
         return _compound(path, head, suffix) or f"Not a PowerPoint presentation. {RENAME}"
     if suffix in TEXT_EXTENSIONS:
         return _not_text(head, whole=len(head) < HEAD)
+    if suffix in HTML_EXTENSIONS:
+        binary = head.translate(None, delete=TEXT_BYTES) and not head.startswith(UNICODE_MARKS)
+        return f"Not an HTML file. {RENAME}" if binary else None
+    if suffix == ".rtf":
+        return None if head.startswith(RTF) else f"Not an RTF document. {RENAME}"
     return f"Not a supported type. {RENAME}"
 
 

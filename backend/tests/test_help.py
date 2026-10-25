@@ -182,8 +182,8 @@ def test_the_help_is_filled_in_from_what_the_deployment_allows(client, signed_in
     assert by["documents"]["summary"] == dict(ARTICLES)["documents"]
     documents = said(by["documents"])
     assert (
-        "PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), CSV, plain text, Markdown files, "
-        "and images (PNG, JPEG, WebP, TIFF, HEIC). A file may be up to 100 MB."
+        "PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), RTF, HTML, CSV, plain text, "
+        "Markdown files, and images (PNG, JPEG, WebP, TIFF, HEIC). A file may be up to 100 MB."
     ) in documents
     assert "A larger upload is sent 100 files or 500 MB at a time" in documents
     assert "in the trash for 30 days" in documents
@@ -222,8 +222,8 @@ def test_what_a_deployment_does_not_do_the_help_does_not_say(monkeypatch):
 
 
 def test_the_help_names_every_file_type_an_upload_takes(monkeypatch):
-    monkeypatch.setattr("app.help.SUPPORTED_EXTENSIONS", {*SUPPORTED_EXTENSIONS, ".rtf"})
-    with pytest.raises(RuntimeError, match=r"\.rtf"):
+    monkeypatch.setattr("app.help.SUPPORTED_EXTENSIONS", {*SUPPORTED_EXTENSIONS, ".odt"})
+    with pytest.raises(RuntimeError, match=r"\.odt"):
         articles(get_settings())
 
 

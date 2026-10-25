@@ -33,6 +33,9 @@ SUPPORTED_EXTENSIONS = {
     ".docx",
     ".xlsx",
     ".pptx",
+    ".rtf",
+    ".html",
+    ".htm",
     ".csv",
     ".txt",
     ".md",
@@ -45,6 +48,9 @@ MIME_TYPES = {
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".rtf": "application/rtf",
+    ".html": "text/html",
+    ".htm": "text/html",
     ".csv": "text/csv",
     ".txt": "text/plain",
     ".md": "text/markdown",
@@ -58,6 +64,9 @@ PARSER_MODULES = {
     ".docx": "app.parsing.docx",
     ".xlsx": "app.parsing.sheet",
     ".pptx": "app.parsing.pptx",
+    ".rtf": "app.parsing.rtf",
+    ".html": "app.parsing.html",
+    ".htm": "app.parsing.html",
     ".csv": "app.parsing.sheet",
     ".txt": "app.parsing.text",
     ".md": "app.parsing.text",
@@ -98,6 +107,14 @@ def _parsed(
         from app.parsing.pptx import parse_pptx
 
         return parse_pptx(path, max_pages)
+    if suffix == ".rtf":
+        from app.parsing.rtf import parse_rtf
+
+        return parse_rtf(path)
+    if suffix in {".html", ".htm"}:
+        from app.parsing.html import parse_html
+
+        return parse_html(path)
     # A sheet stops as soon as its rows are past the text it may hold, before it is held
     # whole; the others are read whole anyway, and checked once parsed.
     if suffix == ".xlsx":

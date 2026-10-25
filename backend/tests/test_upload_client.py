@@ -205,7 +205,7 @@ def test_what_emudoc_would_not_take_is_left_out_and_what_it_refuses_is_said(
     folder = write(
         tmp_path / "In",
         {
-            "notes.rtf": "{\\rtf1 Notes}",
+            "notes.odt": "Notes",
             "empty.txt": "",
             "large.txt": "x" * (1024 * 1024 + 1),
             "fake.pdf": "Not a PDF at all.",
@@ -223,7 +223,7 @@ def test_what_emudoc_would_not_take_is_left_out_and_what_it_refuses_is_said(
         "Left out 3 files:",
         "  In/empty.txt: Empty file.",
         "  In/large.txt: Larger than 1 MB.",
-        f"  In/notes.rtf: Unsupported type. Use {', '.join(sorted(SUPPORTED_EXTENSIONS))}.",
+        f"  In/notes.odt: Unsupported type. Use {', '.join(sorted(SUPPORTED_EXTENSIONS))}.",
         "Refused 1 file:",
         f"  In/fake.pdf: Not a PDF file. {RENAME}",
     ]
@@ -816,7 +816,7 @@ def test_watch_says_once_what_it_refuses_and_sends_again_what_could_not_be_sent(
     key = make_key(client, scope="write")["key"]
     folder = write(
         tmp_path / "Scanner",
-        {"fake.pdf": "Not a PDF.", "notes.rtf": "{\\rtf1 Notes}", "scan.txt": "A scan."},
+        {"fake.pdf": "Not a PDF.", "notes.odt": "Notes", "scan.txt": "A scan."},
     )
     app = through(client)
     outage = [True]
@@ -842,7 +842,7 @@ def test_watch_says_once_what_it_refuses_and_sends_again_what_could_not_be_sent(
     assert done.said == [
         f"Watching {folder} for Contracts: each file is sent once it has stayed the same for 5 "
         "seconds. Ctrl+C stops.",
-        f"Left out notes.rtf: Unsupported type. Use {', '.join(sorted(SUPPORTED_EXTENSIONS))}.",
+        f"Left out notes.odt: Unsupported type. Use {', '.join(sorted(SUPPORTED_EXTENSIONS))}.",
         "Emudoc could not be reached (Connection refused). Trying again at the next look.",
         "Sent scan.txt.",
         f"Refused fake.pdf: Not a PDF file. {RENAME}",

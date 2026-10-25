@@ -30,6 +30,8 @@ export function fileKind(document: Document): FileKind {
   if (document.mime_type.endsWith('wordprocessingml.document')) return KINDS.word
   if (document.mime_type.endsWith('presentationml.presentation')) return KINDS.slides
   if (document.mime_type === 'text/markdown') return KINDS.markdown
+  if (document.mime_type === 'text/html') return { ...KINDS.markdown, label: 'HTML' }
+  if (document.mime_type === 'application/rtf') return { ...KINDS.text, label: 'RTF' }
   return KINDS.text
 }
 

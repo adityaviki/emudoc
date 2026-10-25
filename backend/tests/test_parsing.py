@@ -132,6 +132,77 @@ def test_csv_dialect_is_detected_and_rows_are_chunked(sample_csv, monkeypatch):
     ]
 
 
+PAGE = """<!doctype html>
+<html><head><meta charset="windows-1252"><title>Delivery terms</title>
+<style>p { color: red }</style><script>var shown = "<p>not text</p>";</script></head>
+<body><nav><a href="/">Home</a> <a href="/terms">Terms</a></nav>
+<h1>Delivery terms</h1>
+<p>Goods are delivered within <b>14 days</b>
+of the order.<br>Delays are notified in writing.</p>
+<h2>Prices</h2>
+<ul><li>Pallet: EUR 40</li><li>Crate <ul><li>with lid</li></ul></li></ul>
+<table><tr><th>Item</th><th>Price</th></tr><tr><td>Pallet</td><td>EUR&nbsp;40</td></tr></table>
+<div hidden>A draft clause</div>
+<pre>Item   Qty
+Pallet   4</pre>
+<p>Signed for Café Nord &amp; Co.</p>
+</body></html>"""
+
+
+def test_html_keeps_its_headings_lists_and_tables_and_leaves_out_its_code_and_navigation(
+    tmp_path,
+):
+    # Saved in the code page it names, which is not UTF-8.
+    page = tmp_path / "terms.html"
+    page.write_bytes(PAGE.encode("cp1252"))
+    parsed = parse_within_limits(page, page.name, ParseLimits())
+    assert parsed.title == "Delivery terms"
+    assert [(block.kind, block.level, block.text) for block in parsed.blocks] == [
+        ("heading", 1, "Delivery terms"),
+        (
+            "paragraph",
+            None,
+            "Goods are delivered within 14 days of the order. Delays are notified in writing.",
+        ),
+        ("heading", 2, "Prices"),
+        ("list_item", None, "Pallet: EUR 40"),
+        ("list_item", None, "Crate"),
+        ("list_item", None, "with lid"),
+        ("table", None, "| Item | Price |\n| --- | --- |\n| Pallet | EUR 40 |"),
+        ("paragraph", None, "Item   Qty\nPallet   4"),
+        ("paragraph", None, "Signed for Café Nord & Co."),
+    ]
+
+
+def test_html_is_read_in_the_encoding_its_bytes_and_its_page_say(tmp_path):
+    from app.parsing.html import decode_html
+
+    text = '<meta charset="iso-8859-1"><p>Café</p>'
+    # A page saved again as UTF-8 that still names its old encoding is read as UTF-8.
+    assert decode_html(text.encode("utf-8")) == text
+    assert decode_html(text.encode("latin-1")) == text
+    assert decode_html(text.encode("utf-16")) == text
+    assert decode_html(b"\xef\xbb\xbf" + text.encode("utf-8")) == text
+    # Neither UTF-8 nor saying: the encoding browsers fall back to.
+    assert decode_html("<p>Caf\u00e9 \u20ac</p>".encode("cp1252")) == "<p>Café €</p>"
+
+
+def test_rtf_is_read_a_paragraph_a_line(tmp_path):
+    letter = tmp_path / "letter.rtf"
+    letter.write_bytes(
+        rb"{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0 Arial;}}{\info{\title Late}}"
+        rb"\f0 LATE DELIVERY\par Dear supplier,\par the pallets arrived on 3 March,"
+        rb" two days late.\par Caf\'e9 Nord\par}"
+    )
+    parsed = parse_within_limits(letter, letter.name, ParseLimits())
+    assert [(block.kind, block.text) for block in parsed.blocks] == [
+        ("heading", "LATE DELIVERY"),
+        ("paragraph", "Dear supplier,"),
+        ("paragraph", "the pallets arrived on 3 March, two days late."),
+        ("paragraph", "Café Nord"),
+    ]
+
+
 def test_markdown_blocks():
     parsed = parse_text(
         "# Title\n\nFirst paragraph\ncontinues here.\n\n"
@@ -421,6 +492,16 @@ def test_bytes_that_are_what_the_extension_says_pass(
     assert wrong_type(notes, ".txt") is None
     assert wrong_type(readme, ".md") is None
     assert wrong_type(cut, ".csv") is None
+    page = tmp_path / "page.html"
+    page.write_bytes('<meta charset="windows-1252"><p>Café</p>'.encode("cp1252"))
+    wide = tmp_path / "wide.htm"
+    wide.write_bytes("<p>A page.</p>".encode("utf-16"))
+    letter = tmp_path / "letter.rtf"
+    letter.write_bytes(rb"{\rtf1\ansi Dear supplier,\par}")
+    # An HTML page names its encoding, so one that is not UTF-8 passes, as one in UTF-16 does.
+    assert wrong_type(page, ".html") is None
+    assert wrong_type(wide, ".htm") is None
+    assert wrong_type(letter, ".rtf") is None
 
 
 def test_bytes_that_are_not_what_the_extension_says_are_named(
@@ -469,6 +550,8 @@ def test_bytes_that_are_not_what_the_extension_says_are_named(
     assert wrong_type(png, ".md") == f"Not a text file. {RENAME}"
     assert wrong_type(latin, ".csv") == "Not UTF-8 text. Save it as UTF-8 and upload it again."
     assert wrong_type(utf16, ".txt") == "Not UTF-8 text. Save it as UTF-8 and upload it again."
+    assert wrong_type(binary, ".html") == f"Not an HTML file. {RENAME}"
+    assert wrong_type(text, ".rtf") == f"Not an RTF document. {RENAME}"
     assert wrong_type(text, ".zip") == f"Not a supported type. {RENAME}"
 
 

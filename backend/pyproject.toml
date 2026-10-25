@@ -27,6 +27,7 @@ dependencies = [
     "reportlab>=5.0.1",
     "sentry-sdk>=2.71.0",
     "sqlalchemy>=2.1.4",
+    "striprtf>=0.0.29",
     "tzdata>=2026.5",
     "uvicorn[standard]>=0.54.0",
 ]

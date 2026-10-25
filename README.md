@@ -50,8 +50,8 @@ or a TIFF, the slides of a presentation and the rows of a sheet (`PARSE_TIMEOUT`
 `PARSE_MEMORY_MB`, `PARSE_MAX_PAGES`, `PARSE_MAX_ROWS`), so a file that would take hours or all
 the memory stops that process alone, and the document says which limit it hit. Before any of
 that, the upload checks that a file's bytes are what its name says (a PDF's header, an image's
-signature, the part a Word document, a workbook or a presentation declares, UTF-8 text with no
-binary in it) and rejects one that is not with the reason, while the other files of the same
+signature, the part a Word document, a workbook or a presentation declares, an RTF document's
+opening, UTF-8 text with no binary in it, an HTML page with none in any encoding) and rejects one that is not with the reason, while the other files of the same
 upload go in. An Office file saved with a password, or in the format from before 2007 (.doc,
 .xls, .ppt), is rejected there with what to do in Office; a PDF that needs a password to open, or has no pages, goes in and fails to parse with
 the reason (one whose password only restricts printing or copying is read like any other). An
