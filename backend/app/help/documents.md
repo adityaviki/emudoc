@@ -9,7 +9,10 @@ upload is sent $max_upload_files files or $max_request_mb MB at a time, and a pa
 toolbar shows how far it has gone, file by file under "Each file", until Stop. A file Emudoc does
 not read is left out before anything is sent, and so are a folder's hidden files. A file saved
 with a password cannot be read: save it again without one. A scanned page, and each page of a
-TIFF, is read by the AI model as an image$ocr_pages. An email saved from your mail program
+TIFF, is read by the AI model as an image$ocr_pages. It is read the way its text runs, even
+photographed sideways, handwriting included: a word the model cannot read is written
+[illegible], a signature [signature], a ticked box [x]. A PDF set in columns is read a column at
+a time, and a page printed sideways the way its text runs. An email saved from your mail program
 (.eml) is opened: its text becomes a document headed by who sent it to whom and when, and each
 file attached to it a document beside it. A ZIP archive is unpacked as your computer would,
 into a folder of its name unless it holds one folder already, its folders made as an uploaded

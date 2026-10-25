@@ -17,6 +17,10 @@ newest entry first.
 
 Members:
 
+- Scanned pages and photos are read the way their text runs, even when photographed sideways,
+  handwriting included: a word the AI model cannot read is marked [illegible], a signature
+  [signature] and a ticked box [x], and a table is kept as a table, ruled or not, so its rows
+  give facts.
 - A PDF set in two or more columns is read a column at a time, so each heading's section holds
   the text below it in its own column, and a table stays in the column it stands in.
 - A PDF page whose text runs sideways or upside down, such as a wide table printed turned on a
