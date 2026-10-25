@@ -1763,13 +1763,12 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
     // The connected folder's Archive holds one credit note, the only one against INV-2026-090: the answer reads it alone.
-    // The chat scrolls into place as it loads, and a menu closes when anything scrolls: it is asked for until it stays.
-    const summarise = page.getByRole('menuitem', { name: 'Summarise this folder' })
+    // The chat scrolls into place as it loads, and a menu closes when anything scrolls: the menu is opened and its
+    // item clicked again until the click lands, which a click checks before it clicks.
     await expect(async () => {
       await page.getByRole('treeitem', { name: /^Archive/ }).click({ button: 'right' })
-      await expect(summarise).toBeVisible({ timeout: 2_000 })
-    }).toPass()
-    await summarise.click()
+      await page.getByRole('menuitem', { name: 'Summarise this folder' }).click({ timeout: 2_000 })
+    }).toPass({ timeout: 60_000 })
     // A question is its bubble's paragraph: the chat's header names the chat by its first one too.
     const question = (words: string) => page.getByRole('paragraph').filter({ hasText: words })
     const summary = 'Summarise the documents in this folder: what each one is, and what they say together.'
@@ -1878,9 +1877,11 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   await test.step('tag a document, and list a tag, a smart folder, the favourites and the recent ones, in another order and as a grid, then file an invoice by a rule', async () => {
     const invoice = page.getByRole('treeitem', { name: 'invoice.md', exact: true })
     const show = page.getByRole('button', { name: /^Show: / })
-    // A tag made from the file's menu and put on it, which its row then names.
-    await invoice.click({ button: 'right' })
-    await page.getByRole('menuitem', { name: 'Tags…' }).click()
+    // A tag made from the file's menu and put on it, which its row then names. A scroll closes the menu, as above.
+    await expect(async () => {
+      await invoice.click({ button: 'right' })
+      await page.getByRole('menuitem', { name: 'Tags…' }).click({ timeout: 2_000 })
+    }).toPass({ timeout: 60_000 })
     const tagging = page.getByRole('dialog', { name: 'Tags of “invoice.md”' })
     await expect(tagging.getByLabel('New tag')).toBeFocused()
     await tagging.getByLabel('New tag').fill('Unpaid')
