@@ -477,8 +477,12 @@ its text runs, and its text and a cited passage's mark lie where the page shows 
 turned against the rest of its page, such as a reference up the margin, is read after the
 page's own text and heads no section. A page set in columns is read a column at a time, its
 headings, paragraphs and tables in the column they stand in, and a heading, a table or
-whitespace across the page starts the columns below it afresh; spreadsheets show one tab per sheet; images show the picture above the text
-read from it. Printed, from the tab's "Print" or the browser's own, a document is itself alone
+whitespace across the page starts the columns below it afresh; spreadsheets show one tab per
+sheet; images show the picture above the text read from it. A scanned page or a photo is read by
+the model as it stands, turned sideways or upside down, in columns or in handwriting: a word it
+cannot read is written [illegible], a signature [signature] with the name where it can be read,
+a box [x] or [ ], and a table, ruled or not, comes out a table whose rows give facts like any
+other's. Printed, from the tab's "Print" or the browser's own, a document is itself alone
 (`data-print` and the print rules in `frontend/src/index.css`): a PDF its pages, a sheet each and
 as large as the sheet holds, anything else its title and text over as many sheets as it takes,
 in the light theme, under the document's name, which a PDF saved from the print takes; a share

@@ -155,12 +155,20 @@ class OcrPage(BaseModel):
     blocks: list[OcrBlock]
 
 
+# A scan is read as the model sees it: a page photographed sideways is not turned first, a form
+# filled in by hand is read as it was written, and a table without rules is still a table.
 OCR_PROMPT = (
-    "Transcribe this page into blocks in reading order. Copy the text exactly as printed; "
-    "do not correct, summarise or translate it. Use kind heading (with level 1 for the "
-    "largest headings), paragraph, list_item, or table (the table as a Markdown pipe table "
-    "in text). For every kind except heading set level to null. Leave out page numbers and "
-    "running headers or footers. If the page has no text, return an empty list."
+    "Transcribe this page into blocks in reading order, a page set in columns a column at a "
+    "time. If the page is turned sideways or upside down, read it the way its text runs. Copy "
+    "the text exactly as it stands, printed or handwritten; do not correct, summarise or "
+    "translate it. Write a word you cannot read as [illegible], a signature as [signature] "
+    "followed by the name if it can be read, a ticked box as [x] and an empty one as [ ]. Use "
+    "kind heading (with level 1 for the largest headings), paragraph, list_item, or table. A "
+    "table, ruled or not, is one block whose text is a Markdown pipe table: its header row "
+    "first, then a row a line, a cell the page leaves empty left empty, a cell's lines joined "
+    "with a space, and a cell that spans columns written in the first of them. For every kind "
+    "except heading set level to null. Leave out page numbers and running headers or footers. "
+    "If the page has no text, return an empty list."
 )
 
 

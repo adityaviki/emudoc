@@ -298,6 +298,55 @@ def test_scanned_image_is_read_by_ocr(session, services, make_document, tmp_path
     ]
 
 
+def test_a_table_read_from_a_scan_is_shown_whole_and_its_rows_give_facts(
+    session, services, make_document, tmp_path, monkeypatch
+):
+    path = tmp_path / "delivery-note.png"
+    Image.new("RGB", (400, 300), "white").save(path)
+    # As the model writes a delivery note filled in by hand: a signature, a word it could not
+    # read, a cell left empty.
+    table = (
+        "| Item | Pallets | Received by |\n| --- | --- | --- |\n"
+        "| Fasteners | 12 | [signature] J. Weber |\n| Fittings | | [illegible] |"
+    )
+
+    def ocr_page(image, media_type, usage=None):
+        return [
+            OcrBlock(kind="heading", level=1, text="Delivery note DN-0412"),
+            OcrBlock(kind="table", level=None, text=table),
+        ]
+
+    def facts(content):
+        return [
+            ExtractedFact(
+                name="pallets_delivered",
+                value="12",
+                type="number",
+                number=12,
+                date=None,
+                currency=None,
+                block=1,
+                quote="Fasteners | 12",
+            )
+        ]
+
+    monkeypatch.setattr(services.llm, "ocr_page", ocr_page)
+    monkeypatch.setattr(services.llm, "_facts", facts)
+    document = make_document(path)
+    process_document(document.id, services)
+
+    blocks = rows(session, Block, document)
+    assert [(block.kind, block.text) for block in blocks] == [
+        ("heading", "Delivery note DN-0412"),
+        ("table", table),
+    ]
+    kind, prompt = services.llm.calls[-1]
+    assert kind == "DocumentAnalysis" and table in prompt
+    (fact,) = rows(session, Fact, document)
+    read = (fact.name, fact.number, fact.block_ordinal, fact.verified)
+    assert read == ("pallets_delivered", 12, blocks[1].ordinal, True)
+
+
 def test_a_scans_pages_are_read_several_at_a_time_and_kept_in_page_order(
     session, services, make_document, tmp_path, monkeypatch
 ):
