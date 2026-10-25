@@ -1,5 +1,5 @@
 import { onlineManager, useQuery } from '@tanstack/react-query'
-import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { api } from './api.ts'
 import type { Folder } from './api.ts'
 
@@ -24,6 +24,30 @@ export function useOnline(): boolean {
 /** The version the API runs, for the user menu: asked as the menu opens, since a release changes it. */
 export function useVersion() {
   return useQuery({ queryKey: ['health'], queryFn: api.health, staleTime: 60_000, select: (health) => health.version })
+}
+
+/**
+ * The page's title while it prints, which the browser heads the sheets with and names a PDF saved
+ * from the print after, for a page that prints a document; the app's own again once printed.
+ */
+export function usePrintTitle(title: string) {
+  useEffect(() => {
+    let before: string | null = null
+    function start() {
+      before = window.document.title
+      window.document.title = title
+    }
+    function end() {
+      if (before !== null) window.document.title = before
+      before = null
+    }
+    window.addEventListener('beforeprint', start)
+    window.addEventListener('afterprint', end)
+    return () => {
+      window.removeEventListener('beforeprint', start)
+      window.removeEventListener('afterprint', end)
+    }
+  }, [title])
 }
 
 export function useFolders(projectId: number) {

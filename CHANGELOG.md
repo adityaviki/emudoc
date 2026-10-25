@@ -17,6 +17,11 @@ newest entry first.
 
 Members:
 
+- Print a document as it reads: "Print" on its tab, or your browser's own printing, prints the
+  document alone, without the library, the chat or the buttons around it, and a long document
+  runs on over as many sheets as it needs. A PDF prints its pages, each on a sheet of its own; a
+  passage you opened from a citation keeps its highlight. A PDF saved from the print is named
+  after the document. A page a share link opens prints the same way.
 - Download an answer, or a whole chat: "Download the answer" under an answer saves it with its
   question as a Word document, a PDF or Markdown, and the download button in the chat's header
   saves every question and answer of the chat in one file. Each citation becomes a numbered note

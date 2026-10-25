@@ -3,10 +3,10 @@
 // it has one, and shows what the link shows, read only. A document as a member's tab shows it
 // (components/DocumentViews.tsx), its pages and file through the cookie of the view the opening made, until the view
 // ends and the link is opened again; an answer with its question and the passages it cites, each citation leading to
-// its passage's text below.
+// its passage's text below. Printed, each is what it shows alone (data-print, index.css), as the document tab prints.
 
 import { useMutation } from '@tanstack/react-query'
-import { Download } from 'lucide-react'
+import { Download, Printer } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useLocation } from 'react-router'
@@ -17,6 +17,7 @@ import { ImagePreview, PagesView, SheetView, TextView } from '../components/Docu
 import { ThemeToggle } from '../components/ThemeToggle.tsx'
 import { Button, ButtonLink, Chip, Notice, Spinner } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
+import { usePrintTitle } from '../hooks.ts'
 import { sharedWords, tokenOf, viewLeft } from '../shareLinks.ts'
 import { CitedText } from '../workspace/CitedText.tsx'
 
@@ -127,6 +128,7 @@ interface SharedViewProps {
 /** The document the link shows, read only: who shared it and until when, its file to download, and its content. */
 function SharedView({ shared, ended, opening, onOpenAgain }: SharedViewProps) {
   const { link_id: linkId, content } = shared
+  usePrintTitle(shared.title || shared.filename)
   let view
   if (isPdf(shared)) {
     view = <PagesView pageUrl={(page) => sharedPageUrl(linkId, page)} content={content} focus={null} />
@@ -144,8 +146,9 @@ function SharedView({ shared, ended, opening, onOpenAgain }: SharedViewProps) {
   }
 
   return (
-    <div className="w-full max-w-4xl">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div data-print className="w-full max-w-4xl">
+      {/* A PDF's pages say on themselves what it is; its first page starts the first sheet. */}
+      <div className={`flex flex-wrap items-start justify-between gap-3 ${isPdf(shared) ? 'print:hidden' : ''}`}>
         <div className="min-w-0">
           <h1 className="text-xl font-semibold tracking-tight break-words">{shared.title || shared.filename}</h1>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
@@ -158,14 +161,19 @@ function SharedView({ shared, ended, opening, onOpenAgain }: SharedViewProps) {
               </span>
             )}
           </div>
-          <p className="mt-1.5 text-[13px] text-muted">{sharedWords(shared)}</p>
+          <p className="mt-1.5 text-[13px] text-muted print:hidden">{sharedWords(shared)}</p>
         </div>
-        <ButtonLink href={sharedFileUrl(linkId)} download={shared.filename} icon={<Download className="size-4" />}>
-          Download the file
-        </ButtonLink>
+        <div className="flex flex-wrap gap-2 print:hidden">
+          <Button icon={<Printer className="size-4" />} onClick={() => window.print()}>
+            Print
+          </Button>
+          <ButtonLink href={sharedFileUrl(linkId)} download={shared.filename} icon={<Download className="size-4" />}>
+            Download the file
+          </ButtonLink>
+        </div>
       </div>
       {ended && (
-        <div className="mt-4">
+        <div className="mt-4 print:hidden">
           <Notice tone="info">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span>This page was opened an hour ago, and its pages no longer load until it is opened again.</span>
@@ -176,7 +184,9 @@ function SharedView({ shared, ended, opening, onOpenAgain }: SharedViewProps) {
           </Notice>
         </div>
       )}
-      <div className="mt-5 overflow-hidden rounded-lg border border-line bg-surface">{view}</div>
+      <div className="mt-5 overflow-hidden rounded-lg border border-line bg-surface print:mt-0 print:overflow-visible print:rounded-none print:border-0">
+        {view}
+      </div>
     </div>
   )
 }
@@ -195,6 +205,7 @@ function SharedAnswerView({ shared }: { shared: SharedAnswer }) {
     page_end: passage.page_end,
     excerpt: passage.text,
   }))
+  usePrintTitle(`An answer about the documents of ${shared.organization}`)
   function show(source: Source) {
     const passage = window.document.getElementById(`passage-${source.id}`)
     // Smoothly, unless the system asks for less motion, which CSS cannot say for a script's scroll.
@@ -204,7 +215,7 @@ function SharedAnswerView({ shared }: { shared: SharedAnswer }) {
   }
 
   return (
-    <div className="w-full max-w-3xl">
+    <div data-print className="w-full max-w-3xl">
       <h1 className="text-xl font-semibold tracking-tight">An answer about the documents of {shared.organization}</h1>
       <p className="mt-1.5 text-[13px] text-muted">
         {sharedWords(shared)} Answered on {formatDate(shared.answered_at)}.
