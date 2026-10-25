@@ -1,5 +1,5 @@
 """The child process that draws a PDF's pages as PNG images, for the renderer's pool
-(app/rendering.py).
+(app/rendering.py), and a scan's frames (a TIFF's, a HEIC photo's: app/parsing/scans.py).
 
 pdfium is not thread-safe, not even with a different document in each thread, so a process
 draws one page at a time; the pages are drawn side by side by running several of these. Each
@@ -34,10 +34,16 @@ import warnings
 from pathlib import Path
 
 import pypdfium2 as pdfium
-from PIL import Image  # noqa: F401  (loaded before the cap applies, as the parse child does)
 
 from app.errors import described
+from app.parsing.images import check_pixels, open_image
 from app.parsing.limits import CPU_GRACE, OUT_OF_MEMORY, _cap, _name, _out_of_memory
+from app.parsing.scans import frames, upright
+from app.parsing.signatures import PDF_HEADER_WINDOW
+from app.parsing.types import FileTooLarge
+
+# The libraries are loaded above, before the cap applies, as the parse child loads its parser:
+# pdfium, and through the scans' module Pillow and the HEIF decoder.
 
 # What a page that pdfium cannot open or draw is told by: a damaged file, mostly, since one
 # that is locked or has no pages is refused at the upload's parse and has no pages to ask for.
@@ -47,13 +53,29 @@ UNDRAWABLE = (
 )
 
 
+# The same for a scan that Pillow cannot decode where it is asked to: the parse counted its
+# pages, so it is damaged past the header, or a frame is coded in a way the decoder lacks.
+UNDRAWABLE_SCAN = (
+    "This page could not be drawn: the file is damaged in a way the viewer cannot read past. "
+    "To see the page, open the original file in another program."
+)
+
+
 class NoSuchPage(Exception):
-    """The request names a page the PDF does not have."""
+    """The request names a page the file does not have."""
+
+
+class Undrawable(Exception):
+    """Pillow could not decode the scan's frame (UNDRAWABLE_SCAN)."""
 
 
 def draw(path: Path, page_number: int, scale: float | None, edge: int) -> bytes:
     """Page `page_number` (1-based) as a PNG, at `scale` pixels per point, smaller where that
-    would make its longer side more than `edge` pixels; without `scale`, exactly that long."""
+    would make its longer side more than `edge` pixels; without `scale`, exactly that long. A
+    file that is not a PDF is a scan (`draw_scan`), which has no points to scale."""
+    with path.open("rb") as file:
+        if b"%PDF-" not in file.read(PDF_HEADER_WINDOW):
+            return draw_scan(path, page_number, edge)
     pdf = pdfium.PdfDocument(str(path))
     try:
         if not 1 <= page_number <= len(pdf):
@@ -76,11 +98,33 @@ def draw(path: Path, page_number: int, scale: float | None, edge: int) -> bytes:
     return buffer.getvalue()
 
 
+def draw_scan(path: Path, page_number: int, edge: int) -> bytes:
+    """Frame `page_number` (1-based) of a TIFF or a HEIC as a PNG, upright, at its own size or
+    shrunk to `edge` pixels on its longer side. Raises `FileTooLarge` for a frame over the
+    pixels an image may have, `NoSuchPage`, and `Undrawable` for a damaged one."""
+    try:
+        with open_image(path) as image:
+            if not 1 <= page_number <= frames(image):
+                raise NoSuchPage(f"This file has no page {page_number}.")
+            image.seek(page_number - 1)
+            check_pixels(image)
+            frame = upright(image)
+            frame.thumbnail((edge, edge))
+            buffer = io.BytesIO()
+            frame.save(buffer, format="PNG")
+    except (OSError, SyntaxError, EOFError, ValueError) as error:
+        # Pillow's ways of saying a file is damaged: an unknown or truncated image, a header
+        # it cannot follow, a mode it cannot convert.
+        raise Undrawable(UNDRAWABLE_SCAN) from error
+    return buffer.getvalue()
+
+
 def main(argv: list[str] | None = None) -> int:
     """Draw the pages the parent asks for, until it closes stdin; see the module docstring."""
     parser = argparse.ArgumentParser(
         prog="python -m app.parsing.render",
-        description="Draw PDF pages as PNG images, one request a line on stdin, within a cap on "
+        description="Draw PDF pages and scans' frames as PNG images, one request a line on "
+        "stdin, within a cap on "
         "memory; the renderer (app/rendering.py) runs a few of these as children, so that a "
         "page it cannot draw takes down only this process.",
     )
@@ -104,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
             os._exit(OUT_OF_MEMORY)
         except pdfium.PdfiumError:
             reply = {"error": UNDRAWABLE}
-        except NoSuchPage as error:
+        except (NoSuchPage, FileTooLarge, Undrawable) as error:
             reply = {"error": str(error)}
         except Exception as error:
             if _out_of_memory(error):

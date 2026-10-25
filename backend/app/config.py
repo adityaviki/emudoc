@@ -330,7 +330,7 @@ class Settings(BaseSettings):
     # The parse stage runs the parsers on an upload in a child process of their own
     # (app/parsing/limits.py), so that a file that takes too long or too much memory stops that
     # process and not the worker: the seconds it may run, the memory it may hold, the pages of
-    # a PDF and the rows of one sheet it takes on, and the characters of text one document may
+    # a PDF or a TIFF and the rows of one sheet it takes on, and the characters of text one document may
     # hold. The text is what every later stage pays for, the worker holding it, its passages
     # written, indexed and embedded (a passage is some 1,200 to 2,000 characters), so a file
     # over it is refused before the child replies. Zero removes a limit. These are the ceiling

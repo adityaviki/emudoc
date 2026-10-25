@@ -7,8 +7,8 @@ folders in it with "Upload a folder", or drop either on the library or on a fold
 upload is sent $max_upload_files files or $max_request_mb MB at a time, and a panel under the
 toolbar shows how far it has gone, file by file under "Each file", until Stop. A file Emudoc does
 not read is left out before anything is sent, and so are a folder's hidden files. A file saved
-with a password cannot be read: save it again without one. A scanned page is read by the AI model
-as an image$ocr_pages. $scanning
+with a password cannot be read: save it again without one. A scanned page, and each page of a
+TIFF, is read by the AI model as an image$ocr_pages. $scanning
 
 ## How a document is read
 

@@ -32,6 +32,16 @@ CONTENT_TYPES_MAX = 1024 * 1024
 PNG = b"\x89PNG\r\n\x1a\n"
 JPEG = b"\xff\xd8\xff"
 ZIP = b"PK\x03\x04"
+# A TIFF's byte order and version, little- or big-endian, classic or BigTIFF.
+TIFF = (b"II*\x00", b"MM\x00*", b"II+\x00", b"MM\x00+")
+# A HEIF file opens with an ISO media file's `ftyp` box naming its brands; those of HEVC's
+# coding are what libheif's decoder reads. A HEIF of another coding (AVIF, JPEG) is not.
+FTYP = b"ftyp"
+HEVC_BRANDS = {b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx", b"hevm", b"hevs"}
+OTHER_HEIF = (
+    "A HEIF image in another coding than HEVC, which cannot be read. Save it as JPEG or PNG "
+    "and upload that."
+)
 # A Word document and an Excel workbook are both zips; the package's `[Content_Types].xml`
 # declares what its main part is, which is how python-docx and openpyxl find it, so a package
 # that declares another kind (a template, a macro-enabled file, a presentation) is not one
@@ -86,6 +96,13 @@ def wrong_type(path: Path, suffix: str) -> str | None:
     if suffix == ".webp":
         webp = head[:4] == b"RIFF" and head[8:12] == b"WEBP"
         return None if webp else f"Not a WebP image. {RENAME}"
+    if suffix in {".tif", ".tiff"}:
+        return None if head.startswith(TIFF) else f"Not a TIFF image. {RENAME}"
+    if suffix in {".heic", ".heif"}:
+        brands = _brands(head)
+        if brands & HEVC_BRANDS:
+            return None
+        return OTHER_HEIF if brands else f"Not a {suffix[1:].upper()} image. {RENAME}"
     if suffix == ".docx":
         if WORD_MAIN in _content_types(path, head):
             return None
@@ -116,6 +133,15 @@ def _content_types(path: Path, head: bytes) -> bytes:
         # encrypted part, or compressed bytes that do not inflate: each is a package the
         # parsers could not open either.
         return b""
+
+
+def _brands(head: bytes) -> set[bytes]:
+    """The brands an ISO media file's opening `ftyp` box names, its major brand and the
+    compatible ones after the version, or none for a file that does not open with one."""
+    size = int.from_bytes(head[:4], "big")
+    if head[4:8] != FTYP or not 16 <= size <= len(head) or size % 4:
+        return set()
+    return {head[8:12]} | {head[at : at + 4] for at in range(16, size, 4)}
 
 
 def _compound(path: Path, head: bytes, suffix: str) -> str | None:

@@ -24,7 +24,7 @@ const KINDS = {
 /** The kind of file a document is, from its MIME type (backend/app/api/documents.py). */
 export function fileKind(document: Document): FileKind {
   if (isPdf(document)) return KINDS.pdf
-  if (isImage(document)) return KINDS.image
+  if (document.mime_type.startsWith('image/')) return KINDS.image
   if (isSheet(document)) return document.mime_type === 'text/csv' ? { ...KINDS.sheet, label: 'CSV' } : KINDS.sheet
   if (document.mime_type.endsWith('wordprocessingml.document')) return KINDS.word
   if (document.mime_type === 'text/markdown') return KINDS.markdown

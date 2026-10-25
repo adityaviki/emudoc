@@ -46,7 +46,7 @@ answer is given up on and counts as the provider being out of reach: an indexing
 five minutes, an embedding request after two, and a turn of an answer in the chat after two
 minutes or a minute of silence, which the chat shows as an error. The parse stage runs the
 parser in a process of its own with a time limit, a memory limit and caps on the pages of a PDF
-and the rows of a sheet (`PARSE_TIMEOUT`, `PARSE_MEMORY_MB`, `PARSE_MAX_PAGES`,
+or a TIFF and the rows of a sheet (`PARSE_TIMEOUT`, `PARSE_MEMORY_MB`, `PARSE_MAX_PAGES`,
 `PARSE_MAX_ROWS`), so a file that would take hours or all the memory stops that process alone,
 and the document says which limit it hit. Before any of that, the upload checks that a file's
 bytes are what its name says (a PDF's header, an image's signature, the part a Word document or
@@ -461,7 +461,8 @@ the pane before it, for whoever cannot drag; a double-click puts the panes back 
 widths. Every menu and panel takes the keyboard as it opens, gives it back
 to its button on Escape, and lets Tab go on past it.
 PDFs show their rendered pages with the extracted text laid invisibly over them, so it can be
-selected and searched; spreadsheets show one tab per sheet; images show the picture above the text
+selected and searched, and so do a TIFF's pages and a HEIC photo, which a browser does not show
+itself; spreadsheets show one tab per sheet; images show the picture above the text
 read from it. Printed, from the tab's "Print" or the browser's own, a document is itself alone
 (`data-print` and the print rules in `frontend/src/index.css`): a PDF its pages, a sheet each and
 as large as the sheet holds, anything else its title and text over as many sheets as it takes,
@@ -763,7 +764,7 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   check.
 - `PARSE_TIMEOUT`, `PARSE_MEMORY_MB`, `PARSE_MAX_PAGES`, `PARSE_MAX_ROWS` and
   `PARSE_MAX_CHARS` bound the parsing of an upload: 300 seconds, 2048 MB of address space, 500
-  pages of a PDF, 100,000 filled rows on one sheet and 20,000,000 characters of text in one
+  pages of a PDF or a TIFF, 100,000 filled rows on one sheet and 20,000,000 characters of text in one
   document by default; `0` removes a limit. The parser runs in a child process of the worker
   that is killed at the time limit and caps its own memory, so a file that is too big fails with
   a message naming the limit, is not retried, and leaves the worker and the other uploads

@@ -190,8 +190,11 @@ def test_the_render_process_loads_the_parsers_and_nothing_else_of_the_app():
         "app",
         "app.errors",
         "app.parsing",
+        "app.parsing.images",
         "app.parsing.limits",
         "app.parsing.render",
+        "app.parsing.scans",
+        "app.parsing.signatures",
         "app.parsing.types",
     }
 

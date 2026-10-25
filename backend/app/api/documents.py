@@ -43,7 +43,7 @@ from app.mail import LISTED
 from app.metrics import UPLOAD_REJECTIONS
 from app.models import STAGES, Block, Document, Fact, Project, Section
 from app.notices import NOT_INDEXED, record_upload, settle_upload
-from app.parsing import IMAGE_TYPES, FileTooLarge
+from app.parsing import IMAGE_TYPES, PAGE_TYPES, FileTooLarge
 from app.parsing.images import open_image
 from app.ratelimit import UPLOADS
 from app.rendering import FOR_PANE, FOR_THUMBNAIL, RenderError, renderer
@@ -494,9 +494,9 @@ async def page_image(
     session: SessionDep,
     account: AccountDep,
 ) -> Response:
-    """A rendered PDF page, for showing where on the page a passage sits. A PDF's first pages
-    are drawn once it is parsed (PRERENDER_PAGES, app/rendering.py), any other the first time
-    it is asked for, and each is kept beside the original for PAGE_IMAGE_DAYS."""
+    """A rendered page of a PDF or a scan, for showing where on the page a passage sits. Its
+    first pages are drawn once it is parsed (PRERENDER_PAGES, app/rendering.py), any other the
+    first time it is asked for, and each is kept beside the original for PAGE_IMAGE_DAYS."""
     return await page_response(
         request, session, services.storage, document, page, account.organization.id, account.user.id
     )
@@ -514,8 +514,8 @@ async def page_response(
     """A page of the document as `page_image` sends it, drawn first when it is not kept, which
     is charged to the member `user_id` names; a share link's pages too, its maker's
     (app/api/share_links.py)."""
-    if document.mime_type != "application/pdf":
-        raise HTTPException(404, "Only PDF documents have page images")
+    if document.mime_type not in PAGE_TYPES:
+        raise HTTPException(404, "Only PDF documents and scans have page images")
     if not 1 <= page <= (document.page_count or 0):
         raise HTTPException(404, "No such page")
     _scanned(document)
@@ -534,8 +534,9 @@ async def thumbnail(
     session: SessionDep,
     account: AccountDep,
 ) -> Response:
-    """A small picture of the document for the library: a PDF's first page, or the image itself."""
-    if document.mime_type != "application/pdf" and document.mime_type not in IMAGE_TYPES.values():
+    """A small picture of the document for the library: a PDF's or a scan's first page, or the
+    image itself."""
+    if document.mime_type not in PAGE_TYPES and document.mime_type not in IMAGE_TYPES.values():
         raise HTTPException(404, "Only PDF and image documents have thumbnails")
     _scanned(document)
     storage = services.storage
@@ -577,7 +578,7 @@ def _draw_page(storage: Storage, document: Document, page: int, key: str) -> Non
 
 def _draw_thumbnail(storage: Storage, document: Document) -> None:
     with storage.kept(document.storage_key) as original:
-        if document.mime_type == "application/pdf":
+        if document.mime_type in PAGE_TYPES:
             image = renderer().render(
                 original, 1, purpose=FOR_THUMBNAIL, scale=None, edge=THUMBNAIL_SIZE
             )
