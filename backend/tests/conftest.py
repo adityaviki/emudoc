@@ -1339,6 +1339,64 @@ def turned_pdf(path: Path, rotation: int = 0, drawn_turned: int = 0, note: str =
     return path
 
 
+def columns_pdf(path: Path, count: int = 2) -> Path:
+    """A supply agreement set in `count` columns under a title and an opening paragraph across
+    the page, whose last line is short: each column a heading at the same height as the
+    others' and a paragraph, the last column a table between its heading and its paragraph,
+    and a table and a line across the foot."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import (
+        BaseDocTemplate,
+        Frame,
+        FrameBreak,
+        PageTemplate,
+        Paragraph,
+        Table,
+        TableStyle,
+    )
+
+    styles = getSampleStyleSheet()
+    width, height = A4
+    margin, gutter = 54, 18
+    column = (width - 2 * margin - gutter * (count - 1)) / count
+    middle = height - 2 * margin - 270
+    frames = [
+        Frame(margin, height - margin - 150, width - 2 * margin, 150, id="top"),
+        *(
+            Frame(margin + n * (column + gutter), margin + 120, column, middle, id=f"column{n}")
+            for n in range(count)
+        ),
+        Frame(margin, margin, width - 2 * margin, 120, id="foot"),
+    ]
+    document = BaseDocTemplate(str(path), pagesize=A4)
+    document.addPageTemplates([PageTemplate(id="page", frames=frames)])
+    grid = TableStyle([("GRID", (0, 0), (-1, -1), 0.5, colors.black)])
+    clause = "The supplier delivers the goods to the site named in each order. "
+    story = [
+        Paragraph("Supply agreement", styles["Title"]),
+        Paragraph(
+            "This agreement sets out how Acme supplies Globex with pallets and crates during "
+            "2024 and what happens when a delivery is late.",
+            styles["BodyText"],
+        ),
+        FrameBreak(),
+    ]
+    for n in range(1, count + 1):
+        story.append(Paragraph(f"{n}. Section {n}", styles["Heading2"]))
+        if n == count:
+            table = [["Item", "Price"], ["Pallet", "EUR 40"], ["Crate", "EUR 12"]]
+            story.append(Table(table, style=grid))
+        story += [Paragraph(f"Column {n}. " + clause * 4, styles["BodyText"]), FrameBreak()]
+    story += [
+        Table([["Clause", "Owner"], ["Delivery", "Acme"], ["Prices", "Globex"]], style=grid),
+        Paragraph("Signed for both parties on 1 March 2024.", styles["BodyText"]),
+    ]
+    document.build(story)
+    return path
+
+
 def pageless_pdf(path: Path) -> Path:
     """A PDF whose page tree is empty, which pdfplumber opens and pdfium refuses."""
     path.write_bytes(

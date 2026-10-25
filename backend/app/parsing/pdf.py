@@ -30,6 +30,16 @@ MAX_HEADING_CHARS = 200
 # Characters turned against the rest of their page, fewer than this, are left out rather than
 # read in a frame of their own: a turned arrow or symbol, not a line of text.
 MIN_TURNED_CHARS = 4
+# Text on each side of a gutter is read as columns, each whole before the next, when each side
+# holds a table or a line of at least this many characters: labels beside their values, or a
+# short note beside a paragraph, are not columns of text.
+MIN_COLUMN_CHARS = 20
+# The gutters tried on a page, those the most blocks start at: a drawing's hundreds of labels
+# would otherwise each be tried against all the others.
+MAX_GUTTERS = 32
+# Whitespace across the page this many lines high ends a band of columns, as a heading or a
+# table across the page does: what stands below the columns is not the last column's.
+BAND_GAP = 2.0
 
 _BOLD = re.compile(r"bold|black|heavy|semibold|demi", re.IGNORECASE)
 _LIST_START = re.compile(
@@ -163,21 +173,22 @@ def parse_pdf(path: Path, max_pages: int = 0) -> ParsedDocument:
     items: list[_Group | tuple[int, _Table]] = []
     for number, (lines, tables) in enumerate(pages, start=1):
         kept = [line for line in lines if not _is_margin_noise(line, repeated)]
-        groups: list[_Group | tuple[int, _Table]] = list(_group_lines(kept, number))
-        for table in sorted(tables, key=lambda t: t.bbox[1]):
-            # Before the first group below it, or after the last read in its frame: the groups
-            # of text turned against the page's come after the page's own.
-            position = next(
-                (
-                    index
-                    for index, item in enumerate(groups)
-                    if isinstance(item, _Group)
-                    and (item.turn != table.turn or item.bbox[1] >= table.bbox[1])
-                ),
-                len(groups),
-            )
-            groups.insert(position, (number, table))
-        items.extend(groups)
+        own = [line for line in kept if line.turn == turns[number - 1]]
+        aside = [line for line in kept if line.turn != turns[number - 1]]
+        parts = _in_reading_order(list(_group_lines(own, number)), tables)
+        for part_groups, part_tables in [*parts, (list(_group_lines(aside, number)), [])]:
+            groups: list[_Group | tuple[int, _Table]] = list(part_groups)
+            for table in sorted(part_tables, key=lambda t: t.bbox[1]):
+                position = next(
+                    (
+                        index
+                        for index, item in enumerate(groups)
+                        if isinstance(item, _Group) and item.bbox[1] >= table.bbox[1]
+                    ),
+                    len(groups),
+                )
+                groups.insert(position, (number, table))
+            items.extend(groups)
 
     # Text turned against its page, a reference up the margin, heads no section.
     heading_levels = _heading_levels(
@@ -363,6 +374,110 @@ def _inside_any(line: _Line, tables: list[_Table]) -> bool:
     return any(
         left <= x <= right and upper <= y <= lower
         for left, upper, right, lower in (table.shown for table in tables)
+    )
+
+
+def _in_reading_order(
+    groups: list[_Group], tables: list[_Table]
+) -> list[tuple[list[_Group], list[_Table]]]:
+    """The page's blocks and tables as the parts it is read in, in order: a column whole before
+    the one beside it where the page sets text in columns, the page whole where it does not.
+
+    pdfminer orders a page's lines by gathering them into boxes, which on a page of two columns
+    can put the right column's first heading before the left column's text, and a table went
+    before the first block below its top, which on such a page may be in the other column. A
+    gutter is an x that no block or table crosses with a column of text on either side, of
+    those that read the most of the page that way; what does cross it (a heading, a paragraph
+    or a table across the page) splits the page into bands, read top to bottom, a band's
+    columns left to right, each column by its own gutters. A part keeps pdfminer's order of its
+    blocks, and its tables are placed among them as a page's were.
+    """
+    heights = sorted(line.height for group in groups for line in group.lines)
+    gap = BAND_GAP * heights[len(heights) // 2] if heights else 0.0
+    return list(_parts([*groups, *tables], gap))
+
+
+def _parts(items: list[_Group | _Table], gap: float):
+    gutter = _gutter(items, gap)
+    if gutter is None:
+        yield (
+            [item for item in items if isinstance(item, _Group)],
+            [item for item in items if isinstance(item, _Table)],
+        )
+        return
+    for run, across in _bands(items, gutter, gap):
+        left = [item for item in run if item.bbox[2] <= gutter]
+        right = [item for item in run if item.bbox[0] >= gutter]
+        if not across and _columns(left, right):
+            yield from _parts(left, gap)
+            yield from _parts(right, gap)
+        else:
+            yield from _parts(run, gap)
+
+
+def _gutter(items: list[_Group | _Table], gap: float) -> float | None:
+    """The x between columns that reads the most blocks and tables as columns, if any does.
+
+    Each tried is just left of a block or table with another beside it on its left: where a
+    column's lines start.
+    """
+    by_top = sorted(items, key=lambda item: item.bbox[1])
+    starts = Counter(right.bbox[0] - 0.5 for _, right in _side_by_side(by_top))
+    best, read = None, 0
+    for x in sorted(x for x, _ in starts.most_common(MAX_GUTTERS)):
+        columns = 0
+        for run, across in _bands(items, x, gap, by_top):
+            left = [item for item in run if item.bbox[2] <= x]
+            right = [item for item in run if item.bbox[0] >= x]
+            if not across and _columns(left, right):
+                columns += len(run)
+        if columns > read:
+            best, read = x, columns
+    return best
+
+
+def _side_by_side(by_top: list[_Group | _Table]):
+    """Pairs of a block or table and one to its right at the same height, the left one first."""
+    for index, item in enumerate(by_top):
+        for other in by_top[index + 1 :]:
+            if other.bbox[1] >= item.bbox[3]:
+                break
+            left, right = (item, other) if item.bbox[0] <= other.bbox[0] else (other, item)
+            if left.bbox[2] <= right.bbox[0]:
+                yield left, right
+
+
+def _bands(
+    items: list[_Group | _Table],
+    x: float,
+    gap: float,
+    by_top: list[_Group | _Table] | None = None,
+) -> list[tuple[list[_Group | _Table], bool]]:
+    """`items` top to bottom in runs of those that cross `x` and those that do not, a run also
+    ending at whitespace across them `gap` high or more, each run in the order of `items`, with
+    whether it crosses."""
+    order = {id(item): index for index, item in enumerate(items)}
+    runs: list[tuple[list[_Group | _Table], bool]] = []
+    lowest = None
+    for item in by_top or sorted(items, key=lambda item: item.bbox[1]):
+        across = item.bbox[0] < x < item.bbox[2]
+        apart = lowest is not None and item.bbox[1] - lowest >= gap
+        if runs and runs[-1][1] == across and not apart:
+            runs[-1][0].append(item)
+        else:
+            runs.append(([item], across))
+        lowest = item.bbox[3] if lowest is None else max(lowest, item.bbox[3])
+    return [(sorted(run, key=lambda item: order[id(item)]), across) for run, across in runs]
+
+
+def _columns(left: list[_Group | _Table], right: list[_Group | _Table]) -> bool:
+    return _column(left) and _column(right)
+
+
+def _column(side: list[_Group | _Table]) -> bool:
+    return any(
+        isinstance(item, _Table) or any(len(line.text) >= MIN_COLUMN_CHARS for line in item.lines)
+        for item in side
     )
 
 

@@ -17,6 +17,8 @@ newest entry first.
 
 Members:
 
+- A PDF set in two or more columns is read a column at a time, so each heading's section holds
+  the text below it in its own column, and a table stays in the column it stands in.
 - A PDF page whose text runs sideways or upside down, such as a wide table printed turned on a
   portrait page, is now read as words, so it can be searched, asked about and cited, and the
   cited passage is marked where the page shows it. A line running up the margin, such as a
