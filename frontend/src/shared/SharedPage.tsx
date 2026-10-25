@@ -10,7 +10,7 @@ import { Download, Printer } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useLocation } from 'react-router'
-import { ApiError, api, isImage, isPdf, isSheet, sharedFileUrl, sharedPageUrl, sourceLabel } from '../api.ts'
+import { ApiError, api, hasPages, isImage, isSheet, sharedFileUrl, sharedPageUrl, sourceLabel } from '../api.ts'
 import type { SharedAnswer, SharedDocument, Source } from '../api.ts'
 import { AuthCard, LegalLinks, PasswordField } from '../account/shared.tsx'
 import { ImagePreview, PagesView, SheetView, TextView } from '../components/DocumentViews.tsx'
@@ -130,7 +130,7 @@ function SharedView({ shared, ended, opening, onOpenAgain }: SharedViewProps) {
   const { link_id: linkId, content } = shared
   usePrintTitle(shared.title || shared.filename)
   let view
-  if (isPdf(shared)) {
+  if (hasPages(shared)) {
     view = <PagesView pageUrl={(page) => sharedPageUrl(linkId, page)} content={content} focus={null} />
   } else if (isImage(shared)) {
     view = (
@@ -148,7 +148,7 @@ function SharedView({ shared, ended, opening, onOpenAgain }: SharedViewProps) {
   return (
     <div data-print className="w-full max-w-4xl">
       {/* A PDF's pages say on themselves what it is; its first page starts the first sheet. */}
-      <div className={`flex flex-wrap items-start justify-between gap-3 ${isPdf(shared) ? 'print:hidden' : ''}`}>
+      <div className={`flex flex-wrap items-start justify-between gap-3 ${hasPages(shared) ? 'print:hidden' : ''}`}>
         <div className="min-w-0">
           <h1 className="text-xl font-semibold tracking-tight break-words">{shared.title || shared.filename}</h1>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">

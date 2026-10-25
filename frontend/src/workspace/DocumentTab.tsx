@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link2, ListChecks, ListTree, Printer, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { api, fileUrl, isImage, isPdf, isSheet, mayChange, pageImageUrl, pageLabel, sectionPath } from '../api.ts'
+import { api, fileUrl, hasPages, isImage, isSheet, mayChange, pageImageUrl, pageLabel, sectionPath } from '../api.ts'
 import type { Document, Section } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { ImagePreview, PagesView, Scrolled, SheetView, TextView } from '../components/DocumentViews.tsx'
@@ -82,8 +82,8 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
     content.data?.blocks.find((block) => block.ordinal === focusStart)?.page ??
     (focus && 'page' in focus ? focus.page : undefined)
 
-  // A PDF shows its rendered pages, with the text laid over them; everything else shows its text.
-  const pages = isPdf(document)
+  // A PDF or a scan shows its rendered pages, with the text laid over them; everything else shows its text.
+  const pages = hasPages(document)
   const hasOutline = !pages && !isImage(document) && !isSheet(document)
 
   // The outline, when it arrives, narrows the text beside it and moves every block down, so the

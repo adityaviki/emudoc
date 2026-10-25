@@ -47,7 +47,14 @@ from app.mail import Mailer
 from app.metrics import DOCUMENT_READY, INDEX_RUNS, PARSES, STAGE_RUNS, STAGE_SECONDS
 from app.models import STAGES, Block, Document, Fact, FactChange, Passage, Project, Section
 from app.notices import MONTH_PAGES, app_address, note_quota
-from app.parsing import IMAGE_TYPES, FileTooLarge, ParsedBlock, UnsupportedFile
+from app.parsing import (
+    IMAGE_TYPES,
+    PAGE_TYPES,
+    SCAN_TYPES,
+    FileTooLarge,
+    ParsedBlock,
+    UnsupportedFile,
+)
 from app.parsing.images import open_image
 from app.parsing.limits import ParseLimits, parse_within_limits
 from app.parsing.types import ParsedDocument, clean_text
@@ -669,15 +676,16 @@ def _pages_of(parsed: ParsedDocument) -> int:
 
 
 def _queue_drawing_ahead(session: Session, document: Document) -> None:
-    """Queue the drawing of a PDF's first PRERENDER_PAGES pages, with the stage's commit, so
-    that opening the document shows them from the storage at once (app/rendering.py).
+    """Queue the drawing of a PDF's or a scan's first PRERENDER_PAGES pages, with the stage's
+    commit, so that opening the document shows them from the storage at once
+    (app/rendering.py).
 
     The job goes before the uploads waiting to be indexed: it is a few pages, done in moments
     by the next indexer that is free, and worth something only if done before anybody opens
     the document. One queued by a parse run again finds the pages kept and draws nothing.
     """
     pages = min(get_settings().prerender_pages, document.page_count or 0)
-    if document.mime_type != "application/pdf" or not pages:
+    if document.mime_type not in PAGE_TYPES or not pages:
         return
     enqueue(
         session,
@@ -749,7 +757,9 @@ def _with_ocr(
 
     def read(page: int) -> tuple[list[OcrBlock], ModelUsage]:
         usage = ModelUsage()
-        if suffix == ".pdf":
+        # A scan's frame is drawn as a PDF's page is, by a render child, since the model takes
+        # neither a TIFF nor a HEIC and neither is decoded in this process (app/parsing/scans.py).
+        if suffix == ".pdf" or suffix in SCAN_TYPES:
             try:
                 image = renderer().render(path, page, purpose=FOR_OCR, edge=MAX_IMAGE_EDGE)
             except RenderError as error:

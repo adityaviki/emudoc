@@ -631,7 +631,11 @@ on a hosted endpoint.
 ## Drawing pages
 
 The document pane shows a PDF's pages as images, the library's thumbnail of a PDF is its first
-page, and a scanned page is drawn before the model reads it. pdfium draws one page at a time in
+page, and a scanned page is drawn before the model reads it. A TIFF's pages and a HEIC photo,
+which neither a browser nor the model takes as they are, are drawn the same way, by the same
+children, so that their decoders (libtiff, and libheif with libde265 from the `pi-heif` package,
+LGPLv3 libraries whose licences and sources its files in the image name) never run in the API or
+the worker themselves. pdfium draws one page at a time in
 a process (it is not thread-safe, even with a document in each thread), so the API and the
 worker each keep `RENDER_PROCESSES` child processes for it (`python -m app.parsing.render`, 2 by
 default), started when the first page is asked for and kept for the next: that many pages are
@@ -687,8 +691,8 @@ organisation, whatever its plan, each a refusal or a shortcut with a sentence th
   child refuses a file with more before it replies, so the worker never holds it, and a sheet
   stops being read at the row that takes it past: "This file holds more than 20,000,000
   characters of text, the most one document can have. Split it and upload the parts." Before
-  it, `PARSE_MAX_PAGES` (500) refuses a PDF by its pages and `PARSE_MAX_ROWS` (100,000) a sheet
-  by its rows.
+  it, `PARSE_MAX_PAGES` (500) refuses a PDF or a TIFF by its pages and `PARSE_MAX_ROWS`
+  (100,000) a sheet by its rows.
 - **Its scans.** `OCR_MAX_PAGES` (100) is how many pages the model may read as scans, a request
   each; a document with more is refused before a page is read. `OCR_CONCURRENCY` (4) of them are
   read at once, in page order: each page is drawn by one of the worker's `RENDER_PROCESSES`
@@ -4483,7 +4487,7 @@ the roots' `settings` the others ("The settings").
 | `SCANNER_URL` | none | required, `off` for none | The ClamAV daemon every upload is scanned by |
 | `PARSE_TIMEOUT` | `300` | | Seconds a parse may take |
 | `PARSE_MEMORY_MB` | `2048` | | The memory a parse may hold |
-| `PARSE_MAX_PAGES` | `500` | | The pages of a PDF |
+| `PARSE_MAX_PAGES` | `500` | | The pages of a PDF or a TIFF |
 | `PARSE_MAX_ROWS` | `100000` | | The rows of a sheet |
 | `PARSE_MAX_CHARS` | `20000000` | | The characters of text one document may hold ("Large documents") |
 | `RENDER_PROCESSES` | `2` | | The pages a process draws at once, each in a child of its own ("Drawing pages") |

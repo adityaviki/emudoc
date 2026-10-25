@@ -28,15 +28,25 @@ def open_image(path: Path) -> Image.Image:
             f"This image is over {_megapixels(MAX_IMAGE_PIXELS)} megapixels, more than can be "
             "read. Scale it down and upload it again."
         ) from error
+    try:
+        check_pixels(image)
+    except FileTooLarge:
+        image.close()
+        raise
+    return image
+
+
+def check_pixels(image: Image.Image) -> None:
+    """Refuse the image's frame as it stands with `FileTooLarge` when it has more pixels than
+    the cap: `open_image` checks the first, and a scan of many pages checks each it seeks to
+    (app/parsing/scans.py)."""
     pixels = image.width * image.height
     if pixels > MAX_IMAGE_PIXELS:
-        image.close()
         raise FileTooLarge(
             f"This image is {_megapixels(pixels)} megapixels, and images over "
             f"{_megapixels(MAX_IMAGE_PIXELS)} megapixels cannot be read. Scale it down and "
             "upload it again."
         )
-    return image
 
 
 def _megapixels(pixels: int) -> str:

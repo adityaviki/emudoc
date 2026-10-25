@@ -17,6 +17,10 @@ newest entry first.
 
 Members:
 
+- Upload TIFF scans and HEIC photos: a TIFF of several pages, as a scanner or a fax saves it, is
+  read page by page like a scanned PDF and shown by its pages, and so is a photo an iPhone saves
+  as HEIC. A browser shows neither by itself, so "Download original file" gives you the file as
+  you sent it.
 - Print a document as it reads: "Print" on its tab, or your browser's own printing, prints the
   document alone, without the library, the chat or the buttons around it, and a long document
   runs on over as many sheets as it needs. A PDF prints its pages, each on a sheet of its own; a
@@ -57,6 +61,10 @@ Members:
 
 Operators:
 
+- TIFF (`.tif`, `.tiff`) and HEIC (`.heic`, `.heif`) uploads: the parse child counts a TIFF's
+  pages against `PARSE_MAX_PAGES` as a PDF's, and the render children draw their pages for the
+  pane, the thumbnails and the model, so the decoders never run in the API or the worker. HEIC
+  is decoded by the `pi-heif` package, whose wheel bundles libheif and libde265 (LGPLv3).
 - `RATE_EXPORTS` (10 a minute per member) now holds the downloads of an answer and of a chat
   too (`GET /api/chats/{id}/messages/{id}/export`, `GET /api/chats/{id}/export`), and the audit
   log keeps them as `answer_exported` and `chat_exported` (migration 5937fbc7e744), by the

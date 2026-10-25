@@ -2449,13 +2449,19 @@ export const sharedFileUrl = (linkId: number) => `/api/shared/${linkId}/file`
 export const sharedPageUrl = (linkId: number, page: number) => `/api/shared/${linkId}/pages/${page}.png`
 
 /** The file types the backend indexes (backend/app/parsing/__init__.py), for upload inputs. */
-export const ACCEPTED_EXTENSIONS = ['.pdf', '.docx', '.xlsx', '.csv', '.txt', '.md', '.png', '.jpg', '.jpeg', '.webp']
+export const ACCEPTED_EXTENSIONS = ['.pdf', '.docx', '.xlsx', '.csv', '.txt', '.md', '.png', '.jpg', '.jpeg', '.webp', '.tif', '.tiff', '.heic', '.heif']
 export const ACCEPTED_TYPES_LABEL = 'PDF, Word, Excel, CSV, text, Markdown and images'
 
 export const isIndexing = (document: Document) =>
   document.status === 'queued' || document.status === 'processing'
 export const isPdf = (document: Pick<Document, 'mime_type'>) => document.mime_type === 'application/pdf'
-export const isImage = (document: Pick<Document, 'mime_type'>) => document.mime_type.startsWith('image/')
+/** Scans a browser does not show, a TIFF or a HEIC photo, whose pages the server draws as a PDF's (SCAN_TYPES in backend/app/parsing/__init__.py). */
+const SCAN_TYPES = ['image/tiff', 'image/heic', 'image/heif']
+/** Whether the document is shown by its pages, drawn by the server: a PDF, or a scan. */
+export const hasPages = (document: Pick<Document, 'mime_type'>) => isPdf(document) || SCAN_TYPES.includes(document.mime_type)
+/** An image the browser shows as it is. */
+export const isImage = (document: Pick<Document, 'mime_type'>) =>
+  document.mime_type.startsWith('image/') && !SCAN_TYPES.includes(document.mime_type)
 export const isSheet = (document: Pick<Document, 'mime_type'>) =>
   document.mime_type === 'text/csv' || document.mime_type.endsWith('spreadsheetml.sheet')
 

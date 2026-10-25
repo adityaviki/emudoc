@@ -17,7 +17,27 @@ IMAGE_TYPES = {
     ".jpeg": "image/jpeg",
     ".webp": "image/webp",
 }
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".csv", ".txt", ".md", *IMAGE_TYPES}
+# Scans a browser does not show and the model does not take as they are: a TIFF of a page a
+# frame and a phone's HEIC photo, read and drawn as pages, as a scanned PDF's are
+# (app/parsing/scans.py).
+SCAN_TYPES = {
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
+}
+# The types whose pages are drawn as images, for the document pane and for the model to read.
+PAGE_TYPES = {"application/pdf", *SCAN_TYPES.values()}
+SUPPORTED_EXTENSIONS = {
+    ".pdf",
+    ".docx",
+    ".xlsx",
+    ".csv",
+    ".txt",
+    ".md",
+    *IMAGE_TYPES,
+    *SCAN_TYPES,
+}
 # The type a document of each extension is stored and served as.
 MIME_TYPES = {
     ".pdf": "application/pdf",
@@ -27,6 +47,7 @@ MIME_TYPES = {
     ".txt": "text/plain",
     ".md": "text/markdown",
     **IMAGE_TYPES,
+    **SCAN_TYPES,
 }
 # The module that parses each extension, imported when it is first needed; the child process
 # that parses an upload (app/parsing/limits.py) loads only the one its file takes.
@@ -37,17 +58,19 @@ PARSER_MODULES = {
     ".csv": "app.parsing.sheet",
     ".txt": "app.parsing.text",
     ".md": "app.parsing.text",
+    **dict.fromkeys(SCAN_TYPES, "app.parsing.scans"),
 }
 
 
 def parse_file(
     path: Path, filename: str, *, max_pages: int = 0, max_rows: int = 0, max_chars: int = 0
 ) -> ParsedDocument:
-    """Parse a file by its extension. Images come back as a single page that needs OCR.
+    """Parse a file by its extension. Images come back as a single page that needs OCR, and
+    scans as a page a frame that each need it.
 
-    A PDF with more than `max_pages` pages, a sheet with more than `max_rows` rows or a file
-    whose blocks hold more than `max_chars` characters of text is refused with `FileTooLarge`;
-    0 takes any size. A PDF locked with a password or without pages is refused with
+    A PDF or a scan with more than `max_pages` pages, a sheet with more than `max_rows` rows or
+    a file whose blocks hold more than `max_chars` characters of text is refused with
+    `FileTooLarge`; 0 takes any size. A PDF locked with a password or without pages is refused with
     `UnreadableFile`.
     """
     parsed = _parsed(path, filename, max_pages, max_rows, max_chars)
@@ -84,6 +107,10 @@ def _parsed(
         return parse_text(
             path.read_text(encoding="utf-8", errors="replace"), markdown=suffix == ".md"
         )
+    if suffix in SCAN_TYPES:
+        from app.parsing.scans import parse_scan
+
+        return parse_scan(path, max_pages)
     if suffix in IMAGE_TYPES:
         return ParsedDocument(blocks=[], page_count=1, ocr_pages=[1])
     raise UnsupportedFile(f"{suffix or 'this'} files are not supported")
@@ -92,7 +119,9 @@ def _parsed(
 __all__ = [
     "IMAGE_TYPES",
     "MIME_TYPES",
+    "PAGE_TYPES",
     "PARSER_MODULES",
+    "SCAN_TYPES",
     "SUPPORTED_EXTENSIONS",
     "FileTooLarge",
     "ParsedBlock",

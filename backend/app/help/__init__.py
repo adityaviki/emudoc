@@ -22,7 +22,7 @@ from app.idempotency import KEPT as IDEMPOTENCY_KEPT
 from app.invitations import INVITATION_TTL
 from app.legal import by_plan
 from app.notices import NOTICE_AFTER, NOTIFICATION_DAYS
-from app.parsing import IMAGE_TYPES, SUPPORTED_EXTENSIONS
+from app.parsing import IMAGE_TYPES, SCAN_TYPES, SUPPORTED_EXTENSIONS
 from app.retention import DELETION_GRACE, RETENTION_HELD
 from app.sample import NAME as SAMPLE_NAME
 from app.support import SUPPORT_SESSION
@@ -51,7 +51,16 @@ DOCUMENT_FORMATS = {
     ".txt": "plain text",
     ".md": "Markdown",
 }
-IMAGE_FORMATS = {".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG", ".webp": "WebP"}
+IMAGE_FORMATS = {
+    ".png": "PNG",
+    ".jpg": "JPEG",
+    ".jpeg": "JPEG",
+    ".webp": "WebP",
+    ".tif": "TIFF",
+    ".tiff": "TIFF",
+    ".heic": "HEIC",
+    ".heif": "HEIC",
+}
 
 
 @dataclass(frozen=True)
@@ -177,7 +186,9 @@ def _formats() -> str:
         raise RuntimeError(f"The help names no file type for {', '.join(sorted(missing))}.")
     taken = SUPPORTED_EXTENSIONS
     documents = [name for suffix, name in DOCUMENT_FORMATS.items() if suffix in taken]
-    images = dict.fromkeys(name for suffix, name in IMAGE_FORMATS.items() if suffix in IMAGE_TYPES)
+    images = dict.fromkeys(
+        name for suffix, name in IMAGE_FORMATS.items() if suffix in IMAGE_TYPES | SCAN_TYPES
+    )
     return f"{', '.join(documents)} files, and images ({', '.join(images)})"
 
 
