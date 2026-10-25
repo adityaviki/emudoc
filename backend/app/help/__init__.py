@@ -47,6 +47,7 @@ DOCUMENT_FORMATS = {
     ".pdf": "PDF",
     ".docx": "Word (.docx)",
     ".xlsx": "Excel (.xlsx)",
+    ".pptx": "PowerPoint (.pptx)",
     ".csv": "CSV",
     ".txt": "plain text",
     ".md": "Markdown",

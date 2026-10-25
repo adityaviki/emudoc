@@ -31,6 +31,7 @@
   --color-file-word: #2b63c1;
   --color-file-sheet: #1f7a4d;
   --color-file-image: #8b3fb4;
+  --color-file-slides: #be185d;
 }
 
 :root {
@@ -60,6 +61,7 @@
     --color-file-word: #8db4f5;
     --color-file-sheet: #6cc391;
     --color-file-image: #c892e8;
+    --color-file-slides: #f39ac2;
   }
 }
 

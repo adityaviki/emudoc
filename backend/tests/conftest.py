@@ -1237,6 +1237,42 @@ def sample_docx(tmp_path_factory) -> Path:
     return path
 
 
+@pytest.fixture(scope="session")
+def sample_pptx(tmp_path_factory) -> Path:
+    """A supplier review in three slides: a title slide, a slide of points with speaker notes,
+    and one without a title whose boxes were added bottom first, with a table between them."""
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    path = tmp_path_factory.mktemp("files") / "review.pptx"
+    deck = Presentation()
+    deck.core_properties.title = "Supplier review 2024"
+    opening = deck.slides.add_slide(deck.slide_layouts[0])
+    opening.shapes.title.text = "Supplier review"
+    opening.placeholders[1].text = "Acme Logistics, third quarter"
+    points = deck.slides.add_slide(deck.slide_layouts[1])
+    points.shapes.title.text = "Deliveries"
+    body = points.placeholders[1].text_frame
+    body.text = "14 of 16 deliveries on time"
+    late = body.add_paragraph()
+    late.text = "Two late in August"
+    late.level = 1
+    points.notes_slide.notes_text_frame.text = "Ask about the August delays."
+    blank = deck.slides.add_slide(deck.slide_layouts[6])
+    blank.shapes.add_textbox(
+        Inches(1), Inches(5), Inches(4), Inches(1)
+    ).text_frame.text = "Prices hold until December."
+    blank.shapes.add_textbox(
+        Inches(1), Inches(1), Inches(4), Inches(1)
+    ).text_frame.text = "Price list"
+    table = blank.shapes.add_table(2, 2, Inches(1), Inches(2), Inches(4), Inches(1)).table
+    for row, cells in enumerate((("Item", "Price"), ("Pallet", "EUR 40"))):
+        for column, value in enumerate(cells):
+            table.cell(row, column).text = value
+    deck.save(str(path))
+    return path
+
+
 def protected_pdf(path: Path, password: str) -> Path:
     """A one-page invoice encrypted with this password to open it and another to change it. An
     empty password to open it makes the kind any viewer opens, restricted in printing and

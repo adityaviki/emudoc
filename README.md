@@ -46,14 +46,14 @@ answer is given up on and counts as the provider being out of reach: an indexing
 five minutes, an embedding request after two, and a turn of an answer in the chat after two
 minutes or a minute of silence, which the chat shows as an error. The parse stage runs the
 parser in a process of its own with a time limit, a memory limit and caps on the pages of a PDF
-or a TIFF and the rows of a sheet (`PARSE_TIMEOUT`, `PARSE_MEMORY_MB`, `PARSE_MAX_PAGES`,
-`PARSE_MAX_ROWS`), so a file that would take hours or all the memory stops that process alone,
-and the document says which limit it hit. Before any of that, the upload checks that a file's
-bytes are what its name says (a PDF's header, an image's signature, the part a Word document or
-a workbook declares, UTF-8 text with no binary in it) and rejects one that is not with the
-reason, while the other files of the same upload go in. A Word document or a workbook saved with
-a password, or in the format from before 2007 (.doc, .xls), is rejected there with what to do
-in Office; a PDF that needs a password to open, or has no pages, goes in and fails to parse with
+or a TIFF, the slides of a presentation and the rows of a sheet (`PARSE_TIMEOUT`,
+`PARSE_MEMORY_MB`, `PARSE_MAX_PAGES`, `PARSE_MAX_ROWS`), so a file that would take hours or all
+the memory stops that process alone, and the document says which limit it hit. Before any of
+that, the upload checks that a file's bytes are what its name says (a PDF's header, an image's
+signature, the part a Word document, a workbook or a presentation declares, UTF-8 text with no
+binary in it) and rejects one that is not with the reason, while the other files of the same
+upload go in. An Office file saved with a password, or in the format from before 2007 (.doc,
+.xls, .ppt), is rejected there with what to do in Office; a PDF that needs a password to open, or has no pages, goes in and fails to parse with
 the reason (one whose password only restricts printing or copying is read like any other). An
 empty file is rejected at the upload. The first stage then has the file
 scanned for malware by the ClamAV daemon `SCANNER_URL` names, before any parser opens it and
@@ -764,8 +764,8 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   check.
 - `PARSE_TIMEOUT`, `PARSE_MEMORY_MB`, `PARSE_MAX_PAGES`, `PARSE_MAX_ROWS` and
   `PARSE_MAX_CHARS` bound the parsing of an upload: 300 seconds, 2048 MB of address space, 500
-  pages of a PDF or a TIFF, 100,000 filled rows on one sheet and 20,000,000 characters of text in one
-  document by default; `0` removes a limit. The parser runs in a child process of the worker
+  pages of a PDF or a TIFF or slides of a presentation, 100,000 filled rows on one sheet and
+  20,000,000 characters of text in one document by default; `0` removes a limit. The parser runs in a child process of the worker
   that is killed at the time limit and caps its own memory, so a file that is too big fails with
   a message naming the limit, is not retried, and leaves the worker and the other uploads
   untouched; a file with more text is refused before the worker holds any of it, since every
