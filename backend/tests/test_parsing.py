@@ -13,7 +13,7 @@ from app.parsing.limits import ParseError, ParseLimits, parse_within_limits
 from app.parsing.signatures import HEAD, wrong_type
 from app.parsing.text import parse_text
 from app.parsing.types import table_to_markdown
-from tests.conftest import compound_file, pageless_pdf, protected_pdf, turned_pdf
+from tests.conftest import columns_pdf, compound_file, pageless_pdf, protected_pdf, turned_pdf
 
 
 def test_pdf_headings_tables_and_positions(sample_pdf):
@@ -106,6 +106,33 @@ def test_text_turned_against_its_page_is_read_after_it_and_heads_no_section(tmp_
         ("paragraph", "Ref ACME-2024-0042, 1 March 2024"),
     ]
     assert on_the_ink(path, parsed)
+
+
+@pytest.mark.parametrize("count", [2, 3])
+def test_a_page_set_in_columns_is_read_a_column_at_a_time(tmp_path, count):
+    path = columns_pdf(tmp_path / "agreement.pdf", count)
+    parsed = parse_file(path, "agreement.pdf")
+
+    # Each block by its kind and its first line up to the first full stop.
+    read = [(block.kind, block.text.split("\n")[0].split(".")[0]) for block in parsed.blocks]
+    columns = []
+    for n in range(1, count + 1):
+        columns.append(("heading", str(n)))
+        if n == count:
+            columns.append(("table", "| Item | Price |"))
+        columns.append(("paragraph", f"Column {n}"))
+    assert read == [
+        ("heading", "Supply agreement"),
+        # One paragraph, its short last line with it.
+        (
+            "paragraph",
+            "This agreement sets out how Acme supplies Globex with pallets and crates during "
+            "2024 and what happens when a delivery is late",
+        ),
+        *columns,
+        ("table", "| Clause | Owner |"),
+        ("paragraph", "Signed for both parties on 1 March 2024"),
+    ]
 
 
 def test_docx_styles_become_structure(sample_docx):

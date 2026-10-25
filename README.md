@@ -475,7 +475,9 @@ itself. A PDF page whose text runs down, up or upside down as it is shown (a lan
 drawn sideways on a portrait page, a page turned by a rotation it did not need) is read the way
 its text runs, and its text and a cited passage's mark lie where the page shows them; a line
 turned against the rest of its page, such as a reference up the margin, is read after the
-page's own text and heads no section; spreadsheets show one tab per sheet; images show the picture above the text
+page's own text and heads no section. A page set in columns is read a column at a time, its
+headings, paragraphs and tables in the column they stand in, and a heading, a table or
+whitespace across the page starts the columns below it afresh; spreadsheets show one tab per sheet; images show the picture above the text
 read from it. Printed, from the tab's "Print" or the browser's own, a document is itself alone
 (`data-print` and the print rules in `frontend/src/index.css`): a PDF its pages, a sheet each and
 as large as the sheet holds, anything else its title and text over as many sheets as it takes,
@@ -1489,4 +1491,5 @@ CHANGELOG.md    what each day's commits changed for members and operators
   them, nor turn features on per organisation.
 - Billing: the connectors and the model tier the plans declare are not read by anything yet.
 - The public API: SDKs (Python, TypeScript) generated from its contract are to come.
-- More file types (slides, email, legacy .doc and .xls), and reading order for multi-column PDFs.
+- Office files in the format from before 2007 (.doc, .xls, .ppt), which the upload turns away
+  with how to save them as today's.
