@@ -183,7 +183,8 @@ def test_the_help_is_filled_in_from_what_the_deployment_allows(client, signed_in
     documents = said(by["documents"])
     assert (
         "PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), RTF, HTML, CSV, plain text, "
-        "Markdown files, and images (PNG, JPEG, WebP, TIFF, HEIC). A file may be up to 100 MB."
+        "Markdown files, and images (PNG, JPEG, WebP, TIFF, HEIC). A file may be up to 100 MB, "
+        "and a PDF, a TIFF or a presentation up to 5,000 pages."
     ) in documents
     assert "A larger upload is sent 100 files or 500 MB at a time" in documents
     assert "in the trash for 30 days" in documents
@@ -213,8 +214,10 @@ def test_what_a_deployment_does_not_do_the_help_does_not_say(monkeypatch):
     monkeypatch.setattr(settings, "rate_failed_sign_ins", 0)
     monkeypatch.setattr(settings, "ocr_max_pages", 0)
     monkeypatch.setattr(settings, "max_upload_mb", 250)
+    monkeypatch.setattr(settings, "parse_max_pages", 0)
     assert "Every upload is first scanned for malware" in text("documents")
-    assert "as an image." in text("documents") and "A file may be up to 250 MB" in text("documents")
+    assert "as an image." in text("documents")
+    assert "A file may be up to 250 MB. Upload files" in text("documents")
     assert "data breach is refused." in text("account") and "pause" not in text("account")
     # The figures are the code's, never typed in.
     monkeypatch.setattr("app.help.TRASH_DAYS", 45)

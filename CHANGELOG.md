@@ -17,6 +17,10 @@ newest entry first.
 
 Members:
 
+- A PDF may now have up to 5,000 pages, where it was 500: a long manual, a book or a year of
+  statements is read as one document, its outline and its headings over the whole of it, and
+  searched and asked about like any other. Its first pages, as many as the AI model reads of one
+  document, get section summaries and facts, as before.
 - Give a document a new version when its file changes, such as a contract that comes back
   signed: "Upload a new version" in its menu in the library, or "Versions" on its tab. The
   document keeps its place, its chats, its share links, its review and your checks of its facts,
@@ -96,6 +100,15 @@ Members:
 
 Operators:
 
+- `PARSE_MAX_PAGES` is 5,000 by default, where it was 500. A PDF of more than `PARSE_PART_PAGES`
+  (250, new) pages is parsed that many pages a child, each within `PARSE_TIMEOUT` and
+  `PARSE_MEMORY_MB`, the pages read kept in the temporary directory (about 2.5 MB for 250 pages
+  of prose), and one more child makes the document of the parts, its running headers and
+  heading levels the whole file's (`_in_parts` in `app/parsing/limits.py`, `read_pdf` and
+  `assemble` in `app/parsing/pdf.py`). The slot of `PARSE_CONCURRENCY` is let go between parts.
+  After the first part the month's pages are checked, and after each the scans read so far
+  against `OCR_MAX_PAGES`, so a file the stage would refuse is not read to its end; a part that
+  runs out of time names its pages. `0` reads every PDF in one child, as before.
 - A document's new version (`app/versions.py`, `POST /api/documents/{id}/versions` and
   `/api/v1/documents/{id}/versions`) keeps the document's row and reads the new file from its
   scan on; the earlier file stays at its key, the new one under the document's prefix at

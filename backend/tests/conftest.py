@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import struct
+import subprocess
 import tempfile
 import uuid
 from datetime import UTC, datetime
@@ -199,6 +200,7 @@ from app.mail import Message  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models import NATURAL_ORDER, Document, Membership, Organization, Project, User  # noqa: E402
 from app.parsing import MIME_TYPES  # noqa: E402
+from app.parsing import limits as parse_limits  # noqa: E402
 from app.postbox import deliver  # noqa: E402
 from app.scanning import ScanError  # noqa: E402
 from app.storage import original_key, storage_from_settings  # noqa: E402
@@ -1083,6 +1085,20 @@ def indexed(session, services, make_document, sample_pdf) -> Document:
 
 
 @pytest.fixture
+def children(monkeypatch):
+    """The commands of the parse children started, the part each was given (or none)."""
+    started = []
+    start = subprocess.Popen
+
+    def watched(command, *args, **kwargs):
+        started.append(next((a for a in command if a.startswith(("--pages", "--assemble"))), ""))
+        return start(command, *args, **kwargs)
+
+    monkeypatch.setattr(parse_limits.subprocess, "Popen", watched)
+    return started
+
+
+@pytest.fixture
 def mailer() -> FakeMailer:
     return FakeMailer()
 
@@ -1394,6 +1410,65 @@ def columns_pdf(path: Path, count: int = 2) -> Path:
         Paragraph("Signed for both parties on 1 March 2024.", styles["BodyText"]),
     ]
     document.build(story)
+    return path
+
+
+def book_pdf(path: Path) -> Path:
+    """A handbook of six pages for reading in parts: a running header and a page number on the
+    first five, a title on the first page alone, chapters on pages 1 and 4, sections on 2 and 5,
+    a subsection on 5 alone, a table on page 3, and page 6 a scan, a picture without text."""
+    from PIL import Image
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import Image as Picture
+    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
+
+    styles = getSampleStyleSheet()
+
+    def furniture(canvas, document):
+        if document.page < 6:
+            canvas.saveState()
+            canvas.setFont("Helvetica", 8)
+            canvas.drawString(72, 820, "Acme Corp - Supplier handbook")
+            canvas.drawRightString(520, 30, f"Page {document.page}")
+            canvas.restoreState()
+
+    def body(subject: str) -> Paragraph:
+        return Paragraph(
+            f"This part of the handbook covers {subject}. Every supplier reads it before the "
+            "first delivery, and the purchasing team answers questions about it.",
+            styles["BodyText"],
+        )
+
+    scan = io.BytesIO()
+    Image.new("RGB", (400, 300), "white").save(scan, "PNG")
+    scan.seek(0)
+    grid = TableStyle([("GRID", (0, 0), (-1, -1), 0.5, colors.black)])
+    story = [
+        Paragraph("Supplier handbook", styles["Title"]),
+        Paragraph("1. Ordering", styles["Heading1"]),
+        body("how an order is placed"),
+        PageBreak(),
+        Paragraph("1.1 Order numbers", styles["Heading2"]),
+        body("the numbers orders carry"),
+        PageBreak(),
+        Table([["Item", "Lead time"], ["Pallet", "5 days"], ["Crate", "3 days"]], style=grid),
+        body("the lead times of each item"),
+        PageBreak(),
+        Paragraph("2. Delivery", styles["Heading1"]),
+        body("where goods are delivered"),
+        PageBreak(),
+        Paragraph("2.1 Late deliveries", styles["Heading2"]),
+        body("what a late delivery costs"),
+        Paragraph("2.1.1 Credits", styles["Heading3"]),
+        body("the credits a late delivery earns"),
+        PageBreak(),
+        Picture(scan, width=400, height=300),
+    ]
+    SimpleDocTemplate(str(path), pagesize=A4).build(
+        story, onFirstPage=furniture, onLaterPages=furniture
+    )
     return path
 
 

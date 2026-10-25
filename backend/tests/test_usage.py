@@ -425,6 +425,25 @@ def test_a_scan_with_more_pages_than_the_model_may_read_fails_before_a_page_is_r
     assert [name for name, _ in services.llm.calls].count("OcrPage") == 3
 
 
+def test_a_scan_read_in_parts_is_refused_once_the_parts_read_have_more_scans_than_that(
+    session, services, make_document, tmp_path, monkeypatch, children
+):
+    monkeypatch.setattr(get_settings(), "ocr_max_pages", 2)
+    monkeypatch.setattr(get_settings(), "parse_part_pages", 3)
+    document = make_document(scanned_pdf(tmp_path / "scan.pdf", 7))
+    refusal = (
+        "This file has at least 3 scanned pages to read, more than the 2 one document can have. "
+        "Split it and upload the parts."
+    )
+    assert process_document(document.id, services) == [
+        StageFailure("parse", refusal, transient=False)
+    ]
+    # The pages after the first part were never read, nor any by the model.
+    assert children == ["--pages=1-3"]
+    assert services.llm.calls == []
+    assert rows_of(session, (DOCUMENT, document.id)) == []
+
+
 def test_a_stage_whose_lease_was_lost_is_charged_and_so_is_the_run_that_redoes_it(
     session, services, make_document, sample_pdf, monkeypatch
 ):

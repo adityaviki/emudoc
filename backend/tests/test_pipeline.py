@@ -18,7 +18,7 @@ from app.llm import MODEL_UNAVAILABLE, LLMError, OcrBlock
 from app.models import Block, Fact, Passage, Section
 from app.parsing import images
 from app.scanning import UNSCANNED
-from tests.conftest import FakeEmbedder
+from tests.conftest import FakeEmbedder, book_pdf
 
 
 def rows(session, model, document):
@@ -773,3 +773,32 @@ def test_a_file_over_a_parse_limit_fails_and_is_not_retried(
     assert document.status == "failed"
     assert document.error.startswith("This PDF has 2 pages")
     assert stage_statuses(document)["parse"] == "failed"
+
+
+def test_a_long_pdf_is_read_in_parts_as_one_document(
+    session, services, make_document, tmp_path, monkeypatch
+):
+    book = book_pdf(tmp_path / "book.pdf")
+    monkeypatch.setattr(get_settings(), "parse_part_pages", 0)
+    whole = make_document(book, "whole.pdf")
+    assert process_document(whole.id, services) == []
+    monkeypatch.setattr(get_settings(), "parse_part_pages", 2)
+    in_parts = make_document(book, "in-parts.pdf")
+    assert process_document(in_parts.id, services) == []
+
+    def read(document):
+        session.refresh(document)
+        return (
+            document.status,
+            document.page_count,
+            document.page_sizes,
+            [(b.ordinal, b.kind, b.level, b.page, b.text) for b in rows(session, Block, document)],
+            [(s.level, s.path, s.page_start) for s in rows(session, Section, document)],
+            [p.text for p in rows(session, Passage, document)],
+        )
+
+    # One document, its outline over every part, as if it had been read whole: the last page a
+    # scan the model read, and the pages counted once against the month.
+    assert read(in_parts) == read(whole)
+    assert any(b.page == 6 and b.text == "Scanned Invoice" for b in rows(session, Block, in_parts))
+    assert in_parts.usage["upload"]["pages"] == 6

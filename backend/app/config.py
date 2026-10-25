@@ -335,12 +335,16 @@ class Settings(BaseSettings):
     # worker holding it, its passages written, indexed and embedded (a passage is some 1,200 to
     # 2,000 characters), so a file over it is refused before the child replies. Zero removes a
     # limit. These are the ceiling for every organisation; a cap that differs by plan is an
-    # entitlement, read per account.
+    # entitlement, read per account. A PDF's pages take the time one after another, about a
+    # tenth of a second each, so a PDF of more pages than PARSE_PART_PAGES is read that many
+    # pages a child, each within the limits, and the document made of the parts by one more;
+    # zero reads every PDF in one child.
     parse_timeout: int = Field(default=300, ge=0)
     parse_memory_mb: int = Field(default=2048, ge=0)
-    parse_max_pages: int = Field(default=500, ge=0)
+    parse_max_pages: int = Field(default=5_000, ge=0)
     parse_max_rows: int = Field(default=100_000, ge=0)
     parse_max_chars: int = Field(default=20_000_000, ge=0)
+    parse_part_pages: int = Field(default=250, ge=0)
     # A PDF's pages are drawn as images (for the document pane, the thumbnails and OCR) by
     # child processes each process keeps (app/rendering.py), since pdfium draws one page at a
     # time in a process: how many pages a process draws at once, the seconds a page may take

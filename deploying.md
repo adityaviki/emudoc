@@ -691,8 +691,27 @@ organisation, whatever its plan, each a refusal or a shortcut with a sentence th
   child refuses a file with more before it replies, so the worker never holds it, and a sheet
   stops being read at the row that takes it past: "This file holds more than 20,000,000
   characters of text, the most one document can have. Split it and upload the parts." Before
-  it, `PARSE_MAX_PAGES` (500) refuses a PDF or a TIFF by its pages, a presentation by its
+  it, `PARSE_MAX_PAGES` (5,000) refuses a PDF or a TIFF by its pages, a presentation by its
   slides, and `PARSE_MAX_ROWS` (100,000) a sheet by its rows.
+- **Its pages.** A PDF's pages are read one after another, about a tenth of a second each on one
+  core (0.125 s a page of prose on the development machine, linear, more for pages of tables),
+  while the memory hardly grows with them (93 MB at 1,000 pages). So a PDF of more than
+  `PARSE_PART_PAGES` (250) pages is read that many pages a parse child, each within
+  `PARSE_TIMEOUT` and `PARSE_MEMORY_MB`, which writes what it read to the temporary directory
+  (2.4 MB for 250 dense pages, so some 50 MB for 5,000), and one more child makes the document of
+  the parts, its running headers, body size and heading levels the whole file's, exactly as one
+  child would. Each child holds one of the worker's `PARSE_CONCURRENCY` slots and lets it go
+  when it ends, so a long PDF takes turns with the uploads behind it; 250 dense pages took 31 s
+  here, and 5,000 took 11 minutes in 20 parts, the child that made the document of them holding
+  252 MB and taking 4 s. Once the first part has told the pages, the plan's month is checked, so a
+  file it cannot take is refused before the rest is read, and after each part the scans read so
+  far against `OCR_MAX_PAGES` ("This file has at least 300 scanned pages to read, …"); the text
+  the parts hold is added up against `PARSE_MAX_CHARS` as they are read, their margins included.
+  A part that runs out of time names its pages ("Parsing pages 2,251 to 2,500 of the file did
+  not finish within 5 minutes and was stopped. …"): lower `PARSE_PART_PAGES` if that is seen of
+  files whose pages are heavy, rather than raise the time a parse may take. The stages after the
+  parse took about 10 s together for 1,000 pages (6,000 passages) with the suite's stand-ins.
+  `PARSE_PART_PAGES=0` reads every PDF in one child, as before 2026-10-25.
 - **Its scans.** `OCR_MAX_PAGES` (100) is how many pages the model may read as scans, a request
   each; a document with more is refused before a page is read. `OCR_CONCURRENCY` (4) of them are
   read at once, in page order: each page is drawn by one of the worker's `RENDER_PROCESSES`
@@ -4488,9 +4507,10 @@ the roots' `settings` the others ("The settings").
 | `SCANNER_URL` | none | required, `off` for none | The ClamAV daemon every upload is scanned by |
 | `PARSE_TIMEOUT` | `300` | | Seconds a parse may take |
 | `PARSE_MEMORY_MB` | `2048` | | The memory a parse may hold |
-| `PARSE_MAX_PAGES` | `500` | | The pages of a PDF or a TIFF, the slides of a presentation |
+| `PARSE_MAX_PAGES` | `5000` | | The pages of a PDF or a TIFF, the slides of a presentation |
 | `PARSE_MAX_ROWS` | `100000` | | The rows of a sheet |
 | `PARSE_MAX_CHARS` | `20000000` | | The characters of text one document may hold ("Large documents") |
+| `PARSE_PART_PAGES` | `250` | | The pages of a PDF one parse child reads, the document made of the parts by one more; 0 reads it whole in one ("Large documents") |
 | `RENDER_PROCESSES` | `2` | | The pages a process draws at once, each in a child of its own ("Drawing pages") |
 | `RENDER_TIMEOUT` | `30` | | Seconds a page may take to draw; 0 for no limit |
 | `RENDER_MEMORY_MB` | `1024` | | The memory a drawing child may hold; 0 for no limit |
