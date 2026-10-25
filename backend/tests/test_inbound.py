@@ -23,14 +23,13 @@ from app.inbound import (
     Received,
     listed,
     not_listed,
-    parse,
     prune_inbound,
     receive,
     sender_entry,
-    text_of_html,
     token_in,
 )
 from app.maintenance import main
+from app.messages import parse, text_of_html
 from app.models import AuditEvent, Document, InboundMessage, Upload, User
 from tests.test_api import create_project
 from tests.test_entitlements import plan  # noqa: F401 (a fixture)

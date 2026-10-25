@@ -13,7 +13,7 @@ file at a time, so that each one committed fills the plan for the next.
 
 import hashlib
 import tempfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
@@ -40,6 +40,7 @@ from app.parsing.signatures import wrong_type
 from app.restore import place_taken
 from app.schemas import RejectedFile
 from app.storage import Storage, StorageError, original_key
+from app.unpacking import NESTED, PACKED, Refused, unpacked
 from app.usage import DOCUMENT, UPLOAD, record
 
 CHUNK = 1024 * 1024
@@ -78,39 +79,49 @@ def take_files(
     user_id: int | None,
     audited: Callable[[Document, int], None],
     lease: Lease | None = None,
+    unpack: bool = False,
 ) -> tuple[list[Document], list[RejectedFile]]:
     """Keep each file as a document of the project in the folder `target` (the root for None),
     or below it where its `folders` say, a folder being made where none of its name is; returns
     the documents kept and the files rejected. `user_id` is whose upload it is, for the usage of
     its bytes (None for nobody's), and `audited(document, size)` writes the audit row of each
     document kept, in its commit. Under a job's `lease` each commit renews it first, and one
-    lost raises LeaseLost with nothing of that file written."""
+    lost raises LeaseLost with nothing of that file written. With `unpack`, as the members'
+    page uploads, a file that brings others (`PACKED`: a message) is opened and what it brings
+    is taken in its place, each under the file's place in the request (app/unpacking.py)."""
     settings = get_settings()
     limit = settings.max_upload_mb * 1024 * 1024
+    taken = SUPPORTED_EXTENSIONS | PACKED if unpack else SUPPORTED_EXTENSIONS
     documents: list[Document] = []
     rejected: list[RejectedFile] = []
     # The folders these files found or made, by their names below the target.
     made: dict[tuple[str, ...], int | None] = {(): target}
 
-    for index, incoming in enumerate(files):
+    def take(index: int, incoming: Incoming) -> None:
+        """Keep one file, or reject it with the sentence for why."""
         name = Path(incoming.name or "unnamed").name
         if incoming.folders is None:
             rejected.append(RejectedFile(filename=name, reason=UNMAKEABLE_FOLDER, index=index))
             UPLOAD_REJECTIONS.labels("folder").inc()
-            continue
+            return
         names = incoming.folders
         # A file in a folder is named by its path, so that two of one name are told apart.
         filename = PATH_SEPARATOR.join([*names, name])
         suffix = Path(name).suffix.lower()
+        if unpack and suffix in PACKED:
+            # One file brought by another: what it brings in turn is not opened.
+            rejected.append(RejectedFile(filename=filename, reason=NESTED, index=index))
+            UPLOAD_REJECTIONS.labels("unopened").inc()
+            return
         if suffix not in SUPPORTED_EXTENSIONS:
-            supported = ", ".join(sorted(SUPPORTED_EXTENSIONS))
+            supported = ", ".join(sorted(taken))
             rejected.append(
                 RejectedFile(
                     filename=filename, reason=f"Unsupported type. Use {supported}.", index=index
                 )
             )
             UPLOAD_REJECTIONS.labels("unsupported").inc()
-            continue
+            return
 
         # Spooled to a local temporary file while hashing: the hash finds a re-upload of the
         # same bytes before anything is stored, and the key needs the row's id. The spool goes
@@ -121,20 +132,20 @@ def take_files(
                 reason = "Empty file." if size == 0 else f"Larger than {settings.max_upload_mb} MB."
                 rejected.append(RejectedFile(filename=filename, reason=reason, index=index))
                 UPLOAD_REJECTIONS.labels("empty" if size == 0 else "too_large").inc()
-                continue
+                return
             # The extension picks the parser and the type the file is served as, so the bytes
             # must be what it says; refused here, before a duplicate is looked for or the plan
             # is counted, with a sentence about the file rather than a parser's a stage later.
             if reason := wrong_type(spool, suffix):
                 rejected.append(RejectedFile(filename=filename, reason=reason, index=index))
                 UPLOAD_REJECTIONS.labels("wrong_type").inc()
-                continue
+                return
 
             duplicate = already_present(session, project.id, sha256, filename, index)
             if duplicate:
                 rejected.append(duplicate)
                 UPLOAD_REJECTIONS.labels("duplicate").inc()
-                continue
+                return
             # Counted again per file: each one committed above fills the plan a little more.
             if refusal := check_upload(session, organization, size):
                 rejected.append(
@@ -146,7 +157,7 @@ def take_files(
                     )
                 )
                 UPLOAD_REJECTIONS.labels("plan").inc()
-                continue
+                return
 
             if tuple(names) not in made:
                 made[tuple(names)] = folder_at(session, project.id, target, names)
@@ -178,7 +189,7 @@ def take_files(
                     or RejectedFile(filename=filename, reason=LOST_RACE, index=index)
                 )
                 UPLOAD_REJECTIONS.labels("duplicate").inc()
-                continue
+                return
             document.storage_key = original_key(project.org_id, project.id, document.id, suffix)
             # A document's place in the storage is named by its ids, so a place that holds files
             # already is a lost document's, as a restore to an earlier point loses the ones
@@ -210,6 +221,40 @@ def take_files(
             UPLOAD_BYTES.observe(size)
         finally:
             spool.unlink(missing_ok=True)
+
+    def opened(index: int, incoming: Incoming, name: str) -> Iterator[Incoming]:
+        """What a packed file brings (app/unpacking.py), each below the folders the file went
+        into, or nothing when it is refused, as any file would be or as one that cannot be
+        opened; the file itself is spooled while what it brings is taken, and never kept."""
+        filename = PATH_SEPARATOR.join([*(incoming.folders or []), name])
+        spool, size, _ = _spool(incoming.file, limit)
+        try:
+            reason = None
+            if size > limit or size == 0:
+                reason = "Empty file." if size == 0 else f"Larger than {settings.max_upload_mb} MB."
+            else:
+                reason = wrong_type(spool, Path(name).suffix.lower())
+            if reason is None:
+                try:
+                    inside = unpacked(spool, name)
+                except Refused as refused:
+                    reason = str(refused)
+            if reason is not None:
+                rejected.append(RejectedFile(filename=filename, reason=reason, index=index))
+                UPLOAD_REJECTIONS.labels("unopened").inc()
+                return
+            for found in inside:
+                yield Incoming(found.name, [*(incoming.folders or []), *found.folders], found.file)
+        finally:
+            spool.unlink(missing_ok=True)
+
+    for index, incoming in enumerate(files):
+        name = Path(incoming.name or "unnamed").name
+        if unpack and Path(name).suffix.lower() in PACKED and incoming.folders is not None:
+            for found in opened(index, incoming, name):
+                take(index, found)
+        else:
+            take(index, incoming)
     return documents, rejected
 
 

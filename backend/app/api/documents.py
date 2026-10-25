@@ -228,7 +228,10 @@ def upload_documents(
     file is then checked for its own size, for whether its bytes are the type its name claims
     (app/parsing/signatures.py) and against the plan, and one that fails is rejected with the
     sentence while the others go in (app/entitlements.py). The sample project takes none (409),
-    since it counts against nothing the plan holds (app/sample).
+    since it counts against nothing the plan holds (app/sample). A message saved from a mail
+    program (.eml) that the page uploads is opened, its text and attachments taken in its place;
+    one a program sends with an API key is refused as any other type the parsers do not read
+    (app/unpacking.py).
     """
     if project.sample:
         raise HTTPException(409, SAMPLE_UPLOADS)
@@ -271,6 +274,9 @@ def upload_documents(
         ),
         user_id=account.user.id,
         audited=audited,
+        # A program pairs the documents kept with the files it sent, one each, so a file that
+        # brings others is opened for the page alone, never for an API key (app/unpacking.py).
+        unpack=account.key is None,
     )
 
     # The files kept are one upload, made once they are all stored, so that it is never found
