@@ -1,9 +1,9 @@
 // Drafts as the drafts' views word them (backend/app/drafts.py, backend/app/api/drafts.py): the kinds the model
 // writes, a draft and its versions in a line, how far its writing is, whether the page should ask again, what a new
-// draft still needs, what an answer offers, the files a version downloads as, and what the view asks before deleting
-// one.
+// draft still needs, what an answer offers, where a version downloads as a file, and what the view asks before
+// deleting one.
 
-import type { Document, DraftAsked, DraftFormat, DraftInput, DraftKind, DraftSummary, DraftVersionSummary } from './api.ts'
+import type { Document, DraftAsked, DraftInput, DraftKind, DraftSummary, DraftVersionSummary, TextFormat } from './api.ts'
 import type { Question } from './components/Confirm.tsx'
 import { formatDateTime } from './format.ts'
 
@@ -76,15 +76,8 @@ export function offerWords(offer: DraftAsked): string {
   return KIND_LABELS[offer.kind] + about
 }
 
-/** The files a version downloads as, in the order the menu offers them, and what each is for. */
-export const DRAFT_FILES: { format: DraftFormat; label: string; words: string }[] = [
-  { format: 'docx', label: 'Word document, to edit', words: 'a Word document' },
-  { format: 'pdf', label: 'PDF, to send as it is', words: 'a PDF' },
-  { format: 'md', label: 'Markdown, as it is written', words: 'Markdown' },
-]
-
-/** Where a version downloads as a file, its citations numbered notes naming the passages. */
-export function draftFileUrl(draftId: number, number: number, format: DraftFormat): string {
+/** Where a version downloads as a file (TEXT_FILES), its citations numbered notes naming the passages. */
+export function draftFileUrl(draftId: number, number: number, format: TextFormat): string {
   return `/api/drafts/${draftId}/versions/${number}/export?format=${format}`
 }
 

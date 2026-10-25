@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DraftSummary } from './api.ts'
 import {
-  DRAFT_FILES,
   DRAFT_KINDS,
   KIND_LABELS,
   disputeLetter,
@@ -84,8 +83,7 @@ describe('drafts', () => {
     expect(offerWords({ ...offer, kind: 'report', documents: [] })).toBe('Report')
   })
 
-  it('downloads a version as a Word document first, then a PDF and its Markdown', () => {
-    expect(DRAFT_FILES.map((file) => file.format)).toEqual(['docx', 'pdf', 'md'])
+  it('downloads a version from its own address', () => {
     expect(draftFileUrl(7, 2, 'pdf')).toBe('/api/drafts/7/versions/2/export?format=pdf')
   })
 })

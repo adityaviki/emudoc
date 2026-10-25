@@ -324,6 +324,8 @@ def chat_reads(w: World) -> list[Route]:
         ("GET", f"/api/chats/{w.chat_id}", {}),
         ("GET", f"/api/chats/{w.chat_id}/messages/{w.message_id}/events", {}),
         ("GET", f"/api/chats/{w.chat_id}/messages/{w.message_id}/share-links", {}),
+        ("GET", f"/api/chats/{w.chat_id}/messages/{w.message_id}/export", {}),
+        ("GET", f"/api/chats/{w.chat_id}/export", {}),
     ]
 
 

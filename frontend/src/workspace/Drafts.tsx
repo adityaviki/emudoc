@@ -1,17 +1,15 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Download, FileCode, FileText, FileType, LayoutTemplate, ListChecks, PenLine, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import { ArrowLeft, FileText, LayoutTemplate, ListChecks, PenLine, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { ApiError, api, mayChange } from '../api.ts'
-import type { Document, DraftFormat, DraftKind, DraftOffer, DraftVersion, Source } from '../api.ts'
+import type { Document, DraftKind, DraftOffer, DraftVersion, Source } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { writeOffered } from '../chat.ts'
 import { Confirm } from '../components/Confirm.tsx'
-import { Floating, Menu } from '../components/Menu.tsx'
-import type { MenuItem } from '../components/Menu.tsx'
+import { DownloadText } from '../components/DownloadMenu.tsx'
 import { Button, Checkbox, EmptyState, FIELD, IconButton, Loading, Notice, Segmented, SelectField, Spinner } from '../components/ui.tsx'
 import { draftTemplatesKey, writtenToWords } from '../draftTemplates.ts'
 import {
-  DRAFT_FILES,
   DRAFT_KINDS,
   DRAFT_NOTE,
   DRAFT_POLL,
@@ -420,7 +418,9 @@ export function DraftView({ draftId }: { draftId: number }) {
                       {newest ? 'Write it again' : 'Try again'}
                     </Button>
                   )}
-                  {version && editing == null && <DownloadDraft draftId={draftId} number={version.number} />}
+                  {version && editing == null && (
+                    <DownloadText urlOf={(format) => draftFileUrl(draftId, version.number, format)} />
+                  )}
                 </div>
               )}
               {again != null && (
@@ -447,39 +447,6 @@ export function DraftView({ draftId }: { draftId: number }) {
       </div>
       {deleting && data && <Confirm {...draftDeletionQuestion(data)} onConfirm={() => remove.mutate()} onClose={() => setDeleting(false)} />}
     </div>
-  )
-}
-
-/** A version's way out of the app: a Word document to edit, a PDF to send or its Markdown, its citations numbered notes. */
-function DownloadDraft({ draftId, number }: { draftId: number; number: number }) {
-  const button = useRef<HTMLButtonElement>(null)
-  const [anchor, setAnchor] = useState<DOMRect | null>(null)
-  const close = () => setAnchor(null)
-  // Followed as a click on a link would be, so the download leaves the page where it is.
-  const save = (format: DraftFormat) => () => {
-    const link = window.document.createElement('a')
-    Object.assign(link, { href: draftFileUrl(draftId, number, format), download: '' })
-    link.click()
-  }
-  const icons = { docx: FileText, pdf: FileType, md: FileCode }
-  const items: MenuItem[] = DRAFT_FILES.map((file) => ({ label: file.label, icon: icons[file.format], onSelect: save(file.format) }))
-  return (
-    <>
-      <Button
-        ref={button}
-        icon={<Download className="size-4" />}
-        aria-haspopup="menu"
-        aria-expanded={anchor !== null}
-        onClick={(event) => setAnchor(anchor ? null : event.currentTarget.getBoundingClientRect())}
-      >
-        Download
-      </Button>
-      {anchor && (
-        <Floating anchor={anchor} onClose={close} ignore={button}>
-          <Menu items={items} onClose={close} />
-        </Floating>
-      )}
-    </>
   )
 }
 

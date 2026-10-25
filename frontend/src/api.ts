@@ -670,8 +670,8 @@ export interface RunFindings {
 /** What a draft is (backend/app/drafts.py), and how far the model's writing of it is. */
 export type DraftKind = 'reply_email' | 'dispute_letter' | 'summary_memo' | 'comparison_table' | 'report'
 export type DraftStatus = 'queued' | 'writing' | 'done' | 'failed'
-/** The files a version of a draft downloads as (backend/app/draft_export.py). */
-export type DraftFormat = 'docx' | 'pdf' | 'md'
+/** The files a text citing passages downloads as: a draft's version, an answer, a chat (backend/app/draft_export.py, backend/app/chat_export.py). */
+export type TextFormat = 'docx' | 'pdf' | 'md'
 
 /** A draft a member asks the model for (DraftIn): its kind, what it should say, and the documents it is about, none to have the model find them. */
 export interface DraftInput {
@@ -1517,6 +1517,8 @@ export type AuditAction =
   | 'share_link_downloaded'
   | 'chat_shared'
   | 'chat_unshared'
+  | 'chat_exported'
+  | 'answer_exported'
   | 'chat_deleted'
   | 'chat_restored'
   | 'chat_purged'

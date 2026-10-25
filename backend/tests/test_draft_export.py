@@ -199,7 +199,7 @@ def test_a_viewer_downloads_a_draft_within_the_rate_of_downloads(
     monkeypatch.setattr(get_settings(), "rate_exports", 1)
     refused = export(client, written["draft"], format="pdf")
     assert refused.status_code == 429
-    assert "downloads of a facts table or a draft" in refused.json()["detail"]
+    assert "downloads of a facts table, a draft or a chat" in refused.json()["detail"]
 
 
 def test_citations_are_numbered_and_named_as_the_page_does():

@@ -186,7 +186,8 @@ NATURAL_ORDER = "natural_order"
 # the organisation's programs hear of its work by is added, changed, given a new secret and
 # removed (app/webhooks.py), which sends what documents say to an address of its choosing. A
 # link that shows a document to whoever holds it is made and revoked by a member, and opened, and
-# its original downloaded, by nobody the app knows (app/share_links.py).
+# its original downloaded, by nobody the app knows (app/share_links.py). An answer, or a whole
+# chat, is downloaded as a file (app/chat_export.py), which is what documents say leaving the app.
 AUDIT_ACTIONS = (
     "sign_up",
     "sign_in",
@@ -297,6 +298,8 @@ AUDIT_ACTIONS = (
     "share_link_downloaded",
     "chat_shared",
     "chat_unshared",
+    "chat_exported",
+    "answer_exported",
     "chat_deleted",
     "chat_restored",
     "chat_purged",

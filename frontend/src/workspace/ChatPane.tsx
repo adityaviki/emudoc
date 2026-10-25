@@ -24,10 +24,11 @@ import type { LucideIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { api, organizations, pageLabel, sectionPath, sourceLabel } from '../api.ts'
-import type { Chat, DraftKind, Source } from '../api.ts'
+import type { Chat, DraftKind, Source, TextFormat } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { ask, chatKey, isStreaming, loadChat, mayRetry, resume, retry, splitChats, stop, useStreaming } from '../chat.ts'
 import type { ChatData, Message, Step } from '../chat.ts'
+import { DownloadText } from '../components/DownloadMenu.tsx'
 import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
 import { Markdown, SourceText } from '../components/Markdown.tsx'
 import { Floating } from '../components/Menu.tsx'
@@ -40,6 +41,7 @@ import { inviteNudgeOf, mayInvite } from '../onboarding.ts'
 import type { InviteNudge } from '../onboarding.ts'
 import { offersLinks } from '../shareLinks.ts'
 import { askHeld } from '../status.ts'
+import { answerFileUrl, chatFileUrl } from '../textFiles.ts'
 import { trashKey } from '../trash.ts'
 import { KIND_LABELS } from '../drafts.ts'
 import { describeAnswerUsage } from '../usage.ts'
@@ -128,6 +130,10 @@ function ChatHeader({ own, shared, activeId }: ChatHeaderProps) {
       </button>
       <span className="flex-1" />
       {mine && <ShareButton chat={mine} />}
+      {/* A chat has a title once something was asked in it, and so something to download. */}
+      {active?.title && (
+        <DownloadText urlOf={(format) => chatFileUrl(active.id, format)} label="Download the chat" iconOnly alignEnd />
+      )}
       <Button
         variant="ghost"
         icon={<Plus className="size-4" />}
@@ -498,6 +504,7 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
                     ? () => setSharing(message.id!)
                     : undefined
                 }
+                fileOf={answerFileOf(chatId, message)}
                 offer={
                   message.draft && message.id != null && chatId != null && message.status !== 'streaming' ? (
                     <OfferedDraft chatId={chatId} messageId={message.id} offer={message.draft} own={!starter} />
@@ -611,9 +618,18 @@ interface AnswerProps {
   offer?: ReactNode
   // Offered on a finished answer to a member who may share it by link.
   onShare?: () => void
+  // Where an answer with words downloads as each file, once it is no longer being written.
+  fileOf?: (format: TextFormat) => string
 }
 
-function Answer({ message, currency, onOpen, onReconnect, onRetry, retryHeld, offer, onShare }: AnswerProps) {
+/** Where the answer downloads as a file headed by its question; nowhere while it is written, or for one without words. */
+function answerFileOf(chatId: number | null, message: Message): ((format: TextFormat) => string) | undefined {
+  const id = message.id
+  if (chatId == null || id == null || message.status === 'streaming' || !message.content) return undefined
+  return (format) => answerFileUrl(chatId, id, format)
+}
+
+function Answer({ message, currency, onOpen, onReconnect, onRetry, retryHeld, offer, onShare, fileOf }: AnswerProps) {
   // Number the cited passages in the order the answer first mentions them.
   const cited = [...new Set([...message.content.matchAll(/\[P(\d+)\]/g)].map((match) => Number(match[1])))]
     .filter((id) => message.sources[id])
@@ -709,10 +725,15 @@ function Answer({ message, currency, onOpen, onReconnect, onRetry, retryHeld, of
           {describeAnswerUsage(message.usage, currency)}
         </p>
       ) : null}
-      {onShare && (
-        <Button variant="ghost" className="-ml-2 h-6 px-2" icon={<Link2 className="size-3.5" />} onClick={onShare}>
-          Share the answer
-        </Button>
+      {(onShare || fileOf) && (
+        <div className="-ml-2 flex flex-wrap items-center gap-1">
+          {onShare && (
+            <Button variant="ghost" className="h-6 px-2" icon={<Link2 className="size-3.5" />} onClick={onShare}>
+              Share the answer
+            </Button>
+          )}
+          {fileOf && <DownloadText urlOf={fileOf} label="Download the answer" small variant="ghost" />}
+        </div>
       )}
     </div>
   )
