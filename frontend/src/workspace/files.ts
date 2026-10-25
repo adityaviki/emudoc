@@ -1,4 +1,4 @@
-import { Download, ExternalLink, FileCode, FileImage, FileSpreadsheet, FileText, FileType } from 'lucide-react'
+import { Download, ExternalLink, FileCode, FileImage, FileSpreadsheet, FileText, FileType, Presentation } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { fileUrl, isImage, isPdf, isSheet } from '../api.ts'
 import type { Document } from '../api.ts'
@@ -17,6 +17,7 @@ const KINDS = {
   word: { icon: FileType, color: 'text-file-word', label: 'Word' },
   sheet: { icon: FileSpreadsheet, color: 'text-file-sheet', label: 'Spreadsheet' },
   image: { icon: FileImage, color: 'text-file-image', label: 'Image' },
+  slides: { icon: Presentation, color: 'text-file-slides', label: 'PowerPoint' },
   markdown: { icon: FileCode, color: 'text-muted', label: 'Markdown' },
   text: { icon: FileText, color: 'text-muted', label: 'Text' },
 } satisfies Record<string, FileKind>
@@ -27,6 +28,7 @@ export function fileKind(document: Document): FileKind {
   if (document.mime_type.startsWith('image/')) return KINDS.image
   if (isSheet(document)) return document.mime_type === 'text/csv' ? { ...KINDS.sheet, label: 'CSV' } : KINDS.sheet
   if (document.mime_type.endsWith('wordprocessingml.document')) return KINDS.word
+  if (document.mime_type.endsWith('presentationml.presentation')) return KINDS.slides
   if (document.mime_type === 'text/markdown') return KINDS.markdown
   return KINDS.text
 }

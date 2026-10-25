@@ -68,6 +68,44 @@ def test_docx_styles_become_structure(sample_docx):
     assert all(b.page is None for b in parsed.blocks)
 
 
+def test_pptx_slides_become_pages_headed_by_their_titles(sample_pptx):
+    parsed = parse_file(sample_pptx, sample_pptx.name)
+    assert parsed.title == "Supplier review 2024"
+    assert parsed.page_count == 3
+    assert [(block.page, block.kind, block.level, block.text) for block in parsed.blocks] == [
+        (1, "heading", 1, "Supplier review"),
+        (1, "paragraph", None, "Acme Logistics, third quarter"),
+        (2, "heading", 1, "Deliveries"),
+        # A layout's points are bullets at every level.
+        (2, "list_item", None, "14 of 16 deliveries on time"),
+        (2, "list_item", None, "Two late in August"),
+        (2, "heading", 2, "Speaker notes"),
+        (2, "paragraph", None, "Ask about the August delays."),
+        # A slide without a title is named by its number, and read top to bottom whatever
+        # order its shapes were added in.
+        (3, "heading", 1, "Slide 3"),
+        (3, "paragraph", None, "Price list"),
+        (3, "table", None, "| Item | Price |\n| --- | --- |\n| Pallet | EUR 40 |"),
+        (3, "paragraph", None, "Prices hold until December."),
+    ]
+
+
+def test_a_presentation_with_too_many_slides_or_none_is_refused(sample_pptx, tmp_path):
+    with pytest.raises(ParseError) as refused:
+        parse_within_limits(sample_pptx, "review.pptx", ParseLimits(max_pages=2))
+    assert str(refused.value) == (
+        "This presentation has 3 slides, more than the 2 that can be indexed. Split it and upload "
+        "the parts."
+    )
+    from pptx import Presentation
+
+    empty = tmp_path / "empty.pptx"
+    Presentation().save(str(empty))
+    with pytest.raises(ParseError) as refused:
+        parse_within_limits(empty, "empty.pptx", ParseLimits())
+    assert str(refused.value) == "This presentation has no slides. Add one, or upload another file."
+
+
 def test_xlsx_sheets_become_headings_and_tables(sample_xlsx):
     parsed = parse_file(sample_xlsx, "budget.xlsx")
     assert [(b.kind, b.level) for b in parsed.blocks] == [
@@ -136,7 +174,9 @@ def test_table_to_markdown_pads_and_escapes():
     ]
 
 
-@pytest.mark.parametrize("sample", ["sample_pdf", "sample_docx", "sample_xlsx", "sample_csv"])
+@pytest.mark.parametrize(
+    "sample", ["sample_pdf", "sample_docx", "sample_xlsx", "sample_pptx", "sample_csv"]
+)
 def test_the_child_process_returns_what_the_parser_finds(sample, request):
     path = request.getfixturevalue(sample)
     assert parse_within_limits(path, path.name, ParseLimits()) == parse_file(path, path.name)
@@ -354,7 +394,7 @@ RENAME = "Upload the original, or rename it to its real type."
 
 
 def test_bytes_that_are_what_the_extension_says_pass(
-    sample_pdf, sample_docx, sample_xlsx, sample_csv, tmp_path
+    sample_pdf, sample_docx, sample_xlsx, sample_pptx, sample_csv, tmp_path
 ):
     images = {}
     for kind in ("PNG", "JPEG", "WEBP"):
@@ -372,6 +412,7 @@ def test_bytes_that_are_what_the_extension_says_pass(
     assert wrong_type(sample_pdf, ".pdf") is None
     assert wrong_type(sample_docx, ".docx") is None
     assert wrong_type(sample_xlsx, ".xlsx") is None
+    assert wrong_type(sample_pptx, ".pptx") is None
     assert wrong_type(sample_csv, ".csv") is None
     assert wrong_type(images["PNG"], ".png") is None
     assert wrong_type(images["JPEG"], ".jpg") is None
@@ -417,6 +458,8 @@ def test_bytes_that_are_not_what_the_extension_says_are_named(
     assert wrong_type(sample_xlsx, ".docx") == f"Not a Word document. {RENAME}"
     assert wrong_type(plain_zip, ".docx") == f"Not a Word document. {RENAME}"
     assert wrong_type(sample_docx, ".xlsx") == f"Not an Excel workbook. {RENAME}"
+    assert wrong_type(sample_docx, ".pptx") == f"Not a PowerPoint presentation. {RENAME}"
+    assert wrong_type(plain_zip, ".pptx") == f"Not a PowerPoint presentation. {RENAME}"
     assert wrong_type(macros, ".xlsx") == f"Not an Excel workbook. {RENAME}"
     assert wrong_type(text, ".xlsx") == f"Not an Excel workbook. {RENAME}"
     assert wrong_type(png, ".jpg") == f"Not a JPEG image. {RENAME}"
@@ -441,6 +484,8 @@ def test_office_files_in_the_older_container_say_how_to_make_them_pass(tmp_path)
     document = compound_file(tmp_path / "letter.doc", {"WordDocument": 4096, "1Table": 4096})
     workbook = compound_file(tmp_path / "budget.xls", {"Workbook": 4096})
     excel5 = compound_file(tmp_path / "old.xls", {"Book": 4096})
+    slides = compound_file(tmp_path / "deck.ppt", {"PowerPoint Document": 4096})
+    locked_slides = compound_file(tmp_path / "locked.pptx", locked)
     message = compound_file(tmp_path / "mail.msg", {"__properties_version1.0": 4096})
     # A stream's name in a document's text is no directory entry.
     mention = tmp_path / "mention.doc"
@@ -452,11 +497,15 @@ def test_office_files_in_the_older_container_say_how_to_make_them_pass(tmp_path)
     password = "Protected by a password. Save a copy without the password and upload that."
     assert wrong_type(locked_document, ".docx") == password
     assert wrong_type(locked_workbook, ".xlsx") == password
+    assert wrong_type(locked_slides, ".pptx") == password
     older_word = "An older Word document (.doc). Save it as .docx and upload that."
     older_excel = "An older Excel workbook (.xls). Save it as .xlsx and upload that."
     assert wrong_type(document, ".docx") == older_word
     assert wrong_type(workbook, ".xlsx") == older_excel
     assert wrong_type(excel5, ".xlsx") == older_excel
+    older_slides = "An older PowerPoint presentation (.ppt). Save it as .pptx and upload that."
+    assert wrong_type(slides, ".pptx") == older_slides
+    assert wrong_type(slides, ".docx") == f"Not a Word document. {RENAME}"
     # Another program's older format, or a compound file of another kind, is a plain mismatch.
     assert wrong_type(document, ".xlsx") == f"Not an Excel workbook. {RENAME}"
     assert wrong_type(workbook, ".docx") == f"Not a Word document. {RENAME}"

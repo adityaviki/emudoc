@@ -115,6 +115,29 @@ def test_full_pipeline_builds_all_three_indexes(session, indexed):
     assert facts["governing_law"].verified is False
 
 
+def test_a_presentation_is_outlined_a_slide_a_section_and_cited_by_its_slide(
+    session, services, make_document, sample_pptx
+):
+    services.llm.available = False
+    document = make_document(sample_pptx)
+    process_document(document.id, services)
+    session.refresh(document)
+
+    assert document.status == "ready"
+    assert (document.title, document.page_count) == ("Supplier review 2024", 3)
+    # A slide counts as a page of the month, as a PDF's page does.
+    assert document.usage["upload"]["pages"] == 3
+    sections = rows(session, Section, document)
+    assert [(section.title, section.page_start) for section in sections] == [
+        ("Supplier review", 1),
+        ("Deliveries", 2),
+        ("Speaker notes", 2),
+        ("Slide 3", 3),
+    ]
+    late = next(p for p in rows(session, Passage, document) if "Two late in August" in p.text)
+    assert (late.context, late.page_start) == ("Supplier review 2024 › Deliveries", 2)
+
+
 def test_without_a_model_documents_are_still_parsed_and_searchable(
     session, services, make_document, sample_pdf
 ):

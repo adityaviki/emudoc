@@ -17,6 +17,10 @@ newest entry first.
 
 Members:
 
+- Upload PowerPoint presentations (.pptx): each slide is read as a page, its title a section of
+  the outline, with its text, tables and speaker notes, so an answer cites the slide it read. A
+  presentation saved in the format from before 2007 (.ppt) is turned away at the upload with how
+  to save it as .pptx.
 - Upload TIFF scans and HEIC photos: a TIFF of several pages, as a scanner or a fax saves it, is
   read page by page like a scanned PDF and shown by its pages, and so is a photo an iPhone saves
   as HEIC. A browser shows neither by itself, so "Download original file" gives you the file as
@@ -61,6 +65,8 @@ Members:
 
 Operators:
 
+- PowerPoint presentations (`.pptx`) are read by python-pptx in the parse child, a slide a page:
+  `PARSE_MAX_PAGES` refuses a deck by its slides, and its slides count as pages of the month.
 - TIFF (`.tif`, `.tiff`) and HEIC (`.heic`, `.heif`) uploads: the parse child counts a TIFF's
   pages against `PARSE_MAX_PAGES` as a PDF's, and the render children draw their pages for the
   pane, the thumbnails and the model, so the decoders never run in the API or the worker. HEIC

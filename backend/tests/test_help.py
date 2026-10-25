@@ -182,8 +182,8 @@ def test_the_help_is_filled_in_from_what_the_deployment_allows(client, signed_in
     assert by["documents"]["summary"] == dict(ARTICLES)["documents"]
     documents = said(by["documents"])
     assert (
-        "PDF, Word (.docx), Excel (.xlsx), CSV, plain text, Markdown files, and images (PNG, "
-        "JPEG, WebP, TIFF, HEIC). A file may be up to 100 MB."
+        "PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), CSV, plain text, Markdown files, "
+        "and images (PNG, JPEG, WebP, TIFF, HEIC). A file may be up to 100 MB."
     ) in documents
     assert "A larger upload is sent 100 files or 500 MB at a time" in documents
     assert "in the trash for 30 days" in documents

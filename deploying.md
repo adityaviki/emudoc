@@ -691,8 +691,8 @@ organisation, whatever its plan, each a refusal or a shortcut with a sentence th
   child refuses a file with more before it replies, so the worker never holds it, and a sheet
   stops being read at the row that takes it past: "This file holds more than 20,000,000
   characters of text, the most one document can have. Split it and upload the parts." Before
-  it, `PARSE_MAX_PAGES` (500) refuses a PDF or a TIFF by its pages and `PARSE_MAX_ROWS`
-  (100,000) a sheet by its rows.
+  it, `PARSE_MAX_PAGES` (500) refuses a PDF or a TIFF by its pages, a presentation by its
+  slides, and `PARSE_MAX_ROWS` (100,000) a sheet by its rows.
 - **Its scans.** `OCR_MAX_PAGES` (100) is how many pages the model may read as scans, a request
   each; a document with more is refused before a page is read. `OCR_CONCURRENCY` (4) of them are
   read at once, in page order: each page is drawn by one of the worker's `RENDER_PROCESSES`
@@ -4487,7 +4487,7 @@ the roots' `settings` the others ("The settings").
 | `SCANNER_URL` | none | required, `off` for none | The ClamAV daemon every upload is scanned by |
 | `PARSE_TIMEOUT` | `300` | | Seconds a parse may take |
 | `PARSE_MEMORY_MB` | `2048` | | The memory a parse may hold |
-| `PARSE_MAX_PAGES` | `500` | | The pages of a PDF or a TIFF |
+| `PARSE_MAX_PAGES` | `500` | | The pages of a PDF or a TIFF, the slides of a presentation |
 | `PARSE_MAX_ROWS` | `100000` | | The rows of a sheet |
 | `PARSE_MAX_CHARS` | `20000000` | | The characters of text one document may hold ("Large documents") |
 | `RENDER_PROCESSES` | `2` | | The pages a process draws at once, each in a child of its own ("Drawing pages") |

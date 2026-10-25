@@ -5,12 +5,12 @@ what a browser is told it holds. A file whose bytes say otherwise is refused at 
 a sentence that says what to do, rather than a stage later in a parser's words, or never, for a
 text file of another encoding that the parser reads with replacement characters. The check asks
 whether the bytes are what the name claims, not what type they might be instead, with one
-exception: Office's older binary container under a Word or Excel name. A document saved with a
-password is one, and so is one in the program's format from before 2007, and Office turns
-either into a file that passes, so the refusal says how. A file that passes can still be
-unreadable (truncated, a PDF locked with a password), and that stays the parse stage's to
-report. Like the parsers, it reads settings and database alike not at all, so the child
-process that parses could run it too.
+exception: Office's older binary container under a Word, Excel or PowerPoint name. A document
+saved with a password is one, and so is one in the program's format from before 2007, and
+Office turns either into a file that passes, so the refusal says how. A file that passes can
+still be unreadable (truncated, a PDF locked with a password), and that stays the parse
+stage's to report. Like the parsers, it reads settings and database alike not at all, so the
+child process that parses could run it too.
 """
 
 import codecs
@@ -42,13 +42,16 @@ OTHER_HEIF = (
     "A HEIF image in another coding than HEVC, which cannot be read. Save it as JPEG or PNG "
     "and upload that."
 )
-# A Word document and an Excel workbook are both zips; the package's `[Content_Types].xml`
-# declares what its main part is, which is how python-docx and openpyxl find it, so a package
-# that declares another kind (a template, a macro-enabled file, a presentation) is not one
-# they would be given.
+# A Word document, an Excel workbook and a PowerPoint presentation are all zips; the package's
+# `[Content_Types].xml` declares what its main part is, which is how python-docx, openpyxl and
+# python-pptx find it, so a package that declares another kind (a template, a macro-enabled
+# file, a slide show, another program's document) is not one they would be given.
 CONTENT_TYPES = "[Content_Types].xml"
 WORD_MAIN = b"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
 EXCEL_MAIN = b"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"
+POWERPOINT_MAIN = (
+    b"application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"
+)
 # Office's older binary container, the compound file: a .doc or an .xls is one, and so is a
 # .docx or an .xlsx saved with a password, which Office encrypts whole and wraps in one. The
 # streams it holds say which: the encrypted package's `EncryptionInfo`, or the older format's
@@ -63,6 +66,10 @@ OLDER_FORMATS = {
     ".xlsx": (
         ("Workbook", "Book"),
         "An older Excel workbook (.xls). Save it as .xlsx and upload that.",
+    ),
+    ".pptx": (
+        ("PowerPoint Document",),
+        "An older PowerPoint presentation (.ppt). Save it as .pptx and upload that.",
     ),
 }
 LOCKED = "Protected by a password. Save a copy without the password and upload that."
@@ -111,6 +118,10 @@ def wrong_type(path: Path, suffix: str) -> str | None:
         if EXCEL_MAIN in _content_types(path, head):
             return None
         return _compound(path, head, suffix) or f"Not an Excel workbook. {RENAME}"
+    if suffix == ".pptx":
+        if POWERPOINT_MAIN in _content_types(path, head):
+            return None
+        return _compound(path, head, suffix) or f"Not a PowerPoint presentation. {RENAME}"
     if suffix in TEXT_EXTENSIONS:
         return _not_text(head, whole=len(head) < HEAD)
     return f"Not a supported type. {RENAME}"
@@ -145,7 +156,7 @@ def _brands(head: bytes) -> set[bytes]:
 
 
 def _compound(path: Path, head: bytes, suffix: str) -> str | None:
-    """Why a compound file under a Word or Excel name is refused: it is locked with a password,
+    """Why a compound file under an Office name is refused: it is locked with a password,
     or it is the same program's older format. None for any other file, which gets the plain
     mismatch, as does a compound file of another kind (an older format of the other program,
     an Outlook message)."""
