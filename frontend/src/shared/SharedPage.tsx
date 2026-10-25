@@ -1,21 +1,24 @@
 // The page a share link opens (backend/app/share_links.py), for whoever holds it, signed in or not: it opens the link
 // by the token in its fragment, which stays in the address so that a reload opens it again, asks for its password where
-// it has one, and shows the document read only, as a member's tab does (components/DocumentViews.tsx), its pages and
-// file through the cookie of the view the opening made, until the view ends and the link is opened again.
+// it has one, and shows what the link shows, read only. A document as a member's tab shows it
+// (components/DocumentViews.tsx), its pages and file through the cookie of the view the opening made, until the view
+// ends and the link is opened again; an answer with its question and the passages it cites, each citation leading to
+// its passage's text below.
 
 import { useMutation } from '@tanstack/react-query'
 import { Download } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useLocation } from 'react-router'
-import { ApiError, api, isImage, isPdf, isSheet, sharedFileUrl, sharedPageUrl } from '../api.ts'
-import type { SharedDocument } from '../api.ts'
+import { ApiError, api, isImage, isPdf, isSheet, sharedFileUrl, sharedPageUrl, sourceLabel } from '../api.ts'
+import type { SharedAnswer, SharedDocument, Source } from '../api.ts'
 import { AuthCard, LegalLinks, PasswordField } from '../account/shared.tsx'
 import { ImagePreview, PagesView, SheetView, TextView } from '../components/DocumentViews.tsx'
 import { ThemeToggle } from '../components/ThemeToggle.tsx'
 import { Button, ButtonLink, Chip, Notice, Spinner } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
 import { sharedWords, tokenOf, viewLeft } from '../shareLinks.ts'
+import { CitedText } from '../workspace/CitedText.tsx'
 
 const NOT_A_LINK =
   'This address is not a whole share link. Copy the whole link you were sent, with everything after its #, into the address bar.'
@@ -40,7 +43,7 @@ export function SharedPage() {
 
   // The view's cookie ends with it, and the pages after it would not load: the page says so first.
   useEffect(() => {
-    if (!shared) return
+    if (shared?.kind !== 'document') return
     const timer = window.setTimeout(() => setEnded(true), viewLeft(shared))
     return () => window.clearTimeout(timer)
   }, [shared])
@@ -54,6 +57,8 @@ export function SharedPage() {
   let body
   if (!token) {
     body = <Gone message={NOT_A_LINK} />
+  } else if (shared?.kind === 'answer') {
+    body = <SharedAnswerView shared={shared} />
   } else if (shared) {
     body = <SharedView shared={shared} ended={ended} opening={open.isPending} onOpenAgain={() => mutate(password || undefined)} />
   } else if (open.error instanceof ApiError && open.error.status === 401) {
@@ -74,7 +79,7 @@ export function SharedPage() {
             </p>
           )}
           <Button variant="primary" type="submit" disabled={open.isPending} className="w-full justify-center">
-            Open the document
+            Open the link
           </Button>
         </form>
       </AuthCard>
@@ -172,6 +177,73 @@ function SharedView({ shared, ended, opening, onOpenAgain }: SharedViewProps) {
         </div>
       )}
       <div className="mt-5 overflow-hidden rounded-lg border border-line bg-surface">{view}</div>
+    </div>
+  )
+}
+
+/**
+ * The answer the link shows, read only: its question, its text, each citation numbered and leading to its passage below,
+ * and nothing else of the documents.
+ */
+function SharedAnswerView({ shared }: { shared: SharedAnswer }) {
+  const sources: Source[] = shared.passages.map((passage) => ({
+    id: passage.id,
+    document_id: 0,
+    document_title: passage.document_title,
+    context: passage.context,
+    page_start: passage.page_start,
+    page_end: passage.page_end,
+    excerpt: passage.text,
+  }))
+  function show(source: Source) {
+    const passage = window.document.getElementById(`passage-${source.id}`)
+    // Smoothly, unless the system asks for less motion, which CSS cannot say for a script's scroll.
+    const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+    passage?.scrollIntoView({ block: 'start', behavior })
+    passage?.focus({ preventScroll: true })
+  }
+
+  return (
+    <div className="w-full max-w-3xl">
+      <h1 className="text-xl font-semibold tracking-tight">An answer about the documents of {shared.organization}</h1>
+      <p className="mt-1.5 text-[13px] text-muted">
+        {sharedWords(shared)} Answered on {formatDate(shared.answered_at)}.
+      </p>
+      <div className="mt-5 space-y-4 rounded-lg border border-line bg-surface p-5">
+        <div>
+          <p className="mb-1 text-[11px] font-medium tracking-wide text-muted uppercase">Question</p>
+          <p className="leading-relaxed whitespace-pre-wrap">{shared.question}</p>
+        </div>
+        <div className="space-y-2.5">
+          <p className="text-[11px] font-medium tracking-wide text-muted uppercase">Answer</p>
+          <CitedText text={shared.answer} sources={sources} onOpen={show} opens="Show the passage" />
+        </div>
+        <p className="text-xs text-muted">Written by an AI model from the documents, which it can misread: check the passages it cites.</p>
+      </div>
+      {sources.length > 0 && (
+        <section aria-labelledby="cited-passages" className="mt-6">
+          <h2 id="cited-passages" className="text-[15px] font-semibold tracking-tight">
+            The passages it cites
+          </h2>
+          <ol className="mt-3 space-y-3">
+            {sources.map((source, index) => (
+              <li
+                key={source.id}
+                id={`passage-${source.id}`}
+                tabIndex={-1}
+                aria-label={`Passage ${index + 1}: ${sourceLabel(source)}`}
+                className="rounded-lg border border-line bg-surface p-4 text-[13px]"
+              >
+                <p className="flex gap-2 font-medium">
+                  <span className="font-semibold text-accent tabular-nums">{index + 1}</span>
+                  {sourceLabel(source)}
+                </p>
+                <p className="mt-2 leading-relaxed whitespace-pre-wrap">{source.excerpt}</p>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
     </div>
   )
 }

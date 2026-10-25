@@ -1,14 +1,20 @@
-// Share links as the pages word them (backend/app/share_links.py): how long a new link may run, a link's line in a
-// document's list and the organisation's, who may revoke it, the token its address carries, and what its visitor's
-// page says of who shared the document and of a view that ended.
+// Share links as the pages word them (backend/app/share_links.py): what a link is made for (a document, or an answer
+// of a chat), how long a new link may run, a link's line in a list and the organisation's, who may revoke it, the
+// token its address carries, and what its visitor's page says of who shared it and of a view that ended.
 
 import { DEFAULT_SHARE_DAYS, SHARE_DAYS, isWithin, mayChange } from './api.ts'
-import type { Me, ShareDays, ShareLink, SharedDocument } from './api.ts'
+import type { Me, OrganizationShareLink, ShareDays, ShareLink, Shared, SharedDocument, SharedKind } from './api.ts'
 import { formatDate } from './format.ts'
 
-/** The query of a document's links, and of the organisation's. */
-export const shareLinksKey = (documentId: number) => ['share-links', documentId] as const
+/** What a link is made for: a document by its id and name, or an answer by its chat's id and its own. */
+export type ShareTarget = { kind: 'document'; id: number; name: string } | { kind: 'answer'; chatId: number; id: number }
+
+/** The query of a document's or an answer's links, and of the organisation's. */
+export const shareLinksKey = (kind: SharedKind, id: number) => ['share-links', kind, id] as const
 export const ORGANIZATION_LINKS_KEY = ['organization', 'share-links'] as const
+
+/** The query of the links of what a link shows. */
+export const linkKey = (link: ShareLink) => shareLinksKey(link.kind, (link.document_id ?? link.message_id)!)
 
 /** The days a new link may run, as the form offers them, the default first. */
 export const SHARE_DAY_CHOICES: { value: ShareDays; label: string }[] = [DEFAULT_SHARE_DAYS, ...SHARE_DAYS.filter((days) => days !== DEFAULT_SHARE_DAYS)].map(
@@ -55,8 +61,13 @@ export function tokenOf(hash: string): string {
   return new URLSearchParams(hash.replace(/^#/, '')).get('token') ?? ''
 }
 
-/** Who shared the document with the visitor, and until when the link runs. */
-export function sharedWords(shared: SharedDocument): string {
+/** What a link of the organisation's shows, as its list names it: a document by its name, an answer by none. */
+export function linkAbout(link: OrganizationShareLink): string {
+  return `${link.filename ?? 'An answer of a chat'} in ${link.project_name}`
+}
+
+/** Who shared the document or the answer with the visitor, and until when the link runs. */
+export function sharedWords(shared: Shared): string {
   return `Shared by ${shared.shared_by} of ${shared.organization}, until ${formatDate(shared.expires_at)}.`
 }
 

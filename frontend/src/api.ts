@@ -1619,10 +1619,16 @@ export const SHARE_DAYS = [1, 7, 30] as const
 export type ShareDays = (typeof SHARE_DAYS)[number]
 export const DEFAULT_SHARE_DAYS: ShareDays = 7
 
-/** A link to a document that has not expired (ShareLinkOut): never its address, which its maker saw once. */
+/** What a share link shows: a document, or an answer of a chat with the passages it cites. */
+export type SharedKind = 'document' | 'answer'
+
+/** A link to a document or an answer that has not expired (ShareLinkOut): never its address, which its maker saw once. */
 export interface ShareLink {
   id: number
-  document_id: number
+  kind: SharedKind
+  /** The document it shows, or the answer. */
+  document_id: number | null
+  message_id: number | null
   /** Its maker, by id to tell the member's own, and by name as it is now. */
   user_id: number
   made_by: string
@@ -1640,15 +1646,16 @@ export interface ShareLinkMade extends ShareLink {
   url: string
 }
 
-/** A link of the organisation's, as its owners and admins list them, with what it shows. */
+/** A link of the organisation's, as its owners and admins list them, with what it shows: a document by its name, an answer by none, since a chat's words are its members'. */
 export interface OrganizationShareLink extends ShareLink {
-  filename: string
+  filename: string | null
   project_id: number
   project_name: string
 }
 
-/** What a share link shows its visitor (SharedDocumentOut): the document, read only, and who shared it. */
+/** What a document's share link shows its visitor (SharedDocumentOut): the document, read only, and who shared it. */
 export interface SharedDocument {
+  kind: 'document'
   link_id: number
   filename: string
   title: string | null
@@ -1664,6 +1671,31 @@ export interface SharedDocument {
   view_ends_at: string
   content: DocumentContent
 }
+
+/** A passage an answer cites, as its share link shows it: its text alone, with where it is. */
+export interface SharedPassage {
+  id: number
+  document_title: string
+  context: string
+  text: string
+  page_start: number | null
+  page_end: number | null
+}
+
+/** What an answer's share link shows its visitor (SharedAnswerOut): its question, its text and the passages it cites, nothing else of the documents. */
+export interface SharedAnswer {
+  kind: 'answer'
+  link_id: number
+  question: string
+  answer: string
+  answered_at: string
+  passages: SharedPassage[]
+  shared_by: string
+  organization: string
+  expires_at: string
+}
+
+export type Shared = SharedDocument | SharedAnswer
 
 /** A page of a webhook's delivery log, the newest first. */
 export interface WebhookDeliveries {
@@ -2128,7 +2160,7 @@ export const api = {
   /** Public, since the sign-in pages lead to help too. */
   help: () => request<Help>('/help'),
   /** Public: what a share link shows, and its view's cookie; a 401 asks for its password, a 404 says it stopped. */
-  openShared: (token: string, password?: string) => request<SharedDocument>('/shared', json('POST', { token, password })),
+  openShared: (token: string, password?: string) => request<Shared>('/shared', json('POST', { token, password })),
   /** Public: what changed for members, the page of days before `before`, the newest first. */
   changelog: (before: string | null) =>
     request<Changelog>(`/changelog${before ? `?${new URLSearchParams({ before })}` : ''}`),
@@ -2398,6 +2430,11 @@ export const api = {
   /** A 402 when the plan does not include links, a 403 when the organisation turned them off. */
   makeShareLink: (documentId: number, body: { days: ShareDays; password?: string }) =>
     request<ShareLinkMade>(`/documents/${documentId}/share-links`, json('POST', body)),
+  /** The answer's links that have not expired, the newest first. */
+  answerShareLinks: (chatId: number, messageId: number) => request<ShareLink[]>(`/chats/${chatId}/messages/${messageId}/share-links`),
+  /** As a document's, of a finished answer in a chat the member sees: a 409 while it is being written. */
+  makeAnswerShareLink: (chatId: number, messageId: number, body: { days: ShareDays; password?: string }) =>
+    request<ShareLinkMade>(`/chats/${chatId}/messages/${messageId}/share-links`, json('POST', body)),
   /** Its maker's, or an owner's or admin's; it stops at once. */
   revokeShareLink: (id: number) => request<void>(`/share-links/${id}`, { method: 'DELETE' }),
 }

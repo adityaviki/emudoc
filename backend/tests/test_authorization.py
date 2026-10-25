@@ -323,6 +323,7 @@ def chat_reads(w: World) -> list[Route]:
     return [
         ("GET", f"/api/chats/{w.chat_id}", {}),
         ("GET", f"/api/chats/{w.chat_id}/messages/{w.message_id}/events", {}),
+        ("GET", f"/api/chats/{w.chat_id}/messages/{w.message_id}/share-links", {}),
     ]
 
 
@@ -399,6 +400,12 @@ def links(w: World) -> list[Route]:
     return [("DELETE", f"/api/share-links/{w.link_id}", {})]
 
 
+def answer_links(w: World) -> list[Route]:
+    """Sharing an answer by link, which whoever sees its chat and may change the project may, a
+    shared chat's starter or not (test_share_links.py)."""
+    return [("POST", f"/api/chats/{w.chat_id}/messages/{w.message_id}/share-links", {"json": {}})]
+
+
 def members(w: World) -> list[Route]:
     """Changing a member's role and removing them, which only the owners and admins may."""
     return [
@@ -423,6 +430,7 @@ def scoped(w: World) -> list[Route]:
         + keys(w)
         + webhooks(w)
         + links(w)
+        + answer_links(w)
         + members(w)
     )
 
@@ -501,6 +509,7 @@ def test_a_private_project_is_found_by_nobody_else(client, world, account, make_
         + trash_writes(world)
         + starts(world)
         + links(world)
+        + answer_links(world)
     )
 
     act_as(make_account("mo.too@example.com", account.organization, role="member"))
@@ -522,8 +531,8 @@ def test_a_viewer_can_read_but_not_change(client, world, account, make_account, 
     assert set(seen.values()) == {200}, seen
     refused = statuses(client, writes(world) + trash_writes(world) + trashed_project(world))
     assert set(refused.values()) == {403}, refused
-    # The owner's chat in the trash is the owner's alone.
-    hidden = statuses(client, chat_trash(world))
+    # The owner's chat in the trash is the owner's alone, and so is the private chat's answer.
+    hidden = statuses(client, chat_trash(world) + answer_links(world))
     assert set(hidden.values()) == {404}, hidden
     assert client.post("/api/projects", json={"name": "Mine"}).status_code == 403
     detail = client.delete(f"/api/documents/{world.document_id}").json()["detail"]
@@ -557,7 +566,7 @@ def test_chats_are_private_until_shared(client, services, world, account, make_a
     max_ = make_account("max@example.com", account.organization, role="member")
     act_as(max_)
     assert client.get(f"/api/projects/{world.project_id}/chats").json() == []
-    hidden = statuses(client, chat_routes(world) + chat_trash(world))
+    hidden = statuses(client, chat_routes(world) + chat_trash(world) + answer_links(world))
     assert set(hidden.values()) == {404}, hidden
     own = new_chat(client, world.project_id)
 

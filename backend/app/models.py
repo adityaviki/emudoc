@@ -2125,14 +2125,15 @@ class ChatEvent(Base):
 
 
 class ShareLink(Base):
-    """A link that shows one document to whoever holds it, without an account, until it expires
-    or is revoked (app/share_links.py), which deletes it.
+    """A link that shows one document, or one answer with the passages it cites, to whoever
+    holds it, without an account, until it expires or is revoked (app/share_links.py), which
+    deletes it.
 
     It works as its maker's: only while they are a member of the organisation who may change the
-    project and still sees the document, so it goes with their membership by the database's
-    cascade, as an API key does, and stops while they are a viewer or the project is private
-    without them; and only while the organisation's plan includes links, its owners and admins
-    allow them, and the document is out of the trash and its malware scan passed it.
+    project and still sees the document or the chat, so it goes with their membership by the
+    database's cascade, as an API key does, and stops while they are a viewer or the project is
+    private without them; and only while the organisation's plan includes links, its owners and
+    admins allow them, and what it shows is out of the trash.
     """
 
     __tablename__ = "share_links"
@@ -2144,6 +2145,10 @@ class ShareLink(Base):
         ),
         # What the housekeeper prunes by.
         Index("ix_share_links_expires_at", "expires_at"),
+        # A document or an answer, never both.
+        CheckConstraint(
+            "(document_id IS NULL) <> (message_id IS NULL)", name="ck_share_links_shows"
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -2153,8 +2158,12 @@ class ShareLink(Base):
     project_id: Mapped[int] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), index=True
     )
-    document_id: Mapped[int] = mapped_column(
+    document_id: Mapped[int | None] = mapped_column(
         ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    # An answer of a chat, which the link shows with its question and the passages it cites.
+    message_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("chat_messages.id", ondelete="CASCADE"), index=True
     )
     # Its maker, as whom it is checked at each opening.
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)

@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ExternalLink,
   FileText,
+  Link2,
   ListTree,
   Lock,
   MessagesSquare,
@@ -37,12 +38,14 @@ import { formatDate } from '../format.ts'
 import { useOnline, useStatus } from '../hooks.ts'
 import { inviteNudgeOf, mayInvite } from '../onboarding.ts'
 import type { InviteNudge } from '../onboarding.ts'
+import { offersLinks } from '../shareLinks.ts'
 import { askHeld } from '../status.ts'
 import { trashKey } from '../trash.ts'
 import { KIND_LABELS } from '../drafts.ts'
 import { describeAnswerUsage } from '../usage.ts'
 import { OfferedDraft } from './Drafts.tsx'
 import { InviteTeam } from './InviteTeam.tsx'
+import { ShareDialog } from './ShareLinks.tsx'
 import { useWorkspace } from './state.ts'
 
 const SUGGESTIONS = [
@@ -345,6 +348,8 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
   // No model to answer, or no worker to run the answer: the composer waits, and says why.
   const held = askHeld(health.data)
   const unavailable = held !== null
+  // The answer whose share links are open, by its id.
+  const [sharing, setSharing] = useState<number | null>(null)
   const chat = useQuery({
     queryKey: chatKey(chatId),
     queryFn: () => api.chat(chatId!).then(loadChat),
@@ -488,6 +493,11 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
                 onReconnect={message.lost ? () => reconnect(message) : undefined}
                 onRetry={message === retried && chatId != null ? () => retry(queryClient, chatId) : undefined}
                 retryHeld={!online || unavailable}
+                onShare={
+                  offersLinks(me) && chatId != null && message.id != null && message.status === 'done' && message.content
+                    ? () => setSharing(message.id!)
+                    : undefined
+                }
                 offer={
                   message.draft && message.id != null && chatId != null && message.status !== 'streaming' ? (
                     <OfferedDraft chatId={chatId} messageId={message.id} offer={message.draft} own={!starter} />
@@ -497,6 +507,9 @@ function Conversation({ chatId, shared }: { chatId: number | null; shared: Chat[
             ),
           )}
           {nudge && <InviteTeam room={nudge.room} onInvited={() => setInvitedFrom(nudge)} />}
+          {sharing != null && chatId != null && (
+            <ShareDialog target={{ kind: 'answer', chatId, id: sharing }} onClose={() => setSharing(null)} />
+          )}
           <div ref={bottom} />
         </div>
       </div>
@@ -596,9 +609,11 @@ interface AnswerProps {
   retryHeld?: boolean
   // The draft the answer offers, once it is written.
   offer?: ReactNode
+  // Offered on a finished answer to a member who may share it by link.
+  onShare?: () => void
 }
 
-function Answer({ message, currency, onOpen, onReconnect, onRetry, retryHeld, offer }: AnswerProps) {
+function Answer({ message, currency, onOpen, onReconnect, onRetry, retryHeld, offer, onShare }: AnswerProps) {
   // Number the cited passages in the order the answer first mentions them.
   const cited = [...new Set([...message.content.matchAll(/\[P(\d+)\]/g)].map((match) => Number(match[1])))]
     .filter((id) => message.sources[id])
@@ -694,12 +709,27 @@ function Answer({ message, currency, onOpen, onReconnect, onRetry, retryHeld, of
           {describeAnswerUsage(message.usage, currency)}
         </p>
       ) : null}
+      {onShare && (
+        <Button variant="ghost" className="-ml-2 h-6 px-2" icon={<Link2 className="size-3.5" />} onClick={onShare}>
+          Share the answer
+        </Button>
+      )}
     </div>
   )
 }
 
-/** A numbered citation. Hovering shows the cited text; clicking opens it in the document. */
-export function CitationChip({ number, source, onOpen }: { number: number; source: Source; onOpen: () => void }) {
+/** A numbered citation. Hovering shows the cited text; clicking opens it in the document, or where `opens` says. */
+export function CitationChip({
+  number,
+  source,
+  onOpen,
+  opens = 'Open in the document',
+}: {
+  number: number
+  source: Source
+  onOpen: () => void
+  opens?: string
+}) {
   const chip = useRef<HTMLButtonElement>(null)
   // The popover's position, set from the chip when it opens.
   const [anchor, setAnchor] = useState<DOMRect | null>(null)
@@ -749,7 +779,7 @@ export function CitationChip({ number, source, onOpen }: { number: number; sourc
                 className="inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline"
               >
                 <ExternalLink className="size-4" />
-                Open in the document
+                {opens}
               </button>
             </div>
           </div>

@@ -1010,7 +1010,13 @@ only that the link no longer works. Opening the link makes a view of an hour, ke
 the browser sends to that link's pages and file alone, so the password is asked once an hour;
 wrong passwords pause the link after 10 an hour. Its maker, or an owner or admin, revokes it from
 the document's dialog; each link made, revoked, opened and its file downloaded is a row of the
-audit log, an opening by nobody the app knows with the address it came from.
+audit log, an opening by nobody the app knows with the address it came from. A finished answer is
+shared the same way ("Share the answer" under it), by whoever sees its chat and may change the
+project: its link shows the question, the answer and the passages it cites, each citation leading
+to its passage's text, and nothing else of the documents, neither a file nor a page; it stops with
+the chat in the trash, or made private while its maker is not its starter, and a passage whose
+document went is left out. The organisation's list names an answer's link by no words of its
+chat.
 The roles: a viewer reads the projects and asks about them in chats of their own, a member also
 changes the projects (makes, uploads, organises, deletes), an admin also renames the organisation
 and manages who is in it, and an owner also manages its owners. The page offers each member only
@@ -1372,7 +1378,7 @@ backend/app/
   auth.py       passwords, sessions, one-time links and authenticator codes
   apikeys.py    the API keys a program calls the API with, as the member who made them
   share_links.py
-                links that show one document to whoever holds them, with no account
+                links that show a document, or an answer, to whoever holds them, with no account
   idempotency.py
                 a program's Idempotency-Key: a request sent again is given the first answer
   keyring.py    the keys of ENCRYPTION_KEYS and the cipher the database's secrets are kept in

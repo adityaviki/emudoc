@@ -8,7 +8,7 @@ import type { Me } from '../api.ts'
 import { setSignedIn } from '../auth.ts'
 import { PlanOffer } from '../components/PlanLimit.tsx'
 import { Checkbox, Notice, Section } from '../components/ui.tsx'
-import { ORGANIZATION_LINKS_KEY, shareLinksKey } from '../shareLinks.ts'
+import { ORGANIZATION_LINKS_KEY, linkAbout, linkKey } from '../shareLinks.ts'
 import { LinkRow } from '../workspace/ShareLinks.tsx'
 
 export function ShareLinksSection({ me }: { me: Me }) {
@@ -22,7 +22,10 @@ export function ShareLinksSection({ me }: { me: Me }) {
   const checked = save.isPending ? save.variables : organization.share_links
 
   return (
-    <Section title="Share links" description="Links that show one document to someone outside the organisation, with no account, for a few days.">
+    <Section
+      title="Share links"
+      description="Links that show one document, or one answer, to someone outside the organisation, with no account, for a few days."
+    >
       {!organization.allowance.share_links ? (
         <Notice tone="info">
           <p className="text-ink">The plan does not include share links.</p>
@@ -33,7 +36,7 @@ export function ShareLinksSection({ me }: { me: Me }) {
           <Checkbox
             label={
               <>
-                <span className="font-medium">Let members share documents by link</span>
+                <span className="font-medium">Let members share documents and answers by link</span>
                 <span className="block text-muted">
                   Off, every link stops at once; on again, those that have not run out work again.
                 </span>
@@ -55,10 +58,10 @@ export function ShareLinksSection({ me }: { me: Me }) {
             <LinkRow
               key={link.id}
               link={link}
-              about={`${link.filename} in ${link.project_name}`}
+              about={linkAbout(link)}
               onRevoked={() => {
                 void queryClient.invalidateQueries({ queryKey: ORGANIZATION_LINKS_KEY })
-                void queryClient.invalidateQueries({ queryKey: shareLinksKey(link.document_id) })
+                void queryClient.invalidateQueries({ queryKey: linkKey(link) })
               }}
             />
           ))}

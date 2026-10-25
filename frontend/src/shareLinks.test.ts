@@ -1,11 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import type { Me, ShareLink, SharedDocument } from './api.ts'
+import type { Me, OrganizationShareLink, ShareLink, SharedDocument } from './api.ts'
 import { formatDate } from './format.ts'
-import { SHARE_DAY_CHOICES, describeLink, linksHeld, mayRevoke, offersLinks, sharedWords, tokenOf, viewLeft } from './shareLinks.ts'
+import {
+  SHARE_DAY_CHOICES,
+  describeLink,
+  linkAbout,
+  linkKey,
+  linksHeld,
+  mayRevoke,
+  offersLinks,
+  shareLinksKey,
+  sharedWords,
+  tokenOf,
+  viewLeft,
+} from './shareLinks.ts'
 
 const link: ShareLink = {
   id: 4,
+  kind: 'document',
   document_id: 9,
+  message_id: null,
   user_id: 7,
   made_by: 'Ada',
   created_at: '2026-10-25T09:00:00Z',
@@ -57,6 +71,19 @@ describe('share links', () => {
     expect(mayRevoke(link, { ...member('member'), id: 7 })).toBe(true)
     expect(mayRevoke(link, member('member'))).toBe(false)
     expect(mayRevoke(link, member('admin'))).toBe(true)
+  })
+
+  it("names what a link of the organisation's shows, an answer by no words of its chat", () => {
+    const listed: OrganizationShareLink = { ...link, filename: 'msa.pdf', project_id: 2, project_name: 'Contracts' }
+    expect(linkAbout(listed)).toBe('msa.pdf in Contracts')
+    expect(linkAbout({ ...listed, kind: 'answer', document_id: null, message_id: 31, filename: null })).toBe(
+      'An answer of a chat in Contracts',
+    )
+  })
+
+  it('keeps a document’s links and an answer’s apart', () => {
+    expect(linkKey(link)).toEqual(shareLinksKey('document', 9))
+    expect(linkKey({ ...link, kind: 'answer', document_id: null, message_id: 9 })).toEqual(['share-links', 'answer', 9])
   })
 
   it('finds the token in the fragment of a link', () => {

@@ -47,11 +47,11 @@ import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, rele
 // last the project given an address, a supplier's domain listed, whose mail becomes documents and a
 // stranger's is turned away, as the page lists them, and a folder of the member's Google Drive
 // connected and synced, and last the invoice shared by a link with a password, which someone with
-// no account opens and its member revokes. The answer is the stand-in's (e2e/standin.py): the
-// first sentence of the passage its search found best, with that passage's reference. Along the
-// way each kind of page, panel and dialog is checked against axe-core's rules for WCAG 2.2 AA in
-// both themes (e2e/axe.ts), and the keyboard's focus is followed where something it was on goes
-// away.
+// no account opens and its member revokes, and an answer about it shared, its citation leading the
+// visitor to the passage. The answer is the stand-in's (e2e/standin.py): the first sentence of the
+// passage its search found best, with that passage's reference. Along the way each kind of page,
+// panel and dialog is checked against axe-core's rules for WCAG 2.2 AA in both themes
+// (e2e/axe.ts), and the keyboard's focus is followed where something it was on goes away.
 const CONTRACT = join(import.meta.dirname, 'fixtures', 'service-contract.md')
 // An invoice whose fields are lines of their own, which the stand-in reads for the invoice template,
 // and a delivery period, which only a template that asks for it reads.
@@ -1540,7 +1540,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     )
   })
 
-  await test.step('share the invoice by a link with a password, which someone with no account opens, then revoke it', async () => {
+  await test.step('share the invoice by a link with a password, which someone with no account opens, then revoke it, and share an answer about it', async () => {
     chooseFlag(slug, 'share_links', 'on')
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
@@ -1570,10 +1570,10 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(visitor.getByLabel('Password', { exact: true })).toBeFocused()
     await expectAccessible(visitor, "a share link's password")
     await visitor.getByLabel('Password', { exact: true }).fill('harbour light')
-    await visitor.getByRole('button', { name: 'Open the document' }).click()
+    await visitor.getByRole('button', { name: 'Open the link' }).click()
     await expect(visitor.getByRole('alert')).toHaveText("That is not this link's password. Check it with whoever sent the link.")
     await visitor.getByLabel('Password', { exact: true }).fill('harbour lights')
-    await visitor.getByRole('button', { name: 'Open the document' }).click()
+    await visitor.getByRole('button', { name: 'Open the link' }).click()
     await expect(visitor.getByText(/^Shared by Ada Lovelace of Ada Lovelace's workspace, until /)).toBeVisible()
     await expect(visitor.getByText('Invoice number: INV-2026-0412')).toBeVisible()
     await expectAccessible(visitor, 'a shared document')
@@ -1594,15 +1594,40 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await visitor.reload()
     await expect(visitor.getByRole('heading', { name: 'The link does not open' })).toBeVisible()
     await expectAccessible(visitor, 'a share link that stopped')
+
+    // An answer too, which its link shows with its question and the passages it cites, each citation leading to its passage.
+    await page.goto('/')
+    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
+    // A chat of its own, the project's last one holding answers of their own to share.
+    await page.getByRole('button', { name: 'New chat' }).click()
+    const composer = page.getByPlaceholder('Ask a question about these documents')
+    await composer.fill('What is the total amount of the invoice?')
+    await composer.press('Enter')
+    const shareAnswer = page.getByRole('button', { name: 'Share the answer' })
+    await expect(shareAnswer).toBeVisible({ timeout: 30_000 })
+    await shareAnswer.click()
+    const answerDialog = page.getByRole('dialog', { name: 'Share this answer' })
+    await answerDialog.getByRole('button', { name: 'Make a link' }).click()
+    const answerAddress = await answerDialog.getByLabel('The link').inputValue()
+    await page.keyboard.press('Escape')
+    await expect(shareAnswer).toBeFocused()
+    await visitor.goto(answerAddress)
+    await expect(visitor.getByRole('heading', { level: 1 })).toHaveText(/^An answer about /)
+    await expect(visitor.getByText('What is the total amount of the invoice?')).toBeVisible()
+    await visitor.getByRole('button', { name: '1', exact: true }).first().click()
+    await expect(visitor.getByRole('listitem', { name: /^Passage 1: / })).toBeFocused()
+    await expectAccessible(visitor, 'a shared answer')
     await elsewhere.close()
 
     // The organisation's owners and admins see its links, and read each opening in the audit log, by nobody it knows.
     await page.goto('/organization')
-    await expect(page.getByText('No share link of the organisation is running.')).toBeVisible()
-    await expect(page.getByLabel(/^Let members share documents by link/)).toBeChecked()
+    await expect(page.getByRole('listitem').filter({ hasText: 'An answer of a chat in Supplier contracts' })).toContainText('opened once')
+    await expect(page.getByLabel(/^Let members share documents and answers by link/)).toBeChecked()
     await expectAccessible(page, "the organisation's share links")
     await page.goto('/organization/audit')
     await page.getByLabel('What').selectOption('share_link_viewed')
-    await expect(page.getByRole('listitem').filter({ hasText: 'Opened a share link' })).toContainText('Someone with the link')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Opened a share link' }).filter({ hasText: 'an answer' })).toContainText(
+      'Someone with the link',
+    )
   })
 })

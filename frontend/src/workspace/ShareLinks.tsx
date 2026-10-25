@@ -1,41 +1,56 @@
-// A document's share links (backend/app/share_links.py): the dialog its tab opens, which makes one (the days it runs and
-// a password, if any), shows its address once to copy, and lists those that have not expired; and a link's row, which
-// its maker or an owner or admin revokes, here and in the organisation's list (organization/ShareLinksSection.tsx).
+// A document's or an answer's share links (backend/app/share_links.py): the dialog the document's tab or the answer
+// opens, which makes one (the days it runs and a password, if any), shows its address once to copy, and lists those
+// that have not expired; and a link's row, which its maker or an owner or admin revokes, here and in the
+// organisation's list (organization/ShareLinksSection.tsx).
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Copy, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { DEFAULT_SHARE_DAYS, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, PLAN_LABELS, api, isPlanLimit } from '../api.ts'
-import type { Document, ShareDays, ShareLink, ShareLinkMade } from '../api.ts'
+import type { ShareDays, ShareLink, ShareLinkMade } from '../api.ts'
 import { PasswordField } from '../account/shared.tsx'
 import { useMe } from '../auth.ts'
 import { PlanLimitNotice, PlanOffer } from '../components/PlanLimit.tsx'
 import { Button, IconButton, InputField, Notice, SelectField } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
 import { LINKS_OFF, ORGANIZATION_LINKS_KEY, SHARE_DAY_CHOICES, describeLink, linksHeld, mayRevoke, shareLinksKey } from '../shareLinks.ts'
+import type { ShareTarget } from '../shareLinks.ts'
+
+// What the dialog says the link shows, by what it is made for.
+const SHOWS = {
+  document: 'Anyone who holds a link reads the document and downloads its file',
+  answer: 'Anyone who holds a link reads the answer, its question and the passages it cites, and nothing else of the documents,',
+}
 
 /**
- * The document's links, in a modal over the page for as long as it is mounted, as `Confirm` is: the browser's own
- * dialog, Escape closing it and the focus going back to the button that opened it.
+ * The document's or the answer's links, in a modal over the page for as long as it is mounted, as `Confirm` is: the
+ * browser's own dialog, Escape closing it and the focus going back to the button that opened it.
  */
-export function ShareDialog({ document, onClose }: { document: Document; onClose: () => void }) {
+export function ShareDialog({ target, onClose }: { target: ShareTarget; onClose: () => void }) {
   const me = useMe()
   const queryClient = useQueryClient()
   const dialog = useRef<HTMLDialogElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const id = useId()
   const held = linksHeld(me)
-  const links = useQuery({ queryKey: shareLinksKey(document.id), queryFn: () => api.shareLinks(document.id) })
+  const key = shareLinksKey(target.kind, target.id)
+  const links = useQuery({
+    queryKey: key,
+    queryFn: () => (target.kind === 'document' ? api.shareLinks(target.id) : api.answerShareLinks(target.chatId, target.id)),
+  })
   const [days, setDays] = useState<ShareDays>(DEFAULT_SHARE_DAYS)
   const [password, setPassword] = useState('')
   const [made, setMade] = useState<ShareLinkMade | null>(null)
   const changed = () => {
-    void queryClient.invalidateQueries({ queryKey: shareLinksKey(document.id) })
+    void queryClient.invalidateQueries({ queryKey: key })
     void queryClient.invalidateQueries({ queryKey: ORGANIZATION_LINKS_KEY })
   }
   const make = useMutation({
-    mutationFn: () => api.makeShareLink(document.id, password ? { days, password } : { days }),
+    mutationFn: () => {
+      const body = password ? { days, password } : { days }
+      return target.kind === 'document' ? api.makeShareLink(target.id, body) : api.makeAnswerShareLink(target.chatId, target.id, body)
+    },
     onSuccess: (link) => {
       setMade(link)
       setPassword('')
@@ -118,15 +133,15 @@ export function ShareDialog({ document, onClose }: { document: Document; onClose
     >
       <div className="flex items-start justify-between gap-3">
         <h2 ref={heading} tabIndex={-1} id={`${id}-title`} className="font-semibold break-words">
-          Share “{document.filename}”
+          {target.kind === 'document' ? `Share “${target.name}”` : 'Share this answer'}
         </h2>
         <IconButton label="Close" onClick={() => dialog.current?.close()}>
           <X className="size-4" />
         </IconButton>
       </div>
       <p id={`${id}-body`} className="mt-1.5 text-[13px] leading-relaxed text-muted">
-        Anyone who holds a link reads the document and downloads its file, with no account, until the link runs out or is
-        revoked. The organisation's audit log records each opening.
+        {SHOWS[target.kind]} with no account, until the link runs out or is revoked. The organisation's audit log records
+        each opening.
       </p>
       <div className="mt-4">{making}</div>
       <h3 className="mt-5 text-[13px] font-medium">Links running</h3>
@@ -146,7 +161,7 @@ export function ShareDialog({ document, onClose }: { document: Document; onClose
           ))}
         </ul>
       ) : (
-        links.data && <p className="mt-1 text-[13px] text-muted">No link to this document is running.</p>
+        links.data && <p className="mt-1 text-[13px] text-muted">No link to this {target.kind} is running.</p>
       )}
     </dialog>
   )
@@ -173,7 +188,7 @@ function MadeLink({ made, onDone }: { made: ShareLinkMade; onDone: () => void })
   return (
     <div className="space-y-3 text-[13px]">
       <Notice tone="warn">
-        Copy the link now: it is not shown again. Whoever holds it reads the document until {formatDate(made.expires_at)}.
+        Copy the link now: it is not shown again. Whoever holds it reads the {made.kind} until {formatDate(made.expires_at)}.
         {made.password && ' Send its password apart from it.'}
       </Notice>
       <InputField id={field} label="The link" value={made.url} readOnly onFocus={(event) => event.target.select()} />

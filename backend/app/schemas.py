@@ -1859,6 +1859,8 @@ class ApiKeyMadeOut(ApiKeyOut):
 
 # The days a share link may run (DAYS in app/share_links.py).
 ShareDays = Literal[1, 7, 30]
+# What a share link shows: a document, or an answer of a chat.
+SharedKind = Literal["document", "answer"]
 
 
 class ShareLinkIn(BaseModel):
@@ -1871,11 +1873,14 @@ class ShareLinkIn(BaseModel):
 
 
 class ShareLinkOut(_FromORM):
-    """A link to a document that has not expired, as the members see it (app/share_links.py):
-    never its token, which only its maker saw, once."""
+    """A link to a document or an answer that has not expired, as the members see it
+    (app/share_links.py): never its token, which only its maker saw, once."""
 
     id: int
-    document_id: int
+    kind: SharedKind
+    # The document it shows, or the answer.
+    document_id: int | None
+    message_id: int | None
     # Its maker, by id for the page to tell its member's own, and by name as it is now.
     user_id: int
     made_by: str
@@ -1895,9 +1900,10 @@ class ShareLinkMadeOut(ShareLinkOut):
 
 
 class OrganizationShareLinkOut(ShareLinkOut):
-    """A link of the organisation's, as its owners and admins list them, with what it shows."""
+    """A link of the organisation's, as its owners and admins list them, with what it shows: a
+    document by its name, an answer by none, since a chat's words are its members'."""
 
-    filename: str
+    filename: str | None
     project_id: int
     project_name: str
 
@@ -1910,9 +1916,10 @@ class SharedOpenIn(BaseModel):
 
 
 class SharedDocumentOut(BaseModel):
-    """What a share link shows (app/share_links.py): the document, read only, with who shared
-    it, and the link's id, whose pages and file the view's cookie reaches."""
+    """What a document's share link shows (app/share_links.py): the document, read only, with
+    who shared it, and the link's id, whose pages and file the view's cookie reaches."""
 
+    kind: Literal["document"] = "document"
     link_id: int
     filename: str
     title: str | None
@@ -1928,6 +1935,35 @@ class SharedDocumentOut(BaseModel):
     expires_at: dt.datetime
     view_ends_at: dt.datetime
     content: DocumentContent
+
+
+class SharedPassageOut(BaseModel):
+    """A passage an answer cites, as a share link shows it: its text alone, with where it is."""
+
+    id: int
+    document_title: str
+    context: str
+    text: str
+    page_start: int | None
+    page_end: int | None
+
+
+class SharedAnswerOut(BaseModel):
+    """What an answer's share link shows: its question, its text, which cites passages as
+    [P<id>], and those passages, with who shared it; nothing else of the documents."""
+
+    kind: Literal["answer"] = "answer"
+    link_id: int
+    question: str
+    answer: str
+    answered_at: dt.datetime
+    passages: list[SharedPassageOut]
+    shared_by: str
+    organization: str
+    expires_at: dt.datetime
+
+
+SharedOut = Annotated[SharedDocumentOut | SharedAnswerOut, Field(discriminator="kind")]
 
 
 # WEBHOOK_EVENTS and WEBHOOK_DELIVERY_STATUSES in app/models.py, which the database's check
@@ -2453,12 +2489,14 @@ class ExportedNotification(BaseModel):
 
 
 class ExportedShareLink(BaseModel):
-    """A link the user made to a document that has not expired (app/share_links.py), never its
-    token."""
+    """A link the user made to a document or an answer that has not expired
+    (app/share_links.py), never its token."""
 
     organization: str
     project: str
-    document: str
+    kind: str = "document"
+    # The document's name; None for an answer.
+    document: str | None
     created_at: dt.datetime
     expires_at: dt.datetime
     password: bool
@@ -2614,10 +2652,13 @@ class ExportedTemplate(BaseModel):
 
 
 class ExportedProjectShareLink(BaseModel):
-    """A link to one of the project's documents that has not expired, never its token."""
+    """A link to one of the project's documents, or to an answer in one of its chats, that has
+    not expired, never its token."""
 
-    document_id: int
-    document: str
+    kind: str = "document"
+    # The document's id and name; None for an answer.
+    document_id: int | None
+    document: str | None
     # The name of the member who made it, as it is now.
     made_by: str
     created_at: dt.datetime
