@@ -5,12 +5,13 @@
 import { PLAN_LABELS, ROLE_LABELS } from './api.ts'
 import type { AuditAction, AuditEvent, AuditFilter, ConnectorProvider, DraftKind, NoticeKind, Plan, ReviewState, Role } from './api.ts'
 import { SERVICE_NAMES } from './connectors.ts'
-import { DRAFT_FILES, KIND_LABELS } from './drafts.ts'
+import { KIND_LABELS } from './drafts.ts'
 import { fieldWords } from './factTable.ts'
 import { formatDate, formatDateTime } from './format.ts'
 import { NOTICE_KINDS } from './notifications.ts'
 import { keptWords, languageName, signInWords } from './organizationSettings.ts'
 import { REVIEW_LABELS } from './reviews.ts'
+import { TEXT_FILES } from './textFiles.ts'
 
 /** The kinds the filter groups the actions under, in its order, as it names them. */
 export const KINDS = {
@@ -137,6 +138,8 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   share_link_downloaded: ['Downloaded by a share link', 'files'],
   chat_shared: ['Shared a chat', 'chats'],
   chat_unshared: ['Made a chat private', 'chats'],
+  chat_exported: ['Downloaded a chat', 'chats'],
+  answer_exported: ['Downloaded an answer', 'chats'],
   chat_deleted: ['Deleted a chat', 'chats'],
   chat_restored: ['Restored a chat', 'chats'],
   chat_purged: ['Deleted a chat for good', 'chats'],
@@ -206,6 +209,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   else if (event.action === 'flag_changed') parts.push(describeFlag(detail))
   else if (TEMPLATE_ACTIONS.has(event.action)) parts.push(describeTemplate(event.action, detail))
   else if (event.action === 'facts_exported') parts.push(describeFactsExport(detail))
+  else if (CHAT_EXPORT_ACTIONS.has(event.action)) parts.push(describeChatExport(detail))
   else if (CROSS_CHECK_ACTIONS.has(event.action)) parts.push(describeCrossCheck(detail))
   else if (RUN_ACTIONS.has(event.action)) parts.push(describeRun(detail))
   else if (AUTOMATION_ACTIONS.has(event.action)) parts.push(describeAutomation(detail))
@@ -373,6 +377,17 @@ function describeAutomation(detail: AuditEvent['detail']): string {
   return parts.join(', ')
 }
 
+const CHAT_EXPORT_ACTIONS = new Set<AuditAction>(['chat_exported', 'answer_exported'])
+
+/** An answer or a whole chat downloaded: how many answers the chat's file held, and as what, never their words. */
+function describeChatExport(detail: AuditEvent['detail']): string {
+  const parts = []
+  if (typeof detail.answers === 'number') parts.push(`${detail.answers} answer${detail.answers === 1 ? '' : 's'}`)
+  const file = TEXT_FILES.find((option) => option.format === detail.format)
+  if (file) parts.push(`as ${file.words}`)
+  return parts.join(', ')
+}
+
 const DRAFT_ACTIONS = new Set<AuditAction>(['draft_created', 'draft_changed', 'draft_deleted', 'draft_exported'])
 
 /** A draft asked for, changed, deleted or downloaded: its kind, how many documents it was about, the version a member saved or downloaded and as what, or the model's writing again, never what it says. */
@@ -384,7 +399,7 @@ function describeDraft(detail: AuditEvent['detail']): string {
   }
   // Offered by an answer, and written at its member's press.
   if (typeof detail.chat === 'number') parts.push('from a chat')
-  const file = DRAFT_FILES.find((option) => option.format === detail.format)
+  const file = TEXT_FILES.find((option) => option.format === detail.format)
   if (typeof detail.version === 'number') parts.push(file ? `version ${detail.version} as ${file.words}` : `saved as version ${detail.version}`)
   if (detail.rewritten === true) parts.push('written again by the model')
   return parts.join(', ')

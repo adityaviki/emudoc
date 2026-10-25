@@ -47,13 +47,15 @@ describe('the filter', () => {
     expect(filterOf({ ...NO_CHOICES, what: 'kind:chats' }).actions).toEqual([
       'chat_shared',
       'chat_unshared',
+      'chat_exported',
+      'answer_exported',
       'chat_deleted',
       'chat_restored',
       'chat_purged',
     ])
     expect(filterOf({ ...NO_CHOICES, what: 'sign_in' }).actions).toEqual(['sign_in'])
     const query = auditQuery(filterOf({ ...NO_CHOICES, what: 'kind:chats', who: '7', project: '12' }))
-    expect(query.getAll('action')).toHaveLength(5)
+    expect(query.getAll('action')).toHaveLength(7)
     expect([query.get('user_id'), query.get('project_id')]).toEqual(['7', '12'])
   })
 
@@ -210,6 +212,13 @@ describe('a row', () => {
     expect(describeDetail(event('api_key_rolled', { name: 'Sync' }))).toBe('Sync')
     const through = { filename: 'msa.pdf', api_key: { id: 3, name: 'Sync' } }
     expect(describeDetail(event('document_uploaded', through))).toBe('msa.pdf · with the API key Sync')
+  })
+
+  it('words an answer or a chat downloaded by what the file held, never its words', () => {
+    expect(actionLabel('answer_exported')).toBe('Downloaded an answer')
+    expect(describeDetail(event('answer_exported', { answer: 31, format: 'pdf' }))).toBe('as a PDF')
+    expect(describeDetail(event('chat_exported', { answers: 1, format: 'md' }))).toBe('1 answer, as Markdown')
+    expect(describeDetail(event('chat_exported', { answers: 4, format: 'docx' }))).toBe('4 answers, as a Word document')
   })
 
   it('words a share link by its document, its days and its password', () => {

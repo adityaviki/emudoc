@@ -17,6 +17,11 @@ newest entry first.
 
 Members:
 
+- Download an answer, or a whole chat: "Download the answer" under an answer saves it with its
+  question as a Word document, a PDF or Markdown, and the download button in the chat's header
+  saves every question and answer of the chat in one file. Each citation becomes a numbered note
+  naming the document, section and pages of its passage, and the file says who asked, in which
+  project and on which day.
 - Share an answer by a link too: "Share the answer" under a finished answer makes one as for a
   document. Whoever holds it reads the question, the answer and the passages it cites, each
   citation leading to its passage, and nothing else of your documents. The link stops when its
@@ -47,6 +52,10 @@ Members:
 
 Operators:
 
+- `RATE_EXPORTS` (10 a minute per member) now holds the downloads of an answer and of a chat
+  too (`GET /api/chats/{id}/messages/{id}/export`, `GET /api/chats/{id}/export`), and the audit
+  log keeps them as `answer_exported` and `chat_exported` (migration 5937fbc7e744), by the
+  chat's id and the format, never what was asked or answered.
 - Share links: `RATE_SHARED_LINKS` (30 a minute per client address) holds their openings, and
   `RATE_SHARED_PASSWORDS` (10 an hour per link and per address) their wrong passwords. The flag
   `share_links` turns them on for an organisation (`flags`), its plan's `share_links` figure

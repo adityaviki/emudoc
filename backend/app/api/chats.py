@@ -6,21 +6,24 @@ the answer's events through `events`, a server-sent event stream read from the t
 pick it up again from the last event it saw after a reload or a dropped connection. `stop`
 ends an answer early with what arrived so far, and `retry` writes a stopped or failed answer
 again in its place. A chat deleted goes into the trash, its starter's alone (app/trash.py); an
-answer still being written there finishes.
+answer still being written there finishes. Whoever reads a chat downloads an answer of it, or the
+whole chat, as a Word document, a PDF or its Markdown (app/chat_export.py), which the audit log
+keeps by the chat's id and the answer's, never their words.
 """
 
 import logging
 import time
 from collections.abc import AsyncIterator
+from typing import Annotated
 
 import anyio
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
-from app.accounts import Account
+from app.accounts import Account, zone_of
 from app.answers import (
     KEEPALIVE,
     STOPPED,
@@ -43,13 +46,23 @@ from app.api.deps import (
     limited,
 )
 from app.audit import audit
+from app.chat_export import (
+    NOT_LAID_OUT,
+    Asked,
+    answer_file,
+    chat_file,
+    exchange_of,
+    exchanges_of,
+    file_name,
+)
 from app.config import get_settings
 from app.db import SessionLocal
+from app.draft_export import MEDIA_TYPES, ExportFormat, ExportRefused
 from app.entitlements import PlanRefused, Refusal, check_question
 from app.logs import about
-from app.models import Chat, ChatMessage
+from app.models import Chat, ChatMessage, Project
 from app.notices import MONTH_QUESTIONS, note_quota
-from app.ratelimit import QUESTIONS
+from app.ratelimit import EXPORTS, QUESTIONS
 from app.schemas import (
     AskOut,
     ChatDetail,
@@ -59,8 +72,10 @@ from app.schemas import (
     QuestionIn,
     RetryOut,
 )
+from app.share_links import question_of
 from app.shutdown import Stop
 from app.spending import check_platform_spend, check_spend, retry_after
+from app.storage import content_disposition
 from app.trash import trash_chat
 from app.usage import ANSWER, record
 
@@ -75,6 +90,8 @@ STILL_ANSWERING = (
 )
 NOT_THE_LAST = "Only the chat's last answer can be tried again. Ask the question again instead."
 FINISHED = "This answer is finished, so there is nothing to try again. Ask a follow-up instead."
+STILL_WRITTEN = "This answer is still being written. Download it once it is finished."
+NOTHING_ASKED = "Nothing has been asked in this chat yet, so there is nothing to download."
 # The statuses of an answer the member may try again: one that ended without being finished.
 RETRIED = ("stopped", "failed")
 # How often the events route looks for new events of an answer it is following. Each look is
@@ -274,6 +291,104 @@ def retry(chat: OwnChatDep, message_id: int, session: SessionDep, account: Accou
     last_event_id = retry_answer(session, chat, message)
     session.commit()
     return RetryOut(answer=message, last_event_id=last_event_id)
+
+
+@router.get(
+    "/chats/{chat_id}/messages/{message_id}/export",
+    response_class=Response,
+    responses={200: {"content": {media: {} for media in MEDIA_TYPES.values()}}},
+    dependencies=[Depends(limited(EXPORTS))],
+)
+def export_answer(
+    chat: ChatDep,
+    message_id: int,
+    session: SessionDep,
+    account: AccountDep,
+    request: Request,
+    written_as: Annotated[ExportFormat, Query(alias="format")] = "docx",
+):
+    """The answer with its question as a file to save (app/chat_export.py): a Word document,
+    with `format=pdf` a PDF, with `format=md` its Markdown, each citation a numbered note naming
+    the passage it cites. The download is recorded once the file is made, before it is sent, by
+    the chat's id, the answer's and the format, never what they say."""
+    message = answer_in(chat, message_id, session)
+    if message.status == "streaming":
+        raise HTTPException(409, STILL_WRITTEN)
+    question = question_of(session, message)
+    exchange = exchange_of(question.content if question else "", message)
+    title = _title(exchange.question)
+    asked = _asked(session, chat, account)
+    # The file is made with no transaction held: a long answer's takes a moment.
+    session.commit()
+    try:
+        content = answer_file(written_as, title, exchange, asked)
+    except ExportRefused:
+        raise HTTPException(422, NOT_LAID_OUT.format("answer")) from None
+    audit(
+        session,
+        account,
+        request,
+        "answer_exported",
+        project_id=chat.project_id,
+        target=("chat", chat.id),
+        detail={"answer": message.id, "format": written_as},
+    )
+    session.commit()
+    return _file_response(content, file_name(title, written_as, "Answer"), written_as)
+
+
+@router.get(
+    "/chats/{chat_id}/export",
+    response_class=Response,
+    responses={200: {"content": {media: {} for media in MEDIA_TYPES.values()}}},
+    dependencies=[Depends(limited(EXPORTS))],
+)
+def export_chat(
+    chat: ChatDep,
+    session: SessionDep,
+    account: AccountDep,
+    request: Request,
+    written_as: Annotated[ExportFormat, Query(alias="format")] = "docx",
+):
+    """Every question of the chat with its answer as one file to save (app/chat_export.py), as
+    `export_answer` makes an answer's, its citations numbered across the file. An answer still
+    being written is in it as far as its row holds it, which is nothing yet, and says so. The
+    download is recorded as an answer's is, with how many answers the file holds."""
+    exchanges = exchanges_of(chat.messages)
+    if not exchanges:
+        raise HTTPException(409, NOTHING_ASKED)
+    title = chat.title or "New chat"
+    asked = _asked(session, chat, account)
+    session.commit()
+    try:
+        content = chat_file(written_as, title, exchanges, asked)
+    except ExportRefused:
+        raise HTTPException(422, NOT_LAID_OUT.format("chat")) from None
+    audit(
+        session,
+        account,
+        request,
+        "chat_exported",
+        project_id=chat.project_id,
+        target=("chat", chat.id),
+        detail={"answers": len(exchanges), "format": written_as},
+    )
+    session.commit()
+    return _file_response(content, file_name(title, written_as, "Chat"), written_as)
+
+
+def _asked(session: Session, chat: Chat, account: Account) -> Asked:
+    """Who asked in the chat and where, with the days in the zone of the member downloading it."""
+    project = session.get(Project, chat.project_id)
+    return Asked(chat.started_by, project.name, zone_of(account.user.time_zone))
+
+
+def _file_response(content: bytes, name: str, written_as: ExportFormat) -> Response:
+    return Response(
+        content,
+        media_type=MEDIA_TYPES[written_as],
+        headers={"Content-Disposition": content_disposition(name)},
+    )
 
 
 def refuse_past_answers_in_flight(session: Session, account: Account, what: str) -> None:

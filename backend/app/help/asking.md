@@ -30,6 +30,11 @@ Make private takes it back. A chat is kept after its last question as long as th
 organisation's plan keeps chats ($chat_retention), or less where its owners or admins chose so;
 a deleted chat goes into your own trash, under "Deleted chats".
 
+Whoever reads a chat can keep it outside Emudoc: Download the answer, under an answer, saves it
+with its question as a Word document, a PDF or Markdown, and the download button in the chat's
+header saves every question and answer of the chat in one file. Each citation becomes a numbered
+note naming the document, section and pages of its passage.
+
 ## When the assistant cannot answer
 
 The header says when the AI model or the search by meaning is out of reach: search then matches

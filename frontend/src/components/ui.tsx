@@ -59,6 +59,7 @@ export function LinkButton({ variant = 'secondary', className = '', ...props }: 
 interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   label: string
   danger?: boolean
+  ref?: Ref<HTMLButtonElement>
 }
 
 export function IconButton({ label, danger, children, className = '', ...props }: IconButtonProps) {

@@ -310,6 +310,17 @@ others no composer, and a question of their own starts a chat of their own. A pr
 on the member's own latest chat, never on one another member shared. Sharing and taking
 private are in the organisation's audit log, without the chat's title.
 
+Whoever reads a chat downloads an answer of it ("Download the answer" under it, `GET
+/api/chats/{id}/messages/{id}/export?format=docx|pdf|md`), or the whole chat (the download button
+in the chat's header, `GET /api/chats/{id}/export`), as a Word document, a PDF or its Markdown
+(`backend/app/chat_export.py`, laid out as a draft's version is). An answer's file is headed by its
+question, a chat's by its title with each question a heading over its answer; a line says who asked,
+in which project and on which day, in the downloading member's time zone, and the file ends saying
+that a model wrote it. The citations are numbered across the file and listed at its end as notes
+naming the document, section and pages of each passage; an answer stopped, failed or still being
+written says so. Each download is a row of the audit log by the chat's id and the format, never
+what was asked or answered.
+
 What an organisation uses is recorded as it happens, one row per measure in `usage_events`:
 an answer's model calls and tokens, an upload's bytes and pages (once, by its first parse; a
 document without pages, a Word file, a sheet or a text file, has a page for every 3,000
@@ -1217,7 +1228,7 @@ Each organisation keeps an audit log (`backend/app/audit.py`): its members' sign
 failed ones for their accounts), profile, address, password, two-factor and session changes,
 exports and deletion requests, every upload, download and deletion of a document, folder or
 project and its restore from the trash or deletion for good there, who sees a project, chats
-shared, taken private, deleted or restored, a member's leave for support to see their account
+shared, taken private, downloaded, deleted or restored, and answers downloaded, a member's leave for support to see their account
 and each view of it, and what the operator (a plan change, a requeue) and the app (a quarantine,
 an account purge with the owner it promoted) did on their own; what was downloaded in support's
 view names the operator too. A row names the member, the project and the object, the client's address, and names or

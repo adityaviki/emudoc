@@ -88,7 +88,7 @@ _MARKDOWN_SPECIAL = re.compile(r"([\\`*_\[\]<>])")
 # What a file's name cannot hold on one system or another.
 _UNNAMEABLE = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
 
-_READER = MarkdownIt("commonmark", {"html": False}).enable(["table", "strikethrough"])
+READER = MarkdownIt("commonmark", {"html": False}).enable(["table", "strikethrough"])
 
 
 class ExportRefused(Exception):
@@ -173,7 +173,7 @@ def draft_file(
 ) -> bytes:
     """The version's text as the file asked for, its citations numbered notes naming the passages
     of `sources` they cite. Raises ExportRefused for a PDF that cannot be laid out."""
-    text = _UNWRITABLE.sub("", text)
+    text = writable(text)
     notes = notes_of(text, sources)
     if written_as == "md":
         return markdown_file(text, notes).encode()
@@ -185,8 +185,18 @@ def draft_file(
 
 def file_name(title: str, number: int, written_as: ExportFormat) -> str:
     """What the browser saves the file as: the draft's name and the version's number."""
-    name = " ".join(_UNNAMEABLE.sub(" ", title).split()) or "Draft"
-    return f"{name} (version {number}).{written_as}"
+    return f"{file_stem(title, 'Draft')} (version {number}).{written_as}"
+
+
+def file_stem(title: str, otherwise: str) -> str:
+    """A name a file can have on any system, from a title; `otherwise` for a title of nothing
+    a file's name can hold."""
+    return " ".join(_UNNAMEABLE.sub(" ", title).split()) or otherwise
+
+
+def writable(text: str) -> str:
+    """The text without what XML cannot hold."""
+    return _UNWRITABLE.sub("", text)
 
 
 def notes_of(text: str, sources: Sequence[Mapping[str, Any]]) -> dict[int, Note]:
@@ -226,24 +236,32 @@ def source_label(source: Mapping[str, Any]) -> str:
 
 def markdown_file(text: str, notes: Mapping[int, Note]) -> str:
     """The version's Markdown, each known citation a footnote of its note, defined at the end."""
+    body = markdown_body(text, notes)
+    return f"{body}\n\n{footnotes(notes)}\n" if notes else body + "\n"
+
+
+def markdown_body(text: str, notes: Mapping[int, Note]) -> str:
+    """The Markdown, each citation of `notes` a footnote's reference and whatever could start
+    HTML escaped."""
 
     def cited(match: re.Match[str]) -> str:
         note = notes.get(int(match.group(2)))
         return match.group(0) if note is None else f"[^{note.number}]"
 
-    body = re.sub(r"( ?)\[P(\d+)\]", cited, _HTML_START.sub(r"\\<", text)).rstrip()
-    if not notes:
-        return body + "\n"
-    defined = "\n".join(
+    return re.sub(r"( ?)\[P(\d+)\]", cited, _HTML_START.sub(r"\\<", text)).rstrip()
+
+
+def footnotes(notes: Mapping[int, Note]) -> str:
+    """The footnotes' definitions, a line each."""
+    return "\n".join(
         f"[^{note.number}]: " + _MARKDOWN_SPECIAL.sub(r"\\\1", note.label)
         for note in notes.values()
     )
-    return f"{body}\n\n{defined}\n"
 
 
 def blocks_of(text: str, notes: Mapping[int, Note]) -> list[Block]:
     """The text as the page's reader reads it, its known citations as their notes' numbers."""
-    blocks, _ = _blocks(_READER.parse(text), 0, notes, None)
+    blocks, _ = _blocks(READER.parse(text), 0, notes, None)
     return blocks
 
 

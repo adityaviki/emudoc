@@ -1611,6 +1611,21 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     const answerAddress = await answerDialog.getByLabel('The link').inputValue()
     await page.keyboard.press('Escape')
     await expect(shareAnswer).toBeFocused()
+    // The answer downloads as its Markdown headed by its question, its citation a footnote, and the whole chat as a PDF.
+    const downloadAnswer = page.getByRole('button', { name: 'Download the answer' })
+    await downloadAnswer.click()
+    const answerDownload = page.waitForEvent('download')
+    await page.getByRole('menu').getByRole('menuitem', { name: 'Markdown, as it is written' }).click()
+    await expect(downloadAnswer).toBeFocused()
+    const answerFile = await answerDownload
+    expect(answerFile.suggestedFilename()).toBe('What is the total amount of the invoice.md')
+    const answerMarkdown = await readFile(await answerFile.path(), 'utf8')
+    expect(answerMarkdown).toMatch(/^# What is the total amount of the invoice\?\n\n\*Asked by .+ in Supplier contracts on /)
+    expect(answerMarkdown).toMatch(/\[\^1\][^]*\n\[\^1\]: \S/)
+    await page.getByRole('button', { name: 'Download the chat' }).click()
+    const chatDownload = page.waitForEvent('download')
+    await page.getByRole('menu').getByRole('menuitem', { name: 'PDF, to send as it is' }).click()
+    expect((await chatDownload).suggestedFilename()).toBe('What is the total amount of the invoice.pdf')
     await visitor.goto(answerAddress)
     await expect(visitor.getByRole('heading', { level: 1 })).toHaveText(/^An answer about /)
     await expect(visitor.getByText('What is the total amount of the invoice?')).toBeVisible()
@@ -1629,5 +1644,9 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('listitem').filter({ hasText: 'Opened a share link' }).filter({ hasText: 'an answer' })).toContainText(
       'Someone with the link',
     )
+    // The downloads are kept by what the files held, never their words.
+    await page.getByLabel('What').selectOption('kind:chats')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Downloaded an answer' })).toContainText('as Markdown')
+    await expect(page.getByRole('listitem').filter({ hasText: 'Downloaded a chat' })).toContainText('1 answer, as a PDF')
   })
 })
