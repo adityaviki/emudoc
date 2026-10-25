@@ -338,6 +338,14 @@ others no composer, and a question of their own starts a chat of their own. A pr
 on the member's own latest chat, never on one another member shared. Sharing and taking
 private are in the organisation's audit log, without the chat's title.
 
+Each reader pins the chats they read to the top of their own list ("Pin chat" in the chat list,
+`PUT|DELETE /api/chats/{id}/pin`, a row of `chat_pins` per chat and member): "Pinned" lists them,
+the newest pin first, before the member's other chats and those shared with the project. A pin
+waits with its chat in the trash and while it is private again, and goes with the chat or the
+account; it is no audit action. The workspace's keyboard shortcuts (`frontend/src/shortcuts.ts`):
+Ctrl+Shift+O (⌘ on a Mac) a new chat, Shift+Esc the box a question is asked in, Esc there Stop,
+Ctrl+/ their list. None is a single key, and none acts while a dialog, a menu or the tour is open.
+
 Whoever reads a chat downloads an answer of it ("Download the answer" under it, `GET
 /api/chats/{id}/messages/{id}/export?format=docx|pdf|md`), or the whole chat (the download button
 in the chat's header, `GET /api/chats/{id}/export`), as a Word document, a PDF or its Markdown
@@ -361,9 +369,10 @@ the calls they made. `uv run python -m app.maintenance usage <slug>` (in `backen
 organisation's use per day in UTC, by kind and unit, over the last 30 days or `--days`, and
 `costs` what every organisation's model use cost over the same span, costliest first, against
 its plan's daily limit, with the platform's total and the cost by kind of work and model.
-An answer shows what it used under its text (the model, its calls and tokens, and the
-cost), and a document's header shows what bringing it in and indexing it used, with the
-breakdown by stage on hover; the figures are kept on the message and the document as the
+An answer shows what it used under its text (the model, its calls and tokens, and, to the
+organisation's owners and admins alone, the cost, which the server sends no member or viewer:
+`backend/app/costs.py`), and a document's header shows what bringing it in and indexing it used,
+with the breakdown by stage on hover; the figures are kept on the message and the document as the
 rows are recorded, summed over every run. The costs follow `MODEL_PRICES` in `.env`, what
 each model costs per million tokens in and out, in `PRICE_CURRENCY`, an embedding model's
 under the name `EMBEDDING_MODEL` gives; without prices, no cost is shown.

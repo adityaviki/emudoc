@@ -93,6 +93,7 @@ from app.apikeys import (
 )
 from app.auth import SESSION_COOKIE, find_session, now, touch_session
 from app.config import get_settings
+from app.costs import show_costs
 from app.db import get_session
 from app.entitlements import PlanRefused, check_api, read_only
 from app.fact_checks import CHECK_GONE, FACT_GONE
@@ -328,9 +329,11 @@ CurrentAccountDep = Annotated[Account, Depends(get_current_account)]
 
 def get_secured_account(account: CurrentAccountDep) -> Account:
     """The account, provided it signs in as its organisation requires: with two-factor, where
-    the organisation asks for it."""
+    the organisation asks for it. What the request answers shows what work cost to an owner or
+    an admin alone (app/costs.py)."""
     if mfa_due(account):
         raise HTTPException(403, mfa_pending(account.organization))
+    show_costs(account.is_at_least("admin"))
     return account
 
 

@@ -141,6 +141,8 @@ export function Floating({ anchor, onClose, children, alignEnd, ignore, opener, 
       ref={ref}
       tabIndex={-1}
       onKeyDown={onKeyDown}
+      // The page's shortcuts give way while a layer is open (src/shortcuts.ts).
+      data-layer
       // Unplaced, it is laid out unseen to be measured, and may be focused meanwhile, which a hidden element may not.
       style={position ? { left: position.left, top: position.top } : { left: 0, top: 0, opacity: 0 }}
       className={`fixed z-50 overflow-hidden rounded-lg border border-line bg-surface shadow-xl shadow-ink/8 outline-none ${className}`}

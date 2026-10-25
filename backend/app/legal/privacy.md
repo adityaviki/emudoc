@@ -35,7 +35,8 @@ organisation uploaded a document about you, ask the organisation first; we help 
   text read from those, what is read from them (their text, images of their pages, summaries, facts,
   the search index and the questions suggested about them), the facts you checked or corrected with when, and the documents you put in
   review, approved or disputed with when and those assigned to you, which your organisation's
-  members see beside your name, your chats with their questions and answers, the runs of a project's
+  members see beside your name, your chats with their questions and answers, the chats you pinned to
+  the top of your list, the runs of a project's
   cross-checks you made, with the values they compared and the reports the model wrote from them,
   and the drafts you asked the model for or edited, with what you asked of them and every version.
   We need them to provide the service.

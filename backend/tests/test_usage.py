@@ -27,6 +27,7 @@ from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT, LeaseLost, claim
 from app.llm import LLMError
 from app.maintenance import main
 from app.models import AllowancePack, Organization, Passage, UsageEvent, User
+from app.schemas import UsageOut
 from app.spending import day_of, spent_since
 from app.usage import (
     ANSWER,
@@ -55,7 +56,7 @@ from app.worker import HANDLERS
 from tests.conftest import FakeEmbedder, FakeTurn
 from tests.test_answers import Held
 from tests.test_api import create_project, upload
-from tests.test_chats import answered, ask, new_chat
+from tests.test_chats import answered, ask, follow, new_chat
 from tests.test_jobs import lose
 from tests.test_pipeline import named_pages, page_of, scanned_pdf
 
@@ -596,6 +597,52 @@ def test_costs_follow_the_prices_the_settings_list(
     monkeypatch.setattr(get_settings(), "model_prices", "other=1/1")
     usage = usage_shown(client, f"/api/documents/{indexed.id}")
     assert usage[ENRICH]["cost_micros"] is None and usage[EMBED]["cost_micros"] is None
+
+
+def test_what_work_cost_is_shown_to_owners_and_admins_alone(
+    client, services, account, make_account, act_as, make_document, sample_pdf, monkeypatch
+):
+    """Whoever reads an answer or a document reads its model, calls and tokens; only an owner
+    or an admin reads what they cost, in the chat, its stream, the document and the library
+    alike (app/costs.py)."""
+    model = get_settings().agent_model
+    # The index model shares the name, so the document's reading is priced too.
+    monkeypatch.setattr(get_settings(), "model_prices", f"{model}=0.10/0.40")
+    document = make_document(sample_pdf)
+    process_document(document.id, services)
+    services.llm.agent_turns = [FakeTurn(TextPart("90 days."))]
+    chat = new_chat(client, document.project_id)
+    asked = ask(client, chat["id"], "Notice period?")
+    answer(asked["answer"]["id"], services)
+    client.patch(f"/api/chats/{chat['id']}", json={"visibility": "project"})
+    listing = f"/api/projects/{document.project_id}/documents"
+
+    costs, counts, tags = {}, {}, {}
+    for role in ("owner", "admin", "member", "viewer"):
+        if role != "owner":
+            act_as(make_account(f"{role}@example.com", account.organization, role=role))
+        reply = client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]["usage"][ANSWER]
+        events = follow(client, chat["id"], asked["answer"]["id"])
+        done = next(event for event in events if event["type"] == "done")["usage"]
+        read = usage_shown(client, f"/api/documents/{document.id}")[ENRICH]
+        page = client.get(listing)
+        listed = page.json()["documents"][0]["usage"][ENRICH]
+        costs[role] = [shown["cost_micros"] for shown in (reply, done, read, listed)]
+        counts[role] = [(shown["model"], shown["calls"]) for shown in (reply, done, read, listed)]
+        tags[role] = page.headers["ETag"]
+
+    assert costs["owner"] == costs["admin"] == [3, 3, costs["owner"][2], costs["owner"][2]]
+    assert costs["owner"][2] is not None
+    assert costs["member"] == costs["viewer"] == [None] * 4
+    assert counts["owner"] == counts["admin"] == counts["member"] == counts["viewer"]
+    assert counts["viewer"] == [(model, 1)] * 4
+    # A page of the library is tagged by what it shows: a member who was an admin asks again
+    # with the admin's tag and is sent the page without the costs, not told it is unchanged.
+    assert tags["owner"] == tags["admin"] != tags["member"] == tags["viewer"]
+    assert client.get(listing, headers={"If-None-Match": tags["admin"]}).status_code == 200
+
+    # Outside a request nothing says who reads, and the cost is withheld.
+    assert UsageOut(model=model, calls=1, cost_micros=3).model_dump()["cost_micros"] is None
 
 
 def test_adding_rows_to_a_usage_sums_each_unit_and_the_known_costs():

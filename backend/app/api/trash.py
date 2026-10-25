@@ -13,6 +13,7 @@ from fastapi import APIRouter, Request
 from sqlalchemy import ColumnElement, func, select
 
 from app.access import sees
+from app.api.chats import as_read, pinned_by
 from app.api.deps import (
     AccountDep,
     DeletableProjectDep,
@@ -315,7 +316,8 @@ def restore_trashed_chat(
         target=("chat", chat.id),
     )
     session.commit()
-    return chat
+    # Its pins waited with it in the trash.
+    return as_read(chat, pinned_by(session, chat, account))
 
 
 @router.delete("/trash/chats/{chat_id}", status_code=204)

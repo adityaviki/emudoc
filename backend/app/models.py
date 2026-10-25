@@ -2151,6 +2151,25 @@ class ChatScopeDocument(Base):
     )
 
 
+class ChatPin(Base):
+    """A chat a member pinned to the top of their chat list: their own, or one shared with the
+    project, which each of its readers pins for themselves. The row goes with either."""
+
+    __tablename__ = "chat_pins"
+
+    chat_id: Mapped[int] = mapped_column(
+        ForeignKey("chats.id", ondelete="CASCADE"), primary_key=True
+    )
+    # Indexed for an account deleted, whose pins go with it.
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    # The pinned chats are listed newest pin first.
+    pinned_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class ChatMessage(Base):
     """One turn of a chat: a question, or the agent's answer with the steps that led to it.
 

@@ -16,6 +16,7 @@ import { ChatPane } from '../workspace/ChatPane.tsx'
 import { DocumentTab } from '../workspace/DocumentTab.tsx'
 import { Library } from '../workspace/Library.tsx'
 import { documentQuery, isGone } from '../workspace/listing.ts'
+import { WorkspaceShortcuts } from '../workspace/Shortcuts.tsx'
 import { SplitPanes } from '../workspace/SplitPane.tsx'
 import type { Pane as SplitPane } from '../workspace/SplitPane.tsx'
 import { DOCUMENT_PANEL, TAB_ID, TabStrip } from '../workspace/TabStrip.tsx'
@@ -280,6 +281,7 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
         </div>
       </div>
       {tour.steps && <Tour steps={tour.steps} onEnd={tour.end} />}
+      <WorkspaceShortcuts />
     </WorkspaceContext>
   )
 }
