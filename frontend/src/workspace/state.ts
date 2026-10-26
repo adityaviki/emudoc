@@ -3,6 +3,7 @@
 import { createContext, useContext } from 'react'
 import type { Document, Folder, ListingPlace, Project, ScopeIn } from '../api.ts'
 import type { FolderTree } from '../hooks.ts'
+import type { Search } from '../library.ts'
 import type { Focus, Reviews, WorkspaceUrl } from './url.ts'
 
 export interface OpenTab {
@@ -46,8 +47,10 @@ export interface Workspace {
   clearFocus(): void
   /** Shows a folder in the library; the open document stays where it is. */
   goToFolder(folderId: number | null, options?: { replace?: boolean }): void
-  /** Searches the folder shown, or the folder given (null for the whole project). */
+  /** Searches the folder shown, or the folder given (null for the whole project), within what the search is narrowed by. */
   setSearch(q: string, folderId?: number | null): void
+  /** Runs a search in the library, its folder and what narrows it given whole, leaving any other place. */
+  showSearch(search: Search, options?: { replace?: boolean }): void
   /** Shows the project's trash in the library; going to a folder leaves it. */
   showTrash(): void
   /** Shows the project's extraction templates in the library, likewise. */

@@ -1509,8 +1509,9 @@ class Tag(Base):
 
 class SmartFolder(Base):
     """A project's saved view of its documents (app/smart_folders.py): those its filter matches,
-    wherever they are, which the library lists as it lists a folder's. Everyone who reads the
-    project sees it; a member who may change the project makes, changes and deletes it."""
+    wherever they are, which the library lists as it lists a folder's, or with a query, the
+    search of its words within them. Everyone who reads the project sees it; a member who may
+    change the project makes, changes and deletes it."""
 
     __tablename__ = "smart_folders"
 
@@ -1524,9 +1525,13 @@ class SmartFolder(Base):
     )
     name: Mapped[str] = mapped_column(String(100))
     # What it matches, as `DocumentFilter` in app/schemas.py writes it: tags, types, a span of
-    # the documents' dates, review states and a folder with its subfolders. A tag or folder it
-    # names that is gone matches nothing, so that it never widens into more than was saved.
+    # the documents' dates, review states, a folder with its subfolders and words they mention.
+    # A tag or folder it names that is gone matches nothing, so that it never widens into more
+    # than was saved.
     filter: Mapped[dict] = mapped_column(JSONB)
+    # The words of a saved search, which the library opens as the search of them within the
+    # documents the filter matches; None for a smart folder that lists them.
+    query: Mapped[str | None] = mapped_column(String(200))
     # Indexed for the account purge.
     created_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), index=True

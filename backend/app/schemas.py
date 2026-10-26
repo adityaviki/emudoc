@@ -575,14 +575,19 @@ class DocumentsReprocessOut(BaseModel):
 _TypeName = Annotated[
     str, StringConstraints(strip_whitespace=True, to_lower=True, min_length=1, max_length=100)
 ]
+# Words a search is for, or that a document mentions: as many as a member types in the box.
+_Words = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+# How many searches a search may be within, each the documents the one before found.
+MAX_MENTIONS = 5
 
 
 class DocumentFilter(BaseModel):
-    """What a smart folder matches (app/smart_folders.py), each part narrowing the others: the
-    documents carrying any of its tags, or every one with `every_tag`; of one of its types, as
-    the model names a document's kind; dated on or after `after` and on or before `before`,
-    which leaves out the undated; in one of its review states; in its folder or below it. A part
-    left out matches every document."""
+    """What a smart folder matches (app/smart_folders.py), and a search searches within
+    (app/api/query.py), each part narrowing the others: the documents carrying any of its tags,
+    or every one with `every_tag`; of one of its types, as the model names a document's kind;
+    dated on or after `after` and on or before `before`, which leaves out the undated; in one of
+    its review states; in its folder or below it; with a passage holding every word of each of
+    its `mentions`. A part left out matches every document."""
 
     tags: list[int] = Field(default_factory=list, max_length=20)
     every_tag: bool = False
@@ -591,13 +596,18 @@ class DocumentFilter(BaseModel):
     before: dt.date | None = None
     reviews: list[ReviewState] = Field(default_factory=list, max_length=3)
     folder_id: int | None = None
+    mentions: list[_Words] = Field(default_factory=list, max_length=MAX_MENTIONS)
 
 
 class SmartFolderIn(BaseModel):
-    """A smart folder as a member writes it, whole: its name and what it matches."""
+    """A smart folder as a member writes it, whole: its name, what it matches and, for a saved
+    search, the words it searches its documents for."""
 
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
     filter: DocumentFilter
+    # None lists the documents; words make it a saved search, which the library opens as the
+    # search of them within its documents.
+    query: Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)] | None = None
 
 
 class SmartFolderOut(SmartFolderIn):
@@ -984,6 +994,16 @@ class SearchHitOut(BaseModel):
 class SearchOut(BaseModel):
     hits: list[SearchHitOut]
     semantic: bool
+
+
+class SearchIn(DocumentFilter):
+    """The library's search, as its query string asks it: the words, how many passages at most,
+    and what it searches within, one document and the documents the filter matches (each of
+    its lists a parameter given once a value, `tags=1&tags=2`)."""
+
+    q: str
+    limit: int = Field(10, ge=1, le=50)
+    document_id: int | None = None
 
 
 ChatVisibility = Literal["private", "project"]

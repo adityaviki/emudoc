@@ -11,6 +11,7 @@ import {
   isWithin,
   mayChange,
   oauthStartUrl,
+  searchParams,
   showOrganization,
 } from './api.ts'
 
@@ -261,5 +262,26 @@ describe('the roles someone may invite to', () => {
 describe('the roles that may change what an organisation holds', () => {
   it('are every one but a viewer\'s', () => {
     expect(ROLES.map(mayChange)).toEqual([true, true, true, false])
+  })
+})
+
+describe('searchParams', () => {
+  it('asks the search route for each part of the filter, a list’s each value once', () => {
+    const filter = {
+      tags: [4, 5],
+      every_tag: true,
+      types: ['invoice'],
+      after: '2024-01-01',
+      before: '2024-03-31',
+      reviews: ['approved' as const],
+      folder_id: 7,
+      mentions: ['late delivery'],
+    }
+    expect(searchParams('notice', filter).toString()).toBe(
+      'q=notice&limit=20&tags=4&tags=5&every_tag=true&types=invoice&after=2024-01-01&before=2024-03-31&reviews=approved&folder_id=7&mentions=late+delivery',
+    )
+    const none = { ...filter, tags: [4], types: [], after: null, before: null, reviews: [], folder_id: null, mentions: [] }
+    // Every tag of one is any of it.
+    expect(searchParams('notice', none, 10).toString()).toBe('q=notice&limit=10&tags=4')
   })
 })

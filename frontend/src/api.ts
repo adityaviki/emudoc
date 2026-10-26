@@ -340,7 +340,10 @@ export interface Tag {
   document_count: number
 }
 
-/** What a smart folder matches (DocumentFilter in backend/app/schemas.py), each part narrowing the others; a part left empty matches every document. */
+/**
+ * What a smart folder matches and a search searches within (DocumentFilter in backend/app/schemas.py), each part narrowing
+ * the others; a part left empty matches every document.
+ */
 export interface DocumentFilter {
   tags: number[]
   /** Every one of the tags rather than any. */
@@ -352,13 +355,20 @@ export interface DocumentFilter {
   reviews: ReviewState[]
   /** A folder with its subfolders. */
   folder_id: number | null
+  /** The documents with a passage that holds every word of each: what the earlier searches of a search within found. */
+  mentions: string[]
 }
 
 /** A project's smart folder (SmartFolderOut): its folder's path as it is now, why it lists nothing if it does not, and who made it. */
-export interface SmartFolder {
-  id: number
+/** A smart folder as a member writes it, whole; with a query, a saved search, which the library opens as the search of its words. */
+export interface SmartFolderInput {
   name: string
   filter: DocumentFilter
+  query: string | null
+}
+
+export interface SmartFolder extends SmartFolderInput {
+  id: number
   folder: string | null
   problem: string | null
   made_by: string | null
@@ -939,6 +949,20 @@ export interface SearchHit {
 export interface SearchResult {
   hits: SearchHit[]
   semantic: boolean
+}
+
+/** The library's search as its route asks it (SearchIn in backend/app/schemas.py): each part of the filter given, a list's each value once. */
+export function searchParams(query: string, filter: DocumentFilter, limit = 20): URLSearchParams {
+  const params = new URLSearchParams({ q: query, limit: String(limit) })
+  for (const id of filter.tags) params.append('tags', String(id))
+  if (filter.tags.length > 1 && filter.every_tag) params.set('every_tag', 'true')
+  for (const type of filter.types) params.append('types', type)
+  if (filter.after) params.set('after', filter.after)
+  if (filter.before) params.set('before', filter.before)
+  for (const state of filter.reviews) params.append('reviews', state)
+  if (filter.folder_id != null) params.set('folder_id', String(filter.folder_id))
+  for (const words of filter.mentions) params.append('mentions', words)
+  return params
 }
 
 /**
@@ -2617,9 +2641,9 @@ export const api = {
     request<Document[]>(`/projects/${projectId}/documents/tags`, json('POST', { document_ids: documentIds, add, remove })),
   smartFolders: (projectId: number) =>
     request<{ smart_folders: SmartFolder[]; max_smart_folders: number }>(`/projects/${projectId}/smart-folders`),
-  createSmartFolder: (projectId: number, body: { name: string; filter: DocumentFilter }) =>
+  createSmartFolder: (projectId: number, body: SmartFolderInput) =>
     request<SmartFolder>(`/projects/${projectId}/smart-folders`, json('POST', body)),
-  updateSmartFolder: (id: number, body: { name: string; filter: DocumentFilter }) =>
+  updateSmartFolder: (id: number, body: SmartFolderInput) =>
     request<SmartFolder>(`/smart-folders/${id}`, json('PUT', body)),
   deleteSmartFolder: (id: number) => request<void>(`/smart-folders/${id}`, { method: 'DELETE' }),
   filingRules: (projectId: number) =>
@@ -2673,11 +2697,8 @@ export const api = {
   documentFacts: (id: number) => request<Fact[]>(`/documents/${id}/facts`),
   passage: (id: number) => request<Passage>(`/passages/${id}`),
 
-  search: (projectId: number, query: string, folderId: number | null = null) => {
-    const params = new URLSearchParams({ q: query, limit: '20' })
-    if (folderId != null) params.set('folder_id', String(folderId))
-    return request<SearchResult>(`/projects/${projectId}/search?${params}`)
-  },
+  search: (projectId: number, query: string, filter: DocumentFilter) =>
+    request<SearchResult>(`/projects/${projectId}/search?${searchParams(query, filter)}`),
   facts: (projectId: number, filters: { name?: string; q?: string }) => {
     const params = new URLSearchParams({ limit: '500' })
     if (filters.name) params.set('name', filters.name)

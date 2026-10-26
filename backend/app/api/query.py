@@ -3,23 +3,27 @@ bounded by the plan, so the router holds every caller to RATE_SEARCHES a minute.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, or_, select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, or_, select, text
+from sqlalchemy.orm import Session
 
 from app.api.deps import ProjectDep, ServicesDep, SessionDep, limited
-from app.api.folders import resolve_folder, subtree_ids
 from app.fact_checks import fact_out
-from app.models import Document, Fact
+from app.indexing.pipeline import Services
+from app.models import Document, Fact, Folder, Project
 from app.ratelimit import SEARCHES
 from app.schemas import (
+    DocumentFilter,
     DocumentTypeOut,
     FactList,
     FactName,
     SearchHitOut,
+    SearchIn,
     SearchOut,
     SnippetSegment,
 )
 from app.search import SearchResult, hybrid_search
+from app.smart_folders import BACKWARDS, matching
 
 router = APIRouter(
     prefix="/projects/{project_id}", tags=["query"], dependencies=[Depends(limited(SEARCHES))]
@@ -31,23 +35,52 @@ def search(
     project: ProjectDep,
     session: SessionDep,
     services: ServicesDep,
-    q: str,
-    limit: Annotated[int, Query(ge=1, le=50)] = 10,
-    document_id: int | None = None,
-    folder_id: int | None = None,
+    asked: Annotated[SearchIn, Query()],
 ):
-    """Search the project's passages, within one document or one folder's subtree if asked."""
-    document_ids = [document_id] if document_id else None
-    folder = resolve_folder(session, project, folder_id)
-    if folder is not None:
-        in_folder = session.scalars(
-            select(Document.id).where(
-                Document.folder_id.in_(subtree_ids(session, folder)), Document.deleted_at.is_(None)
+    """Search the project's passages, within one document and the documents a filter matches if
+    asked: the library's search in a folder, with what a member chose to narrow it by, within
+    what earlier searches found, or a saved search's."""
+    chosen = DocumentFilter.model_validate(
+        asked.model_dump(include=set(DocumentFilter.model_fields))
+    )
+    return searched(project, session, services, asked.q, asked.limit, asked.document_id, chosen)
+
+
+def searched(
+    project: Project,
+    session: Session,
+    services: Services,
+    q: str,
+    limit: int,
+    document_id: int | None,
+    chosen: DocumentFilter,
+) -> SearchOut:
+    """The search of the documents the filter matches, or of the whole project for none (v1's
+    search too, by its folder alone). A folder of another project is 404, as the filter's; one
+    in the trash matches nothing, as a saved search's does once its folder is gone."""
+    if chosen.folder_id is not None:
+        held_by = session.scalar(select(Folder.project_id).where(Folder.id == chosen.folder_id))
+        if held_by != project.id:
+            raise HTTPException(404, "Folder not found")
+    if chosen.after and chosen.before and chosen.after > chosen.before:
+        raise HTTPException(400, BACKWARDS)
+    document_ids = None
+    if document_id is not None or chosen != DocumentFilter():
+        conditions = matching(session, project.id, chosen)
+        if document_id is not None:
+            conditions.append(Document.id == document_id)
+        # The documents' ids first, as a folder's always were: how many a filter takes is the
+        # project's, so the statement is planned for it (database.md).
+        session.execute(text("SET LOCAL plan_cache_mode = force_custom_plan"))
+        document_ids = list(
+            session.scalars(
+                select(Document.id).where(
+                    Document.project_id == project.id, Document.deleted_at.is_(None), *conditions
+                )
             )
-        ).all()
-        document_ids = [d for d in in_folder if document_ids is None or d in document_ids]
+        )
     if document_ids == []:
-        # An empty folder: there is nothing to search, and no filter would mean everything.
+        # Nothing to search: no filter at all would mean everything.
         result = SearchResult([], semantic=True)
     else:
         result = hybrid_search(session, services.embedder, project.id, q, limit, document_ids)

@@ -8,6 +8,7 @@ import { fieldWords } from './factTable.ts'
 import { formatDate } from './format.ts'
 import { scanPassed } from './indexing.ts'
 import { REVIEW_LABELS } from './reviews.ts'
+import type { LibraryView } from './workspace/url.ts'
 
 /** What each order is called, and how each of its directions reads. */
 export const SORTS: Record<DocumentSort, { label: string; asc: string; desc: string }> = {
@@ -77,23 +78,78 @@ export function emptyPlaceWords(place: ListingPlace): { title: string; body: str
   return { title: 'Nothing matches this smart folder', body: 'Documents that match what it lists by show here as they arrive, wherever they are.' }
 }
 
-export const EMPTY_FILTER: DocumentFilter = { tags: [], every_tag: false, types: [], after: null, before: null, reviews: [], folder_id: null }
+export const EMPTY_FILTER: DocumentFilter = { tags: [], every_tag: false, types: [], after: null, before: null, reviews: [], folder_id: null, mentions: [] }
+
+/** How many searches a search may be within (MAX_MENTIONS in backend/app/schemas.py). */
+export const MAX_WITHIN = 5
+
+/** The library's search: its words, and the documents it searches, by its folder and what narrows it (`folder_id` the folder's). */
+export interface Search {
+  q: string
+  filter: DocumentFilter
+}
+
+/** The search a view of the library runs, in its folder with what narrows it; null for none. */
+export function viewedSearch(view: LibraryView): Search | null {
+  if (!view.q && !view.search) return null
+  return { q: view.q, filter: { ...EMPTY_FILTER, ...view.search, folder_id: view.folderId } }
+}
+
+/** The view of the library that runs a search, which leaves any other place. */
+export function searchView(search: Search): LibraryView {
+  const { folder_id: folderId, ...narrowing } = search.filter
+  const view: LibraryView = { folderId, q: search.q.trim() }
+  if (narrows({ ...narrowing, folder_id: null })) view.search = narrowing
+  return view
+}
+
+/** What narrows a filter that a member can take off alone: one of its parts, or one of the searches it is within by its place. */
+export type FilterPart = 'tags' | 'types' | 'dates' | 'reviews' | 'folder' | number
 
 const listed = (words: string[], last: 'and' | 'or') =>
   words.length < 2 ? (words[0] ?? '') : `${words.slice(0, -1).join(', ')} ${last} ${words.at(-1)}`
 
+/** Each part a filter narrows by in words, its tags and folder by their names as they are now, in the order a sentence lists them. */
+export function filterParts(filter: DocumentFilter, tags: Tag[], folder: string | null): { part: FilterPart; words: string }[] {
+  const parts: { part: FilterPart; words: string }[] = []
+  const names = filter.tags.map((id) => tags.find((tag) => tag.id === id)?.name ?? 'a deleted tag').map((name) => `“${name}”`)
+  if (names.length) parts.push({ part: 'tags', words: `tagged ${listed(names, filter.every_tag ? 'and' : 'or')}` })
+  if (filter.types.length) parts.push({ part: 'types', words: `of type ${listed(filter.types, 'or')}` })
+  if (filter.after && filter.before) parts.push({ part: 'dates', words: `dated ${formatDate(filter.after)} to ${formatDate(filter.before)}` })
+  else if (filter.after) parts.push({ part: 'dates', words: `dated ${formatDate(filter.after)} or later` })
+  else if (filter.before) parts.push({ part: 'dates', words: `dated ${formatDate(filter.before)} or earlier` })
+  if (filter.reviews.length) parts.push({ part: 'reviews', words: `${listed(filter.reviews.map((state) => REVIEW_LABELS[state].toLowerCase()), 'or')} in review` })
+  if (filter.folder_id != null) parts.push({ part: 'folder', words: `in ${folder ?? 'a folder that is gone'}` })
+  filter.mentions.forEach((words, index) => parts.push({ part: index, words: `mentioning “${words}”` }))
+  return parts
+}
+
+/** The filter without one of its parts. */
+export function withoutPart(filter: DocumentFilter, part: FilterPart): DocumentFilter {
+  if (typeof part === 'number') return { ...filter, mentions: filter.mentions.filter((_, index) => index !== part) }
+  const emptied: Record<Exclude<FilterPart, number>, Partial<DocumentFilter>> = {
+    tags: { tags: [], every_tag: false },
+    types: { types: [] },
+    dates: { after: null, before: null },
+    reviews: { reviews: [] },
+    folder: { folder_id: null },
+  }
+  return { ...filter, ...emptied[part] }
+}
+
+/** Whether the filter narrows anything, or matches every document of the project. */
+export const narrows = (filter: DocumentFilter) => filterParts(filter, [], null).length > 0
+
 /** What a smart folder lists, in words: each part it narrows by, its tags and folder by their names as they are now. */
 export function filterWords(filter: DocumentFilter, tags: Tag[], folder: string | null): string {
-  const parts: string[] = []
-  const names = filter.tags.map((id) => tags.find((tag) => tag.id === id)?.name ?? 'a deleted tag').map((name) => `“${name}”`)
-  if (names.length) parts.push(`tagged ${listed(names, filter.every_tag ? 'and' : 'or')}`)
-  if (filter.types.length) parts.push(`of type ${listed(filter.types, 'or')}`)
-  if (filter.after && filter.before) parts.push(`dated ${formatDate(filter.after)} to ${formatDate(filter.before)}`)
-  else if (filter.after) parts.push(`dated ${formatDate(filter.after)} or later`)
-  else if (filter.before) parts.push(`dated ${formatDate(filter.before)} or earlier`)
-  if (filter.reviews.length) parts.push(`${listed(filter.reviews.map((state) => REVIEW_LABELS[state].toLowerCase()), 'or')} in review`)
-  if (filter.folder_id != null) parts.push(`in ${folder ?? 'a folder that is gone'}`)
+  const parts = filterParts(filter, tags, folder).map(({ words }) => words)
   return parts.length ? `Documents ${parts.join(', ')}` : 'Every document of the project'
+}
+
+/** What a saved search does, or a smart folder lists without words to search for, in words. */
+export function smartFolderWords(filter: DocumentFilter, query: string | null, tags: Tag[], folder: string | null): string {
+  const listing = filterWords(filter, tags, folder)
+  return query?.trim() ? `Searches ${listing.charAt(0).toLowerCase()}${listing.slice(1)} for “${query.trim()}”` : listing
 }
 
 /** Why a smart folder as written cannot be saved, in the words the server would refuse it with; null when it can. */

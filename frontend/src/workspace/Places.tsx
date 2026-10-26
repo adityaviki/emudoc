@@ -1,14 +1,27 @@
-import { ArrowDownUp, ChevronDown, Clock, FolderCog, FolderSearch, Folder as FolderIcon, LayoutGrid, List, Plus, Star, Tag as TagIcon, Tags } from 'lucide-react'
-import { useId, useState } from 'react'
+import { ArrowDownUp, ChevronDown, Clock, FolderCog, FolderSearch, Folder as FolderIcon, LayoutGrid, List, Plus, Search, Star, Tag as TagIcon, Tags, X } from 'lucide-react'
+import { useId, useRef, useState } from 'react'
 import { REVIEW_LABELS, REVIEW_STATES } from '../reviews.ts'
 import { TAG_COLORS } from '../api.ts'
-import type { Document, DocumentFilter, DocumentType, Folder, ListingPlace, SmartFolder, Tag, TagColor } from '../api.ts'
+import type { Document, DocumentFilter, DocumentType, Folder, ListingPlace, SmartFolder, SmartFolderInput, Tag, TagColor } from '../api.ts'
 import { folderChoices } from '../automations.ts'
 import { Confirm } from '../components/Confirm.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
-import { Checkbox, FIELD, InputField, SelectField } from '../components/ui.tsx'
+import { Checkbox, FIELD, IconButton, InputField, SelectField } from '../components/ui.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
-import { EMPTY_FILTER, FIRST_ORDER, SORTS, SORT_NAMES, TAG_COLOR_LABELS, filterWords, placeName, smartFolderProblem, sortWords, tagsWords } from '../library.ts'
+import {
+  EMPTY_FILTER,
+  FIRST_ORDER,
+  MAX_WITHIN,
+  SORTS,
+  SORT_NAMES,
+  TAG_COLOR_LABELS,
+  filterWords,
+  placeName,
+  smartFolderProblem,
+  smartFolderWords,
+  sortWords,
+  tagsWords,
+} from '../library.ts'
 import type { LibraryLayout } from '../library.ts'
 import { nextState, overfull, overfullWords, tagStates, tagsChange } from '../selection.ts'
 import type { TagState, TagsChange } from '../selection.ts'
@@ -93,7 +106,18 @@ export function PlaceBar(props: PlaceBarProps) {
   const isPlace = (other: ListingPlace) => JSON.stringify(other) === JSON.stringify(place)
   const choose = (other: ListingPlace): MenuItem => ({
     label: 'tag' in other ? placeName(other, tags, []) : 'smart' in other ? placeName(other, [], smartFolders) : 'favorites' in other ? 'Favourites' : 'recent' in other ? 'Recent' : 'All files',
-    icon: 'tag' in other ? TagIcon : 'smart' in other ? FolderSearch : 'favorites' in other ? Star : 'recent' in other ? Clock : FolderIcon,
+    icon:
+      'tag' in other
+        ? TagIcon
+        : 'smart' in other
+          ? smartFolders.find((smart) => smart.id === other.smart)?.query
+            ? Search
+            : FolderSearch
+          : 'favorites' in other
+            ? Star
+            : 'recent' in other
+              ? Clock
+              : FolderIcon,
     checked: 'folder' in other ? folder : isPlace(other),
     onSelect: () => props.onPlace(other),
   })
@@ -299,107 +323,218 @@ export function ColorField({ value, onChange, label = 'Colour' }: { value: TagCo
   )
 }
 
-interface SmartFolderDialogProps {
-  /** The smart folder being changed; null for a new one. */
-  editing: SmartFolder | null
+interface FilterFieldsProps {
+  filter: DocumentFilter
+  onChange: (filter: DocumentFilter) => void
   tags: Tag[]
   /** The types the model gave the project's documents, to choose from. */
   types: DocumentType[]
   folders: Folder[]
-  /** Whether documents' reviews are rolled out to the organisation, which a smart folder may then list by. */
+  /** Whether documents' reviews are rolled out to the organisation, which a filter may then narrow by. */
   reviews: boolean
-  onSave: (name: string, filter: DocumentFilter) => void
+}
+
+/** The parts of a filter, each its own fields: tags, types, the documents' dates, their reviews, a folder and the words they mention. */
+function FilterFields({ filter, onChange, tags, types, folders, reviews }: FilterFieldsProps) {
+  const id = useId()
+  const [words, setWords] = useState('')
+  const wordsInput = useRef<HTMLInputElement>(null)
+  const set = (change: Partial<DocumentFilter>) => onChange({ ...filter, ...change })
+  const toggled = <T,>(list: T[], value: T, on: boolean) => (on ? [...list, value] : list.filter((other) => other !== value))
+  // A type the filter narrows by that no document has now still shows, so that it can be taken off.
+  const typeChoices = [...new Set([...types.map((one) => one.type), ...filter.types])]
+  const room = filter.mentions.length < MAX_WITHIN
+  const mention = () => {
+    const trimmed = words.trim()
+    if (!trimmed || !room) return
+    if (!filter.mentions.includes(trimmed)) set({ mentions: [...filter.mentions, trimmed] })
+    setWords('')
+  }
+  return (
+    <>
+      {tags.length > 0 && (
+        <fieldset className="space-y-1.5">
+          <legend className="mb-1 text-xs font-medium text-muted">Tagged</legend>
+          {tags.map((tag) => (
+            <Checkbox
+              key={tag.id}
+              checked={filter.tags.includes(tag.id)}
+              onChange={(event) => set({ tags: toggled(filter.tags, tag.id, event.target.checked) })}
+              label={
+                <span className="flex items-center gap-1.5">
+                  <TagDot color={tag.color} />
+                  {tag.name}
+                </span>
+              }
+            />
+          ))}
+          {filter.tags.length > 1 && (
+            <Checkbox className="pt-1" checked={filter.every_tag} onChange={(event) => set({ every_tag: event.target.checked })} label="Every one of these tags, not any of them" />
+          )}
+        </fieldset>
+      )}
+      {typeChoices.length > 0 && (
+        <fieldset className="space-y-1.5">
+          <legend className="mb-1 text-xs font-medium text-muted">Of the type</legend>
+          {typeChoices.map((type) => (
+            <Checkbox key={type} checked={filter.types.includes(type)} onChange={(event) => set({ types: toggled(filter.types, type, event.target.checked) })} label={type} />
+          ))}
+        </fieldset>
+      )}
+      <fieldset>
+        <legend className="mb-1 text-xs font-medium text-muted">Dated</legend>
+        <div className="flex flex-wrap gap-2">
+          <label htmlFor={`${id}-after`} className="text-[13px]">
+            From
+            <input id={`${id}-after`} type="date" className={`${FIELD} mt-1`} value={filter.after ?? ''} onChange={(event) => set({ after: event.target.value || null })} />
+          </label>
+          <label htmlFor={`${id}-before`} className="text-[13px]">
+            To
+            <input id={`${id}-before`} type="date" className={`${FIELD} mt-1`} value={filter.before ?? ''} onChange={(event) => set({ before: event.target.value || null })} />
+          </label>
+        </div>
+      </fieldset>
+      {reviews && (
+        <fieldset className="space-y-1.5">
+          <legend className="mb-1 text-xs font-medium text-muted">In review</legend>
+          {REVIEW_STATES.map((state) => (
+            <Checkbox
+              key={state}
+              checked={filter.reviews.includes(state)}
+              onChange={(event) => set({ reviews: toggled(filter.reviews, state, event.target.checked) })}
+              label={REVIEW_LABELS[state]}
+            />
+          ))}
+        </fieldset>
+      )}
+      <SelectField label="In" value={filter.folder_id ?? ''} onChange={(event) => set({ folder_id: event.target.value ? Number(event.target.value) : null })}>
+        <option value="">Anywhere in the project</option>
+        {folderChoices(folders).map((choice) => (
+          <option key={choice.id} value={choice.id}>
+            {choice.label} and the folders in it
+          </option>
+        ))}
+      </SelectField>
+      <fieldset className="space-y-1.5">
+        <legend className="mb-1 text-xs font-medium text-muted">Mentioning</legend>
+        {filter.mentions.map((one, index) => (
+          <div key={one} className="flex items-center justify-between gap-2 rounded-md bg-sunken py-0.5 pr-0.5 pl-2 text-[13px]">
+            <span className="min-w-0 truncate">“{one}”</span>
+            <IconButton
+              label={`Take off “${one}”`}
+              onClick={() => {
+                set({ mentions: filter.mentions.filter((_, other) => other !== index) })
+                wordsInput.current?.focus()
+              }}
+            >
+              <X className="size-3.5" />
+            </IconButton>
+          </div>
+        ))}
+        {room && (
+          <div className="flex items-center gap-2">
+            <input
+              ref={wordsInput}
+              aria-label="Words a document mentions"
+              placeholder="Words a passage holds, every one"
+              className={`${FIELD} min-w-0 flex-1`}
+              value={words}
+              maxLength={200}
+              onChange={(event) => setWords(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  mention()
+                }
+              }}
+            />
+            <button type="button" onClick={mention} disabled={!words.trim()} className="h-8 rounded-md border border-line px-2.5 text-[13px] transition hover:bg-sunken disabled:text-muted">
+              Add
+            </button>
+          </div>
+        )}
+      </fieldset>
+    </>
+  )
+}
+
+interface SmartFolderDialogProps extends Omit<FilterFieldsProps, 'filter' | 'onChange'> {
+  /** The smart folder being changed; null for a new one. */
+  editing: SmartFolder | null
+  /** What a new one starts from: a search to save. */
+  draft?: SmartFolderInput
+  onSave: (smart: SmartFolderInput) => void
   onClose: () => void
 }
 
-/** Asks what a smart folder lists: by tags, types, the documents' dates, their reviews and a folder; and what it is called. */
-export function SmartFolderDialog({ editing, tags, types, folders, reviews, onSave, onClose }: SmartFolderDialogProps) {
-  const [name, setName] = useState(editing?.name ?? '')
-  const [filter, setFilter] = useState<DocumentFilter>(editing?.filter ?? EMPTY_FILTER)
-  const id = useId()
-  const set = (change: Partial<DocumentFilter>) => setFilter((held) => ({ ...held, ...change }))
-  const toggled = <T,>(list: T[], value: T, on: boolean) => (on ? [...list, value] : list.filter((other) => other !== value))
+/**
+ * Asks what a smart folder lists: by tags, types, the documents' dates, their reviews, a folder and the words they mention;
+ * what it is called; and, for a saved search, the words it searches them for.
+ */
+export function SmartFolderDialog({ editing, draft, onSave, onClose, ...fields }: SmartFolderDialogProps) {
+  const start = editing ?? draft
+  const [name, setName] = useState(start?.name ?? '')
+  const [filter, setFilter] = useState<DocumentFilter>(start?.filter ?? EMPTY_FILTER)
+  const [query, setQuery] = useState(start?.query ?? '')
   const problem = smartFolderProblem(name, filter)
-  const folderPath = folderChoices(folders).find((choice) => choice.id === filter.folder_id)?.label ?? null
-  // A type the folder lists by that no document has now still shows, so that it can be taken off.
-  const typeChoices = [...new Set([...types.map((one) => one.type), ...filter.types])]
+  const folderPath = folderChoices(fields.folders).find((choice) => choice.id === filter.folder_id)?.label ?? null
+  const searching = query.trim() !== ''
   return (
     <Confirm
-      title={editing ? `Change “${editing.name}”` : 'New smart folder'}
-      body="A smart folder lists the documents that match what it lists by, wherever they are in the project, as they arrive. Everyone who reads the project sees it."
-      action={editing ? 'Save' : 'Make'}
+      title={editing ? `Change “${editing.name}”` : draft ? 'Save the search' : 'New smart folder'}
+      body={
+        searching
+          ? 'A saved search runs again each time it is opened, over the documents that match what it lists by, wherever they are in the project. Everyone who reads the project sees it.'
+          : 'A smart folder lists the documents that match what it lists by, wherever they are in the project, as they arrive. Everyone who reads the project sees it.'
+      }
+      action={editing || draft ? 'Save' : 'Make'}
       danger={false}
       disabled={problem !== null}
-      onConfirm={() => onSave(name.trim(), filter)}
+      onConfirm={() => onSave({ name: name.trim(), filter, query: query.trim() || null })}
       onClose={onClose}
     >
       <div className="max-h-[55vh] space-y-4 overflow-y-auto pr-1">
         <InputField label="Name" data-autofocus value={name} maxLength={100} onChange={(event) => setName(event.target.value)} />
-        {tags.length > 0 && (
-          <fieldset className="space-y-1.5">
-            <legend className="mb-1 text-xs font-medium text-muted">Tagged</legend>
-            {tags.map((tag) => (
-              <Checkbox
-                key={tag.id}
-                checked={filter.tags.includes(tag.id)}
-                onChange={(event) => set({ tags: toggled(filter.tags, tag.id, event.target.checked) })}
-                label={
-                  <span className="flex items-center gap-1.5">
-                    <TagDot color={tag.color} />
-                    {tag.name}
-                  </span>
-                }
-              />
-            ))}
-            {filter.tags.length > 1 && (
-              <Checkbox className="pt-1" checked={filter.every_tag} onChange={(event) => set({ every_tag: event.target.checked })} label="Every one of these tags, not any of them" />
-            )}
-          </fieldset>
-        )}
-        {typeChoices.length > 0 && (
-          <fieldset className="space-y-1.5">
-            <legend className="mb-1 text-xs font-medium text-muted">Of the type</legend>
-            {typeChoices.map((type) => (
-              <Checkbox key={type} checked={filter.types.includes(type)} onChange={(event) => set({ types: toggled(filter.types, type, event.target.checked) })} label={type} />
-            ))}
-          </fieldset>
-        )}
-        <fieldset>
-          <legend className="mb-1 text-xs font-medium text-muted">Dated</legend>
-          <div className="flex flex-wrap gap-2">
-            <label htmlFor={`${id}-after`} className="text-[13px]">
-              From
-              <input id={`${id}-after`} type="date" className={`${FIELD} mt-1`} value={filter.after ?? ''} onChange={(event) => set({ after: event.target.value || null })} />
-            </label>
-            <label htmlFor={`${id}-before`} className="text-[13px]">
-              To
-              <input id={`${id}-before`} type="date" className={`${FIELD} mt-1`} value={filter.before ?? ''} onChange={(event) => set({ before: event.target.value || null })} />
-            </label>
-          </div>
-        </fieldset>
-        {reviews && (
-          <fieldset className="space-y-1.5">
-            <legend className="mb-1 text-xs font-medium text-muted">In review</legend>
-            {REVIEW_STATES.map((state) => (
-              <Checkbox
-                key={state}
-                checked={filter.reviews.includes(state)}
-                onChange={(event) => set({ reviews: toggled(filter.reviews, state, event.target.checked) })}
-                label={REVIEW_LABELS[state]}
-              />
-            ))}
-          </fieldset>
-        )}
-        <SelectField label="In" value={filter.folder_id ?? ''} onChange={(event) => set({ folder_id: event.target.value ? Number(event.target.value) : null })}>
-          <option value="">Anywhere in the project</option>
-          {folderChoices(folders).map((choice) => (
-            <option key={choice.id} value={choice.id}>
-              {choice.label} and the folders in it
-            </option>
-          ))}
-        </SelectField>
+        <InputField
+          label="Search for"
+          hint="Words its documents are searched for each time it is opened. Left empty, it lists the documents."
+          value={query}
+          maxLength={200}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <FilterFields {...fields} filter={filter} onChange={setFilter} />
         <p className="text-xs text-muted" aria-live="polite">
-          {problem ?? `${filterWords(filter, tags, folderPath)}.`}
+          {problem ?? `${smartFolderWords(filter, query, fields.tags, folderPath)}.`}
+        </p>
+      </div>
+    </Confirm>
+  )
+}
+
+interface SearchFilterDialogProps extends Omit<FilterFieldsProps, 'onChange'> {
+  onApply: (filter: DocumentFilter) => void
+  onClose: () => void
+}
+
+/** Asks what a search searches within: the same parts as a smart folder lists by. */
+export function SearchFilterDialog({ filter: held, onApply, onClose, ...fields }: SearchFilterDialogProps) {
+  const [filter, setFilter] = useState(held)
+  const problem = smartFolderProblem('-', filter)
+  const folderPath = folderChoices(fields.folders).find((choice) => choice.id === filter.folder_id)?.label ?? null
+  return (
+    <Confirm
+      title="Filter the search"
+      body="Search only the documents that match what you choose. A part left empty takes every document."
+      action="Apply"
+      danger={false}
+      disabled={problem !== null}
+      onConfirm={() => onApply(filter)}
+      onClose={onClose}
+    >
+      <div className="max-h-[55vh] space-y-4 overflow-y-auto pr-1">
+        <FilterFields {...fields} filter={filter} onChange={setFilter} />
+        <p className="text-xs text-muted" aria-live="polite">
+          {problem ?? `${filterWords(filter, fields.tags, folderPath)}.`}
         </p>
       </div>
     </Confirm>

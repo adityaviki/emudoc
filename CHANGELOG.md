@@ -17,6 +17,14 @@ newest entry first.
 
 Members:
 
+- Search filters: "Filter" above the library's search results narrows a search to documents of
+  some types, dated within a span, with tags, in review or in a folder, each part shown with a
+  cross that takes it off; and searching while the library shows a tag's or a smart folder's
+  documents searches them alone.
+- Search within what you found: "Search within these" keeps the words you searched for, so that
+  the next words search only the documents that mention them all.
+- Saved searches: "Save the search" keeps a search as a smart folder, which runs it again each
+  time it is opened. A smart folder can also list the documents that mention some words.
 - Several files at once: choose them together in the library, then "Tags of … documents…" in
   their menu puts a tag on every one or takes it off every one, leaving a tag only some carry as
   it is; "Index … documents again" reads them all again; and "Export … documents" makes a ZIP file

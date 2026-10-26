@@ -154,6 +154,36 @@ describe('buildWorkspaceUrl', () => {
   })
 })
 
+describe('a search in the URL', () => {
+  const search = {
+    tags: [4, 5],
+    every_tag: true,
+    types: ['invoice', 'credit note'],
+    after: '2024-01-01',
+    before: null,
+    reviews: ['disputed' as const],
+    mentions: ['late delivery', 'penalty'],
+  }
+
+  it('keeps what narrows it, each part its own parameter, and reads it back', () => {
+    const url = buildWorkspaceUrl({ ...home, library: { folderId: 7, q: 'notice', search } })
+    expect(url).toBe(
+      '/projects/3?folder=7&q=notice&tagged=4&tagged=5&every-tag=&type=invoice&type=credit+note&after=2024-01-01&review=disputed&within=late+delivery&within=penalty',
+    )
+    expect(parse(url)?.library).toEqual({ folderId: 7, q: 'notice', search })
+  })
+
+  it('leaves out what it cannot read, and reads no search where nothing narrows it', () => {
+    expect(parse('/projects/3?q=notice&tagged=x&after=2024-1-1&review=lost&within=+&every-tag=')?.library).toEqual({ folderId: null, q: 'notice' })
+    expect(parse('/projects/3?tagged=4&every-tag=')?.library.search).toMatchObject({ tags: [4], every_tag: false })
+    expect(parse('/projects/3?within=penalty')?.library).toEqual({
+      folderId: null,
+      q: '',
+      search: { tags: [], every_tag: false, types: [], after: null, before: null, reviews: [], mentions: ['penalty'] },
+    })
+  })
+})
+
 describe('sameFocus', () => {
   it('compares what a document is opened at, with nothing as nothing', () => {
     expect(sameFocus({ page: 2 }, { page: 2 })).toBe(true)

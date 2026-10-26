@@ -11,6 +11,7 @@ import { Tour } from '../components/Tour.tsx'
 import { Loading, Notice, Segmented } from '../components/ui.tsx'
 import { libraryPlace } from '../failures.ts'
 import { useFolderTree, useFolders, useLocalStorage } from '../hooks.ts'
+import { searchView } from '../library.ts'
 import { offerTour, workspaceTour } from '../tour.ts'
 import { ChatPane } from '../workspace/ChatPane.tsx'
 import { DocumentTab } from '../workspace/DocumentTab.tsx'
@@ -142,7 +143,11 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
       },
       goToFolder,
       setSearch(q, folderId = url.library.folderId) {
-        go({ library: { folderId, q } }, { replace: true })
+        go({ library: { folderId, q, search: url.library.search } }, { replace: true })
+      },
+      showSearch(search, options) {
+        setMobilePane('library')
+        go({ library: searchView(search) }, options)
       },
       showTrash() {
         setMobilePane('library')

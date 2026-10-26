@@ -14,6 +14,7 @@ import {
   Folder as FolderIcon,
   FolderInput,
   FolderPlus,
+  FolderSearch,
   FolderSync,
   FolderUp,
   GitCompareArrows,
@@ -26,6 +27,7 @@ import {
   RefreshCw,
   ScrollText,
   Search,
+  SlidersHorizontal,
   Star,
   StarOff,
   TableProperties,
@@ -35,7 +37,7 @@ import {
   WifiOff,
   X,
 } from 'lucide-react'
-import { createElement, Fragment, useEffect, useRef, useState } from 'react'
+import { createElement, Fragment, useEffect, useEffectEvent, useRef, useState } from 'react'
 import type { DragEvent, FocusEvent, KeyboardEvent, MouseEvent, RefObject } from 'react'
 import {
   ACCEPTED_EXTENSIONS,
@@ -47,8 +49,9 @@ import {
   sectionPath,
   thumbnailUrl,
 } from '../api.ts'
-import type { Document, Folder, ListingPlace, ScopeIn, SearchHit, SmartFolder, Tag, UploadItem } from '../api.ts'
+import type { Document, Folder, ListingPlace, ScopeIn, SearchHit, SmartFolder, SmartFolderInput, Tag, UploadItem } from '../api.ts'
 import { useMe } from '../auth.ts'
+import { folderChoices } from '../automations.ts'
 import { startChat } from '../chat.ts'
 import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
 import { StatusIcon } from '../components/IndexingStatus.tsx'
@@ -63,8 +66,23 @@ import { cursorAfter } from '../focus.ts'
 import { useFolders, useLocalStorage, useOnline, useStatus } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
 import { partlyIndexedWords, restHeld, unfinishedStages } from '../indexing.ts'
-import { SORT_NAMES, emptyPlaceWords, gridMove, hasThumbnail, placeName, placeOf, tagsOf } from '../library.ts'
-import type { LibraryLayout } from '../library.ts'
+import {
+  EMPTY_FILTER,
+  MAX_WITHIN,
+  SORT_NAMES,
+  emptyPlaceWords,
+  filterParts,
+  filterWords,
+  gridMove,
+  hasThumbnail,
+  narrows,
+  placeName,
+  placeOf,
+  tagsOf,
+  viewedSearch,
+  withoutPart,
+} from '../library.ts'
+import type { LibraryLayout, Search as LibrarySearch } from '../library.ts'
 import { stateMoves } from '../reviews.ts'
 import { SUMMARY_QUESTION, comparisonQuestion } from '../scopes.ts'
 import { MAX_CHOSEN, retagged } from '../selection.ts'
@@ -89,7 +107,7 @@ import type { Arrangement, Listing } from './listing.ts'
 import { useLibraryMutations, useReviewChange } from './mutations.ts'
 import type { LibraryMutations } from './mutations.ts'
 import { useDocumentMarks, useDocumentTypes, useFavorites, useOrganizing, useSmartFolders, useTags } from './organizing.ts'
-import { DocumentTagsDialog, PlaceBar, Seen, SmartFolderDialog, TagChips } from './Places.tsx'
+import { DocumentTagsDialog, PlaceBar, SearchFilterDialog, Seen, SmartFolderDialog, TagChips } from './Places.tsx'
 import { ReviewMark, ReviewsView } from './Reviews.tsx'
 import { useWorkspace } from './state.ts'
 import { TagsView } from './Tags.tsx'
@@ -221,9 +239,14 @@ export function Library() {
   const tags = useTags(project.id)
   const smartFolders = useSmartFolders(project.id)
   const organizing = useOrganizing(project.id)
-  const [smartEditing, setSmartEditing] = useState<{ smart: SmartFolder | null } | null>(null)
+  const [smartEditing, setSmartEditing] = useState<{ smart: SmartFolder | null; draft?: SmartFolderInput } | null>(null)
   const [smartAsking, setSmartAsking] = useState<SmartFolder | null>(null)
   const openSmart = 'smart' in place ? smartFolders.data?.smart_folders.find((smart) => smart.id === place.smart) : undefined
+  // A smart folder with words is a saved search, run as it is opened; any other search is the URL's.
+  const saved = openSmart?.query ? openSmart : null
+  const search: LibrarySearch | null = saved ? { q: saved.query ?? '', filter: saved.filter } : viewedSearch(workspace.url.library)
+  const searchBox = useRef<HTMLInputElement>(null)
+  const smartRoom = (smartFolders.data?.smart_folders.length ?? 0) < (smartFolders.data?.max_smart_folders ?? 0)
   // A tag or smart folder deleted, here or elsewhere, falls back to the root.
   const placeGone =
     ('tag' in place && tags.isSuccess && !tags.data.tags.some((tag) => tag.id === place.tag)) ||
@@ -271,6 +294,24 @@ export function Library() {
   if (workspace.url.library.tags) return <TagsView />
   if (workspace.url.library.filing) return <FilingView />
   const placeLabel = flat ? placeName(place, tags.data?.tags ?? [], smartFolders.data?.smart_folders ?? []) : null
+  // The box searches where the member is: a saved search's documents, a tag's or a smart folder's, else the folder, within
+  // what narrows its search; the favourites and the recent ones are no filter, and it searches the project from them.
+  const searchFrom = (q: string) => {
+    if (saved) workspace.showSearch({ q, filter: saved.filter })
+    else if ('tag' in place) workspace.showSearch({ q, filter: { ...EMPTY_FILTER, tags: [place.tag] } })
+    else if (openSmart) workspace.showSearch({ q, filter: openSmart.filter })
+    else workspace.setSearch(q)
+  }
+  const narrowed = search != null && narrows({ ...search.filter, folder_id: null })
+  const searchPlaceholder = saved
+    ? `Search in ${saved.name}`
+    : narrowed
+      ? 'Search within these documents'
+      : flat && placeLabel && ('tag' in place || 'smart' in place)
+        ? `Search in ${placeLabel}`
+        : folderId == null
+          ? 'Search the project'
+          : `Search in ${currentName}`
   return (
     <div
       data-tour="library"
@@ -312,7 +353,7 @@ export function Library() {
           )}
         </div>
         <div className="flex items-center gap-2 px-3 pb-2.5">
-          <SearchBox query={query} scope={folderId == null ? null : currentName} />
+          <SearchBox query={saved ? (saved.query ?? '') : query} placeholder={searchPlaceholder} onSearch={searchFrom} inputRef={searchBox} />
           <Button
             icon={<Trash2 className="size-4" />}
             onClick={workspace.showTrash}
@@ -379,7 +420,7 @@ export function Library() {
               <Button
                 icon={<FolderPlus className="size-4" />}
                 onClick={() => setCreating(true)}
-                disabled={!!query || flat}
+                disabled={search != null || flat}
                 title="New folder"
                 aria-label="New folder"
                 className="px-2"
@@ -443,7 +484,7 @@ export function Library() {
       </div>
 
       <div className="shrink-0 space-y-2 empty:hidden px-3 pt-2">
-        {project.sample && !query && (
+        {project.sample && !search && (
           <Notice tone="info">
             Emudoc’s sample documents, which count against nothing on your plan: ask about them in the chat. Your own
             documents go in a project of your own.
@@ -563,8 +604,20 @@ export function Library() {
 
       {/* A folder or a search that breaks leaves the path and the search box, from which another opens. */}
       <ErrorBoundary part="library" resetKey={libraryPlace(workspace.url.library)}>
-        {query ? (
-          <SearchResults query={query} folderId={folderId} scope={folderId == null ? null : currentName} />
+        {search ? (
+          <SearchResults
+            search={search}
+            saved={saved}
+            tags={tags.data?.tags ?? []}
+            folders={folders.data ?? []}
+            reviews={templates}
+            searchBox={searchBox}
+            onSave={
+              changes && smartRoom
+                ? (draft) => setSmartEditing({ smart: null, draft: { name: draft.q.slice(0, 100), filter: draft.filter, query: draft.q } })
+                : null
+            }
+          />
         ) : (
           <Listing
             key={`${placeKey(place)}:${layout}`}
@@ -660,12 +713,13 @@ export function Library() {
       {smartEditing && (
         <SmartFolderEditor
           editing={smartEditing.smart}
+          draft={smartEditing.draft}
           tags={tags.data?.tags ?? []}
           folders={folders.data ?? []}
           reviews={templates}
-          onSave={(name, filter) =>
+          onSave={(input) =>
             organizing.saveSmartFolder.mutate(
-              { id: smartEditing.smart?.id ?? null, name, filter },
+              { id: smartEditing.smart?.id ?? null, ...input },
               { onSuccess: (saved) => workspace.showPlace({ smart: saved.id }), onError: (error) => mutations.setNotice(error.message) },
             )
           }
@@ -796,8 +850,14 @@ function canDropItems(tree: FolderTree, targetId: number | null, payload: DragPa
 // The folder each document is in, kept current by the Listing for the drop checks above.
 const documentsParent = new Map<number, number | null>()
 
-function SearchBox({ query, scope }: { query: string; scope: string | null }) {
-  const workspace = useWorkspace()
+interface SearchBoxProps {
+  query: string
+  placeholder: string
+  onSearch: (q: string) => void
+  inputRef: RefObject<HTMLInputElement | null>
+}
+
+function SearchBox({ query, placeholder, onSearch, inputRef }: SearchBoxProps) {
   const [draft, setDraft] = useState(query)
   // The URL can change the query from outside (opening a tab, going back).
   const [lastQuery, setLastQuery] = useState(query)
@@ -806,23 +866,26 @@ function SearchBox({ query, scope }: { query: string; scope: string | null }) {
     setDraft(query)
   }
 
+  // The library's latest way to search, which a render makes anew, without starting the wait again.
+  const search = useEffectEvent(onSearch)
   useEffect(() => {
     const trimmed = draft.trim()
     if (trimmed === query) return
-    const timer = window.setTimeout(() => workspace.setSearch(trimmed), 300)
+    const timer = window.setTimeout(() => search(trimmed), 300)
     return () => window.clearTimeout(timer)
-  }, [draft, query, workspace])
+  }, [draft, query])
 
   return (
     <div data-tour="search" className="relative min-w-0 flex-1">
       <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted" />
       <input
+        ref={inputRef}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === 'Escape') setDraft('')
         }}
-        placeholder={scope ? `Search in ${scope}` : 'Search the project'}
+        placeholder={placeholder}
         aria-label="Search"
         className="field h-8 pr-8 pl-8 text-[13px]"
       />
@@ -831,7 +894,7 @@ function SearchBox({ query, scope }: { query: string; scope: string | null }) {
           type="button"
           aria-label="Clear search"
           onClick={() => setDraft('')}
-          className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5 text-muted transition hover:bg-sunken hover:text-ink"
+          className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded text-muted transition hover:bg-sunken hover:text-ink"
         >
           <X className="size-3.5" />
         </button>
@@ -2096,43 +2159,124 @@ function GhostFolderRow({ onCommit, onCancel }: GhostFolderRowProps) {
 }
 
 interface SearchResultsProps {
-  query: string
-  folderId: number | null
-  scope: string | null
+  search: LibrarySearch
+  /** The saved search being run, which any change leaves for a search of its own; null for one of the URL's. */
+  saved: SmartFolder | null
+  tags: Tag[]
+  folders: Folder[]
+  /** Whether documents' reviews are rolled out to the organisation, which a search may then be narrowed by. */
+  reviews: boolean
+  /** The search box, which takes the focus once what held it goes. */
+  searchBox: RefObject<HTMLInputElement | null>
+  /** Saves the search as a smart folder; null for a role that may not, or a project that holds all it may. */
+  onSave: ((search: LibrarySearch) => void) | null
 }
 
-function SearchResults({ query, folderId, scope }: SearchResultsProps) {
+function SearchResults({ search, saved, tags, folders, reviews, searchBox, onSave }: SearchResultsProps) {
   const workspace = useWorkspace()
+  const { q: query, filter } = search
+  const [filtering, setFiltering] = useState(false)
+  const filterButton = useRef<HTMLButtonElement>(null)
   const results = useQuery({
-    queryKey: ['search', workspace.project.id, query, folderId],
-    queryFn: () => api.search(workspace.project.id, query, folderId),
+    queryKey: ['search', workspace.project.id, query, filter],
+    queryFn: () => api.search(workspace.project.id, query, filter),
+    enabled: query !== '',
   })
+  const folder = folderChoices(folders).find((choice) => choice.id === filter.folder_id)?.label ?? null
+  // An unsaved search's folder is the library's, which the path above shows; a saved one's is a part of it as the rest.
+  const parts = filterParts(saved ? filter : { ...filter, folder_id: null }, tags, folder)
+  const hits = results.data?.hits ?? []
+  const scope = filter.folder_id == null ? null : (folder ?? 'its folder')
+  const within = query !== '' && hits.length > 0 && filter.mentions.length < MAX_WITHIN
 
   return (
     <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-      {results.isPending && <Loading />}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Button ref={filterButton} icon={<SlidersHorizontal className="size-3.5" />} onClick={() => setFiltering(true)} className="h-7 px-2 text-xs">
+          Filter
+        </Button>
+        {parts.map(({ part, words }) => (
+          <span key={String(part)} className="inline-flex max-w-full min-w-0 items-center gap-0.5 rounded-md bg-accent-soft py-px pr-0.5 pl-2 text-xs text-accent">
+            <span className="truncate">{words}</span>
+            <IconButton
+              label={`Take off: ${words}`}
+              className="size-5! text-accent hover:text-ink"
+              onClick={() => {
+                workspace.showSearch({ q: query, filter: withoutPart(filter, part) })
+                filterButton.current?.focus()
+              }}
+            >
+              <X className="size-3" />
+            </IconButton>
+          </span>
+        ))}
+        <span className="ml-auto flex gap-1.5">
+          {within && (
+            <Button
+              icon={<Search className="size-3.5" />}
+              title="Search again only in the documents with a passage that holds every one of these words"
+              className="h-7 px-2 text-xs"
+              onClick={() => {
+                workspace.showSearch({ q: '', filter: { ...filter, mentions: [...filter.mentions, query] } })
+                searchBox.current?.focus()
+              }}
+            >
+              Search within these
+            </Button>
+          )}
+          {onSave && !saved && query && (
+            <Button icon={<FolderSearch className="size-3.5" />} className="h-7 px-2 text-xs" onClick={() => onSave(search)}>
+              Save the search
+            </Button>
+          )}
+        </span>
+      </div>
+      {!query && (
+        <EmptyState icon={<Search />} title="What should be searched for?">
+          {filterWords({ ...filter, folder_id: null }, tags, null)}
+          {scope ? `, in ${scope}` : ''}. Type words in the search box to search them.
+        </EmptyState>
+      )}
+      {results.isPending && query !== '' && <Loading />}
       {results.isError && <Notice tone="bad">Search failed: {results.error.message}</Notice>}
       {results.data && !results.data.semantic && (
         <Notice>The embedding service is offline, so these are keyword matches only.</Notice>
       )}
-      {results.data?.hits.length === 0 && (
+      {results.data && hits.length === 0 && (
         <EmptyState title={`Nothing found for "${query}"${scope ? ` in ${scope}` : ''}`}>
           Results combine exact word matches with matches on meaning.
-          {/* A folder's search may miss what the rest of the project holds. */}
-          {scope && (
+          {/* A narrowed search may miss what the rest of the project holds. */}
+          {(scope || narrows({ ...filter, folder_id: null })) && (
             <div className="mt-4">
-              <Button icon={<Search className="size-4" />} onClick={() => workspace.setSearch(query, null)}>
+              <Button icon={<Search className="size-4" />} onClick={() => workspace.showSearch({ q: query, filter: EMPTY_FILTER })}>
                 Search all of {workspace.project.name}
               </Button>
             </div>
           )}
         </EmptyState>
       )}
-      {results.data?.hits.map((hit) => (
+      {hits.map((hit) => (
         <Hit key={hit.passage_id} hit={hit} onOpen={() => workspace.openDocument(hit.document_id, { passage: hit.passage_id })} />
       ))}
+      {filtering && (
+        <SearchFilterEditor
+          filter={filter}
+          tags={tags}
+          folders={folders}
+          reviews={reviews}
+          onApply={(chosen) => workspace.showSearch({ q: query, filter: chosen })}
+          onClose={() => setFiltering(false)}
+        />
+      )}
     </div>
   )
+}
+
+/** The search's filter form, with the types the model gave the project's documents to choose from, asked for as it opens. */
+function SearchFilterEditor(props: Omit<Parameters<typeof SearchFilterDialog>[0], 'types'>) {
+  const { project } = useWorkspace()
+  const types = useDocumentTypes(project.id)
+  return <SearchFilterDialog {...props} types={types.data ?? []} />
 }
 
 function Hit({ hit, onOpen }: { hit: SearchHit; onOpen: () => void }) {

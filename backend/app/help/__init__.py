@@ -26,6 +26,7 @@ from app.parsing import IMAGE_TYPES, SCAN_TYPES, SUPPORTED_EXTENSIONS
 from app.recents import RECENT
 from app.retention import DELETION_GRACE, RETENTION_HELD
 from app.sample import NAME as SAMPLE_NAME
+from app.schemas import MAX_MENTIONS
 from app.selection import MAX_CHOSEN
 from app.support import SUPPORT_SESSION
 from app.tags import MAX_DOCUMENT_TAGS
@@ -123,6 +124,7 @@ def _values(settings: Settings) -> dict[str, str]:
         "trash_days": str(TRASH_DAYS),
         "recent": str(RECENT),
         "chosen": str(MAX_CHOSEN),
+        "within": str(MAX_MENTIONS),
         "document_tags": str(MAX_DOCUMENT_TAGS),
         "question_chars": f"{settings.max_question_chars:,}",
         "chat_retention": by_plan(lambda plan: plan.retention_days, "until deleted"),

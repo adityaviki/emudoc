@@ -4,8 +4,19 @@
 
 The search box above the library finds passages by their words and by their meaning together,
 so "late delivery penalty" also finds a clause about liquidated damages. It searches the
-project, or the folder you are in. Words are matched in the language your organisation chose
-on its page, so that "invoices" also finds "invoice".
+project, or the folder you are in, or a tag's or a smart folder's documents while the library
+shows them. Words are matched in the language your organisation chose on its page, so that
+"invoices" also finds "invoice".
+
+- **Filter**, above the results, narrows a search to the documents of some types, dated within
+  a span, carrying tags, in review or in a folder. Each part shows beside it, and its cross
+  takes it off.
+- **Search within these** keeps the words you searched for and empties the box: the next words
+  search only the documents with a passage that holds every one of them. Do it again to narrow
+  further, up to $within times.
+- **Save the search** keeps it, its words with what narrows it, as a smart folder of the
+  project ([Tags, smart folders and favourites](/help/documents)), which runs the search again
+  each time it is opened from the menu above the files.
 
 ## Asking
 

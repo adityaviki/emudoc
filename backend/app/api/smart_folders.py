@@ -1,5 +1,6 @@
 """A project's smart folders (app/smart_folders.py): saved views of its documents, which the
-library lists like folders (`list_documents` in app/api/documents.py, `smart=`).
+library lists like folders (`list_documents` in app/api/documents.py, `smart=`), and saved
+searches, which it opens as the search of their words within those documents.
 
 Anyone who reads the project reads them; a member who may change the project makes and changes
 them, and deletes them by role alone, as a folder is. A smart folder is written whole. Nothing
@@ -21,12 +22,16 @@ from app.api.deps import (
 from app.api.folders import resolve_folder
 from app.models import Project, SmartFolder
 from app.schemas import DocumentFilter, SmartFolderIn, SmartFolderOut, SmartFoldersOut
-from app.smart_folders import MAX_SMART_FOLDERS, TOO_MANY, project_smart_folders, smart_folder_out
+from app.smart_folders import (
+    BACKWARDS,
+    MAX_SMART_FOLDERS,
+    TOO_MANY,
+    project_smart_folders,
+    smart_folder_out,
+)
 from app.tags import NOT_THE_PROJECTS, the_projects
 
 router = APIRouter(tags=["smart folders"])
-
-BACKWARDS = "Its earliest date is after its latest. Choose dates the other way round."
 
 
 @router.get("/projects/{project_id}/smart-folders", response_model=SmartFoldersOut)
@@ -57,6 +62,7 @@ def create_smart_folder(
         project_id=project.id,
         name=body.name,
         filter=chosen.model_dump(mode="json"),
+        query=body.query or None,
         created_by=account.user.id,
     )
     session.add(row)
@@ -70,6 +76,7 @@ def update_smart_folder(row: EditableSmartFolderDep, body: SmartFolderIn, sessio
     project = session.get(Project, row.project_id)
     row.name = body.name
     row.filter = _written(session, project, body.filter).model_dump(mode="json")
+    row.query = body.query or None
     session.commit()
     return smart_folder_out(session, row)
 
@@ -82,8 +89,8 @@ def delete_smart_folder(row: DeletableSmartFolderDep, session: SessionDep):
 
 
 def _written(session: Session, project: Project, chosen: DocumentFilter) -> DocumentFilter:
-    """The filter as it is kept, each tag once; refused for a tag that is not the project's, a
-    folder that is not or is in the trash, and dates the wrong way round."""
+    """The filter as it is kept, each tag, type and words once; refused for a tag that is not
+    the project's, a folder that is not or is in the trash, and dates the wrong way round."""
     tags = the_projects(session, project.id, chosen.tags)
     if tags is None:
         raise HTTPException(404, NOT_THE_PROJECTS)
@@ -95,6 +102,7 @@ def _written(session: Session, project: Project, chosen: DocumentFilter) -> Docu
         update={
             "tags": tags,
             "types": list(dict.fromkeys(chosen.types)),
+            "mentions": list(dict.fromkeys(chosen.mentions)),
             "every_tag": bool(tags) and chosen.every_tag,
         }
     )
