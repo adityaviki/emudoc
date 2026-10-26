@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { History, Link2, ListChecks, ListTree, Printer, X } from 'lucide-react'
+import { History, Link2, ListChecks, ListTree, PenLine, Printer, StickyNote, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { api, fileUrl, hasPages, isImage, isSheet, mayChange, pageImageUrl, pageLabel, sectionPath } from '../api.ts'
 import type { Document, Section } from '../api.ts'
 import { useMe } from '../auth.ts'
+import { noteKey } from '../details.ts'
 import { ImagePreview, PagesView, Scrolled, SheetView, TextView } from '../components/DocumentViews.tsx'
 import type { BlockFocus } from '../components/DocumentViews.tsx'
 import { IndexingStatus } from '../components/IndexingStatus.tsx'
@@ -13,6 +14,7 @@ import { usePrintTitle, useStatus } from '../hooks.ts'
 import { notIndexedWords, restHeld, scanPassed, unfinishedStages } from '../indexing.ts'
 import { offersLinks } from '../shareLinks.ts'
 import { describeDocumentUsage } from '../usage.ts'
+import { Copies, DetailsDialog, NotePanel } from './Details.tsx'
 import { originalFile } from './files.ts'
 import { documentKey, listingsKey } from './listing.ts'
 import { ReviewControls } from './Reviews.tsx'
@@ -44,6 +46,10 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
   const [outlineOpen, setOutlineOpen] = useState(true)
   const [sharing, setSharing] = useState(false)
   const [versioning, setVersioning] = useState(false)
+  const [detailing, setDetailing] = useState(false)
+  const [writing, setWriting] = useState(false)
+  // Its note, which everyone who reads the project reads.
+  const note = useQuery({ queryKey: noteKey(document.id), queryFn: () => api.note(document.id) })
   const status = document.status
   const indexed = document.stages.structure?.status === 'done'
   // The original is served once its malware scan has passed, and never when it was flagged.
@@ -157,6 +163,16 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
                 <Printer className="size-4" />
               </IconButton>
             )}
+            {changes && (
+              <IconButton label="Edit details" onClick={() => setDetailing(true)}>
+                <PenLine className="size-4" />
+              </IconButton>
+            )}
+            {changes && !writing && note.data && !note.data.text && (
+              <IconButton label="Add a note" onClick={() => setWriting(true)}>
+                <StickyNote className="size-4" />
+              </IconButton>
+            )}
             <IconButton label="Versions" onClick={() => setVersioning(true)}>
               <History className="size-4" />
             </IconButton>
@@ -176,11 +192,24 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
             )}
           </div>
         </div>
+        <Copies document={document} />
         {reviews && (
           <div className="mt-2 print:hidden">
             <ReviewControls document={document} />
           </div>
         )}
+        <NotePanel
+          document={document}
+          note={note.data}
+          changes={changes}
+          writing={writing}
+          onWrite={() => setWriting(true)}
+          onDone={() => {
+            setWriting(false)
+            heading.current?.focus()
+          }}
+        />
+        {detailing && <DetailsDialog document={document} onClose={() => setDetailing(false)} />}
         {sharing && <ShareDialog target={{ kind: 'document', id: document.id, name: document.filename }} onClose={() => setSharing(false)} />}
         {versioning && <VersionsDialog document={document} onClose={() => setVersioning(false)} />}
         {focusLabel && (

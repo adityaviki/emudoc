@@ -325,6 +325,73 @@ class DocumentPatch(BaseModel):
 
 # REVIEW_STATES in app/models.py.
 ReviewState = Literal["to_review", "approved", "disputed"]
+# DOCUMENT_DETAILS in app/models.py.
+DocumentDetail = Literal["title", "doc_type", "doc_date"]
+
+
+class DocumentDetailsIn(BaseModel):
+    """A member's title, kind and date for a document (app/details.py). A field left out stays as
+    it is; one given, None for none, is the member's, which later readings keep; one named in
+    `as_read` takes what the reading found again, and follows the readings after."""
+
+    title: str | None = Field(None, max_length=500)
+    doc_type: str | None = Field(None, max_length=100)
+    doc_date: dt.date | None = None
+    as_read: list[DocumentDetail] = Field([], max_length=3)
+
+
+class DocumentNoteIn(BaseModel):
+    """A document's note as a member saves it, whole (app/notes.py); a blank one deletes it."""
+
+    text: str = Field(max_length=10_000)
+
+
+class DocumentNoteOut(BaseModel):
+    """A document's note, "" for none, with the name of whoever changed it last as it is now
+    (None for an account gone, and for no note) and when."""
+
+    text: str
+    changed_by: str | None
+    changed_at: dt.datetime | None
+
+
+class DocumentCopyOut(BaseModel):
+    """A document of the same bytes as another, in another project the member sees
+    (app/duplicates.py), with where it is."""
+
+    id: int
+    project_id: int
+    project_name: str
+    # Its folder's path from the project's root, "" for the root, and the folder's id.
+    folder: str
+    folder_id: int | None
+    filename: str
+
+
+class DocumentCopiesOut(BaseModel):
+    """The copies of a document's file in the other projects the member sees, by project name."""
+
+    copies: list[DocumentCopyOut]
+
+
+class DuplicateOut(BaseModel):
+    """A file held in more than one of the projects the member sees: every copy of it, by project
+    name, and its size and type."""
+
+    size_bytes: int
+    mime_type: str
+    copies: list[DocumentCopyOut]
+
+
+class DuplicatesOut(BaseModel):
+    """A page of the files held in more than one of the projects the member sees, the one most
+    lately added first, with how many there are and how many bytes their copies past the first
+    take, over every page; `next` the `after` of the page after it, None on the last."""
+
+    files: int
+    copy_bytes: int
+    duplicates: list[DuplicateOut]
+    next: int | None
 
 
 class DocumentOut(_FromORM):
@@ -343,6 +410,12 @@ class DocumentOut(_FromORM):
     title: str | None
     doc_type: str | None
     doc_date: dt.date | None
+    # What its last reading found of the three above, and which of them a member set in its
+    # place (app/details.py).
+    read_title: str | None = None
+    read_doc_type: str | None = None
+    read_doc_date: dt.date | None = None
+    edited_details: list[DocumentDetail] = []
     summary: str | None
     # The kind of the extraction template its facts were read for (app/extraction.py), if any.
     template: str | None
@@ -2845,6 +2918,15 @@ class ExportedVersion(BaseModel):
     replaced_at: dt.datetime
 
 
+class ExportedNote(BaseModel):
+    """A document's note, with the name of whoever changed it last as it is now, None for an
+    account gone, and when."""
+
+    text: str
+    changed_by: str | None
+    changed_at: dt.datetime
+
+
 class ExportedDocument(BaseModel):
     """A document as `project.json` lists it, with where the archive holds its original and
     what was read from it."""
@@ -2863,6 +2945,8 @@ class ExportedDocument(BaseModel):
     title: str | None
     doc_type: str | None
     doc_date: dt.date | None
+    # Those of the three above a member set in place of what its reading found (app/details.py).
+    edited_details: list[str] = []
     summary: str | None
     # The kind of the extraction template its facts were read for, if any.
     template: str | None
@@ -2879,6 +2963,8 @@ class ExportedDocument(BaseModel):
     versions: list[ExportedVersion] = []
     # The names of its tags (app/tags.py), as the project's `tags` list them.
     tags: list[str] = []
+    # Its note, which the project's members share (app/notes.py), if it has one.
+    note: ExportedNote | None = None
 
 
 class ExportedBlock(BaseModel):

@@ -39,6 +39,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.details import settle_details
 from app.entitlements import check_version
 from app.fact_checks import hold as hold_checks
 from app.folders import unique_filename
@@ -279,9 +280,12 @@ def _give(
     document.sha256 = sha256
     document.page_count = None
     document.page_sizes = []
-    document.title = None
-    document.doc_type = None
-    document.doc_date = None
+    # What the earlier file was read to be; a detail a member set holds (app/details.py), the
+    # row being held already.
+    document.read_title = None
+    document.read_doc_type = None
+    document.read_doc_date = None
+    settle_details(document)
     document.summary = None
     document.template = None
     document.quarantine_reported_at = None

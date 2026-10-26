@@ -13,7 +13,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { Unreachable, api, isPlanLimit } from '../api.ts'
-import type { Document, Folder, PlanRefusal, ReviewInput, UploadItem, UploadResult } from '../api.ts'
+import type { Document, DocumentDetailsInput, Folder, PlanRefusal, ReviewInput, UploadItem, UploadResult } from '../api.ts'
 import { ME_KEY } from '../auth.ts'
 import { factTablesKey } from '../factTable.ts'
 import { useStatus } from '../hooks.ts'
@@ -24,6 +24,7 @@ import { givenWords, versionsKey } from '../versions.ts'
 import { moved, renamed } from './changes.ts'
 import type { Change, MoveItems, TrashItems } from './changes.ts'
 import { documentKey, editListings, findListed, listed, listingsKey, restore, snapshotListings } from './listing.ts'
+import { documentTypesKey } from './organizing.ts'
 import { useWorkspace } from './state.ts'
 import {
   DEFAULT_LIMITS,
@@ -368,6 +369,23 @@ export function useReviewChange(projectId: number) {
       queryClient.setQueryData(documentKey(document.id), document)
       void queryClient.invalidateQueries({ queryKey: reviewsKey(projectId) })
       void queryClient.invalidateQueries({ queryKey: factTablesKey(projectId) })
+    },
+  })
+}
+
+/**
+ * Set a document's details as the member's, or take what the reading found again (backend/app/details.py), then show the
+ * document so wherever the page holds it, and ask again for the listings, whose date order and smart folders read them,
+ * and the project's types.
+ */
+export function useDetailsChange(projectId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, change }: { id: number; change: DocumentDetailsInput }) => api.changeDetails(id, change),
+    onSuccess: (document) => {
+      editListings(queryClient, projectId, (documents) => documents.map((held) => (held.id === document.id ? document : held)))
+      queryClient.setQueryData(documentKey(document.id), document)
+      for (const queryKey of [listingsKey(projectId), documentTypesKey(projectId)]) void queryClient.invalidateQueries({ queryKey })
     },
   })
 }

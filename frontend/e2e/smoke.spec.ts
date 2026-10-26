@@ -1982,4 +1982,58 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByLabel('What').selectOption('filing_rule_created')
     await expect(page.getByRole('listitem').filter({ hasText: 'Made a filing rule' })).toContainText('invoice documents, into Invoices')
   })
+
+  await test.step("set the invoice's date in its details, write it a note, and find its copy in another project among the duplicates", async () => {
+    // Another project that holds the same invoice, which the invoice's tab and the projects page then name.
+    await page.goto('/')
+    await page.getByRole('button', { name: 'New project' }).click()
+    await page.getByLabel('Name', { exact: true }).fill('Supplier archive')
+    await page.getByRole('button', { name: 'Create project' }).click()
+    await expect(page.locator('input[name="files"]')).toBeAttached()
+    await page.locator('input[name="files"]').setInputFiles(INVOICE)
+    await expect(page.getByRole('treeitem', { name: 'invoice.md', exact: true })).toBeVisible()
+
+    await page.goto('/')
+    await page.getByRole('link', { name: /^Supplier contracts/ }).click()
+    await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).dblclick()
+    // Its date as the member sets it, which later readings keep, what the reading found said beside it.
+    const edit = page.getByRole('button', { name: 'Edit details' })
+    await edit.click()
+    const details = page.getByRole('dialog', { name: 'Details of “invoice.md”' })
+    await expect(details.getByLabel('Title')).toBeFocused()
+    await details.getByLabel('Date').fill('2026-03-31')
+    await expectAccessible(page, "a document's details")
+    await details.getByRole('button', { name: 'Save' }).click()
+    await expect(details).toBeHidden()
+    await expect(edit).toBeFocused()
+    await edit.click()
+    await expect(details.getByText(/^You set this\. The reading found/)).toBeVisible()
+    await expect(details.getByRole('button', { name: 'Use the reading' })).toHaveCount(1)
+    await expectAccessible(page, "a document's details a member set")
+    await page.keyboard.press('Escape')
+    await expect(edit).toBeFocused()
+
+    // A note the project's members share, with who wrote it.
+    await page.getByRole('button', { name: 'Add a note' }).click()
+    // Exactly, since the tree's delivery and credit notes are named by "note" too.
+    const writing = page.getByRole('textbox', { name: 'Note', exact: true })
+    await expect(writing).toBeFocused()
+    await writing.fill('Paid by transfer on 3 April.\nThe signed copy is in the safe.')
+    await page.getByRole('button', { name: 'Save the note' }).click()
+    const note = page.getByRole('region', { name: 'Note', exact: true })
+    await expect(note).toContainText('The signed copy is in the safe.')
+    await expect(note).toContainText(/Changed by .+ on /)
+    await expectAccessible(page, "a document's note")
+
+    // Its copy in the other project, from its tab and from the projects page's duplicates.
+    await expect(page.getByRole('link', { name: 'Supplier archive', exact: true })).toBeVisible()
+    await page.goto('/')
+    await page.getByRole('link', { name: 'See the duplicates' }).click()
+    await expect(page.getByRole('heading', { name: 'Duplicates' })).toBeVisible()
+    await expect(page.getByText(/in more than one of the projects you see/)).toBeVisible()
+    await expectAccessible(page, 'the duplicates')
+    await page.getByRole('link', { name: 'Supplier archive', exact: true }).click()
+    await expect(page).toHaveURL(/\/projects\/\d+\/documents\/\d+/)
+    await expect(page.getByRole('link', { name: 'Supplier contracts', exact: true })).toBeVisible()
+  })
 })

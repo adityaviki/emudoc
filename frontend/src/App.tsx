@@ -36,6 +36,7 @@ import { AuditPage } from './organization/AuditPage.tsx'
 import { NewOrganizationPage, OrganizationPage } from './organization/OrganizationPage.tsx'
 import { OrganizationSwitcher } from './organization/OrganizationSwitcher.tsx'
 import { UsagePage } from './organization/UsagePage.tsx'
+import { DuplicatesPage } from './pages/DuplicatesPage.tsx'
 import { ProjectsPage } from './pages/ProjectsPage.tsx'
 import { LegalPage } from './pages/LegalPage.tsx'
 import { SubprocessorsPage } from './pages/SubprocessorsPage.tsx'
@@ -127,6 +128,7 @@ function App() {
         <Route path="shared" element={<SharedPage />} />
         <Route element={<Shell />}>
           <Route index element={<ProjectsPage />} />
+          <Route path="duplicates" element={<DuplicatesPage />} />
           <Route path="account" element={<AccountPage />} />
           <Route path="organization" element={<OrganizationPage />} />
           <Route path="organization/usage" element={<UsagePage />} />

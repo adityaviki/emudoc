@@ -546,7 +546,7 @@ puts them on its documents from a file's menu, "Tags…", a document holding its
 own row (`documents.tag_ids`) so that the page of its folder asked again shows them. Above the
 files, the place menu shows instead of the folders, across all of them, a tag's documents, a
 **smart folder**'s (`backend/app/smart_folders.py`: a project's saved filter by tags, any or every
-one, types the model gave, a span of the documents' own dates, review states and a folder with
+one, the documents' types, a span of the documents' own dates, review states and a folder with
 its subfolders, which everyone who reads the project sees; a tag or the folder it names gone, it
 lists nothing by that part rather than more), the member's own **favourites** (starred from a
 file's menu) and **recent** documents (the last 20 of the project they opened in the middle pane,
@@ -561,6 +561,20 @@ folder of its year, or year and month, made where none is, if it arrived in the 
 not from a connected folder; and every rule that tags and whose condition it meets tags it,
 wherever it arrived. A document is filed once, and those there were before the rules none; the
 rules' changes are in the audit log.
+
+A document's **details**, its title, type and date, are what its reading found until a member who
+may change the project sets one of them in their place from its tab's "Edit details"
+(`backend/app/details.py`, `PATCH /api/documents/{id}/details`): the member's value is the one
+the library, its date order, smart folders, filing rules, search hits and the agent read, and it
+holds through "Index again" and a new version, while what each reading finds is kept beside it
+for the dialog to show and "Use the reading" to take again; a title set starts the outline's
+paths, which the passages are searched with. A document has a **note**, one text its project's
+members share (`backend/app/notes.py`): whoever may change the project writes it on the tab,
+everyone who reads the document reads it with who changed it last, and it travels with the
+document into the trash and the project's export; neither the agent nor the search reads it.
+And a file held in more than one of the projects a member sees has its **copies** named on its
+tab, each a link to it there, and listed on the projects page's "See the duplicates"
+(`backend/app/duplicates.py`, `/duplicates`), by the same bytes alone.
 
 Deleting puts things in a **trash** rather than removing them (`backend/app/trash.py`): a file
 or a folder with everything in it goes into its project's trash, where the library's trash
@@ -1575,3 +1589,5 @@ CHANGELOG.md    what each day's commits changed for members and operators
 - A document's earlier version made the current one again: it is downloaded and uploaded as a new
   version; an upload of a file of the same name as one in its folder is a new document, never a
   version, until asked.
+- Copies found by their text rather than their bytes (a file saved again, a scan of a printed one),
+  and copies within one project, which takes a file's bytes once.
