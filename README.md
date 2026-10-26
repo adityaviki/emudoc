@@ -562,6 +562,17 @@ not from a connected folder; and every rule that tags and whose condition it mee
 wherever it arrived. A document is filed once, and those there were before the rules none; the
 rules' changes are in the audit log.
 
+Files **chosen together** in the library (Ctrl or Shift and a click, or Ctrl+A), up to 100 at a
+time (`backend/app/selection.py`), are moved and deleted together, and by whoever may change the
+project tagged together from their menu ("Tags of n documents…": a tag ticked goes on every one, a
+tag cleared comes off every one, and one only some carry, shown half ticked, stays as it is
+unless pressed; refused whole, naming the document, when one would carry more than 20), indexed
+again ("Index n documents again", or "Index the rest" of the partly indexed among them; one being
+indexed already is left to its run and counted), and exported alone ("Export n documents": the
+project export's ZIP file of those documents, without the chats). Each change is one request
+that checks every chosen document is the project's and out of the trash, and is refused whole
+when one is not (`POST /api/projects/{id}/documents/tags`, `/documents/reprocess`).
+
 A document's **details**, its title, type and date, are what its reading found until a member who
 may change the project sets one of them in their place from its tab's "Edit details"
 (`backend/app/details.py`, `PATCH /api/documents/{id}/details`): the member's value is the one
@@ -1217,9 +1228,11 @@ writes one ZIP file with every document's original in its folders, `project.json
 project, its folders, its documents and the chats the member may read (those shared with the
 project and their own), and `documents/<id>.json` with each document's outline, passages (the
 `[P<id>]` an answer cites) and facts, leaving out the trash, quarantined files and other
-members' private chats (`backend/app/export.py`, `POST|GET /api/projects/{id}/exports`). The
-member is told when it is ready, in the app and by email as they chose, downloads it from the
-same panel, and it is kept 7 days for them alone, then goes from the storage.
+members' private chats (`backend/app/export.py`, `POST|GET /api/projects/{id}/exports`); or the
+documents chosen together in the library alone, with the folders they are in and without the
+chats, which the same panel lists. The member is told when it is ready, in the app and by email
+as they chose, downloads it from the same panel, and it is kept 7 days for them alone, then goes
+from the storage.
 An owner deletes the organisation as an account is deleted, at the foot of the organisation
 page, confirmed by the password or the address typed out, once its subscription no longer
 renews (the local organisation never). Every member is mailed the day, 14 days on, and until

@@ -132,15 +132,25 @@ export function SelectField({ label, hint, id, className = '', children, ...prop
 export interface CheckboxProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> {
   /** What ticking it says; may hold links. */
   label: ReactNode
+  /** Neither ticked nor clear: true of some of what it stands for (the box's `indeterminate`, which is no attribute). */
+  mixed?: boolean
 }
 
 /** A box to tick beside a sentence, such as the acceptance of the terms. */
-export function Checkbox({ label, id, className = '', ...props }: CheckboxProps) {
+export function Checkbox({ label, id, className = '', mixed = false, ...props }: CheckboxProps) {
   const generated = useId()
   const inputId = id ?? generated
   return (
     <div className={`flex items-start gap-2.5 ${className}`}>
-      <input id={inputId} type="checkbox" className="mt-0.5 size-4 shrink-0 accent-accent" {...props} />
+      <input
+        id={inputId}
+        type="checkbox"
+        className="mt-0.5 size-4 shrink-0 accent-accent"
+        ref={(input) => {
+          if (input) input.indeterminate = mixed
+        }}
+        {...props}
+      />
       <label htmlFor={inputId} className="text-[13px] leading-snug">
         {label}
       </label>

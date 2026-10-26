@@ -71,7 +71,7 @@ its routes, which answers them as if they were not there for an organisation the
 """
 
 from collections.abc import Callable
-from typing import Annotated, Literal
+from typing import Annotated
 
 import httpx
 from fastapi import Depends, HTTPException, Request
@@ -128,9 +128,6 @@ from app.trash import DOCUMENT_IN_TRASH, NOT_IN_TRASH, PASSAGE_IN_TRASH
 from app.worker import Worker
 
 SessionDep = Annotated[Session, Depends(get_session)]
-# The stage a reprocess run starts from; later stages run too, and so does an earlier one
-# that is not done, which is how a quarantined document is scanned again.
-Stage = Literal["scan", "parse", "structure", "enrich", "embed"]
 
 SIGN_IN = "Sign in to continue."
 # What a route nobody may find is answered: FastAPI's own words for a path no route takes, so

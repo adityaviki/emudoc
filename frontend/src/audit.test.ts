@@ -84,6 +84,8 @@ describe('a row', () => {
 
   it('words its detail from the names and settings it holds', () => {
     expect(describeDetail(event('document_uploaded', { filename: 'msa.pdf', size_bytes: 1200 }))).toBe('msa.pdf')
+    expect(describeDetail(event('project_exported', { name: 'Contracts' }, { project_name: 'Contracts' }))).toBe('')
+    expect(describeDetail(event('project_exported', { name: 'Contracts', documents: 3 }, { project_name: 'Contracts' }))).toBe('3 chosen documents')
     const bob = new Map([[9, 'Bob']])
     expect(describeDetail(event('role_changed', { from: 'member', to: 'admin' }, { target_type: 'user', target_id: 9 }), bob)).toBe(
       'Bob · Member → Admin',

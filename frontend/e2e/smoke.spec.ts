@@ -2036,4 +2036,41 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page).toHaveURL(/\/projects\/\d+\/documents\/\d+/)
     await expect(page.getByRole('link', { name: 'Supplier contracts', exact: true })).toBeVisible()
   })
+
+  await test.step('tag two invoices chosen together, index them again and export them alone', async () => {
+    await page.getByRole('link', { name: 'Supplier contracts', exact: true }).click()
+    const invoice = page.getByRole('treeitem', { name: 'invoice.md', exact: true })
+    const second = page.getByRole('treeitem', { name: 'second-invoice.md', exact: true })
+    await invoice.click()
+    await second.click({ modifiers: ['ControlOrMeta'] })
+    // A tag only the first carries is half ticked; pressed, it goes on both. A scroll closes the menu, as above.
+    await expect(async () => {
+      await second.click({ button: 'right' })
+      await page.getByRole('menuitem', { name: 'Tags of 2 documents…' }).click({ timeout: 2_000 })
+    }).toPass({ timeout: 60_000 })
+    const tagging = page.getByRole('dialog', { name: 'Tags of 2 documents' })
+    const unpaid = tagging.getByRole('checkbox', { name: 'Unpaid' })
+    await expect(unpaid).toBeFocused()
+    await expect(unpaid).toBeChecked({ indeterminate: true })
+    await expectAccessible(page, "the tags of documents chosen together")
+    await unpaid.click()
+    await expect(unpaid).toBeChecked()
+    await tagging.getByRole('button', { name: 'Save' }).click()
+    await expect(second).toHaveAccessibleDescription(/Tagged Unpaid/)
+    await expect(invoice).toHaveAccessibleDescription(/Tagged Unpaid/)
+
+    await second.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Index 2 documents again' }).click()
+    await expect(page.getByText('Indexing 2 documents again.')).toBeVisible()
+
+    // An export of the two alone, which the projects page lists with the project's own.
+    await second.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Export 2 documents' }).click()
+    await expect(page.getByText(/^An export of 2 documents is being made\./)).toBeVisible()
+    await page.getByRole('link', { name: 'Emudoc' }).click()
+    const card = page.locator('div').filter({ has: page.getByRole('link', { name: /^Supplier contracts/ }) }).last()
+    await card.getByRole('button', { name: 'Export' }).click()
+    const panel = page.getByRole('region', { name: 'Export Supplier contracts' })
+    await expect(panel.getByText(/^Chosen documents: 2 documents, [\d.]+ kB, until /)).toBeVisible({ timeout: 30_000 })
+  })
 })

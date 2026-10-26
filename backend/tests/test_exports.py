@@ -1,6 +1,7 @@
 """A project's export: a member asks, the worker writes one ZIP file of the originals, what was
 read from them and the chats the member may read, tells them, and serves it to them alone until
-it expires; the trash, quarantined files and other members' private chats stay out."""
+it expires; the trash, quarantined files and other members' private chats stay out. An export of
+the documents chosen in the library holds those alone, without the chats."""
 
 import io
 import json
@@ -12,12 +13,13 @@ from pydantic_ai.messages import TextPart
 from sqlalchemy import select, update
 
 from app.api.exports import EXPORT_GONE, MEMBERS_EXPORT, UNDER_WAY
-from app.export import EXPORT_DAYS, EXPORT_FAILED, PROJECT_ABOUT, PROJECT_GONE
+from app.export import CHOSEN_ABOUT, EXPORT_DAYS, EXPORT_FAILED, PROJECT_ABOUT, PROJECT_GONE
 from app.indexing.pipeline import process_document
 from app.jobs import EXPORT_PROJECT, claim
 from app.maintenance import housekeeping
 from app.models import Job, Membership, Notification, Organization, Passage, ProjectExport
 from app.notices import app_address
+from app.selection import NOT_CHOSEN
 from app.storage import StorageError, export_key
 from app.worker import Worker
 from tests.conftest import EICAR, FakeTurn
@@ -153,6 +155,80 @@ def test_a_member_exports_a_project_and_downloads_it(
     ).all()
     assert [passage["id"] for passage in data["passages"]] == passages
     assert data["sections"] and all("embedding" not in p for p in data["passages"])
+
+
+def test_a_member_exports_the_documents_they_chose_alone(
+    client, session, services, mailer, pair, sample_pdf, sample_docx, sample_csv
+):
+    org_id, _, _ = pair
+    project = create_project(client, "Supplier contracts")
+    other = create_project(client, "Other")
+    contract, notes, table = upload(client, project["id"], sample_pdf, sample_docx, sample_csv)[
+        "documents"
+    ]
+    (theirs,) = upload(client, other["id"], sample_pdf)["documents"]
+    for document in (contract, notes, table):
+        process_document(document["id"], services)
+    signed = make_folder(client, project["id"], "Signed")
+    folder = make_folder(client, project["id"], "2026", signed["id"])
+    make_folder(client, project["id"], "Empty")
+    client.patch(f"/api/documents/{contract['id']}", json={"folder_id": folder["id"]})
+    services.llm.agent_turns = [FakeTurn(TextPart("It runs for a year."))]
+    answered(client, services, new_chat(client, project["id"])["id"], "How long does it run?")
+    mailer.sent.clear()
+
+    stray = client.post(
+        f"/api/projects/{project['id']}/exports",
+        json={"document_ids": [contract["id"], theirs["id"]]},
+    )
+    assert stray.status_code == 404 and stray.json()["detail"] == NOT_CHOSEN
+    asked = client.post(
+        f"/api/projects/{project['id']}/exports",
+        json={"document_ids": [contract["id"], notes["id"], table["id"]]},
+    )
+    assert asked.status_code == 202, asked.text
+    assert asked.json()["chosen"] == 3
+    assert (
+        "project_exported",
+        {"name": "Supplier contracts", "documents": 3},
+    ) in actions(session, org_id)
+    # One chosen goes into the trash before the export is made, and stays out of it.
+    client.delete(f"/api/documents/{table['id']}")
+
+    run_export(services)
+    (made,) = exports(client, project["id"])
+    assert (made["status"], made["chosen"], made["documents"]) == ("ready", 3, 2)
+    ((_, subject, body),) = [sent for sent in mailer.sent if sent[1].startswith("Your project")]
+    assert subject == "Your project export is ready"
+    assert "The export of 3 chosen documents of Supplier contracts" in body
+    response = client.get(f"/api/projects/{project['id']}/exports/{made['id']}/file")
+    named = f"Supplier%20contracts%20{datetime.now(UTC):%Y-%m-%d}%20%283%20documents%29.zip"
+    assert response.headers["content-disposition"] == f"attachment; filename*=utf-8''{named}"
+    archive = zipfile.ZipFile(io.BytesIO(response.content))
+    assert sorted(archive.namelist()) == sorted(
+        [
+            f"originals/Signed/2026/{contract['filename']}",
+            f"originals/{notes['filename']}",
+            f"documents/{contract['id']}.json",
+            f"documents/{notes['id']}.json",
+            "project.json",
+        ]
+    )
+    listing = json.loads(archive.read("project.json"))
+    assert listing["about"] == CHOSEN_ABOUT
+    # The folders that hold one, and those above them; the chats are the whole project's.
+    assert listing["folders"] == ["Signed", "Signed/2026"]
+    assert [d["id"] for d in listing["documents"]] == [contract["id"], notes["id"]]
+    assert listing["chats"] == []
+
+    # The whole project's export is as it was.
+    ask(client, project["id"])
+    run_export(services)
+    whole = exports(client, project["id"])[0]
+    assert whole["chosen"] is None
+    listing = json.loads(archive_of(client, project["id"], whole["id"]).read("project.json"))
+    assert listing["folders"] == ["Empty", "Signed", "Signed/2026"]
+    assert len(listing["chats"]) == 1
 
 
 def test_a_viewer_is_refused_and_nobody_else_finds_a_members_export(

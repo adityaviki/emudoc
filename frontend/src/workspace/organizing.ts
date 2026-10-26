@@ -1,11 +1,13 @@
 // The library's ways of reading a project as the page holds them (backend/app/api/tags.py, smart_folders.py, filing.py,
 // favorites.py): the project's tags, smart folders and filing rules, the reader's favourites, and the changes to them.
-// Tagging a document and starring it show at once and are put back if the server refuses; every listing a change may
-// touch is asked for again either way.
+// Tagging a document or several chosen together and starring one show at once and are put back if the server refuses;
+// every listing a change may touch is asked for again either way.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api.ts'
 import type { Document, DocumentFilter, FilingRuleInput, SmartFolder, TagColor } from '../api.ts'
+import { retagged } from '../selection.ts'
+import type { TagsChange } from '../selection.ts'
 import { documentKey, editListings, listingsKey, placeListingsKey, restore, snapshotListings } from './listing.ts'
 
 export const tagsKey = (projectId: number) => ['tags', projectId] as const
@@ -28,7 +30,7 @@ export function useFavorites(projectId: number): Set<number> {
   return new Set(favorites.data?.document_ids)
 }
 
-/** Tagging a document and starring it, each shown at once wherever the page holds it, and put back if refused. */
+/** Tagging a document or several and starring one, each shown at once wherever the page holds it, and put back if refused. */
 export function useDocumentMarks(projectId: number, fail: (error: Error) => void) {
   const queryClient = useQueryClient()
   const tag = useMutation({
@@ -51,6 +53,27 @@ export function useDocumentMarks(projectId: number, fail: (error: Error) => void
       for (const queryKey of [listingsKey(projectId), documentKey(id), tagsKey(projectId)]) void queryClient.invalidateQueries({ queryKey })
     },
   })
+  // Several at once: each keeps what the change does not name, as the server keeps it.
+  const tagMany = useMutation({
+    mutationFn: ({ ids, change }: { ids: number[]; change: TagsChange }) => api.tagDocuments(projectId, ids, change.add, change.remove),
+    onMutate: async ({ ids, change }) => {
+      const previous = await snapshotListings(queryClient, projectId)
+      const chosen = new Set(ids)
+      const open = ids.map((id) => [id, queryClient.getQueryData<Document>(documentKey(id))] as const)
+      const edit = (document: Document) => (chosen.has(document.id) ? { ...document, tag_ids: retagged(document.tag_ids, change) } : document)
+      editListings(queryClient, projectId, (documents) => documents.map(edit))
+      for (const [id, document] of open) if (document) queryClient.setQueryData(documentKey(id), edit(document))
+      return { previous, open }
+    },
+    onError: (error, _variables, context) => {
+      restore(queryClient, context?.previous)
+      for (const [id, document] of context?.open ?? []) queryClient.setQueryData(documentKey(id), document)
+      fail(error)
+    },
+    onSettled: (_data, _error, { ids }) => {
+      for (const queryKey of [listingsKey(projectId), tagsKey(projectId), ...ids.map(documentKey)]) void queryClient.invalidateQueries({ queryKey })
+    },
+  })
   const star = useMutation({
     mutationFn: ({ id, starred }: { id: number; starred: boolean }) => (starred ? api.starDocument(id) : api.unstarDocument(id)),
     onMutate: async ({ id, starred }) => {
@@ -71,7 +94,7 @@ export function useDocumentMarks(projectId: number, fail: (error: Error) => void
       }
     },
   })
-  return { tag, star }
+  return { tag, tagMany, star }
 }
 
 /** Making, changing and deleting the project's tags, smart folders and filing rules, each asked for again with what it touches. */

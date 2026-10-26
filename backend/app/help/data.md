@@ -8,6 +8,10 @@ text, what was read from each (its outline, passages and facts) and the chats sh
 project and their own. It is made in the background, the
 bell says when it is ready, and it is kept $export_days days for whoever asked for it.
 
+To export some of a project's documents, choose them together in the library and choose "Export …
+documents" in their menu: the ZIP file holds those documents in their folders and what was read
+from them, without the chats, and the project's exports on the projects page list it.
+
 ## A copy of your account
 
 "Download your data" on the [account page](/account) gives you a file of what Emudoc keeps

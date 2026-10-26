@@ -17,13 +17,15 @@ app/api/exports.py) is the organisation's part, for portability and for a member
 everything at once: one ZIP file with every document's original in its folders, `project.json`
 listing the project, its folders, its documents and the chats the member may read (those shared
 with the project and their own), and `documents/<id>.json` with what was read from each: its
-outline, its passages, which answers cite as [P<id>], and its facts. What is in the trash and the
-documents the malware scan set apart are left out, and so is an original the scan has not passed
-yet. A project of thousands of documents is read a batch at a time and written into a temporary
-file, never held whole, then put in the storage beside the project's documents (`export_key` in
-app/storage.py), and its member is told (app/notices.py). It is kept EXPORT_DAYS: the row is
-pruned by the housekeeping and the file goes in its walk of the storage by its age, so a file
-whose row went another way goes too.
+outline, its passages, which answers cite as [P<id>], and its facts. An export of the documents
+the member chose in the library (app/selection.py) holds those alone, the folders they are in
+and the links to them, without the chats, which are about the whole project. What is in the
+trash and the documents the malware scan set apart are left out, and so is an original the scan
+has not passed yet. A project of thousands of documents is read a batch at a time and written
+into a temporary file, never held whole, then put in the storage beside the project's documents
+(`export_key` in app/storage.py), and its member is told (app/notices.py). It is kept
+EXPORT_DAYS: the row is pruned by the housekeeping and the file goes in its walk of the storage
+by its age, so a file whose row went another way goes too.
 """
 
 import logging
@@ -60,6 +62,7 @@ from app.models import (
     DocumentVersion,
     DocumentVisit,
     Fact,
+    Folder,
     Identity,
     MailSuppression,
     Membership,
@@ -158,6 +161,18 @@ PROJECT_ABOUT = (
     "extraction templates, the fields its documents of each kind are read for, and share_links the "
     "links that show its documents and the answers of its chats to whoever holds them, without "
     "their addresses. What is in the trash is left out, and so are other members' private chats."
+)
+CHOSEN_ABOUT = (
+    "A copy of documents chosen from a project in Emudoc, for the member named in exported_by. "
+    "originals/ holds each chosen document as it was uploaded, in its folders, once the malware "
+    "scan passed it, and versions/ the files a document had before a new version took their "
+    "place. project.json lists the project, the folders the documents are in, the project's tags "
+    "and the documents with theirs. documents/ holds what was read from each document: its "
+    "outline, its passages by number, and the facts found in it, each with the passage it came "
+    "from. templates holds the project's own extraction templates, the fields its documents of "
+    "each kind are read for, and share_links the links that show the chosen documents to whoever "
+    "holds them, without their addresses. The project's chats are left out, and so is a chosen "
+    "document that went into the trash before the export was made."
 )
 EXPORT_FAILED = (
     "The export could not be made. Ask for another; if that one fails too, write to support."
@@ -445,12 +460,22 @@ def _write(path: Path, export_id: int, storage: Storage) -> int:
         user = session.get(User, export.user_id)
         organization = session.get(Organization, project.org_id)
         folders = folder_paths(session, project.id)
+        chosen = export.document_ids
         ids = session.scalars(
             select(Document.id)
-            .where(*_EXPORTED, Document.project_id == project.id)
+            .where(
+                *_EXPORTED,
+                Document.project_id == project.id,
+                *(() if chosen is None else (Document.id.in_(chosen),)),
+            )
             .order_by(Document.id)
         ).all()
-        chats = _chats(session, project.id, user.id)
+        if chosen is None:
+            listed_folders = list(folders.values())
+            chats = _chats(session, project.id, user.id)
+        else:
+            listed_folders = _holding(session, project.id, ids, folders)
+            chats = []
         tags = project_tags(session, project.id)
         tag_names = {tag.id: tag.name for tag in tags}
         head = {
@@ -462,9 +487,12 @@ def _write(path: Path, export_id: int, storage: Storage) -> int:
                 created_at=project.created_at,
             ),
             "exported_by": ExportedBy(name=user.name, email=user.email),
-            "folders": sorted(folders.values(), key=str.lower),
+            "about": PROJECT_ABOUT if chosen is None else CHOSEN_ABOUT,
+            "folders": sorted(listed_folders, key=str.lower),
             "templates": _templates(session, project.id),
-            "share_links": _share_links(session, project.id, user.id),
+            "share_links": _share_links(
+                session, project.id, user.id, None if chosen is None else ids
+            ),
             "tags": [ExportedTag(name=tag.name, color=tag.color) for tag in tags],
         }
     names = _Names()
@@ -495,7 +523,6 @@ def _write(path: Path, export_id: int, storage: Storage) -> int:
             "project.json",
             ProjectExportFile(
                 exported_at=datetime.now(UTC),
-                about=PROJECT_ABOUT,
                 documents=listed,
                 chats=chats,
                 **head,
@@ -611,6 +638,26 @@ def _read(
         )
         for document in documents
     ]
+
+
+def _holding(
+    session: Session, project_id: int, ids: Sequence[int], folders: dict[int, str]
+) -> list[str]:
+    """The paths of the folders that hold one of these documents, and of the folders above
+    them, as the whole project's export lists every folder."""
+    parents = dict(
+        session.execute(
+            select(Folder.id, Folder.parent_id).where(Folder.project_id == project_id)
+        ).all()
+    )
+    held: set[int] = set()
+    for folder_id in session.scalars(
+        select(Document.folder_id).where(Document.id.in_(ids)).distinct()
+    ):
+        while folder_id is not None and folder_id not in held:
+            held.add(folder_id)
+            folder_id = parents.get(folder_id)
+    return [folders[folder_id] for folder_id in held if folder_id in folders]
 
 
 def _chats(session: Session, project_id: int, user_id: int) -> list[ExportedProjectChat]:
@@ -782,9 +829,13 @@ def _templates(session: Session, project_id: int) -> list[ExportedTemplate]:
     ]
 
 
-def _share_links(session: Session, project_id: int, user_id: int) -> list[ExportedProjectShareLink]:
+def _share_links(
+    session: Session, project_id: int, user_id: int, document_ids: Sequence[int] | None = None
+) -> list[ExportedProjectShareLink]:
     """The links that have not expired to the project's documents out of the trash, and to the
-    answers of the chats the export holds: those shared with the project and the member's own."""
+    answers of the chats the export holds: those shared with the project and the member's own;
+    with `document_ids`, the links to those documents alone, for an export of them."""
+    chosen = () if document_ids is None else (ShareLink.document_id.in_(document_ids),)
     rows = session.execute(
         select(ShareLink, Document.filename, User.name)
         .outerjoin(Document, Document.id == ShareLink.document_id)
@@ -801,6 +852,7 @@ def _share_links(session: Session, project_id: int, user_id: int) -> list[Export
                 Chat.visibility == "project",
                 Chat.user_id == user_id,
             ),
+            *chosen,
         )
         .order_by(ShareLink.id)
     ).all()
@@ -854,6 +906,7 @@ def _settle(
             organization.name,
             in_organization(f"{url}{path}", organization.id),
             None if error else day(export.expires_at, zone_of(user.time_zone)),
+            export.chosen,
         ),
         path,
         url,
@@ -864,10 +917,12 @@ def _settle(
     session.commit()
 
 
-def queue_export(session: Session, project: Project, user_id: int) -> ProjectExport:
-    """An export of the project for the member, queued for the worker in the caller's session;
-    the caller commits."""
-    export = ProjectExport(project_id=project.id, user_id=user_id)
+def queue_export(
+    session: Session, project: Project, user_id: int, document_ids: list[int] | None = None
+) -> ProjectExport:
+    """An export of the project for the member, or of the documents of it they chose, queued
+    for the worker in the caller's session; the caller commits."""
+    export = ProjectExport(project_id=project.id, user_id=user_id, document_ids=document_ids)
     session.add(export)
     session.flush()
     enqueue(

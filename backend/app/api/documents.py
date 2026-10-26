@@ -40,7 +40,6 @@ from app.api.deps import (
     ProjectDep,
     ServicesDep,
     SessionDep,
-    Stage,
     WorkerDep,
     limited,
 )
@@ -54,8 +53,8 @@ from app.fact_checks import fact_out
 from app.folders import (
     folder_names,
 )
-from app.indexing.pipeline import OPTIONAL_STAGES, reset_stages, went_without
-from app.jobs import queue_index
+from app.indexing.pipeline import OPTIONAL_STAGES, reset_stages, unfinished_stages, went_without
+from app.jobs import BULK, queue_index
 from app.mail import LISTED
 from app.metrics import UPLOAD_REJECTIONS
 from app.models import (
@@ -87,14 +86,18 @@ from app.schemas import (
     DocumentPage,
     DocumentPatch,
     DocumentSort,
+    DocumentsReprocessIn,
+    DocumentsReprocessOut,
     FactOut,
     PassageOut,
     SectionOut,
     SortOrder,
+    Stage,
     UploadFailureOut,
     UploadResult,
     UploadStatusOut,
 )
+from app.selection import NOT_CHOSEN, chosen_documents
 from app.smart_folders import matching
 from app.storage import Storage
 from app.trash import trash_document
@@ -633,6 +636,41 @@ def reprocess_document(
     if worker:
         worker.notify()
     return document
+
+
+@router.post(
+    "/projects/{project_id}/documents/reprocess",
+    response_model=DocumentsReprocessOut,
+    status_code=202,
+)
+def reprocess_documents(
+    project: EditableProjectDep,
+    body: DocumentsReprocessIn,
+    session: SessionDep,
+    worker: WorkerDep,
+):
+    """Index the documents chosen in the library again, each as its own "Index again" (from
+    `from_stage`) or "Index the rest" (without one) would, behind fresh uploads as the project's
+    "Index the rest" is. One being indexed right now is left to its run and counted, where its
+    own route refuses it, so that the others still go."""
+    documents = chosen_documents(session, project.id, body.document_ids, lock=True)
+    if documents is None:
+        raise HTTPException(404, NOT_CHOSEN)
+    queued, skipped = [], 0
+    for document in documents:
+        if document.status == "processing":
+            skipped += 1
+            continue
+        stage = body.from_stage or next(iter(unfinished_stages(document)), None)
+        if stage is None:
+            continue
+        reset_stages(document, stage)
+        queue_index(session, document, priority=BULK)
+        queued.append(document)
+    session.commit()
+    if worker and queued:
+        worker.notify()
+    return DocumentsReprocessOut(documents=queued, skipped=skipped)
 
 
 def _scanned(document: Document) -> None:

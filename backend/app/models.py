@@ -1006,6 +1006,15 @@ class ProjectExport(Base):
     )
     # Until when it is served, EXPORT_DAYS after it was ready; null until then.
     expires_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    # The documents the member chose in the library, for an export of those alone
+    # (app/selection.py); null for the whole project.
+    document_ids: Mapped[list[int] | None] = mapped_column(ARRAY(Integer))
+
+    @property
+    def chosen(self) -> int | None:
+        """How many documents the member chose, which the projects page names; None for the
+        whole project."""
+        return None if self.document_ids is None else len(self.document_ids)
 
 
 class ProjectMember(Base):

@@ -858,25 +858,41 @@ def upload_indexed_email(
 
 
 def project_export_email(
-    name: str, project: str, organization: str, link: str, until: str | None
+    name: str,
+    project: str,
+    organization: str,
+    link: str,
+    until: str | None,
+    chosen: int | None = None,
 ) -> Content:
-    """To the member who asked for a project's export (app/export.py): that it is ready to
-    download until the day `until` names, or, without one, that it could not be made. The
-    subject names neither, since the log repeats it."""
+    """To the member who asked for a project's export (app/export.py), or for one of the
+    `chosen` documents of it alone: that it is ready to download until the day `until` names,
+    or, without one, that it could not be made. The subject names neither, since the log
+    repeats it."""
+    of = (
+        project
+        if chosen is None
+        else f"{chosen} chosen document{'' if chosen == 1 else 's'} of {project}"
+    )
     if until is None:
         said = (
-            f"The export of {project} in {organization} you asked for could not be made. Ask for "
-            "another on the projects page; if that one fails too, write to support."
+            f"The export of {of} in {organization} you asked for could not be made. Ask for "
+            f"another {'on the projects page' if chosen is None else 'in the library'}; if that "
+            "one fails too, write to support."
         )
         return Content(
             "Your project export could not be made",
             (_greeting(name), said, Link(link, "Open the projects page")),
             said,
         )
+    held = (
+        "its documents, what was read from them and its chats"
+        if chosen is None
+        else "them and what was read from them"
+    )
     said = (
-        f"The export of {project} in {organization} you asked for is ready: one ZIP file with "
-        f"its documents, what was read from them and its chats. Download it on the projects "
-        f"page until {until}."
+        f"The export of {of} in {organization} you asked for is ready: one ZIP file with "
+        f"{held}. Download it on the projects page until {until}."
     )
     return Content(
         "Your project export is ready", (_greeting(name), said, Link(link, "Download it")), said

@@ -46,6 +46,21 @@ holds a folder of the same name already, its files go into that one. A move or a
 toolbar. Two files of the same project cannot hold the same bytes: uploading one again says
 where it is.
 
+## Several files at once
+
+Choose several files with Ctrl (⌘ on a Mac) or Shift and a click, or every one shown with Ctrl+A,
+and open the menu of one of them. Besides asking about them together, moving and deleting them,
+a member who may change the project does three things to as many as $chosen of them at once:
+
+- **Tags of … documents…** puts tags on them and takes tags off. Tick a tag to put it on every
+  one, or clear it to take it off every one. A tag only some of them carry is half ticked, and
+  stays as it is unless you press it. Where a document would carry more than
+  $document_tags tags, nothing changes and the dialog says which one.
+- **Index … documents again** reads each of them again from the start, and **Index the rest**
+  indexes the partly indexed among them in full. One being indexed already is left to finish.
+- **Export … documents** makes a ZIP file of them alone, as a project's export makes of the whole
+  project, without its chats ([Your data](/help/data)).
+
 ## Tags, smart folders and favourites
 
 The library can show a project's documents other ways than by their folders. Choose what it shows

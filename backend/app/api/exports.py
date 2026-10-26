@@ -2,9 +2,10 @@
 lists theirs and downloads each until it expires.
 
 An export holds every document the project holds, with what was read from it and the chats the
-member may read, their private ones among them; so it is the member's alone, and only a member
-or better asks for one: a viewer reads the documents one by one, which an organisation that
-gives someone a viewer's role may mean as the limit of what they take away. Asking reads
+member may read, their private ones among them, or the documents the member chose in the library
+alone (app/selection.py), without the chats; so it is the member's alone, and only a member or
+better asks for one: a viewer reads the documents one by one, which an organisation that gives
+someone a viewer's role may mean as the limit of what they take away. Asking reads
 nothing the member could not read, so an organisation past its plan or set to be deleted may
 ask, the latter so that its members can take what they need. One is made at a time for a member
 and a project. Asking is in the audit log; the file is served as the originals are, an
@@ -21,14 +22,15 @@ from app.api.deps import AccountDep, ProjectDep, ServicesDep, SessionDep
 from app.audit import audit
 from app.export import EXPORT_DAYS, queue_export
 from app.models import ProjectExport
-from app.schemas import ProjectExportOut
+from app.schemas import ProjectExportIn, ProjectExportOut
+from app.selection import NOT_CHOSEN, chosen_documents
 from app.storage import export_key
 
 router = APIRouter(prefix="/projects", tags=["exports"])
 
 MEMBERS_EXPORT = (
     "Your role in this organisation is viewer, which reads a project's documents one at a time. "
-    "Ask an owner or admin to make you a member to export a whole project."
+    "Ask an owner or admin to make you a member to export them together."
 )
 UNDER_WAY = (
     "An export of this project is being made for you already. It is listed here when it is "
@@ -41,8 +43,15 @@ EXPORT_GONE = (
 
 
 @router.post("/{project_id}/exports", response_model=ProjectExportOut, status_code=202)
-def export_project(project: ProjectDep, account: AccountDep, request: Request, session: SessionDep):
-    """Ask for an export of the project, which the worker makes and tells the member of."""
+def export_project(
+    project: ProjectDep,
+    account: AccountDep,
+    request: Request,
+    session: SessionDep,
+    body: ProjectExportIn | None = None,
+):
+    """Ask for an export of the project, or of the documents chosen in it, which the worker
+    makes and tells the member of."""
     if not account.is_at_least("member"):
         raise HTTPException(403, MEMBERS_EXPORT)
     under_way = session.scalar(
@@ -54,7 +63,13 @@ def export_project(project: ProjectDep, account: AccountDep, request: Request, s
     )
     if under_way is not None:
         raise HTTPException(409, UNDER_WAY)
-    export = queue_export(session, project, account.user.id)
+    chosen = None
+    if body is not None and body.document_ids is not None:
+        documents = chosen_documents(session, project.id, body.document_ids)
+        if documents is None:
+            raise HTTPException(404, NOT_CHOSEN)
+        chosen = [document.id for document in documents]
+    export = queue_export(session, project, account.user.id, chosen)
     audit(
         session,
         account,
@@ -62,7 +77,7 @@ def export_project(project: ProjectDep, account: AccountDep, request: Request, s
         "project_exported",
         project_id=project.id,
         target=("project", project.id),
-        detail={"name": project.name},
+        detail={"name": project.name, **({} if chosen is None else {"documents": len(chosen)})},
     )
     session.commit()
     return export
@@ -102,7 +117,10 @@ def download_export(
     )
     if export is None:
         raise HTTPException(404, EXPORT_GONE)
-    named = f"{_filename(project.name)} {export.created_at:%Y-%m-%d}.zip"
+    named = f"{_filename(project.name)} {export.created_at:%Y-%m-%d}"
+    if export.chosen is not None:
+        named += f" ({export.chosen} document{'' if export.chosen == 1 else 's'})"
+    named += ".zip"
     try:
         return services.storage.response(
             export_key(project.org_id, project.id, export.id),
