@@ -13,7 +13,6 @@ from app.api.deps import (
     EditorDep,
     ProjectDep,
     SessionDep,
-    Stage,
     WorkerDep,
 )
 from app.audit import audit
@@ -21,7 +20,14 @@ from app.entitlements import PlanRefused, check_project
 from app.indexing.pipeline import OPTIONAL_STAGES, reset_stages, unfinished_stages, went_without
 from app.jobs import BULK, queue_index
 from app.models import Document, Project, ProjectMember
-from app.schemas import NewProjectIn, ProjectAccessIn, ProjectAccessOut, ProjectIn, ProjectOut
+from app.schemas import (
+    NewProjectIn,
+    ProjectAccessIn,
+    ProjectAccessOut,
+    ProjectIn,
+    ProjectOut,
+    Stage,
+)
 from app.trash import trash_project
 
 router = APIRouter(prefix="/projects", tags=["projects"])

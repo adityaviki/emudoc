@@ -24,6 +24,7 @@ MAX_DOCUMENT_TAGS = 20
 NAME_TAKEN = "The project has a tag of that name already. Choose another name."
 TOO_MANY = f"A project has at most {MAX_TAGS} tags. Delete one before making another."
 NOT_THE_PROJECTS = "That tag is not one of this project's. Choose one of its tags."
+BOTH_WAYS = "A tag cannot be put on the documents and taken off them at once. Choose one."
 
 
 def project_tags(session: Session, project_id: int) -> list[Tag]:
@@ -67,6 +68,25 @@ def the_projects(session: Session, project_id: int, tag_ids: Iterable[int]) -> l
         session.scalars(select(Tag.id).where(Tag.project_id == project_id, Tag.id.in_(wanted)))
     )
     return wanted if found == set(wanted) else None
+
+
+def retagged(document: Document, add: Iterable[int], remove: Iterable[int]) -> list[int]:
+    """The tags the document would carry with `remove` taken off and `add` put on after the
+    ones it keeps, in the order they were put on."""
+    gone = set(remove)
+    kept = [tag_id for tag_id in document.tag_ids if tag_id not in gone]
+    return kept + [tag_id for tag_id in dict.fromkeys(add) if tag_id not in kept]
+
+
+def no_room(document: Document, tag_ids: list[int]) -> str | None:
+    """Why the document cannot carry these tags, which a change of several would give it; None
+    when it can."""
+    if len(tag_ids) <= MAX_DOCUMENT_TAGS:
+        return None
+    return (
+        f"“{document.filename}” would carry more than {MAX_DOCUMENT_TAGS} tags, which is as many "
+        "as a document carries. Take some off it first, or leave it out of the choice."
+    )
 
 
 def add_tag(document: Document, tag_id: int) -> bool:

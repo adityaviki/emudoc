@@ -17,6 +17,10 @@ newest entry first.
 
 Members:
 
+- Several files at once: choose them together in the library, then "Tags of … documents…" in
+  their menu puts a tag on every one or takes it off every one, leaving a tag only some carry as
+  it is; "Index … documents again" reads them all again; and "Export … documents" makes a ZIP file
+  of those documents alone, which the project's exports on the projects page list.
 - A document's title, type and date: where the reading got one wrong, set it yourself with "Edit
   details" on its tab. What you set is kept when the document is read again or given a new
   version, and the dialog shows what the reading found, with "Use the reading" to take it again.

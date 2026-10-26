@@ -19,6 +19,7 @@ import { factTablesKey } from '../factTable.ts'
 import { useStatus } from '../hooks.ts'
 import { unfinishedStages } from '../indexing.ts'
 import { reviewsKey } from '../reviews.ts'
+import { exportWords, reprocessedWords } from '../selection.ts'
 import { trashKey } from '../trash.ts'
 import { givenWords, versionsKey } from '../versions.ts'
 import { moved, renamed } from './changes.ts'
@@ -321,6 +322,23 @@ export function useLibraryMutations() {
     onSettled: () => invalidate(documentsKey, openKey, projectKey, uploadsKey),
   })
 
+  // The documents chosen together: each indexed again from parse, or, for "Index the rest", the partly indexed among
+  // them each from the stage it went without; the library says how many, and those left being indexed.
+  const reprocessMany = useMutation({
+    mutationFn: ({ ids, rest }: { ids: number[]; rest: boolean }) => api.reprocessDocuments(projectId, ids, rest ? null : 'parse'),
+    onSuccess: (result, { rest }) => setNotice(reprocessedWords(result, rest)),
+    onError: fail,
+    onSettled: () => invalidate(documentsKey, openKey, projectKey, uploadsKey),
+  })
+
+  // An export of the chosen documents alone, which the worker makes and the projects page lists with the project's.
+  const exportChosen = useMutation({
+    mutationFn: (ids: number[]) => api.exportProject(projectId, ids),
+    onSuccess: (_made, ids) => setNotice(exportWords(ids.length)),
+    onError: fail,
+    onSettled: () => invalidate([...projectKey, 'exports']),
+  })
+
   // "Upload a new version…" from a file's menu: the library says what became of it.
   const version = useUploadVersion(projectId)
   const uploadVersion = (document: Document, file: File) =>
@@ -350,6 +368,8 @@ export function useLibraryMutations() {
     reprocess,
     indexRest,
     indexProjectRest,
+    reprocessMany,
+    exportChosen,
     uploadVersion,
   }
 }

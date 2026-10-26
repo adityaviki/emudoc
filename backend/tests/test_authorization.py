@@ -279,6 +279,16 @@ def writes(w: World) -> list[Route]:
         ("PUT", f"/api/documents/{w.document_id}/tags", {"json": {"tag_ids": []}}),
         (
             "POST",
+            f"/api/projects/{w.project_id}/documents/tags",
+            {"json": {"document_ids": [w.document_id], "add": [w.tag_id]}},
+        ),
+        (
+            "POST",
+            f"/api/projects/{w.project_id}/documents/reprocess",
+            {"json": {"document_ids": [w.document_id], "from_stage": "parse"}},
+        ),
+        (
+            "POST",
             f"/api/projects/{w.project_id}/smart-folders",
             {"json": {"name": "Contracts", "filter": {"types": ["contract"]}}},
         ),

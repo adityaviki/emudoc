@@ -10,6 +10,7 @@ const ready: ProjectExport = {
   error: null,
   created_at: '2026-10-21T10:00:00Z',
   expires_at: '2026-10-28T10:01:00Z',
+  chosen: null,
 }
 const day = (value: string) => value.slice(0, 10)
 
@@ -17,6 +18,14 @@ describe('describeExport', () => {
   it('says what a ready export holds and until when', () => {
     expect(describeExport(ready, day)).toBe('12 documents, 4.2 MB, until 2026-10-28')
     expect(describeExport({ ...ready, documents: 1, size_bytes: 900 }, day)).toBe('1 document, 900 bytes, until 2026-10-28')
+  })
+
+  it('says an export is of the documents chosen alone', () => {
+    const chosen = { ...ready, chosen: 3, documents: 2 }
+    expect(describeExport(chosen, day)).toBe('Chosen documents: 2 documents, 4.2 MB, until 2026-10-28')
+    expect(describeExport({ ...chosen, status: 'queued', expires_at: null }, day)).toBe('Chosen documents, being made…')
+    const failed = { ...chosen, status: 'failed', error: 'The export could not be made.', expires_at: null } as const
+    expect(describeExport(failed, day)).toBe('Chosen documents: The export could not be made.')
   })
 
   it('says one is being made, or why it failed', () => {

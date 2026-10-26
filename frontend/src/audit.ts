@@ -234,6 +234,10 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   // A document's version (backend/app/versions.py): the one it was given, or the earlier one downloaded.
   if (event.action.startsWith('document_') && typeof detail.version === 'number') parts.push(`version ${detail.version}`)
   if (event.action === 'document_uploaded' && detail.by_email === true) parts.push('by email')
+  // An export of the documents a member chose in the library, rather than the whole project.
+  if (event.action === 'project_exported' && typeof detail.documents === 'number') {
+    parts.push(`${detail.documents} chosen document${detail.documents === 1 ? '' : 's'}`)
+  }
   // A document or a version a connected folder's sync brought, or a document it put in the trash
   // for its file gone there, or, before versions, changed there.
   if (typeof detail.by_connector === 'string') {

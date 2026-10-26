@@ -10,6 +10,8 @@ import { Checkbox, FIELD, InputField, SelectField } from '../components/ui.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
 import { EMPTY_FILTER, FIRST_ORDER, SORTS, SORT_NAMES, TAG_COLOR_LABELS, filterWords, placeName, smartFolderProblem, sortWords, tagsWords } from '../library.ts'
 import type { LibraryLayout } from '../library.ts'
+import { nextState, overfull, overfullWords, tagStates, tagsChange } from '../selection.ts'
+import type { TagState, TagsChange } from '../selection.ts'
 import type { Arrangement } from './listing.ts'
 
 /** Each colour's dot, as Tailwind finds the classes written out whole. */
@@ -173,23 +175,30 @@ export function PlaceBar(props: PlaceBarProps) {
 }
 
 interface DocumentTagsDialogProps {
-  document: Document
+  /** The document, or the several chosen together in the library. */
+  documents: Document[]
   tags: Tag[]
   /** How many tags the project may have, past which none is made here. */
   room: boolean
   onCreate: (name: string, color: TagColor) => Promise<Tag>
-  onSave: (tagIds: number[]) => void
+  onSave: (change: TagsChange) => void
   onClose: () => void
 }
 
-/** Asks which of the project's tags a document carries, and makes one more there and then. */
-export function DocumentTagsDialog({ document, tags, room, onCreate, onSave, onClose }: DocumentTagsDialogProps) {
-  const [chosen, setChosen] = useState<number[]>(document.tag_ids)
+/**
+ * Asks which of the project's tags a document carries, or which go on and off every one of several, and makes one more
+ * there and then. A tag only some of them carry is shown mixed, and left so unless it is pressed.
+ */
+export function DocumentTagsDialog({ documents, tags, room, onCreate, onSave, onClose }: DocumentTagsDialogProps) {
+  const [was] = useState(() => tagStates(documents, tags))
+  const [states, setStates] = useState(was)
   const [name, setName] = useState('')
   const [color, setColor] = useState<TagColor>('grey')
   const [refused, setRefused] = useState<string | null>(null)
   const [making, setMaking] = useState(false)
-  const toggle = (id: number, on: boolean) => setChosen((held) => (on ? [...held, id] : held.filter((other) => other !== id)))
+  const set = (id: number, state: TagState) => setStates((held) => new Map(held).set(id, state))
+  const change = tagsChange(was, states)
+  const full = overfull(documents, change)
   const make = () => {
     const trimmed = name.trim()
     if (!trimmed) return
@@ -197,39 +206,50 @@ export function DocumentTagsDialog({ document, tags, room, onCreate, onSave, onC
     setRefused(null)
     onCreate(trimmed, color).then(
       (made) => {
-        setChosen((held) => [...held, made.id])
+        set(made.id, 'all')
         setName('')
       },
       (error: Error) => setRefused(error.message),
     ).finally(() => setMaking(false))
   }
+  const [one] = documents
+  const several = documents.length > 1
   return (
     <Confirm
-      title={`Tags of “${document.filename}”`}
-      body="Choose the tags it carries. The library shows them on it, and lists each tag’s documents wherever they are."
+      title={several ? `Tags of ${documents.length} documents` : `Tags of “${one.filename}”`}
+      body={
+        several
+          ? 'Tick a tag to put it on every one of them, or clear it to take it off every one. A tag only some of them carry is shown half ticked, and stays as it is unless you press it.'
+          : 'Choose the tags it carries. The library shows them on it, and lists each tag’s documents wherever they are.'
+      }
       action="Save"
       danger={false}
-      onConfirm={() => onSave(chosen)}
+      disabled={full.length > 0}
+      onConfirm={() => onSave(change)}
       onClose={onClose}
     >
       <div className="space-y-3">
         {tags.length > 0 ? (
           <fieldset className="max-h-56 space-y-1.5 overflow-y-auto">
             <legend className="sr-only">The project’s tags</legend>
-            {tags.map((tag, index) => (
-              <Checkbox
-                key={tag.id}
-                data-autofocus={index === 0 ? true : undefined}
-                checked={chosen.includes(tag.id)}
-                onChange={(event) => toggle(tag.id, event.target.checked)}
-                label={
-                  <span className="flex items-center gap-1.5">
-                    <TagDot color={tag.color} />
-                    {tag.name}
-                  </span>
-                }
-              />
-            ))}
+            {tags.map((tag, index) => {
+              const state = states.get(tag.id) ?? 'none'
+              return (
+                <Checkbox
+                  key={tag.id}
+                  data-autofocus={index === 0 ? true : undefined}
+                  checked={state === 'all'}
+                  mixed={state === 'some'}
+                  onChange={() => set(tag.id, nextState(state, was.get(tag.id) ?? 'none'))}
+                  label={
+                    <span className="flex items-center gap-1.5">
+                      <TagDot color={tag.color} />
+                      {tag.name}
+                    </span>
+                  }
+                />
+              )
+            })}
           </fieldset>
         ) : (
           <p className="text-[13px] text-muted">The project has no tags yet. Make the first one here.</p>
@@ -256,9 +276,9 @@ export function DocumentTagsDialog({ document, tags, room, onCreate, onSave, onC
             </button>
           </div>
         )}
-        {refused && (
+        {(refused || full.length > 0) && (
           <p role="alert" className="text-xs text-bad">
-            {refused}
+            {refused ?? overfullWords(full)}
           </p>
         )}
       </div>

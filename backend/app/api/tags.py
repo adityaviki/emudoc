@@ -2,8 +2,9 @@
 
 Anyone who reads the project reads its tags, and lists a tag's documents (`list_documents` in
 app/api/documents.py, `tag=`); a member who may change the project makes, renames, recolours and
-tags with them, and deletes them by role alone, as a folder is. Nothing here is audited: a tag is
-a way of reading the library, as a name or a folder is.
+tags with them, one document or the several chosen in the library at once (app/selection.py),
+and deletes them by role alone, as a folder is. Nothing here is audited: a tag is a way of
+reading the library, as a name or a folder is.
 """
 
 from fastapi import APIRouter, HTTPException
@@ -19,15 +20,27 @@ from app.api.deps import (
     SessionDep,
 )
 from app.models import Project, Tag
-from app.schemas import DocumentOut, DocumentTagsIn, TagIn, TagOut, TagPatch, TagsOut
+from app.schemas import (
+    DocumentOut,
+    DocumentsTagsIn,
+    DocumentTagsIn,
+    TagIn,
+    TagOut,
+    TagPatch,
+    TagsOut,
+)
+from app.selection import NOT_CHOSEN, chosen_documents
 from app.tags import (
+    BOTH_WAYS,
     MAX_TAGS,
     NAME_TAKEN,
     NOT_THE_PROJECTS,
     TOO_MANY,
     delete_tag,
     name_taken,
+    no_room,
     project_tags,
+    retagged,
     tag_counts,
     the_projects,
 )
@@ -97,6 +110,31 @@ def tag_document(document: EditableDocumentDep, body: DocumentTagsIn, session: S
     document.tag_ids = tag_ids
     session.commit()
     return document
+
+
+@router.post("/projects/{project_id}/documents/tags", response_model=list[DocumentOut])
+def tag_documents(project: EditableProjectDep, body: DocumentsTagsIn, session: SessionDep):
+    """Put tags on every chosen document and take tags off every one, leaving the rest of each
+    one's as they are, in one change: a document without room for what it would be given
+    refuses the whole change, naming it, rather than the others being tagged and it not."""
+    add = the_projects(session, project.id, body.add)
+    remove = the_projects(session, project.id, body.remove)
+    if add is None or remove is None:
+        raise HTTPException(404, NOT_THE_PROJECTS)
+    if set(add) & set(remove):
+        raise HTTPException(422, BOTH_WAYS)
+    documents = chosen_documents(session, project.id, body.document_ids, lock=True)
+    if documents is None:
+        raise HTTPException(404, NOT_CHOSEN)
+    given = {document.id: retagged(document, add, remove) for document in documents}
+    refusal = next(filter(None, (no_room(d, given[d.id]) for d in documents)), None)
+    if refusal is not None:
+        raise HTTPException(409, refusal)
+    for document in documents:
+        if given[document.id] != document.tag_ids:
+            document.tag_ids = given[document.id]
+    session.commit()
+    return documents
 
 
 def _out(tag: Tag, count: int) -> TagOut:

@@ -198,6 +198,16 @@ export interface ProjectExport {
   created_at: string
   /** Until when it can be downloaded; null until it is ready. */
   expires_at: string | null
+  /** How many documents the member chose in the library, for an export of those alone; null for the whole project. */
+  chosen: number | null
+}
+
+/** What became of the documents chosen to be indexed again (DocumentsReprocessOut in backend/app/schemas.py). */
+export interface DocumentsReprocessed {
+  /** Those queued, as they stand now. */
+  documents: Document[]
+  /** How many were being indexed already, and were left as they are. */
+  skipped: number
 }
 
 /** The file of a ready export, for a download link: the member's own alone, until it expires. */
@@ -2394,7 +2404,9 @@ export const api = {
   /** The member's own exports of the project that have not expired, the newest first. */
   projectExports: (id: number) => request<ProjectExport[]>(`/projects/${id}/exports`),
   /** A member or better asks; the worker makes it and tells them. A 409 while one is being made. */
-  exportProject: (id: number) => request<ProjectExport>(`/projects/${id}/exports`, { method: 'POST' }),
+  /** An export of the project, or of the documents chosen in it alone. */
+  exportProject: (id: number, documentIds?: number[]) =>
+    request<ProjectExport>(`/projects/${id}/exports`, documentIds ? json('POST', { document_ids: documentIds }) : { method: 'POST' }),
   /** The organisation's projects in the trash, and how many days it keeps them. */
   trashedProjects: () => request<{ projects: TrashedProject[]; days: number }>('/trash'),
   projectTrash: (projectId: number) => request<ProjectTrash>(`/projects/${projectId}/trash`),
@@ -2600,6 +2612,9 @@ export const api = {
   deleteTag: (id: number) => request<void>(`/tags/${id}`, { method: 'DELETE' }),
   /** Every tag the document carries: one it carries that is left out is taken off. */
   tagDocument: (id: number, tagIds: number[]) => request<Document>(`/documents/${id}/tags`, json('PUT', { tag_ids: tagIds })),
+  /** Put tags on every one of the chosen documents and take tags off every one, the rest of each one's left as they are. */
+  tagDocuments: (projectId: number, documentIds: number[], add: number[], remove: number[]) =>
+    request<Document[]>(`/projects/${projectId}/documents/tags`, json('POST', { document_ids: documentIds, add, remove })),
   smartFolders: (projectId: number) =>
     request<{ smart_folders: SmartFolder[]; max_smart_folders: number }>(`/projects/${projectId}/smart-folders`),
   createSmartFolder: (projectId: number, body: { name: string; filter: DocumentFilter }) =>
@@ -2641,6 +2656,9 @@ export const api = {
   },
   reprocessDocument: (id: number, fromStage: StageName) =>
     request<Document>(`/documents/${id}/reprocess?from_stage=${fromStage}`, { method: 'POST' }),
+  /** Index the chosen documents again from a stage, or without one the rest of those partly indexed; one being indexed is left. */
+  reprocessDocuments: (projectId: number, documentIds: number[], fromStage: StageName | null) =>
+    request<DocumentsReprocessed>(`/projects/${projectId}/documents/reprocess`, json('POST', { document_ids: documentIds, from_stage: fromStage })),
   outline: (id: number) => request<Section[]>(`/documents/${id}/outline`),
   content: (id: number) => request<DocumentContent>(`/documents/${id}/content`),
   versions: (id: number) => request<DocumentVersion[]>(`/documents/${id}/versions`),

@@ -8,6 +8,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   ClipboardX,
+  Download,
   FileUp,
   Flag,
   Folder as FolderIcon,
@@ -66,6 +67,8 @@ import { SORT_NAMES, emptyPlaceWords, gridMove, hasThumbnail, placeName, placeOf
 import type { LibraryLayout } from '../library.ts'
 import { stateMoves } from '../reviews.ts'
 import { SUMMARY_QUESTION, comparisonQuestion } from '../scopes.ts'
+import { MAX_CHOSEN, retagged } from '../selection.ts'
+import type { TagsChange } from '../selection.ts'
 import { askHeld } from '../status.ts'
 import { VERSION_EXTENSIONS } from '../versions.ts'
 import { describeChange } from './changes.ts'
@@ -916,9 +919,9 @@ function Listing({
   const [cursor, setCursor] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
-  // What "Move to…" moves while its dialog asks where, and the document whose tags are being chosen.
+  // What "Move to…" moves while its dialog asks where, and the documents whose tags are being chosen.
   const [moving, setMoving] = useState<Item[] | null>(null)
-  const [tagging, setTagging] = useState<Document | null>(null)
+  const [tagging, setTagging] = useState<Document[] | null>(null)
   // How many tiles a row of the grid holds, from the listing's width.
   const [columns, setColumns] = useState(1)
   const menu = useContextMenu()
@@ -1089,6 +1092,49 @@ function Listing({
     ]
   }
 
+  /**
+   * What whoever may change the project does to several files at once (backend/app/selection.py), a page of them at
+   * most: their tags, indexing them again or the rest of the partly indexed, and an export of them alone.
+   */
+  function chosenMenu(targets: Item[]): MenuItem[] {
+    const files = targets.flatMap((item) => (item.kind === 'file' ? [item.document] : []))
+    if (!changes || files.length !== targets.length) return []
+    if (files.length > MAX_CHOSEN) {
+      return [{ label: `Choose at most ${MAX_CHOSEN} files to tag, index or export them together`, disabled: true, onSelect: () => {} }]
+    }
+    const ids = files.map((document) => document.id)
+    const partly = files.filter((document) => unfinishedStages(document).length > 0)
+    const missing = [...new Set(partly.flatMap(unfinishedStages))]
+    return [
+      { label: `Tags of ${files.length} documents…`, icon: TagIcon, onSelect: () => setTagging(files) },
+      {
+        label: `Index ${files.length} documents again`,
+        icon: RefreshCw,
+        disabled: files.every((document) => document.status === 'processing'),
+        onSelect: () => mutations.reprocessMany.mutate({ ids, rest: false }),
+      },
+      ...(partly.length
+        ? [
+            {
+              label: `Index the rest of ${partly.length === 1 ? '1 document' : `${partly.length} documents`}`,
+              icon: ListChecks,
+              disabled: restHeld(missing, health.data) != null,
+              onSelect: () => mutations.reprocessMany.mutate({ ids, rest: true }),
+            },
+          ]
+        : []),
+      { label: `Export ${files.length} documents`, icon: Download, onSelect: () => mutations.exportChosen.mutate(ids) },
+    ]
+  }
+
+  /** Save the tags the dialog chose: a document's own as it now carries them, several's as what goes on and comes off. */
+  function saveTags(documents: Document[], change: TagsChange) {
+    if (!change.add.length && !change.remove.length) return
+    const [one] = documents
+    if (documents.length === 1) marks.tag.mutate({ id: one.id, tagIds: retagged(one.tag_ids, change) })
+    else marks.tagMany.mutate({ ids: documents.map((document) => document.id), change })
+  }
+
   /** What can be done to the items; for several at once, a chat about them and what the role may change. */
   function itemsMenu(targets: Item[]): MenuItem[] {
     // Moving is what a drag does, for the keyboard, and for a pointer that cannot drag.
@@ -1101,7 +1147,8 @@ function Listing({
     const asked = askingMenu(targets)
     if (targets.length > 1) {
       const changing: MenuItem[] = changes ? [moveTo, { label: `Delete ${targets.length} items`, icon: Trash2, danger: true, onSelect: () => remove(targets) }] : []
-      return asked.length && changing.length ? [...asked, 'separator', ...changing] : [...asked, ...changing]
+      const groups = [asked, chosenMenu(targets), changing].filter((group) => group.length > 0)
+      return groups.flatMap((group, index): MenuItem[] => (index > 0 ? ['separator', ...group] : group))
     }
     const [item] = targets
     const rename: MenuItem = { label: 'Rename', icon: Pencil, shortcut: 'F2', onSelect: () => setRenaming(itemKey(item)) }
@@ -1155,7 +1202,7 @@ function Listing({
       : []
     return [
       ...reading,
-      { label: 'Tags…', icon: TagIcon, onSelect: () => setTagging(item.document) },
+      { label: 'Tags…', icon: TagIcon, onSelect: () => setTagging([item.document]) },
       rename,
       moveTo,
       ...version,
@@ -1525,11 +1572,11 @@ function Listing({
       )}
       {tagging && (
         <DocumentTagsDialog
-          document={tagging}
+          documents={tagging}
           tags={tags}
           room={canTag}
           onCreate={(name, color) => organizing.createTag.mutateAsync({ name, color })}
-          onSave={(tagIds) => marks.tag.mutate({ id: tagging.id, tagIds })}
+          onSave={(change) => saveTags(tagging, change)}
           onClose={() => setTagging(null)}
         />
       )}

@@ -4,6 +4,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_serializer
 
 from app.costs import costs_shown
+from app.selection import MAX_CHOSEN
 
 
 class _FromORM(BaseModel):
@@ -536,6 +537,39 @@ class DocumentTagsIn(BaseModel):
     """Every tag a document carries, by id: one it carries that is left out is taken off it."""
 
     tag_ids: list[int] = Field(max_length=20)
+
+
+class ChosenDocumentsIn(BaseModel):
+    """Documents a member chose together in the library, by id (app/selection.py)."""
+
+    document_ids: list[int] = Field(min_length=1, max_length=MAX_CHOSEN)
+
+
+class DocumentsTagsIn(ChosenDocumentsIn):
+    """Tags to put on every chosen document and tags to take off every one, by id; a tag in
+    neither stays on the documents that carry it and off the others."""
+
+    add: list[int] = Field(default=[], max_length=20)
+    remove: list[int] = Field(default=[], max_length=100)
+
+
+# The stage a reprocess run starts from; later stages run too, and so does an earlier one
+# that is not done, which is how a quarantined document is scanned again.
+Stage = Literal["scan", "parse", "structure", "enrich", "embed"]
+
+
+class DocumentsReprocessIn(ChosenDocumentsIn):
+    """Index the chosen documents again from `from_stage`; without one, those of them that are
+    partly indexed, each from the first stage it went without ("Index the rest")."""
+
+    from_stage: Stage | None = None
+
+
+class DocumentsReprocessOut(BaseModel):
+    # The chosen documents queued, as they stand now.
+    documents: list[DocumentOut]
+    # How many of the chosen were being indexed already, and were left as they are.
+    skipped: int
 
 
 _TypeName = Annotated[
@@ -2877,9 +2911,19 @@ class AccountExport(BaseModel):
 ExportStatus = Literal["queued", "ready", "failed"]
 
 
+class ProjectExportIn(BaseModel):
+    """What to export: the documents a member chose in the library alone, or, without them, the
+    whole project."""
+
+    document_ids: list[int] | None = Field(default=None, min_length=1, max_length=MAX_CHOSEN)
+
+
 class ProjectExportOut(_FromORM):
     id: int
     status: ExportStatus
+    # How many documents the member chose, for an export of those alone; None for the whole
+    # project.
+    chosen: int | None = None
     # How many originals and bytes the file holds; 0 until it is ready.
     documents: int
     size_bytes: int
