@@ -75,6 +75,27 @@ files it, if it arrived at the top of the library; a document you uploaded into 
 there. Every rule that tags it tags it. A rule files what arrives after it is made, once: move a
 document elsewhere afterwards and it stays where you put it.
 
+## A document's details and its note
+
+Each document is read for its title, its type and its date, which the library's date order, smart
+folders, filing rules and the agent use. Where the reading got one wrong, set it yourself with
+"Edit details" on the document's tab: what you set is kept whenever the document is read again or
+given a new version, and the dialog shows what the reading found beside it, with "Use the reading"
+to take that again. A type is kept in lower case, as the reading writes it.
+
+A document's note holds what its file does not say: where the signed copy is, whom to ask, why it
+was paid late. Write it with "Add a note" on the tab, if you may change the project; everyone who
+reads the project reads it there, with who changed it last. The agent does not read notes, and a
+search does not find them.
+
+## Copies in other projects
+
+A project holds a file once, but another project may hold it too. A document's tab says where else
+it is, among the projects you see, each place a link to the copy, and when there are any, the
+projects page leads to "See the duplicates", every file held in more than one project with how
+much the copies take. Only the same bytes count: a file saved again, or a scan of a printed one,
+is not a copy.
+
 ## New versions
 
 When a file changes, a contract coming back signed or an invoice sent again corrected, give its
@@ -82,9 +103,9 @@ document the new file: "Upload a new version" in its menu in the library, or und
 its tab. The document keeps its place, its chats, its review, its share links and the checks of
 its facts, and its new file is read in place of the old one: from then on it is searched, asked
 about and read for facts as the new file alone. A review that approved or disputed the old file
-is opened again, to review, and a check of a fact goes back on a fact the new file reads the
-same. A file of another type takes its type's extension, the name otherwise kept. The earlier
-files stay under Versions on its tab, each to download or to read its text, for as long as the
+is opened again, to review, a check of a fact goes back on a fact the new file reads the same,
+and a title, type or date you set stays. A file of another type takes its type's extension, the
+name otherwise kept. The earlier files stay under Versions on its tab, each to download or to read its text, for as long as the
 document is kept, and the plan counts them with it; the new file's pages count again as it is
 read. A file of a connected folder that changes there becomes its document's new version the
 same way. A document takes no new version while it is being read, nor in the sample project.

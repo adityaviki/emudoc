@@ -207,6 +207,9 @@ def _copy_document(
         title=entry["title"],
         doc_type=entry["doc_type"],
         doc_date=_date(entry["doc_date"]),
+        read_title=entry["title"],
+        read_doc_type=entry["doc_type"],
+        read_doc_date=_date(entry["doc_date"]),
         summary=entry["summary"],
         # Ready as it is made, so that the time an upload waits to be ready (`DOCUMENT_READY`,
         # app/metrics.py) is measured for uploads alone.

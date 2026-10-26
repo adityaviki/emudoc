@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.audit import audit_event
 from app.config import get_settings
 from app.db import SessionLocal, connection_lost
+from app.details import hold_details, retitle, root_of, settle_details
 from app.embeddings import Embedder
 from app.entitlements import check_pages, text_pages
 from app.errors import AppError, shown, summary
@@ -659,7 +660,9 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
         note_quota(session, organization, MONTH_PAGES, app_address(), adding=new_pages)
     document.page_count = parsed.page_count
     document.page_sizes = [[round(w, 2), round(h, 2)] for w, h in parsed.page_sizes]
-    document.title = parsed.title
+    hold_details(session, document)
+    document.read_title = parsed.title
+    settle_details(document)
     _queue_drawing_ahead(session, document)
     return f"{len(blocks)} blocks{note}"
 
@@ -896,8 +899,12 @@ def _structure(session: Session, document: Document, services: Services, meter: 
                 log.warning("Section inference failed for document %s: %s", document.id, error)
 
     stem = Path(document.filename).stem
-    outline = build_outline(blocks, document.title or stem, document.page_count, hints)
-    document.title = outline.title if outline.title != stem else None
+    outline = build_outline(blocks, document.read_title or stem, document.page_count, hints)
+    hold_details(session, document)
+    document.read_title = outline.title if outline.title != stem else None
+    settle_details(document)
+    # A title a member set starts the paths in the reading's place (app/details.py).
+    root = root_of(document)
 
     _delete_derived(session, document.id, Fact, FactChange, Passage, Section)
     # The facts went with the passages they were linked to, and what their reading changed with
@@ -912,7 +919,7 @@ def _structure(session: Session, document: Document, services: Services, meter: 
             ordinal=ordinal,
             level=draft.level,
             title=draft.title[:1000],
-            path=draft.path(outline.title),
+            path=draft.path(root),
             page_start=draft.page_start,
             page_end=draft.page_end,
             block_start=draft.block_start,
@@ -977,25 +984,21 @@ def _enrich(session: Session, document: Document, services: Services, meter: Met
     template = analysis.template
     # The template the reading before was for, which what this one changed is told against.
     was = document.template
-    old_root = document.title or Path(document.filename).stem
-    document.title = clean_text(profile.title)[:500] or document.title
+    hold_details(session, document)
+    document.read_title = clean_text(profile.title)[:500] or document.read_title
     # A document read for a template is of its kind, which the catalogue filters by.
-    document.doc_type = (
+    document.read_doc_type = (
         template.doc_type if template else clean_text(profile.doc_type).lower()[:100] or None
     )
     document.template = template.doc_type if template else None
-    document.doc_date = parse_iso_date(profile.doc_date)
+    document.read_doc_date = parse_iso_date(profile.doc_date)
+    settle_details(document)
     document.summary = profile.summary.strip() or None
 
-    new_root = document.title or old_root
     for section in sections:
         section.summary = analysis.summaries.get(section.id)
-        if new_root != old_root:
-            # Paths start with the document title, and passages are indexed with their path.
-            section.path = new_root + section.path[len(old_root) :]
-            session.execute(
-                update(Passage).where(Passage.section_id == section.id).values(context=section.path)
-            )
+    # Paths start with the document's title, and passages are searched with their path.
+    retitle(session, document)
 
     hold_checks(session, document.id)
     before = facts_read(session, document.id)

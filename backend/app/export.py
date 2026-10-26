@@ -56,6 +56,7 @@ from app.models import (
     ChatPin,
     Document,
     DocumentFavorite,
+    DocumentNote,
     DocumentVersion,
     DocumentVisit,
     Fact,
@@ -93,6 +94,7 @@ from app.schemas import (
     ExportedIdentity,
     ExportedMembership,
     ExportedMessage,
+    ExportedNote,
     ExportedNotification,
     ExportedPassage,
     ExportedPin,
@@ -472,7 +474,7 @@ def _write(path: Path, export_id: int, storage: Storage) -> int:
             # Read, then let the connection go: copying the originals waits on the storage.
             with SessionLocal() as session:
                 batch = _read(session, ids[start : start + BATCH])
-            for document, data, earlier in batch:
+            for document, data, earlier, note in batch:
                 folder = folders.get(document.folder_id, "") if document.folder_id else ""
                 original = _original(archive, storage, names, document, folder)
                 data_path = f"documents/{document.id}.json"
@@ -485,6 +487,7 @@ def _write(path: Path, export_id: int, storage: Storage) -> int:
                                 for version in earlier
                             ],
                             "tags": [tag_names[i] for i in document.tag_ids if i in tag_names],
+                            "note": note,
                         }
                     )
                 )
@@ -507,12 +510,18 @@ _EXPORTED = (Document.deleted_at.is_(None), Document.status != "quarantined")
 
 def _read(
     session: Session, ids: Sequence[int]
-) -> list[tuple[Document, ExportedDocumentData, list[DocumentVersion]]]:
-    """The documents with these ids, each with what was read from it and its earlier versions,
-    the latest first."""
+) -> list[tuple[Document, ExportedDocumentData, list[DocumentVersion], ExportedNote | None]]:
+    """The documents with these ids, each with what was read from it, its earlier versions, the
+    latest first, and its note."""
     documents = session.scalars(
         select(Document).where(Document.id.in_(ids)).order_by(Document.id)
     ).all()
+    notes = {
+        note.document_id: ExportedNote(
+            text=note.text, changed_by=note.changer, changed_at=note.changed_at
+        )
+        for note in session.scalars(select(DocumentNote).where(DocumentNote.document_id.in_(ids)))
+    }
     sections, passages, facts = defaultdict(list), defaultdict(list), defaultdict(list)
     earlier: dict[int, list[DocumentVersion]] = defaultdict(list)
     for row in session.scalars(
@@ -598,6 +607,7 @@ def _read(
                 ],
             ),
             earlier[document.id],
+            notes.get(document.id),
         )
         for document in documents
     ]
@@ -746,6 +756,7 @@ def _listed(document: Document, folder: str, original: str | None, data: str) ->
         title=document.title,
         doc_type=document.doc_type,
         doc_date=document.doc_date,
+        edited_details=document.edited_details,
         summary=document.summary,
         template=document.template,
         page_count=document.page_count,

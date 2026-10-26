@@ -232,9 +232,15 @@ export interface Document {
   stages: Partial<Record<StageName, Stage>>
   error: string | null
   page_count: number | null
+  /** Its title, type and date as everything reads them: a member's where one set it, else what its reading found. */
   title: string | null
   doc_type: string | null
   doc_date: string | null
+  /** What its last reading found of the three above, and which of them a member set in its place (backend/app/details.py). */
+  read_title: string | null
+  read_doc_type: string | null
+  read_doc_date: string | null
+  edited_details: DocumentDetail[]
   summary: string | null
   /** The kind of the extraction template its facts were read for (backend/app/extraction.py), if any. */
   template: string | null
@@ -251,6 +257,54 @@ export interface Document {
   review_changed_at: string | null
   /** The ids of its tags (backend/app/tags.py), in the order they were put on it. */
   tag_ids: number[]
+}
+
+/** DOCUMENT_DETAILS in backend/app/models.py: what a member may set in place of what a document's reading found. */
+export type DocumentDetail = 'title' | 'doc_type' | 'doc_date'
+
+/**
+ * A change to a document's details (backend/app/details.py): a field given is the member's, null for none, which later
+ * readings keep; a field left out stays; one in `as_read` takes what the reading found again.
+ */
+export interface DocumentDetailsInput {
+  title?: string | null
+  doc_type?: string | null
+  doc_date?: string | null
+  as_read?: DocumentDetail[]
+}
+
+/** A document's note (backend/app/notes.py), '' for none, with the name of whoever changed it last as it is now and when. */
+export interface DocumentNote {
+  text: string
+  changed_by: string | null
+  changed_at: string | null
+}
+
+/** A document of the same bytes as another, in another project the member sees (backend/app/duplicates.py). */
+export interface DocumentCopy {
+  id: number
+  project_id: number
+  project_name: string
+  /** Its folder's path from the project's root, '' for the root. */
+  folder: string
+  folder_id: number | null
+  filename: string
+}
+
+/** A file held in more than one of the projects the member sees, with every copy of it by project name. */
+export interface Duplicate {
+  size_bytes: number
+  mime_type: string
+  copies: DocumentCopy[]
+}
+
+/** A page of the duplicates report, with how many files there are and the bytes their copies past the first take. */
+export interface DuplicatesPage {
+  files: number
+  copy_bytes: number
+  duplicates: Duplicate[]
+  /** The `after` of the page after it; null on the last. */
+  next: number | null
 }
 
 /** The orders the library lists documents in (`SORTS` in backend/app/api/documents.py): by name, as added, by the documents' own dates (the undated after the dated either way), by size. */
@@ -2569,6 +2623,22 @@ export const api = {
   updateDocument: (id: number, body: { filename?: string; folder_id?: number | null }) =>
     request<Document>(`/documents/${id}`, json('PATCH', body)),
   deleteDocument: (id: number) => request<void>(`/documents/${id}`, { method: 'DELETE' }),
+  /** Sets the document's details as the member's, or takes what the reading found again. */
+  changeDetails: (id: number, change: DocumentDetailsInput) =>
+    request<Document>(`/documents/${id}/details`, json('PATCH', change)),
+  note: (id: number) => request<DocumentNote>(`/documents/${id}/note`),
+  /** Saves the document's note whole; a blank one deletes it. */
+  saveNote: (id: number, text: string) => request<DocumentNote>(`/documents/${id}/note`, json('PUT', { text })),
+  /** The copies of the document's file in the other projects the member sees. */
+  copies: (id: number) => request<{ copies: DocumentCopy[] }>(`/documents/${id}/copies`),
+  /** A page of the duplicates report from the one `after` names, the first for null. */
+  duplicates: (after: number | null, limit?: number) => {
+    const params = new URLSearchParams()
+    if (after != null) params.set('after', String(after))
+    if (limit != null) params.set('limit', String(limit))
+    const query = params.toString()
+    return request<DuplicatesPage>(query ? `/duplicates?${query}` : '/duplicates')
+  },
   reprocessDocument: (id: number, fromStage: StageName) =>
     request<Document>(`/documents/${id}/reprocess?from_stage=${fromStage}`, { method: 'POST' }),
   outline: (id: number) => request<Section[]>(`/documents/${id}/outline`),

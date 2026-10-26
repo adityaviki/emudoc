@@ -9,6 +9,7 @@ import { ME_KEY, setSignedIn, useMe } from '../auth.ts'
 import { Confirm } from '../components/Confirm.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
 import { Button, Checkbox, EmptyState, FIELD, IconButton, LinkButton, Loading, Notice } from '../components/ui.tsx'
+import { DUPLICATES_KEY, duplicatesWords } from '../details.ts'
 import { formatDate } from '../format.ts'
 import { EXPORT_QUERY } from '../exports.ts'
 import { checklistOf } from '../onboarding.ts'
@@ -112,9 +113,24 @@ export function ProjectsPage() {
             />
           ))}
         </div>
+        <Duplicates />
         {changes && <ProjectTrash />}
       </div>
     </div>
+  )
+}
+
+/** The way to the files held in more than one of the projects, while there are some. */
+function Duplicates() {
+  const summary = useQuery({ queryKey: [...DUPLICATES_KEY, 'summary'], queryFn: () => api.duplicates(null, 1) })
+  if (!summary.data?.files) return null
+  return (
+    <p className="mt-6 text-[13px] text-muted">
+      {duplicatesWords(summary.data)}{' '}
+      <Link to="/duplicates" className="font-medium text-accent hover:underline">
+        See the duplicates
+      </Link>
+    </p>
   )
 }
 

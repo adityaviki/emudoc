@@ -37,7 +37,9 @@ organisation uploaded a document about you, ask the organisation first; we help 
   review, approved or disputed with when and those assigned to you, which your organisation's
   members see beside your name, your chats with their questions and answers, the chats you pinned to
   the top of your list, the documents you starred and the last $recent of each project's you opened
-  with when, the tags, smart folders and filing rules you made, the runs of a project's
+  with when, the titles, kinds and dates you gave documents in place of what was read from them,
+  the notes on documents you wrote, which your organisation's members see beside your name until
+  another changes them, the tags, smart folders and filing rules you made, the runs of a project's
   cross-checks you made, with the values they compared and the reports the model wrote from them,
   and the drafts you asked the model for or edited, with what you asked of them and every version.
   We need them to provide the service.

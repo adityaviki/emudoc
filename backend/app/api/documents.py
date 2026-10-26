@@ -48,6 +48,7 @@ from app.api.folders import resolve_folder
 from app.audit import audit
 from app.config import Settings, get_settings
 from app.costs import costs_shown
+from app.details import edit_details
 from app.entitlements import PlanRefused, check_upload, size_label
 from app.fact_checks import fact_out
 from app.folders import (
@@ -58,6 +59,7 @@ from app.jobs import queue_index
 from app.mail import LISTED
 from app.metrics import UPLOAD_REJECTIONS
 from app.models import (
+    DOCUMENT_DETAILS,
     STAGES,
     Block,
     Document,
@@ -79,6 +81,7 @@ from app.sample import SAMPLE_UPLOADS
 from app.scanning import scan_passed
 from app.schemas import (
     DocumentContent,
+    DocumentDetailsIn,
     DocumentFilter,
     DocumentOut,
     DocumentPage,
@@ -118,6 +121,7 @@ ONE_PATH_A_FILE = "Give one path for each file uploaded, or none."
 PAGE_SIZE = 100
 MAX_PAGE_SIZE = 500
 BAD_CURSOR = "This page of the folder cannot be found. List the folder again from its start."
+BOTH_WAYS = "Give a detail a value of your own, or take what the reading found for it, not both."
 ONE_PLACE = (
     "Ask for one place of the library at a time: a folder, a tag, a smart folder, your "
     "favourites or your recent documents."
@@ -564,6 +568,21 @@ def update_document(document: EditableDocumentDep, body: DocumentPatch, session:
             raise HTTPException(409, f"A file named {filename!r} already exists here")
     document.filename = filename
     document.folder_id = folder_id
+    session.commit()
+    return document
+
+
+@router.patch("/documents/{document_id}/details", response_model=DocumentOut)
+def change_details(document: EditableDocumentDep, body: DocumentDetailsIn, session: SessionDep):
+    """Set the document's title, kind or date as the member's, which later readings keep, or take
+    what the reading found again (app/details.py)."""
+    given = {
+        name: getattr(body, name) for name in DOCUMENT_DETAILS if name in body.model_fields_set
+    }
+    as_read = set(body.as_read)
+    if as_read & given.keys():
+        raise HTTPException(422, BOTH_WAYS)
+    edit_details(session, document, given, as_read)
     session.commit()
     return document
 

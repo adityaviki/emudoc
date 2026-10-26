@@ -17,6 +17,13 @@ newest entry first.
 
 Members:
 
+- A document's title, type and date: where the reading got one wrong, set it yourself with "Edit
+  details" on its tab. What you set is kept when the document is read again or given a new
+  version, and the dialog shows what the reading found, with "Use the reading" to take it again.
+- Notes: "Add a note" on a document's tab writes what its file does not say, which everyone who
+  reads the project reads there with who changed it last.
+- Copies: a document's tab names the other projects that hold the same file, and the projects page
+  leads to every file held in more than one project, with what the copies take.
 - Tags: give a document tags from "Tags…" in its menu in the library, making a new one there if
   you like, and list a tag's documents wherever they are from the menu above the files, which reads
   "All files" at first. "Tags…" in that menu renames, recolours and deletes the project's tags.
@@ -35,6 +42,10 @@ Members:
 
 Operators:
 
+- Migration 1c8fe42c43c7 adds the table of documents' notes, and to `documents` the columns of
+  what a reading found beside the title, type and date a member may set, copied from them, an
+  update of each row once, and an index on `sha256` by which a file's copies in other projects
+  are found.
 - Migration ef4d50a71594 adds the tables of tags, smart folders, filing rules, favourites and
   recent documents, three indexes on `documents` for the library's orders and a GIN index on its
   new `tag_ids`, and marks every document there is as filed, an update of each row of `documents`

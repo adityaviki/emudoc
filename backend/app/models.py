@@ -66,6 +66,10 @@ AUTOMATION_AUDIENCES = ("maker", "project", "nobody")
 # invoice: put in review for a member to look at, then approved, or disputed with whoever sent
 # it. A document in no review has none.
 REVIEW_STATES = ("to_review", "approved", "disputed")
+# A document's details that a member may set in place of what its reading found (app/details.py):
+# its title, its kind and its date, each kept through every later reading until the member
+# takes the reading's again.
+DOCUMENT_DETAILS = ("title", "doc_type", "doc_date")
 # What an automation's run puts in review (app/reviews.py), of the documents that arrived for it
 # and are in none: those its cross-checks found a difference about, or every one it watches.
 AUTOMATION_REVIEWS = ("differs", "arrived")
@@ -1281,6 +1285,15 @@ class Document(Base):
             "review_changed_by",
             postgresql_where=text("review_changed_by IS NOT NULL"),
         ),
+        CheckConstraint(
+            "edited_details <@ ARRAY[{}]::varchar[]".format(
+                ", ".join(f"'{name}'" for name in DOCUMENT_DETAILS)
+            ),
+            name="ck_documents_edited_details",
+        ),
+        # The copies of a file in the organisation's other projects (app/duplicates.py), which
+        # the unique constraint above, led by the project, cannot find.
+        Index("ix_documents_sha256", "sha256"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -1323,9 +1336,20 @@ class Document(Base):
     page_count: Mapped[int | None] = mapped_column(Integer)
     # [[width, height], ...] in PDF points, one per page; empty for formats without pages.
     page_sizes: Mapped[list] = mapped_column(JSONB, default=list)
+    # Its title, kind and date as everything reads them (the library, smart folders, filing
+    # rules, the agent): a member's where one set it (`edited_details`, app/details.py), else what
+    # its last reading found, which `read_title`, `read_doc_type` and `read_doc_date` keep either
+    # way, for the member to take again.
     title: Mapped[str | None] = mapped_column(String(500))
     doc_type: Mapped[str | None] = mapped_column(String(100), index=True)
     doc_date: Mapped[dt.date | None] = mapped_column(Date)
+    read_title: Mapped[str | None] = mapped_column(String(500))
+    read_doc_type: Mapped[str | None] = mapped_column(String(100))
+    read_doc_date: Mapped[dt.date | None] = mapped_column(Date)
+    # The names of DOCUMENT_DETAILS a member set, in no order.
+    edited_details: Mapped[list[str]] = mapped_column(
+        ARRAY(String(20)), default=list, server_default="{}"
+    )
     summary: Mapped[str | None] = mapped_column(Text)
     # The kind of document of the extraction template its facts were read for (app/
     # extraction.py), which `doc_type` then names too; null when they were read for none, and
@@ -1573,6 +1597,36 @@ class DocumentFavorite(Base):
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True
     )
     starred_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class DocumentNote(Base):
+    """A document's note (app/notes.py): one text its project's members share, which whoever may
+    change the project writes and everyone who reads the document reads, with who changed it
+    last. A blank note is no row; the row goes with the document."""
+
+    __tablename__ = "document_notes"
+    __table_args__ = (
+        # For an account deleted, whose notes stay without its name.
+        Index(
+            "ix_document_notes_changed_by",
+            "changed_by",
+            postgresql_where=text("changed_by IS NOT NULL"),
+        ),
+    )
+
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+    )
+    text: Mapped[str] = mapped_column(Text)
+    # Who changed it last and when; null once their account is gone. The name is read as it is
+    # now, as a review's changer's is.
+    changed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    changer: Mapped[str | None] = column_property(
+        select(User.name).where(User.id == changed_by).correlate_except(User).scalar_subquery()
+    )
+    changed_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 

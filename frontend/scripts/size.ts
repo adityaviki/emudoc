@@ -50,10 +50,12 @@ import { gzipSync } from 'node:zlib'
 // last question edited in place, "Regenerate", and the library's chats about a folder or documents;
 // 298 kB on 2026-10-26 by the library's places (297.2 kB): tags with their dialog and page, smart
 // folders and their form, favourites and recent documents, the orders, the grid of thumbnails, and
-// the filing rules' page and form.
+// the filing rules' page and form; 302 kB on 2026-10-26 by a document's details, note and copies
+// (300.3 kB): the dialog that sets its title, type and date beside what the reading found, the note
+// on its tab, the links to its copies in other projects, and the duplicates page.
 // A change that passes it makes the scripts smaller (a dependency left out, a page loaded only
 // when it is opened) or raises this number, saying why in its commit.
-const BUDGET = 298_000
+const BUDGET = 302_000
 // The operator's area (operator.html), a build of its own that only operators are sent: React
 // and the rest again, 102.0 kB on 2026-10-21. Its size costs no member anything, so its budget
 // only catches a dependency pulled in by mistake.

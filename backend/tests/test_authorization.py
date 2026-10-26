@@ -248,6 +248,8 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/documents/{w.document_id}/outline", {}),
         ("GET", f"/api/documents/{w.document_id}/content", {}),
         ("GET", f"/api/documents/{w.document_id}/facts", {}),
+        ("GET", f"/api/documents/{w.document_id}/note", {}),
+        ("GET", f"/api/documents/{w.document_id}/copies", {}),
         ("GET", f"/api/documents/{w.document_id}/share-links", {}),
         ("GET", f"/api/documents/{w.document_id}/versions", {}),
         ("GET", f"/api/documents/{w.document_id}/versions/1/file", {}),
@@ -330,6 +332,8 @@ def writes(w: World) -> list[Route]:
         ),
         ("PATCH", f"/api/folders/{w.folder_id}", {"json": {"name": "Renamed"}}),
         ("PATCH", f"/api/documents/{w.document_id}", {"json": {"filename": "renamed.pdf"}}),
+        ("PATCH", f"/api/documents/{w.document_id}/details", {"json": {"title": "Mine"}}),
+        ("PUT", f"/api/documents/{w.document_id}/note", {"json": {"text": "Mine."}}),
         ("POST", f"/api/documents/{w.document_id}/reprocess", {}),
         (
             "POST",
