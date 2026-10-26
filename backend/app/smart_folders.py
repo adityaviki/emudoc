@@ -1,6 +1,8 @@
 """A project's smart folders: saved views of its documents, each the documents its filter
 (`DocumentFilter` in app/schemas.py) matches wherever they are, which the library lists as it
-lists a folder's (`list_documents` in app/api/documents.py), in the order the reader chose.
+lists a folder's (`list_documents` in app/api/documents.py), in the order the reader chose. One
+that keeps a query is a saved search: the library opens it as the search of its words within
+those documents (`search` in app/api/query.py, which takes a filter of its own the same way).
 
 Everyone who reads the project sees its smart folders, as its folders, and a member who may
 change the project makes, changes and deletes them, as they do its folders; like a folder, a
@@ -12,11 +14,12 @@ so that it never lists more than it was saved to: `problem` says why, and its fo
 way back.
 """
 
-from sqlalchemy import ColumnElement, false, func, select
+from sqlalchemy import ColumnElement, and_, false, func, literal, or_, select
+from sqlalchemy.dialects.postgresql import REGCONFIG
 from sqlalchemy.orm import Session
 
 from app.folders import folder_paths, subtree_ids
-from app.models import Document, Folder, SmartFolder, Tag, User
+from app.models import Document, Folder, Passage, SmartFolder, Tag, User
 from app.schemas import DocumentFilter, SmartFolderOut
 
 # How many smart folders a project may have.
@@ -30,6 +33,7 @@ FOLDER_GONE = (
     "Its folder is in the trash or was deleted, so it lists nothing. Restore the folder, or "
     "choose another."
 )
+BACKWARDS = "Its earliest date is after its latest. Choose dates the other way round."
 
 
 def matching(session: Session, project_id: int, chosen: DocumentFilter) -> list[ColumnElement]:
@@ -52,7 +56,35 @@ def matching(session: Session, project_id: int, chosen: DocumentFilter) -> list[
         conditions.append(
             Document.folder_id.in_(subtree_ids(session, folder)) if folder else false()
         )
+    if chosen.mentions:
+        languages = session.scalars(
+            select(Passage.language).where(Passage.project_id == project_id).distinct()
+        ).all()
+        conditions.extend(_mentioning(project_id, languages, words) for words in chosen.mentions)
     return conditions
+
+
+def _mentioning(project_id: int, languages: list[str], words: str) -> ColumnElement[bool]:
+    """The documents with a passage that holds every one of the words, as a search matches them:
+    in the language each passage was indexed with, its text index probed once per language.
+    Words too common to be indexed ("the") narrow nothing, since no passage can be told by them."""
+    if not languages:
+        return false()
+    queries = {
+        language: func.plainto_tsquery(literal(language, REGCONFIG), words)
+        for language in languages
+    }
+    holding = select(Passage.document_id).where(
+        Passage.project_id == project_id,
+        or_(
+            *(
+                and_(Passage.language == literal(language, REGCONFIG), Passage.tsv.op("@@")(query))
+                for language, query in queries.items()
+            )
+        ),
+    )
+    common = and_(*(func.numnode(query) == 0 for query in queries.values()))
+    return or_(common, Document.id.in_(holding))
 
 
 def problem_of(session: Session, project_id: int, chosen: DocumentFilter) -> str | None:
@@ -83,6 +115,7 @@ def smart_folder_out(session: Session, smart_folder: SmartFolder) -> SmartFolder
         id=smart_folder.id,
         name=smart_folder.name,
         filter=chosen,
+        query=smart_folder.query,
         folder=folder,
         problem=problem_of(session, smart_folder.project_id, chosen),
         made_by=made_by,

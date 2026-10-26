@@ -3,7 +3,8 @@
 
 import { useCallback, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router'
-import type { ScopeIn } from '../api.ts'
+import type { DocumentFilter, ReviewState, ScopeIn } from '../api.ts'
+import { REVIEW_STATES } from '../reviews.ts'
 
 /** What a document is opened at: a cited passage, a block of its text, or a page. */
 export type Focus = { passage: number } | { block: number } | { page: number }
@@ -11,10 +12,14 @@ export type Focus = { passage: number } | { block: number } | { page: number }
 /** Whose documents in review the reviews view lists: every member's, or those assigned to the member. */
 export type Reviews = 'all' | 'mine'
 
-/** The folder the library shows, and the search running in it; or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, with `changes`, what their last readings changed, with `checks`, its cross-checks, with `check`, what that one finds, with `run`, a run of them kept with what it found, with `reviews`, its documents in review, with `drafts`, the drafts the model wrote from its documents, with `draft`, one of them, with `draftTemplates`, how its drafts of each kind read, with `mail`, its address and what it received, with `connectors`, the folders of its members' Google Drive, Dropbox or OneDrive it keeps in step with; with `tag`, the documents of one of its tags wherever they are, with `smart`, a smart folder's, with `favorites`, the member's favourites, with `recent`, the documents they opened lately; with `tags`, its tags to make and change, and with `filing`, its filing rules. */
+/** What the library's search is narrowed by beside its folder: the other parts of a smart folder's filter. */
+export type SearchFilter = Omit<DocumentFilter, 'folder_id'>
+
+/** The folder the library shows, and the search running in it, with what narrows it; or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, with `changes`, what their last readings changed, with `checks`, its cross-checks, with `check`, what that one finds, with `run`, a run of them kept with what it found, with `reviews`, its documents in review, with `drafts`, the drafts the model wrote from its documents, with `draft`, one of them, with `draftTemplates`, how its drafts of each kind read, with `mail`, its address and what it received, with `connectors`, the folders of its members' Google Drive, Dropbox or OneDrive it keeps in step with; with `tag`, the documents of one of its tags wherever they are, with `smart`, a smart folder's, with `favorites`, the member's favourites, with `recent`, the documents they opened lately; with `tags`, its tags to make and change, and with `filing`, its filing rules. */
 export interface LibraryView {
   folderId: number | null
   q: string
+  search?: SearchFilter
   trash?: true
   templates?: true
   facts?: string
@@ -64,6 +69,8 @@ export function parseWorkspaceUrl(pathname: string, search: string): WorkspaceUr
   const chat = params.get('chat')
   let chatId: WorkspaceUrl['chatId'] = chat === 'new' ? 'new' : id(chat)
   const library: LibraryView = { folderId: id(params.get('folder')), q: params.get('q') ?? '' }
+  const narrowing = parseSearch(params)
+  if (narrowing) library.search = narrowing
   if (params.has('trash')) library.trash = true
   else if (params.has('templates')) library.templates = true
   else if (params.get('facts')) library.facts = params.get('facts') ?? undefined
@@ -102,6 +109,35 @@ export function parseWorkspaceUrl(pathname: string, search: string): WorkspaceUr
   return { projectId, library, document, chatId, about, canonical }
 }
 
+const DAY = /^\d{4}-\d{2}-\d{2}$/
+
+/** What the search is narrowed by, each part a parameter of its own and a list's each value once; null for nothing. */
+function parseSearch(params: URLSearchParams): SearchFilter | null {
+  const day = (value: string | null) => (value != null && DAY.test(value) ? value : null)
+  const search: SearchFilter = {
+    tags: params.getAll('tagged').flatMap((value) => id(value) ?? []),
+    every_tag: params.has('every-tag'),
+    types: params.getAll('type').filter(Boolean),
+    after: day(params.get('after')),
+    before: day(params.get('before')),
+    reviews: params.getAll('review').filter((value): value is ReviewState => (REVIEW_STATES as string[]).includes(value)),
+    mentions: params.getAll('within').filter((value) => value.trim() !== ''),
+  }
+  search.every_tag &&= search.tags.length > 1
+  const narrowed = search.tags.length || search.types.length || search.after || search.before || search.reviews.length || search.mentions.length
+  return narrowed ? search : null
+}
+
+function writeSearch(params: URLSearchParams, search: SearchFilter) {
+  for (const tag of search.tags) params.append('tagged', String(tag))
+  if (search.every_tag && search.tags.length > 1) params.set('every-tag', '')
+  for (const type of search.types) params.append('type', type)
+  if (search.after) params.set('after', search.after)
+  if (search.before) params.set('before', search.before)
+  for (const state of search.reviews) params.append('review', state)
+  for (const words of search.mentions) params.append('within', words)
+}
+
 /** A new chat's scope as the URL writes it: `f12` a folder, `d3-5` documents. */
 function parseAbout(value: string | null): ScopeIn | null {
   const folder = /^f(\d+)$/.exec(value ?? '')
@@ -134,6 +170,7 @@ export function buildWorkspaceUrl(url: Omit<WorkspaceUrl, 'canonical'>): string 
   let path = `/projects/${url.projectId}`
   if (url.library.folderId != null) params.set('folder', String(url.library.folderId))
   if (url.library.q) params.set('q', url.library.q)
+  if (url.library.search) writeSearch(params, url.library.search)
   if (url.library.trash) params.set('trash', '')
   if (url.library.templates) params.set('templates', '')
   if (url.library.facts) params.set('facts', url.library.facts)

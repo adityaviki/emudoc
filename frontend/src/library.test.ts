@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { Document, SmartFolder, Tag } from './api.ts'
+import { formatDate } from './format.ts'
 import {
   EMPTY_FILTER,
   NEW_RULE,
+  filterParts,
   filterWords,
   gridMove,
   hasThumbnail,
@@ -11,10 +13,15 @@ import {
   ruleInput,
   ruleProblem,
   ruleSentence,
+  narrows,
+  searchView,
   smartFolderProblem,
+  smartFolderWords,
   sortWords,
   tagsOf,
   tagsWords,
+  viewedSearch,
+  withoutPart,
 } from './library.ts'
 
 const tag = (id: number, name: string): Tag => ({ id, name, color: 'grey', document_count: 0 })
@@ -66,6 +73,61 @@ describe('a smart folder', () => {
     expect(smartFolderProblem('  ', EMPTY_FILTER)).toBe('Give the smart folder a name.')
     expect(smartFolderProblem('Q1', { ...EMPTY_FILTER, after: '2024-04-01', before: '2024-01-01' })).toMatch(/^Its earliest date is after/)
     expect(smartFolderProblem('Q1', { ...EMPTY_FILTER, after: '2024-01-01', before: '2024-03-31' })).toBeNull()
+  })
+
+  it('says what a saved search searches for, and lists by the words its documents mention', () => {
+    const mentioning = { ...EMPTY_FILTER, types: ['invoice'], mentions: ['late delivery', 'penalty'] }
+    expect(filterWords(mentioning, TAGS, null)).toBe('Documents of type invoice, mentioning “late delivery”, mentioning “penalty”')
+    expect(smartFolderWords(mentioning, ' how much ', TAGS, null)).toBe(
+      'Searches documents of type invoice, mentioning “late delivery”, mentioning “penalty” for “how much”',
+    )
+    expect(smartFolderWords(EMPTY_FILTER, 'penalty', TAGS, null)).toBe('Searches every document of the project for “penalty”')
+    expect(smartFolderWords(EMPTY_FILTER, '  ', TAGS, null)).toBe('Every document of the project')
+  })
+})
+
+describe('a search', () => {
+  const filter = {
+    ...EMPTY_FILTER,
+    tags: [1, 2],
+    every_tag: true,
+    after: '2024-01-01',
+    reviews: ['disputed' as const],
+    folder_id: 7,
+    mentions: ['late delivery', 'penalty'],
+  }
+
+  it('is narrowed by parts a member takes off one by one, each search it is within alone', () => {
+    expect(filterParts(filter, TAGS, 'Invoices').map(({ part, words }) => [part, words])).toEqual([
+      ['tags', 'tagged “Urgent” and “Paid”'],
+      ['dates', `dated ${formatDate('2024-01-01')} or later`],
+      ['reviews', 'disputed in review'],
+      ['folder', 'in Invoices'],
+      [0, 'mentioning “late delivery”'],
+      [1, 'mentioning “penalty”'],
+    ])
+    expect(withoutPart(filter, 'tags')).toMatchObject({ tags: [], every_tag: false, after: '2024-01-01' })
+    expect(withoutPart(filter, 'dates')).toMatchObject({ after: null, before: null })
+    expect(withoutPart(filter, 'folder').folder_id).toBeNull()
+    expect(withoutPart(filter, 0).mentions).toEqual(['penalty'])
+    expect(withoutPart(filter, 1).mentions).toEqual(['late delivery'])
+    expect(narrows(EMPTY_FILTER)).toBe(false)
+    expect(narrows({ ...EMPTY_FILTER, mentions: ['x'] })).toBe(true)
+  })
+
+  it('is the view of the library that runs it, its folder the view’s and the rest left out when it narrows nothing', () => {
+    expect(viewedSearch({ folderId: 7, q: '' })).toBeNull()
+    expect(viewedSearch({ folderId: 7, q: 'notice' })).toEqual({ q: 'notice', filter: { ...EMPTY_FILTER, folder_id: 7 } })
+    const view = searchView({ q: ' notice ', filter })
+    expect(view).toEqual({
+      folderId: 7,
+      q: 'notice',
+      search: { ...filter, folder_id: undefined },
+    })
+    expect(viewedSearch(view)).toEqual({ q: 'notice', filter })
+    expect(searchView({ q: 'notice', filter: { ...EMPTY_FILTER, folder_id: 3 } })).toEqual({ folderId: 3, q: 'notice' })
+    // Within what a search found, before the next words are typed.
+    expect(viewedSearch({ folderId: null, q: '', search: { ...EMPTY_FILTER, mentions: ['penalty'] } })?.filter.mentions).toEqual(['penalty'])
   })
 })
 

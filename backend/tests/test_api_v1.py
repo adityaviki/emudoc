@@ -351,6 +351,11 @@ def test_search_facts_and_the_passages_cited(api, services, sample_pdf):
     hit = found["data"][0]
     assert hit["document_id"] == document["id"] and "notice" in hit["snippet"].lower()
     assert api.get(f"/api/v1/projects/{project['id']}/search", params={"q": ""}).status_code == 422
+    # A folder in the trash is not found, where the page's search finds nothing in it.
+    folder = made(api, f"/api/v1/projects/{project['id']}/folders", {"name": "Old"})
+    assert api.delete(f"/api/v1/folders/{folder['id']}").status_code == 204
+    gone = {"q": "notice", "folder_id": folder["id"]}
+    assert api.get(f"/api/v1/projects/{project['id']}/search", params=gone).status_code == 404
     passage = got(api, f"/api/v1/passages/{hit['passage_id']}")
     assert passage["document_id"] == document["id"] and passage["text"]
 

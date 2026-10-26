@@ -546,11 +546,18 @@ puts them on its documents from a file's menu, "Tags…", a document holding its
 own row (`documents.tag_ids`) so that the page of its folder asked again shows them. Above the
 files, the place menu shows instead of the folders, across all of them, a tag's documents, a
 **smart folder**'s (`backend/app/smart_folders.py`: a project's saved filter by tags, any or every
-one, the documents' types, a span of the documents' own dates, review states and a folder with
-its subfolders, which everyone who reads the project sees; a tag or the folder it names gone, it
-lists nothing by that part rather than more), the member's own **favourites** (starred from a
-file's menu) and **recent** documents (the last 20 of the project they opened in the middle pane,
-`backend/app/recents.py`). Any place is listed by name, as added, by the documents' own dates (the
+one, the documents' types, a span of the documents' own dates, review states, a folder with
+its subfolders and words a passage of theirs holds, which everyone who reads the project sees; a
+tag or the folder it names gone, it lists nothing by that part rather than more; one that keeps a
+search's words is a **saved search**, which opens as that search within its documents), the
+member's own **favourites** (starred from a file's menu) and **recent** documents (the last 20 of
+the project they opened in the middle pane, `backend/app/recents.py`). The search box above them
+searches the folder shown, or a tag's or a smart folder's documents, narrowed by the same parts
+as a smart folder's filter (its "Filter" dialog, each part a chip that takes it off; the search
+route takes them as query parameters, `SearchIn`, and resolves the documents' ids before the
+ranking); "Search within these" makes the words searched one of those parts, so that the next
+words search only the documents with a passage holding every one of them, and "Save the search"
+keeps it all as a smart folder. Any place is listed by name, as added, by the documents' own dates (the
 undated after the dated) or by size, either way, each order a keyset of its own on the
 server, and shown as the tree or as a **grid** of tiles, each file's the thumbnail the server
 draws of a PDF's first page, a scan or an image, the browser remembering both choices. And a

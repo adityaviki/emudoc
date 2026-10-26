@@ -70,8 +70,10 @@ with the menu above the files, which reads "All files" at first:
   where you can make a new tag too, and change or delete the project's tags under "Tags…" in the
   menu above the files. Choose a tag there to list its documents.
 - **Smart folders** list the documents that match what you choose: tags (any of them, or every
-  one), types, a span of dates, review states and a folder. "New smart folder…" makes one;
-  everyone who reads the project sees it, and its documents arrive in it as they are read.
+  one), types, a span of dates, review states, a folder and words a passage of theirs holds.
+  "New smart folder…" makes one; everyone who reads the project sees it, and its documents
+  arrive in it as they are read. Give it words to search for and it is a saved search, which
+  searches its documents for them each time it is opened ([Searching](/help/asking)).
 - **Favourites** are the documents you starred with "Add to favourites" in their menu, and
   **Recent** the last $recent you opened in the project. Both are yours alone.
 

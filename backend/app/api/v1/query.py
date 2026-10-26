@@ -9,12 +9,14 @@ from sqlalchemy import or_, select
 
 from app.api import documents, query
 from app.api.deps import PassageDep, ProjectDep, ServicesDep, SessionDep, limited
+from app.api.folders import resolve_folder
 from app.api.v1.deps import PAGE, After, Limit, cursor, cursor_of, shown
 from app.api.v1.schemas import Fact, FactList, Passage, SearchHit, SearchResults
 from app.fact_checks import fact_out
 from app.models import Document
 from app.models import Fact as FactRow
 from app.ratelimit import SEARCHES
+from app.schemas import DocumentFilter
 
 router = APIRouter()
 SEARCHED = [Depends(limited(SEARCHES))]
@@ -42,7 +44,11 @@ def search(
 ):
     """The project's passages that match best, by keywords and by meaning together, the best
     first; by keywords alone while the embeddings are out (`semantic` false)."""
-    found = query.search(project, session, services, q, limit, document_id, folder_id)
+    # A folder in the trash is 404 here, as it always was, where the page's search finds nothing.
+    resolve_folder(session, project, folder_id)
+    found = query.searched(
+        project, session, services, q, limit, document_id, DocumentFilter(folder_id=folder_id)
+    )
     return SearchResults(
         data=[
             SearchHit(

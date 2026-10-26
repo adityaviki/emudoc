@@ -5,7 +5,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api.ts'
-import type { Document, DocumentFilter, FilingRuleInput, SmartFolder, TagColor } from '../api.ts'
+import type { Document, FilingRuleInput, SmartFolder, SmartFolderInput, TagColor } from '../api.ts'
 import { retagged } from '../selection.ts'
 import type { TagsChange } from '../selection.ts'
 import { documentKey, editListings, listingsKey, placeListingsKey, restore, snapshotListings } from './listing.ts'
@@ -117,7 +117,7 @@ export function useOrganizing(projectId: number) {
 
   const smartTouched = () => invalidate([...smartFoldersKey(projectId)], [...listingsKey(projectId)])
   const saveSmartFolder = useMutation({
-    mutationFn: ({ id, ...body }: { id: number | null; name: string; filter: DocumentFilter }) =>
+    mutationFn: ({ id, ...body }: SmartFolderInput & { id: number | null }) =>
       id == null ? api.createSmartFolder(projectId, body) : api.updateSmartFolder(id, body),
     // Held at once, so that the library opening it finds it, rather than take it for one gone, before the list comes.
     onSuccess: (saved) =>
