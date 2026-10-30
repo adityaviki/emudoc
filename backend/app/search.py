@@ -1,6 +1,9 @@
 """Hybrid search: keyword and vector rankings over passages, merged by reciprocal rank. The
-passages of the documents in the project's trash (app/trash.py) are left out inside each
-ranking, before it takes its candidates, so that they never crowd out the live ones.
+keyword ranking puts the passages that hold every word of the query first, then those that hold
+all but one, then those that hold any, and ranks a tier only while those before it are too few,
+so that its cost is the passages that hold the words rather than any of them. The passages of
+the documents in the project's trash (app/trash.py) are left out inside each ranking, before it
+takes its candidates, so that they never crowd out the live ones.
 
 A search is one project's (the library's, the agent's, the versioned API's), or several
 projects' at once (the search of every project a member sees, app/api/search.py): then each
@@ -46,23 +49,85 @@ _QUERY = """
 WITH langs AS (
     -- Each passage was indexed with a text search configuration; the query is parsed once per
     -- configuration in use and matched against the passages indexed with it. A project holds
-    -- one or two, and the text index is probed once for each.
-    SELECT DISTINCT p.language
-    FROM passages p
-    WHERE p.project_id {scope} {doc_filter}
+    -- one or two: each configuration the database has is looked up in the index of the
+    -- projects' languages, a few probes however many passages they hold, where reading every
+    -- passage's took 15 ms in a project of 93,000. A configuration only the documents left out
+    -- by the filter hold costs one more probe of the text index, which finds nothing.
+    SELECT c.oid::regconfig AS language
+    FROM pg_ts_config c
+    WHERE EXISTS (
+        SELECT 1 FROM passages p WHERE p.project_id {scope} AND p.language = c.oid::regconfig
+    )
 ),
 q AS (
-    -- Any query word may match; ranking then favours passages that match more of them.
-    SELECT l.language, to_tsquery(l.language,
-        NULLIF(replace(plainto_tsquery(l.language, :query)::text, ' & ', ' | '), '')) AS tsq
+    -- The query's words as each configuration parses them: every one, every one but one (in
+    -- any of the ways to leave one out) and any one; none when they are all stop words. They
+    -- are cast from the parsed query's text, never parsed again, which would split a compound
+    -- such as 'zinc-plat' anew into a phrase no passage holds.
+    SELECT l.language,
+        CASE WHEN numnode(words.every_word) > 0 THEN words.every_word END AS every_word,
+        (
+            SELECT string_agg('(' || rest || ')', ' | ')
+            FROM (
+                SELECT (
+                    SELECT string_agg(kept, ' & ' ORDER BY k)
+                    FROM unnest(words.lexemes) WITH ORDINALITY AS others(kept, k)
+                    WHERE k <> d
+                ) AS rest
+                FROM unnest(words.lexemes) WITH ORDINALITY AS dropped(lexeme, d)
+            ) parts
+            WHERE rest IS NOT NULL
+        )::tsquery AS most_words,
+        NULLIF(replace(words.every_word::text, ' & ', ' | '), '')::tsquery AS any_word
     FROM langs l
+    CROSS JOIN LATERAL (
+        SELECT parsed AS every_word, string_to_array(NULLIF(parsed::text, ''), ' & ') AS lexemes
+        FROM plainto_tsquery(l.language, :query) parsed
+    ) words
 ),
-kw AS (
-    SELECT p.id, row_number() OVER (ORDER BY ts_rank_cd(p.tsv, q.tsq) DESC, p.id) AS rank
+-- The passages that hold every word come first, then those that hold all but one, then those
+-- that hold any, each tier by how densely they hold the words. A tier is ranked only when those
+-- before it found fewer than the candidates, so that a large project ranks the passages that
+-- hold every word rather than every passage that holds one: in one of 93,000 passages, "penalty
+-- late deliveries" ranked 11,599 rather than 52,293 (deploying.md, "Load").
+kw_every AS (
+    SELECT p.id, ts_rank_cd(p.tsv, q.any_word) AS score
     FROM passages p
     JOIN q ON q.language = p.language
-    WHERE p.project_id {scope} AND p.tsv @@ q.tsq {doc_filter}
-    ORDER BY ts_rank_cd(p.tsv, q.tsq) DESC, p.id
+    WHERE p.project_id {scope} AND p.tsv @@ q.every_word {doc_filter}
+    ORDER BY score DESC, p.id
+    LIMIT :candidates
+),
+kw_most AS (
+    SELECT p.id, ts_rank_cd(p.tsv, q.any_word) AS score
+    FROM passages p
+    JOIN q ON q.language = p.language
+    WHERE p.project_id {scope} AND p.tsv @@ q.most_words AND NOT p.tsv @@ q.every_word
+      {doc_filter}
+      AND (SELECT count(*) FROM kw_every) < :candidates
+    ORDER BY score DESC, p.id
+    LIMIT :candidates
+),
+kw_any AS (
+    -- Of a single word, every passage that holds it is in the first tier, and `most_words` is
+    -- none, so that this tier finds nothing.
+    SELECT p.id, ts_rank_cd(p.tsv, q.any_word) AS score
+    FROM passages p
+    JOIN q ON q.language = p.language
+    WHERE p.project_id {scope} AND p.tsv @@ q.any_word AND NOT p.tsv @@ q.most_words
+      {doc_filter}
+      AND (SELECT count(*) FROM kw_every) + (SELECT count(*) FROM kw_most) < :candidates
+    ORDER BY score DESC, p.id
+    LIMIT :candidates
+),
+kw AS (
+    SELECT id, row_number() OVER (ORDER BY tier, score DESC, id) AS rank
+    FROM (
+        SELECT id, 0 AS tier, score FROM kw_every
+        UNION ALL SELECT id, 1, score FROM kw_most
+        UNION ALL SELECT id, 2, score FROM kw_any
+    ) tiers
+    ORDER BY rank
     LIMIT :candidates
 ),
 vec AS ({vector_cte})
@@ -71,7 +136,7 @@ SELECT p.id, p.project_id, p.document_id, p.section_id, p.context, p.text, p.pag
        d.title, d.filename, d.doc_type,
        kw.rank AS keyword_rank, vec.rank AS vector_rank,
        COALESCE(1.0 / (:k + kw.rank), 0) + COALESCE(1.0 / (:k + vec.rank), 0) AS score,
-       ts_headline(p.language, p.text, q.tsq,
+       ts_headline(p.language, p.text, q.any_word,
            'MaxFragments=2, MaxWords=32, MinWords=12, StartSel={start}, StopSel={stop}') AS headline
 FROM (SELECT id FROM kw UNION SELECT id FROM vec) hits
 JOIN passages p ON p.id = hits.id

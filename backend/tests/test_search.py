@@ -5,7 +5,7 @@ from sqlalchemy import select, text
 from app.config import get_settings
 from app.indexing.pipeline import process_document
 from app.main import create_app
-from app.models import Passage, Project
+from app.models import Document, Passage, Project
 from app.search import _segments, check_fts_language, hybrid_search
 from tests.conftest import FakeEmbedder
 
@@ -37,6 +37,58 @@ def test_any_query_word_may_match(session, services, indexed):
     # "zebra" appears nowhere; the passage still ranks on the word that does.
     result = search(session, services, indexed, "zebra consulting")
     assert any("consulting" in hit.text.lower() for hit in result.hits)
+
+
+@pytest.fixture
+def notes(session, services, account, make_document, tmp_path):
+    """Text files written into a project of their own and indexed, a passage each, then searched
+    by their words alone: the names of the files whose passages the keyword ranking found, in
+    its order."""
+    project = Project(org_id=account.organization.id, name="Notes")
+    session.add(project)
+    session.flush()
+
+    def write(**files: str) -> None:
+        for name, words in files.items():
+            path = tmp_path / f"{name}.txt"
+            path.write_text(words)
+            process_document(make_document(path, project=project).id, services)
+
+    def ranked(query: str) -> list[str]:
+        services.embedder.fail = True
+        hits = hybrid_search(session, services.embedder, project.id, query).hits
+        services.embedder.fail = False
+        return [
+            session.get(Document, hit.document_id).filename.removesuffix(".txt")
+            for hit in sorted(hits, key=lambda hit: hit.keyword_rank)
+        ]
+
+    write.ranked = ranked
+    return write
+
+
+def test_a_passage_that_holds_every_word_ranks_before_one_that_holds_fewer(notes):
+    notes(
+        # One of the words over and over, which the ranking alone would put first.
+        alpha="Late, late, late, so late: late again, and late once more.",
+        beta="A penalty is due for late deliveries.",
+        gamma="The penalty for a late payment is interest.",
+    )
+    # Every word, then all but one, then any.
+    assert notes.ranked("penalty late deliveries") == ["beta", "gamma", "alpha"]
+    # No passage holds every word of these, so the one that holds all but one comes first, then
+    # the others by how densely they hold the one word.
+    assert notes.ranked("payment late zebra") == ["gamma", "alpha", "beta"]
+    assert notes.ranked("late") == ["alpha", "beta", "gamma"]
+
+
+def test_a_compound_word_is_held_as_it_was_typed(notes):
+    notes(
+        # Each part of the compound, and the other word, but not the compound itself.
+        alpha="Zinc, zinc and more zinc; a plate, a plate; a screw and a screw.",
+        beta="One box of zinc-plated wood screws.",
+    )
+    assert notes.ranked("zinc-plated screws") == ["beta", "alpha"]
 
 
 def test_section_titles_are_searchable_through_the_path(session, services, indexed):

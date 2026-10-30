@@ -3061,7 +3061,8 @@ plan and with the rates a minute lifted (one member asks for what twenty would):
    ranking does, at `hnsw.ef_search` 40 (pgvector's default), 100, 200 and 400 and once through
    the vector index whatever the planner would choose, against the nearest by exact
    distance; then uploads a project of 30 other documents beside the library
-   (`--small-documents`), searches it 100 times, and ranks its passages likewise;
+   (`--small-documents`), searches it 100 times, searches it and the library together 100
+   times as the search of every project (`GET /api/search`), and ranks its passages likewise;
 3. **chats**: asks 20 questions at once in 20 chats, five times, following each answer as the
    page does, first with the stand-in answering at once, then at a hosted model's pace
    (`--first-token`, 1 s before each turn, and `--words-per-second`, 40);
@@ -3196,9 +3197,31 @@ no model's do, and made the vector index look worse than it is.
 | A search in a project of 30 documents (99 passages) beside them | 100 | 19 ms | 21 ms |
 
 The searches ran at `hnsw.ef_search` 100; 200, the setting since, adds 2 to 4 ms. Most of a
-search's time is its keyword ranking, which fetches and ranks every passage that holds any
-word of the question: "penalty late deliveries" matched 42,279, which took 236 of the
+search's time was then its keyword ranking, which fetched and ranked every passage that held
+any word of the question: "penalty late deliveries" matched 42,279, which took 236 of the
 search's 241 ms, and the vector ranking 2.
+
+On 2026-10-30 the same run was made twice: with the keyword ranking as it was, then with the
+passages that hold every word of the question ranked first, then those that hold all but one,
+and those that hold any only while the others are fewer than the 40 candidates ("Search"
+below). The machine was busy with other work through both:
+
+| What the member waited | n | p50 | p95 | Before, p50 | p95 |
+| --- | --- | --- | --- | --- | --- |
+| A search in the 30,000 documents, one at a time | 300 | 43 ms | 111 ms | 222 ms | 304 ms |
+| The same, eight at a time | 300 | 89 ms | 181 ms | 291 ms | 433 ms |
+| The same, while the 30,000 were indexed | 2,269 | 70 ms | 163 ms | 262 ms | 419 ms |
+| The search of every project, the library and the 30 documents | 100 | 42 ms | 109 ms | – | – |
+| A search in the project of 30 documents | 100 | 23 ms | 26 ms | 25 ms | 28 ms |
+| Facts by a word, or by a piece of one | 100 each | 103 ms | 140–144 ms | 108–109 ms | 148–150 ms |
+| The agent's `list_documents` by a word, or by a piece of one | 100 each | 100 ms | 105–106 ms | 102–104 ms | 111–113 ms |
+
+The statement alone, over 100 of the load test's questions, ranked in 20 ms at the median and
+68 at p95, where it had taken 183 and 266: "penalty late deliveries" now ranks the 11,599
+passages that hold its words, or all but one, of the 52,293 that hold any. What a search
+finds changed with it: three in four of its first ten hits were the same, and its first hit
+for 65 of the 100. A question of one word most passages hold still ranks them all:
+"invoice", in 43,645, about 130 ms.
 
 The vector ranking's 40 candidates for 100 of the searches, against the 40 nearest passages
 by exact distance:
@@ -3283,12 +3306,19 @@ each for its project, as every search is now ("The database"), they stayed at 10
   the storage in 25 ms, from the bucket in about 50 (the redirect and the bucket's answer).
 - **Search** is quick at 3,000 documents: the full-text and vector search under 100 ms eight at
   a time, and `ilike` over their titles, file names and summaries and 15,210 facts under
-  50 ms. At 30,000 in one project a search took 199 ms (267 ms at p95), most of it the keyword
-  ranking, which grows with the passages that hold any word of the question; the vector
-  ranking took a few milliseconds. `ilike` grew to about 95 ms (140 ms at p95) over 151,193
-  facts and the documents' names and summaries: a trigram index would take it to a few
-  milliseconds, and every fact written would pay for it, so there is none yet. Look again when
-  a project nears 100,000 documents or the facts route's p95 passes 300 ms. At pgvector's
+  50 ms. At 30,000 in one project a search takes 43 ms (111 ms at p95), where it took 222
+  (304) while the keyword ranking ranked every passage that held any word of the question: it
+  ranks those that hold every word first, then all but one, and the rest only while those are
+  too few, so its cost is the passages that hold the question's words and grows with them. A
+  question of one word that most passages hold is the slow case (about 130 ms for the ranking
+  at 30,000). The search of every project ranks its projects' passages together, 42 ms here for
+  the library and a small project. The vector ranking takes a few milliseconds. `ilike` grew to
+  about 100 ms (145 ms at p95) over 151,193 facts and the documents' names and summaries.
+  Trigram indexes (`pg_trgm`, GIN) took the facts route to 55 ms at p95 and `list_documents`
+  to 40, not a few milliseconds, since a supplier's name matches thousands of facts, and cost
+  33 MB and an insert of the 151,193 facts in 1.4 to 16 s rather than 0.14 (GIN's pending
+  list), so there are none yet. Look again when a project nears 100,000 documents or the facts
+  route's p95 passes 300 ms. At pgvector's
   default the vector index left out one in six of the 10 nearest passages; `hnsw.ef_search`
   200 leaves out one in fourteen for about 5 ms more. A small project is sorted by exact
   distance and loses nothing, and each search is planned for its project, without which a
