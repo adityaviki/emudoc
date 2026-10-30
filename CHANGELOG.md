@@ -17,6 +17,8 @@ newest entry first.
 
 Members:
 
+- A large upload is indexed as quickly at its end as at its start: in a project of thousands of
+  documents, each one indexed had taken longer than the one before.
 - Search puts first the passages that hold every word you typed, then those that hold all but
   one of them, then the rest, and answers sooner in a large project.
 - Search every project: the box on the projects page searches all the projects you see at once,
@@ -26,6 +28,12 @@ Members:
 
 Operators:
 
+- The check after each document indexed of whether its project has settled, to write its
+  suggested questions (`_SETTLED` in `app/suggestions.py`), looks the queued index jobs up once
+  rather than once for each of the project's documents: since 2026-10-25 it took 22 s a document
+  at 22,000, run by every indexer at once, and the load test indexed 30,000 documents 207 a
+  minute, one run slowing to 16 a minute at 22,000. It takes about 25 ms, and the 30,000 were
+  indexed 601 a minute (deploying.md, "Load").
 - A search's keyword ranking ranks the passages that hold every word of the query, then all but
   one, and those that hold any only while the others are too few, so that its cost is the
   passages that hold the words: in a project of 30,000 documents a search took 43 ms at the
