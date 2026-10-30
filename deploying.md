@@ -4272,10 +4272,11 @@ repository has on a paid plan (Team or Enterprise; the organisation is on Enterp
   goes past it, the organisation's owners included. A pull request needs no approval (its
   author may not approve it, and the organisation has one member) but every check CI runs on
   a pull request, each reported by GitHub Actions, on the branch brought up to date with
-  `main`: the backend's suite in three parts against Postgres and three through pgbouncer
-  ("Backend (postgres, 1 of 3)" and so on), Frontend, End to end, Load test, Image,
+  `main`: the backend's suite in three parts against Postgres ("Backend (postgres, 1 of 3)"
+  and so on), Frontend, End to end, Load test, Image,
   Embeddings, OpenTofu, Scripts and configuration, and Secrets. Not Staging, which runs after
-  the merge, nor Audit's jobs or Models', which fail on news rather than on the change.
+  the merge, nor Audit's jobs or Models', which fail on news rather than on the change, nor Pooler's, the
+  suite through pgbouncer, which runs every night and on a change to what a pooler sees.
   `tests/test_repository.py` holds the file to CI's jobs, so a job renamed or added changes the
   file in the same pull request; GitHub waits for the checks the applied ruleset names, so
   that pull request is mergeable once its checks passed and its file was applied (the second

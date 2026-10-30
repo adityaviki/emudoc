@@ -1,0 +1,78 @@
+# The backend's suite through pgbouncer in transaction mode, as a deployment behind such a pooler
+# runs, with the worker's listener on Postgres itself (deploying.md, "A pooler"). It
+# was CI's on every pull request until 2026-10-31, doubling the suite's minutes for a check that
+# only a change to how the app talks to the database can fail; now it runs every night, on a
+# pull request or push that changes such a file, and by hand. It is not one of main's required
+# checks (.github/rulesets/main.json): a red run is read and fixed like Audit's.
+name: Pooler
+
+on:
+  schedule:
+    - cron: "37 4 * * *"
+  push:
+    branches: [main]
+    paths: &pooled
+      # What sets a session's state, prepares statements, listens or takes advisory locks, and
+      # what the suite's database and dependencies come from.
+      - backend/app/config.py
+      - backend/app/db.py
+      - backend/app/postgres.py
+      - backend/app/jobs.py
+      - backend/app/worker.py
+      - backend/app/search.py
+      - backend/app/spending.py
+      - backend/app/startup.py
+      - backend/app/watch.py
+      - backend/app/languages.py
+      - backend/app/maintenance.py
+      - backend/migrations/**
+      - backend/tests/conftest.py
+      - backend/pyproject.toml
+      - backend/uv.lock
+      - docker-compose.yml
+      - .github/workflows/pooler.yml
+  pull_request:
+    paths: *pooled
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pooler-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  pooler:
+    name: Backend through pgbouncer (${{ matrix.shard }} of 3)
+    # Where CI's jobs run (ci.yml).
+    runs-on: ${{ github.actor != 'dependabot[bot]' && vars.RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      TEST_DATABASE_SERVER: emudoc:emudoc@127.0.0.1:6438
+      DATABASE_POOLER: transaction
+      DATABASE_LISTEN_URL: postgresql+psycopg://emudoc:emudoc@127.0.0.1:5437/emudoc_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: 0.11.15
+          cache-dependency-glob: backend/uv.lock
+          save-cache: false
+      - name: Database
+        run: docker compose up -d --wait db pgbouncer
+      - name: Dependencies
+        run: uv --directory backend sync --locked
+      - name: Python for the upload client
+        run: |
+          uv python install 3.9
+          echo "UPLOAD_CLIENT_PYTHON=$(uv python find --no-project 3.9)" >> "$GITHUB_ENV"
+      # One process a part, not `-n`: DATABASE_LISTEN_URL names the one test database.
+      - name: Tests
+        run: uv --directory backend run pytest -q --shard ${{ matrix.shard }}/3

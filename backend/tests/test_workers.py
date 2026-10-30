@@ -187,7 +187,9 @@ def test_the_jobs_command_and_the_operator_read_the_workers(client, session, cap
     beat("host:1", SHA, STARTED)
     beat("host:2", "development", STARTED)
     beat("host:3", SHA, STARTED)
-    backdate(session, "host:1", minutes=1.5)
+    # Two and a half minutes reads "2 min" however long the command takes to start on a busy
+    # machine, where 90 s could read 91.
+    backdate(session, "host:1", minutes=2.5)
     backdate(session, "host:2", minutes=10, stopped=True)
     backdate(session, "host:3", minutes=20)
     main(["jobs"])
@@ -195,7 +197,7 @@ def test_the_jobs_command_and_the_operator_read_the_workers(client, session, cap
     assert out[1:] == [
         "The workers seen in the last 24 h:",
         "  worker  release      started               stands",
-        "  host:1  3f2c1ab      2026-10-23 09:00 UTC  running, seen 90 s ago",
+        "  host:1  3f2c1ab      2026-10-23 09:00 UTC  running, seen 2 min ago",
         "  host:2  development  2026-10-23 09:00 UTC  stopped 10 min ago",
         "  host:3  3f2c1ab      2026-10-23 09:00 UTC  not seen for 20 min",
     ]

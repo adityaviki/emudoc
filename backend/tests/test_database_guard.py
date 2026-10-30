@@ -32,7 +32,7 @@ def test_the_running_suite_is_on_the_test_database():
 def test_another_database_on_this_machine_is_refused(url):
     # Only the app's settings being read before conftest.py set the environment gets here, so
     # the message says what to do about that.
-    with pytest.raises(pytest.UsageError, match="is not the emudoc_test database") as error:
+    with pytest.raises(pytest.UsageError, match=f"is not the {TEST_DATABASE} database") as error:
         refuse_unless_test_database(url)
     assert "tests/conftest.py" in str(error.value)
 
@@ -64,7 +64,7 @@ def test_a_server_elsewhere_needs_the_opt_in(host, monkeypatch):
     monkeypatch.setenv(ALLOW_REMOTE, "1")
     refuse_unless_test_database(url)
     # The opt-in covers the server, never the database.
-    with pytest.raises(pytest.UsageError, match="is not the emudoc_test database"):
+    with pytest.raises(pytest.UsageError, match=f"is not the {TEST_DATABASE} database"):
         refuse_unless_test_database(f"{ELSEWHERE}/emudoc")
 
 
@@ -83,7 +83,7 @@ def test_the_run_stops_before_connecting_to_a_server_elsewhere():
         timeout=120,
     )
     assert run.returncode == pytest.ExitCode.USAGE_ERROR
-    assert "db.internal:5432/emudoc_test, a server that is not on this machine" in run.stderr
+    assert f"db.internal:5432/{TEST_DATABASE}, a server that is not on this machine" in run.stderr
     assert ALLOW_REMOTE in run.stderr
     assert "secret" not in run.stdout + run.stderr
     assert "test_database_guard.py" not in run.stdout

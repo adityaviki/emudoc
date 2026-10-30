@@ -1432,8 +1432,9 @@ configuration against a mocked provider; the backend suite checks that what it w
 production asks for.
 
 CI (`.github/workflows/ci.yml`, GitHub Actions) runs all of it on every push to `main` and
-every pull request: the backend's lint, format and suite, once against Postgres and once
-through pgbouncer in transaction mode, each in three jobs of a third of the tests; the frontend's lint, unit tests and build; the browser
+every pull request: the backend's lint, format and suite against Postgres, in three jobs of a
+third of the tests (the Pooler workflow runs the suite through pgbouncer in transaction mode every
+night and on a change to how the app talks to the database); the frontend's lint, unit tests and build; the browser
 test, and the load test at a size that takes a minute; the image, built and then
 started by `.github/scripts/check-image.sh` (the migrations, the API and a worker, read-only,
 against the development database); the deployment's embeddings server, started from the
