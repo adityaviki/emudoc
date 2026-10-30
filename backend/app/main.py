@@ -47,6 +47,7 @@ from app.api import (
     projects,
     query,
     reviews,
+    search,
     share_links,
     smart_folders,
     support,
@@ -551,6 +552,8 @@ def create_app(
         *KEYED,
         connectors.router,
         favorites.router,
+        # The search of every project a member sees, which the page alone asks.
+        search.router,
         share_links.router,
         # A share link's visitor has no account: the link and its view's cookie are checked
         # instead (app/share_links.py).

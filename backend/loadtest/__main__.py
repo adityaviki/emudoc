@@ -241,7 +241,7 @@ class Run:
         from app.embeddings import Embedder
         from app.search import _VECTOR_CTE
 
-        statement = _VECTOR_CTE.format(doc_filter="")
+        statement = _VECTOR_CTE.format(scope="= :project_id", doc_filter="")
         # An expression the project's btree cannot serve, so the vector index is the only way.
         indexed = statement.replace("p.project_id = :project_id", "p.project_id + 0 = :project_id")
         assert indexed != statement, "the vector ranking no longer filters by project as it did"

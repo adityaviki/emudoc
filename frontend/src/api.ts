@@ -965,6 +965,36 @@ export function searchParams(query: string, filter: DocumentFilter, limit = 20):
   return params
 }
 
+/** A passage the search of every project the member sees found (SearchAllHitOut), with the project it is in by its name now. */
+export interface SearchAllHit extends SearchHit {
+  project_id: number
+  project_name: string
+}
+
+export interface SearchAllResult {
+  hits: SearchAllHit[]
+  semantic: boolean
+}
+
+/** What narrows the search of every project the member sees (SearchAllIn): some of them, the documents' types, a span of their dates; a part left empty takes everything. */
+export interface SearchAllFilter {
+  projects: number[]
+  types: string[]
+  /** As `YYYY-MM-DD`; either leaves out the undated. */
+  after: string | null
+  before: string | null
+}
+
+/** The search of every project as its route asks it: each part of the filter given, a list's each value once. */
+export function searchAllParams(query: string, filter: SearchAllFilter, limit = 20): URLSearchParams {
+  const params = new URLSearchParams({ q: query, limit: String(limit) })
+  for (const id of filter.projects) params.append('projects', String(id))
+  for (const type of filter.types) params.append('types', type)
+  if (filter.after) params.set('after', filter.after)
+  if (filter.before) params.set('before', filter.before)
+  return params
+}
+
 /**
  * Whether the models and the embeddings endpoint can be used. The names are the operator's,
  * given in development only; `error` is a sentence for whoever reads the status, what to
@@ -2699,6 +2729,10 @@ export const api = {
 
   search: (projectId: number, query: string, filter: DocumentFilter) =>
     request<SearchResult>(`/projects/${projectId}/search?${searchParams(query, filter)}`),
+  /** The search of every project the member sees, one ranking over them all. */
+  searchAll: (query: string, filter: SearchAllFilter) => request<SearchAllResult>(`/search?${searchAllParams(query, filter)}`),
+  /** The types of the documents of every project the member sees, the most common first. */
+  allDocumentTypes: () => request<DocumentType[]>('/document-types'),
   facts: (projectId: number, filters: { name?: string; q?: string }) => {
     const params = new URLSearchParams({ limit: '500' })
     if (filters.name) params.set('name', filters.name)

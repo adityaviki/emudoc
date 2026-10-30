@@ -1,6 +1,11 @@
 """Hybrid search: keyword and vector rankings over passages, merged by reciprocal rank. The
 passages of the documents in the project's trash (app/trash.py) are left out inside each
-ranking, before it takes its candidates, so that they never crowd out the live ones."""
+ranking, before it takes its candidates, so that they never crowd out the live ones.
+
+A search is one project's (the library's, the agent's, the versioned API's), or several
+projects' at once (the search of every project a member sees, app/api/search.py): then each
+ranking runs once over all their passages and the two are fused once, so that a passage ranks by
+how well it matches wherever it is, rather than each project's best few side by side."""
 
 import logging
 import re
@@ -27,15 +32,13 @@ EF_SEARCH = 200
 HIT_START, HIT_STOP = "", ""
 
 _NO_VECTOR_CTE = "SELECT NULL::bigint AS id, NULL::bigint AS rank WHERE false"
-# The documents of the project in the trash, from their partial index: few, and passed to each
+# The documents of the projects in the trash, from their partial index: few, and passed to each
 # ranking as a list, so that its filter needs no join.
-_TRASHED = text(
-    "SELECT id FROM documents WHERE project_id = :project_id AND deleted_at IS NOT NULL"
-)
+_TRASHED = "SELECT id FROM documents WHERE project_id {scope} AND deleted_at IS NOT NULL"
 _VECTOR_CTE = """
     SELECT p.id, row_number() OVER (ORDER BY p.embedding <=> CAST(:qvec AS vector)) AS rank
     FROM passages p
-    WHERE p.project_id = :project_id AND p.embedding IS NOT NULL {doc_filter}
+    WHERE p.project_id {scope} AND p.embedding IS NOT NULL {doc_filter}
     ORDER BY p.embedding <=> CAST(:qvec AS vector)
     LIMIT :candidates
 """
@@ -46,7 +49,7 @@ WITH langs AS (
     -- one or two, and the text index is probed once for each.
     SELECT DISTINCT p.language
     FROM passages p
-    WHERE p.project_id = :project_id {doc_filter}
+    WHERE p.project_id {scope} {doc_filter}
 ),
 q AS (
     -- Any query word may match; ranking then favours passages that match more of them.
@@ -58,12 +61,13 @@ kw AS (
     SELECT p.id, row_number() OVER (ORDER BY ts_rank_cd(p.tsv, q.tsq) DESC, p.id) AS rank
     FROM passages p
     JOIN q ON q.language = p.language
-    WHERE p.project_id = :project_id AND p.tsv @@ q.tsq {doc_filter}
+    WHERE p.project_id {scope} AND p.tsv @@ q.tsq {doc_filter}
     ORDER BY ts_rank_cd(p.tsv, q.tsq) DESC, p.id
     LIMIT :candidates
 ),
 vec AS ({vector_cte})
-SELECT p.id, p.document_id, p.section_id, p.context, p.text, p.page_start, p.page_end,
+SELECT p.id, p.project_id, p.document_id, p.section_id, p.context, p.text, p.page_start,
+       p.page_end,
        d.title, d.filename, d.doc_type,
        kw.rank AS keyword_rank, vec.rank AS vector_rank,
        COALESCE(1.0 / (:k + kw.rank), 0) + COALESCE(1.0 / (:k + vec.rank), 0) AS score,
@@ -83,6 +87,7 @@ LIMIT :limit
 @dataclass
 class SearchHit:
     passage_id: int
+    project_id: int
     document_id: int
     document_title: str
     doc_type: str | None
@@ -113,19 +118,38 @@ def hybrid_search(
     limit: int = 10,
     document_ids: list[int] | None = None,
 ) -> SearchResult:
+    """The search of one project, within the documents given if any."""
+    return search_projects(session, embedder, [project_id], query, limit, document_ids)
+
+
+def search_projects(
+    session: Session,
+    embedder: Embedder,
+    project_ids: list[int],
+    query: str,
+    limit: int = 10,
+    document_ids: list[int] | None = None,
+) -> SearchResult:
+    """The search of the projects given, one ranking over all of them, within the documents
+    given if any."""
     query = query.strip()
-    if not query:
+    if not query or not project_ids:
         return SearchResult([], semantic=True)
+    # One project's search keeps the plain comparison every plan of it was measured with.
+    one = len(project_ids) == 1
+    scope = "= :project_id" if one else "= ANY(:project_ids)"
+    where = f"project {project_ids[0]}" if one else f"{len(project_ids)} projects"
 
     try:
         vector = embedder.embed_query(query)
     except EmbeddingError as error:
         # The members see it on the status line and the agent in its tool's result; this line
         # is the operator's, since search goes on working, only worse.
-        log.warning("A search in project %s matched keywords only: %s", project_id, error)
+        log.warning("A search in %s matched keywords only: %s", where, error)
         vector = None
 
-    trashed = session.scalars(_TRASHED, {"project_id": project_id}).all()
+    scoped = {"project_id": project_ids[0], "project_ids": project_ids}
+    trashed = session.scalars(text(_TRASHED.format(scope=scope)), scoped).all()
     doc_filter = " ".join(
         [
             "AND p.document_id = ANY(:document_ids)" if document_ids else "",
@@ -133,13 +157,16 @@ def hybrid_search(
         ]
     )
     sql = _QUERY.format(
+        scope=scope,
         doc_filter=doc_filter,
-        vector_cte=_VECTOR_CTE.format(doc_filter=doc_filter) if vector else _NO_VECTOR_CTE,
+        vector_cte=(
+            _VECTOR_CTE.format(scope=scope, doc_filter=doc_filter) if vector else _NO_VECTOR_CTE
+        ),
         start=HIT_START,
         stop=HIT_STOP,
     )
     params = {
-        "project_id": project_id,
+        **scoped,
         "query": query,
         "limit": limit,
         "candidates": max(limit * 4, 40),
@@ -147,7 +174,7 @@ def hybrid_search(
         "document_ids": document_ids or [],
         "trashed": list(trashed),
     }
-    # Plan every search for its own project. psycopg prepares a statement it has run five times
+    # Plan every search for its own projects. psycopg prepares a statement it has run five times
     # on a connection, and Postgres may then keep one plan for every project, made for a
     # project of the average size: in a table of many projects, that is a sort of the whole
     # project by distance, which made a search of a 75,000-passage project three times slower
@@ -169,6 +196,7 @@ def hybrid_search(
     hits = [
         SearchHit(
             passage_id=row["id"],
+            project_id=row["project_id"],
             document_id=row["document_id"],
             document_title=row["title"] or row["filename"],
             doc_type=row["doc_type"],

@@ -18,6 +18,12 @@ shows them. Words are matched in the language your organisation chose on its pag
   project ([Tags, smart folders and favourites](/help/documents)), which runs the search again
   each time it is opened from the menu above the files.
 
+To search every project you see at once, type in the box above the projects on the projects
+page. Its page lists the best passages first wherever they are, each with its project's name;
+click one to open its document at that passage. **Filter** there narrows the search to some of
+the projects, to documents of some types or to those dated within a span. A private project is
+searched only by those who see it: its chosen members, and the organisation's owners and admins.
+
 ## Asking
 
 The chat beside the library answers questions about the project's documents. Emudoc's assistant

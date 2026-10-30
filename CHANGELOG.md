@@ -13,6 +13,21 @@ to: `## YYYY-MM-DD` a day (or `## YYYY-MM-DD to YYYY-MM-DD`), the newest first, 
 and `Operators:`, each a list of `- ` entries whose lines go on indented by two spaces, a day's
 newest entry first.
 
+## 2026-10-30
+
+Members:
+
+- Search every project: the box on the projects page searches all the projects you see at once,
+  the best passages first wherever they are, each with its project's name, and opens the document
+  at the passage. "Filter" there narrows the search to some of the projects, to documents of some
+  types or to those dated within a span. A private project is searched only by those who see it.
+
+Operators:
+
+- `GET /api/search` searches every project a member sees in one ranking, and `GET
+  /api/document-types` lists the types of their documents; both count against `RATE_SEARCHES`
+  with the project's search and facts.
+
 ## 2026-10-26
 
 Members:

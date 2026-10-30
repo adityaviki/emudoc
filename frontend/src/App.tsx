@@ -38,6 +38,7 @@ import { OrganizationSwitcher } from './organization/OrganizationSwitcher.tsx'
 import { UsagePage } from './organization/UsagePage.tsx'
 import { DuplicatesPage } from './pages/DuplicatesPage.tsx'
 import { ProjectsPage } from './pages/ProjectsPage.tsx'
+import { SearchPage } from './pages/SearchPage.tsx'
 import { LegalPage } from './pages/LegalPage.tsx'
 import { SubprocessorsPage } from './pages/SubprocessorsPage.tsx'
 import { SharedPage } from './shared/SharedPage.tsx'
@@ -129,6 +130,7 @@ function App() {
         <Route element={<Shell />}>
           <Route index element={<ProjectsPage />} />
           <Route path="duplicates" element={<DuplicatesPage />} />
+          <Route path="search" element={<SearchPage />} />
           <Route path="account" element={<AccountPage />} />
           <Route path="organization" element={<OrganizationPage />} />
           <Route path="organization/usage" element={<UsagePage />} />

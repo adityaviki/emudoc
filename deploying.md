@@ -4574,7 +4574,7 @@ and the like), named on its models' pages.
 | `MAX_FREE_ORGANIZATIONS` | `2` | | Organisations on the free plan one user may own; 0 is no ceiling |
 | `RATE_UPLOADS` | `20` | | Upload requests a minute, per member ("Rates") |
 | `RATE_QUESTIONS` | `20` | | Questions a minute, per member |
-| `RATE_SEARCHES` | `120` | | Searches a minute, per member |
+| `RATE_SEARCHES` | `120` | | Searches a minute, per member: a project's search and facts, and the search of every project |
 | `RATE_SIGN_INS` | `10` | | Sign-in requests a minute, per address named |
 | `RATE_SIGN_INS_PER_ADDRESS` | `60` | | Sign-in requests a minute, per client address |
 | `RATE_FAILED_SIGN_INS` | `20` | | Wrong passwords and codes an hour, past which those sign-ins pause ("Rates") |

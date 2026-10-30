@@ -22,7 +22,7 @@ from app.schemas import (
     SearchOut,
     SnippetSegment,
 )
-from app.search import SearchResult, hybrid_search
+from app.search import SearchHit, SearchResult, hybrid_search
 from app.smart_folders import BACKWARDS, matching
 
 router = APIRouter(
@@ -85,24 +85,26 @@ def searched(
     else:
         result = hybrid_search(session, services.embedder, project.id, q, limit, document_ids)
     return SearchOut(
-        semantic=result.semantic,
-        hits=[
-            SearchHitOut(
-                passage_id=hit.passage_id,
-                document_id=hit.document_id,
-                document_title=hit.document_title,
-                doc_type=hit.doc_type,
-                context=hit.context,
-                snippet=[SnippetSegment(text=text, match=match) for text, match in hit.snippet],
-                page_start=hit.page_start,
-                page_end=hit.page_end,
-                score=hit.score,
-                keyword_rank=hit.keyword_rank,
-                vector_rank=hit.vector_rank,
-            )
-            for hit in result.hits
-        ],
+        semantic=result.semantic, hits=[SearchHitOut(**hit_fields(hit)) for hit in result.hits]
     )
+
+
+def hit_fields(hit: SearchHit) -> dict:
+    """A passage found as the page shows it, for a search of one project or of several
+    (app/api/search.py)."""
+    return {
+        "passage_id": hit.passage_id,
+        "document_id": hit.document_id,
+        "document_title": hit.document_title,
+        "doc_type": hit.doc_type,
+        "context": hit.context,
+        "snippet": [SnippetSegment(text=text, match=match) for text, match in hit.snippet],
+        "page_start": hit.page_start,
+        "page_end": hit.page_end,
+        "score": hit.score,
+        "keyword_rank": hit.keyword_rank,
+        "vector_rank": hit.vector_rank,
+    }
 
 
 @router.get("/facts", response_model=FactList)
