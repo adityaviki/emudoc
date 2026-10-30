@@ -9,6 +9,10 @@ services:
       POSTGRES_USER: emudoc
       POSTGRES_PASSWORD: emudoc
       POSTGRES_DB: emudoc
+    # Room for the suite on every core (`pytest -n 12`): each worker truncates and rebuilds a
+    # database of its own, about a hundred tables locked at once, which the default lock table
+    # (64 a connection) runs out of, and keeps a pool of connections.
+    command: ["postgres", "-c", "max_locks_per_transaction=512", "-c", "max_connections=300"]
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5437}:5432"
     volumes:

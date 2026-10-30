@@ -25,7 +25,10 @@ from sqlalchemy.engine import URL, make_url
 
 # The container docker-compose.yml runs; the app itself has no default database.
 SERVER = os.environ.get("TEST_DATABASE_SERVER", "emudoc:emudoc@127.0.0.1:5437")
-TEST_DATABASE = "emudoc_test"
+# Under pytest-xdist (`-n`) each worker truncates and rebuilds a database of its own,
+# emudoc_test_gw0 and on, so that the workers never empty each other's tables.
+_WORKER = os.environ.get("PYTEST_XDIST_WORKER")
+TEST_DATABASE = f"emudoc_test_{_WORKER}" if _WORKER else "emudoc_test"
 TEST_DATABASE_URL = f"postgresql+psycopg://{SERVER}/{TEST_DATABASE}"
 # Set to run against a server that is not on this machine, such as a CI job's database container
 # reached by its service name.

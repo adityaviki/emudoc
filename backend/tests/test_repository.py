@@ -91,10 +91,10 @@ def test_main_waits_for_every_check_ci_runs_on_a_pull_request():
     assert checks["strict_required_status_checks_policy"]
     # No job of another workflow shares a required check's name, which would make it ambiguous:
     # Audit's fail on news rather than on the change, and run on a pull request only when it
-    # changes a manifest.
+    # changes a manifest; Pooler's only when it changes what a pooler sees.
     others = {
         job["name"]
-        for name in ("audit.yml", "models.yml", "release.yml")
+        for name in ("audit.yml", "models.yml", "pooler.yml", "release.yml")
         for job in workflow(name)["jobs"].values()
     }
     assert not others & set(required)
