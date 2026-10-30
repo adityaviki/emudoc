@@ -73,7 +73,9 @@ class SuggestedQuestions(BaseModel):
 
 # The document just indexed leaves its project settled: it is ready and live, the project is live
 # and not the sample, and none of the project's other documents is still to be indexed or has an
-# index job to run. A project that has a writing queued already is left to it.
+# index job to run. A project that has a writing queued already is left to it. The jobs are an
+# uncorrelated list, hashed once for the statement as `_SETTLE`'s in app/notices.py: narrowed to
+# the project, they were scanned again for each of its documents, 22 s a document at 30,000.
 _SETTLED = text(
     """
     SELECT p.id, p.org_id, p.suggested_at
@@ -85,7 +87,7 @@ _SETTLED = text(
         WHERE o.project_id = p.id AND o.deleted_at IS NULL
           AND (o.status IN ('queued', 'processing')
                OR o.id IN (SELECT (j.payload->>'document_id')::bigint FROM jobs AS j
-                           WHERE j.kind = 'index_document' AND j.project_id = p.id
+                           WHERE j.kind = 'index_document'
                              AND j.status IN ('queued', 'running'))))
       AND NOT EXISTS (
         SELECT 1 FROM jobs AS j

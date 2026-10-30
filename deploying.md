@@ -3215,6 +3215,7 @@ below). The machine was busy with other work through both:
 | A search in the project of 30 documents | 100 | 23 ms | 26 ms | 25 ms | 28 ms |
 | Facts by a word, or by a piece of one | 100 each | 103 ms | 140–144 ms | 108–109 ms | 148–150 ms |
 | The agent's `list_documents` by a word, or by a piece of one | 100 each | 100 ms | 105–106 ms | 102–104 ms | 111–113 ms |
+| An upload of 30,000 documents to each one ready | 30,000 | 1,114 s | 1,416 s | 1,337 s | 6,967 s |
 
 The statement alone, over 100 of the load test's questions, ranked in 20 ms at the median and
 68 at p95, where it had taken 183 and 266: "penalty late deliveries" now ranks the 11,599
@@ -3222,6 +3223,14 @@ passages that hold its words, or all but one, of the 52,293 that hold any. What 
 finds changed with it: three in four of its first ten hits were the same, and its first hit
 for 65 of the 100. A question of one word most passages hold still ranks them all:
 "invoice", in 43,645, about 130 ms.
+
+The second run indexed the library 601 a minute against 207 (780 on 2026-10-20), and the
+upload's last documents were ready within 24 minutes rather than two hours. From 2026-10-25
+each document indexed asked whether its project had settled, to write its suggested questions,
+by a statement that scanned the queued jobs again for each of the project's documents: 22 s
+after each document at 22,000, run by the indexers side by side, and the indexing fell to 16 a
+minute. It looks the jobs up once now, in about 25 ms. The rest of the gap to 780 was not
+looked into.
 
 The vector ranking's 40 candidates for 100 of the searches, against the 40 nearest passages
 by exact distance:
