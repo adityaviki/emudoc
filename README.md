@@ -557,7 +557,11 @@ as a smart folder's filter (its "Filter" dialog, each part a chip that takes it 
 route takes them as query parameters, `SearchIn`, and resolves the documents' ids before the
 ranking); "Search within these" makes the words searched one of those parts, so that the next
 words search only the documents with a passage holding every one of them, and "Save the search"
-keeps it all as a smart folder. Any place is listed by name, as added, by the documents' own dates (the
+keeps it all as a smart folder. The projects page searches **every project** the member sees at
+once (`/search`, `backend/app/api/search.py`, one ranking over all their passages, each hit
+naming its project and opening its document at the passage), narrowed to some of those projects,
+to types and to a span of dates; a private project is searched by those who see it alone, and
+the agent and the versioned API still search one project. Any place is listed by name, as added, by the documents' own dates (the
 undated after the dated) or by size, either way, each order a keyset of its own on the
 server, and shown as the tree or as a **grid** of tiles, each file's the thumbnail the server
 draws of a PDF's first page, a scan or an image, the browser remembering both choices. And a
@@ -736,8 +740,8 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   and asked to upload in smaller batches. The body has been read by then, so a proxy's limit
   on the request body is the guard against the request itself.
 - `RATE_UPLOADS`, `RATE_QUESTIONS` and `RATE_SEARCHES` are how fast one user may go: 20
-  upload requests, 20 questions and 120 searches (the search and facts routes) a minute by
-  default. `RATE_SIGN_INS` holds the sign-in routes (sign-in, sign-up, the reset and
+  upload requests, 20 questions and 120 searches (the search and facts routes, a project's and
+  every project's) a minute by default. `RATE_SIGN_INS` holds the sign-in routes (sign-in, sign-up, the reset and
   verification mails, the authenticator code) to 10 requests a minute per email address, and
   `RATE_SIGN_INS_PER_ADDRESS` to 60 per client address, so that neither a password nor a code
   can be guessed at speed. The request past a rate is refused with 429 and the seconds until
@@ -1506,7 +1510,7 @@ backend/app/
   startup.py    the checks and the services every process starts with
   version.py    the version a process runs: the commit its image was built from
   postgres.py   what the app needs of its Postgres server: pgvector, the role's timeouts, vacuum
-  search.py     hybrid search over passages
+  search.py     hybrid search over passages, of one project or of every one a member sees
   languages.py  the language an organisation's documents are searched in, and its passages' move
   folders.py    the folder tree as paths and subtrees
   agent/        the five tools and the tool-use loop
@@ -1561,7 +1565,7 @@ backend/migrations/
                 the database schema as Alembic migrations, one file per change
 frontend/e2e/   the browser test, the app's start for it and the stand-in model it runs against
 frontend/src/
-  pages/        the Projects page and the Workspace (two panes)
+  pages/        the Projects page, the search of every project and the Workspace (two panes)
   workspace/    the library, tabs, document viewers and the chat pane
   account/      sign-in, sign-up, the email links, and the account page
   reference/    the API reference at /api-reference, a page of its own drawn from the contract

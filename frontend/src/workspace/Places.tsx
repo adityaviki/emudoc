@@ -334,15 +334,47 @@ interface FilterFieldsProps {
   reviews: boolean
 }
 
+const toggled = <T,>(list: T[], value: T, on: boolean) => (on ? [...list, value] : list.filter((other) => other !== value))
+
+/** The types a filter may narrow by, ticked where it does: the documents' own, and one chosen that no document has now, so that it can be taken off. */
+export function TypesField({ types, chosen, onChange }: { types: DocumentType[]; chosen: string[]; onChange: (types: string[]) => void }) {
+  const choices = [...new Set([...types.map((one) => one.type), ...chosen])]
+  if (!choices.length) return null
+  return (
+    <fieldset className="space-y-1.5">
+      <legend className="mb-1 text-xs font-medium text-muted">Of the type</legend>
+      {choices.map((type) => (
+        <Checkbox key={type} checked={chosen.includes(type)} onChange={(event) => onChange(toggled(chosen, type, event.target.checked))} label={type} />
+      ))}
+    </fieldset>
+  )
+}
+
+/** The span of the documents' own dates a filter narrows to, either end open. */
+export function DatesField({ after, before, onChange }: { after: string | null; before: string | null; onChange: (dates: { after: string | null; before: string | null }) => void }) {
+  const id = useId()
+  return (
+    <fieldset>
+      <legend className="mb-1 text-xs font-medium text-muted">Dated</legend>
+      <div className="flex flex-wrap gap-2">
+        <label htmlFor={`${id}-after`} className="text-[13px]">
+          From
+          <input id={`${id}-after`} type="date" className={`${FIELD} mt-1`} value={after ?? ''} onChange={(event) => onChange({ after: event.target.value || null, before })} />
+        </label>
+        <label htmlFor={`${id}-before`} className="text-[13px]">
+          To
+          <input id={`${id}-before`} type="date" className={`${FIELD} mt-1`} value={before ?? ''} onChange={(event) => onChange({ after, before: event.target.value || null })} />
+        </label>
+      </div>
+    </fieldset>
+  )
+}
+
 /** The parts of a filter, each its own fields: tags, types, the documents' dates, their reviews, a folder and the words they mention. */
 function FilterFields({ filter, onChange, tags, types, folders, reviews }: FilterFieldsProps) {
-  const id = useId()
   const [words, setWords] = useState('')
   const wordsInput = useRef<HTMLInputElement>(null)
   const set = (change: Partial<DocumentFilter>) => onChange({ ...filter, ...change })
-  const toggled = <T,>(list: T[], value: T, on: boolean) => (on ? [...list, value] : list.filter((other) => other !== value))
-  // A type the filter narrows by that no document has now still shows, so that it can be taken off.
-  const typeChoices = [...new Set([...types.map((one) => one.type), ...filter.types])]
   const room = filter.mentions.length < MAX_WITHIN
   const mention = () => {
     const trimmed = words.trim()
@@ -373,27 +405,8 @@ function FilterFields({ filter, onChange, tags, types, folders, reviews }: Filte
           )}
         </fieldset>
       )}
-      {typeChoices.length > 0 && (
-        <fieldset className="space-y-1.5">
-          <legend className="mb-1 text-xs font-medium text-muted">Of the type</legend>
-          {typeChoices.map((type) => (
-            <Checkbox key={type} checked={filter.types.includes(type)} onChange={(event) => set({ types: toggled(filter.types, type, event.target.checked) })} label={type} />
-          ))}
-        </fieldset>
-      )}
-      <fieldset>
-        <legend className="mb-1 text-xs font-medium text-muted">Dated</legend>
-        <div className="flex flex-wrap gap-2">
-          <label htmlFor={`${id}-after`} className="text-[13px]">
-            From
-            <input id={`${id}-after`} type="date" className={`${FIELD} mt-1`} value={filter.after ?? ''} onChange={(event) => set({ after: event.target.value || null })} />
-          </label>
-          <label htmlFor={`${id}-before`} className="text-[13px]">
-            To
-            <input id={`${id}-before`} type="date" className={`${FIELD} mt-1`} value={filter.before ?? ''} onChange={(event) => set({ before: event.target.value || null })} />
-          </label>
-        </div>
-      </fieldset>
+      <TypesField types={types} chosen={filter.types} onChange={(chosen) => set({ types: chosen })} />
+      <DatesField after={filter.after} before={filter.before} onChange={set} />
       {reviews && (
         <fieldset className="space-y-1.5">
           <legend className="mb-1 text-xs font-medium text-muted">In review</legend>

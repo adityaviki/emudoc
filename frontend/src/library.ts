@@ -106,7 +106,8 @@ export function searchView(search: Search): LibraryView {
 /** What narrows a filter that a member can take off alone: one of its parts, or one of the searches it is within by its place. */
 export type FilterPart = 'tags' | 'types' | 'dates' | 'reviews' | 'folder' | number
 
-const listed = (words: string[], last: 'and' | 'or') =>
+/** Words in a list a sentence reads: `a, b or c`. */
+export const listed = (words: string[], last: 'and' | 'or') =>
   words.length < 2 ? (words[0] ?? '') : `${words.slice(0, -1).join(', ')} ${last} ${words.at(-1)}`
 
 /** Each part a filter narrows by in words, its tags and folder by their names as they are now, in the order a sentence lists them. */

@@ -1006,6 +1006,36 @@ class SearchIn(DocumentFilter):
     document_id: int | None = None
 
 
+# How many projects a search across them may be narrowed to: more is most of them.
+MAX_SEARCHED_PROJECTS = 100
+
+
+class SearchAllIn(BaseModel):
+    """The search of every project the member sees (app/api/search.py), as its query string asks
+    it: the words, how many passages at most, and what narrows it, each part narrowing the
+    others: some of those projects, the documents of one of its types, dated on or after `after`
+    and on or before `before`, which leaves out the undated. A part left out takes everything."""
+
+    q: str
+    limit: int = Field(10, ge=1, le=50)
+    projects: list[int] = Field(default_factory=list, max_length=MAX_SEARCHED_PROJECTS)
+    types: list[_TypeName] = Field(default_factory=list, max_length=20)
+    after: dt.date | None = None
+    before: dt.date | None = None
+
+
+class SearchAllHitOut(SearchHitOut):
+    """A passage the search across projects found, with the project it is in, by its name now."""
+
+    project_id: int
+    project_name: str
+
+
+class SearchAllOut(BaseModel):
+    hits: list[SearchAllHitOut]
+    semantic: bool
+
+
 ChatVisibility = Literal["private", "project"]
 # What a chat is about (app/scopes.py), and how many documents it may be about: more is a
 # folder's work.

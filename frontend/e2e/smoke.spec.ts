@@ -1961,6 +1961,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('menuitem', { name: 'Filing rules…' }).click()
     const heading = page.getByRole('heading', { name: 'Filing rules' })
     await expect(heading).toBeVisible()
+    // Enabled once the rules are read: measured before, its fade from the disabled look could run under axe.
+    await expect(page.getByRole('button', { name: 'New rule' })).toBeEnabled()
     await expectAccessible(page, 'the filing rules, none yet')
     await page.getByRole('button', { name: 'New rule' }).click()
     await page.getByLabel('Type', { exact: true }).fill('invoice')
@@ -2138,5 +2140,42 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(hit('INV-2026-0412').first()).toBeVisible()
     await expect(hit('INV-2026-0413')).toHaveCount(0)
     await expectAccessible(page, 'a saved search')
+  })
+
+  await test.step('search every project from the projects page, filter it to one of them and open a hit at its passage', async () => {
+    await page.getByRole('link', { name: 'Emudoc', exact: true }).click()
+    await page.getByLabel('Search all projects').fill('total amount')
+    await page.getByLabel('Search all projects').press('Enter')
+    await expect(page).toHaveURL(/\/search\?q=total\+amount$/)
+    await expect(page.getByRole('heading', { name: 'Search', exact: true })).toBeVisible()
+    const box = page.getByLabel('Search all projects')
+    await expect(box).toBeFocused()
+    await expect(box).toHaveValue('total amount')
+    // One ranking over every project, each hit naming its project: the invoice is in both.
+    const hit = (project: string) => page.getByRole('button').filter({ hasText: `${project} · ` }).filter({ hasText: 'INV-2026-0412' })
+    await expect(hit('Supplier archive').first()).toBeVisible()
+    await expect(hit('Supplier contracts').first()).toBeVisible()
+    await expectAccessible(page, 'a search of every project')
+
+    // Narrowed to one project in its dialog, which the address keeps.
+    const filter = page.getByRole('button', { name: 'Filter', exact: true })
+    await filter.click()
+    const filtering = page.getByRole('dialog', { name: 'Filter the search' })
+    await filtering.getByRole('checkbox', { name: 'Supplier archive', exact: true }).check()
+    await expect(filtering).toContainText('Documents in “Supplier archive”.')
+    await expectAccessible(page, 'a search of every project being filtered')
+    await filtering.getByRole('button', { name: 'Apply' }).click()
+    await expect(filter).toBeFocused()
+    await expect(page).toHaveURL(/[?&]project=\d+/)
+    await expect(page.getByRole('button', { name: 'Take off: in “Supplier archive”' })).toBeVisible()
+    await expect(hit('Supplier archive').first()).toBeVisible()
+    await expect(hit('Supplier contracts')).toHaveCount(0)
+    await expectAccessible(page, 'a search of every project narrowed to one')
+
+    // A hit opens its document in its own project, at the passage: the copy whose tab names the other.
+    await hit('Supplier archive').first().click()
+    await expect(page).toHaveURL(/\/projects\/\d+\/documents\/\d+\?(.*&)?passage=\d+/)
+    await expect(page.getByText(/^Showing: /)).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Supplier contracts', exact: true })).toBeVisible()
   })
 })

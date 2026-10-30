@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Circle, CircleCheck, Download, FolderOpen, Lock, Plus, RotateCcw, Sparkles, Trash2, Users, X } from 'lucide-react'
+import { Circle, CircleCheck, Download, FolderOpen, Lock, Plus, RotateCcw, Search, Sparkles, Trash2, Users, X } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
@@ -15,6 +15,7 @@ import { EXPORT_QUERY } from '../exports.ts'
 import { checklistOf } from '../onboarding.ts'
 import type { ChecklistStep } from '../onboarding.ts'
 import { describeTrashedProject, projectPurgeQuestion, TRASHED_PROJECTS_KEY } from '../trash.ts'
+import { EMPTY_SEARCH_ALL, searchAllUrl } from '../search.ts'
 import { ProjectAccessForm } from './ProjectAccessForm.tsx'
 import { ProjectExports } from './ProjectExports.tsx'
 
@@ -53,7 +54,7 @@ export function ProjectsPage() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-5xl px-6 py-10">
-        <div className="mb-6 flex items-end justify-between gap-4">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 id={PROJECTS_HEADING} tabIndex={-1} className="text-2xl font-semibold tracking-tight">
               Projects
@@ -62,11 +63,14 @@ export function ProjectsPage() {
               A project holds a set of documents that are indexed and queried together.
             </p>
           </div>
-          {changes && !creating && (
-            <Button variant="primary" icon={<Plus className="size-4" />} onClick={create}>
-              New project
-            </Button>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {(projects.data?.length ?? 0) > 0 && <SearchAllBox />}
+            {changes && !creating && (
+              <Button variant="primary" icon={<Plus className="size-4" />} onClick={create}>
+                New project
+              </Button>
+            )}
+          </div>
         </div>
 
         {checklist && <GettingStarted steps={checklist} onCreate={create} />}
@@ -117,6 +121,31 @@ export function ProjectsPage() {
         {changes && <ProjectTrash />}
       </div>
     </div>
+  )
+}
+
+/** The search of every project the member sees, which its own page runs once the words are given. */
+function SearchAllBox() {
+  const navigate = useNavigate()
+  const [words, setWords] = useState('')
+  return (
+    <form
+      role="search"
+      className="relative"
+      onSubmit={(event) => {
+        event.preventDefault()
+        navigate(searchAllUrl({ q: words, filter: EMPTY_SEARCH_ALL }))
+      }}
+    >
+      <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted" />
+      <input
+        value={words}
+        onChange={(event) => setWords(event.target.value)}
+        placeholder="Search all projects"
+        aria-label="Search all projects"
+        className="field h-8 w-60 pl-8 text-[13px]"
+      />
+    </form>
   )
 }
 

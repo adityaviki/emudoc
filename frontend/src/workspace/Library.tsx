@@ -855,9 +855,12 @@ interface SearchBoxProps {
   placeholder: string
   onSearch: (q: string) => void
   inputRef: RefObject<HTMLInputElement | null>
+  /** Its name, where the page has more than one way to search: the search of every project's. */
+  label?: string
 }
 
-function SearchBox({ query, placeholder, onSearch, inputRef }: SearchBoxProps) {
+/** A search box that searches as the words are typed, once they rest. */
+export function SearchBox({ query, placeholder, onSearch, inputRef, label = 'Search' }: SearchBoxProps) {
   const [draft, setDraft] = useState(query)
   // The URL can change the query from outside (opening a tab, going back).
   const [lastQuery, setLastQuery] = useState(query)
@@ -886,7 +889,7 @@ function SearchBox({ query, placeholder, onSearch, inputRef }: SearchBoxProps) {
           if (event.key === 'Escape') setDraft('')
         }}
         placeholder={placeholder}
-        aria-label="Search"
+        aria-label={label}
         className="field h-8 pr-8 pl-8 text-[13px]"
       />
       {draft && (
@@ -2279,8 +2282,9 @@ function SearchFilterEditor(props: Omit<Parameters<typeof SearchFilterDialog>[0]
   return <SearchFilterDialog {...props} types={types.data ?? []} />
 }
 
-function Hit({ hit, onOpen }: { hit: SearchHit; onOpen: () => void }) {
-  const location = [sectionPath(hit.context, hit.document_title), pageLabel(hit.page_start, hit.page_end)]
+/** A passage a search found, which opens the document at it; `project` names where it is, for a search of several projects. */
+export function Hit({ hit, project, onOpen }: { hit: SearchHit; project?: string; onOpen: () => void }) {
+  const location = [project, sectionPath(hit.context, hit.document_title), pageLabel(hit.page_start, hit.page_end)]
     .filter(Boolean)
     .join(' · ')
   // Which ranking found the passage: exact words, meaning, or both.

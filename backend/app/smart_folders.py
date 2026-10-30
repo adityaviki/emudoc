@@ -39,16 +39,10 @@ BACKWARDS = "Its earliest date is after its latest. Choose dates the other way r
 def matching(session: Session, project_id: int, chosen: DocumentFilter) -> list[ColumnElement]:
     """The conditions on `documents` of the filter, for a query of the project's documents out of
     the trash."""
-    conditions: list[ColumnElement] = []
+    conditions = anywhere(chosen)
     if chosen.tags:
         held = Document.tag_ids.contains if chosen.every_tag else Document.tag_ids.overlap
         conditions.append(held(chosen.tags))
-    if chosen.types:
-        conditions.append(Document.doc_type.in_(chosen.types))
-    if chosen.after is not None:
-        conditions.append(Document.doc_date >= chosen.after)
-    if chosen.before is not None:
-        conditions.append(Document.doc_date <= chosen.before)
     if chosen.reviews:
         conditions.append(Document.review.in_(chosen.reviews))
     if chosen.folder_id is not None:
@@ -61,6 +55,20 @@ def matching(session: Session, project_id: int, chosen: DocumentFilter) -> list[
             select(Passage.language).where(Passage.project_id == project_id).distinct()
         ).all()
         conditions.extend(_mentioning(project_id, languages, words) for words in chosen.mentions)
+    return conditions
+
+
+def anywhere(chosen: DocumentFilter) -> list[ColumnElement]:
+    """The conditions on `documents` of the filter's parts that mean the same in any project, its
+    types and its dates, which the search across projects narrows by (app/api/search.py); the
+    others name what one project holds, or probe its own languages."""
+    conditions: list[ColumnElement] = []
+    if chosen.types:
+        conditions.append(Document.doc_type.in_(chosen.types))
+    if chosen.after is not None:
+        conditions.append(Document.doc_date >= chosen.after)
+    if chosen.before is not None:
+        conditions.append(Document.doc_date <= chosen.before)
     return conditions
 
 
