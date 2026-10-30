@@ -17,6 +17,8 @@ newest entry first.
 
 Members:
 
+- Search puts first the passages that hold every word you typed, then those that hold all but
+  one of them, then the rest, and answers sooner in a large project.
 - Search every project: the box on the projects page searches all the projects you see at once,
   the best passages first wherever they are, each with its project's name, and opens the document
   at the passage. "Filter" there narrows the search to some of the projects, to documents of some
@@ -24,6 +26,10 @@ Members:
 
 Operators:
 
+- A search's keyword ranking ranks the passages that hold every word of the query, then all but
+  one, and those that hold any only while the others are too few, so that its cost is the
+  passages that hold the words: in a project of 30,000 documents a search took 43 ms at the
+  median rather than 222, and 111 at p95 rather than 304 (deploying.md, "Load").
 - `GET /api/search` searches every project a member sees in one ranking, and `GET
   /api/document-types` lists the types of their documents; both count against `RATE_SEARCHES`
   with the project's search and facts.

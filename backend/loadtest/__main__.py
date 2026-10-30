@@ -205,6 +205,12 @@ class Run:
             1, (lambda q=q: self.member.timed_get(url, q=q, limit=10) for q in queries)
         )
         report.add("search", f"Search in a project of {len(paths)} documents beside it", times)
+        # The search of every project the member sees (app/api/search.py): one ranking over
+        # the library's passages and the small project's together.
+        times = await bounded(
+            1, (lambda q=q: self.member.timed_get("/api/search", q=q, limit=10) for q in queries)
+        )
+        report.add("search", "Search of every project, the library and the small one", times)
         self._candidates(small, "the small project", queries, analyze=True)
 
     def _listed(self, project_id: int, terms: list[str]) -> list[float]:
