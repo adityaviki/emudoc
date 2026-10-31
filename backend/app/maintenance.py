@@ -61,6 +61,10 @@ those of an earlier key, which is a key's rotation. It runs beside the app.
 (app/trial.py), and exits 1 when one does not answer as the app needs: the start only builds
 them, so this is where a fallback is tried before its day.
 
+`golden` asks the golden questions, whose answers are known, of the agent over a copy of the
+sample project (app/golden.py), and exits 1 when an answer lacks what a right one says or cites:
+how a prompt, a model or a provider answers is read here before a member reads it.
+
 `build-sample` is a developer's: it indexes the sample project's files with the configured
 models and writes what the pipeline made of them into the checkout's app/sample/index.json,
 which every sign-up copies (app/sample).
@@ -117,6 +121,7 @@ from app.entitlements import (
 )
 from app.export import EXPORT_DAYS, EXPORT_KEPT, prune_exports
 from app.flags import FLAGS, choose, chosen, flag_on, rollouts
+from app.golden import describe_golden, run_golden
 from app.idempotency import KEPT as IDEMPOTENCY_KEPT
 from app.idempotency import prune_idempotency_keys
 from app.inbound import NO_DOMAIN, Received, prune_inbound, receive
@@ -1646,6 +1651,18 @@ def main(argv: list[str] | None = None) -> None:
         "intervals, since providers retire models on their own schedules.",
     )
     commands.add_parser(
+        "golden",
+        help="ask the agent the golden questions about the sample project, whose answers are known",
+        description="Ask the agent, as a member's question is asked, each golden question about "
+        "the sample project's documents, whose answer is known (backend/app/golden.py), over a "
+        "copy of the sample in an organisation made for the run and deleted after it, and grade "
+        "each answer on the figures and names a right one says and the documents it cites. It "
+        "prints each question's verdict, a failed answer whole with what it lacks, and what the "
+        "answers used, records nothing as an organisation's usage, and exits with 1 when an "
+        "answer was not as known. It costs a dozen answers of AGENT_MODEL; run it after a change "
+        "to the prompts, the agent or the model.",
+    )
+    commands.add_parser(
         "build-sample",
         help="index the sample project's files with the model and write app/sample/index.json",
         description="Index the files of the sample project that the organisation an account "
@@ -1823,6 +1840,16 @@ def main(argv: list[str] | None = None) -> None:
             for line in describe_trials(trials, settings):
                 print(line)
             if any(trial.failed for trial in trials):
+                sys.exit(1)
+        elif args.command == "golden":
+            check_schema()
+            # Each answer's verdict is in the lines below; the model layer's, the HTTP clients'
+            # and a search's own lines would only say it again.
+            logging.getLogger().setLevel(logging.ERROR)
+            run = run_golden(settings)
+            for line in describe_golden(run):
+                print(line)
+            if run.failed:
                 sys.exit(1)
         elif args.command == "build-sample":
             check_schema()

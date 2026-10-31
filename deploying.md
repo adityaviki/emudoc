@@ -881,9 +881,52 @@ given.) It costs a few thousand tokens per model. Run it after changing a model 
 launch, and monthly: beside the restore drill's timer ("The drill"), a unit that runs it and
 mails on failure keeps a fallback from going stale unseen.
 
+**The golden questions.** A model can answer every request of `models` and still answer
+members' questions worse than the one before it, and so can the agent after a change to its
+prompt or its tools. `python -m app.maintenance golden` asks the agent thirteen questions about
+the sample project ("The sample project", below) whose answers are known
+(`backend/app/golden.py`): the three an empty chat of the sample offers, a detail of each kind
+of document, two figures worked out from several (the three invoices' total, the end of the
+contract's term), and one the documents do not answer. It copies the sample into an
+organisation of its own, as a sign-up does, embeds it when the embeddings endpoint answers (the
+search matches words alone otherwise, which its last lines say), asks each question as a
+member's is asked, by `AGENT_MODEL` and its fallback, and deletes the organisation with whatever
+it recorded: it costs the answers alone, about a dozen with a few tool calls each, and no
+organisation's usage. Each answer is graded by its words: it must say the figures and names a
+right one says, in one of the ways the question lists ("43,476.65" holds "EUR 43 476.65" too,
+"6%" never "16%"), and cite a passage of each document the question names, and never a
+reference no tool showed it. It prints each question's verdict, a failed answer whole with what
+it lacks, and what the answers used and cost, and exits with 1 when one was not as known:
+
+```bash
+docker compose -f deploy/compose.yml run --rm --no-deps worker python -m app.maintenance golden
+```
+
+```text
+  FAILED  What is the total due on invoice INV-2026-0458? (0.0 s)
+          does not say "43,476.65"
+          | | Net total (EUR) | 36,535.00 | [P19]
+  ok      What is the supplier's liability capped at? (0.1 s)
+  …
+Answered by ollama:standin: 26 calls, 260 tokens in, 130 out.
+2 of 13 golden questions answered as known.
+```
+
+(The browser test's stand-in model, which answers every question with the first sentence of the
+best passage it found.) Run it after changing `AGENT_MODEL` or its fallback, after a change to
+the agent's prompt or tools, and before a launch. A right answer that failed for its wording, a
+figure written in a way its question does not list, is read in the printed answer, and the way
+joins the question's list in `golden.py`. Words are a floor: an answer that names the right
+figure for a wrong reason passes, and "no" is in many sentences; a model's judgement of each
+answer, and of whether a cited passage says what the sentence citing it says, are the next
+steps of the quality program.
+
 **Every morning, from GitHub.** The Models workflow (`.github/workflows/models.yml`) runs the
-same command at 05:47 UTC, and by hand from Actions, Models, Run workflow, once the repository
-names the models: the variables `AGENT_MODEL` and `INDEX_MODEL`, with `AGENT_FALLBACK_MODEL`,
+same command at 05:47 UTC, and the golden questions beside it in a job of their own against the
+development compose file's database (no embeddings endpoint runs there, so their search matches
+words alone); both also run once a change to what they ask with (`llm.py`, `trial.py`,
+`golden.py`, the agent, the search, the sample) is on `main`, and by hand from Actions, Models,
+Run workflow, once the repository names the models: the variables `AGENT_MODEL` and `INDEX_MODEL`, with `AGENT_FALLBACK_MODEL`,
 `INDEX_FALLBACK_MODEL`, `DATA_REGION` and `MODEL_PRICES` as the deployment sets them, and the
 keys their providers need as the secrets `GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`,
 `OPENROUTER_API_KEY` or `OPENAI_API_KEY` (Settings, Secrets and variables, Actions, or `gh
@@ -892,7 +935,9 @@ GOOGLE_API_KEY`). Without the two variables it is skipped. GitHub mails a failed
 to whoever last changed the schedule. It is the one workflow that holds a key, so it runs from
 `main` alone and never on a pull request. Give it keys of its own, made for it at each provider
 with a low spending limit, rather than production's: one that leaks from GitHub is then revoked
-without touching the deployment, and production's stay in its secret manager. The variables
+without touching the deployment, and production's stay in its secret manager. Set the limit
+with the golden questions in mind: about a dozen answers of `AGENT_MODEL` a morning, and as many
+again for each change to the agent that reaches `main`. The variables
 follow production's settings by hand: change them with the model, or the workflow goes on
 asking the one production stopped using. A model the deployment reaches on its own network
 (`ollama:`, an `OPENAI_BASE_URL` there) or through a service account (`google-cloud:`) cannot be

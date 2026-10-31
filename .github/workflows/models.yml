@@ -5,10 +5,18 @@
 # what finds a provider that retired a model, changed its API or turns the key down, before a
 # member's upload or question does. It costs a few thousand tokens a model a day.
 #
-# The one workflow that holds a key, so it runs on a schedule and by hand, from main alone,
-# never on a pull request, whose code could read it. It waits for the repository's variables
-# AGENT_MODEL and INDEX_MODEL (and AGENT_FALLBACK_MODEL, INDEX_FALLBACK_MODEL, DATA_REGION) to
-# name what the deployment runs, and for the keys of their providers as secrets
+# And the golden questions (python -m app.maintenance golden, app/golden.py): a dozen questions
+# about the sample project whose answers are known, asked of the agent as a member's are and
+# graded on what each answer must say and cite, so that a prompt, a model or a provider that
+# answers worse shows here before a member reads it. It costs about a dozen answers a run. No
+# embeddings endpoint runs beside it, so the agent's search matches words alone, which its last
+# lines say.
+#
+# Both run every morning, by hand, and once a change to what they ask with (the prompts, the
+# agent and its search, the sample) is on main. The one workflow that holds a key, so from main
+# alone, never on a pull request, whose code could read it. It waits for the repository's
+# variables AGENT_MODEL and INDEX_MODEL (and AGENT_FALLBACK_MODEL, INDEX_FALLBACK_MODEL,
+# DATA_REGION) to name what the deployment runs, and for the keys of their providers as secrets
 # (deploying.md, "The models", "Every morning, from GitHub"); without the two variables it is
 # skipped.
 name: Models
@@ -16,6 +24,16 @@ name: Models
 on:
   schedule:
     - cron: "47 5 * * *"
+  push:
+    branches: [main]
+    paths:
+      - backend/app/llm.py
+      - backend/app/trial.py
+      - backend/app/golden.py
+      - backend/app/agent/**
+      - backend/app/search.py
+      - backend/app/sample/**
+      - .github/workflows/models.yml
   workflow_dispatch:
 
 permissions:
@@ -55,3 +73,41 @@ jobs:
       # Exits 1 when a model fails or answers unfit; its lines say which and why.
       - name: Ask
         run: uv --directory backend run python -m app.maintenance models
+
+  golden:
+    name: Golden questions
+    if: github.ref == 'refs/heads/main' && vars.AGENT_MODEL != '' && vars.INDEX_MODEL != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      AGENT_MODEL: ${{ vars.AGENT_MODEL }}
+      INDEX_MODEL: ${{ vars.INDEX_MODEL }}
+      AGENT_FALLBACK_MODEL: ${{ vars.AGENT_FALLBACK_MODEL }}
+      INDEX_FALLBACK_MODEL: ${{ vars.INDEX_FALLBACK_MODEL }}
+      DATA_REGION: ${{ vars.DATA_REGION }}
+      MODEL_PRICES: ${{ vars.MODEL_PRICES }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # The development database of docker-compose.yml, which the run copies the sample into.
+      DATABASE_URL: postgresql+psycopg://emudoc:emudoc@127.0.0.1:5437/emudoc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: 0.11.15
+          cache-dependency-glob: backend/uv.lock
+          save-cache: false
+      - name: Database
+        run: docker compose up -d --wait db
+      - name: Dependencies
+        run: uv --directory backend sync --locked
+      - name: Schema
+        run: uv --directory backend run alembic upgrade head
+      # Exits 1 when an answer lacks what a right one says or cites; its lines say which, with
+      # the answer whole.
+      - name: Ask
+        run: uv --directory backend run python -m app.maintenance golden

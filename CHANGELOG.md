@@ -60,6 +60,14 @@ Members:
 
 Operators:
 
+- `python -m app.maintenance golden` asks the agent thirteen questions about the sample
+  project whose answers are known, over a copy of the sample in an organisation it makes and
+  deletes, and grades each answer on the figures and names a right one says and the documents it
+  cites. It prints a wrong answer whole with what it lacks, records nothing as an organisation's
+  usage, and exits with 1 when an answer was not as known. The Models workflow runs it every
+  morning beside `models`, and both once a change to the prompts, the agent, its search or the
+  sample is on `main`, once the repository names the models and holds their keys (deploying.md,
+  "The golden questions").
 - The enrich stage tells the model how a document's own language writes dates and numbers, and
   reads a fact's number or date again from its value where the value's marks, or the language,
   settle it, in the model's place. The migration adds `documents.read_language_code`, the ISO

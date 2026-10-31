@@ -117,6 +117,12 @@ def test_each_check_runs_once_for_a_change():
         assert on["push"]["branches"] == ["main"] and on["push"]["paths"], name
     assert all("pull_request" not in triggers(name) for name in ("pooler.yml", "audit.yml"))
     assert "pull_request" not in triggers("opentofu.yml")
+    # The one workflow that holds a key asks the models every morning and once a change to what
+    # it asks with is on main, never on a pull request, whose code could read the key.
+    models = triggers("models.yml")
+    assert models["push"]["branches"] == ["main"] and models["push"]["paths"]
+    assert "pull_request" not in models and models["schedule"]
+    assert all("refs/heads/main" in job["if"] for job in workflow("models.yml")["jobs"].values())
     (embeddings,) = workflow("embeddings.yml")["jobs"].values()
     assert "dependabot[bot]" in embeddings["if"]
     # Pooler runs on no schedule, the same tree being checked once; Audit once a week, for news.
