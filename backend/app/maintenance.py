@@ -62,8 +62,9 @@ those of an earlier key, which is a key's rotation. It runs beside the app.
 them, so this is where a fallback is tried before its day.
 
 `golden` asks the golden questions, whose answers are known, of the agent over a copy of the
-sample project (app/golden.py), and exits 1 when an answer lacks what a right one says or cites:
-how a prompt, a model or a provider answers is read here before a member reads it.
+sample project (app/golden.py), has the indexing model judge each answer and its citations, and
+exits 1 when an answer lacks what a right one says or cites: how a prompt, a model or a provider
+answers is read here before a member reads it.
 
 `fact-accuracy` indexes the sample's files with extraction templates on and scores the facts read
 against the values labelled by hand (app/fact_accuracy.py), each field's recall and precision,
@@ -1661,10 +1662,13 @@ def main(argv: list[str] | None = None) -> None:
         description="Ask the agent, as a member's question is asked, each golden question about "
         "the sample project's documents, whose answer is known (backend/app/golden.py), over a "
         "copy of the sample in an organisation made for the run and deleted after it, and grade "
-        "each answer on the figures and names a right one says and the documents it cites. It "
-        "prints each question's verdict, a failed answer whole with what it lacks, and what the "
-        "answers used, records nothing as an organisation's usage, and exits with 1 when an "
-        "answer was not as known. It costs a dozen answers of AGENT_MODEL; run it after a change "
+        "each answer on the figures and names a right one says and the documents it cites; "
+        "INDEX_MODEL then judges whether each answer is right and whether each passage it cites "
+        "says what the sentence citing it does, which is reported and fails nothing. It prints "
+        "each question's verdict, a failed or doubted answer whole with what it lacks, what the "
+        "answers and the judging used and what the judge found, records nothing as an "
+        "organisation's usage, and exits with 1 when an answer was not as known. It costs a "
+        "dozen answers of AGENT_MODEL and as many calls of INDEX_MODEL; run it after a change "
         "to the prompts, the agent or the model.",
     )
     commands.add_parser(
