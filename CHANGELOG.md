@@ -13,6 +13,18 @@ to: `## YYYY-MM-DD` a day (or `## YYYY-MM-DD to YYYY-MM-DD`), the newest first, 
 and `Operators:`, each a list of `- ` entries whose lines go on indented by two spaces, a day's
 newest entry first.
 
+## 2026-10-31
+
+Operators:
+
+- Three findings Audit made in the images beside the app are accepted in
+  `deploy/.trivyignore.yaml` until 14 November, when the next rebuilds should carry the fixes:
+  go-jose's CVE-2026-116587 in Caddy, which parses a peer's JWK only as an ACME server, which
+  the Caddyfile does not run; curl's CVE-2026-92392 in Caddy's and ClamAV's images, an HTTP/2
+  upload fault that nothing there reaches (only ClamAV's clamsubmit uploads, and nothing runs
+  it); and brotli's CVE-2026-111497 in llama.cpp's server image, whose curl decodes brotli only
+  when asked to, which the weights' download does not.
+
 ## 2026-10-30
 
 Members:
