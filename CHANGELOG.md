@@ -17,6 +17,13 @@ newest entry first.
 
 Members:
 
+- Dates and amounts are read the way a document's language writes them: in a German invoice
+  "03.04.2026" is the 3rd of April and "1.250,00 €" one thousand two hundred and fifty euros, so
+  the facts, the facts table and the cross-checks compare what the document says. A date such as
+  "03/04/2026" in an English document, which puts the day first in some countries and the month
+  first in others, is read by what the document shows of its country, or left without a date
+  rather than guessed. Documents uploaded before are read this way when you index them again.
+
 - Search by meaning understands other languages: a question finds the passage that answers it
   whichever language either is written in, so asking in English how much notice ends a
   contract finds the German one's "Frist von drei Monaten" and the Chinese one's "提前九十日".
@@ -53,6 +60,10 @@ Members:
 
 Operators:
 
+- The enrich stage tells the model how a document's own language writes dates and numbers, and
+  reads a fact's number or date again from its value where the value's marks, or the language,
+  settle it, in the model's place. The migration adds `documents.read_language_code`, the ISO
+  code the detection named; the documents parsed before keep null until they are parsed again.
 - The default embedding model is Google's EmbeddingGemma 300M (`EMBEDDING_MODEL=embeddinggemma`,
   its prefixes `task: search result | query: ` and `title: none | text: `), in place of
   nomic-embed-text v1.5, which was trained on English: it ranked an English question's passage

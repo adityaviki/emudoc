@@ -104,6 +104,14 @@ as the reading writes it. A document whose words are too few to tell its languag
 of dates and amounts, is searched in the language your organisation chose; so is one whose
 language you set to the organisation's.
 
+The language also says how a document's dates and amounts are read into its facts: in a German
+invoice "03.04.2026" is the 3rd of April and "1.250" is one thousand two hundred and fifty, where
+in English "1.250" is one and a quarter. English writes the day first in some countries and the
+month first in others, so a date such as "03/04/2026" in an English document is read by what the
+document shows of its country or its other dates, and left without a date where nothing does. A
+document whose language could not be told is read by what its figures show alone. After you set
+a document's language, use "Index again" for its facts to be read in it.
+
 A document's note holds what its file does not say: where the signed copy is, whom to ask, why it
 was paid late. Write it with "Add a note" on the tab, if you may change the project; everyone who
 reads the project reads it there, with who changed it last. The agent does not read notes, and a
