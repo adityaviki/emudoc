@@ -117,7 +117,7 @@ services:
       retries: 3
 
   clamav:
-    image: clamav/clamav:1.5@sha256:638d90201ee7ee6a82d249a2fc23b132e578673b5f1f2766852b127676ca1ef6
+    image: clamav/clamav:1.5@sha256:bda39705e291105049c3936e2803ac90b955172af8030f94f05dce1252df6c6d
     # Its limits let it scan a file as large as MAX_UPLOAD_MB; raise them together. It needs
     # about a gigabyte of memory, and a minute at start to load the signatures, during which
     # the worker holds uploads in the queue.
@@ -138,7 +138,7 @@ services:
   # `export EMBEDDING_WEIGHTS_URL=… EMBEDDING_WEIGHTS_SHA256=…` beside EMUDOC_IMAGE, as well as
   # EMBEDDING_MODEL and the rest in the env file. The image is the server's, which has curl.
   embedding-model:
-    image: ghcr.io/ggml-org/llama.cpp:server@sha256:f41d47eee678c02656eefc9ed8cce76cab584aa7032805eeef0e6639fcfda485
+    image: ghcr.io/ggml-org/llama.cpp:server@sha256:d9e9e74ba3f7ef119b1939162b1631f99b75ec703c310d140cfa2fdac8907389
     environment:
       EMBEDDING_WEIGHTS_URL: ${EMBEDDING_WEIGHTS_URL:-https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF/resolve/0f741b5a6585bd53aeb15cd1372c56f2a0f65e12/embeddinggemma-300M-Q8_0.gguf}
       EMBEDDING_WEIGHTS_SHA256: &weights ${EMBEDDING_WEIGHTS_SHA256:-b5ce9d77a3fc4b3b39ccb5643c36777911cc4eb46a66962eadfa3f5f60490d63}
@@ -168,7 +168,7 @@ services:
   # tag is the daily build (this digest is b11706), which Dependabot proposes each Monday and
   # CI checks against the vectors the deployments hold (.github/scripts/check-embeddings.sh).
   embeddings:
-    image: ghcr.io/ggml-org/llama.cpp:server@sha256:f41d47eee678c02656eefc9ed8cce76cab584aa7032805eeef0e6639fcfda485
+    image: ghcr.io/ggml-org/llama.cpp:server@sha256:d9e9e74ba3f7ef119b1939162b1631f99b75ec703c310d140cfa2fdac8907389
     depends_on:
       embedding-model:
         condition: service_completed_successfully
