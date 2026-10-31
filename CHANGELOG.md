@@ -60,6 +60,13 @@ Members:
 
 Operators:
 
+- `python -m app.maintenance golden` also has `INDEX_MODEL` judge each answer: whether it is
+  right against the question's known answer, and whether each passage it cites states what the
+  sentence citing it says. The report prints an answer the judge doubts whole with its reason,
+  each citation it finds unsupported with its sentence, and the answers it found right with the
+  citations supported, the answers' citation precision. The verdicts fail nothing: the words
+  still decide the exit. It adds about a cent a run on Claude Haiku 5.5 (deploying.md, "The
+  golden questions").
 - `python -m app.maintenance fact-accuracy` scores the facts `INDEX_MODEL` reads: it indexes the
   sample's files with extraction templates on, in an organisation it makes and deletes, and
   compares the facts read from the contract, the invoices and the price list with values

@@ -891,35 +891,51 @@ contract's term), and one the documents do not answer. It copies the sample into
 organisation of its own, as a sign-up does, embeds it when the embeddings endpoint answers (the
 search matches words alone otherwise, which its last lines say), asks each question as a
 member's is asked, by `AGENT_MODEL` and its fallback, and deletes the organisation with whatever
-it recorded: it costs the answers alone, about a dozen with a few tool calls each (USD 1.28 on
-Claude Opus 5.5, 2026-10-31), and no organisation's usage. Each answer is graded by its words: it must say the figures and names a
+it recorded: it costs the answers, about a dozen with a few tool calls each (USD 1.21 to 1.28 on
+Claude Opus 5.5, 2026-10-31), and their judging (a cent on Claude Haiku 5.5), and no
+organisation's usage. Each answer is graded by its words: it must say the figures and names a
 right one says, in one of the ways the question lists ("43,476.65" holds "EUR 43 476.65" too,
 "6%" never "16%"), and cite a passage of each document the question names, and never a
-reference no tool showed it. It prints each question's verdict, a failed answer whole with what
-it lacks, and what the answers used and cost, and exits with 1 when one was not as known:
+reference no tool showed it. Then `INDEX_MODEL`, which is not the model answering where the two
+differ, judges each answer: it reads the question, the known answer in a sentence, the answer
+and the whole of each passage it cites with where that passage is, and says whether the answer
+is right and whether each passage states what the sentence citing it takes from it. The
+judge's verdicts are reported and fail nothing, since a judge misreads too. The command prints
+each question's verdict; a failed answer whole with what it lacks and what the judge made of
+it; an answer the words pass and the judge doubts whole with the judge's reason; each citation
+the judge finds unsupported with its sentence; what the answers and the judging used and cost;
+the answers the judge found right and the citations it found supported, which is the answers'
+citation precision; and exits with 1 when an answer was not as known by its words:
 
 ```bash
 docker compose -f deploy/compose.yml run --rm --no-deps worker python -m app.maintenance golden
 ```
 
 ```text
-  FAILED  What is the total due on invoice INV-2026-0458? (0.0 s)
-          does not say "43,476.65"
-          | | Net total (EUR) | 36,535.00 | [P19]
-  ok      What is the supplier's liability capped at? (0.1 s)
+  ok      What is the total due on invoice INV-2026-0458? (9.0 s)
+  ok      How much notice must a party give to end the contract for convenience? (9.2 s)
+          P180 does not support "It pays a penalty based on its average monthly fees multiplied by the months left in the term [P180]:": The passage says a penalty applies when the Customer terminates for convenience during the initial term, but does not state that it is based on average monthly fees multiplied by remaining months.
+  ok      What was the on-time delivery rate in August, and what was the target? (8.1 s)
+          judged wrong: The answer gives 94% in August against a 97% target, matching the known answer. It then hedges that the figure may be wrong and says the log does not match it, which the known answer does not support, so it is not right.
+          | According to the supplier review meeting notes, on-time delivery in August was **94%**, which missed the **97% target** [P201]. …
   …
-Answered by ollama:standin: 26 calls, 260 tokens in, 130 out.
-2 of 13 golden questions answered as known.
+Answered by anthropic:claude-opus-5-5: 48 calls, 253,744 tokens in, 9,845 out, USD 1.21.
+Judged by anthropic:claude-haiku-5-5: 13 calls, 33,849 tokens in, 16,119 out, USD 0.01.
+The judge found 11 of 13 answers right, and 72 of 84 citations supported by the passage cited (86%).
+Every golden question answered as known (13 asked).
 ```
 
-(The browser test's stand-in model, which answers every question with the first sentence of the
-best passage it found.) Run it after changing `AGENT_MODEL` or its fallback, after a change to
-the agent's prompt or tools, and before a launch. A right answer that failed for its wording, a
-figure written in a way its question does not list, is read in the printed answer, and the way
-joins the question's list in `golden.py`. Words are a floor: an answer that names the right
-figure for a wrong reason passes, and "no" is in many sentences; a model's judgement of each
-answer, and of whether a cited passage says what the sentence citing it says, are the next
-steps of the quality program.
+(Claude Opus 5.5 answering and Claude Haiku 5.5 judging, 2026-10-31: the first citation sends
+the reader to the clause that introduces the penalty table, not to the table, and the answer
+the judge doubted was right, its doubt about the 94 % one the delivery log gives reason for.)
+Run it after changing `AGENT_MODEL`, `INDEX_MODEL` or a fallback, after a change to the agent's
+prompt or tools, and before a launch. A right answer that failed for its wording, a figure
+written in a way its question does not list, is read in the printed answer (the judge's
+"judged right" under it says as much), and the way joins the question's list in `golden.py`.
+Words are a floor: an answer that names the right figure for a wrong reason passes, and "no" is
+in many sentences, which is what the judge's doubts are read for. Read a doubt as a question,
+not a verdict: the judge reads a passage alone, and calls a true detail or a fair doubt wrong at
+times.
 
 **The facts read.** `python -m app.maintenance fact-accuracy` asks the same of `INDEX_MODEL`:
 it indexes the sample's files as uploads, with extraction templates on, in an organisation of its
@@ -952,8 +968,9 @@ to whoever last changed the schedule. It is the one workflow that holds a key, s
 `main` alone and never on a pull request. Give it keys of its own, made for it at each provider
 with a low spending limit, rather than production's: one that leaks from GitHub is then revoked
 without touching the deployment, and production's stay in its secret manager. Set the limit
-with the golden questions in mind: about a dozen answers of `AGENT_MODEL` a morning, and as many
-again for each change to the agent that reaches `main`. The variables
+with the golden questions in mind: about a dozen answers of `AGENT_MODEL` a morning and as many
+calls of `INDEX_MODEL` judging them, and as many again for each change to the agent that
+reaches `main`. The variables
 follow production's settings by hand: change them with the model, or the workflow goes on
 asking the one production stopped using. A model the deployment reaches on its own network
 (`ollama:`, an `OPENAI_BASE_URL` there) or through a service account (`google-cloud:`) cannot be

@@ -1567,8 +1567,9 @@ every morning by the Models workflow (`.github/workflows/models.yml`), once the 
 names them and holds their keys: `python -m app.maintenance models` against every model and
 fallback the deployment names, and `python -m app.maintenance golden`, thirteen questions about
 the sample project whose answers are known, asked of the agent and graded on what each answer
-says and cites (`backend/app/golden.py`); both also once a change to the prompts, the agent or
-the sample is on `main` (`deploying.md`, "The models"). `python -m app.maintenance
+says and cites, then judged by the indexing model, which says whether each answer is right and
+each cited passage says what its sentence does (`backend/app/golden.py`); both also once a
+change to the prompts, the agent or the sample is on `main` (`deploying.md`, "The models"). `python -m app.maintenance
 fact-accuracy`, run by hand, indexes the sample with extraction templates on and scores the facts
 the indexing model reads from its contract, invoices and price list against values labelled by
 hand (`backend/app/fact_accuracy.py`), each field's recall and precision.
