@@ -34,6 +34,8 @@ from app.fact_checks import hold as hold_checks
 from app.filing import file_if_due
 from app.flags import EXTRACTION_TEMPLATES, flag_on_for
 from app.indexing.enrich import (
+    ENRICH_PROMPT_VERSION,
+    SECTIONS_PROMPT_VERSION,
     ExtractedFact,
     Reading,
     analyze_document,
@@ -44,7 +46,7 @@ from app.indexing.enrich import (
 from app.indexing.structure import SectionHint, build_outline
 from app.jobs import LIVE, RENDER_PAGES, Lease, LeaseLost, enqueue, renew
 from app.languages import chosen_language, detect_language, known_languages, project_language
-from app.llm import LLM, LLMError, OcrBlock
+from app.llm import LLM, OCR_PROMPT_VERSION, LLMError, OcrBlock
 from app.locales import Writing, read_date, read_number, reading_line, writing_of
 from app.mail import Mailer
 from app.metrics import DOCUMENT_READY, INDEX_RUNS, PARSES, STAGE_RUNS, STAGE_SECONDS
@@ -81,6 +83,13 @@ OPTIONAL_STAGES = tuple(name for name in STAGES if name not in REQUIRED_STAGES)
 UNFINISHED = ("failed", "skipped")
 # Longest image edge sent for OCR; larger scans are scaled down to this.
 MAX_IMAGE_EDGE = 2576
+# The version of the prompts each stage's model work is asked with (app/prompts.py), which its
+# usage rows carry.
+PROMPT_VERSIONS = {
+    OCR: OCR_PROMPT_VERSION,
+    INFER_SECTIONS: SECTIONS_PROMPT_VERSION,
+    ENRICH: ENRICH_PROMPT_VERSION,
+}
 # A stage's detail while it waits to run again after the database went away under it.
 LOST_DATABASE = "The connection to the database was lost while this stage ran."
 # Passages embedded per call of the embedder, whose vectors are held as Python floats until
@@ -271,6 +280,7 @@ def process_document(
             project_id=document.project_id,
             user_id=None,
             ref=(DOCUMENT, document.id),
+            prompts=PROMPT_VERSIONS,
         )
 
         failures: list[StageFailure] = []

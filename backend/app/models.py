@@ -2973,6 +2973,9 @@ class UsageEvent(Base):
     quantity: Mapped[int] = mapped_column(BigInteger)
     # The `provider:model` name the call was configured with, as the settings name it.
     model: Mapped[str | None] = mapped_column(String(200))
+    # The version of the prompts the calls were asked with (app/prompts.py); null for a kind
+    # that asks no model, and for the rows from before versions were kept.
+    prompt_version: Mapped[str | None] = mapped_column(String(16))
     cost_micros: Mapped[int | None] = mapped_column(BigInteger)
     ref_type: Mapped[str | None] = mapped_column(String(40))
     ref_id: Mapped[int | None] = mapped_column(BigInteger)

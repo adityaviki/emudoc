@@ -15,6 +15,7 @@ from app.config import get_settings
 from app.db import engine
 from app.draft_templates import BUILT_IN, kind_task
 from app.drafts import (
+    DRAFT_PROMPT_VERSION,
     DRAFT_TASK,
     NOTHING_WRITTEN,
     PROJECT_GONE,
@@ -116,6 +117,13 @@ def test_a_draft_is_written_from_its_documents_facts_and_findings(
     assert latest["sources"][1]["excerpt"] == "Order total: 1,250.00 EUR."
     assert [version["number"] for version in done["history"]] == [1]
     assert done["usage"]["draft"]["calls"] == 1
+    # Its calls were asked with the drafts' prompts.
+    versions = session.scalars(
+        select(UsageEvent.prompt_version).where(
+            UsageEvent.ref_type == "draft", UsageEvent.ref_id == queued["id"]
+        )
+    ).all()
+    assert set(versions) == {DRAFT_PROMPT_VERSION}
 
     # The agent was given the kind's task, the documents' facts with their passages, and what
     # the newest run found about them, in the server's words.

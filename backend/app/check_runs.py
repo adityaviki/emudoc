@@ -44,7 +44,7 @@ from sqlalchemy import delete, exists, func, insert, or_, select, text, update
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
-from app.agent.loop import run_agent
+from app.agent.loop import AGENT_PROMPTS, run_agent
 from app.answers import Reply
 from app.audit import audit_event
 from app.automations import checks_of, due_at, queue_automation, take_arrivals
@@ -89,6 +89,7 @@ from app.notices import (
     note_quota,
     tell,
 )
+from app.prompts import prompt_version
 from app.reviews import put_in_review
 from app.spending import check_platform_spend, check_spend
 from app.usage import ANSWER, REPORT, WORKFLOW_RUN, ModelUsage, record
@@ -127,6 +128,8 @@ it.
 - End with what to do next: which documents to look at, or whom to ask.
 Cite the references given beside the values, or returned by your tools, and no other. Use the \
 tools only where a value's passage alone does not settle what its document says."""
+# The version of a report's prompts (app/prompts.py), which its usage rows carry.
+REPORT_PROMPT_VERSION = prompt_version(*AGENT_PROMPTS, REPORT_TASK)
 
 # Why a value could not be checked, as the report's input says it.
 _MISSING = {
@@ -493,6 +496,7 @@ def _charge(usage: ModelUsage, run_id: int, payer: dict[str, int | None]) -> Non
                     kind=REPORT,
                     measures=calls.measures,
                     model=model,
+                    prompt_version=REPORT_PROMPT_VERSION,
                     ref=(WORKFLOW_RUN, run_id),
                 )
             session.commit()

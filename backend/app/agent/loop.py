@@ -98,6 +98,19 @@ documents; then write the answer as your last reply, with no tool call in it. Le
 questions out of the answer itself, and suggest none when the documents hold nothing more to \
 ask about."""
 
+# What the agent is told whatever its run is for, the parts of every version of its prompts
+# (app/prompts.py: an answer's in app/answers.py, a draft's, a report's, a question set's): the
+# instructions, the functions that say the organisation's language and the chat's scope, and
+# every tool it may be offered. The project's name and the date vary by run, in none.
+AGENT_PROMPTS = (
+    SYSTEM_PROMPT,
+    DRAFTING,
+    FOLLOWING,
+    answer_language,
+    told,
+    *(tool.definition() for tool in (*TOOLS.values(), DRAFT_TOOL, FOLLOW_UP_TOOL)),
+)
+
 
 def run_agent(
     services: Services,

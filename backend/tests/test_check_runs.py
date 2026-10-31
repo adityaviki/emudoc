@@ -9,7 +9,13 @@ import pytest
 from pydantic_ai.messages import TextPart
 from sqlalchemy import func, select, update
 
-from app.check_runs import PROJECT_GONE, REPORT_TASK, RUN_FAILED, abandon_run
+from app.check_runs import (
+    PROJECT_GONE,
+    REPORT_PROMPT_VERSION,
+    REPORT_TASK,
+    RUN_FAILED,
+    abandon_run,
+)
 from app.config import get_settings
 from app.db import engine
 from app.jobs import RUN_WORKFLOW, claim
@@ -329,6 +335,12 @@ def test_the_report_is_written_from_the_findings_citing_their_passages(client, s
     assert sources[ordered]["excerpt"] == "Order total: 1,250.00 EUR."
     assert done["usage"]["report"]["calls"] == 1
     assert done["usage"]["report"]["input_tokens"] == 10
+    versions = session.scalars(
+        select(UsageEvent.prompt_version).where(
+            UsageEvent.ref_type == "workflow_run", UsageEvent.ref_id == queued["id"]
+        )
+    ).all()
+    assert set(versions) == {REPORT_PROMPT_VERSION}
 
     # The agent was given the task and the findings in the server's words, with their passages.
     assert services.llm.agent_prompts[-1].endswith(REPORT_TASK)

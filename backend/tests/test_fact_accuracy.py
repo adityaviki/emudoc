@@ -24,7 +24,7 @@ from app.fact_accuracy import (
     score,
 )
 from app.golden import CONTRACT, INVOICES, PRICE_LIST, holds, plain
-from app.indexing.enrich import ExtractedFact
+from app.indexing.enrich import ENRICH_PROMPT_VERSION, ExtractedFact
 from app.models import Organization, UsageEvent
 from app.sample import sample_files
 from tests.conftest import FakeLLM
@@ -205,6 +205,8 @@ def test_the_command_scores_each_field_and_exits_1_on_one_not_as_labelled(
     assert "    ok      unit_price: 5 of 5 found, 5 of 5 right" in out
     assert "price-list.csv was read for no template, not the price list one" in out
     calls = len(labeller.calls)
+    # The prompts the facts were read with, by the usage rows of the reading.
+    assert out[-3] == f"Prompt versions: enrich {ENRICH_PROMPT_VERSION}."
     assert out[-2] == (
         f"Read by {get_settings().index_model}: {calls} calls, {calls * 10} tokens in, "
         f"{calls * 5} out."

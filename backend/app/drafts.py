@@ -37,15 +37,16 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
-from app.agent.loop import run_agent
+from app.agent.loop import AGENT_PROMPTS, run_agent
 from app.agent.tools import worded_value
 from app.answers import Reply
 from app.check_runs import findings_about, latest_run_about, sources_of
 from app.db import SessionLocal
-from app.draft_templates import kind_task, template_for
+from app.draft_templates import KIND_FORMS, OWN_TEMPLATE, kind_task, template_for
 from app.indexing.pipeline import Services
 from app.jobs import LIVE, WRITE_DRAFT, Lease, LeaseLost, enqueue, renew
 from app.models import Document, Draft, DraftVersion, Fact, Project, User, WorkflowRun
+from app.prompts import prompt_version
 from app.spending import check_platform_spend, check_spend
 from app.usage import DRAFT, ModelUsage, record
 
@@ -88,6 +89,11 @@ address, a date to answer by), write a placeholder in square brackets, such as [
 rather than make it up. Use the tools to read what the facts alone do not settle.
 
 """
+# The version of a draft's prompts (app/prompts.py), which its usage rows carry: the agent's, the
+# task, and how a kind is told (a template's own tone and parts vary by draft, in none).
+DRAFT_PROMPT_VERSION = prompt_version(
+    *AGENT_PROMPTS, DRAFT_TASK, kind_task, *KIND_FORMS.values(), OWN_TEMPLATE
+)
 
 CITATION = re.compile(r"\[P(\d+)\]")
 _REVIEWS = {"to_review": "in review", "approved": "approved", "disputed": "disputed"}
@@ -330,6 +336,7 @@ def _charge(usage: ModelUsage, draft_id: int, payer: dict[str, int | None]) -> N
                     kind=DRAFT,
                     measures=calls.measures,
                     model=model,
+                    prompt_version=DRAFT_PROMPT_VERSION,
                     ref=(DRAFT, draft_id),
                 )
             session.commit()

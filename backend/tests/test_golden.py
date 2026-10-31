@@ -13,6 +13,7 @@ from pydantic_ai.usage import RequestUsage
 from sqlalchemy import func, select
 
 from app import maintenance
+from app.answers import ANSWER_PROMPT_VERSION
 from app.config import get_settings
 from app.db import SessionLocal
 from app.drafts import CITATION
@@ -20,6 +21,7 @@ from app.golden import (
     CONTRACT,
     GOLDEN,
     INVOICES,
+    JUDGE_PROMPT_VERSION,
     NO,
     PRICE_LIST,
     YES,
@@ -223,6 +225,8 @@ def test_a_run_asks_each_question_over_a_copy_of_the_sample_and_leaves_nothing(s
     citations = sum(len(asked.judged.citations) for asked in run.asked)
     assert describe_golden(run) == [
         *[f"  ok      {asked.golden.question} ({asked.seconds:.1f} s)" for asked in run.asked],
+        # Which prompts asked and judged, to tell this run from one after they changed.
+        f"Prompt versions: answer {ANSWER_PROMPT_VERSION}, judge {JUDGE_PROMPT_VERSION}.",
         f"Answered by {get_settings().agent_model}: 26 calls, 260 tokens in, 130 out.",
         f"Judged by {get_settings().index_model}: 13 calls, 130 tokens in, 65 out.",
         f"The judge found 13 of 13 answers right, and {citations} of {citations} citations "
@@ -268,7 +272,7 @@ def test_the_command_prints_a_wrong_answer_whole_and_exits_1(session, monkeypatc
     )
     assert re.fullmatch(r"          \| PO-7708 PO-7722 strike \[P\d+\] \[P\d+\]", out[8])
     assert out[9].startswith(f"  ok      {QUESTIONS[2]} (")
-    assert out[-5] == (
+    assert out[-6] == (
         "The search matched words alone, since the passages could not be embedded: "
         f"{FakeEmbedder.UNREACHABLE}"
     )
@@ -435,6 +439,7 @@ def test_the_report_says_where_the_judge_doubts_or_could_not_judge():
         "          judged wrong: It gives the net total.",
         '          P1 does not support "An answer [P1].": It says the VAT.',
         "          | An answer [P1].",
+        f"Prompt versions: answer {ANSWER_PROMPT_VERSION}, judge {JUDGE_PROMPT_VERSION}.",
         "Judged by anthropic:judge: 2 calls, 2,200 tokens in, 150 out.",
         "The judge found 2 of 3 answers right (1 not judged), and 2 of 3 citations supported by "
         "the passage cited (67%).",

@@ -37,14 +37,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
 from app.agent.loop import run_agent
-from app.answers import Reply
+from app.answers import ANSWER_PROMPT_VERSION, Reply
 from app.config import Settings, listing
 from app.db import SessionLocal
 from app.drafts import CITATION
 from app.embeddings import Embedder
 from app.indexing.pipeline import Services, process_document
-from app.llm import LLM, LLMError
+from app.llm import INDEX_SYSTEM, LLM, LLMError
 from app.models import Organization, Passage
+from app.prompts import prompt_version
 from app.sample import QUESTIONS, copy_sample
 from app.storage import LocalStorage
 from app.usage import ModelUsage, money
@@ -443,10 +444,16 @@ def judge(llm: LLM, golden: Golden, answer: str, passages: dict[int, tuple[str, 
     return Judged(judgement.right, judgement.reason, citations, usage)
 
 
+# The version of what the judge is asked (app/prompts.py), which the report names beside the
+# answers' (`ANSWER_PROMPT_VERSION`, the golden questions being asked as an answer is).
+JUDGE_PROMPT_VERSION = prompt_version(INDEX_SYSTEM, JUDGE_PROMPT, judge, Judgement)
+
+
 def describe_golden(run: GoldenRun) -> list[str]:
     """The lines the `golden` command prints: each question's verdict with what a failed answer
-    lacks, the judge's doubts and the answer's words when either has any, what the answers and
-    the judging used, what the judge found, and a last line that says how many were right."""
+    lacks, the judge's doubts and the answer's words when either has any, the versions of the
+    prompts, what the answers and the judging used, what the judge found, and a last line that
+    says how many were right."""
     lines: list[str] = []
     answering, judging = ModelUsage(), ModelUsage()
     for asked in run.asked:
@@ -465,6 +472,7 @@ def describe_golden(run: GoldenRun) -> list[str]:
             f"The search matched words alone, since the passages could not be embedded: "
             f"{run.by_words}"
         )
+    lines.append(f"Prompt versions: answer {ANSWER_PROMPT_VERSION}, judge {JUDGE_PROMPT_VERSION}.")
     lines += _used("Answered", answering) + _used("Judged", judging)
     if found := _found(run):
         lines.append(found)

@@ -52,7 +52,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
-from app.agent.loop import run_agent
+from app.agent.loop import AGENT_PROMPTS, run_agent
 from app.db import BUSY, SessionLocal
 from app.entitlements import read_only
 from app.flags import DRAFTS, flag_on
@@ -72,6 +72,7 @@ from app.models import (
     QuestionReport,
     WorkflowRun,
 )
+from app.prompts import prompt_version
 from app.scopes import scope_of
 from app.spending import check_platform_spend, check_spend
 from app.tracing import FIRST_TEXT, WRITE, mark, span
@@ -88,6 +89,9 @@ TEXT_FLUSH_SECONDS = 0.1
 # How long the events of a finished answer are kept. The row holds the answer once it is
 # finished; the events only serve a follower that is still catching up.
 EVENT_HISTORY = timedelta(days=1)
+# The version of an answer's prompts (app/prompts.py), which its usage rows carry, as the golden
+# questions' do, asked as an answer is.
+ANSWER_PROMPT_VERSION = prompt_version(*AGENT_PROMPTS)
 
 # A new event takes its place only while the answer is still being written, by the run's own
 # try: a row that was stopped, removed with its chat or tried again since takes none, and the
@@ -512,6 +516,7 @@ def _charge(session: Session, usage: ModelUsage, message_id: int, payer: dict[st
                 kind=ANSWER,
                 measures=calls.measures,
                 model=model,
+                prompt_version=ANSWER_PROMPT_VERSION,
                 ref=(CHAT_MESSAGE, message_id),
             )
         session.commit()
