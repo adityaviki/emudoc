@@ -17,6 +17,8 @@ newest entry first.
 
 Operators:
 
+- pyasn1 0.6.5, past four HIGH CVEs Audit found in 0.6.4 (denials of service in its decoder),
+  which google-auth's `pyasn1-modules` brings into the image.
 - Three findings Audit made in the images beside the app are accepted in
   `deploy/.trivyignore.yaml` until 14 November, when the next rebuilds should carry the fixes:
   go-jose's CVE-2026-116587 in Caddy, which parses a peer's JWK only as an ACME server, which
