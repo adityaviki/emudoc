@@ -56,6 +56,7 @@ EMAIL_IN = "email_in"
 CONNECTORS = "connectors"
 SHARE_LINKS = "share_links"
 QUESTION_SETS = "question_sets"
+COMMENTS = "comments"
 
 # Every feature behind a flag, by name, in the order the operator's area lists them.
 FLAGS: dict[str, Flag] = {
@@ -98,6 +99,13 @@ FLAGS: dict[str, Flag] = {
     QUESTION_SETS: Flag(
         "Question sets: a project's questions asked on a schedule or as documents arrive, their "
         "answers kept as reports"
+    ),
+    # Threads of comments on a project's documents, a passage quoted or not, with mentions of its
+    # members, and the project's activity, what its members did lately (app/comments.py,
+    # app/activity.py).
+    COMMENTS: Flag(
+        "Comments and activity: threads on a document or a passage of it, members mentioned and "
+        "told, and what was done lately in each project"
     ),
 }
 

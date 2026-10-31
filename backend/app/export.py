@@ -43,6 +43,7 @@ from sqlalchemy.orm import Session, selectinload, undefer
 
 from app.accounts import zone_of
 from app.bounces import address_hash
+from app.comments import exported_threads, mention_names, mentioned, readable
 from app.db import SessionLocal
 from app.errors import summary
 from app.extraction import templates_for
@@ -56,6 +57,8 @@ from app.models import (
     Chat,
     ChatMessage,
     ChatPin,
+    Comment,
+    CommentThread,
     Document,
     DocumentFavorite,
     DocumentNote,
@@ -100,6 +103,7 @@ from app.schemas import (
     ExportedMessage,
     ExportedNote,
     ExportedNotification,
+    ExportedOwnComment,
     ExportedPassage,
     ExportedPin,
     ExportedProject,
@@ -112,10 +116,12 @@ from app.schemas import (
     ExportedSpared,
     ExportedTag,
     ExportedTemplate,
+    ExportedThread,
     ExportedUsage,
     ExportedVersion,
     ExportedVersionText,
     ExportedVisit,
+    MentionOut,
     ProjectExportFile,
     TemplateFieldOut,
 )
@@ -126,15 +132,15 @@ log = logging.getLogger(__name__)
 
 ABOUT = (
     "What Emudoc keeps about you: your account and the edition of the terms you accepted, how you "
-    "are told each kind of notice and whether the mail provider said not to write to your address, "
-    "how you sign in, the organisations you belong to and the private projects you were chosen to "
-    "see, the browsers and devices you signed in from in the last month and when each browser you "
-    "signed in with did so first and last, the chats you started with every question and answer, "
-    "the chats you pinned, the documents you starred and the ones you opened lately, the links you "
-    "made that show a document or an answer to whoever holds them, the question sets you made "
-    "with their questions, the notices in your notification centre, the usage counted to you, and "
-    "what the audit logs of your organisations recorded you doing. Answers cite passages of "
-    "documents as [P<number>]. The documents "
+    "are told each kind of notice and whether the mail provider said not to write to your "
+    "address, how you sign in, the organisations you belong to and the private projects you were "
+    "chosen to see, the browsers and devices you signed in from in the last month and when each "
+    "browser you signed in with did so first and last, the chats you started with every question "
+    "and answer, the chats you pinned, the documents you starred and the ones you opened lately, "
+    "the links you made that show a document or an answer to whoever holds them, the question "
+    "sets you made with their questions, the comments you wrote on documents, the notices in your "
+    "notification centre, the usage counted to you, and what the audit logs of your organisations "
+    "recorded you doing. Answers cite passages of documents as [P<number>]. The documents "
     "themselves are not in this file: they belong to the organisation that holds them. Your "
     "password and recovery codes are kept only as hashes, and they and your authenticator secret "
     "are left out."
@@ -157,8 +163,9 @@ PROJECT_ABOUT = (
     "A copy of a project in Emudoc, for the member named in exported_by. originals/ holds each "
     "document as it was uploaded, in its folders, once the malware scan passed it, and versions/ "
     "the files a document had before a new version took their place. project.json lists the "
-    "project, its folders, its tags, its documents with theirs and the chats about them: those "
-    "shared with the project and the member's own, whose answers cite passages as [P<number>]. "
+    "project, its folders, its tags, its documents with theirs and the threads of comments on "
+    "them, and the chats about them: those shared with the project and the member's own, whose "
+    "answers cite passages as [P<number>]. "
     "documents/ holds what was read from each document: its outline, its passages by number, and "
     "the facts found in it, each with the passage it came from. templates holds the project's own "
     "extraction templates, the fields its documents of each kind are read for, and share_links the "
@@ -170,12 +177,12 @@ CHOSEN_ABOUT = (
     "originals/ holds each chosen document as it was uploaded, in its folders, once the malware "
     "scan passed it, and versions/ the files a document had before a new version took their "
     "place. project.json lists the project, the folders the documents are in, the project's tags "
-    "and the documents with theirs. documents/ holds what was read from each document: its "
-    "outline, its passages by number, and the facts found in it, each with the passage it came "
-    "from. templates holds the project's own extraction templates, the fields its documents of "
-    "each kind are read for, and share_links the links that show the chosen documents to whoever "
-    "holds them, without their addresses. The project's chats are left out, and so is a chosen "
-    "document that went into the trash before the export was made."
+    "and the documents with theirs and the threads of comments on them. documents/ holds what was "
+    "read from each document: its outline, its passages by number, and the facts found in it, "
+    "each with the passage it came from. templates holds the project's own extraction templates, "
+    "the fields its documents of each kind are read for, and share_links the links that show the "
+    "chosen documents to whoever holds them, without their addresses. The project's chats are "
+    "left out, and so is a chosen document that went into the trash before the export was made."
 )
 EXPORT_FAILED = (
     "The export could not be made. Ask for another; if that one fails too, write to support."
@@ -256,6 +263,16 @@ def account_export(session: Session, user: User) -> AccountExport:
         .where(ShareLink.user_id == user.id, ShareLink.expires_at > func.now())
         .order_by(ShareLink.id)
     ).all()
+    comments = session.execute(
+        select(Comment, CommentThread.quote, Organization.slug, Project.name, Document.filename)
+        .join(CommentThread, CommentThread.id == Comment.thread_id)
+        .join(Document, Document.id == CommentThread.document_id)
+        .join(Project, Project.id == Document.project_id)
+        .join(Organization, Organization.id == Project.org_id)
+        .where(Comment.author_id == user.id)
+        .order_by(Comment.id)
+    ).all()
+    mentions = mention_names(session, [row.text for row, *_ in comments])
     question_sets = session.execute(
         select(QuestionSet, Organization.slug, Project.name)
         .join(Organization, Organization.id == QuestionSet.org_id)
@@ -405,6 +422,21 @@ def account_export(session: Session, user: User) -> AccountExport:
             )
             for row, slug, project in question_sets
         ],
+        comments=[
+            ExportedOwnComment(
+                organization=slug,
+                project=project,
+                document=filename,
+                quote=quote,
+                text=readable(
+                    row.text,
+                    [MentionOut(id=i, name=mentions.get(i)) for i in mentioned(row.text)],
+                ),
+                created_at=row.created_at,
+                edited_at=row.edited_at,
+            )
+            for row, quote, slug, project, filename in comments
+        ],
         notifications=[
             ExportedNotification(
                 organization=slug,
@@ -530,7 +562,7 @@ def _write(path: Path, export_id: int, storage: Storage) -> int:
             # Read, then let the connection go: copying the originals waits on the storage.
             with SessionLocal() as session:
                 batch = _read(session, ids[start : start + BATCH])
-            for document, data, earlier, note in batch:
+            for document, data, earlier, note, threads in batch:
                 folder = folders.get(document.folder_id, "") if document.folder_id else ""
                 original = _original(archive, storage, names, document, folder)
                 data_path = f"documents/{document.id}.json"
@@ -544,6 +576,7 @@ def _write(path: Path, export_id: int, storage: Storage) -> int:
                             ],
                             "tags": [tag_names[i] for i in document.tag_ids if i in tag_names],
                             "note": note,
+                            "threads": threads,
                         }
                     )
                 )
@@ -565,9 +598,17 @@ _EXPORTED = (Document.deleted_at.is_(None), Document.status != "quarantined")
 
 def _read(
     session: Session, ids: Sequence[int]
-) -> list[tuple[Document, ExportedDocumentData, list[DocumentVersion], ExportedNote | None]]:
+) -> list[
+    tuple[
+        Document,
+        ExportedDocumentData,
+        list[DocumentVersion],
+        ExportedNote | None,
+        list[ExportedThread],
+    ]
+]:
     """The documents with these ids, each with what was read from it, its earlier versions, the
-    latest first, and its note."""
+    latest first, its note and its threads of comments."""
     documents = session.scalars(
         select(Document).where(Document.id.in_(ids)).order_by(Document.id)
     ).all()
@@ -577,6 +618,7 @@ def _read(
         )
         for note in session.scalars(select(DocumentNote).where(DocumentNote.document_id.in_(ids)))
     }
+    threads = exported_threads(session, list(ids))
     sections, passages, facts = defaultdict(list), defaultdict(list), defaultdict(list)
     earlier: dict[int, list[DocumentVersion]] = defaultdict(list)
     for row in session.scalars(
@@ -663,6 +705,7 @@ def _read(
             ),
             earlier[document.id],
             notes.get(document.id),
+            threads.get(document.id, []),
         )
         for document in documents
     ]

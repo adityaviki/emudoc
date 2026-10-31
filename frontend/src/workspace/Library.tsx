@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  Activity as ActivityIcon,
   BadgeCheck,
   CalendarClock,
   Camera,
@@ -97,6 +98,7 @@ import { RunView } from './CheckRuns.tsx'
 import { CrossChecksView, FindingsView } from './CrossChecks.tsx'
 import { DraftTemplatesView } from './DraftTemplates.tsx'
 import { DraftView, DraftsView } from './Drafts.tsx'
+import { ActivityView } from './Activity.tsx'
 import { ConnectorsView } from './Connectors.tsx'
 import { MailboxView } from './Mailbox.tsx'
 import { ChangesView } from './FactChanges.tsx'
@@ -209,6 +211,7 @@ export function Library() {
   const mail = me.organization.flags_on.includes('email_in')
   const connectors = me.organization.flags_on.includes('connectors')
   const questionSets = me.organization.flags_on.includes('question_sets')
+  const commenting = me.organization.flags_on.includes('comments')
   // The sample project takes no uploads: it counts against nothing on the plan (backend/app/sample).
   const uploads = changes && !project.sample
   const health = useStatus()
@@ -291,6 +294,7 @@ export function Library() {
   if (workspace.url.library.questionSets && questionSets) return <QuestionSetsView />
   if (workspace.url.library.report != null && questionSets) return <ReportView reportId={workspace.url.library.report} />
   if (workspace.url.library.reviews && templates) return <ReviewsView whose={workspace.url.library.reviews} />
+  if (workspace.url.library.activity && commenting) return <ActivityView />
   if (workspace.url.library.drafts && drafts) return <DraftsView />
   if (workspace.url.library.draft != null && drafts) return <DraftView draftId={workspace.url.library.draft} />
   if (workspace.url.library.draftTemplates && drafts) return <DraftTemplatesView />
@@ -357,7 +361,8 @@ export function Library() {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 px-3 pb-2.5">
+        {/* With every feature on, its buttons take a second line rather than run under the pane beside it. */}
+        <div className="flex flex-wrap items-center gap-2 px-3 pb-2.5">
           <SearchBox query={saved ? (saved.query ?? '') : query} placeholder={searchPlaceholder} onSearch={searchFrom} inputRef={searchBox} />
           <Button
             icon={<Trash2 className="size-4" />}
@@ -390,6 +395,15 @@ export function Library() {
               onClick={() => workspace.showReviews()}
               title="Reviews: the documents put in review, approved or disputed, and whom each is assigned to"
               aria-label="Reviews"
+              className="px-2"
+            />
+          )}
+          {commenting && (
+            <Button
+              icon={<ActivityIcon className="size-4" />}
+              onClick={workspace.showActivity}
+              title="Activity: what was done in the project lately, its uploads, reviews, comments and runs"
+              aria-label="Activity"
               className="px-2"
             />
           )}
@@ -893,7 +907,7 @@ export function SearchBox({ query, placeholder, onSearch, inputRef, label = 'Sea
   }, [draft, query])
 
   return (
-    <div data-tour="search" className="relative min-w-0 flex-1">
+    <div data-tour="search" className="relative min-w-40 flex-1">
       <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted" />
       <input
         ref={inputRef}

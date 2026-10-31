@@ -295,6 +295,19 @@ describe('a row', () => {
     )
   })
 
+  it("words a comment by its document, never its words, and whose an owner or admin deleted", () => {
+    const names = new Map([[9, 'Bob']])
+    expect(describeDetail(event('comment_added', { filename: 'terms.txt', thread: 3, reply: false }))).toBe('terms.txt')
+    expect(describeDetail(event('comment_added', { filename: 'terms.txt', thread: 3, reply: true }))).toBe('terms.txt · a reply')
+    const deleted = (author: number | null) => describeDetail(event('comment_deleted', { filename: 'terms.txt', thread: 3, author }), names)
+    expect(deleted(7)).toBe('terms.txt')
+    expect(deleted(9)).toBe('terms.txt · Bob’s comment')
+    expect(deleted(12)).toBe('terms.txt · a former member’s comment')
+    expect(deleted(null)).toBe('terms.txt')
+    expect(describeDetail(event('thread_resolved', { filename: 'terms.txt', thread: 3 }))).toBe('terms.txt')
+    expect(actionLabel('thread_reopened')).toBe('Opened a thread of comments again')
+  })
+
   it('words a setting by what it is', () => {
     const setting = (detail: AuditEvent['detail']) => describeDetail(event('settings_changed', detail))
     expect(setting({ setting: 'language', from: null, to: 'german' })).toBe('Language: the default → German')

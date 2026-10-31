@@ -59,10 +59,12 @@ import { gzipSync } from 'node:zlib'
 // with their form, run now, turned off and on, and their reports, and a report's answers with the
 // passages they cite. The figures up to here are CI's: this laptop's Node (24.22.1) gzips the
 // same file 2.5 kB larger (312.9 kB). CI no longer runs this check on the developer's changes
-// (2026-10-31), so the figures from here on are this laptop's.
+// (2026-10-31), so the figures from here on are this laptop's: 321 kB the same day by comments and
+// the project's activity (319.1 kB): the panel beside a document with its threads, the box that
+// offers members after "@", and the library's place of what was done in the project.
 // A change that passes it makes the scripts smaller (a dependency left out, a page loaded only
 // when it is opened) or raises this number, saying why in its commit.
-const BUDGET = 314_000
+const BUDGET = 321_000
 // The operator's area (operator.html), a build of its own that only operators are sent: React
 // and the rest again, 102.0 kB on 2026-10-21. Its size costs no member anything, so its budget
 // only catches a dependency pulled in by mistake.

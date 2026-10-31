@@ -93,8 +93,9 @@ log = logging.getLogger(__name__)
 
 # The kinds of notice, and the way of telling them this module makes itself; a project's export
 # is told by app/export.py, what an automation's run found by app/check_runs.py, a document's
-# review assigned by app/reviews.py, a question set's report kept by app/question_reports.py, and
-# the weekly digest of what arrived by app/digests.py.
+# review assigned by app/reviews.py, a question set's report kept by app/question_reports.py,
+# the weekly digest of what arrived by app/digests.py, and a member mentioned in a comment or a
+# reply in a thread they wrote in by app/comments.py.
 (
     UPLOAD_INDEXED,
     QUOTA,
@@ -103,6 +104,8 @@ log = logging.getLogger(__name__)
     REVIEW_ASSIGNED,
     REPORT_READY,
     WEEKLY_DIGEST,
+    MENTIONED,
+    THREAD_REPLIED,
 ) = NOTICE_KINDS
 IN_APP = NOTICE_CHANNELS[0]
 # How long a notice stays in its member's notification centre, read or not; the privacy policy

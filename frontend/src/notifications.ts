@@ -35,6 +35,14 @@ export const NOTICE_KINDS: Record<NoticeKind, { label: string; detail: string }>
     label: 'What arrived this week',
     detail: 'On Monday morning, the documents that arrived over the week in the projects you see, by name. Off until you turn it on.',
   },
+  mentioned: {
+    label: 'You are mentioned in a comment',
+    detail: 'When a member mentions you in a comment on a document: who, and on which document.',
+  },
+  thread_replied: {
+    label: 'A reply in a thread you wrote in',
+    detail: 'When a member replies in a thread of comments you wrote in: who, and on which document.',
+  },
 }
 
 /** Where the notices are kept in the cache: the newest page, which the bell asks every minute. */

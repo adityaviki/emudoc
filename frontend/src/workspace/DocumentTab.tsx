@@ -1,19 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { History, Link2, ListChecks, ListTree, PenLine, Printer, StickyNote, X } from 'lucide-react'
+import { History, Link2, ListChecks, ListTree, MessageSquare, MessageSquarePlus, PenLine, Printer, StickyNote, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { api, fileUrl, hasPages, isImage, isSheet, mayChange, pageImageUrl, pageLabel, sectionPath } from '../api.ts'
 import type { Document, Section } from '../api.ts'
 import { useMe } from '../auth.ts'
+import { chosenIn, openWords, quoted, threadCounts, threadsKey } from '../comments.ts'
+import type { ThreadAbout } from '../comments.ts'
 import { noteKey } from '../details.ts'
 import { ImagePreview, PagesView, Scrolled, SheetView, TextView } from '../components/DocumentViews.tsx'
 import type { BlockFocus } from '../components/DocumentViews.tsx'
 import { IndexingStatus } from '../components/IndexingStatus.tsx'
 import { Button, Chip, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
-import { usePrintTitle, useStatus } from '../hooks.ts'
+import { useLocalStorage, usePrintTitle, useStatus } from '../hooks.ts'
 import { notIndexedWords, restHeld, scanPassed, unfinishedStages } from '../indexing.ts'
 import { offersLinks } from '../shareLinks.ts'
 import { describeDocumentUsage } from '../usage.ts'
+import { CommentsPanel } from './Comments.tsx'
 import { Copies, DetailsDialog, NotePanel } from './Details.tsx'
 import { originalFile } from './files.ts'
 import { documentKey, listingsKey } from './listing.ts'
@@ -23,6 +26,10 @@ import { VersionsDialog } from './Versions.tsx'
 import { useWorkspace } from './state.ts'
 import { followedKey } from './uploads.ts'
 import type { Focus } from './url.ts'
+
+// Whether the comments beside a document are shown, as the member left them last.
+const COMMENTS_KEY = 'emudoc.comments-shown'
+const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean'
 
 interface DocumentTabProps {
   document: Document
@@ -50,6 +57,20 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
   const [writing, setWriting] = useState(false)
   // Its note, which everyone who reads the project reads.
   const note = useQuery({ queryKey: noteKey(document.id), queryFn: () => api.note(document.id) })
+  // Its comments, which everyone who reads the project writes, while they are rolled out to the organisation.
+  const commenting = me.organization.flags_on.includes('comments')
+  const threads = useQuery({ queryKey: threadsKey(document.id), queryFn: () => api.threads(document.id), enabled: commenting })
+  const counts = threadCounts(threads.data ?? [])
+  const [commentsShown, setCommentsShown] = useLocalStorage(COMMENTS_KEY, false, isBoolean)
+  const commentsOpen = commenting && commentsShown
+  const [about, setAbout] = useState<ThreadAbout | null>(null)
+  // What the comments read the words chosen in.
+  const body = useRef<HTMLDivElement>(null)
+  const threadId = focus && 'thread' in focus ? focus.thread : null
+  // A link to a thread shows the comments, this time, whatever the member left them as.
+  useEffect(() => {
+    if (threadId != null) setCommentsShown(true, { persist: false })
+  }, [threadId, setCommentsShown])
   const status = document.status
   const indexed = document.stages.structure?.status === 'done'
   // The original is served once its malware scan has passed, and never when it was flagged.
@@ -104,6 +125,22 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
     const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
     window.document.getElementById(target)?.scrollIntoView({ block: 'center', behavior })
   }, [focusStart, focusPage, loaded, pages])
+
+  // What a new thread is about: the passage or the block the document is shown at, else the document as a whole.
+  const aboutFocus = (): ThreadAbout => {
+    if (passage.data && passage.data.document_id === document.id) {
+      return { passage_id: passage.data.id, shown: quoted(passage.data.text) }
+    }
+    if (focus && 'block' in focus) {
+      const block = content.data?.blocks.find((shown) => shown.ordinal === focus.block)
+      return { block: focus.block, shown: block ? quoted(block.text) : undefined }
+    }
+    return {}
+  }
+  const commentOn = (on: ThreadAbout) => {
+    setCommentsShown(true)
+    setAbout(on)
+  }
 
   const focusLabel =
     passage.data && blockFocus
@@ -173,6 +210,19 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
                 <StickyNote className="size-4" />
               </IconButton>
             )}
+            {commenting && (
+              <button
+                type="button"
+                aria-pressed={commentsOpen}
+                aria-label={`Comments, ${openWords(counts.open)}`}
+                title="Comments"
+                onClick={() => setCommentsShown((shown) => !shown)}
+                className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-muted transition hover:bg-sunken hover:text-ink aria-pressed:bg-sunken aria-pressed:text-ink"
+              >
+                <MessageSquare className="size-4" />
+                {counts.open > 0 && <span className="text-xs tabular-nums">{counts.open}</span>}
+              </button>
+            )}
             <IconButton label="Versions" onClick={() => setVersioning(true)}>
               <History className="size-4" />
             </IconButton>
@@ -215,6 +265,11 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
         {focusLabel && (
           <p className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-md bg-mark/40 py-0.5 pr-0.5 pl-2 text-xs">
             <span className="truncate">Showing: {focusLabel}</span>
+            {commenting && (
+              <IconButton label="Comment on this" onClick={() => commentOn(aboutFocus())} className="size-5! print:hidden">
+                <MessageSquarePlus className="size-3.5" />
+              </IconButton>
+            )}
             <IconButton label="Clear highlight" onClick={onClearFocus} className="size-5! print:hidden">
               <X className="size-3.5" />
             </IconButton>
@@ -222,56 +277,76 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
         )}
       </header>
 
-      {!indexed ? (
-        <div className="p-4">
-          <Notice tone={document.status === 'failed' || document.status === 'quarantined' ? 'bad' : 'info'}>
-            {document.status === 'quarantined'
-              ? (document.error ?? 'The malware scan flagged this file. It is quarantined: not indexed, and nobody can open it.')
-              : document.status === 'failed'
-                ? (document.error ?? 'Indexing failed.')
-                : notIndexedWords(document)}
-          </Notice>
-          {isImage(document) && openable && <ImagePreview src={fileUrl(document.id)} alt={document.filename} />}
-        </div>
-      ) : content.isPending ? (
-        <Loading />
-      ) : content.isError ? (
-        <div className="p-4">
-          <Notice tone="bad">Could not load the text: {content.error.message}</Notice>
-        </div>
-      ) : pages ? (
-        <Scrolled label={`Pages of ${document.filename}`} className="min-h-0 flex-1 overflow-y-auto">
-          <PagesView pageUrl={(page) => pageImageUrl(document.id, page)} content={content.data} focus={blockFocus} />
-        </Scrolled>
-      ) : isImage(document) ? (
-        <Scrolled label={`Text of ${document.filename}`} className="min-h-0 flex-1 overflow-y-auto">
-          <ImagePreview src={fileUrl(document.id)} alt={document.filename} />
-          <TextView blocks={content.data.blocks} focus={blockFocus} />
-        </Scrolled>
-      ) : isSheet(document) ? (
-        <SheetView label={`Rows of ${document.filename}`} blocks={content.data.blocks} focus={blockFocus} />
-      ) : (
-        <div className="flex min-h-0 flex-1 print:block">
-          {outlineOpen && outline.data && outline.data.length > 0 && (
-            <aside aria-label="Outline" className="w-60 shrink-0 overflow-y-auto border-r border-line bg-surface p-2 print:hidden">
-              <p className="px-2 pt-1 pb-2 text-[11px] font-medium tracking-wide text-muted uppercase">Outline</p>
-              <ul>
-                {outline.data.map((section) => (
-                  <OutlineNode
-                    key={section.id}
-                    section={section}
-                    focusStart={focusStart}
-                    onSelect={(start) => workspace.openDocument(document.id, { block: start }, { replace: true })}
-                  />
-                ))}
-              </ul>
-            </aside>
+      {/* The comments lie over the text in a narrow tab, and beside it where the text keeps its room. */}
+      <div className="@container relative flex min-h-0 flex-1 print:block">
+        <div ref={body} className="flex min-w-0 flex-1 flex-col print:block">
+          {!indexed ? (
+            <div className="p-4">
+              <Notice tone={document.status === 'failed' || document.status === 'quarantined' ? 'bad' : 'info'}>
+                {document.status === 'quarantined'
+                  ? (document.error ?? 'The malware scan flagged this file. It is quarantined: not indexed, and nobody can open it.')
+                  : document.status === 'failed'
+                    ? (document.error ?? 'Indexing failed.')
+                    : notIndexedWords(document)}
+              </Notice>
+              {isImage(document) && openable && <ImagePreview src={fileUrl(document.id)} alt={document.filename} />}
+            </div>
+          ) : content.isPending ? (
+            <Loading />
+          ) : content.isError ? (
+            <div className="p-4">
+              <Notice tone="bad">Could not load the text: {content.error.message}</Notice>
+            </div>
+          ) : pages ? (
+            <Scrolled label={`Pages of ${document.filename}`} className="min-h-0 flex-1 overflow-y-auto">
+              <PagesView pageUrl={(page) => pageImageUrl(document.id, page)} content={content.data} focus={blockFocus} />
+            </Scrolled>
+          ) : isImage(document) ? (
+            <Scrolled label={`Text of ${document.filename}`} className="min-h-0 flex-1 overflow-y-auto">
+              <ImagePreview src={fileUrl(document.id)} alt={document.filename} />
+              <TextView blocks={content.data.blocks} focus={blockFocus} />
+            </Scrolled>
+          ) : isSheet(document) ? (
+            <SheetView label={`Rows of ${document.filename}`} blocks={content.data.blocks} focus={blockFocus} />
+          ) : (
+            <div className="flex min-h-0 flex-1 print:block">
+              {outlineOpen && outline.data && outline.data.length > 0 && (
+                <aside aria-label="Outline" className="w-60 shrink-0 overflow-y-auto border-r border-line bg-surface p-2 print:hidden">
+                  <p className="px-2 pt-1 pb-2 text-[11px] font-medium tracking-wide text-muted uppercase">Outline</p>
+                  <ul>
+                    {outline.data.map((section) => (
+                      <OutlineNode
+                        key={section.id}
+                        section={section}
+                        focusStart={focusStart}
+                        onSelect={(start) => workspace.openDocument(document.id, { block: start }, { replace: true })}
+                      />
+                    ))}
+                  </ul>
+                </aside>
+              )}
+              <Scrolled label={`Text of ${document.filename}`} className="min-w-0 flex-1 overflow-y-auto">
+                <TextView blocks={content.data.blocks} focus={blockFocus} />
+              </Scrolled>
+            </div>
           )}
-          <Scrolled label={`Text of ${document.filename}`} className="min-w-0 flex-1 overflow-y-auto">
-            <TextView blocks={content.data.blocks} focus={blockFocus} />
-          </Scrolled>
         </div>
-      )}
+        {commentsOpen && (
+          <CommentsPanel
+            document={document}
+            about={about}
+            onAbout={setAbout}
+            aboutNow={() => chosenIn(body.current) ?? aboutFocus()}
+            marked={threadId}
+            onClose={() => {
+              setCommentsShown(false)
+              setAbout(null)
+              if (threadId != null) onClearFocus()
+              heading.current?.focus()
+            }}
+          />
+        )}
+      </div>
     </div>
   )
 }

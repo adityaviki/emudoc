@@ -189,6 +189,10 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
         setMobilePane('library')
         go({ library: { folderId: null, q: '', reviews: whose } })
       },
+      showActivity() {
+        setMobilePane('library')
+        go({ library: { folderId: null, q: '', activity: true } })
+      },
       showDrafts() {
         setMobilePane('library')
         go({ library: { folderId: null, q: '', drafts: true } })

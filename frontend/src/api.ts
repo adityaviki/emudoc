@@ -290,6 +290,100 @@ export interface DocumentNote {
   changed_at: string | null
 }
 
+/** A member a comment mentions, by name as it is now; null once their account is gone. */
+export interface Mention {
+  id: number
+  name: string | null
+}
+
+/** A comment in a thread (backend/app/comments.py): its words as written, `<@id>` for each member it mentions, who wrote it (null once their account is gone), when, and when they last changed it. */
+export interface Comment {
+  id: number
+  author_id: number | null
+  author: string | null
+  text: string
+  created_at: string
+  edited_at: string | null
+  mentions: Mention[]
+}
+
+/** A thread of a document's comments, oldest first: what it is about (the passage while the document's reading holds it, the words quoted, their page and version) and whether it is resolved. */
+export interface Thread {
+  id: number
+  document_id: number
+  passage_id: number | null
+  quote: string | null
+  page: number | null
+  version: number
+  created_at: string
+  resolved_at: string | null
+  resolver: string | null
+  comments: Comment[]
+}
+
+/** What a new thread is about: a cited passage, the passage holding a block of the text, the words chosen there; none of these for the whole document. */
+export interface ThreadInput {
+  text: string
+  passage_id?: number
+  block?: number
+  quote?: string
+}
+
+/** A member a comment in a project may mention: one who sees it. */
+export interface Mentionable {
+  id: number
+  name: string
+}
+
+/** What a project's activity shows: `FEED_ACTIONS` in backend/app/activity.py. */
+export type ActivityAction =
+  | 'document_uploaded'
+  | 'document_version_uploaded'
+  | 'document_deleted'
+  | 'document_restored'
+  | 'folder_deleted'
+  | 'folder_restored'
+  | 'document_review_changed'
+  | 'document_assigned'
+  | 'comment_added'
+  | 'thread_resolved'
+  | 'draft_created'
+  | 'cross_checks_run'
+  | 'question_set_run'
+  | 'chat_shared'
+
+/** One thing done in a project, in names alone (backend/app/activity.py); what it leads to is set while it is there to open. */
+export interface ActivityEvent {
+  id: number
+  action: ActivityAction
+  occurred_at: string
+  /** The member who did it, by name as it is now; null for an automation, mail from outside and an account gone. */
+  actor: string | null
+  automation: string | null
+  /** How a document arrived without a member's upload: 'email', or the connected service. */
+  via: string | null
+  filename: string | null
+  document_id: number | null
+  folder: string | null
+  documents: number | null
+  thread_id: number | null
+  reply: boolean
+  review: ReviewState | null
+  assignee: string | null
+  names: string[]
+  name: string | null
+  questions: number | null
+  kind: DraftKind | null
+  /** The run, report, draft or chat to open. */
+  target_id: number | null
+}
+
+/** A page of a project's activity, newest first. */
+export interface ActivityPage {
+  events: ActivityEvent[]
+  next_before: number | null
+}
+
 /** A document of the same bytes as another, in another project the member sees (backend/app/duplicates.py). */
 export interface DocumentCopy {
   id: number
@@ -1392,7 +1486,7 @@ export interface Organization {
 }
 
 /** The names of the feature flags (FLAGS in backend/app/flags.py), so that a page that reads a misspelt one fails the build. */
-export type Flag = 'extraction_templates' | 'drafts' | 'email_in' | 'connectors' | 'share_links' | 'question_sets'
+export type Flag = 'extraction_templates' | 'drafts' | 'email_in' | 'connectors' | 'share_links' | 'question_sets' | 'comments'
 
 /** What the organisation page changes about the organisation (OrganizationChangeIn in backend/app/schemas.py). */
 export interface OrganizationChange {
@@ -1615,7 +1709,16 @@ export interface Member {
 }
 
 /** The kinds of notice (NOTICE_KINDS in backend/app/models.py, backend/app/notices.py). */
-export type NoticeKind = 'upload_indexed' | 'quota' | 'project_export' | 'checks_run' | 'review_assigned' | 'report_ready' | 'weekly_digest'
+export type NoticeKind =
+  | 'upload_indexed'
+  | 'quota'
+  | 'project_export'
+  | 'checks_run'
+  | 'review_assigned'
+  | 'report_ready'
+  | 'weekly_digest'
+  | 'mentioned'
+  | 'thread_replied'
 
 /** How one kind of notice is told: in the notification centre, by email, both or neither. */
 export interface NoticeChoice {
@@ -1860,6 +1963,10 @@ export type AuditAction =
   | 'chat_deleted'
   | 'chat_restored'
   | 'chat_purged'
+  | 'comment_added'
+  | 'comment_deleted'
+  | 'thread_resolved'
+  | 'thread_reopened'
   | 'database_restored'
 
 /** One row of the organisation's audit log, which its owners and admins read. */
@@ -2788,6 +2895,21 @@ export const api = {
   note: (id: number) => request<DocumentNote>(`/documents/${id}/note`),
   /** Saves the document's note whole; a blank one deletes it. */
   saveNote: (id: number, text: string) => request<DocumentNote>(`/documents/${id}/note`, json('PUT', { text })),
+  /** The document's threads of comments, oldest first, resolved ones too. */
+  threads: (id: number) => request<Thread[]>(`/documents/${id}/threads`),
+  /** Start a thread on the document; the members its comment mentions are told. */
+  startThread: (id: number, body: ThreadInput) => request<Thread>(`/documents/${id}/threads`, json('POST', body)),
+  /** Reply in a thread; those it mentions and the thread's earlier writers are told. */
+  reply: (threadId: number, text: string) => request<Thread>(`/threads/${threadId}/comments`, json('POST', { text })),
+  resolveThread: (threadId: number, resolved: boolean) => request<Thread>(`/threads/${threadId}`, json('PATCH', { resolved })),
+  /** Change the words of the member's own comment; whoever it newly mentions is told. */
+  changeComment: (commentId: number, text: string) => request<Thread>(`/comments/${commentId}`, json('PATCH', { text })),
+  deleteComment: (commentId: number) => request<void>(`/comments/${commentId}`, { method: 'DELETE' }),
+  /** The members a comment in the project may mention, by name. */
+  mentionable: (projectId: number) => request<Mentionable[]>(`/projects/${projectId}/mentionable`),
+  /** A page of what was done in the project, newest first, older than the item `before` names. */
+  activity: (projectId: number, before: number | null = null) =>
+    request<ActivityPage>(`/projects/${projectId}/activity${before == null ? '' : `?before=${before}`}`),
   /** The copies of the document's file in the other projects the member sees. */
   copies: (id: number) => request<{ copies: DocumentCopy[] }>(`/documents/${id}/copies`),
   /** A page of the duplicates report from the one `after` names, the first for null. */

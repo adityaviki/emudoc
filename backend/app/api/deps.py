@@ -104,6 +104,8 @@ from app.logs import about
 from app.models import (
     Automation,
     Chat,
+    Comment,
+    CommentThread,
     CrossCheck,
     Document,
     Draft,
@@ -597,21 +599,36 @@ def get_fact_check(check_id: int, session: SessionDep, account: AccountDep) -> F
     return _read_from(session, account, FactCheck, check_id, CHECK_GONE)
 
 
-def _read_from[T: (Fact, FactCheck)](
+def get_thread(thread_id: int, session: SessionDep, account: AccountDep) -> CommentThread:
+    """A thread of a document's comments (app/comments.py), under the same terms as a fact."""
+    return _read_from(session, account, CommentThread, thread_id, "Thread not found")
+
+
+def get_comment(comment_id: int, session: SessionDep, account: AccountDep) -> Comment:
+    """A comment in a thread, under the same terms as its thread."""
+    return _read_from(session, account, Comment, comment_id, "Comment not found")
+
+
+def _read_from[T: (Fact, FactCheck, CommentThread, Comment)](
     session: Session, account: Account, model: type[T], object_id: int, missing: str
 ) -> T:
+    query = select(model, Document.project_id, Document.deleted_at, Document.id)
+    if model is Comment:
+        query = query.join(CommentThread, CommentThread.id == Comment.thread_id)
+        document_id = CommentThread.document_id
+    else:
+        document_id = model.document_id
     found = session.execute(
-        select(model, Document.project_id, Document.deleted_at)
-        .join(Document, Document.id == model.document_id)
+        query.join(Document, Document.id == document_id)
         .join(Project, Project.id == Document.project_id)
         .where(model.id == object_id, visible_to(account))
     ).first()
     if found is None:
         raise HTTPException(404, missing)
-    row, project_id, deleted_at = found
+    row, project_id, deleted_at, document_id = found
     if deleted_at is not None:
         raise HTTPException(404, DOCUMENT_IN_TRASH)
-    about(project_id=project_id, document_id=row.document_id)
+    about(project_id=project_id, document_id=document_id)
     return row
 
 
@@ -620,6 +637,8 @@ DocumentDep = Annotated[Document, Depends(get_document)]
 FolderDep = Annotated[Folder, Depends(get_folder)]
 PassageDep = Annotated[Passage, Depends(get_passage)]
 ChatDep = Annotated[Chat, Depends(get_chat)]
+ThreadDep = Annotated[CommentThread, Depends(get_thread)]
+CommentDep = Annotated[Comment, Depends(get_comment)]
 
 
 def get_editable_project(project: ProjectDep, account: AccountDep, session: SessionDep) -> Project:

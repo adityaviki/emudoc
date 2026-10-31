@@ -104,6 +104,8 @@ def test_owners_and_admins_change_the_settings_and_each_change_is_audited(
         {"kind": "review_assigned", "app": True, "email": True},
         {"kind": "report_ready", "app": True, "email": True},
         {"kind": "weekly_digest", "app": False, "email": False},
+        {"kind": "mentioned", "app": True, "email": True},
+        {"kind": "thread_replied", "app": True, "email": True},
     ]
     assert settings_changed(session, org_id) == [
         {"setting": "language", "from": None, "to": "german"},
