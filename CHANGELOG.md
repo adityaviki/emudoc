@@ -60,6 +60,13 @@ Members:
 
 Operators:
 
+- Claude Opus 5.5 and Sonnet 5.5 answer in full as `AGENT_MODEL`. They return what a reply
+  writes beside a tool call as a progress note the API never hands back, and the agent was asked
+  to write its answer beside the call that suggests what to ask next, so about half their
+  answers came back empty or as one line about the suggestions. The agent now suggests them
+  before it writes the answer; the golden questions on Claude Opus 5.5 went from 7 of 13 to all
+  13.
+
 - `python -m app.maintenance golden` asks the agent thirteen questions about the sample
   project whose answers are known, over a copy of the sample in an organisation it makes and
   deletes, and grades each answer on the figures and names a right one says and the documents it

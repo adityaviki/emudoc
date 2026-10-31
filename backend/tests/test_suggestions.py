@@ -1,12 +1,13 @@
 """Suggested questions: an empty chat offers questions the model wrote from the project's
 catalogue once its documents settled, at most once an hour and never the sample's
-(app/suggestions.py), and an answer suggests the questions to ask next with its last words
-(`suggest_follow_ups` in app/agent/tools.py), which end it without another turn."""
+(app/suggestions.py), and an answer suggests the questions to ask next before its last reply
+(`suggest_follow_ups` in app/agent/tools.py), or with its last words, which end it without
+another turn."""
 
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from pydantic_ai.messages import TextPart, ToolCallPart, ToolReturnPart
+from pydantic_ai.messages import TextPart, ThinkingPart, ToolCallPart, ToolReturnPart
 from sqlalchemy import select, text
 
 from app.agent.loop import FOLLOWING, run_agent
@@ -284,7 +285,12 @@ def test_follow_ups_before_the_answer_are_kept_and_the_model_asked_for_it(
 ):
     services.llm.agent_turns.extend(
         [
-            FakeTurn(ToolCallPart("suggest_follow_ups", {"questions": FOLLOW_UPS[:1]}, "f1")),
+            # Claude Opus 5.5 returns what a reply writes beside a tool call as an empty
+            # thinking part, so whatever it wrote there is asked for again.
+            FakeTurn(
+                ThinkingPart(""),
+                ToolCallPart("suggest_follow_ups", {"questions": FOLLOW_UPS[:1]}, "f1"),
+            ),
             FakeTurn(TextPart("The notice period is 90 days.")),
         ]
     )
@@ -292,10 +298,12 @@ def test_follow_ups_before_the_answer_are_kept_and_the_model_asked_for_it(
     asked = ask(client, chat["id"], "What is the notice period?")
     answer(asked["answer"]["id"], services)
 
+    assert "before you write it" in services.llm.agent_prompts[0]
     assert len(services.llm.agent_requests) == 2
     returned = services.llm.agent_requests[1][-1].parts[0]
     assert isinstance(returned, ToolReturnPart)
     assert returned.content.startswith("The member sees these questions under your answer")
+    assert "Now write your whole answer as your last reply" in returned.content
     given = client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]
     assert (given["content"], given["follow_ups"]) == (
         "The notice period is 90 days.",
