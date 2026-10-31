@@ -1455,16 +1455,20 @@ has the last run's figures and what they mean for a deployment.
 configuration against a mocked provider; the backend suite checks that what it writes is what
 production asks for.
 
-CI (`.github/workflows/ci.yml`, GitHub Actions) runs all of it on every push to `main` and
-every pull request: the backend's lint, format and suite against Postgres, in three jobs of a
-third of the tests (the Pooler workflow runs the suite through pgbouncer in transaction mode every
-night and on a change to how the app talks to the database); the frontend's lint, unit tests and build; the browser
+CI (`.github/workflows/ci.yml`, GitHub Actions) holds all of it, each check run once for a
+change while the app is in development: the developer runs the backend's suite and the
+frontend's checks before merging, CI the rest once the change is on `main`, and Dependabot's
+pull requests run everything (deploying.md, "The repository's rules"). The checks: the backend's
+lint, format and suite against Postgres, in three jobs of a third of the tests (the Pooler
+workflow runs the suite through pgbouncer in transaction mode once a change to how the app talks
+to the database is on `main`); the frontend's lint, unit tests and build; the browser
 test, and the load test at a size that takes a minute; the image, built and then
 started by `.github/scripts/check-image.sh` (the migrations, the API and a worker, read-only,
 against the development database); the deployment's embeddings server, started from the
 compose file by `.github/scripts/check-embeddings.sh` and asked for the vectors in
-`.github/scripts/embeddings.json`, which are those the deployments' databases hold; the AWS
-configuration's format, validation and tests;
+`.github/scripts/embeddings.json`, which are those the deployments' databases hold (its own
+workflow, `embeddings.yml`, once a change to them is on `main`); the AWS configuration's
+format, validation and tests (`opentofu.yml`, likewise for `deploy/aws`);
 shellcheck on every shell script; actionlint on the workflow; and trivy on the OpenTofu and the
 Dockerfile, with what was looked at and accepted in `.trivyignore.yaml`, each with its reason;
 that uv, pnpm, Node and Python are named at the Dockerfile's versions wherever else they
@@ -1472,7 +1476,7 @@ appear (`.github/scripts/check-versions.sh`); and gitleaks over every commit, fo
 any `.env` file whatever it holds (`.gitleaks.toml`, which says what was accepted and why).
 On `main` it also scans the image it checked, pushes it, and once every check passed releases
 it on staging (`deploying.md`, "Releases from CI"). `main` takes a commit only through a pull
-request whose checks all passed (`.github/rulesets/main.json`), and a release to production
+request (`.github/rulesets/main.json`), and a release to production
 waits for its reviewer (`deploying.md`, "The repository's rules").
 
 A key that CI finds has been pushed, and has to be revoked. The pre-commit hook in `.githooks`
@@ -1483,8 +1487,8 @@ is turned on once per clone:
 git config core.hooksPath .githooks
 ```
 
-The dependencies and the images are audited for known vulnerabilities every morning and on
-every change to a manifest, a lock file, the Dockerfile or the deployment's compose files
+The dependencies and the images are audited for known vulnerabilities every Monday and once a
+change reaches `main` to a manifest, a lock file, the Dockerfile or the deployment's compose files
 (`.github/workflows/audit.yml`): every Python package `uv.lock` holds, the development tools'
 included, by pip-audit against OSV, where any known vulnerability fails; the frontend's by
 `pnpm audit`, where a high or critical one fails; the image, built from this commit, by trivy,

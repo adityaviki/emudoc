@@ -1,0 +1,43 @@
+# The embeddings server of deploy/compose.yml against the vectors the deployments' databases
+# hold (.github/scripts/check-embeddings.sh), run once a change to what it checks is on main, on
+# Dependabot's pull requests that change it (a new build of llama.cpp's server, every week) and
+# by hand; it was a job of CI on every push until 2026-10-31. Not one of main's required checks:
+# a red run is read and fixed like Audit's.
+name: Embeddings
+
+on:
+  push:
+    branches: [main]
+    paths: &checked
+      - deploy/compose.yml
+      - .github/scripts/check-embeddings.sh
+      - .github/scripts/embeddings.json
+      - .github/workflows/embeddings.yml
+  pull_request:
+    paths: *checked
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: embeddings-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # The compose file's embeddings service, started as a deployment starts it, against the
+  # vectors the deployments' databases hold and the refusal the app cuts a long input on
+  # (.github/scripts/check-embeddings.sh): Dependabot proposes a new build of llama.cpp's server
+  # every week, and nothing else here starts it. The developer's own pull requests run
+  # nothing (ci.yml).
+  embeddings:
+    name: Embeddings
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.user.login == 'dependabot[bot]' }}
+    runs-on: ${{ github.actor != 'dependabot[bot]' && vars.RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Vectors
+        run: .github/scripts/check-embeddings.sh

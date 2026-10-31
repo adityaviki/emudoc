@@ -1,6 +1,11 @@
-# The checks a change passes before it is called done (CLAUDE.md, "Commands"), on every push to
-# main and by hand on any branch (Actions, CI, Run workflow); on a pull request all but the
-# heavy jobs (`e2e` below says which), which Dependabot's pull requests run too. Each step
+# The checks a change passes before it is called done (CLAUDE.md, "Commands"), each run once
+# (the owner's, 2026-10-31, while the app is in development): the backend's suite and the
+# frontend's checks run on the developer's machine before a pull request is merged, and here only
+# by hand on any branch (Actions, CI, Run workflow) and on Dependabot's pull requests, whose
+# updates nobody checked yet; the rest, the heavy jobs, run on a push to main, by hand and on
+# Dependabot's pull requests. The developer's own pull requests run nothing. OpenTofu and the
+# embeddings server have workflows of their own, run when what they check changes
+# (opentofu.yml, embeddings.yml). Each step
 # runs the command a developer would, so a red step is reproduced by running it on a checkout.
 # Actions are pinned by commit and the tools that come as images by digest: a moved tag changes
 # nothing here until this file does. A push to main also pushes the image it checked and, once
@@ -43,6 +48,9 @@ jobs:
     # since what it brings in is nobody's code here yet. The other jobs run where this
     # one does.
     runs-on: &runner ${{ github.actor != 'dependabot[bot]' && vars.RUNNER || 'ubuntu-24.04' }}
+    # Checked on the developer's machine before the merge (CLAUDE.md), so here by hand and on
+    # Dependabot's pull requests alone; Frontend likewise.
+    if: &checked_here ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]' }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -94,6 +102,7 @@ jobs:
 
   frontend:
     name: Frontend
+    if: *checked_here
     runs-on: *runner
     timeout-minutes: 10
     defaults:
@@ -135,10 +144,10 @@ jobs:
   # and the same answer every run. On a failure the report and the trace are kept for a week.
   e2e:
     name: End to end
-    # The heavy jobs (this one, the load test, the image, the embeddings and OpenTofu) run on a
-    # push to main, by hand, and on Dependabot's pull requests, whose updates they are what
-    # checks; not on the developer's own pull requests, which are merged once the checks of
-    # CLAUDE.md pass on the developer's machine, main's run checking the same tree after.
+    # The heavy jobs (this one, the load test, the image, the secrets and the scripts) run once a
+    # change is on main, by hand, and on Dependabot's pull requests, whose updates they check;
+    # never on the developer's own pull requests, which are merged once the checks of CLAUDE.md
+    # pass on the developer's machine.
     if: &heavy ${{ github.event_name != 'pull_request' || github.event.pull_request.user.login == 'dependabot[bot]' }}
     runs-on: *runner
     timeout-minutes: 15
@@ -266,68 +275,12 @@ jobs:
         if: env.PUSH == 'true'
         run: deploy/aws/push-image.sh "emudoc:$GITHUB_SHA"
 
-  # The compose file's embeddings service, started as a deployment starts it, against the
-  # vectors the deployments' databases hold and the refusal the app cuts a long input on
-  # (.github/scripts/check-embeddings.sh): Dependabot proposes a new build of llama.cpp's server
-  # every week, and nothing else here starts it.
-  embeddings:
-    name: Embeddings
-    if: *heavy
-    runs-on: *runner
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Vectors
-        run: .github/scripts/check-embeddings.sh
-
-  opentofu:
-    name: OpenTofu
-    if: *heavy
-    runs-on: *runner
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
-        with:
-          tofu_version: 1.12.6
-          tofu_wrapper: false
-      # The AWS provider is some 700 MB unpacked and every root needs it: one download for all
-      # of them, kept between runs for as long as the lock files name the same versions.
-      - name: Provider cache
-        run: |
-          mkdir -p "$HOME/.cache/opentofu"
-          echo "TF_PLUGIN_CACHE_DIR=$HOME/.cache/opentofu" >>"$GITHUB_ENV"
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/opentofu
-          key: opentofu-${{ hashFiles('deploy/aws/*/.terraform.lock.hcl', 'deploy/aws/modules/environment/.terraform.lock.hcl') }}
-      - name: Format
-        run: tofu fmt -check -diff -recursive deploy/aws
-      # Without the state's bucket, which validating needs no more than the KMS key the
-      # roots' encryption names.
-      - name: Validate
-        run: |
-          for root in account staging production; do
-            tofu -chdir="deploy/aws/$root" init -backend=false -input=false
-            tofu -chdir="deploy/aws/$root" validate
-          done
-      # The module and the account root against a mocked AWS: no account, no credentials. The
-      # account root was set up by the step before.
-      - name: Test
-        run: |
-          tofu -chdir=deploy/aws/modules/environment init -input=false
-          tofu -chdir=deploy/aws/modules/environment test
-          tofu -chdir=deploy/aws/account test
-
   # A key or a .env file in any commit, gitleaks' rules and .gitleaks.toml's. Found here, it has
   # been pushed: revoke the key first, then rewrite the history. The pre-commit hook finds it
   # before the commit.
   secrets:
     name: Secrets
+    if: *heavy
     runs-on: *runner
     timeout-minutes: 10
     steps:
@@ -345,6 +298,7 @@ jobs:
 
   scripts:
     name: Scripts and configuration
+    if: *heavy
     runs-on: *runner
     timeout-minutes: 10
     steps:
@@ -412,7 +366,8 @@ jobs:
   # workflow's, by hand, and takes only what ran here.
   staging:
     name: Staging
-    needs: [backend, frontend, e2e, loadtest, image, embeddings, opentofu, secrets, scripts]
+    # What runs on main: the suite and the frontend were checked before the merge (above).
+    needs: [e2e, loadtest, image, secrets, scripts]
     if: >-
       github.event_name == 'push' && github.ref == 'refs/heads/main'
       && vars.AWS_PUSH_ROLE != '' && vars.AWS_STAGING_ROLE != ''
