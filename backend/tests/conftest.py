@@ -5,6 +5,7 @@ import hashlib
 import io
 import ipaddress
 import json
+import logging
 import math
 import os
 import re
@@ -145,6 +146,9 @@ os.environ["PWNED_PASSWORDS_URL"] = ""
 os.environ["SMTP_URL"] = os.environ["RESEND_API_KEY"] = ""
 os.environ["RESEND_WEBHOOK_SECRET"] = os.environ["MAIL_EVENTS_QUEUE"] = ""
 os.environ["INBOUND_DOMAIN"] = os.environ["INBOUND_MAIL_QUEUE"] = ""
+# No model has a price, whatever `.env` says; a test sets its own with
+# `monkeypatch.setattr(get_settings(), "model_prices", …)`.
+os.environ["MODEL_PRICES"] = ""
 # Nothing is sold, whatever `.env` says; tests/test_billing.py turns billing on against
 # `FakeStripe`.
 os.environ["STRIPE_SECRET_KEY"] = os.environ["STRIPE_WEBHOOK_SECRET"] = ""
@@ -179,6 +183,7 @@ from pydantic_ai.messages import (  # noqa: E402
 from pydantic_ai.usage import RequestUsage, RunUsage  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
+from app import config as app_config  # noqa: E402
 from app.accounts import Account, local_account  # noqa: E402
 from app.api.deps import SAME_APP_HEADER, SessionDep, get_account  # noqa: E402
 from app.config import get_settings  # noqa: E402
@@ -209,6 +214,11 @@ from app.scanning import ScanError  # noqa: E402
 from app.storage import original_key, storage_from_settings  # noqa: E402
 from app.suggestions import SuggestedQuestions  # noqa: E402
 from app.switches import switched_off  # noqa: E402
+
+# A start (`prepare`) or a maintenance command copies `.env` into the environment in development:
+# in the suite it copies nothing, so a developer's model keys reach no test, which call no
+# provider. tests/test_llm.py points it at a file of its own.
+app_config.ENV_FILE = STORAGE_ROOT / "no.env"
 
 # The standard test string every scanner flags, in two halves so that this file itself is not
 # flagged by one; a test writes it whole into a file to have that file quarantined.
@@ -974,6 +984,16 @@ def _no_built_frontend(monkeypatch):
     # pointed at a directory of its own), whether frontend/dist was built or not, and while a
     # build that runs beside the suite is rewriting it.
     monkeypatch.setattr("app.main.FRONTEND_DIST", Path(__file__).parent / "no-frontend-build")
+
+
+@pytest.fixture(autouse=True)
+def _root_logging():
+    # A maintenance command quiets the root logger to its errors (`main` in app/maintenance.py),
+    # which would leave a later test's `caplog` nothing; each test starts at the level before.
+    root = logging.getLogger()
+    level = root.level
+    yield
+    root.setLevel(level)
 
 
 @pytest.fixture

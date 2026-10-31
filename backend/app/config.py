@@ -25,6 +25,9 @@ from app.network import (
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 ROOT_DIR = BACKEND_DIR.parent
+# A developer's settings and keys, which development copies into the environment
+# (`export_env_file`); the test suite points it at no file.
+ENV_FILE = ROOT_DIR / ".env"
 
 Effort = Literal["", "minimal", "low", "medium", "high", "xhigh"]
 
@@ -257,7 +260,7 @@ class Settings(BaseSettings):
     account of the request, never here.
     """
 
-    model_config = SettingsConfigDict(env_file=ROOT_DIR / ".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")
 
     # How the process is run. In development, `.env` is the place for everything, the model
     # keys included (see `export_env_file`). In production the process is configured by its
@@ -1378,6 +1381,6 @@ def export_env_file(settings: Settings) -> None:
     """
     if settings.environment != "development":
         return
-    for name, value in dotenv_values(ROOT_DIR / ".env").items():
+    for name, value in dotenv_values(ENV_FILE).items():
         if value:
             os.environ.setdefault(name, value)

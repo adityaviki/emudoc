@@ -396,7 +396,7 @@ def env_file_in(tmp_path, monkeypatch) -> dict[str, str]:
     )
     environ = {"OPENROUTER_API_KEY": "from-shell"}
     monkeypatch.setattr(os, "environ", environ)
-    monkeypatch.setattr("app.config.ROOT_DIR", tmp_path)
+    monkeypatch.setattr("app.config.ENV_FILE", tmp_path / ".env")
     return environ
 
 

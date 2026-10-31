@@ -60,6 +60,14 @@ Members:
 
 Operators:
 
+- `python -m app.maintenance fact-accuracy` scores the facts `INDEX_MODEL` reads: it indexes the
+  sample's files with extraction templates on, in an organisation it makes and deletes, and
+  compares the facts read from the contract, the invoices and the price list with values
+  labelled by hand, a field at a time. It prints each field's recall and precision with what was
+  missed or read wrong, records nothing as an organisation's usage, and exits with 1 when a field
+  was not read as labelled. A run costs about a cent on Claude Haiku 5.5 (deploying.md, "The
+  facts read").
+
 - Claude Opus 5.5 and Sonnet 5.5 answer in full as `AGENT_MODEL`. They return what a reply
   writes beside a tool call as a progress note the API never hands back, and the agent was asked
   to write its answer beside the call that suggests what to ask next, so about half their
