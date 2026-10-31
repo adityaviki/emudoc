@@ -131,16 +131,17 @@ services:
 
   # Downloads the embedding model's weights into the volume when they are not there yet, and
   # checks them against their SHA-256 first; the file is named by it, so other weights are
-  # another file, and the server is started again with them. The default is nomic-embed-text
-  # v1.5 at 16 bits as Nomic published it, at a fixed commit (deploying.md, "Beside the
-  # app": its vectors are those of Ollama's nomic-embed-text); another model is named with
+  # another file, and the server is started again with them. The default is Google's
+  # EmbeddingGemma 300M at 8 bits as llama.cpp's own organisation published it, at a fixed
+  # commit, under the Gemma Terms of Use (deploying.md, "Beside the app": its vectors are
+  # those of Ollama's embeddinggemma); another model is named with
   # `export EMBEDDING_WEIGHTS_URL=… EMBEDDING_WEIGHTS_SHA256=…` beside EMUDOC_IMAGE, as well as
   # EMBEDDING_MODEL and the rest in the env file. The image is the server's, which has curl.
   embedding-model:
     image: ghcr.io/ggml-org/llama.cpp:server@sha256:f41d47eee678c02656eefc9ed8cce76cab584aa7032805eeef0e6639fcfda485
     environment:
-      EMBEDDING_WEIGHTS_URL: ${EMBEDDING_WEIGHTS_URL:-https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/0188c9bf409793f810680a5a431e7b899c46104c/nomic-embed-text-v1.5.f16.gguf}
-      EMBEDDING_WEIGHTS_SHA256: &weights ${EMBEDDING_WEIGHTS_SHA256:-f7af6f66802f4df86eda10fe9bbcfc75c39562bed48ef6ace719a251cf1c2fdb}
+      EMBEDDING_WEIGHTS_URL: ${EMBEDDING_WEIGHTS_URL:-https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF/resolve/0f741b5a6585bd53aeb15cd1372c56f2a0f65e12/embeddinggemma-300M-Q8_0.gguf}
+      EMBEDDING_WEIGHTS_SHA256: &weights ${EMBEDDING_WEIGHTS_SHA256:-b5ce9d77a3fc4b3b39ccb5643c36777911cc4eb46a66962eadfa3f5f60490d63}
     entrypoint: [/bin/sh, -c]
     command:
       - |
@@ -176,16 +177,17 @@ services:
     user: 65534:65534
     entrypoint: [/bin/sh, -c]
     # Embeddings alone, without the chat page or the slots' state, and warnings and errors
-    # alone in the log, which otherwise takes lines for every input. The batches hold 8,192
-    # tokens, more than any input the app sends (6,000 characters, which nomic-embed-text reads
-    # as a token each at most): with the default 512 an input past them is refused as a server
-    # error, which the app would try again, where past the model's context (2,048 tokens) it is
-    # refused as such, and the app cuts it (app/embeddings.py). The container holds about
-    # 500 MB with nomic-embed-text.
+    # alone in the log, which otherwise takes lines for every input. The batches hold 24,576
+    # tokens, more than any input the app sends (6,000 characters, which EmbeddingGemma reads
+    # as four tokens each at most: a character it has no token for is read as its UTF-8
+    # bytes): an input past the batch is refused as a server error, which the app would try
+    # again, where past the model's context (2,048 tokens) it is refused as such, and the app
+    # cuts it (app/embeddings.py). The larger batch takes no more memory: the container holds
+    # about 200 MB with EmbeddingGemma either way.
     command:
       - >-
         exec /app/llama-server --model "/models/$$EMBEDDING_WEIGHTS_SHA256.gguf" --embeddings
-        --batch-size 8192 --ubatch-size 8192 --no-webui --no-slots --log-verbosity 2
+        --batch-size 24576 --ubatch-size 24576 --no-webui --no-slots --log-verbosity 2
     volumes:
       - embedding-model:/models:ro
     read_only: true

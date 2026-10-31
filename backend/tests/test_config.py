@@ -935,13 +935,16 @@ READ_BY_NAME = re.compile(r"""(?:environ\.get\(|environ\[|getenv\()\s*["']([A-Z]
 
 
 def listed() -> dict[str, tuple[str, str]]:
-    """The variables the guide lists, each with its row's default and its production cell."""
+    """The variables the guide lists, each with its row's default and its production cell. A
+    cell writes a `|` of its own as `\\|`, as a Markdown table must, even in code (the
+    embedding prefixes'), and is read with the `|` it shows."""
     section = GUIDE.read_text().split("\n## Every setting\n", 1)[1].split("\n## ", 1)[0]
     rows: dict[str, tuple[str, str]] = {}
     for line in section.splitlines():
         if not line.startswith("| `"):
             continue
-        names, default, production, _what = (cell.strip() for cell in line.strip("|").split("|"))
+        cells = re.split(r"(?<!\\)\|", line.strip().strip("|"))
+        names, default, production, _what = (cell.strip().replace("\\|", "|") for cell in cells)
         for name in re.findall(r"`([A-Z][A-Z0-9_]*)`", names):
             rows[name] = (default, production)
     return rows
