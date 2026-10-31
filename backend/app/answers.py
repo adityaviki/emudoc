@@ -146,7 +146,8 @@ class Reply:
     follow_ups: list[str] = field(default_factory=list)
     notice: str | None = None
     error: str | None = None
-    # Length of `content` when the current model turn began, to discard a turn that is retried.
+    # Length of `content` when the current model turn began, to discard a turn that is retried
+    # or that calls a step.
     turn_start: int = 0
 
     def apply(self, event: dict[str, Any]) -> None:
@@ -161,6 +162,9 @@ class Reply:
                 self.draft = self.notice = self.error = None
                 self.turn_start = 0
             case "tool_call":
+                # What the model wrote beside a step was its note to itself, never the answer,
+                # which a turn without one writes (`run_agent` in app/agent/loop.py).
+                self.content = self.content[: self.turn_start]
                 self.steps.append(
                     {
                         "id": event["id"],

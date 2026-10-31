@@ -119,6 +119,14 @@ def run_agent(
     of its own; and whatever a call leaves open, or a failure inside it, reaches neither the
     next call nor the caller's session.
 
+    A turn's text streams as `text` events before the loop knows whether the turn calls a tool.
+    The answer is the text of a turn that calls no step: what a turn writes beside a step's call
+    is the model's note to itself ("…Read the invoices directly."), which Claude Opus 5.5 sends
+    as text when it is a sentence or two, and the step's `tool_call` takes it out of the answer
+    again, as a `retry` does a reissued turn's (`Reply.apply` in app/answers.py, `applyEvent` in
+    frontend/src/chat.ts). So the answer streams as it is written, and a note shows only until
+    its call arrives.
+
     `usage` is filled with each model call as it is answered, so a caller that leaves the
     loop before its `done` event still knows what the calls so far cost (app/usage.py); one
     that leaves mid-turn closes the loop first, which counts the call it was in.

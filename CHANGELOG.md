@@ -13,6 +13,20 @@ to: `## YYYY-MM-DD` a day (or `## YYYY-MM-DD to YYYY-MM-DD`), the newest first, 
 and `Operators:`, each a list of `- ` entries whose lines go on indented by two spaces, a day's
 newest entry first.
 
+## 2026-11-01
+
+Members:
+
+- An answer no longer starts with a note the model wrote to itself on its way, such as "Read the
+  invoices directly.", run into its first words. What the model writes as it takes a step, such
+  as reading a document, shows only until the step starts, and the answer is what it writes
+  once it has looked.
+
+Operators:
+
+- `python -m app.maintenance golden` grades and judges each answer as members read it, without
+  the note the model wrote beside a step.
+
 ## 2026-10-31
 
 Members:

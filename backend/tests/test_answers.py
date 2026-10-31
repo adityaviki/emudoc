@@ -115,6 +115,27 @@ def test_a_follower_gets_the_events_as_they_are_written(client, services, indexe
     ]
 
 
+def test_what_the_model_writes_beside_a_step_is_left_out_of_the_answer(client, services, indexed):
+    # Claude Opus 5.5 sends a note of a sentence or two beside a tool call as text (the golden
+    # run of 2026-10-31), and the answer began with it run into its first words.
+    note = "Line items extracted only 8 facts. Read the invoices directly."
+    services.llm.agent_turns = [
+        FakeTurn(TextPart(note), ToolCallPart("search", {"query": "unit price"}, "call_1")),
+        FakeTurn(TextPart("Yes, all three invoices use the price-list unit prices.")),
+    ]
+    chat = new_chat(client, indexed.project_id)
+    asked = ask(client, chat["id"], "Do the invoices use the price list?")
+    answer(asked["answer"]["id"], services)
+
+    # The note streamed as it came, and its call took it back out of the answer.
+    events = follow(client, chat["id"], asked["answer"]["id"])
+    assert events[0] == {"type": "text", "text": note}
+    assert events[1]["type"] == "tool_call"
+    given = client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]
+    assert given["content"] == "Yes, all three invoices use the price-list unit prices."
+    assert [step["name"] for step in given["steps"]] == ["search"]
+
+
 def test_a_stop_mid_answer_keeps_what_arrived_and_ends_the_run(
     client, session, services, indexed, caplog
 ):
