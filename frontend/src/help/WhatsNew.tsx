@@ -7,6 +7,7 @@ import type { ChangesDay } from '../api.ts'
 import { MeContext, setSignedIn } from '../auth.ts'
 import { Markdown } from '../components/Markdown.tsx'
 import { Button, Loading, Notice } from '../components/ui.tsx'
+import { usePageTitle } from '../hooks.ts'
 import { dayWords, unreadPerDay, unreadWords } from './changes.ts'
 
 /**
@@ -20,6 +21,7 @@ export function WhatsNew() {
   const me = useContext(MeContext)
   const queryClient = useQueryClient()
   const [unread] = useState(me?.changes_unread ?? 0)
+  usePageTitle("What's new · Emudoc")
   const changes = useInfiniteQuery({
     queryKey: ['changelog'],
     queryFn: ({ pageParam }) => api.changelog(pageParam),

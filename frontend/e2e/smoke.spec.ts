@@ -10,7 +10,8 @@ import { INBOUND_DOMAIN, chooseFlag, makeOperator, movePlan, receiveMail } from 
 import { printed } from './print.ts'
 import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, releaseTurns } from './standin.ts'
 
-// The member's way through the app, end to end: sign up through the link the app mails, find the
+// The member's way through the app, end to end: read the home page and the plans a visitor is
+// shown, sign up through the link the app mails, find the
 // organisation's first steps listed, skip the tour the first project shows, ask the sample
 // project the organisation starts with one of its questions, print its contract's pages, make a project, upload a contract,
 // begun offline and waiting for the connection, wait for it to be indexed, find it by searching, ask about it, stop the
@@ -89,6 +90,26 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   // The organisation page's webhooks, and the secret of the one added, which signs its events.
   const webhooks = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Webhooks', exact: true }) })
   let hookSecret = ''
+
+  await test.step('read the home page and the plans as a visitor', async () => {
+    // Without a session, / is the public site's home page: plain HTML the server fills in.
+    const site = page.getByRole('navigation', { name: 'Site' })
+    await page.goto('/')
+    await expect(page.getByRole('heading', { level: 1, name: /^Ask your documents/ })).toBeVisible()
+    await expectAccessible(page, 'the home page')
+    await site.getByRole('link', { name: 'Pricing' }).click()
+    await expect(page).toHaveURL(/\/pricing$/)
+    await expect(page.getByRole('heading', { level: 1, name: 'Plans and pricing' })).toBeVisible()
+    // The plans' own figures, and nothing sold on this run, so the paid plans are on request.
+    await expect(page.getByRole('row', { name: /^Pages read a month 200 5,000 / })).toBeVisible()
+    await expect(page.getByText('On request', { exact: true })).toHaveCount(2)
+    await expectAccessible(page, 'the plans page')
+    await site.getByRole('link', { name: 'Sign in' }).click()
+    await expect(page).toHaveURL(/\/login$/)
+    // The sign-in page's logo leads a visitor back to the site.
+    await page.getByRole('link', { name: 'Emudoc' }).click()
+    await expect(page.getByRole('heading', { level: 1, name: /^Ask your documents/ })).toBeVisible()
+  })
 
   await test.step('sign up', async () => {
     // A new address every run, so that a server kept from an earlier run takes it too.

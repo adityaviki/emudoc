@@ -1,6 +1,6 @@
 import { Markdown } from '../components/Markdown.tsx'
 import { Loading, Notice } from '../components/ui.tsx'
-import { useLegal } from '../hooks.ts'
+import { useLegal, usePageTitle } from '../hooks.ts'
 
 /**
  * The terms of service or the privacy policy, public so that they can be read before signing
@@ -10,6 +10,7 @@ import { useLegal } from '../hooks.ts'
  */
 export function LegalPage({ document }: { document: 'terms' | 'privacy' }) {
   const legal = useLegal()
+  usePageTitle(document === 'terms' ? 'Terms of service · Emudoc' : 'Privacy policy · Emudoc')
   return (
     <div className="w-full max-w-2xl">
       {legal.isPending ? (

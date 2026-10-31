@@ -50,6 +50,25 @@ export function usePrintTitle(title: string) {
   }, [title])
 }
 
+/**
+ * Names a page anyone reads (the help, the terms, the sign-in pages) in the browser's tab and to a
+ * search engine, which reads the title and the description the page shows once its script ran:
+ * "Plans and usage · Emudoc help", with the article's summary. The page's own again once it goes.
+ */
+export function usePageTitle(title: string | undefined, description?: string) {
+  useEffect(() => {
+    if (!title) return
+    const meta = window.document.querySelector<HTMLMetaElement>('meta[name="description"]')
+    const before = { title: window.document.title, description: meta?.content }
+    window.document.title = title
+    if (meta && description) meta.content = description
+    return () => {
+      window.document.title = before.title
+      if (meta && before.description !== undefined) meta.content = before.description
+    }
+  }, [title, description])
+}
+
 export function useFolders(projectId: number) {
   return useQuery({ queryKey: ['folders', projectId], queryFn: () => api.folders(projectId) })
 }

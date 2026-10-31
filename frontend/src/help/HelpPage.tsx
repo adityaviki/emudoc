@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router'
 import type { HelpArticle } from '../api.ts'
 import { Markdown } from '../components/Markdown.tsx'
 import { FIELD, Loading, Notice } from '../components/ui.tsx'
-import { useHelp } from '../hooks.ts'
+import { useHelp, usePageTitle } from '../hooks.ts'
 import { matching } from './articles.ts'
 
 /**
@@ -20,12 +20,13 @@ export function HelpPage() {
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [slug])
+  const article = slug ? help.data?.articles.find((found) => found.slug === slug) : undefined
+  usePageTitle(slug ? article && `${article.title} · Emudoc help` : 'Help · Emudoc', article?.summary)
 
   if (help.isPending) return <Loading />
   if (help.isError) return <Notice tone="bad">{help.error.message}</Notice>
   const { articles, support_email: address } = help.data
   if (!slug) return <Contents articles={articles} address={address} />
-  const article = articles.find((found) => found.slug === slug)
   return (
     <div className="w-full max-w-2xl">
       <Link to="/help" className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted hover:text-ink">

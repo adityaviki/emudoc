@@ -601,6 +601,11 @@ class Settings(BaseSettings):
     # Where the app is reached, for the links in emails and the OAuth redirect URI. Empty takes
     # the origin of the request that needs it, which is right in development.
     app_url: str = ""
+    # Whether search engines are asked to list the public pages (app/site.py): the home page,
+    # the plans, the help, the terms and the API reference, in robots.txt and the sitemap. Off,
+    # robots.txt turns every crawler away and every page says not to be listed, as a staging
+    # deployment or one on a machine of its own should, so it is on only where it is said to be.
+    search_engines: bool = False
     session_days: int = 30
     # The client addresses the operator's area (app/operators.py) answers, as networks or single
     # addresses separated by commas, read from the proxy's X-Forwarded-For as uvicorn believes

@@ -16,6 +16,8 @@
 !frontend/index.html
 !frontend/operator.html
 !frontend/reference.html
+!frontend/home.html
+!frontend/pricing.html
 !frontend/public/
 !frontend/src/
 frontend/src/**/*.test.ts

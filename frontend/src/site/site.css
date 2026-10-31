@@ -1,0 +1,14 @@
+/* The public site's stylesheet (home.html, pricing.html): the members' colours and type, and
+   the utilities its pages and their header and footer use, read from those files alone so that
+   the page's few rules are not the whole app's. */
+@import 'tailwindcss' source(none);
+@import '../theme.css';
+
+@source '../../home.html';
+@source '../../pricing.html';
+@source './';
+
+/* The site reads at a size for reading, where the app is dense. */
+body {
+  font-size: 16px;
+}

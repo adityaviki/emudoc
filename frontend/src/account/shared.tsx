@@ -22,10 +22,12 @@ export function AuthLayout() {
         <ThemeToggle />
       </div>
       <main className="flex flex-1 flex-col items-center px-4 pt-6 pb-10 sm:pt-12">
-        <Link to="/" className="mb-6 flex items-center gap-2 rounded-md text-lg font-semibold tracking-tight">
+        {/* A page load, not the router's: / is the public site's home page to a visitor and the
+            projects to a member, as the backend decides by the session (backend/app/site.py). */}
+        <a href="/" className="mb-6 flex items-center gap-2 rounded-md text-lg font-semibold tracking-tight">
           <img src="/favicon.svg" alt="" className="size-7" />
           Emudoc
-        </Link>
+        </a>
         <Outlet />
       </main>
       <LegalLinks />
@@ -33,7 +35,10 @@ export function AuthLayout() {
   )
 }
 
-/** The help, the terms, the privacy policy and the subprocessor list, at the foot of a page. */
+/**
+ * The plans, the help, the terms, the privacy policy and the subprocessor list, at the foot of a
+ * page. The plans are the public site's page, not the router's, so theirs is a plain link.
+ */
 export function LegalLinks() {
   const links = [
     { to: '/help', label: 'Help' },
@@ -43,6 +48,9 @@ export function LegalLinks() {
   ]
   return (
     <nav className="flex flex-wrap justify-center gap-x-4 gap-y-1 px-4 pb-6 text-xs text-muted">
+      <a href="/pricing" className="hover:text-ink hover:underline">
+        Pricing
+      </a>
       {links.map((link) => (
         <Link key={link.to} to={link.to} className="hover:text-ink hover:underline">
           {link.label}
