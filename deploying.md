@@ -921,6 +921,22 @@ figure for a wrong reason passes, and "no" is in many sentences; a model's judge
 answer, and of whether a cited passage says what the sentence citing it says, are the next
 steps of the quality program.
 
+**The facts read.** `python -m app.maintenance fact-accuracy` asks the same of `INDEX_MODEL`:
+it indexes the sample's files as uploads, with extraction templates on, in an organisation of its
+own that it deletes after, and scores the facts read from the contract, the three invoices and
+the price list against values labelled by hand (`backend/app/fact_accuracy.py`), a field of the
+built-in template of each kind at a time: its recall, the labelled values some fact of the field
+holds, and its precision, the field's facts that hold a labelled value, a field the document does
+not state counting any fact of it wrong. A fact holds a value by its figure, its day or its words
+in one of the ways listed. It prints each field's verdict, with the values missed and the facts
+read wrong, what the reading cost, and the recall and precision over every field, and exits with
+1 when a field was not read as labelled. On 2026-10-31 Claude Haiku 5.5 read 71 to 73 of the 79
+values, every fact it read right, for USD 0.01 a run; what it missed changed from run to run (an
+invoice's unit prices and quantities, which its line items held, or the contract's early
+termination rates). Run it after changing `INDEX_MODEL` or its fallback, the enrich stage's
+prompts or a built-in template; a right reading worded in a way the labels do not list gets its
+way added there.
+
 **Every morning, from GitHub.** The Models workflow (`.github/workflows/models.yml`) runs the
 same command at 05:47 UTC, and the golden questions beside it in a job of their own against the
 development compose file's database (no embeddings endpoint runs there, so their search matches

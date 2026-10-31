@@ -25,6 +25,9 @@ should show in the sample, or when the files change.
 import hashlib
 import json
 import logging
+import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from functools import cache
@@ -284,22 +287,50 @@ def _date(value: str | None) -> date | None:
 
 
 def build_sample(settings: Settings, llm: LLM | None = None) -> dict[str, Any]:
-    """What `index.json` holds: the sample's files indexed by the pipeline as an upload is, by
-    `llm` or the models the settings name, in an organisation made for the run and deleted after
-    it with what the run recorded of its usage, so that the calls are no organisation's.
+    """What `index.json` holds: the sample's files indexed by `llm` or the models the settings
+    name (`indexed_sample`). Refused with `RuntimeError` without a model, or when a stage did not
+    do its work."""
+    with indexed_sample(settings, llm, "Sample build") as (org_id, ids):
+        with SessionLocal() as session:
+            documents = [_indexed(session, session.get(Document, id_)) for id_ in ids]
+            models = session.scalars(
+                select(UsageEvent.model)
+                .where(UsageEvent.org_id == org_id, UsageEvent.model.is_not(None))
+                .distinct()
+                .order_by(UsageEvent.model)
+            ).all()
+    return {
+        "built": {"on": datetime.now(UTC).date().isoformat(), "models": list(models)},
+        "documents": documents,
+    }
+
+
+@contextmanager
+def indexed_sample(
+    settings: Settings, llm: LLM | None, name: str, flags: dict[str, bool] | None = None
+) -> Iterator[tuple[int, list[int]]]:
+    """The sample's files indexed by the pipeline as an upload is, by `llm` or the models the
+    settings name, in an organisation called `name` made for the run with the feature `flags`
+    chosen for it, yielding its id and the documents' in the files' order; the organisation is
+    deleted after with what the run recorded of its usage, so that the calls are no
+    organisation's.
 
     The vectors are left out, so the embed stage is marked done before the run, which then never
     asks the embeddings endpoint; nor the scanner, since the files are the app's own. Refused
-    with `RuntimeError` without a model, or when a stage did not do its work.
+    with `RuntimeError` without a model.
     """
     llm = llm or LLM(settings)
     if not llm.available:
         raise RuntimeError(f"The sample is indexed by a model, and none answers: {llm.problem()}")
-    with TemporaryDirectory(prefix="emudoc-sample-") as directory:
+    slug = re.sub(r"\W+", "-", name.lower())
+    with TemporaryDirectory(prefix=f"emudoc-{slug}-") as directory:
         services = Services(llm, Embedder(settings), LocalStorage(Path(directory)))
         with SessionLocal() as session:
             organization = Organization(
-                name="Sample build", slug=f"sample-build-{uuid4().hex[:12]}", plan="enterprise"
+                name=name,
+                slug=f"{slug}-{uuid4().hex[:12]}",
+                plan="enterprise",
+                flags=dict(flags or {}),
             )
             session.add(organization)
             session.flush()
@@ -312,22 +343,11 @@ def build_sample(settings: Settings, llm: LLM | None = None) -> dict[str, Any]:
         try:
             for document_id in ids:
                 process_document(document_id, services)
-            with SessionLocal() as session:
-                documents = [_indexed(session, session.get(Document, id_)) for id_ in ids]
-                models = session.scalars(
-                    select(UsageEvent.model)
-                    .where(UsageEvent.org_id == org_id, UsageEvent.model.is_not(None))
-                    .distinct()
-                    .order_by(UsageEvent.model)
-                ).all()
+            yield org_id, ids
         finally:
             with SessionLocal() as session:
                 session.execute(delete(Organization).where(Organization.id == org_id))
                 session.commit()
-    return {
-        "built": {"on": datetime.now(UTC).date().isoformat(), "models": list(models)},
-        "documents": documents,
-    }
 
 
 def _files() -> list[Path]:

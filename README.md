@@ -1568,7 +1568,10 @@ names them and holds their keys: `python -m app.maintenance models` against ever
 fallback the deployment names, and `python -m app.maintenance golden`, thirteen questions about
 the sample project whose answers are known, asked of the agent and graded on what each answer
 says and cites (`backend/app/golden.py`); both also once a change to the prompts, the agent or
-the sample is on `main` (`deploying.md`, "The models").
+the sample is on `main` (`deploying.md`, "The models"). `python -m app.maintenance
+fact-accuracy`, run by hand, indexes the sample with extraction templates on and scores the facts
+the indexing model reads from its contract, invoices and price list against values labelled by
+hand (`backend/app/fact_accuracy.py`), each field's recall and precision.
 
 Dependabot (`.github/dependabot.yml`) proposes the updates of both lock files and of the
 workflows' actions once a week, a week after their release, and those of the images, which

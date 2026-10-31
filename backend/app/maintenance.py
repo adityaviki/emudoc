@@ -65,6 +65,10 @@ them, so this is where a fallback is tried before its day.
 sample project (app/golden.py), and exits 1 when an answer lacks what a right one says or cites:
 how a prompt, a model or a provider answers is read here before a member reads it.
 
+`fact-accuracy` indexes the sample's files with extraction templates on and scores the facts read
+against the values labelled by hand (app/fact_accuracy.py), each field's recall and precision,
+and exits 1 when a field was not read as labelled.
+
 `build-sample` is a developer's: it indexes the sample project's files with the configured
 models and writes what the pipeline made of them into the checkout's app/sample/index.json,
 which every sign-up copies (app/sample).
@@ -120,6 +124,7 @@ from app.entitlements import (
     size_label,
 )
 from app.export import EXPORT_DAYS, EXPORT_KEPT, prune_exports
+from app.fact_accuracy import describe_facts, run_facts
 from app.flags import FLAGS, choose, chosen, flag_on, rollouts
 from app.golden import describe_golden, run_golden
 from app.idempotency import KEPT as IDEMPOTENCY_KEPT
@@ -1663,6 +1668,19 @@ def main(argv: list[str] | None = None) -> None:
         "to the prompts, the agent or the model.",
     )
     commands.add_parser(
+        "fact-accuracy",
+        help="score the facts the indexing model reads from the sample against labelled values",
+        description="Index the sample project's files as an upload is, by INDEX_MODEL and its "
+        "fallback with extraction templates on, in an organisation made for the run and deleted "
+        "after it, and score the facts read from its contract, invoices and price list against "
+        "the values labelled by hand (backend/app/fact_accuracy.py): each field's recall, the "
+        "labelled values some fact holds, and precision, the facts that hold a labelled value. "
+        "It prints each field's verdict with what was missed and read wrong, records nothing as "
+        "an organisation's usage, and exits with 1 when a field was not read as labelled. It "
+        "costs the indexing of eight short documents; run it after a change to the enrich "
+        "stage's prompts, the built-in templates or INDEX_MODEL.",
+    )
+    commands.add_parser(
         "build-sample",
         help="index the sample project's files with the model and write app/sample/index.json",
         description="Index the files of the sample project that the organisation an account "
@@ -1850,6 +1868,18 @@ def main(argv: list[str] | None = None) -> None:
             for line in describe_golden(run):
                 print(line)
             if run.failed:
+                sys.exit(1)
+        elif args.command == "fact-accuracy":
+            check_schema()
+            # The run's documents are deleted as it ends: nothing is to draw their pages first.
+            settings.prerender_pages = 0
+            # Each field's verdict is in the lines below; the pipeline's own lines would only
+            # say again how each stage went.
+            logging.getLogger().setLevel(logging.ERROR)
+            scored = run_facts(settings)
+            for line in describe_facts(scored):
+                print(line)
+            if scored.failed:
                 sys.exit(1)
         elif args.command == "build-sample":
             check_schema()
