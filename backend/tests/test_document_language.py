@@ -87,14 +87,19 @@ def test_each_documents_language_is_detected_as_it_is_parsed_and_its_words_searc
 
 
 def test_the_detection_reads_the_first_words_alone_and_names_only_what_the_database_has():
-    assert detect_language([GERMAN.decode()], KNOWN) == "german"
-    # A language the database has no configuration for is searched by its words as written.
-    assert detect_language([GERMAN.decode()], {"english", WORDS_AS_WRITTEN}) == WORDS_AS_WRITTEN
+    assert detect_language([GERMAN.decode()], KNOWN) == ("german", "de")
+    # A language the database has no configuration for is searched by its words as written, and
+    # its code says which it was.
+    assert detect_language([GERMAN.decode()], {"english", WORDS_AS_WRITTEN}) == (
+        WORDS_AS_WRITTEN,
+        "de",
+    )
+    assert detect_language([POLISH.decode()], KNOWN) == (WORDS_AS_WRITTEN, "pl")
     assert detect_language([NUMBERS.decode(), ""], KNOWN) is None
     assert detect_language([], KNOWN) is None
     # A document in English whose German starts past what is read is English.
     english = ENGLISH.decode() * (DETECT_CHARS // len(ENGLISH) + 1)
-    assert detect_language([english, GERMAN.decode() * 500], KNOWN) == "english"
+    assert detect_language([english, GERMAN.decode() * 500], KNOWN) == ("english", "en")
 
 
 def test_the_organisations_language_moves_only_the_documents_without_one_of_their_own(

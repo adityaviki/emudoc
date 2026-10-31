@@ -12,16 +12,18 @@ A document has a language of its own when the parse stage could tell which its w
 (`detect_language`, py3langid's model, which no request reaches and which knows 97 languages,
 those the database cannot stem being searched by their words as written), or when a member set
 one; it is one of its details (app/details.py), `documents.language`, null for its
-organisation's. New passages take the document's language, else the organisation's, as the
-structure stage writes them (`project_language`). Those indexed before are moved by a job
-queued with a change of either (`queue_language`, `apply_language`): a batch at a time in the
-order of their ids, each committed under the job's lease and under an advisory lock of the
-organisation's in which it reads the languages again, so that a second change while the job runs
-is what its later batches write, and two jobs of one organisation take turns rather than undo
-each other's batches. Changing the column generates `tsv` again, and the passage's vector is
-indexed again with it, so a document's passages are never moved in a member's request; it asks
-no model and counts no page. A passage that a stage is writing as the organisation's language
-changes may keep the language the stage read; indexing its document again moves it.
+organisation's. The detection's ISO code is kept beside what it read (`read_language_code`),
+since `simple` names no language and the enrich stage reads dates and numbers the way the
+language writes them (app/locales.py). New passages take the document's language, else the
+organisation's, as the structure stage writes them (`project_language`). Those indexed before
+are moved by a job queued with a change of either (`queue_language`, `apply_language`): a batch
+at a time in the order of their ids, each committed under the job's lease and under an advisory
+lock of the organisation's in which it reads the languages again, so that a second change while
+the job runs is what its later batches write, and two jobs of one organisation take turns rather
+than undo each other's batches. Changing the column generates `tsv` again, and the passage's
+vector is indexed again with it, so a document's passages are never moved in a member's request;
+it asks no model and counts no page. A passage that a stage is writing as the organisation's
+language changes may keep the language the stage read; indexing its document again moves it.
 
 The agent is told the language an organisation chose (`answer_language`, a line of its
 prompt): a member is answered in the language they ask in, and in the organisation's when a
@@ -32,7 +34,7 @@ import logging
 import re
 import threading
 from collections.abc import Collection, Iterable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from sqlalchemy import Connection, exists, select, text
 from sqlalchemy.orm import Session
@@ -150,13 +152,27 @@ def language_of(organization: Organization) -> str:
 def project_language(session: Session, project_id: int) -> str:
     """The language a project's documents without one of their own are indexed with: its
     organisation's."""
-    return session.scalar(_OF_PROJECT, {"project": project_id}) or get_settings().fts_language
+    return chosen_language(session, project_id) or get_settings().fts_language
 
 
-def detect_language(texts: Iterable[str], known: Collection[str]) -> str | None:
-    """The configuration of `known` for the language the texts' words are written in, the
-    first DETECT_CHARS of them, WORDS_AS_WRITTEN for a language the database cannot stem, or
-    None when the words are too few or too mixed to tell (`SURE`)."""
+def chosen_language(session: Session, project_id: int) -> str | None:
+    """The language a project's organisation chose, None while it chose none."""
+    return session.scalar(_OF_PROJECT, {"project": project_id})
+
+
+class Detected(NamedTuple):
+    """The language a document's words are written in: the configuration they are searched in,
+    and the language's ISO 639 code, which says how its dates and numbers are written
+    (app/locales.py) where the configuration is WORDS_AS_WRITTEN and names none."""
+
+    language: str
+    code: str
+
+
+def detect_language(texts: Iterable[str], known: Collection[str]) -> Detected | None:
+    """The language the texts' words are written in, the first DETECT_CHARS of them, as the
+    configuration of `known` that stems it, WORDS_AS_WRITTEN for one the database cannot stem,
+    beside its code; None when the words are too few or too mixed to tell (`SURE`)."""
     words = _words(texts)
     if not words:
         return None
@@ -164,7 +180,7 @@ def detect_language(texts: Iterable[str], known: Collection[str]) -> str | None:
     if found == NO_LANGUAGE or sureness < SURE:
         return None
     language = CONFIGURATIONS.get(found, WORDS_AS_WRITTEN)
-    return language if language in known else WORDS_AS_WRITTEN
+    return Detected(language if language in known else WORDS_AS_WRITTEN, found)
 
 
 def _words(texts: Iterable[str]) -> str:

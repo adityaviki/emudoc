@@ -43,8 +43,9 @@ from app.indexing.enrich import (
 )
 from app.indexing.structure import SectionHint, build_outline
 from app.jobs import LIVE, RENDER_PAGES, Lease, LeaseLost, enqueue, renew
-from app.languages import detect_language, known_languages, project_language
+from app.languages import chosen_language, detect_language, known_languages, project_language
 from app.llm import LLM, LLMError, OcrBlock
+from app.locales import Writing, read_date, read_number, reading_line, writing_of
 from app.mail import Mailer
 from app.metrics import DOCUMENT_READY, INDEX_RUNS, PARSES, STAGE_RUNS, STAGE_SECONDS
 from app.models import STAGES, Block, Document, Fact, FactChange, Passage, Project, Section
@@ -663,9 +664,8 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
     hold_details(session, document)
     document.read_title = parsed.title
     # From every block the reading found, a scan's pages as the model read them included.
-    document.read_language = detect_language(
-        (block.text for block in blocks), known_languages(session)
-    )
+    detected = detect_language((block.text for block in blocks), known_languages(session))
+    document.read_language, document.read_language_code = detected or (None, None)
     settle_details(document)
     _queue_drawing_ahead(session, document)
     return f"{len(blocks)} blocks{note}"
@@ -977,13 +977,29 @@ def _enrich(session: Session, document: Document, services: Services, meter: Met
         select(Section).where(Section.document_id == document.id).order_by(Section.ordinal)
     ).all()
     templates = _templates(session, document)
+    # How its dates and numbers are written: its own language's way, which settles what a value
+    # leaves open, or where it has no language of its own, the way of the one its organisation
+    # chose, which the model is told of and nothing is read by (app/locales.py).
+    if document.language is not None:
+        writing = writing_of(document.language, document.read_language_code)
+        conventions = reading_line(writing)
+    else:
+        writing, chosen = None, chosen_language(session, document.project_id)
+        conventions = reading_line(writing_of(chosen, None), own=False) if chosen else ""
     usage = meter.calls(ENRICH)
     _done_reading(session)
     # The day's spending limits are checked above, once for the stage: they hold the next unit
     # of work, and the most a document's summaries and facts may take is bounded by this.
     limit = get_settings().enrich_max_requests
     analysis = analyze_document(
-        services.llm, document, sections, blocks, usage, limit, templates=templates
+        services.llm,
+        document,
+        sections,
+        blocks,
+        usage,
+        limit,
+        templates=templates,
+        conventions=conventions,
     )
 
     profile = analysis.profile
@@ -1009,7 +1025,9 @@ def _enrich(session: Session, document: Document, services: Services, meter: Met
     hold_checks(session, document.id)
     before = facts_read(session, document.id)
     session.execute(delete(Fact).where(Fact.document_id == document.id))
-    facts = _fact_rows(session, document, analysis.facts, blocks, analysis.sampled, template)
+    facts = _fact_rows(
+        session, document, analysis.facts, blocks, analysis.sampled, template, writing
+    )
     # What the members checked of the facts before outlives them: a fact read the same again
     # takes its check, with the member's value.
     apply_checks(session, document.id, facts)
@@ -1073,11 +1091,16 @@ def _fact_rows(
     blocks: Sequence[Block],
     sampled: frozenset[int] = frozenset(),
     template: Template | None = None,
+    writing: Writing | None = None,
 ) -> list[Fact]:
     """The facts as rows, each linked to the block its quote is in and that block's passage;
     none from a block in `sampled`, a table the model was shown in part (app/indexing/
     enrich.py). A fact of a field of the template the document was read for is of the field's
-    type, whatever the reply said, so that a project's `total_amount` facts are all money."""
+    type, whatever the reply said, so that a project's `total_amount` facts are all money.
+
+    A number or a date is read from the value where it is a figure alone that settles it, by
+    `writing`, its language's way, where the value is as the block writes it (app/locales.py);
+    the model's reading stands where it is not."""
     by_ordinal = {block.ordinal: block for block in blocks}
     normalized = {block.ordinal: _normalize(block.text) for block in blocks}
     # Where each passage is, and no more: a document's passages may be tens of thousands,
@@ -1116,6 +1139,16 @@ def _fact_rows(
             )
         field = template.field(name) if template else None
         kind = field.type if field else fact.type
+        # A value the model wrote otherwise than the block does is not read the language's way.
+        written = block is not None and _normalize(value) in normalized[block.ordinal]
+        local = writing if written else None
+        if kind in ("number", "money"):
+            read = read_number(value, local)
+            number, day = (fact.number if read is None else read), None
+        elif kind == "date":
+            number, day = None, read_date(value, local) or parse_iso_date(fact.date)
+        else:
+            number = day = None
         rows.append(
             Fact(
                 document_id=document.id,
@@ -1123,8 +1156,8 @@ def _fact_rows(
                 name=name,
                 value_type=kind,
                 value=value[:2000],
-                number=fact.number if kind in ("number", "money") else None,
-                date=parse_iso_date(fact.date) if kind == "date" else None,
+                number=number,
+                date=day,
                 currency=(fact.currency or "").upper()[:10] or None,
                 quote=clean_text(fact.quote)[:1000] or None,
                 page=block.page if block else None,

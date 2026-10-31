@@ -643,6 +643,16 @@ few or too mixed to tell, a delivery log of dates and amounts, follows its organ
 language (`backend/app/languages.py`). The agent is told a document's language where it is not
 the organisation's, so that it searches the document by its own words. A language set moves the
 document's passages by the same background job a change of the organisation's language queues.
+The language also says how the document's dates and amounts are written (`backend/app/locales.py`):
+the model reading its facts is told that German puts the day first and a comma before the
+decimals, and a fact's value that is a figure alone, "1.250,00 €" or "03.04.2026", is read again
+from its marks, the language settling only what they leave open ("1.250" is 1250 in German and
+1.25 in English), which replaces the model's number or date where it is certain. English puts the
+day first in Britain and the month first in America, so an English "03/04/2026" is left to the
+model to read by the document's country or its other dates, or left out. A document without a
+language of its own is read by what its values settle alone, the model told the language its
+organisation chose, if it chose one, as a likelihood. The facts of documents read before change
+when they are read again ("Index again").
 Search by meaning needs no language: the default embedding model, EmbeddingGemma, puts a
 question and a passage that says the same near each other whichever languages they are written
 in, so an English question finds the German clause that answers it, whose words it does not
@@ -1578,6 +1588,7 @@ backend/app/
   postgres.py   what the app needs of its Postgres server: pgvector, the role's timeouts, vacuum
   search.py     hybrid search over passages, of one project or of every one a member sees
   languages.py  the language a document is searched in, detected or its organisation's, and the move
+  locales.py    how a document's language writes dates and amounts, which its facts are read by
   folders.py    the folder tree as paths and subtrees
   agent/        the five tools and the tool-use loop
   accounts.py   who a request acts as; signing up makes a user and their organisation

@@ -223,6 +223,7 @@ def analyze_document(
     usage: ModelUsage | None = None,
     max_requests: int = 0,
     templates: Sequence[Template] = (),
+    conventions: str = "",
 ) -> Analysis:
     """Summaries, profile and facts for the document, in as many requests as its size takes
     and `max_requests` allows (0: any number); each is added to `usage` as it is answered, so
@@ -236,8 +237,13 @@ def analyze_document(
     reads the document's start lists them and names the one the document is for, whose fields
     the facts are read for there and in the windows after it, which are shown that template
     alone; `Analysis.template` is the one named. Without, the requests are as they always were.
+
+    With `conventions`, a paragraph on how the document writes its dates and numbers
+    (`reading_line` in app/locales.py), every request has it after the document; without, the
+    requests say nothing of them.
     """
     windows = _windows(sections, blocks)
+    written = f"{conventions}\n" if conventions else ""
     summaries: dict[int, str] = {}
     facts: list[ExtractedFact] = []
     section_ids = {section.id for section in sections}
@@ -272,7 +278,7 @@ def analyze_document(
             facts_asked = f"{SECTION_INSTRUCTIONS.format(scope=scope)}\n{FACT_INSTRUCTIONS}"
         prompt = (
             f"{_render(document, windows[0], whole=whole)}\n\n"
-            f"{ask}\n"
+            f"{written}{ask}\n"
             f"{PROFILE_INSTRUCTIONS}\n"
             f"{facts_asked}"
         )
@@ -291,10 +297,10 @@ def analyze_document(
     template = None
     for number, window in enumerate(read):
         if number == 0 and templates:
-            result = _choose_in_window(llm, document, window, usage, templates)
+            result = _choose_in_window(llm, document, window, usage, templates, written)
             template = chosen(templates, result.template)
         else:
-            result = _read_window(llm, document, window, usage, template)
+            result = _read_window(llm, document, window, usage, template, written)
         _collect(result.sections, section_ids, summaries)
         facts.extend(result.facts)
 
@@ -309,6 +315,7 @@ def analyze_document(
         f"<outline>\n{_outline(sections, summaries, unread)}\n</outline>\n"
         f"<opening>\n{_opening(read)}\n</opening>\n"
         "</document>\n\n"
+        f"{written}"
         "Above is the outline of a long document, with a one-sentence summary of each "
         "section already read, and the document's opening lines. Return these fields.\n"
         f"{PROFILE_INSTRUCTIONS}\n"
@@ -328,11 +335,12 @@ def _choose_in_window(
     window: "_Window",
     usage: ModelUsage | None,
     templates: Sequence[Template],
+    written: str = "",
 ) -> TemplatedWindowAnalysis:
     """A long document's first part, beside the templates, which it names the one of."""
     prompt = (
         f"{_render(document, window, whole=False)}\n\n"
-        "This is one part of a longer document. Return these fields for this part.\n"
+        f"{written}This is one part of a longer document. Return these fields for this part.\n"
         f"{TEMPLATE_INSTRUCTIONS}\n"
         f"{SECTION_INSTRUCTIONS.format(scope='in this part')}\n"
         f"{template_facts('when you named a template')}\n\n"
@@ -347,6 +355,7 @@ def _read_window(
     window: "_Window",
     usage: ModelUsage | None,
     known: Template | None,
+    written: str = "",
 ) -> WindowAnalysis:
     """One part of a long document, beside the template its first part named, or none."""
     if known is None:
@@ -356,7 +365,8 @@ def _read_window(
         facts = f"{template_facts('for the template below')}\n\n{_listing([known])}"
     prompt = (
         f"{_render(document, window, whole=False)}\n\n"
-        f"This is one part of a longer document{about}. Return these fields for this part.\n"
+        f"{written}This is one part of a longer document{about}. Return these fields for this "
+        "part.\n"
         f"{SECTION_INSTRUCTIONS.format(scope='in this part')}\n"
         f"{facts}"
     )

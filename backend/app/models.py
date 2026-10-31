@@ -1405,6 +1405,9 @@ class Document(Base):
     # organisation's, which a change of the organisation's moves it to.
     language: Mapped[str | None] = mapped_column(String(63))
     read_language: Mapped[str | None] = mapped_column(String(63))
+    # The ISO 639 code of the language the parse stage detected, which says how its dates and
+    # numbers are written (app/locales.py) where `read_language` is `simple` and names none.
+    read_language_code: Mapped[str | None] = mapped_column(String(8))
     # The names of DOCUMENT_DETAILS a member set, in no order.
     edited_details: Mapped[list[str]] = mapped_column(
         ARRAY(String(20)), default=list, server_default="{}"
