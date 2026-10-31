@@ -34,11 +34,6 @@
           { "context": "Backend (postgres, 2 of 3)", "integration_id": 15368 },
           { "context": "Backend (postgres, 3 of 3)", "integration_id": 15368 },
           { "context": "Frontend", "integration_id": 15368 },
-          { "context": "End to end", "integration_id": 15368 },
-          { "context": "Load test", "integration_id": 15368 },
-          { "context": "Image", "integration_id": 15368 },
-          { "context": "Embeddings", "integration_id": 15368 },
-          { "context": "OpenTofu", "integration_id": 15368 },
           { "context": "Secrets", "integration_id": 15368 },
           { "context": "Scripts and configuration", "integration_id": 15368 }
         ]

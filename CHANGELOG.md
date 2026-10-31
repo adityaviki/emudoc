@@ -31,6 +31,10 @@ Members:
 
 Operators:
 
+- CI's heavy jobs (the browser test, the load test, the image, the embeddings and OpenTofu) run
+  on a push to `main`, by hand and on Dependabot's pull requests, no longer on the developer's
+  own, which are merged once the checks pass on the developer's machine; `main.json`'s required
+  checks are the other six. Put them back on every pull request before the app has users.
 - Question sets, behind the flag `question_sets`, rolled out to none, on Pro, Team and
   Enterprise (the plans' `question_sets`): a set's job (`run_question_set`) queues its next
   waking as it ends, and the housekeeper queues one lost; a report is answered by

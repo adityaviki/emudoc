@@ -1,8 +1,10 @@
 """The repository's rules on GitHub against its workflows. main takes a commit only through a
 pull request whose checks passed (.github/rulesets/main.json, which GitHub holds once applied
 with `gh api`, deploying.md "The repository's rules"), and the checks it waits for are the jobs
-CI runs on a pull request, by the names GitHub gives their check runs: a required check that no
-job reports holds every pull request back for good, and a job left out of the list holds none.
+CI runs on the developer's pull request, by the names GitHub gives their check runs: a required
+check that no job reports holds every pull request back for good, and a job left out of the list
+holds none. The heavy jobs run on main and on Dependabot's pull requests alone, so none of them is
+required.
 A production release is a job of the GitHub environment production, whose reviewer approves it
 and whose jobs alone production's release role trusts (deploy/aws/production)."""
 
@@ -47,11 +49,15 @@ def combinations(matrix: dict) -> list[dict]:
 
 
 def checks_of_a_pull_request() -> set[str]:
-    """CI's check runs on a pull request: each job's name with its matrix filled in, but those its
-    condition keeps to a push to main."""
+    """CI's check runs on the developer's pull request: each job's name with its matrix filled in,
+    but those its condition keeps to a push to main, and the heavy ones it keeps off a pull
+    request but Dependabot's."""
     checks = set()
     for job in workflow("ci.yml")["jobs"].values():
-        if "github.event_name == 'push'" in job.get("if", ""):
+        condition = job.get("if", "")
+        if "github.event_name == 'push'" in condition:
+            continue
+        if "github.event_name != 'pull_request'" in condition:
             continue
         for values in combinations(job.get("strategy", {}).get("matrix", {})):
             checks.add(named(job["name"], values))
@@ -98,6 +104,17 @@ def test_main_waits_for_every_check_ci_runs_on_a_pull_request():
         for job in workflow(name)["jobs"].values()
     }
     assert not others & set(required)
+
+
+def test_the_heavy_jobs_run_on_main_and_on_dependabots_pull_requests_alone():
+    jobs = workflow("ci.yml")["jobs"]
+    off_a_pull_request = "github.event_name != 'pull_request'"
+    heavy = {name for name, job in jobs.items() if off_a_pull_request in job.get("if", "")}
+    assert heavy == {"e2e", "loadtest", "image", "embeddings", "opentofu"}
+    # Dependabot's updates are what they check, so its pull requests run them; and staging waits
+    # for them on main.
+    assert all("dependabot[bot]" in jobs[name]["if"] for name in heavy)
+    assert heavy <= set(jobs["staging"]["needs"])
 
 
 def test_a_production_release_is_a_job_of_the_environment_its_role_trusts():

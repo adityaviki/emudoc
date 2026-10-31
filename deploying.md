@@ -4290,10 +4290,15 @@ repository has on a paid plan (Team or Enterprise; the organisation is on Enterp
   author may not approve it, and the organisation has one member) but every check CI runs on
   a pull request, each reported by GitHub Actions, on the branch brought up to date with
   `main`: the backend's suite in three parts against Postgres ("Backend (postgres, 1 of 3)"
-  and so on), Frontend, End to end, Load test, Image,
-  Embeddings, OpenTofu, Scripts and configuration, and Secrets. Not Staging, which runs after
+  and so on), Frontend, Scripts and configuration, and Secrets. Not the heavy jobs, End to
+  end, Load test, Image, Embeddings and OpenTofu, which since 2026-10-31, while the app is in
+  development, run on a push to `main`, by hand and on Dependabot's pull requests alone, the
+  developer merging their own pull requests once the checks pass on their machine and `main`'s
+  run checking the whole tree after; not Staging, which runs after
   the merge, nor Audit's jobs or Models', which fail on news rather than on the change, nor Pooler's, the
   suite through pgbouncer, which runs every night and on a change to what a pooler sees.
+  Before the app has users, put the heavy jobs back on every pull request (`if: *heavy` in
+  `ci.yml`, and their names in the file) and wait for the checks again.
   `tests/test_repository.py` holds the file to CI's jobs, so a job renamed or added changes the
   file in the same pull request; GitHub waits for the checks the applied ruleset names, so
   that pull request is mergeable once its checks passed and its file was applied (the second
