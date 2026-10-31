@@ -1479,6 +1479,14 @@ cd frontend && pnpm lint && pnpm test && pnpm build
 cd frontend && pnpm e2e              # after pnpm build; needs the database container
 ```
 
+The backend's suite holds every parser to a corpus of files (`backend/tests/corpus`: the sample
+project's, and at least one of each kind the app reads, a scan, a page set in columns and one
+turned sideways among them), each beside a snapshot of the blocks, the language and the outline
+the parse and structure stages make of it, so that a change to a parser or an update of a
+library it reads with that reads a file differently fails the suite. A change meant to do that
+writes the snapshots again with `cd backend && uv run python -m tests.corpus`, and the diff
+shows what each file now reads as.
+
 The frontend's unit tests (`pnpm test`, Vitest) sit beside the modules they test
 (`src/**/*.test.ts`) and run in Node with `fetch` stubbed: the chat's events and its
 reconnections, the workspace's URLs, the formatting. `pnpm e2e` (Playwright) drives the built

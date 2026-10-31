@@ -1,0 +1,20 @@
+{
+  "title": null,
+  "language": "en",
+  "page_count": null,
+  "page_sizes": [],
+  "ocr_pages": [],
+  "blocks": [
+    {"kind": "heading", "level": 1, "page": null, "bbox": null, "text": "Deliveries"},
+    {"kind": "table", "level": null, "page": null, "bbox": null, "text": "| Date | Order | Item | Pallets | Delivered on time |\n| --- | --- | --- | --- | --- |\n| 2026-08-04 | PO-7701 | Hex bolts M10 | 30 | Yes |\n| 2026-08-11 | PO-7708 | Pipe fittings 1in | 25 | No |\n| 2026-08-18 | PO-7715 | Stretch film | 40 | Yes |\n| 2026-08-25 | PO-7722 | Pipe fittings 1in | 35 | No |\n| 2026-09-01 | PO-7730 | Hex bolts M10 | 45 | Yes |"}
+  ],
+  "outline": {
+    "title": "delivery-log",
+    "sections": [
+      {"title": "Deliveries", "level": 1, "parent": null, "blocks": [0, 2], "pages": [null, null]}
+    ],
+    "passages": [
+      {"section": 0, "blocks": [1, 2], "pages": [null, null], "text": "| Date | Order | Item | Pallets | Delivered on time |\n| --- | --- | --- | --- | --- |\n| 2026-08-04 | PO-7701 | Hex bolts M10 | 30 | Yes |\n| 2026-08-11 | PO-7708 | Pipe fittings 1in | 25 | No |\n| 2026-08-18 | PO-7715 | Stretch film | 40 | Yes |\n| 2026-08-25 | PO-7722 | Pipe fittings 1in | 35 | No |\n| 2026-09-01 | PO-7730 | Hex bolts M10 | 45 | Yes |"}
+    ]
+  }
+}

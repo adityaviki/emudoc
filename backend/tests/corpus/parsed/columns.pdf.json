@@ -1,0 +1,38 @@
+{
+  "title": null,
+  "language": "en",
+  "page_count": 1,
+  "page_sizes": [[595.28, 841.89]],
+  "ocr_pages": [],
+  "blocks": [
+    {"kind": "heading", "level": 1, "page": 1, "bbox": [219.62, 63.73, 375.66, 81.73], "text": "Supply agreement"},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [60.0, 90.07, 532.45, 112.07], "text": "This agreement sets out how Acme supplies Globex with pallets and crates during 2024 and what happens when a delivery is late."},
+    {"kind": "heading", "level": 2, "page": 1, "bbox": [60.0, 212.9, 137.81, 226.9], "text": "1. Section 1"},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [60.0, 236.07, 198.43, 354.07], "text": "Column 1. The supplier delivers the goods to the site named in each order. The supplier delivers the goods to the site named in each order. The supplier delivers the goods to the site named in each order. The supplier delivers the goods to the site named in each order."},
+    {"kind": "heading", "level": 2, "page": 1, "bbox": [228.43, 212.9, 306.24, 226.9], "text": "2. Section 2"},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [228.43, 236.07, 366.85, 354.07], "text": "Column 2. The supplier delivers the goods to the site named in each order. The supplier delivers the goods to the site named in each order. The supplier delivers the goods to the site named in each order. The supplier delivers the goods to the site named in each order."},
+    {"kind": "heading", "level": 2, "page": 1, "bbox": [396.85, 212.9, 474.66, 226.9], "text": "3. Section 3"},
+    {"kind": "table", "level": null, "page": 1, "bbox": [424.05, 234.0, 508.07, 288.0], "text": "| Item | Price |\n| --- | --- |\n| Pallet | EUR 40 |\n| Crate | EUR 12 |"},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [396.85, 296.07, 535.28, 414.07], "text": "Column 3. The supplier delivers the goods to the site named in each order. The supplier delivers the goods to the site named in each order. The supplier delivers the goods to the site named in each order. The supplier delivers the goods to the site named in each order."},
+    {"kind": "table", "level": null, "page": 1, "bbox": [251.74, 673.89, 343.53, 727.89], "text": "| Clause | Owner |\n| --- | --- |\n| Delivery | Acme |\n| Prices | Globex |"},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [60.0, 735.96, 241.21, 745.96], "text": "Signed for both parties on 1 March 2024."}
+  ],
+  "outline": {
+    "title": "Supply agreement",
+    "sections": [
+      {"title": "Overview", "level": 1, "parent": null, "blocks": [0, 2], "pages": [1, 1]},
+      {"title": "1. Section 1", "level": 1, "parent": null, "blocks": [2, 4], "pages": [1, 1]},
+      {"title": "2. Section 2", "level": 1, "parent": null, "blocks": [4, 6], "pages": [1, 1]},
+      {"title": "3. Section 3", "level": 1, "parent": null, "blocks": [6, 11], "pages": [1, 1]}
+    ],
+    "passages": [
+      {"section": 0, "blocks": [1, 2], "pages": [1, 1], "text": "This agreement sets out how Acme supplies Globex with pallets and crates during 2024 and what happens when a delivery is late."},
+      {"section": 1, "blocks": [3, 4], "pages": [1, 1], "text": "Column 1. The supplier delivers the goods to the site named in each order. The supplier delivers the goods to the site named in each order. The supplier delivers the goods to the site named in each order. The supplier delivers the goods to the site named in each order."},
+      {"section": 2, "blocks": [5, 6], "pages": [1, 1], "text": "Column 2. The supplier delivers the goods to the site named in each order. The supplier delivers the goods to the site named in each order. The supplier delivers the goods to the site named in each order. The supplier delivers the goods to the site named in each order."},
+      {"section": 3, "blocks": [7, 8], "pages": [1, 1], "text": "| Item | Price |\n| --- | --- |\n| Pallet | EUR 40 |\n| Crate | EUR 12 |"},
+      {"section": 3, "blocks": [8, 9], "pages": [1, 1], "text": "Column 3. The supplier delivers the goods to the site named in each order. The supplier delivers the goods to the site named in each order. The supplier delivers the goods to the site named in each order. The supplier delivers the goods to the site named in each order."},
+      {"section": 3, "blocks": [9, 10], "pages": [1, 1], "text": "| Clause | Owner |\n| --- | --- |\n| Delivery | Acme |\n| Prices | Globex |"},
+      {"section": 3, "blocks": [10, 11], "pages": [1, 1], "text": "Signed for both parties on 1 March 2024."}
+    ]
+  }
+}

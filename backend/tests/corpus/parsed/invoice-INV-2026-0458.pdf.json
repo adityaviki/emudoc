@@ -1,0 +1,29 @@
+{
+  "title": null,
+  "language": "en",
+  "page_count": 1,
+  "page_sizes": [[595.28, 841.89]],
+  "ocr_pages": [],
+  "blocks": [
+    {"kind": "heading", "level": 1, "page": 1, "bbox": [203.09, 66.42, 392.18, 84.42], "text": "Invoice INV-2026-0458"},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [68.36, 92.76, 208.95, 102.76], "text": "Acme Industrial Supplies Ltd."},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [68.36, 104.76, 219.01, 126.76], "text": "14 Foundry Lane, Leeds LS1 4AB VAT ID: GB 123 4567 89"},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [68.36, 142.76, 372.36, 152.76], "text": "Bill to: Northwind Logistics GmbH, Hafenstrasse 22, 20457 Hamburg"},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [68.36, 160.76, 305.66, 194.76], "text": "Invoice date: 2026-07-31 Due date: 2026-08-30 Contract: Master Services Agreement (1 March 2026)"},
+    {"kind": "table", "level": null, "page": 1, "bbox": [68.36, 202.69, 521.91, 274.69], "text": "| Description | Qty | Unit price | Amount |\n| --- | --- | --- | --- |\n| Hex bolts M10 (pallet) | 95 | 185.00 | 17,575.00 |\n| Pipe fittings 1in (pallet) | 60 | 240.00 | 14,400.00 |\n| Stretch film (roll box) | 120 | 38.00 | 4,560.00 |"},
+    {"kind": "table", "level": null, "page": 1, "bbox": [68.36, 282.69, 323.48, 336.69], "text": "| Net total (EUR) | 36,535.00 |\n| --- | --- |\n| VAT 19% (EUR) | 6,941.65 |\n| Total due (EUR) | 43,476.65 |"},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [68.36, 352.76, 357.95, 362.76], "text": "Payment terms: 30 days. IBAN GB29 NWBK 6016 1331 9268 19."}
+  ],
+  "outline": {
+    "title": "invoice-INV-2026-0458",
+    "sections": [
+      {"title": "Invoice INV-2026-0458", "level": 1, "parent": null, "blocks": [0, 8], "pages": [1, 1]}
+    ],
+    "passages": [
+      {"section": 0, "blocks": [1, 5], "pages": [1, 1], "text": "Acme Industrial Supplies Ltd.\n\n14 Foundry Lane, Leeds LS1 4AB VAT ID: GB 123 4567 89\n\nBill to: Northwind Logistics GmbH, Hafenstrasse 22, 20457 Hamburg\n\nInvoice date: 2026-07-31 Due date: 2026-08-30 Contract: Master Services Agreement (1 March 2026)"},
+      {"section": 0, "blocks": [5, 6], "pages": [1, 1], "text": "| Description | Qty | Unit price | Amount |\n| --- | --- | --- | --- |\n| Hex bolts M10 (pallet) | 95 | 185.00 | 17,575.00 |\n| Pipe fittings 1in (pallet) | 60 | 240.00 | 14,400.00 |\n| Stretch film (roll box) | 120 | 38.00 | 4,560.00 |"},
+      {"section": 0, "blocks": [6, 7], "pages": [1, 1], "text": "| Net total (EUR) | 36,535.00 |\n| --- | --- |\n| VAT 19% (EUR) | 6,941.65 |\n| Total due (EUR) | 43,476.65 |"},
+      {"section": 0, "blocks": [7, 8], "pages": [1, 1], "text": "Payment terms: 30 days. IBAN GB29 NWBK 6016 1331 9268 19."}
+    ]
+  }
+}

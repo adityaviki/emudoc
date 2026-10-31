@@ -1,0 +1,24 @@
+{
+  "title": null,
+  "language": "en",
+  "page_count": 1,
+  "page_sizes": [[841.89, 595.28]],
+  "ocr_pages": [],
+  "blocks": [
+    {"kind": "heading", "level": 1, "page": 1, "bbox": [536.27, 72.0, 554.27, 192.08], "text": "Price list 2024"},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [493.72, 72.0, 518.72, 280.48], "text": "Prices hold until December and are quoted per unit, before tax."},
+    {"kind": "table", "level": null, "page": 1, "bbox": [400.0, 72.0, 454.0, 156.02], "text": "| Item | Price |\n| --- | --- |\n| Pallet | EUR 40 |\n| Crate | EUR 12 |"},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [300.0, 29.04, 515.03, 43.04], "text": "Ref ACME-2024-0042, 1 March 2024"}
+  ],
+  "outline": {
+    "title": "sideways",
+    "sections": [
+      {"title": "Price list 2024", "level": 1, "parent": null, "blocks": [0, 4], "pages": [1, 1]}
+    ],
+    "passages": [
+      {"section": 0, "blocks": [1, 2], "pages": [1, 1], "text": "Prices hold until December and are quoted per unit, before tax."},
+      {"section": 0, "blocks": [2, 3], "pages": [1, 1], "text": "| Item | Price |\n| --- | --- |\n| Pallet | EUR 40 |\n| Crate | EUR 12 |"},
+      {"section": 0, "blocks": [3, 4], "pages": [1, 1], "text": "Ref ACME-2024-0042, 1 March 2024"}
+    ]
+  }
+}

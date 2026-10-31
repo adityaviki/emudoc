@@ -1,0 +1,22 @@
+{
+  "title": null,
+  "language": "en",
+  "page_count": null,
+  "page_sizes": [],
+  "ocr_pages": [],
+  "blocks": [
+    {"kind": "paragraph", "level": null, "page": null, "bbox": null, "text": "From: Lena Vogt <lena.vogt@northwind.example> To: Helen Marsh <helen.marsh@acme.example> Date: 14 August 2026 Subject: Late delivery PO-7708"},
+    {"kind": "paragraph", "level": null, "page": null, "bbox": null, "text": "Hi Helen,"},
+    {"kind": "paragraph", "level": null, "page": null, "bbox": null, "text": "PO-7708 (25 pallets of pipe fittings) arrived three days late. Please confirm the cause and whether a credit applies under clause 3."},
+    {"kind": "paragraph", "level": null, "page": null, "bbox": null, "text": "Thanks, Lena"}
+  ],
+  "outline": {
+    "title": "email-late-delivery",
+    "sections": [
+      {"title": "email-late-delivery", "level": 1, "parent": null, "blocks": [0, 4], "pages": [null, null]}
+    ],
+    "passages": [
+      {"section": 0, "blocks": [0, 4], "pages": [null, null], "text": "From: Lena Vogt <lena.vogt@northwind.example> To: Helen Marsh <helen.marsh@acme.example> Date: 14 August 2026 Subject: Late delivery PO-7708\n\nHi Helen,\n\nPO-7708 (25 pallets of pipe fittings) arrived three days late. Please confirm the cause and whether a credit applies under clause 3.\n\nThanks, Lena"}
+    ]
+  }
+}

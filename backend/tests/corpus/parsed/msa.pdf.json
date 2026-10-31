@@ -1,0 +1,38 @@
+{
+  "title": null,
+  "language": "en",
+  "page_count": 2,
+  "page_sizes": [[595.28, 841.89], [595.28, 841.89]],
+  "ocr_pages": [],
+  "blocks": [
+    {"kind": "heading", "level": 1, "page": 1, "bbox": [179.59, 81.73, 415.68, 99.73], "text": "Master Services Agreement"},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [78.0, 108.07, 492.65, 130.07], "text": "This agreement is made between Acme Corp and Globex Ltd on 1 March 2024. It sets out the terms under which consulting services are provided."},
+    {"kind": "heading", "level": 1, "page": 1, "bbox": [78.0, 133.73, 191.02, 151.73], "text": "1. Definitions"},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [78.0, 160.07, 448.16, 170.07], "text": "In this agreement, Services means the consulting services described in Schedule 1."},
+    {"kind": "heading", "level": 2, "page": 1, "bbox": [78.0, 184.9, 191.58, 198.9], "text": "1.1 Interpretation"},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [78.0, 208.07, 373.16, 218.07], "text": "Headings are for convenience only and do not affect interpretation."},
+    {"kind": "heading", "level": 1, "page": 1, "bbox": [78.0, 221.73, 255.07, 239.73], "text": "2. Fees and payment"},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [78.0, 248.07, 404.27, 258.07], "text": "The Client shall pay the fees set out below within 30 days of each invoice."},
+    {"kind": "table", "level": null, "page": 1, "bbox": [209.05, 258.0, 386.22, 312.0], "text": "| Service | Rate | Unit |\n| --- | --- | --- |\n| Consulting | EUR 1,200 | per day |\n| Support | EUR 300 | per month |"},
+    {"kind": "heading", "level": 1, "page": 2, "bbox": [78.0, 81.73, 201.03, 99.73], "text": "3. Termination"},
+    {"kind": "paragraph", "level": null, "page": 2, "bbox": [78.0, 108.07, 495.4, 130.07], "text": "Either party may terminate this agreement by giving ninety (90) days written notice to the other party."}
+  ],
+  "outline": {
+    "title": "msa",
+    "sections": [
+      {"title": "Master Services Agreement", "level": 1, "parent": null, "blocks": [0, 2], "pages": [1, 1]},
+      {"title": "1. Definitions", "level": 1, "parent": null, "blocks": [2, 6], "pages": [1, 1]},
+      {"title": "1.1 Interpretation", "level": 2, "parent": 1, "blocks": [4, 6], "pages": [1, 1]},
+      {"title": "2. Fees and payment", "level": 1, "parent": null, "blocks": [6, 9], "pages": [1, 1]},
+      {"title": "3. Termination", "level": 1, "parent": null, "blocks": [9, 11], "pages": [2, 2]}
+    ],
+    "passages": [
+      {"section": 0, "blocks": [1, 2], "pages": [1, 1], "text": "This agreement is made between Acme Corp and Globex Ltd on 1 March 2024. It sets out the terms under which consulting services are provided."},
+      {"section": 1, "blocks": [3, 4], "pages": [1, 1], "text": "In this agreement, Services means the consulting services described in Schedule 1."},
+      {"section": 2, "blocks": [5, 6], "pages": [1, 1], "text": "Headings are for convenience only and do not affect interpretation."},
+      {"section": 3, "blocks": [7, 8], "pages": [1, 1], "text": "The Client shall pay the fees set out below within 30 days of each invoice."},
+      {"section": 3, "blocks": [8, 9], "pages": [1, 1], "text": "| Service | Rate | Unit |\n| --- | --- | --- |\n| Consulting | EUR 1,200 | per day |\n| Support | EUR 300 | per month |"},
+      {"section": 4, "blocks": [10, 11], "pages": [2, 2], "text": "Either party may terminate this agreement by giving ninety (90) days written notice to the other party."}
+    ]
+  }
+}
