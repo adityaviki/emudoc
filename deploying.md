@@ -1454,7 +1454,10 @@ What the app mails, and to whom:
   chosen, by them or as the organisation's default), on Monday from 08:00 of their zone, the
   documents that arrived over the week in each project of the organisation they see, by name
   and count, nothing for a week with none (`backend/app/digests.py`: a `send_digests` job that
-  wakes at the top of every hour, queued again by the housekeeper when lost); and to an
+  wakes at the top of every hour, queued again by the housekeeper when lost); to a member
+  another mentioned in a comment, and to the earlier writers of a thread another replied in, who
+  wrote and on which document, never the comment's words, in the comment's transaction and only
+  while they see the project (`tell_comment` in `backend/app/comments.py`); and to an
   organisation's owners and admins, once a month
   for each, when its pages or questions for the month reach 80 % of what it may use (its plan's
   and the packs bought for the month), when they reach all of it, and for pages when what is

@@ -11,7 +11,7 @@ from app.check_runs import run_workflow
 from app.config import get_settings
 from app.drafts import write_draft
 from app.encrypted import CONNECTOR_TOKENS, encrypt
-from app.flags import CONNECTORS, DRAFTS, EMAIL_IN, QUESTION_SETS, SHARE_LINKS
+from app.flags import COMMENTS, CONNECTORS, DRAFTS, EMAIL_IN, QUESTION_SETS, SHARE_LINKS
 from app.indexing.pipeline import process_document
 from app.models import Connector
 from app.question_reports import write_report
@@ -38,11 +38,11 @@ class World:
     question, and in its trash a folder, a document and a chat; another project in the trash; an
     invitation to the organisation and an API key of it, all made by the local owner in the local
     organisation, and another member of it; the project has an address, a folder of the
-    owner's Google Drive connected, and its document a share link; the project has a tag its
-    document carries, a smart folder of it and a filing rule. The extraction templates are
-    on for every organisation, and so are the drafts, email in, connected folders, share links
-    and question sets, so that what refuses another organisation is the project's scope, not the
-    flag."""
+    owner's Google Drive connected, and its document a share link and a thread of the owner's
+    comment; the project has a tag its document carries, a smart folder of it and a filing
+    rule. The extraction templates are on for every organisation, and so are the drafts, email
+    in, connected folders, share links, question sets and comments, so that what refuses another
+    organisation is the project's scope, not the flag."""
 
     org_id: int
     project_id: int
@@ -75,6 +75,8 @@ class World:
     filing_rule_id: int
     question_set_id: int
     report_id: int
+    thread_id: int
+    comment_id: int
 
 
 @pytest.fixture
@@ -85,6 +87,7 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
     turn_on(monkeypatch, CONNECTORS)
     turn_on(monkeypatch, SHARE_LINKS)
     turn_on(monkeypatch, QUESTION_SETS)
+    turn_on(monkeypatch, COMMENTS)
     monkeypatch.setattr(get_settings(), "inbound_domain", "in.emudoc.test")
     monkeypatch.setattr(get_settings(), "google_drive_client_id", "drive-client")
     monkeypatch.setattr(get_settings(), "google_drive_client_secret", "drive-secret")
@@ -99,6 +102,8 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
     assert client.post(f"/api/documents/{document['id']}/versions", files=signed).status_code == 201
     process_document(document["id"], services)
     link = client.post(f"/api/documents/{document['id']}/share-links", json={})
+    thread = client.post(f"/api/documents/{document['id']}/threads", json={"text": "Signed?"})
+    assert thread.status_code == 201, thread.text
     chat = new_chat(client, project["id"])
     services.llm.agent_turns.append(FakeTurn(TextPart("Nothing is due.")))
     asked = ask(client, chat["id"], "What is due?")
@@ -201,6 +206,8 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
         rule.json()["id"],
         question_set.json()["id"],
         report["id"],
+        thread.json()["id"],
+        thread.json()["comments"][0]["id"],
     )
 
 
@@ -267,6 +274,9 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/documents/{w.document_id}/content", {}),
         ("GET", f"/api/documents/{w.document_id}/facts", {}),
         ("GET", f"/api/documents/{w.document_id}/note", {}),
+        ("GET", f"/api/documents/{w.document_id}/threads", {}),
+        ("GET", f"/api/projects/{w.project_id}/mentionable", {}),
+        ("GET", f"/api/projects/{w.project_id}/activity", {}),
         ("GET", f"/api/documents/{w.document_id}/copies", {}),
         ("GET", f"/api/documents/{w.document_id}/share-links", {}),
         ("GET", f"/api/documents/{w.document_id}/versions", {}),
@@ -449,6 +459,25 @@ def marks(w: World) -> list[Route]:
     ]
 
 
+def talk(w: World) -> list[Route]:
+    """What a reader writes in a document's comments, which a viewer does too, since a comment
+    changes no document (test_comments.py): a thread started, a reply, a thread resolved."""
+    return [
+        ("POST", f"/api/documents/{w.document_id}/threads", {"json": {"text": "Mine."}}),
+        ("POST", f"/api/threads/{w.thread_id}/comments", {"json": {"text": "Yes."}}),
+        ("PATCH", f"/api/threads/{w.thread_id}", {"json": {"resolved": True}}),
+    ]
+
+
+def comment(w: World) -> list[Route]:
+    """Changing and deleting a comment, which are its writer's, and deleting it an owner's or
+    admin's too."""
+    return [
+        ("PATCH", f"/api/comments/{w.comment_id}", {"json": {"text": "Signed."}}),
+        ("DELETE", f"/api/comments/{w.comment_id}", {}),
+    ]
+
+
 def chat_writes(w: World) -> list[Route]:
     """The routes that change a chat or ask in it, which stay its starter's when it is shared."""
     return [
@@ -556,6 +585,8 @@ def scoped(w: World) -> list[Route]:
         + answer_links(w)
         + members(w)
         + marks(w)
+        + talk(w)
+        + comment(w)
     )
 
 
@@ -635,6 +666,8 @@ def test_a_private_project_is_found_by_nobody_else(client, world, account, make_
         + links(world)
         + answer_links(world)
         + marks(world)
+        + talk(world)
+        + comment(world)
     )
 
     act_as(make_account("mo.too@example.com", account.organization, role="member"))
@@ -649,6 +682,8 @@ def test_a_private_project_is_found_by_nobody_else(client, world, account, make_
         assert set(shown.values()) == {200}, shown
         marked = statuses(client, marks(world))
         assert set(marked.values()) == {204}, marked
+        written = statuses(client, talk(world))
+        assert set(written.values()) <= {200, 201}, written
 
 
 def test_a_viewer_can_read_but_not_change(client, world, account, make_account, act_as):
@@ -658,7 +693,11 @@ def test_a_viewer_can_read_but_not_change(client, world, account, make_account, 
     assert set(seen.values()) == {200}, seen
     marked = statuses(client, marks(world))
     assert set(marked.values()) == {204}, marked
-    refused = statuses(client, writes(world) + trash_writes(world) + trashed_project(world))
+    written = statuses(client, talk(world))
+    assert set(written.values()) <= {200, 201}, written
+    refused = statuses(
+        client, writes(world) + trash_writes(world) + trashed_project(world) + comment(world)
+    )
     assert set(refused.values()) == {403}, refused
     # The owner's chat in the trash is the owner's alone, and so is the private chat's answer.
     hidden = statuses(client, chat_trash(world) + answer_links(world))
@@ -688,6 +727,9 @@ def test_a_member_can_change_things(client, world, account, make_account, act_as
         client, invitations(world) + keys(world) + webhooks(world) + links(world) + members(world)
     )
     assert set(managed.values()) == {403}, managed
+    # Another's comment is its writer's to change, and an owner's or admin's to delete.
+    others = statuses(client, comment(world))
+    assert set(others.values()) == {403}, others
 
 
 def test_chats_are_private_until_shared(client, services, world, account, make_account, act_as):

@@ -53,6 +53,7 @@ export function TextView({ blocks, focus }: { blocks: Block[]; focus: BlockFocus
           )}
           <div
             id={`block-${block.ordinal}`}
+            data-block={block.ordinal}
             className={`rounded transition-colors ${inFocus(block, focus) ? '-mx-2 bg-mark/50 px-2 py-0.5 print-exact' : ''}`}
           >
             <BlockBody block={block} />
@@ -122,6 +123,7 @@ export function PagesView({ pageUrl, content, focus }: PagesViewProps) {
                 <Fragment key={block.ordinal}>
                   <span
                     className="page-text"
+                    data-block={block.ordinal}
                     // Sized in container units so the text scales with the page.
                     style={{ ...box, fontSize: `${(fitFontSize(block.text, x1 - x0, bottom - top) / width) * 100}cqw` }}
                   >
@@ -201,6 +203,7 @@ export function SheetView({ label, blocks, focus }: { label: string; blocks: Blo
             <div
               key={block.ordinal}
               id={`block-${block.ordinal}`}
+              data-block={block.ordinal}
               className={`rounded ${inFocus(block, focus) ? 'ring-2 ring-accent/60' : ''}`}
             >
               <BlockBody block={block} />

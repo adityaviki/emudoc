@@ -37,9 +37,10 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import ColumnElement, and_, exists, func, or_, select, tuple_, update
+from sqlalchemy import ColumnElement, and_, exists, func, select, tuple_, update
 from sqlalchemy.orm import Session
 
+from app.access import seeing
 from app.audit import audit_event
 from app.mail import automation_review_email, in_organization, review_assigned_email
 from app.models import (
@@ -49,7 +50,6 @@ from app.models import (
     Document,
     Membership,
     Project,
-    ProjectMember,
     User,
 )
 from app.notices import PROJECT_PAGE, REVIEW_ASSIGNED, tell
@@ -100,13 +100,7 @@ class ReviewChange:
 def reviewer_condition(project: Project) -> ColumnElement[bool]:
     """The condition a membership of the project's organisation meets when its user may be
     assigned the project's documents: a role that may change them, and the project seen."""
-    held = [Membership.org_id == project.org_id, Membership.role.in_(REVIEWER_ROLES)]
-    if project.visibility != "organization":
-        chosen = exists().where(
-            ProjectMember.project_id == project.id, ProjectMember.user_id == Membership.user_id
-        )
-        held.append(or_(Membership.role.in_(ROLES[:2]), chosen))
-    return and_(*held)
+    return and_(seeing(project), Membership.role.in_(REVIEWER_ROLES))
 
 
 def reviewers(session: Session, project: Project) -> list[tuple[int, str]]:

@@ -17,6 +17,16 @@ newest entry first.
 
 Members:
 
+- Comments: talk about a document where it is. The "Comments" button on a document's tab opens
+  its threads beside the text; choose words in the text, or open a passage from a citation, and
+  press "New comment" to start a thread about them, or comment on the whole document. Type "@" to
+  mention a member who sees the project: they are told, in the app and by email as they chose,
+  who mentioned them and on which document, and the members who wrote in a thread are told of a
+  reply. Resolve a thread once it is settled; its quote stays when the document is read again or
+  given a new version. Everyone who reads the project comments, viewers too.
+- Activity: the library's "Activity" lists what was done in a project lately, its uploads, new
+  versions, deletions, reviews, comments, drafts and runs, newest first, each opening what it was
+  about. Comments and the activity reach organisations as they are rolled out.
 - Question sets: save the questions you ask again and again in a project, and have them asked
   for you every day or one day a week at an hour you choose, once new documents arrive, or both.
   The library's "Question sets" makes them and runs one at once with "Run now"; each run is a
@@ -31,6 +41,10 @@ Members:
 
 Operators:
 
+- The feature flag `comments` (at 0) turns on comments on documents, their mentions and replies
+  told as two new kinds of notice, and each project's activity, which reads its rows of the audit
+  log. The audit log gains a comment added and deleted and a thread resolved and opened again,
+  by the document's name, never a comment's words. The migration adds two tables.
 - Each check runs once for a change while the app is in development: the developer's own pull
   requests run nothing and are merged once the suite and the frontend's checks pass on their
   machine; CI runs the browser test, the load test, the image, the secrets and the scripts once

@@ -152,6 +152,10 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   chat_deleted: ['Deleted a chat', 'chats'],
   chat_restored: ['Restored a chat', 'chats'],
   chat_purged: ['Deleted a chat for good', 'chats'],
+  comment_added: ['Commented on a document', 'files'],
+  comment_deleted: ['Deleted a comment', 'files'],
+  thread_resolved: ['Resolved a thread of comments', 'files'],
+  thread_reopened: ['Opened a thread of comments again', 'files'],
 }
 
 /** What a row's action is called: by ACTIONS, or for one a page loaded before a release does not know, by its name. */
@@ -250,6 +254,11 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
     const service = serviceName(detail.by_connector)
     if (event.action === 'document_uploaded' || event.action === 'document_version_uploaded') parts.push(`from ${service}`)
     else parts.push(detail.replaced === true ? `replaced by a new version from ${service}` : `gone from ${service}`)
+  }
+  // A comment's row names its document, never its words: a reply, and whose comment an owner or admin deleted.
+  if (event.action === 'comment_added' && detail.reply === true) parts.push('a reply')
+  if (event.action === 'comment_deleted' && typeof detail.author === 'number' && detail.author !== event.user_id) {
+    parts.push(`${names.get(detail.author) ?? 'a former member'}’s comment`)
   }
   // A review an automation's run moved, which the row names as by Emudoc.
   if (REVIEW_ACTIONS.has(event.action) && typeof detail.automation === 'string') parts.push(`by the automation “${detail.automation}”`)

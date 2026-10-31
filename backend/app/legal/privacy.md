@@ -42,8 +42,11 @@ organisation uploaded a document about you, ask the organisation first; we help 
   another changes them, the tags, smart folders and filing rules you made, the runs of a project's
   cross-checks you made, with the values they compared and the reports the model wrote from them,
   the drafts you asked the model for or edited, with what you asked of them and every version,
-  and the question sets you made, with their questions and when they are asked, and the reports
-  of their answers, which your organisation's members who see the project read.
+  the question sets you made, with their questions and when they are asked, and the reports
+  of their answers, which your organisation's members who see the project read, and the comments
+  you wrote on documents, with the words they quote and the members they mention, which those
+  members read beside your name and which stay with the document, without your name, once your
+  account is deleted.
   We need them to provide the service.
 - **Invitations**: the email address a member of an organisation invited to join it, the role
   offered and who sent it, to mail the invitation and let whoever holds the address join; the
@@ -110,7 +113,8 @@ that names you ran a project's cross-checks after documents arrived, what they f
 by counts and file names; when a member or an automation assigned you a document to review, which
 and who; when a question set that names you, or one you ran, has its answers ready, by its name
 and how many were answered; once you turn it on, on Monday morning, what arrived over the week
-in the projects you see, by file names and counts; and
+in the projects you see, by file names and counts; when a member mentioned you in a comment, or
+replied in a thread you wrote in, who and on which document, never what they wrote; and
 an organisation's owners and admins,
 when its pages or questions for the month are mostly or all used. You choose how you
 are told each kind on your account page, and can stop each kind by email with the link at the

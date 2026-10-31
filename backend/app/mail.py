@@ -1058,6 +1058,36 @@ def review_assigned_email(
     )
 
 
+def mentioned_email(
+    name: str, writer: str, filename: str, project: str, organization: str, link: str
+) -> Content:
+    """To a member another mentioned in a comment (app/comments.py): who did, and on which
+    document, by the file's name in the body alone. Never the comment, which is a member's words
+    and may quote the document; the subject names nobody, since the log repeats it."""
+    said = f"{writer} mentioned you in a comment on {filename} in {project} in {organization}."
+    return Content(
+        "You were mentioned in a comment",
+        (_greeting(name), said, Link(link, "Open the comment")),
+        said,
+    )
+
+
+def thread_replied_email(
+    name: str, writer: str, filename: str, project: str, organization: str, link: str
+) -> Content:
+    """To a member who wrote in a thread another replied in (app/comments.py), under the same
+    terms as a mention."""
+    said = (
+        f"{writer} replied in a thread you commented in, on {filename} in {project} in "
+        f"{organization}."
+    )
+    return Content(
+        "A reply to a thread you commented in",
+        (_greeting(name), said, Link(link, "Open the thread")),
+        said,
+    )
+
+
 # The names of the documents an automation put in review that its notice lists; the rest counted.
 REVIEWS_NAMED = 3
 

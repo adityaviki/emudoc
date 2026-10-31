@@ -6,8 +6,8 @@ import { useLocation, useNavigate } from 'react-router'
 import type { DocumentFilter, ReviewState, ScopeIn } from '../api.ts'
 import { REVIEW_STATES } from '../reviews.ts'
 
-/** What a document is opened at: a cited passage, a block of its text, or a page. */
-export type Focus = { passage: number } | { block: number } | { page: number }
+/** What a document is opened at: a cited passage, a block of its text, a page, or a thread of its comments. */
+export type Focus = { passage: number } | { block: number } | { page: number } | { thread: number }
 
 /** Whose documents in review the reviews view lists: every member's, or those assigned to the member. */
 export type Reviews = 'all' | 'mine'
@@ -15,7 +15,7 @@ export type Reviews = 'all' | 'mine'
 /** What the library's search is narrowed by beside its folder: the other parts of a smart folder's filter. */
 export type SearchFilter = Omit<DocumentFilter, 'folder_id'>
 
-/** The folder the library shows, and the search running in it, with what narrows it; or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, with `changes`, what their last readings changed, with `checks`, its cross-checks, with `check`, what that one finds, with `run`, a run of them kept with what it found, with `questionSets`, its question sets with the reports of their answers, with `report`, one of those reports, with `reviews`, its documents in review, with `drafts`, the drafts the model wrote from its documents, with `draft`, one of them, with `draftTemplates`, how its drafts of each kind read, with `mail`, its address and what it received, with `connectors`, the folders of its members' Google Drive, Dropbox or OneDrive it keeps in step with; with `tag`, the documents of one of its tags wherever they are, with `smart`, a smart folder's, with `favorites`, the member's favourites, with `recent`, the documents they opened lately; with `tags`, its tags to make and change, and with `filing`, its filing rules. */
+/** The folder the library shows, and the search running in it, with what narrows it; or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, with `changes`, what their last readings changed, with `checks`, its cross-checks, with `check`, what that one finds, with `run`, a run of them kept with what it found, with `questionSets`, its question sets with the reports of their answers, with `report`, one of those reports, with `reviews`, its documents in review, with `activity`, what was done in it lately, with `drafts`, the drafts the model wrote from its documents, with `draft`, one of them, with `draftTemplates`, how its drafts of each kind read, with `mail`, its address and what it received, with `connectors`, the folders of its members' Google Drive, Dropbox or OneDrive it keeps in step with; with `tag`, the documents of one of its tags wherever they are, with `smart`, a smart folder's, with `favorites`, the member's favourites, with `recent`, the documents they opened lately; with `tags`, its tags to make and change, and with `filing`, its filing rules. */
 export interface LibraryView {
   folderId: number | null
   q: string
@@ -30,6 +30,7 @@ export interface LibraryView {
   questionSets?: true
   report?: number
   reviews?: Reviews
+  activity?: true
   drafts?: true
   draft?: number
   draftTemplates?: true
@@ -83,6 +84,7 @@ export function parseWorkspaceUrl(pathname: string, search: string): WorkspaceUr
   else if (id(params.get('report')) != null) library.report = id(params.get('report')) ?? undefined
   else if (params.has('question-sets')) library.questionSets = true
   else if (params.has('reviews')) library.reviews = params.get('reviews') === 'mine' ? 'mine' : 'all'
+  else if (params.has('activity')) library.activity = true
   else if (id(params.get('draft')) != null) library.draft = id(params.get('draft')) ?? undefined
   else if (params.has('drafts')) library.drafts = true
   else if (params.has('draft-templates')) library.draftTemplates = true
@@ -162,7 +164,9 @@ function parseFocus(params: URLSearchParams): Focus | null {
   const block = params.get('block')
   if (block != null && /^\d+$/.test(block)) return { block: Number(block) }
   const page = id(params.get('page'))
-  return page != null ? { page } : null
+  if (page != null) return { page }
+  const thread = id(params.get('thread'))
+  return thread != null ? { thread } : null
 }
 
 function id(value: string | null): number | null {
@@ -185,6 +189,7 @@ export function buildWorkspaceUrl(url: Omit<WorkspaceUrl, 'canonical'>): string 
   if (url.library.questionSets) params.set('question-sets', '')
   if (url.library.report != null) params.set('report', String(url.library.report))
   if (url.library.reviews) params.set('reviews', url.library.reviews === 'mine' ? 'mine' : '')
+  if (url.library.activity) params.set('activity', '')
   if (url.library.drafts) params.set('drafts', '')
   if (url.library.draft != null) params.set('draft', String(url.library.draft))
   if (url.library.draftTemplates) params.set('draft-templates', '')
@@ -202,6 +207,7 @@ export function buildWorkspaceUrl(url: Omit<WorkspaceUrl, 'canonical'>): string 
     if (focus) {
       if ('passage' in focus) params.set('passage', String(focus.passage))
       else if ('block' in focus) params.set('block', String(focus.block))
+      else if ('thread' in focus) params.set('thread', String(focus.thread))
       else params.set('page', String(focus.page))
     }
   }

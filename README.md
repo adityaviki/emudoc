@@ -215,6 +215,30 @@ towards it, and the cross-checks inform it. Each move and assignment is a row of
 the document's name and the states or whom it was assigned to, never a value; a document in the
 trash keeps its review, and a member who leaves the organisation is assigned nothing of it.
 
+Everyone who sees a project comments on its documents, viewers too, since a comment changes no
+document (`backend/app/comments.py`, `GET|POST /api/documents/{id}/threads`, `POST
+/api/threads/{id}/comments`, `PATCH /api/threads/{id}`, `PATCH|DELETE /api/comments/{id}`). The
+"Comments" button on a document's tab opens its threads beside its text, the open ones counted on
+it; "New comment" starts a thread about the words chosen in the text, the passage a citation or
+the outline opened ("Comment on this" beside "Showing: …"), or the document as a whole. A thread
+keeps the words it quotes, their page and the version they were in: a document's passages are
+written anew at every reading, so its link to the passage goes with a new version while the quote
+stays. Its writer changes and deletes a comment, an owner or admin deletes any, a thread goes with
+its last comment, and anyone resolves a thread or opens it again. After "@" the box offers the
+members who see the project (`GET /api/projects/{id}/mentionable`); whoever a comment mentions is
+told, and the earlier writers of a thread are told of a reply, in the app and by email as each
+chose, by who wrote and on which document, never the words, the notice opening the thread. A
+document's comments go into the trash with it, travel in the project's export and a member's own
+in their account's export, and stay without their writer's name once the account is deleted;
+neither the agent nor the search reads them. The library's "Activity" lists what was done in the
+project lately, newest first, for everyone who sees it (`backend/app/activity.py`, `GET
+/api/projects/{id}/activity`): documents uploaded, given versions, deleted and restored, reviews
+moved and assigned, comments and threads resolved, drafts, runs of the cross-checks and the
+question sets, chats shared, each by names alone and leading to what it was about while that is
+there; it reads the project's rows of the audit log, which record each comment added and deleted
+and each thread resolved by the document's name, so it is kept as long as the audit log is.
+Comments and the activity are behind the flag `comments` while they are rolled out.
+
 The agent also writes drafts for the members to edit and send (`backend/app/drafts.py`, `POST
 /api/projects/{id}/drafts`): a reply email, a dispute letter, a summary memo, a comparison table or
 a report. The library's "Drafts" asks for one of a kind, saying what it should say, about the
@@ -1027,9 +1051,10 @@ signs any of them out, and chooses how each kind of notice is told, the news a m
 without: that an upload which took five minutes or more to index is done, naming the files that
 could not be indexed and why, and to an organisation's owners and admins that its pages or
 questions for the month reached 80 % of what it may use, all of it, or for pages too few for a
-document (`backend/app/notices.py`), that a question set's report is ready, and, once a member
-turns it on, on Monday morning of their zone what arrived over the week in the projects they see,
-by name (`backend/app/digests.py`). Each is told under the bell in the header, the member's
+document (`backend/app/notices.py`), that a question set's report is ready, that a member
+mentioned them in a comment or replied in a thread they wrote in, and, once a member turns it on,
+on Monday morning of their zone what arrived over the week in the projects they see, by name
+(`backend/app/digests.py`). Each is told under the bell in the header, the member's
 notification centre of every organisation they belong to (opening one switches to its
 organisation; kept 90 days), and by email, each way on or off by kind; a notice's own link and a
 mail program's "Unsubscribe" turn its kind's email off, and a browser may show them as they come

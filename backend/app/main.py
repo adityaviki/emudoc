@@ -19,6 +19,7 @@ from starlette.convertors import PathConvertor, register_url_convertor
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import (
+    activity,
     apikeys,
     audit,
     auth,
@@ -26,6 +27,7 @@ from app.api import (
     billing,
     chats,
     check_runs,
+    comments,
     connectors,
     cross_checks,
     documents,
@@ -450,6 +452,8 @@ KEYED = (
     folders.router,
     documents.router,
     notes.router,
+    comments.router,
+    activity.router,
     duplicates.router,
     versions.router,
     query.router,
