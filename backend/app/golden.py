@@ -37,6 +37,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
 from app.agent.loop import run_agent
+from app.answers import Reply
 from app.config import Settings, listing
 from app.db import SessionLocal
 from app.drafts import CITATION
@@ -320,21 +321,17 @@ def _embed(services: Services, document_ids: list[int]) -> str | None:
 
 def _ask(services: Services, project_id: int, names: dict[int, str], golden: Golden) -> Asked:
     usage = ModelUsage()
-    words: list[str] = []
-    errors: list[str] = []
-    # The passages a tool showed the model, by id, with the document each is of.
-    shown: dict[int, int] = {}
     started = time.monotonic()
-    # As an answer runs (`answer` in app/answers.py), offered the questions to ask next.
+    # As an answer runs (`answer` in app/answers.py), offered the questions to ask next, and
+    # folded as its row is, so that the answer graded is the one a member would read.
     turn = [{"role": "user", "content": golden.question}]
+    reply = Reply()
     for event in run_agent(services, project_id, turn, usage, following=True):
-        if event["type"] == "text":
-            words.append(event["text"])
-        elif event["type"] == "sources":
-            shown.update({source["id"]: source["document_id"] for source in event["sources"]})
-        elif event["type"] == "error":
-            errors.append(f"ended with an error: {event['message']}")
-    answer = "".join(words)
+        reply.apply(event)
+    answer = reply.content
+    errors = [f"ended with an error: {reply.error}"] if reply.error else []
+    # The passages a tool showed the model, by id, with the document each is of.
+    shown = {id_: source["document_id"] for id_, source in reply.sources.items()}
     seconds = time.monotonic() - started
     references = [int(found) for found in CITATION.findall(answer)]
     cited = {names[shown[reference]] for reference in references if reference in shown}

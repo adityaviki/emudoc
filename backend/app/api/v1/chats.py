@@ -6,10 +6,11 @@ The events are the API's own, not the page's: the page's stream carries the agen
 retried turns and its restarts, which add up to the answer only as `Reply.apply` folds them, and
 which change with the agent. This one folds them as they come and sends what the answer became:
 `text`, more of it; `reset`, the answer so far in place of what was sent, when a turn was tried
-again or the run started over; `sources`, passages it may cite now; and `end`, the message as it
-was settled. Each carries the id of the last of the page's events folded into it, so a program
-that lost the stream follows again from where it was with `Last-Event-ID`, and the stream folds
-the events up to there before it sends anything.
+again, what the model wrote beside a step was taken back as its note to itself, or the run started
+over; `sources`, passages it may cite now; and `end`, the message as it was settled. Each carries
+the id of the last of the page's events folded into it, so a program that lost the stream follows
+again from where it was with `Last-Event-ID`, and the stream folds the events up to there before it
+sends anything.
 """
 
 import json

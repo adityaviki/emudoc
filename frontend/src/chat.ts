@@ -128,8 +128,10 @@ export function applyEvent(message: Message, event: ChatEvent): Message {
       // The run that wrote the answer so far was lost; another starts it over.
       return empty(message)
     case 'tool_call':
+      // What the model wrote beside a step was its note to itself, never the answer.
       return {
         ...message,
+        content: message.content.slice(0, message.turnStart),
         thinking: false,
         steps: [...message.steps, { id: event.id, name: event.name, input: event.input }],
       }

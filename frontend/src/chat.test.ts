@@ -80,16 +80,39 @@ describe('applyEvent', () => {
     })
   })
 
-  it('drops the text of a model turn that is tried again, and keeps what came before it', () => {
+  it('drops the text of a model turn that is tried again', () => {
     const message = fold([
-      { type: 'text', text: 'Searching. ' },
       { type: 'tool_call', id: 'call_1', name: 'search', input: {} },
       { type: 'tool_result', id: 'call_1', summary: '', is_error: false },
       { type: 'text', text: 'Half an ans' },
       { type: 'retry' },
       { type: 'text', text: 'The answer.' },
     ])
-    expect(message.content).toBe('Searching. The answer.')
+    expect(message.content).toBe('The answer.')
+  })
+
+  it('leaves out what the model wrote beside a step, its note to itself', () => {
+    const message = fold([
+      { type: 'text', text: 'Line items extracted only 8 facts. ' },
+      { type: 'text', text: 'Read the invoices directly.' },
+      { type: 'tool_call', id: 'call_1', name: 'read', input: { document_id: 3 } },
+      { type: 'tool_result', id: 'call_1', summary: 'INV-1', is_error: false },
+      { type: 'tool_call', id: 'call_2', name: 'read', input: { document_id: 4 } },
+      { type: 'tool_result', id: 'call_2', summary: 'INV-2', is_error: false },
+      { type: 'text', text: 'Yes, all three invoices use the price-list unit prices.' },
+      { type: 'done', usage: USAGE },
+    ])
+    expect(message.content).toBe('Yes, all three invoices use the price-list unit prices.')
+    expect(message.steps.map((step) => step.id)).toEqual(['call_1', 'call_2'])
+  })
+
+  it('keeps the answer written beside the questions to ask next, which are no step', () => {
+    const message = fold([
+      { type: 'text', text: 'The notice period is 90 days.' },
+      { type: 'follow_ups', questions: ['How is notice given?'] },
+      { type: 'done', usage: USAGE },
+    ])
+    expect(message).toMatchObject({ content: 'The notice period is 90 days.', follow_ups: ['How is notice given?'] })
   })
 
   it('starts over when the run writing the answer was lost', () => {

@@ -436,8 +436,8 @@ def test_a_question_asked_and_its_answer_polled_and_followed(api, session, servi
 
 
 def test_the_events_send_what_the_answer_became():
-    """Text adds to what was sent; a turn tried again or a run started over sends the answer
-    whole in its place, and its sources with it."""
+    """Text adds to what was sent; a turn tried again, a note beside a step or a run started
+    over sends the answer whole in its place, and its sources with it."""
     reply = Reply()
     follower = _Sent(reply)
     source = {
@@ -470,6 +470,13 @@ def test_the_events_send_what_the_answer_became():
     reply.apply({"type": "text", "text": "Ninety"})
     assert list(follower.changes(reply)) == [("reset", {"content": "Ninety", "sources": [shown]})]
     reply.apply({"type": "restart"})
+    assert list(follower.changes(reply)) == [("reset", {"content": "", "sources": []})]
+    # What the model wrote beside a step was its note to itself, which its call takes back.
+    reply.apply({"type": "text", "text": "Let me read the termination clause."})
+    assert list(follower.changes(reply)) == [
+        ("text", {"text": "Let me read the termination clause."})
+    ]
+    reply.apply({"type": "tool_call", "id": "call_2", "name": "read", "input": {}})
     assert list(follower.changes(reply)) == [("reset", {"content": "", "sources": []})]
 
 
