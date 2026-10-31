@@ -119,3 +119,33 @@ vulnerabilities:
       from database.clamav.net over HTTPS checked against the image's certificates, and for
       clamsubmit, which nothing runs. A crafted response could reach the decoder only from
       ClamAV's own mirror, which already supplies what the scanner runs.
+
+  # go-jose 4.1.5 in Caddy 2.11.7; 4.1.6 fixed it. Caddy parses a peer's JWK only as an ACME
+  # server (its `acme_server` directive, the pki app), handing out certificates.
+  - id: CVE-2026-116587
+    paths: [usr/bin/caddy]
+    expired_at: 2026-11-14
+    statement: >-
+      deploy/aws/Caddyfile runs no ACME server: Caddy is the ACME client of its certificate
+      authority alone, which signs with its own key and parses no JWK a peer sends.
+
+  # Alpine's curl 8.23.0-r0 fixed this, and Caddy's and ClamAV's images were last rebuilt with
+  # 8.22.0-r0, which both hold, so one entry names it for the two.
+  - id: CVE-2026-92392
+    purls: [pkg:apk/alpine/curl@8.22.0-r0, pkg:apk/alpine/libcurl@8.22.0-r0]
+    expired_at: 2026-11-14
+    statement: >-
+      The fault is in an HTTP/2 upload. In Caddy's image nothing in the deployment runs curl; in
+      ClamAV's libcurl uploads only for clamsubmit, which nothing runs, while freshclam downloads
+      the signatures and clamd uses no curl.
+
+  # Ubuntu's brotli 1.1.0-2ubuntu0.1 fixed this in its decoder, and llama.cpp's server image of
+  # b11706 holds 1.1.0-2build2. The weekly digest Dependabot proposes should bring it.
+  - id: CVE-2026-111497
+    purls: [pkg:deb/ubuntu/libbrotli1@1.1.0-2build2]
+    expired_at: 2026-11-14
+    statement: >-
+      Only curl decodes brotli there, and only when asked to (--compressed): the weights'
+      download in deploy/compose.yml and the health check run curl without it, so it sends no
+      Accept-Encoding and decodes nothing; llama-server reads the weights from the volume and
+      downloads nothing.
