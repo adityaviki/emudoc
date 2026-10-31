@@ -17,6 +17,9 @@ newest entry first.
 
 Members:
 
+- Emudoc has a home page for whoever is not signed in, which says what it does with your
+  documents, and a page of its plans: what each allows and what it costs. The logo on the sign-in
+  pages leads there, and their foot links the plans.
 - The assistant no longer does what a document tells it to. A document that says "ignore your
   instructions", claims an invoice is approved or asks for a draft is read as what the document
   says, and where it matters to your question the assistant tells you that the document holds
@@ -28,6 +31,14 @@ Members:
 
 Operators:
 
+- A visitor without a session is shown the public site's home page at `/`, while a signed-in
+  browser gets the app there as before, and `/pricing` shows every plan's figures from the code
+  and Pro's and Team's prices as Stripe sells them, read at most once an hour. Both are plain HTML
+  of the build that the app fills in, and a part about a feature behind a flag shows once the
+  flag is on for every organisation. `SEARCH_ENGINES=true`, which production's root on AWS sets,
+  asks search engines to list the public pages through `robots.txt` and `/sitemap.xml`; off,
+  `robots.txt` turns them away and every page says `noindex`, as a member's page and a share
+  link's always do.
 - `python -m app.maintenance injection` indexes a supplier's documents that each hold an
   instruction planted for whoever reads them, asks the agent about each, and exits 1 when the
   indexing model wrote what an instruction dictated or an answer did what one said. What the

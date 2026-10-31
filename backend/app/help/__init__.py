@@ -100,7 +100,7 @@ def _values(settings: Settings) -> dict[str, str]:
     support = settings.support_address
     return {
         "sample": _sample(settings.sample_project),
-        "formats": _formats(),
+        "formats": formats(),
         "max_upload_mb": f"{settings.max_upload_mb:,}",
         "max_pages": (
             f", and a PDF, a TIFF or a presentation up to {settings.parse_max_pages:,} pages"
@@ -196,8 +196,9 @@ def _sample(on: bool) -> str:
     )
 
 
-def _formats() -> str:
-    """The file types an upload takes, in words: "PDF, Word (.docx), …, and images (PNG, …)"."""
+def formats() -> str:
+    """The file types an upload takes, in words: "PDF, Word (.docx), …, and images (PNG, …)",
+    which the help and the public site's home page (app/site.py) say."""
     named = DOCUMENT_FORMATS | IMAGE_FORMATS
     if missing := SUPPORTED_EXTENSIONS - named.keys():
         raise RuntimeError(f"The help names no file type for {', '.join(sorted(missing))}.")

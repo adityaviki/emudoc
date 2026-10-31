@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { REGION_NAMES, api } from '../api.ts'
 import { Loading, Notice } from '../components/ui.tsx'
+import { usePageTitle } from '../hooks.ts'
 
 /**
  * The companies this deployment hands its users' data to, public so that whoever decides
@@ -11,6 +12,7 @@ import { Loading, Notice } from '../components/ui.tsx'
  */
 export function SubprocessorsPage() {
   const list = useQuery({ queryKey: ['subprocessors'], queryFn: api.subprocessors, staleTime: Infinity })
+  usePageTitle('Subprocessors · Emudoc')
   return (
     <div className="w-full max-w-2xl">
       <h1 className="text-lg font-semibold tracking-tight">Subprocessors</h1>

@@ -789,9 +789,9 @@ PWNED_ADDRESS = "https://pwned.test"
 
 class FakeStripe:
     """Stands in for Stripe's API (app/payments.py): customers, Checkout sessions, portal
-    sessions and subscriptions, kept as Stripe shapes them. `requests` holds each request as
-    (method, path, form, headers); `status` makes every request fail with it; `subscribe` and
-    `complete` play what a buyer and Stripe do meanwhile."""
+    sessions, subscriptions and the prices a test puts in `prices`, kept as Stripe shapes them.
+    `requests` holds each request as (method, path, form, headers); `status` makes every request
+    fail with it; `subscribe` and `complete` play what a buyer and Stripe do meanwhile."""
 
     HOST = "api.stripe.com"
 
@@ -799,6 +799,7 @@ class FakeStripe:
         self.customers: dict[str, dict] = {}
         self.checkouts: dict[str, dict] = {}
         self.subscriptions: dict[str, dict] = {}
+        self.prices: dict[str, dict] = {}
         self.requests: list[tuple[str, str, dict[str, str], httpx.Headers]] = []
         self.status = 200
         self._numbers = iter(range(1, 1_000_000))
@@ -843,6 +844,8 @@ class FakeStripe:
             found = self.checkouts.get(path.rsplit("/", 1)[1])
         elif request.method == "GET" and path.startswith("/v1/subscriptions/"):
             found = self.subscriptions.get(path.rsplit("/", 1)[1])
+        elif request.method == "GET" and path.startswith("/v1/prices/"):
+            found = self.prices.get(path.rsplit("/", 1)[1])
         if found is None:
             return httpx.Response(
                 404,

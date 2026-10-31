@@ -10,10 +10,12 @@ from app.headers import HSTS, content_security_policy
 from app.indexing.pipeline import Services, process_document
 from app.legal import TERMS_VERSION
 from app.main import create_app
+from app.site import PAGES
 from app.storage import SANDBOX, S3Storage
 from tests.conftest import APP_HEADERS, FakeEmbedder, FakeLLM, FakeS3Client
 from tests.test_api import create_project, upload
 from tests.test_auth import sign_up_link
+from tests.test_site import built
 
 POLICY = (
     "default-src 'self'; img-src 'self'; object-src 'none'; base-uri 'self'; "
@@ -156,12 +158,14 @@ def test_the_policy_allows_images_from_the_bucket(services, mailer):
     assert s3.calls.count("generate_presigned_url") == 1
 
 
-@pytest.mark.parametrize("page", ["index.html", "operator.html", "reference.html"])
+@pytest.mark.parametrize(
+    "page", ["index.html", "operator.html", "reference.html", "home.html", "pricing.html"]
+)
 def test_the_page_needs_no_inline_code(page):
     # The policy allows no inline script or style; the frontend's pages, the members', the
-    # operator's area's and the API reference, must keep to that, or the browser refuses the
-    # theme script and the page stays light for everyone.
-    html = (ROOT_DIR / "frontend" / page).read_text()
+    # operator's area's, the API reference and the public site's two, must keep to that, or the
+    # browser refuses the theme script and the page stays light for everyone.
+    html = built(page) if page in PAGES.values() else (ROOT_DIR / "frontend" / page).read_text()
     for body in re.findall(r"<script\b[^>]*>(.*?)</script>", html, re.S):
         assert not body.strip(), f"{page} has an inline script; move it to public/ as a file"
     assert not re.search(r"\bstyle=|\bon\w+=", html), f"{page} has inline style or handlers"

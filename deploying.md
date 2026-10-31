@@ -1075,6 +1075,29 @@ older code's outline, which is not wrong. The index first committed holds the en
 replies written by hand (`built.models` says `hand:`), each fact's quote checked against its
 block by the stage as a model's is; the next build with a model replaces them.
 
+## The public site
+
+A visitor without a session finds the home page at `/` and the plans at `/pricing`; a browser
+that carries the session cookie gets the members' page at `/` as before, as does development's
+`LOCAL_ACCOUNT`, and `/pricing` is the same for everyone. Both are plain HTML of the frontend's
+build (`frontend/home.html`, `frontend/pricing.html`, `vite build --mode site`, which `pnpm build`
+runs), with no script, so that a search engine reads them whole, and the app fills them in as
+it serves them (`backend/app/site.py`): the plans' figures from the code, the operator's name
+(`OPERATOR_NAME`), the region and the scanner, the support address the Enterprise plan's "Write
+to us" mails, and on `/pricing` Pro's and Team's prices as `STRIPE_PRICES` sells them, read from
+Stripe at most once an hour by each process (five minutes after a failed read, the page saying
+meanwhile that the price is shown before paying; "On request" while nothing is sold). A part of
+either page about a feature behind a flag is shown only once its flag is on for every
+organisation, so that the site offers nothing a new organisation would not find.
+
+`SEARCH_ENGINES=true` asks search engines to list the public pages: robots.txt keeps them from
+`/api/` alone and names `/sitemap.xml` (the home page, the plans, the help and each of its
+articles, what's new, the API reference, the terms, the privacy policy, the subprocessors), and
+every other page, a member's or a share link's, says `X-Robots-Tag: noindex`. Left off, as in
+development and on staging (the AWS module sets it on production alone), robots.txt turns every
+crawler away, there is no sitemap, and every page says `noindex`. The link previews of both
+pages name `APP_URL` and show `/brand/og-image.png`, the logo kit's.
+
 ## TLS at a reverse proxy
 
 Nothing in the app speaks TLS. A reverse proxy holds the certificate, answers the browsers on
@@ -4712,6 +4735,7 @@ the roots' `settings` the others ("The settings").
 | `SENTRY_ENVIRONMENT` | `ENVIRONMENT` | | What the tracker files the reports under |
 | `LOCAL_ACCOUNT` | `false` | refused when true | Requests without a session act as a local owner, for development |
 | `APP_URL` | the request's origin | required | Where members reach the app: the links in mail, the OAuth redirect |
+| `SEARCH_ENGINES` | `false` | `true` on the deployment the public reaches, never staging | Whether search engines are asked to list the public pages ("The public site") |
 | `SESSION_DAYS` | `30` | | How long a sign-in lasts; an organisation may sign its members in again sooner |
 | `OPERATOR_NETWORKS` | `127.0.0.1/32,::1/128` in development, none in production | the operators' addresses | Where the operator's area answers from ("The operator's area") |
 | `SAMPLE_PROJECT` | `true` | | Whether the organisation an account signs up with starts with the sample project ("The sample project") |

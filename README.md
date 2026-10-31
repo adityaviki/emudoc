@@ -1093,7 +1093,10 @@ mail, a plain text and an HTML part each, from a queue: a relay that is down get
 for half an hour, and an address the mail provider says bounced for good or was marked as spam
 is sent no notices for a year (deploying.md, "Mail"). Google and Microsoft accounts sign in through
 OpenID Connect and are linked to an existing account only when both sides have verified the
-address. A visitor without a session is sent to `/login` and returns to the page they wanted.
+address. A visitor without a session finds the public site's home page at `/`, and the plans
+with what each allows and costs at `/pricing`, plain HTML that the app fills in from the plans
+and the prices it sells them at (deploying.md, "The public site"); any other page sends them
+to `/login`, which returns them to the page they wanted.
 A session the server stops accepting drops everything the tab had fetched, so whoever signs in
 next in it starts from nothing. Every request that changes something must carry an `X-Requested-With` header, which the app's own
 requests do and a page on another site cannot add, so the cookie alone changes nothing; send the

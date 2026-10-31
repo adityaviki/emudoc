@@ -5,7 +5,7 @@ import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import { ApiError, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, auth } from '../api.ts'
 import { MeContext, forgetUser, safeNext, setSignedIn } from '../auth.ts'
 import { Button, Checkbox, InputField, Notice, Spinner } from '../components/ui.tsx'
-import { useLegal } from '../hooks.ts'
+import { useLegal, usePageTitle } from '../hooks.ts'
 import { browserTimeZone } from '../timeZones.ts'
 import { useLinkToken } from './linkToken.ts'
 import { AuthCard, PasswordField, ProviderButtons } from './shared.tsx'
@@ -28,6 +28,7 @@ export function SignupPage() {
   const next = safeNext(params.get('next'))
   const [email, setEmail] = useState('')
   const signup = useMutation({ mutationFn: () => auth.signup(email.trim()) })
+  usePageTitle('Sign up · Emudoc')
   if (me) return <Navigate to={next} replace />
 
   function submit(event: FormEvent) {

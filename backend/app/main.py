@@ -10,7 +10,7 @@ import httpx
 from anyio import CapacityLimiter, to_thread
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, OperationalError
@@ -106,6 +106,18 @@ from app.schemas import (
     WorkerStatus,
 )
 from app.shutdown import Stop, heard_stop
+from app.site import (
+    NOT_LISTED,
+    PAGES,
+    PRICING_PAGE,
+    Prices,
+    fill,
+    html_response,
+    listed_by_search_engines,
+    page_at,
+    robots,
+    sitemap,
+)
 from app.startup import prepare
 from app.status import KEYWORDS_ONLY, MODELS_UNAVAILABLE, WORK_STOPPED, upload_limits
 from app.storage import StorageError
@@ -143,6 +155,8 @@ _OPERATOR_PATH = re.compile(r"operator(?:/.*)?|operator\.html")
 # of its own, which anyone may read, drawn from the contract served at /api/v1/openapi.json.
 REFERENCE_PAGE = "reference.html"
 REFERENCE_PATH = "api-reference"
+# The public site's pages (app/site.py), served filled in at their paths alone.
+SITE_FILES = frozenset(PAGES.values())
 
 
 class BuiltFiles(StaticFiles):
@@ -490,6 +504,8 @@ def create_app(
         )
         app.state.policy = content_security_policy(app.state.services.storage)
         app.state.http = http or httpx.Client(timeout=10)
+        # The plans' prices the public plans' page shows, read from Stripe now and then.
+        app.state.prices = Prices()
         # The threads the page images and thumbnails are drawn in, one per render process
         # (app/rendering.py): a request beyond them waits without holding a thread of its own.
         app.state.drawing = CapacityLimiter(settings.render_processes)
@@ -596,6 +612,24 @@ def create_app(
     # a refusal tells nobody else that a route is there (app/api/operator.py).
     app.include_router(operator.router, prefix="/api")
 
+    # What search engines are told of the public pages (app/site.py), before the page's
+    # catch-all, which would answer the members' page.
+    @app.api_route("/robots.txt", methods=["GET", "HEAD"], include_in_schema=False)
+    async def robots_txt(request: Request):
+        return PlainTextResponse(
+            robots(settings, auth.app_url(request)), headers={"Cache-Control": PAGE_KEPT}
+        )
+
+    @app.api_route("/sitemap.xml", methods=["GET", "HEAD"], include_in_schema=False)
+    async def sitemap_xml(request: Request):
+        if not settings.search_engines:
+            return Response(status_code=404, headers={"X-Robots-Tag": NOT_LISTED})
+        return Response(
+            sitemap(auth.app_url(request)),
+            media_type="application/xml",
+            headers={"Cache-Control": PAGE_KEPT},
+        )
+
     if FRONTEND_DIST.is_dir():
         # Serve the built frontend; unknown paths fall back to index.html for client routing.
         app.mount("/assets", BuiltFiles(FRONTEND_DIST / "assets", ASSETS_KEPT), name="assets")
@@ -604,6 +638,18 @@ def create_app(
         # HEAD too, which uptime services often probe the page with.
         @app.api_route("/{path:page}", methods=["GET", "HEAD"], include_in_schema=False)
         async def spa(path: str, request: Request):
+            response = await _page(path, request)
+            if not listed_by_search_engines(path, settings):
+                response.headers["X-Robots-Tag"] = NOT_LISTED
+            if path.strip("/") == "":
+                # / is the site's home page or the members' page by the session cookie.
+                response.headers["Vary"] = "Cookie"
+            return response
+
+        async def _page(path: str, request: Request) -> Response:
+            if (site_page := page_at(path, request, settings)) is not None:
+                if served := await to_thread.run_sync(_site_page, site_page, request):
+                    return served
             if path.rstrip("/") == REFERENCE_PATH:
                 return await page.get_response(REFERENCE_PAGE, request.scope)
             if _OPERATOR_PATH.fullmatch(path):
@@ -611,12 +657,27 @@ def create_app(
                 if await to_thread.run_sync(_from_operator, request):
                     return await page.get_response(OPERATOR_PAGE, request.scope)
                 return await page.get_response("index.html", request.scope)
+            if path in SITE_FILES:
+                # The site's pages as written, their placeholders unfilled, by no other way.
+                return await page.get_response("index.html", request.scope)
             try:
                 return await page.get_response(path, request.scope)
             except StarletteHTTPException as missing:
                 if missing.status_code != 404:
                     raise
             return await page.get_response("index.html", request.scope)
+
+        def _site_page(name: str, request: Request) -> Response | None:
+            """The site's page filled in, or None for a build without it, which leaves the
+            path to the members' page."""
+            try:
+                html = (FRONTEND_DIST / name).read_text()
+            except FileNotFoundError:
+                return None
+            prices = None
+            if name == PRICING_PAGE:
+                prices = request.app.state.prices.get(settings, request.app.state.http)
+            return html_response(request, fill(html, settings, auth.app_url(request), prices))
 
     return app
 

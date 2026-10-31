@@ -5,6 +5,7 @@ import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react
 import { auth } from '../api.ts'
 import { MeContext, safeNext, setSignedIn, signOut } from '../auth.ts'
 import { Button, InputField, Notice } from '../components/ui.tsx'
+import { usePageTitle } from '../hooks.ts'
 import { AuthCard, PasswordField, ProviderButtons } from './shared.tsx'
 
 /** What a page that sends the user here may leave in the router state. */
@@ -26,6 +27,7 @@ export function LoginPage() {
   const location = useLocation()
   const [params] = useSearchParams()
   const state = location.state as LoginState | null
+  usePageTitle('Sign in · Emudoc')
   const next = safeNext(params.get('next'))
   const [codeStep, setCodeStep] = useState(params.has('mfa'))
   const signingOut = Boolean(me && state?.signOut)
