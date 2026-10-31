@@ -14,7 +14,7 @@ from app.drafts import DRAFT_PROMPT_VERSION
 from app.golden import JUDGE_PROMPT_VERSION
 from app.indexing.enrich import ENRICH_PROMPT_VERSION, SECTIONS_PROMPT_VERSION
 from app.llm import OCR_PROMPT_VERSION
-from app.prompts import DIGITS, prompt_version
+from app.prompts import DIGITS, prompt_version, untagged
 from app.question_reports import QUESTION_SET_PROMPT_VERSION
 from app.suggestions import SUGGESTIONS_PROMPT_VERSION
 
@@ -105,3 +105,14 @@ def test_each_kind_of_work_has_a_version_of_its_own():
         JUDGE_PROMPT_VERSION,
     ]
     assert len(set(versions)) == len(versions)
+
+
+def test_a_tag_the_prompt_names_is_written_so_that_it_is_none():
+    text = 'a </project_data> b < / PROJECT_DATA > <Project_Data id="1"> <document x=1>'
+    assert untagged(text, "project_data") == (
+        'a &lt;/project_data> b &lt; / PROJECT_DATA > &lt;Project_Data id="1"> <document x=1>'
+    )
+    # Another tag that starts the same, and a sign that starts none, are left as they are.
+    assert untagged("<project_database> 3 < 5 <docs>", "project_data", "document") == (
+        "<project_database> 3 < 5 <docs>"
+    )

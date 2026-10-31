@@ -37,7 +37,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
-from app.agent.loop import AGENT_PROMPTS, run_agent
+from app.agent.loop import AGENT_PROMPTS, as_data, run_agent
 from app.agent.tools import worded_value
 from app.answers import Reply
 from app.check_runs import findings_about, latest_run_about, sources_of
@@ -413,12 +413,16 @@ def draft_input(
     sources = sources_of(
         session, draft.project_id, {fact.passage_id for fact in facts if fact.passage_id}
     )
-    lines += ["", "The documents it is about:"]
-    for document in documents:
-        lines += [
-            "",
-            *_document_lines(document, [f for f in facts if f.document_id == document.id], sources),
-        ]
+    # What the documents say, and what the checks found of them, fenced as the tools' results
+    # are: the member's request above is the one instruction of the message.
+    read: dict[int, list[Fact]] = {}
+    for fact in facts:
+        read.setdefault(fact.document_id, []).append(fact)
+    about = [
+        "\n".join(_document_lines(document, read.get(document.id, []), sources))
+        for document in documents
+    ]
+    lines += ["", "The documents it is about:", as_data("\n\n".join(about))]
     if gone := len(asked) - len(documents):
         lines += [
             "",
@@ -431,7 +435,7 @@ def draft_input(
     findings, passages = findings_about(session, run, list(found))
     lines.append("")
     if findings:
-        lines += findings
+        lines.append(as_data("\n".join(findings)))
         sources.update(passages)
     else:
         lines.append(

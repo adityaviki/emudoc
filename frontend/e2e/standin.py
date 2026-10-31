@@ -314,7 +314,7 @@ def agent_turn(messages: list[dict[str, Any]], tools: list[str]) -> dict[str, An
     if not results:
         return {"tool": "search", "arguments": {"query": question}}
     if "create_draft" in tools and question.startswith("Draft "):
-        if results[-1].startswith(OFFERED):
+        if OFFERED in results[-1]:
             return {"text": "It is offered below as a draft for the project's drafts."}
         if hit := HIT.search(results[-1]):
             asked = question.lower()

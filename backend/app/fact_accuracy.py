@@ -285,7 +285,7 @@ def run_facts(settings: Settings, llm: LLM | None = None) -> FactRun:
     with indexed_sample(settings, llm, "Fact accuracy", flags) as (org_id, ids):
         with SessionLocal() as session:
             documents = [_read(session, document_id) for document_id in ids]
-            spent = _spent(session, org_id)
+            spent = spent_in(session, org_id)
     fields, problems = score(documents)
     return FactRun(fields, problems, spent)
 
@@ -305,7 +305,8 @@ def _read(session: Session, document_id: int) -> DocumentRead:
     )
 
 
-def _spent(session: Session, org_id: int) -> Spent:
+def spent_in(session: Session, org_id: int) -> Spent:
+    """What the organisation's usage rows say its model calls used."""
     events = session.scalars(
         select(UsageEvent).where(UsageEvent.org_id == org_id, UsageEvent.model.is_not(None))
     ).all()

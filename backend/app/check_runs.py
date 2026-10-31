@@ -44,7 +44,7 @@ from sqlalchemy import delete, exists, func, insert, or_, select, text, update
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
-from app.agent.loop import AGENT_PROMPTS, run_agent
+from app.agent.loop import AGENT_PROMPTS, as_data, run_agent
 from app.answers import Reply
 from app.audit import audit_event
 from app.automations import checks_of, due_at, queue_automation, take_arrivals
@@ -655,13 +655,12 @@ def report_input(session: Session, run: WorkflowRun) -> tuple[str, dict[int, dic
     """
     listed = _listed(session, run.id)
     passages = sources_of(session, run.project_id, _cited(listed))
-    lines = [
-        f"A run of the project's cross-checks, made {run.created_at:%d %B %Y at %H:%M} UTC over "
-        "the documents as they were read then.",
-    ]
+    lines: list[str] = []
     shown = Counter((finding.rule, finding.outcome) for finding in listed)
     for index, kept in enumerate(run.rules):
-        lines += ["", f"Rule {index + 1}: {kept['title']}", f"Checks: {describe_rule(kept)}"]
+        if lines:
+            lines.append("")
+        lines += [f"Rule {index + 1}: {kept['title']}", f"Checks: {describe_rule(kept)}"]
         if kept.get("problem"):
             lines.append(f"Not worked out: {kept['problem']}")
             continue
@@ -676,7 +675,14 @@ def report_input(session: Session, run: WorkflowRun) -> tuple[str, dict[int, dic
         for outcome, words in (("differs", "differing"), ("missing", "that could not be checked")):
             if left := counts.get(outcome, 0) - shown[(index, outcome)]:
                 lines.append(f"- And {left} more {words}, not listed.")
-    return "\n".join(lines), passages
+    # The rules' titles are the members' words and the values the documents': fenced as the
+    # tools' results are, under the server's own sentence.
+    made = (
+        f"A run of the project's cross-checks, made {run.created_at:%d %B %Y at %H:%M} UTC over "
+        "the documents as they were read then."
+    )
+    found = "\n".join(lines)
+    return f"{made}\n\n{as_data(found)}", passages
 
 
 def describe_rule(kept: dict[str, Any]) -> str:

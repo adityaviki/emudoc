@@ -20,7 +20,7 @@ from app.models import Job, Organization, Project, UsageEvent
 from app.suggestions import AGAIN_AFTER, SUGGESTIONS_PROMPT_VERSION, write_suggestions
 from app.usage import SUGGESTIONS
 from app.worker import Worker
-from tests.conftest import SUGGESTED, FakeTurn
+from tests.conftest import SUGGESTED, FakeTurn, data_of
 from tests.test_api import create_project, upload
 from tests.test_chats import ask, follow, new_chat
 from tests.test_spending import spend
@@ -303,7 +303,7 @@ def test_follow_ups_before_the_answer_are_kept_and_the_model_asked_for_it(
     assert len(services.llm.agent_requests) == 2
     returned = services.llm.agent_requests[1][-1].parts[0]
     assert isinstance(returned, ToolReturnPart)
-    assert returned.content.startswith("The member sees these questions under your answer")
+    assert data_of(returned.content).startswith("The member sees these questions under your")
     assert "Now write your whole answer as your last reply" in returned.content
     given = client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]
     assert (given["content"], given["follow_ups"]) == (
