@@ -22,7 +22,7 @@ from app.jobs import RUN_WORKFLOW, claim
 from app.models import Fact, Passage, Section, UsageEvent, WorkflowFinding, WorkflowRun
 from app.retention import prune_runs
 from app.worker import HANDLERS
-from tests.conftest import FakeTurn
+from tests.conftest import FakeTurn, data_of
 from tests.test_api import create_project
 from tests.test_audit import actions
 from tests.test_chats import questions_counted
@@ -349,6 +349,11 @@ def test_the_report_is_written_from_the_findings_citing_their_passages(client, s
     assert f'total_amount "1,255.00 EUR" [P{invoiced}]' in asked
     assert f'"PO-7701.md" total_amount "1,250.00 EUR" [P{ordered}]' in asked
     assert "Could not be checked:" in asked and "no purchase order is paired with it" in asked
+    # The rules and what they found, the members' words and the documents' values, are fenced
+    # as data under the server's own sentence.
+    said, found = asked.split("\n\n", 1)
+    assert said.startswith("A run of the project's cross-checks, made ")
+    assert data_of(found).startswith("Rule 1: Total within its purchase order")
     charged = session.scalars(
         select(UsageEvent).where(UsageEvent.kind == "report", UsageEvent.unit == "calls")
     ).all()

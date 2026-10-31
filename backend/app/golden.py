@@ -473,7 +473,7 @@ def describe_golden(run: GoldenRun) -> list[str]:
             f"{run.by_words}"
         )
     lines.append(f"Prompt versions: answer {ANSWER_PROMPT_VERSION}, judge {JUDGE_PROMPT_VERSION}.")
-    lines += _used("Answered", answering) + _used("Judged", judging)
+    lines += usage_lines("Answered", answering) + usage_lines("Judged", judging)
     if found := _found(run):
         lines.append(found)
     right = len(run.asked) - len(run.failed)
@@ -503,7 +503,7 @@ def _doubts(asked: Asked) -> list[str]:
     ]
 
 
-def _used(verb: str, usage: ModelUsage) -> list[str]:
+def usage_lines(verb: str, usage: ModelUsage) -> list[str]:
     """The line that says what a part of the run used and cost, if it called a model."""
     if not usage.calls:
         return []

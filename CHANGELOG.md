@@ -17,6 +17,10 @@ newest entry first.
 
 Members:
 
+- The assistant no longer does what a document tells it to. A document that says "ignore your
+  instructions", claims an invoice is approved or asks for a draft is read as what the document
+  says, and where it matters to your question the assistant tells you that the document holds
+  instructions addressed to an AI.
 - An answer no longer starts with a note the model wrote to itself on its way, such as "Read the
   invoices directly.", run into its first words. What the model writes as it takes a step, such
   as reading a document, shows only until the step starts, and the answer is what it writes
@@ -24,6 +28,11 @@ Members:
 
 Operators:
 
+- `python -m app.maintenance injection` indexes a supplier's documents that each hold an
+  instruction planted for whoever reads them, asks the agent about each, and exits 1 when the
+  indexing model wrote what an instruction dictated or an answer did what one said. What the
+  agent's tools return now reaches the model marked as data, never instructions, and the
+  indexing model is told the same of the document it reads.
 - Each kind of model work's prompts have a version, a short hash of what the model is told for
   it, which changes with any edit to them and is kept on the usage rows of its calls.
   `python -m app.maintenance costs` adds the cost of each kind of work by the version of its

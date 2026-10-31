@@ -38,7 +38,7 @@ from app.jobs import BULK, SUGGEST_QUESTIONS, Lease, LeaseLost, enqueue, renew
 from app.languages import WORDS_AS_WRITTEN, language_name
 from app.llm import INDEX_SYSTEM, LLMError
 from app.models import Document, Organization, Project
-from app.prompts import prompt_version
+from app.prompts import prompt_version, untagged
 from app.spending import check_platform_spend, check_spend
 from app.usage import SUGGESTIONS, ModelUsage, record
 
@@ -140,7 +140,10 @@ def write_suggestions(project_id: int, services: Services, lease: Lease | None =
         if not session.scalar(select(ready)):
             return
         context = ToolContext(session, services.embedder, project_id)
-        catalogue = list_documents(context, ListDocumentsInput(limit=CATALOGUE_DOCUMENTS))
+        # A summary that wrote `</catalogue>` would end it and go on as the prompt.
+        catalogue = untagged(
+            list_documents(context, ListDocumentsInput(limit=CATALOGUE_DOCUMENTS)), "catalogue"
+        )
         named = project.name + (f" ({project.description})" if project.description else "")
         prompt = PROMPT.format(count=QUESTIONS, language=_language(organization), project=named)
         payer = {"org_id": project.org_id, "project_id": project_id, "user_id": None}

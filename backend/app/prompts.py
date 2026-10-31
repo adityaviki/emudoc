@@ -25,12 +25,18 @@ The usage rows a kind's model calls are recorded in carry its version (`prompt_v
 app/usage.py), and the usage an answer, a document, a run or a draft shows keeps the latest by
 kind; the `costs` command splits each kind's cost by version (`prompt_costs`), and the `golden`
 and `fact-accuracy` reports name the versions they ran.
+
+What the model works on is shown inside tags the prompt names (`<document>`, `<catalogue>`, the
+agent's `<project_data>`), which the prompt says hold data and never instructions. `untagged`
+writes a tag of those inside the words shown so that it is none, since a document that wrote
+`</document>` would otherwise end what is shown and go on as the prompt.
 """
 
 import ast
 import hashlib
 import inspect
 import json
+import re
 import textwrap
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -87,3 +93,10 @@ def _code(function: Callable[..., Any]) -> str:
     if isinstance(definition, ast.FunctionDef) and ast.get_docstring(definition) is not None:
         definition.body = definition.body[1:] or [ast.Pass()]
     return ast.unparse(definition)
+
+
+def untagged(text: str, *tags: str) -> str:
+    """`text` with each opening or closing tag of `tags` in it, in any case and spacing, written
+    so that it is no tag: its `<` as `&lt;`."""
+    names = "|".join(re.escape(tag) for tag in tags)
+    return re.sub(rf"<(?=\s*/?\s*(?:{names})\b)", "&lt;", text, flags=re.IGNORECASE)

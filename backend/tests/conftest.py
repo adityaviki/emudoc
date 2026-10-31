@@ -912,6 +912,13 @@ class FakeStripe:
         return [form for method, at, form, _ in self.requests if method == "POST" and at == path]
 
 
+def data_of(content: str) -> str:
+    """What a tool's result or a message fenced as data holds (`as_data` in app/agent/loop.py),
+    once the fence around it is checked."""
+    assert content.startswith("<project_data>\n") and content.endswith("\n</project_data>")
+    return content.removeprefix("<project_data>\n").removesuffix("\n</project_data>")
+
+
 def unsigned_jwt(claims: dict) -> str:
     """A JWT with an empty signature: the app trusts the token endpoint, not the signature."""
 

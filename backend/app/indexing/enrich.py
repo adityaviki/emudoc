@@ -14,7 +14,7 @@ from app.indexing.structure import SectionHint
 from app.llm import INDEX_SYSTEM, LLM
 from app.locales import reading_line
 from app.models import Block, Document, Section
-from app.prompts import prompt_version
+from app.prompts import prompt_version, untagged
 from app.usage import ModelUsage
 
 # Text per request. Sections are kept whole unless one alone is larger than this, and a block
@@ -38,6 +38,8 @@ LISTING_CHARS = 16_000
 # Beyond this the block listing for section inference gets too large to be worth it.
 MAX_BLOCKS_FOR_INFERENCE = 4000
 PREVIEW_CHARS = 160
+# The tags the requests show a document and its templates in (`shown`).
+SHOWN_IN = ("document", "outline", "opening", "templates", "blocks")
 
 
 class SectionSummary(BaseModel):
@@ -196,7 +198,7 @@ def infer_sections(
     if len(blocks) > MAX_BLOCKS_FOR_INFERENCE:
         return []
     listing = "\n".join(
-        f"[B{block.ordinal}] {block.text[:PREVIEW_CHARS]}"
+        f"[B{block.ordinal}] {shown(block.text[:PREVIEW_CHARS])}"
         + ("…" if len(block.text) > PREVIEW_CHARS else "")
         for block in blocks
     )
@@ -578,9 +580,16 @@ def _sample(run: Sequence[Block]) -> str:
     return "\n".join([*head, *first, gap, *last])
 
 
+def shown(text: str) -> str:
+    """A document's words as a request shows them: a tag of the requests' (`SHOWN_IN`) written so
+    that it is none, since a document that wrote `</document>` would end what is shown and go
+    on as the request."""
+    return untagged(text, *SHOWN_IN)
+
+
 def _document_tag(document: Document, part: bool = False) -> str:
     pages = document.page_count or "n/a"
-    return f"<document filename={document.filename!r} pages={str(pages)!r}" + (
+    return f"<document filename={shown(document.filename)!r} pages={str(pages)!r}" + (
         ' part="true">' if part else ">"
     )
 
@@ -606,8 +615,8 @@ def _item_line(item: _Item) -> str:
 def _render(document: Document, window: _Window, whole: bool) -> str:
     lines = [_document_tag(document, part=not whole)]
     for section, items in window:
-        lines.append(f"\n## [S{section.id}] {section.path}")
-        lines.extend(_item_line(item) for item in items)
+        lines.append(f"\n## [S{section.id}] {shown(section.path)}")
+        lines.extend(shown(_item_line(item)) for item in items)
     lines.append("</document>")
     return "\n".join(lines)
 
@@ -618,7 +627,9 @@ def _outline(sections: Sequence[Section], summaries: dict[int, str], unread: set
         summary = summaries.get(
             section.id, "(not read)" if section.id in unread else "(no summary yet)"
         )
-        lines.append(f"{'  ' * (section.level - 1)}[S{section.id}] {section.title}: {summary}")
+        lines.append(
+            f"{'  ' * (section.level - 1)}[S{section.id}] {shown(f'{section.title}: {summary}')}"
+        )
     return "\n".join(lines)
 
 
@@ -630,7 +641,7 @@ def _opening(windows: Sequence[_Window]) -> str:
     for window in windows:
         for _, items in window:
             for item in items:
-                line = _item_line(item)
+                line = shown(_item_line(item))
                 if lines and (len(lines) == OPENING_ITEMS or size + len(line) > OPENING_CHARS):
                     return "\n".join(lines)
                 lines.append(line)

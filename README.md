@@ -79,7 +79,12 @@ The agent answers with five tools: `list_documents` and `get_outline` read the m
 reads the passage index (keywords and meaning, merged), `query_facts` reads the fact table, and
 `read` returns exact source text. Answers cite passages, and each citation opens the source.
 Where drafts are on, a member who may change the project is offered a sixth, `create_draft`, by
-which an answer offers a draft (below).
+which an answer offers a draft (below). What the tools return reaches the model inside tags its
+prompt names as data, never instructions, and so do the documents' summaries and facts a draft
+or a report is written from; the indexing model is told the same of the document it reads. So a
+document that tells the assistant what to do (to say an invoice is approved, to cite a passage, to
+offer a draft, to describe other projects) is reported, not obeyed, and a document that writes
+one of those tags writes text, not a tag.
 
 The facts are read for each document's kind, by extraction templates (`backend/app/extraction.py`;
 being rolled out, behind the flag `extraction_templates`, and read as before where it is off). A
@@ -1575,8 +1580,12 @@ each cited passage says what its sentence does (`backend/app/golden.py`); both a
 change to the prompts, the agent or the sample is on `main` (`deploying.md`, "The models"). `python -m app.maintenance
 fact-accuracy`, run by hand, indexes the sample with extraction templates on and scores the facts
 the indexing model reads from its contract, invoices and price list against values labelled by
-hand (`backend/app/fact_accuracy.py`), each field's recall and precision. Both reports name the
-versions of the prompts they ran, so two runs with the same versions differ by the model alone.
+hand (`backend/app/fact_accuracy.py`), each field's recall and precision. `python -m
+app.maintenance injection`, run by hand too, indexes a supplier's documents that each hold an
+instruction planted for whoever reads them and asks the agent about each, failing when the
+indexing model wrote what an instruction dictated or an answer did what one said
+(`backend/app/injection/`). The reports name the versions of the prompts they ran, so two runs
+with the same versions differ by the model alone.
 
 Dependabot (`.github/dependabot.yml`) proposes the updates of both lock files and of the
 workflows' actions once a week, a week after their release, and those of the images, which

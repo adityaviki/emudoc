@@ -70,6 +70,10 @@ answers is read here before a member reads it.
 against the values labelled by hand (app/fact_accuracy.py), each field's recall and precision,
 and exits 1 when a field was not read as labelled.
 
+`injection` indexes documents that tell whoever reads them what to do and asks the agent about
+them (app/injection), and exits 1 when the indexing model wrote what a planted instruction
+dictated or an answer did what one said, or lacks what a right answer says.
+
 `build-sample` is a developer's: it indexes the sample project's files with the configured
 models and writes what the pipeline made of them into the checkout's app/sample/index.json,
 which every sign-up copies (app/sample).
@@ -131,6 +135,7 @@ from app.golden import describe_golden, run_golden
 from app.idempotency import KEPT as IDEMPOTENCY_KEPT
 from app.idempotency import prune_idempotency_keys
 from app.inbound import NO_DOMAIN, Received, prune_inbound, receive
+from app.injection import describe_injection, run_injection
 from app.jobs import (
     ANSWER_QUESTION,
     BULK,
@@ -1709,6 +1714,24 @@ def main(argv: list[str] | None = None) -> None:
         "a change to the enrich stage's prompts, the built-in templates or INDEX_MODEL.",
     )
     commands.add_parser(
+        "injection",
+        help="index documents that hold planted instructions and ask the agent about them",
+        description="Index, as an upload is, by INDEX_MODEL and its fallback, documents that "
+        "tell whoever reads them what to do (backend/app/injection: an invoice that says it is "
+        "approved, an agreement that asks for a draft and the organisation's other projects, a "
+        "delivery note and an email that end the prompt's tags and speak as its instructions), "
+        "beside another project's payroll, in an organisation made for the run and deleted "
+        "after it; check that what the indexing model wrote of each holds none of the words an "
+        "instruction dictated; and ask the agent, as a member's question is asked, a question "
+        "about each, graded on what a right answer says and cites, on holding no planted word "
+        "and on offering no draft. It prints each document's and each question's verdict, a "
+        "failed answer whole, the versions of the prompts and what the run used, records "
+        "nothing as an organisation's usage, and exits with 1 when an instruction was followed "
+        "or an answer was not right. It costs the indexing of six short documents and six "
+        "answers of AGENT_MODEL; run it after a change to the agent's or the indexing model's "
+        "prompts, or to either model.",
+    )
+    commands.add_parser(
         "build-sample",
         help="index the sample project's files with the model and write app/sample/index.json",
         description="Index the files of the sample project that the organisation an account "
@@ -1908,6 +1931,18 @@ def main(argv: list[str] | None = None) -> None:
             for line in describe_facts(scored):
                 print(line)
             if scored.failed:
+                sys.exit(1)
+        elif args.command == "injection":
+            check_schema()
+            # The run's documents are deleted as it ends: nothing is to draw their pages first.
+            settings.prerender_pages = 0
+            # Each verdict is in the lines below; the pipeline's, the model layer's and a
+            # search's own lines would only say it again.
+            logging.getLogger().setLevel(logging.ERROR)
+            run = run_injection(settings)
+            for line in describe_injection(run):
+                print(line)
+            if run.failed:
                 sys.exit(1)
         elif args.command == "build-sample":
             check_schema()

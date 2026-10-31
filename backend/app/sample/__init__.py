@@ -313,18 +313,39 @@ def indexed_sample(
     settings name, in an organisation called `name` made for the run with the feature `flags`
     chosen for it, yielding its id and the documents' in the files' order; the organisation is
     deleted after with what the run recorded of its usage, so that the calls are no
-    organisation's.
+    organisation's (`indexed_files`). Refused with `RuntimeError` without a model.
+    """
+    with indexed_files(settings, llm, name, {NAME: _files()}, flags) as (_, org_id, ids):
+        yield org_id, ids
+
+
+@contextmanager
+def indexed_files(
+    settings: Settings,
+    llm: LLM | None,
+    name: str,
+    projects: dict[str, list[Path]],
+    flags: dict[str, bool] | None = None,
+    embedder: Embedder | None = None,
+) -> Iterator[tuple[Services, int, list[int]]]:
+    """Files indexed by the pipeline as an upload is, by `llm` or the models the settings name,
+    into `projects` (each a name and its files) of an organisation called `name` made for the
+    run with the feature `flags` chosen for it, yielding the services the run used, the
+    organisation's id and the documents' in the projects' and their files' order; the
+    organisation is deleted after with what the run recorded of its usage, so that the calls are
+    no organisation's.
 
     The vectors are left out, so the embed stage is marked done before the run, which then never
-    asks the embeddings endpoint; nor the scanner, since the files are the app's own. Refused
-    with `RuntimeError` without a model.
+    asks the embeddings endpoint, `embedder` (`Embedder(settings)` by default) serving the
+    searches alone; nor the scanner, since the files are the app's own. Refused with
+    `RuntimeError` without a model.
     """
     llm = llm or LLM(settings)
     if not llm.available:
-        raise RuntimeError(f"The sample is indexed by a model, and none answers: {llm.problem()}")
+        raise RuntimeError(f"The files are indexed by a model, and none answers: {llm.problem()}")
     slug = re.sub(r"\W+", "-", name.lower())
     with TemporaryDirectory(prefix=f"emudoc-{slug}-") as directory:
-        services = Services(llm, Embedder(settings), LocalStorage(Path(directory)))
+        services = Services(llm, embedder or Embedder(settings), LocalStorage(Path(directory)))
         with SessionLocal() as session:
             organization = Organization(
                 name=name,
@@ -335,15 +356,17 @@ def indexed_sample(
             session.add(organization)
             session.flush()
             org_id = organization.id
-            project = Project(org_id=org_id, name=NAME)
-            session.add(project)
-            session.flush()
-            ids = [_upload(session, project, services.storage, path) for path in _files()]
+            ids = []
+            for project_name, files in projects.items():
+                project = Project(org_id=org_id, name=project_name)
+                session.add(project)
+                session.flush()
+                ids += [_upload(session, project, services.storage, path) for path in files]
             session.commit()
         try:
             for document_id in ids:
                 process_document(document_id, services)
-            yield org_id, ids
+            yield services, org_id, ids
         finally:
             with SessionLocal() as session:
                 session.execute(delete(Organization).where(Organization.id == org_id))

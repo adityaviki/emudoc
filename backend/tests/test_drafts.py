@@ -137,6 +137,12 @@ def test_a_draft_is_written_from_its_documents_facts_and_findings(
     assert "- total_amount: 1,255.00 EUR (EUR)" in asked and f"[P{docs['invoiced']}]" in asked
     assert "Rule: Total within its purchase order" in asked
     assert f'"PO-7701.md" total_amount "1,250.00 EUR" [P{docs["ordered"]}]' in asked
+    # What the documents say and what the checks found are fenced as data, the member's request
+    # left outside as the message's one instruction.
+    request, documents, found = asked.split("<project_data>\n")
+    assert "Ask for a credit note." in request and "<project_data>" not in request
+    assert documents.startswith(f'Document {docs["INV-1"]}: "INV-1.md"')
+    assert documents.endswith("</project_data>\n\n") and found.endswith("</project_data>")
     charged = session.scalars(
         select(UsageEvent).where(UsageEvent.kind == "draft", UsageEvent.unit == "calls")
     ).all()
