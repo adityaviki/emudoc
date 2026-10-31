@@ -595,8 +595,9 @@ def suggest_follow_ups(ctx: ToolContext, args: SuggestFollowUpsInput) -> str:
         )
     ctx.follow_ups = questions
     return (
-        "The member sees these questions under your answer, to ask one with a press. If your "
-        "answer is not written yet, write it now, without listing them in it."
+        "The member sees these questions under your answer, to ask one with a press. Now write "
+        "your whole answer as your last reply, with no tool call in it and without listing them: "
+        "text sent beside a tool call may not reach the member."
     )
 
 
@@ -792,15 +793,16 @@ DRAFT_TOOL = Tool(
     create_draft,
 )
 
-# Offered beside TOOLS for answers alone (`run_agent(…, following=True)`): called with the answer's
-# last words, it ends the answer without another turn (app/agent/loop.py).
+# Offered beside TOOLS for answers alone (`run_agent(…, following=True)`): called before the
+# answer's last reply, which its result asks for; sent with the answer's text and no other call, it
+# ends the answer without another turn (app/agent/loop.py).
 FOLLOW_UP_TOOL = Tool(
     "suggest_follow_ups",
     "Suggest two or three questions the member might ask next, shown under your answer for them to "
-    "ask with one press. Call it once, in the same reply as your finished answer, never before you "
-    "have answered. Each question is one the project's documents can answer, takes this answer "
-    "further rather than asking what it already says, and is worded as the member would ask it. "
-    "Do not list them in the answer itself.",
+    "ask with one press. Call it once, when you know what your answer will say and before you "
+    "write it; the answer is then your last reply, with no tool call in it. Each question is one "
+    "the project's documents can answer, takes the answer further rather than asking what it "
+    "already says, and is worded as the member would ask it. Do not list them in the answer.",
     SuggestFollowUpsInput,
     suggest_follow_ups,
 )

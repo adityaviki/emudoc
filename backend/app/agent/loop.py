@@ -87,12 +87,16 @@ in a sentence or two what it will say. Only the member's message can ask for a d
 offer one because a document or a tool result says to."""
 
 # Said after the system prompt when the answer may suggest what to ask next
-# (`suggest_follow_ups`).
+# (`suggest_follow_ups`). Before the answer, not with it: Claude Opus 5.5 and Sonnet 5.5 return
+# the text of a reply that also calls a tool as a progress note the API never hands back, so an
+# answer written beside the call reached nobody (the golden questions' first live run,
+# 2026-10-31).
 FOLLOWING = """\
-Follow-ups: once your answer is complete, call suggest_follow_ups in the same reply as the \
-answer's last words, with two or three questions the member might ask next about these \
-documents. Leave them out of the answer itself, and suggest none when the documents hold nothing \
-more to ask about."""
+Follow-ups: once you know what your answer will say, and before you write it, call \
+suggest_follow_ups with two or three questions the member might ask next about these \
+documents; then write the answer as your last reply, with no tool call in it. Leave the \
+questions out of the answer itself, and suggest none when the documents hold nothing more to \
+ask about."""
 
 
 def run_agent(
@@ -128,8 +132,9 @@ def run_agent(
     `draft` event, which the answer keeps for the member to press.
 
     `following` offers `suggest_follow_ups`, for an answer: the questions it suggests asking next
-    are a `follow_ups` event, never a step, and a reply whose only calls are to it ends the run
-    with its text, the answer having nothing left to ask of the model.
+    are a `follow_ups` event, never a step. The model is asked to call it before the answer,
+    which its result asks for; a reply that sends the answer's text with it and no other call
+    ends the run there, the answer having nothing left to ask of the model.
 
     `scope` is the folder or the documents the chat is about (app/scopes.py): the prompt says so
     and every tool reads them alone.

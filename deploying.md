@@ -891,8 +891,8 @@ contract's term), and one the documents do not answer. It copies the sample into
 organisation of its own, as a sign-up does, embeds it when the embeddings endpoint answers (the
 search matches words alone otherwise, which its last lines say), asks each question as a
 member's is asked, by `AGENT_MODEL` and its fallback, and deletes the organisation with whatever
-it recorded: it costs the answers alone, about a dozen with a few tool calls each, and no
-organisation's usage. Each answer is graded by its words: it must say the figures and names a
+it recorded: it costs the answers alone, about a dozen with a few tool calls each (USD 1.28 on
+Claude Opus 5.5, 2026-10-31), and no organisation's usage. Each answer is graded by its words: it must say the figures and names a
 right one says, in one of the ways the question lists ("43,476.65" holds "EUR 43 476.65" too,
 "6%" never "16%"), and cite a passage of each document the question names, and never a
 reference no tool showed it. It prints each question's verdict, a failed answer whole with what
