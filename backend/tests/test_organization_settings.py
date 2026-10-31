@@ -10,12 +10,12 @@ import pytest
 from pydantic_ai.messages import TextPart
 from sqlalchemy import select, text, update
 
-from app.api.organizations import ADMINS_ONLY, UNKNOWN_LANGUAGE, longer_than_plan
+from app.api.organizations import ADMINS_ONLY, longer_than_plan
 from app.billing import change_plan, plan_change
 from app.entitlements import PLANS
 from app.indexing.pipeline import process_document
 from app.jobs import APPLY_LANGUAGE, Lease, LeaseLost, claim
-from app.languages import apply_language
+from app.languages import UNKNOWN_LANGUAGE, apply_language
 from app.maintenance import housekeeping
 from app.models import Job, Notification, Organization, Passage, Project, User
 from app.notices import tell
@@ -154,7 +154,7 @@ def test_the_languages_offered_are_the_databases_and_another_is_refused(client):
 
 
 def test_a_new_language_moves_the_passages_indexed_before_and_new_ones_take_it(
-    client, session, services, account
+    client, session, services, account, undetected
 ):
     project = create_project(client)
     text_upload(client, services, project["id"], "notes.txt", GERMAN)
@@ -190,7 +190,15 @@ def test_a_new_language_moves_the_passages_indexed_before_and_new_ones_take_it(
 
 
 def test_the_move_goes_a_batch_at_a_time_and_stops_when_its_lease_is_lost(
-    client, session, services, account, make_account, make_document, tmp_path, monkeypatch
+    client,
+    session,
+    services,
+    account,
+    make_account,
+    make_document,
+    tmp_path,
+    monkeypatch,
+    undetected,
 ):
     monkeypatch.setattr("app.languages.BATCH", 1)
     project = create_project(client)

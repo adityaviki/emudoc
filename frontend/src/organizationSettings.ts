@@ -7,7 +7,10 @@
 import type { Languages, Member, Organization, Role } from './api.ts'
 
 /** The configuration that stems nothing (WORDS_AS_WRITTEN in backend/app/languages.py). */
-const WORDS_AS_WRITTEN = 'simple'
+export const WORDS_AS_WRITTEN = 'simple'
+
+/** The languages the organisation's documents may be searched in, which the organisation page and a document's details offer. */
+export const LANGUAGES_KEY = ['organization', 'languages'] as const
 
 /** The times the page offers to keep a chat after its last question, in days. */
 export const CHAT_DAYS = [7, 30, 90, 180, 365, 730]

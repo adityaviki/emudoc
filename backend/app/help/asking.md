@@ -5,8 +5,9 @@
 The search box above the library finds passages by their words and by their meaning together,
 so "late delivery penalty" also finds a clause about liquidated damages. It searches the
 project, or the folder you are in, or a tag's or a smart folder's documents while the library
-shows them. Words are matched in the language your organisation chose on its page, so that
-"invoices" also finds "invoice". The passages that hold every word you typed come first, then
+shows them. Words are matched in each document's language, so that "invoices" also finds
+"invoice": the one the document was read to be written in, or the one your organisation chose
+on its page ([A document's details](/help/documents)). The passages that hold every word you typed come first, then
 those that hold all but one of them, then those that hold any.
 
 - **Filter**, above the results, narrows a search to the documents of some types, dated within

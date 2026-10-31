@@ -22,6 +22,7 @@ from app.embeddings import Embedder
 from app.folders import PATH_SEPARATOR, folder_paths
 from app.indexing.enrich import parse_iso_date
 from app.indexing.pipeline import unfinished_stages
+from app.languages import WORDS_AS_WRITTEN, language_name, project_language
 from app.models import Document, Fact, Passage, Section
 from app.schemas import DRAFT_DOCUMENTS, INSTRUCTION_CHARS, DraftKind
 from app.scopes import Scope, readable
@@ -65,12 +66,20 @@ class ToolContext:
     follow_ups: list[str] | None = None
     _folder_paths: dict[int, str] | None = field(default=None, repr=False)
     _within: list[int] | None = field(default=None, repr=False)
+    _language: str | None = field(default=None, repr=False)
 
     def folder_paths(self) -> dict[int, str]:
         """Folder id → path, read once per tool call."""
         if self._folder_paths is None:
             self._folder_paths = folder_paths(self.session, self.project_id)
         return self._folder_paths
+
+    def language(self) -> str:
+        """The language the project's documents without one of their own are searched in, read
+        once per tool call (app/languages.py)."""
+        if self._language is None:
+            self._language = project_language(self.session, self.project_id)
+        return self._language
 
     def within(self) -> list[int] | None:
         """The ids of the documents the chat is about, read once per tool call; None when it is
@@ -235,10 +244,9 @@ def list_documents(ctx: ToolContext, args: ListDocumentsInput) -> str:
     folders = _folder_summary(ctx)
     if folders:
         lines.append(folders)
-    paths = ctx.folder_paths()
     for document in documents:
         lines.append("")
-        lines.append(_document_line(document, paths))
+        lines.append(_document_line(ctx, document))
         if document.summary:
             lines.append(f"    {document.summary}")
     return "\n".join(lines)
@@ -309,7 +317,7 @@ def get_outline(ctx: ToolContext, args: GetOutlineInput) -> str:
     sections = ctx.session.scalars(
         select(Section).where(Section.document_id == document.id).order_by(Section.ordinal)
     ).all()
-    lines = [_document_line(document, ctx.folder_paths())]
+    lines = [_document_line(ctx, document)]
     if document.summary:
         lines.append(f"Summary: {document.summary}")
     lines.append("")
@@ -508,7 +516,7 @@ def read(ctx: ToolContext, args: ReadInput) -> str:
         return "Nothing to read there." if args.offset == 0 else "No more passages."
 
     document = ctx.session.get(Document, passages[0].document_id)
-    lines = [_document_line(document, ctx.folder_paths())]
+    lines = [_document_line(ctx, document)]
     used = 0
     last_context = None
     for index, passage in enumerate(passages):
@@ -633,16 +641,23 @@ def _document(ctx: ToolContext, document_id: int) -> Document | None:
     )
 
 
-def _document_line(document: Document, folder_paths: dict[int, str]) -> str:
+def _document_line(ctx: ToolContext, document: Document) -> str:
     parts = [f"doc {document.id} · {document.display_title}"]
     if document.title and document.title != document.filename:
         parts.append(f"file {document.filename}")
+    folder_paths = ctx.folder_paths()
     if document.folder_id is not None and document.folder_id in folder_paths:
         parts.append(f"folder {folder_paths[document.folder_id]}")
     if document.doc_type:
         parts.append(document.doc_type)
     if document.doc_date:
         parts.append(f"dated {document.doc_date.isoformat()}")
+    # So that the model searches a document in another language by its own words: keyword
+    # search stems a query in each language the project holds, but finds no translation.
+    if document.language == WORDS_AS_WRITTEN and ctx.language() != WORDS_AS_WRITTEN:
+        parts.append("searched by its words as written")
+    elif document.language and document.language != ctx.language():
+        parts.append(f"written in {language_name(document.language)}")
     if document.page_count:
         parts.append(f"{document.page_count} pages")
     if document.status == "quarantined":

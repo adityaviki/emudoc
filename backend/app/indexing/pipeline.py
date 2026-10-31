@@ -43,7 +43,7 @@ from app.indexing.enrich import (
 )
 from app.indexing.structure import SectionHint, build_outline
 from app.jobs import LIVE, RENDER_PAGES, Lease, LeaseLost, enqueue, renew
-from app.languages import project_language
+from app.languages import detect_language, known_languages, project_language
 from app.llm import LLM, LLMError, OcrBlock
 from app.mail import Mailer
 from app.metrics import DOCUMENT_READY, INDEX_RUNS, PARSES, STAGE_RUNS, STAGE_SECONDS
@@ -662,6 +662,10 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
     document.page_sizes = [[round(w, 2), round(h, 2)] for w, h in parsed.page_sizes]
     hold_details(session, document)
     document.read_title = parsed.title
+    # From every block the reading found, a scan's pages as the model read them included.
+    document.read_language = detect_language(
+        (block.text for block in blocks), known_languages(session)
+    )
     settle_details(document)
     _queue_drawing_ahead(session, document)
     return f"{len(blocks)} blocks{note}"
@@ -929,7 +933,9 @@ def _structure(session: Session, document: Document, services: Services, meter: 
         session.flush()  # children need the parent's id
         rows[id(draft)] = row
 
-    language = project_language(session, document.project_id)
+    # Read under the row's lock with the title, so that a member's change of it either comes
+    # before and is written here, or after and moves what is written here (app/details.py).
+    language = document.language or project_language(session, document.project_id)
     session.add_all(
         Passage(
             document_id=document.id,

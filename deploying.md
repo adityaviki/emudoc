@@ -745,7 +745,9 @@ organisation, whatever its plan, each a refusal or a shortcut with a sentence th
 Beyond these the worker's memory is the parse's, `PARSE_MEMORY_MB` for each of its
 `PARSE_CONCURRENCY` children at worst, and the text of the documents its `WORKER_CONCURRENCY`
 indexers hold: a workbook of 17.6 million characters (10,400 passages) took the worker to
-280 MB beside its parse child's 220 MB. The indexers past `PARSE_CONCURRENCY` wait for a parse
+280 MB beside its parse child's 220 MB. The worker also holds the model that tells a document's
+language (py3langid's, about 75 MB with numpy once loaded), from the first document it parses;
+the API's process, which parses nothing in production, never loads it. The indexers past `PARSE_CONCURRENCY` wait for a parse
 to end (`emudoc_parses{state="waiting"}`, and `waited` in the run's `parse` span), so raising
 `WORKER_CONCURRENCY` adds threads that wait on the model, not parses.
 

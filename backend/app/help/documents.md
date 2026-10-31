@@ -95,10 +95,14 @@ document elsewhere afterwards and it stays where you put it.
 ## A document's details and its note
 
 Each document is read for its title, its type and its date, which the library's date order, smart
-folders, filing rules and the agent use. Where the reading got one wrong, set it yourself with
-"Edit details" on the document's tab: what you set is kept whenever the document is read again or
-given a new version, and the dialog shows what the reading found beside it, with "Use the reading"
-to take that again. A type is kept in lower case, as the reading writes it.
+folders, filing rules and the agent use, and for the language it is written in, which the search
+matches its words in, so that "Lieferung" finds "Lieferungen" in a German contract. Where the
+reading got one wrong, set it yourself with "Edit details" on the document's tab: what you set is
+kept whenever the document is read again or given a new version, and the dialog shows what the
+reading found beside it, with "Use the reading" to take that again. A type is kept in lower case,
+as the reading writes it. A document whose words are too few to tell its language, such as a log
+of dates and amounts, is searched in the language your organisation chose; so is one whose
+language you set to the organisation's.
 
 A document's note holds what its file does not say: where the signed copy is, whom to ask, why it
 was paid late. Write it with "Add a note" on the tab, if you may change the project; everyone who

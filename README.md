@@ -629,13 +629,20 @@ project export's ZIP file of those documents, without the chats). Each change is
 that checks every chosen document is the project's and out of the trash, and is refused whole
 when one is not (`POST /api/projects/{id}/documents/tags`, `/documents/reprocess`).
 
-A document's **details**, its title, type and date, are what its reading found until a member who
-may change the project sets one of them in their place from its tab's "Edit details"
+A document's **details**, its title, type, date and language, are what its reading found until a
+member who may change the project sets one of them in their place from its tab's "Edit details"
 (`backend/app/details.py`, `PATCH /api/documents/{id}/details`): the member's value is the one
 the library, its date order, smart folders, filing rules, search hits and the agent read, and it
 holds through "Index again" and a new version, while what each reading finds is kept beside it
 for the dialog to show and "Use the reading" to take again; a title set starts the outline's
-paths, which the passages are searched with. A document has a **note**, one text its project's
+paths, which the passages are searched with. Its language is the one its words are searched in:
+the parse stage tells it from the document's first 20,000 characters of words (py3langid's
+model, on the worker, which knows 97 languages; the database stems 28 of them, and a document in
+another, Polish say, is searched by its words as written), and a document whose words are too
+few or too mixed to tell, a delivery log of dates and amounts, follows its organisation's
+language (`backend/app/languages.py`). The agent is told a document's language where it is not
+the organisation's, so that it searches the document by its own words. A language set moves the
+document's passages by the same background job a change of the organisation's language queues. A document has a **note**, one text its project's
 members share (`backend/app/notes.py`): whoever may change the project writes it on the tab,
 everyone who reads the document reads it with who changed it last, and it travels with the
 document into the trash and the project's export; neither the agent nor the search reads it.
@@ -1087,9 +1094,9 @@ member's private chats in its projects go, and the shared ones stay. Nobody leav
 organisation that would be left without an owner or with nobody, nor their last one.
 Its settings are its owners' and admins', and each change is a row of its audit log: the
 language its documents are searched in (keyword search matches words by their stems in it, one
-of the database's text search configurations, else the deployment's `FTS_LANGUAGE`), which the
-documents indexed before move to by a background job within minutes, without asking a model
-or counting a page, and answers fall back to when a question does not show a language
+of the database's text search configurations, else the deployment's `FTS_LANGUAGE`) where a
+document has no language of its own (its details, above), which the documents indexed before
+move to by a background job within minutes, without asking a model or counting a page, and answers fall back to when a question does not show a language
 (`backend/app/languages.py`); how long it keeps a chat after its last question, never longer
 than its plan, which deletes the older chats of every member at the next housekeeping round,
 as the page says before it is saved; and how its members are told each kind of notice until
@@ -1565,7 +1572,7 @@ backend/app/
   version.py    the version a process runs: the commit its image was built from
   postgres.py   what the app needs of its Postgres server: pgvector, the role's timeouts, vacuum
   search.py     hybrid search over passages, of one project or of every one a member sees
-  languages.py  the language an organisation's documents are searched in, and its passages' move
+  languages.py  the language a document is searched in, detected or its organisation's, and the move
   folders.py    the folder tree as paths and subtrees
   agent/        the five tools and the tool-use loop
   accounts.py   who a request acts as; signing up makes a user and their organisation

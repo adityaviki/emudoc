@@ -17,6 +17,13 @@ newest entry first.
 
 Members:
 
+- Each document is searched in its own language: Emudoc tells which language a document is
+  written in as it reads it, so that a German contract's "Lieferungen" is found by "Lieferung"
+  in an organisation that works in English. A document whose words are too few to tell, such as
+  a log of dates and amounts, is searched in your organisation's language as before. "Edit
+  details" on a document's tab shows its language and lets you set another, or your
+  organisation's. Documents uploaded before keep your organisation's language until they are
+  read again.
 - Comments: talk about a document where it is. The "Comments" button on a document's tab opens
   its threads beside the text; choose words in the text, or open a passage from a citation, and
   press "New comment" to start a thread about them, or comment on the whole document. Type "@" to
@@ -41,6 +48,10 @@ Members:
 
 Operators:
 
+- The worker tells each document's language as it parses it, with py3langid's model (BSD, with
+  numpy), which it loads at the first parse and holds, about 75 MB; the API's process never
+  loads it. The migration adds two columns to `documents`; a member's change of a document's
+  language moves its passages by the language job a change of the organisation's queues.
 - The feature flag `comments` (at 0) turns on comments on documents, their mentions and replies
   told as two new kinds of notice, and each project's activity, which reads its rows of the audit
   log. The audit log gains a comment added and deleted and a thread resolved and opened again,

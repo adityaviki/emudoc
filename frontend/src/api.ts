@@ -246,10 +246,13 @@ export interface Document {
   title: string | null
   doc_type: string | null
   doc_date: string | null
-  /** What its last reading found of the three above, and which of them a member set in its place (backend/app/details.py). */
+  /** The text search configuration its words are searched in, null for its organisation's (backend/app/languages.py). */
+  language: string | null
+  /** What its last reading found of the four above, and which of them a member set in its place (backend/app/details.py). */
   read_title: string | null
   read_doc_type: string | null
   read_doc_date: string | null
+  read_language: string | null
   edited_details: DocumentDetail[]
   summary: string | null
   /** The kind of the extraction template its facts were read for (backend/app/extraction.py), if any. */
@@ -270,7 +273,7 @@ export interface Document {
 }
 
 /** DOCUMENT_DETAILS in backend/app/models.py: what a member may set in place of what a document's reading found. */
-export type DocumentDetail = 'title' | 'doc_type' | 'doc_date'
+export type DocumentDetail = 'title' | 'doc_type' | 'doc_date' | 'language'
 
 /**
  * A change to a document's details (backend/app/details.py): a field given is the member's, null for none, which later
@@ -280,6 +283,8 @@ export interface DocumentDetailsInput {
   title?: string | null
   doc_type?: string | null
   doc_date?: string | null
+  /** One of the organisation's languages (`organizations.languages`), null for the organisation's own. */
+  language?: string | null
   as_read?: DocumentDetail[]
 }
 

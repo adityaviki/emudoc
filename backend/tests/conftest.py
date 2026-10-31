@@ -1059,6 +1059,13 @@ def act_as(client):
 
 
 @pytest.fixture
+def undetected(monkeypatch):
+    """Documents parsed without a language of their own, as before the parse stage told one:
+    their passages follow their organisation's language (app/languages.py)."""
+    monkeypatch.setattr("app.languages.SURE", 2.0)
+
+
+@pytest.fixture
 def make_document(session, account, services):
     """Store a file as a queued document with its index job, creating a project unless one is
     given: what an upload does, without the request."""

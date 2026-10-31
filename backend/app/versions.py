@@ -285,6 +285,7 @@ def _give(
     document.read_title = None
     document.read_doc_type = None
     document.read_doc_date = None
+    document.read_language = None
     settle_details(document)
     document.summary = None
     document.template = None

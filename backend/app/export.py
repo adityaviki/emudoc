@@ -874,6 +874,7 @@ def _listed(document: Document, folder: str, original: str | None, data: str) ->
         title=document.title,
         doc_type=document.doc_type,
         doc_date=document.doc_date,
+        language=document.language,
         edited_details=document.edited_details,
         summary=document.summary,
         template=document.template,

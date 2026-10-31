@@ -17,6 +17,7 @@ dependencies = [
     "pillow>=13.0.0",
     "prometheus-client>=0.26.0",
     "psycopg[binary]>=3.3.6",
+    "py3langid>=0.4.0",
     "pydantic-ai-slim[anthropic,google,openrouter]>=2.55.0",
     "pydantic-settings>=2.15.0",
     "pypdfium2>=5.14.0",

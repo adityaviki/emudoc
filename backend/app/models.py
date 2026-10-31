@@ -67,9 +67,9 @@ AUTOMATION_AUDIENCES = ("maker", "project", "nobody")
 # it. A document in no review has none.
 REVIEW_STATES = ("to_review", "approved", "disputed")
 # A document's details that a member may set in place of what its reading found (app/details.py):
-# its title, its kind and its date, each kept through every later reading until the member
-# takes the reading's again.
-DOCUMENT_DETAILS = ("title", "doc_type", "doc_date")
+# its title, its kind, its date and the language its words are searched in, each kept through
+# every later reading until the member takes the reading's again.
+DOCUMENT_DETAILS = ("title", "doc_type", "doc_date", "language")
 # What an automation's run puts in review (app/reviews.py), of the documents that arrived for it
 # and are in none: those its cross-checks found a difference about, or every one it watches.
 AUTOMATION_REVIEWS = ("differs", "arrived")
@@ -1400,6 +1400,11 @@ class Document(Base):
     read_title: Mapped[str | None] = mapped_column(String(500))
     read_doc_type: Mapped[str | None] = mapped_column(String(100))
     read_doc_date: Mapped[dt.date | None] = mapped_column(Date)
+    # The text search configuration its passages are indexed with (app/languages.py): the one
+    # the parse stage detected in its text, or a member's, as the other details; null for its
+    # organisation's, which a change of the organisation's moves it to.
+    language: Mapped[str | None] = mapped_column(String(63))
+    read_language: Mapped[str | None] = mapped_column(String(63))
     # The names of DOCUMENT_DETAILS a member set, in no order.
     edited_details: Mapped[list[str]] = mapped_column(
         ARRAY(String(20)), default=list, server_default="{}"
@@ -1864,8 +1869,8 @@ class Passage(Base):
     # The text search configuration the passage was indexed with: the one `tsv` is built from
     # and the one a search parses its query with for this row. It is `regconfig`, not text,
     # because a generated column's expression must be immutable and casting text to a
-    # configuration is not. Today every passage gets its organisation's language, or
-    # FTS_LANGUAGE (app/languages.py); per-document detection will write what it finds here.
+    # configuration is not. A passage gets its document's language, else its organisation's,
+    # else FTS_LANGUAGE (app/languages.py).
     language: Mapped[str] = mapped_column(REGCONFIG, server_default="english")
     tsv: Mapped[str] = mapped_column(
         TSVECTOR,

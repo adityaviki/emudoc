@@ -40,6 +40,7 @@ import { formatDate, formatDateTime, formatSize } from '../format.ts'
 import { INVITATIONS_SECTION, JOINING_SECTION } from '../onboarding.ts'
 import {
   DELETION_SECTION,
+  LANGUAGES_KEY,
   chatDayChoices,
   chosenLanguage,
   deletes,
@@ -55,7 +56,6 @@ import { EVENT_ORDER, WEBHOOK_EVENTS, chosenEvents, deliveryWords, describeWebho
 import { ShareLinksSection } from './ShareLinksSection.tsx'
 
 const MEMBERS_KEY = ['organization', 'members'] as const
-const LANGUAGES_KEY = ['organization', 'languages'] as const
 const INVITATIONS_KEY = ['organization', 'invitations'] as const
 const KEYS_KEY = ['organization', 'keys'] as const
 const WEBHOOKS_KEY = ['organization', 'webhooks'] as const

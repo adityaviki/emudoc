@@ -22,6 +22,8 @@ function doc(id: number, filename: string, folderId: number | null = null): Docu
     read_title: null,
     read_doc_type: null,
     read_doc_date: null,
+    language: null,
+    read_language: null,
     edited_details: [],
     summary: null,
     template: null,
