@@ -1,0 +1,31 @@
+{
+  "title": "Delivery terms",
+  "language": "en",
+  "page_count": null,
+  "page_sizes": [],
+  "ocr_pages": [],
+  "blocks": [
+    {"kind": "heading", "level": 1, "page": null, "bbox": null, "text": "Delivery terms"},
+    {"kind": "paragraph", "level": null, "page": null, "bbox": null, "text": "Goods are delivered within 14 days of the order. Delays are notified in writing."},
+    {"kind": "heading", "level": 2, "page": null, "bbox": null, "text": "Prices"},
+    {"kind": "list_item", "level": null, "page": null, "bbox": null, "text": "Pallet: EUR 40"},
+    {"kind": "list_item", "level": null, "page": null, "bbox": null, "text": "Crate"},
+    {"kind": "list_item", "level": null, "page": null, "bbox": null, "text": "with lid"},
+    {"kind": "table", "level": null, "page": null, "bbox": null, "text": "| Item | Price |\n| --- | --- |\n| Pallet | EUR 40 |"},
+    {"kind": "paragraph", "level": null, "page": null, "bbox": null, "text": "Item   Qty\nPallet   4"},
+    {"kind": "paragraph", "level": null, "page": null, "bbox": null, "text": "Signed for Café Nord & Co."}
+  ],
+  "outline": {
+    "title": "Delivery terms",
+    "sections": [
+      {"title": "Overview", "level": 1, "parent": null, "blocks": [0, 2], "pages": [null, null]},
+      {"title": "Prices", "level": 1, "parent": null, "blocks": [2, 9], "pages": [null, null]}
+    ],
+    "passages": [
+      {"section": 0, "blocks": [1, 2], "pages": [null, null], "text": "Goods are delivered within 14 days of the order. Delays are notified in writing."},
+      {"section": 1, "blocks": [3, 6], "pages": [null, null], "text": "Pallet: EUR 40\nCrate\nwith lid"},
+      {"section": 1, "blocks": [6, 7], "pages": [null, null], "text": "| Item | Price |\n| --- | --- |\n| Pallet | EUR 40 |"},
+      {"section": 1, "blocks": [7, 9], "pages": [null, null], "text": "Item   Qty\nPallet   4\n\nSigned for Café Nord & Co."}
+    ]
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "title": null,
+  "language": "en",
+  "page_count": null,
+  "page_sizes": [],
+  "ocr_pages": [],
+  "blocks": [
+    {"kind": "heading", "level": 1, "page": null, "bbox": null, "text": "Supplier Review Meeting"},
+    {"kind": "paragraph", "level": null, "page": null, "bbox": null, "text": "Date: 12 September 2026\nAttendees: Helen Marsh (Acme), Jonas Becker, Lena Vogt (Northwind)"},
+    {"kind": "heading", "level": 1, "page": null, "bbox": null, "text": "Delivery performance"},
+    {"kind": "paragraph", "level": null, "page": null, "bbox": null, "text": "On-time delivery was 94% in August, below the 97% target. Two late pallets of pipe fittings were caused by a carrier strike in Rotterdam."},
+    {"kind": "heading", "level": 1, "page": null, "bbox": null, "text": "Pricing"},
+    {"kind": "paragraph", "level": null, "page": null, "bbox": null, "text": "Northwind asked for the 6% volume discount tier to start at 200 pallets per month. Acme will respond by 30 September."},
+    {"kind": "heading", "level": 1, "page": null, "bbox": null, "text": "Action items"},
+    {"kind": "table", "level": null, "page": null, "bbox": null, "text": "| Owner | Action | Due |\n| --- | --- | --- |\n| Helen Marsh | Propose revised discount tiers | 2026-09-30 |\n| Lena Vogt | Share Q4 volume forecast | 2026-09-25 |\n| Jonas Becker | Review liability cap with legal | 2026-10-15 |"}
+  ],
+  "outline": {
+    "title": "supplier-review-meeting",
+    "sections": [
+      {"title": "Supplier Review Meeting", "level": 1, "parent": null, "blocks": [0, 2], "pages": [null, null]},
+      {"title": "Delivery performance", "level": 1, "parent": null, "blocks": [2, 4], "pages": [null, null]},
+      {"title": "Pricing", "level": 1, "parent": null, "blocks": [4, 6], "pages": [null, null]},
+      {"title": "Action items", "level": 1, "parent": null, "blocks": [6, 8], "pages": [null, null]}
+    ],
+    "passages": [
+      {"section": 0, "blocks": [1, 2], "pages": [null, null], "text": "Date: 12 September 2026\nAttendees: Helen Marsh (Acme), Jonas Becker, Lena Vogt (Northwind)"},
+      {"section": 1, "blocks": [3, 4], "pages": [null, null], "text": "On-time delivery was 94% in August, below the 97% target. Two late pallets of pipe fittings were caused by a carrier strike in Rotterdam."},
+      {"section": 2, "blocks": [5, 6], "pages": [null, null], "text": "Northwind asked for the 6% volume discount tier to start at 200 pallets per month. Acme will respond by 30 September."},
+      {"section": 3, "blocks": [7, 8], "pages": [null, null], "text": "| Owner | Action | Due |\n| --- | --- | --- |\n| Helen Marsh | Propose revised discount tiers | 2026-09-30 |\n| Lena Vogt | Share Q4 volume forecast | 2026-09-25 |\n| Jonas Becker | Review liability cap with legal | 2026-10-15 |"}
+    ]
+  }
+}

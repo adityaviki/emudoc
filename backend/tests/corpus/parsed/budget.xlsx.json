@@ -1,0 +1,24 @@
+{
+  "title": null,
+  "language": null,
+  "page_count": null,
+  "page_sizes": [],
+  "ocr_pages": [],
+  "blocks": [
+    {"kind": "heading", "level": 1, "page": null, "bbox": null, "text": "Budget"},
+    {"kind": "table", "level": null, "page": null, "bbox": null, "text": "| Item | Amount | Date |\n| --- | --- | --- |\n| Consulting | 1200 | 2024-03-01 |\n| Support | 300.5 |  |"},
+    {"kind": "heading", "level": 1, "page": null, "bbox": null, "text": "Totals"},
+    {"kind": "table", "level": null, "page": null, "bbox": null, "text": "| Total | 1500.5 |\n| --- | --- |"}
+  ],
+  "outline": {
+    "title": "budget",
+    "sections": [
+      {"title": "Budget", "level": 1, "parent": null, "blocks": [0, 2], "pages": [null, null]},
+      {"title": "Totals", "level": 1, "parent": null, "blocks": [2, 4], "pages": [null, null]}
+    ],
+    "passages": [
+      {"section": 0, "blocks": [1, 2], "pages": [null, null], "text": "| Item | Amount | Date |\n| --- | --- | --- |\n| Consulting | 1200 | 2024-03-01 |\n| Support | 300.5 |  |"},
+      {"section": 1, "blocks": [3, 4], "pages": [null, null], "text": "| Total | 1500.5 |\n| --- | --- |"}
+    ]
+  }
+}

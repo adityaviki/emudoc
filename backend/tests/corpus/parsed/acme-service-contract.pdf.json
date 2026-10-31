@@ -1,0 +1,58 @@
+{
+  "title": null,
+  "language": "en",
+  "page_count": 2,
+  "page_sizes": [[595.28, 841.89], [595.28, 841.89]],
+  "ocr_pages": [],
+  "blocks": [
+    {"kind": "heading", "level": 1, "page": 1, "bbox": [179.59, 66.42, 415.68, 84.42], "text": "Master Services Agreement"},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [68.36, 92.76, 482.31, 114.76], "text": "Between Acme Industrial Supplies Ltd. (\"Supplier\"), 14 Foundry Lane, Leeds LS1 4AB, and Northwind Logistics GmbH (\"Customer\"), Hafenstrasse 22, 20457 Hamburg."},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [68.36, 122.76, 302.36, 132.76], "text": "Effective date: 1 March 2026. Initial term: 24 months."},
+    {"kind": "heading", "level": 2, "page": 1, "bbox": [68.36, 147.59, 204.54, 161.59], "text": "1. Scope of Services"},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [68.36, 170.76, 515.45, 204.76], "text": "The Supplier shall deliver palletised industrial fasteners, fittings and packaging materials to the Customer's warehouses in Hamburg and Rotterdam according to the weekly forecast provided by the Customer. Orders are placed in writing at least five (5) business days before delivery."},
+    {"kind": "heading", "level": 2, "page": 1, "bbox": [68.36, 219.59, 206.86, 233.59], "text": "2. Fees and Payment"},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [68.36, 242.76, 512.99, 252.76], "text": "2.1 The Customer shall pay the unit prices listed in Schedule A. Prices are in EUR and exclude VAT."},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [68.36, 260.76, 511.89, 282.76], "text": "2.2 Invoices are issued monthly in arrears and are payable within thirty (30) days of the invoice date. Late payments accrue interest at 1.5% per month."},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [68.36, 290.76, 473.57, 312.76], "text": "2.3 Payment shall be made by bank transfer to IBAN GB29 NWBK 6016 1331 9268 19, BIC NWBKGB2L."},
+    {"kind": "table", "level": null, "page": 1, "bbox": [68.36, 312.69, 323.48, 384.69], "text": "| Monthly volume (pallets) | Discount |\n| --- | --- |\n| 0 - 99 | 0% |\n| 100 - 249 | 3% |\n| 250+ | 6% |"},
+    {"kind": "heading", "level": 2, "page": 2, "bbox": [68.36, 65.59, 249.66, 79.59], "text": "3. Delivery and Acceptance"},
+    {"kind": "paragraph", "level": null, "page": 2, "bbox": [68.36, 88.76, 495.75, 98.76], "text": "3.1 Delivery is DAP (Incoterms 2020) to the address stated in the order. Risk passes on delivery."},
+    {"kind": "paragraph", "level": null, "page": 2, "bbox": [68.36, 106.76, 503.56, 128.76], "text": "3.2 The Customer shall inspect goods within three (3) business days and notify the Supplier of any defect or shortfall in writing. Goods not rejected in that period are deemed accepted."},
+    {"kind": "heading", "level": 2, "page": 2, "bbox": [68.36, 143.59, 164.05, 157.59], "text": "4. Termination"},
+    {"kind": "paragraph", "level": null, "page": 2, "bbox": [68.36, 166.76, 499.89, 188.76], "text": "4.1 Notice. Either party may terminate this Agreement for convenience by giving ninety (90) days' written notice, provided the notice does not expire before the end of the first twelve (12) months."},
+    {"kind": "paragraph", "level": null, "page": 2, "bbox": [68.36, 196.76, 492.4, 218.76], "text": "4.2 Cause. Either party may terminate immediately by written notice if the other party commits a material breach and fails to remedy it within thirty (30) days of being notified."},
+    {"kind": "paragraph", "level": null, "page": 2, "bbox": [68.36, 226.76, 516.32, 248.76], "text": "4.3 Early termination penalty. If the Customer terminates for convenience during the initial term, the following penalty applies:"},
+    {"kind": "table", "level": null, "page": 2, "bbox": [68.36, 248.69, 465.21, 320.69], "text": "| Termination date | Penalty |\n| --- | --- |\n| Months 13 - 18 | 15% of average monthly fees x remaining months |\n| Months 19 - 24 | 8% of average monthly fees x remaining months |\n| After month 24 | None |"},
+    {"kind": "heading", "level": 2, "page": 2, "bbox": [68.36, 345.59, 136.84, 359.59], "text": "5. Liability"},
+    {"kind": "paragraph", "level": null, "page": 2, "bbox": [68.36, 368.76, 519.36, 390.76], "text": "5.1 The Supplier's aggregate liability under this Agreement is limited to the fees paid in the twelve (12) months preceding the claim, capped at EUR 250,000."},
+    {"kind": "paragraph", "level": null, "page": 2, "bbox": [68.36, 398.76, 469.07, 408.76], "text": "5.2 Neither party is liable for indirect or consequential loss, loss of profit or loss of goodwill."},
+    {"kind": "paragraph", "level": null, "page": 2, "bbox": [68.36, 416.76, 513.55, 426.76], "text": "5.3 Nothing in this Agreement limits liability for death, personal injury caused by negligence, or fraud."},
+    {"kind": "heading", "level": 2, "page": 2, "bbox": [68.36, 441.59, 185.07, 455.59], "text": "6. Governing Law"},
+    {"kind": "paragraph", "level": null, "page": 2, "bbox": [68.36, 464.76, 515.24, 486.76], "text": "This Agreement is governed by the laws of England and Wales. The courts of London have exclusive jurisdiction."},
+    {"kind": "table", "level": null, "page": 2, "bbox": [68.36, 516.69, 510.57, 576.69], "text": "| Signed for Acme Industrial Supplies Ltd. | Signed for Northwind Logistics GmbH |\n| --- | --- |\n| Name: Helen Marsh Title: Commercial Director Date: 20 February 2026 | Name: Jonas Becker Title: Head of Procurement Date: 21 February 2026 |"}
+  ],
+  "outline": {
+    "title": "Master Services Agreement",
+    "sections": [
+      {"title": "Overview", "level": 1, "parent": null, "blocks": [0, 3], "pages": [1, 1]},
+      {"title": "1. Scope of Services", "level": 1, "parent": null, "blocks": [3, 5], "pages": [1, 1]},
+      {"title": "2. Fees and Payment", "level": 1, "parent": null, "blocks": [5, 10], "pages": [1, 1]},
+      {"title": "3. Delivery and Acceptance", "level": 1, "parent": null, "blocks": [10, 13], "pages": [2, 2]},
+      {"title": "4. Termination", "level": 1, "parent": null, "blocks": [13, 18], "pages": [2, 2]},
+      {"title": "5. Liability", "level": 1, "parent": null, "blocks": [18, 22], "pages": [2, 2]},
+      {"title": "6. Governing Law", "level": 1, "parent": null, "blocks": [22, 25], "pages": [2, 2]}
+    ],
+    "passages": [
+      {"section": 0, "blocks": [1, 3], "pages": [1, 1], "text": "Between Acme Industrial Supplies Ltd. (\"Supplier\"), 14 Foundry Lane, Leeds LS1 4AB, and Northwind Logistics GmbH (\"Customer\"), Hafenstrasse 22, 20457 Hamburg.\n\nEffective date: 1 March 2026. Initial term: 24 months."},
+      {"section": 1, "blocks": [4, 5], "pages": [1, 1], "text": "The Supplier shall deliver palletised industrial fasteners, fittings and packaging materials to the Customer's warehouses in Hamburg and Rotterdam according to the weekly forecast provided by the Customer. Orders are placed in writing at least five (5) business days before delivery."},
+      {"section": 2, "blocks": [6, 9], "pages": [1, 1], "text": "2.1 The Customer shall pay the unit prices listed in Schedule A. Prices are in EUR and exclude VAT.\n\n2.2 Invoices are issued monthly in arrears and are payable within thirty (30) days of the invoice date. Late payments accrue interest at 1.5% per month.\n\n2.3 Payment shall be made by bank transfer to IBAN GB29 NWBK 6016 1331 9268 19, BIC NWBKGB2L."},
+      {"section": 2, "blocks": [9, 10], "pages": [1, 1], "text": "| Monthly volume (pallets) | Discount |\n| --- | --- |\n| 0 - 99 | 0% |\n| 100 - 249 | 3% |\n| 250+ | 6% |"},
+      {"section": 3, "blocks": [11, 13], "pages": [2, 2], "text": "3.1 Delivery is DAP (Incoterms 2020) to the address stated in the order. Risk passes on delivery.\n\n3.2 The Customer shall inspect goods within three (3) business days and notify the Supplier of any defect or shortfall in writing. Goods not rejected in that period are deemed accepted."},
+      {"section": 4, "blocks": [14, 17], "pages": [2, 2], "text": "4.1 Notice. Either party may terminate this Agreement for convenience by giving ninety (90) days' written notice, provided the notice does not expire before the end of the first twelve (12) months.\n\n4.2 Cause. Either party may terminate immediately by written notice if the other party commits a material breach and fails to remedy it within thirty (30) days of being notified.\n\n4.3 Early termination penalty. If the Customer terminates for convenience during the initial term, the following penalty applies:"},
+      {"section": 4, "blocks": [17, 18], "pages": [2, 2], "text": "| Termination date | Penalty |\n| --- | --- |\n| Months 13 - 18 | 15% of average monthly fees x remaining months |\n| Months 19 - 24 | 8% of average monthly fees x remaining months |\n| After month 24 | None |"},
+      {"section": 5, "blocks": [19, 22], "pages": [2, 2], "text": "5.1 The Supplier's aggregate liability under this Agreement is limited to the fees paid in the twelve (12) months preceding the claim, capped at EUR 250,000.\n\n5.2 Neither party is liable for indirect or consequential loss, loss of profit or loss of goodwill.\n\n5.3 Nothing in this Agreement limits liability for death, personal injury caused by negligence, or fraud."},
+      {"section": 6, "blocks": [23, 24], "pages": [2, 2], "text": "This Agreement is governed by the laws of England and Wales. The courts of London have exclusive jurisdiction."},
+      {"section": 6, "blocks": [24, 25], "pages": [2, 2], "text": "| Signed for Acme Industrial Supplies Ltd. | Signed for Northwind Logistics GmbH |\n| --- | --- |\n| Name: Helen Marsh Title: Commercial Director Date: 20 February 2026 | Name: Jonas Becker Title: Head of Procurement Date: 21 February 2026 |"}
+    ]
+  }
+}

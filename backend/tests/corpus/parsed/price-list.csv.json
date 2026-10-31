@@ -1,0 +1,19 @@
+{
+  "title": null,
+  "language": "en",
+  "page_count": null,
+  "page_sizes": [],
+  "ocr_pages": [],
+  "blocks": [
+    {"kind": "table", "level": null, "page": null, "bbox": null, "text": "| sku | description | unit | price_eur |\n| --- | --- | --- | --- |\n| FB-M10 | Hex bolts M10 | pallet | 185.00 |\n| WS-M10 | Washers M10 | pallet | 62.50 |\n| PF-1IN | Pipe fittings 1in | pallet | 240.00 |\n| SF-01 | Stretch film | roll box | 38.00 |\n| CP-04 | Corner protectors | box | 21.50 |"}
+  ],
+  "outline": {
+    "title": "price-list",
+    "sections": [
+      {"title": "price-list", "level": 1, "parent": null, "blocks": [0, 1], "pages": [null, null]}
+    ],
+    "passages": [
+      {"section": 0, "blocks": [0, 1], "pages": [null, null], "text": "| sku | description | unit | price_eur |\n| --- | --- | --- | --- |\n| FB-M10 | Hex bolts M10 | pallet | 185.00 |\n| WS-M10 | Washers M10 | pallet | 62.50 |\n| PF-1IN | Pipe fittings 1in | pallet | 240.00 |\n| SF-01 | Stretch film | roll box | 38.00 |\n| CP-04 | Corner protectors | box | 21.50 |"}
+    ]
+  }
+}

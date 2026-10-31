@@ -1,0 +1,19 @@
+{
+  "title": null,
+  "language": null,
+  "page_count": null,
+  "page_sizes": [],
+  "ocr_pages": [],
+  "blocks": [
+    {"kind": "table", "level": null, "page": null, "bbox": null, "text": "| name | city |\n| --- | --- |\n| Ada | London |\n| Bob | Paris |"}
+  ],
+  "outline": {
+    "title": "people",
+    "sections": [
+      {"title": "people", "level": 1, "parent": null, "blocks": [0, 1], "pages": [null, null]}
+    ],
+    "passages": [
+      {"section": 0, "blocks": [0, 1], "pages": [null, null], "text": "| name | city |\n| --- | --- |\n| Ada | London |\n| Bob | Paris |"}
+    ]
+  }
+}

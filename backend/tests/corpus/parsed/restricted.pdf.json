@@ -1,0 +1,19 @@
+{
+  "title": null,
+  "language": "en",
+  "page_count": 1,
+  "page_sizes": [[595.28, 841.89]],
+  "ocr_pages": [],
+  "blocks": [
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": [72.0, 112.37, 262.08, 124.37], "text": "Invoice 42 for the delivery of March."}
+  ],
+  "outline": {
+    "title": "restricted",
+    "sections": [
+      {"title": "restricted", "level": 1, "parent": null, "blocks": [0, 1], "pages": [1, 1]}
+    ],
+    "passages": [
+      {"section": 0, "blocks": [0, 1], "pages": [1, 1], "text": "Invoice 42 for the delivery of March."}
+    ]
+  }
+}

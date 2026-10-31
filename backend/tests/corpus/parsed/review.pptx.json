@@ -1,0 +1,37 @@
+{
+  "title": "Supplier review 2024",
+  "language": "en",
+  "page_count": 3,
+  "page_sizes": [],
+  "ocr_pages": [],
+  "blocks": [
+    {"kind": "heading", "level": 1, "page": 1, "bbox": null, "text": "Supplier review"},
+    {"kind": "paragraph", "level": null, "page": 1, "bbox": null, "text": "Acme Logistics, third quarter"},
+    {"kind": "heading", "level": 1, "page": 2, "bbox": null, "text": "Deliveries"},
+    {"kind": "list_item", "level": null, "page": 2, "bbox": null, "text": "14 of 16 deliveries on time"},
+    {"kind": "list_item", "level": null, "page": 2, "bbox": null, "text": "Two late in August"},
+    {"kind": "heading", "level": 2, "page": 2, "bbox": null, "text": "Speaker notes"},
+    {"kind": "paragraph", "level": null, "page": 2, "bbox": null, "text": "Ask about the August delays."},
+    {"kind": "heading", "level": 1, "page": 3, "bbox": null, "text": "Slide 3"},
+    {"kind": "paragraph", "level": null, "page": 3, "bbox": null, "text": "Price list"},
+    {"kind": "table", "level": null, "page": 3, "bbox": null, "text": "| Item | Price |\n| --- | --- |\n| Pallet | EUR 40 |"},
+    {"kind": "paragraph", "level": null, "page": 3, "bbox": null, "text": "Prices hold until December."}
+  ],
+  "outline": {
+    "title": "Supplier review 2024",
+    "sections": [
+      {"title": "Supplier review", "level": 1, "parent": null, "blocks": [0, 2], "pages": [1, 1]},
+      {"title": "Deliveries", "level": 1, "parent": null, "blocks": [2, 7], "pages": [2, 2]},
+      {"title": "Speaker notes", "level": 2, "parent": 1, "blocks": [5, 7], "pages": [2, 2]},
+      {"title": "Slide 3", "level": 1, "parent": null, "blocks": [7, 11], "pages": [3, 3]}
+    ],
+    "passages": [
+      {"section": 0, "blocks": [1, 2], "pages": [1, 1], "text": "Acme Logistics, third quarter"},
+      {"section": 1, "blocks": [3, 5], "pages": [2, 2], "text": "14 of 16 deliveries on time\nTwo late in August"},
+      {"section": 2, "blocks": [6, 7], "pages": [2, 2], "text": "Ask about the August delays."},
+      {"section": 3, "blocks": [8, 9], "pages": [3, 3], "text": "Price list"},
+      {"section": 3, "blocks": [9, 10], "pages": [3, 3], "text": "| Item | Price |\n| --- | --- |\n| Pallet | EUR 40 |"},
+      {"section": 3, "blocks": [10, 11], "pages": [3, 3], "text": "Prices hold until December."}
+    ]
+  }
+}

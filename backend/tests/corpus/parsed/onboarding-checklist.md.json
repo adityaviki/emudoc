@@ -1,0 +1,27 @@
+{
+  "title": null,
+  "language": "en",
+  "page_count": null,
+  "page_sizes": [],
+  "ocr_pages": [],
+  "blocks": [
+    {"kind": "heading", "level": 1, "page": null, "bbox": null, "text": "Supplier onboarding checklist"},
+    {"kind": "list_item", "level": null, "page": null, "bbox": null, "text": "- [x] Signed Master Services Agreement"},
+    {"kind": "list_item", "level": null, "page": null, "bbox": null, "text": "- [x] VAT ID verified"},
+    {"kind": "list_item", "level": null, "page": null, "bbox": null, "text": "- [ ] Insurance certificate received"},
+    {"kind": "list_item", "level": null, "page": null, "bbox": null, "text": "- [ ] Bank details confirmed by phone"},
+    {"kind": "heading", "level": 2, "page": null, "bbox": null, "text": "Notes"},
+    {"kind": "paragraph", "level": null, "page": null, "bbox": null, "text": "Insurance certificate is due **2026-10-20**."}
+  ],
+  "outline": {
+    "title": "Supplier onboarding checklist",
+    "sections": [
+      {"title": "Overview", "level": 1, "parent": null, "blocks": [0, 5], "pages": [null, null]},
+      {"title": "Notes", "level": 1, "parent": null, "blocks": [5, 7], "pages": [null, null]}
+    ],
+    "passages": [
+      {"section": 0, "blocks": [1, 5], "pages": [null, null], "text": "- [x] Signed Master Services Agreement\n- [x] VAT ID verified\n- [ ] Insurance certificate received\n- [ ] Bank details confirmed by phone"},
+      {"section": 1, "blocks": [6, 7], "pages": [null, null], "text": "Insurance certificate is due **2026-10-20**."}
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "title": null,
+  "language": "en",
+  "page_count": null,
+  "page_sizes": [],
+  "ocr_pages": [],
+  "blocks": [
+    {"kind": "heading", "level": 1, "page": null, "bbox": null, "text": "LATE DELIVERY"},
+    {"kind": "paragraph", "level": null, "page": null, "bbox": null, "text": "Dear supplier,"},
+    {"kind": "paragraph", "level": null, "page": null, "bbox": null, "text": "the pallets arrived on 3 March, two days late."},
+    {"kind": "paragraph", "level": null, "page": null, "bbox": null, "text": "Café Nord"}
+  ],
+  "outline": {
+    "title": "letter",
+    "sections": [
+      {"title": "LATE DELIVERY", "level": 1, "parent": null, "blocks": [0, 4], "pages": [null, null]}
+    ],
+    "passages": [
+      {"section": 0, "blocks": [1, 4], "pages": [null, null], "text": "Dear supplier,\n\nthe pallets arrived on 3 March, two days late.\n\nCafé Nord"}
+    ]
+  }
+}
