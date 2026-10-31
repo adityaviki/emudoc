@@ -145,6 +145,7 @@ def test_each_passage_is_matched_in_the_language_it_was_indexed_with(
     # The policy is indexed with the `simple` configuration, which keeps words as they are,
     # into the project that already holds the contract indexed in English.
     monkeypatch.setattr(get_settings(), "fts_language", "simple")
+    monkeypatch.setattr("app.languages.SURE", 2.0)
     policy = make_document(sample_docx, project=session.get(Project, indexed.project_id))
     process_document(policy.id, services)
     assert languages_of(session, policy) == {"simple"}

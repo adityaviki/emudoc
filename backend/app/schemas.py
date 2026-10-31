@@ -329,18 +329,21 @@ class DocumentPatch(BaseModel):
 # REVIEW_STATES in app/models.py.
 ReviewState = Literal["to_review", "approved", "disputed"]
 # DOCUMENT_DETAILS in app/models.py.
-DocumentDetail = Literal["title", "doc_type", "doc_date"]
+DocumentDetail = Literal["title", "doc_type", "doc_date", "language"]
 
 
 class DocumentDetailsIn(BaseModel):
-    """A member's title, kind and date for a document (app/details.py). A field left out stays as
-    it is; one given, None for none, is the member's, which later readings keep; one named in
-    `as_read` takes what the reading found again, and follows the readings after."""
+    """A member's title, kind, date and language for a document (app/details.py). A field left
+    out stays as it is; one given, None for none, is the member's, which later readings keep; one
+    named in `as_read` takes what the reading found again, and follows the readings after. A
+    language is one of the organisation's languages (`GET /api/organization/languages`), None
+    for the organisation's own."""
 
     title: str | None = Field(None, max_length=500)
     doc_type: str | None = Field(None, max_length=100)
     doc_date: dt.date | None = None
-    as_read: list[DocumentDetail] = Field([], max_length=3)
+    language: str | None = Field(None, pattern=r"^[a-z_]{1,63}$")
+    as_read: list[DocumentDetail] = Field([], max_length=4)
 
 
 class DocumentNoteIn(BaseModel):
@@ -553,11 +556,15 @@ class DocumentOut(_FromORM):
     title: str | None
     doc_type: str | None
     doc_date: dt.date | None
-    # What its last reading found of the three above, and which of them a member set in its
+    # The text search configuration its words are searched in, None for its organisation's
+    # (app/languages.py).
+    language: str | None = None
+    # What its last reading found of the four above, and which of them a member set in its
     # place (app/details.py).
     read_title: str | None = None
     read_doc_type: str | None = None
     read_doc_date: dt.date | None = None
+    read_language: str | None = None
     edited_details: list[DocumentDetail] = []
     summary: str | None
     # The kind of the extraction template its facts were read for (app/extraction.py), if any.
@@ -3362,7 +3369,9 @@ class ExportedDocument(BaseModel):
     title: str | None
     doc_type: str | None
     doc_date: dt.date | None
-    # Those of the three above a member set in place of what its reading found (app/details.py).
+    # The text search configuration its words are searched in, None for its organisation's.
+    language: str | None = None
+    # Those of the four above a member set in place of what its reading found (app/details.py).
     edited_details: list[str] = []
     summary: str | None
     # The kind of the extraction template its facts were read for, if any.

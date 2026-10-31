@@ -55,6 +55,7 @@ from app.folders import (
 )
 from app.indexing.pipeline import OPTIONAL_STAGES, reset_stages, unfinished_stages, went_without
 from app.jobs import BULK, queue_index
+from app.languages import UNKNOWN_LANGUAGE, known_languages
 from app.mail import LISTED
 from app.metrics import UPLOAD_REJECTIONS
 from app.models import (
@@ -577,14 +578,16 @@ def update_document(document: EditableDocumentDep, body: DocumentPatch, session:
 
 @router.patch("/documents/{document_id}/details", response_model=DocumentOut)
 def change_details(document: EditableDocumentDep, body: DocumentDetailsIn, session: SessionDep):
-    """Set the document's title, kind or date as the member's, which later readings keep, or take
-    what the reading found again (app/details.py)."""
+    """Set the document's title, kind, date or language as the member's, which later readings
+    keep, or take what the reading found again (app/details.py)."""
     given = {
         name: getattr(body, name) for name in DOCUMENT_DETAILS if name in body.model_fields_set
     }
     as_read = set(body.as_read)
     if as_read & given.keys():
         raise HTTPException(422, BOTH_WAYS)
+    if given.get("language") is not None and body.language not in known_languages(session):
+        raise HTTPException(400, UNKNOWN_LANGUAGE)
     edit_details(session, document, given, as_read)
     session.commit()
     return document

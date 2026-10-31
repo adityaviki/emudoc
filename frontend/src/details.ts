@@ -2,13 +2,15 @@
 // copies in the organisation's other projects (backend/app/duplicates.py): what the document tab, its details dialog
 // and the duplicates page say, and the change the dialog sends.
 
-import type { Document, DocumentCopy, DocumentDetail, DocumentDetailsInput, DocumentNote, DuplicatesPage } from './api.ts'
+import type { Document, DocumentCopy, DocumentDetail, DocumentDetailsInput, DocumentNote, DuplicatesPage, Languages, Organization } from './api.ts'
 import { formatDate, formatSize } from './format.ts'
+import { WORDS_AS_WRITTEN, languageName } from './organizationSettings.ts'
+import type { Choice } from './organizationSettings.ts'
 import { buildWorkspaceUrl } from './workspace/url.ts'
 
-export const DETAILS: DocumentDetail[] = ['title', 'doc_type', 'doc_date']
+export const DETAILS: DocumentDetail[] = ['title', 'doc_type', 'doc_date', 'language']
 
-export const DETAIL_LABELS: Record<DocumentDetail, string> = { title: 'Title', doc_type: 'Type', doc_date: 'Date' }
+export const DETAIL_LABELS: Record<DocumentDetail, string> = { title: 'Title', doc_type: 'Type', doc_date: 'Date', language: 'Language' }
 
 export const noteKey = (documentId: number) => ['note', documentId] as const
 export const copiesKey = (documentId: number) => ['copies', documentId] as const
@@ -18,13 +20,24 @@ export const DUPLICATES_KEY = ['duplicates'] as const
 export type DetailsForm = Record<DocumentDetail, string>
 
 export function detailsForm(document: Document): DetailsForm {
-  return { title: document.title ?? '', doc_type: document.doc_type ?? '', doc_date: document.doc_date ?? '' }
+  return { title: document.title ?? '', doc_type: document.doc_type ?? '', doc_date: document.doc_date ?? '', language: document.language ?? '' }
 }
 
 /** What the reading found of a detail, as a field would hold it. */
 export function readValue(document: Document, detail: DocumentDetail): string {
-  const read = { title: document.read_title, doc_type: document.read_doc_type, doc_date: document.read_doc_date }
+  const read = { title: document.read_title, doc_type: document.read_doc_type, doc_date: document.read_doc_date, language: document.read_language }
   return read[detail] ?? ''
+}
+
+/**
+ * The languages a document may be searched in, its organisation's first as the choice of none ('', which follows the
+ * organisation's when it changes); until they load, the one the field holds, so the select shows it.
+ */
+export function documentLanguageChoices(languages: Languages | undefined, organization: Organization, held: string): Choice[] {
+  const own = organization.language ?? languages?.default
+  const first = { value: '', label: own ? `The organisation’s, now ${languageName(own)}` : 'The organisation’s' }
+  const names = languages?.languages ?? (held ? [held] : [])
+  return [first, ...names.map((name) => ({ value: name, label: languageName(name) }))]
 }
 
 /**
@@ -48,6 +61,11 @@ export function detailsChange(document: Document, form: DetailsForm, asRead: Rea
 /** What the dialog says under a detail a member set: what the reading found in its place. */
 export function readWords(document: Document, detail: DocumentDetail): string {
   const read = readValue(document, detail)
+  if (detail === 'language') {
+    if (!read) return 'You set this. The reading could not tell its language, so it follows the organisation’s.'
+    if (read === WORDS_AS_WRITTEN) return 'You set this. The reading found a language Emudoc searches by its words as written.'
+    return `You set this. The reading found ${languageName(read)}.`
+  }
   if (!read) return 'You set this. The reading found none.'
   return `You set this. The reading found “${detail === 'doc_date' ? formatDate(read) : read}”.`
 }

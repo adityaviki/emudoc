@@ -31,10 +31,10 @@ they share them.
 
 ## Settings and security
 
-Owners and admins choose, on the organisation page, the language documents are searched in, to
-keep chats for less time than the plan does, how members are told each kind of notice until
-they choose themselves, to require two-factor sign-in of everyone, and to sign members in again
-sooner. The audit log, under Security, says who did what and when.
+Owners and admins choose, on the organisation page, the language documents without one of
+their own are searched in, to keep chats for less time than the plan does, how members are told
+each kind of notice until they choose themselves, to require two-factor sign-in of everyone, and
+to sign members in again sooner. The audit log, under Security, says who did what and when.
 
 ## API keys
 

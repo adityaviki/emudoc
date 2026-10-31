@@ -7,10 +7,25 @@ import { X } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router'
-import { api } from '../api.ts'
+import { api, organizations } from '../api.ts'
 import type { Document, DocumentDetail, DocumentNote } from '../api.ts'
-import { Button, IconButton, InputField, Notice } from '../components/ui.tsx'
-import { DETAILS, DETAIL_LABELS, copiesKey, copyPlace, copyUrl, detailsChange, detailsForm, noteKey, noteWords, readValue, readWords } from '../details.ts'
+import { useMe } from '../auth.ts'
+import { Button, IconButton, InputField, Notice, SelectField } from '../components/ui.tsx'
+import {
+  DETAILS,
+  DETAIL_LABELS,
+  copiesKey,
+  copyPlace,
+  copyUrl,
+  detailsChange,
+  detailsForm,
+  documentLanguageChoices,
+  noteKey,
+  noteWords,
+  readValue,
+  readWords,
+} from '../details.ts'
+import { LANGUAGES_KEY } from '../organizationSettings.ts'
 import { useDetailsChange } from './mutations.ts'
 import { useDocumentTypes } from './organizing.ts'
 
@@ -20,9 +35,9 @@ const NOTE_CHARS = 10_000
 const SHORT_NOTE = 280
 
 /**
- * The document's title, type and date to set, in a modal over the page for as long as it is mounted, as `Confirm` is:
- * the browser's own dialog, Escape closing it and the focus going back to the button that opened it. Under a detail a
- * member set, what the reading found, which "Use it" takes again.
+ * The document's title, type, date and language to set, in a modal over the page for as long as it is mounted, as
+ * `Confirm` is: the browser's own dialog, Escape closing it and the focus going back to the button that opened it. Under
+ * a detail a member set, what the reading found, which "Use the reading" takes again.
  */
 export function DetailsDialog({ document, onClose }: { document: Document; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null)
@@ -30,6 +45,8 @@ export function DetailsDialog({ document, onClose }: { document: Document; onClo
   const [form, setForm] = useState(() => detailsForm(document))
   const [asRead, setAsRead] = useState<ReadonlySet<DocumentDetail>>(new Set())
   const types = useDocumentTypes(document.project_id)
+  const languages = useQuery({ queryKey: LANGUAGES_KEY, queryFn: organizations.languages, staleTime: Infinity })
+  const { organization } = useMe()
   const change = useDetailsChange(document.project_id)
 
   useEffect(() => {
@@ -73,25 +90,40 @@ export function DetailsDialog({ document, onClose }: { document: Document; onClo
           </IconButton>
         </div>
         <p id={`${id}-body`} className="mt-1 text-sm text-muted">
-          The library, smart folders, filing rules and the agent read these. What you set is kept when the document is read again or
-          given a new version.
+          The library, smart folders, filing rules and the agent read these, and the search matches the document’s words in its
+          language. What you set is kept when the document is read again or given a new version.
         </p>
         <div className="mt-4 space-y-3">
           {DETAILS.map((detail) => {
             const set = document.edited_details.includes(detail) && !asRead.has(detail)
             return (
               <div key={detail}>
-                <InputField
-                  label={DETAIL_LABELS[detail]}
-                  type={detail === 'doc_date' ? 'date' : 'text'}
-                  value={form[detail]}
-                  onChange={(event) => edit(detail, event.target.value)}
-                  maxLength={detail === 'title' ? 500 : 100}
-                  placeholder={detail === 'title' ? document.filename : undefined}
-                  list={detail === 'doc_type' ? `${id}-types` : undefined}
-                  aria-describedby={set ? `${id}-${detail}` : undefined}
-                  data-autofocus={detail === 'title' || undefined}
-                />
+                {detail === 'language' ? (
+                  <SelectField
+                    label={DETAIL_LABELS[detail]}
+                    value={form[detail]}
+                    onChange={(event) => edit(detail, event.target.value)}
+                    aria-describedby={set ? `${id}-${detail}` : undefined}
+                  >
+                    {documentLanguageChoices(languages.data, organization, form[detail]).map((choice) => (
+                      <option key={choice.value} value={choice.value}>
+                        {choice.label}
+                      </option>
+                    ))}
+                  </SelectField>
+                ) : (
+                  <InputField
+                    label={DETAIL_LABELS[detail]}
+                    type={detail === 'doc_date' ? 'date' : 'text'}
+                    value={form[detail]}
+                    onChange={(event) => edit(detail, event.target.value)}
+                    maxLength={detail === 'title' ? 500 : 100}
+                    placeholder={detail === 'title' ? document.filename : undefined}
+                    list={detail === 'doc_type' ? `${id}-types` : undefined}
+                    aria-describedby={set ? `${id}-${detail}` : undefined}
+                    data-autofocus={detail === 'title' || undefined}
+                  />
+                )}
                 {set && (
                   <p id={`${id}-${detail}`} className="mt-1 text-xs text-muted">
                     {readWords(document, detail)}{' '}

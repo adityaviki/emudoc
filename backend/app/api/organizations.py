@@ -59,7 +59,7 @@ from app.audit import audit, audit_event
 from app.billing import ORGANIZATION_PAGE, renewal_refusal
 from app.config import get_settings
 from app.entitlements import entitlements_of
-from app.languages import known_languages, language_of, queue_language
+from app.languages import UNKNOWN_LANGUAGE, known_languages, language_of, queue_language
 from app.mail import (
     Content,
     in_organization,
@@ -106,7 +106,6 @@ ADMINS_ONLY = (
     "Only the owners and admins of the organisation can rename it or change its settings. Ask "
     "one of them to, if something should change."
 )
-UNKNOWN_LANGUAGE = "Emudoc cannot search documents in that language. Choose one of those offered."
 OWNERS_ONLY = "Only an owner of the organisation can hand it over to another member."
 YOURS_ALREADY = "Choose another member: the organisation is yours already."
 MEMBER_NOT_FOUND = "Member not found"
