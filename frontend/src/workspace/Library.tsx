@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BadgeCheck,
+  CalendarClock,
   Camera,
   ChevronRight,
   ChevronsDownUp,
@@ -105,6 +106,7 @@ import { FilingView } from './Filing.tsx'
 import { BY_NAME, growing, hasMore, listed, placeKey, showMore, useListings } from './listing.ts'
 import type { Arrangement, Listing } from './listing.ts'
 import { useLibraryMutations, useReviewChange } from './mutations.ts'
+import { QuestionSetsView, ReportView } from './QuestionSets.tsx'
 import type { LibraryMutations } from './mutations.ts'
 import { useDocumentMarks, useDocumentTypes, useFavorites, useOrganizing, useSmartFolders, useTags } from './organizing.ts'
 import { DocumentTagsDialog, PlaceBar, SearchFilterDialog, Seen, SmartFolderDialog, TagChips } from './Places.tsx'
@@ -206,6 +208,7 @@ export function Library() {
   const drafts = me.organization.flags_on.includes('drafts')
   const mail = me.organization.flags_on.includes('email_in')
   const connectors = me.organization.flags_on.includes('connectors')
+  const questionSets = me.organization.flags_on.includes('question_sets')
   // The sample project takes no uploads: it counts against nothing on the plan (backend/app/sample).
   const uploads = changes && !project.sample
   const health = useStatus()
@@ -285,6 +288,8 @@ export function Library() {
   if (workspace.url.library.checks && templates) return <CrossChecksView />
   if (workspace.url.library.check != null && templates) return <FindingsView checkId={workspace.url.library.check} />
   if (workspace.url.library.run != null && templates) return <RunView runId={workspace.url.library.run} />
+  if (workspace.url.library.questionSets && questionSets) return <QuestionSetsView />
+  if (workspace.url.library.report != null && questionSets) return <ReportView reportId={workspace.url.library.report} />
   if (workspace.url.library.reviews && templates) return <ReviewsView whose={workspace.url.library.reviews} />
   if (workspace.url.library.drafts && drafts) return <DraftsView />
   if (workspace.url.library.draft != null && drafts) return <DraftView draftId={workspace.url.library.draft} />
@@ -394,6 +399,15 @@ export function Library() {
               onClick={workspace.showDrafts}
               title="Drafts: letters, emails, memos, tables and reports the model writes from the documents"
               aria-label="Drafts"
+              className="px-2"
+            />
+          )}
+          {questionSets && (
+            <Button
+              icon={<CalendarClock className="size-4" />}
+              onClick={workspace.showQuestionSets}
+              title="Question sets: questions asked of the documents on a schedule or as they arrive, their answers kept as reports"
+              aria-label="Question sets"
               className="px-2"
             />
           )}

@@ -137,6 +137,16 @@ describe('a row', () => {
     expect(describeDetail(event('automation_changed', turnedOff))).toBe(
       'New invoices · any document anywhere, running Totals, off, changed what it watches, on or off',
     )
+    // A question set: how many questions and when it runs, never a question; a run says what ran it.
+    const questions = { name: 'Monday checks', questions: 3, schedule: 'on Mondays at 08:00', arrivals: true, audience: 'project', enabled: true }
+    expect(describeDetail(event('question_set_created', questions))).toBe('Monday checks · 3 questions, on Mondays at 08:00, as documents arrive')
+    expect(describeDetail(event('question_set_changed', { ...questions, schedule: null, enabled: false, changed: ['schedule', 'enabled'] }))).toBe(
+      'Monday checks · 3 questions, as documents arrive, off, changed its schedule, on or off',
+    )
+    expect(describeDetail(event('question_set_run', { ...questions, trigger: 'arrivals', arrived: 2 }))).toBe(
+      'Monday checks · 3 questions, after 2 documents arrived',
+    )
+    expect(describeDetail(event('question_report_deleted', { name: 'Monday checks', questions: 1 }))).toBe('Monday checks · 1 question')
     // A filing rule: what it looks at and does, by the type, the field, the folder and the tag, never a fact's words.
     const filing = { condition: 'type', type: 'invoice', field: null, action: 'by_month', folder: 'Invoices', tag: null, enabled: true }
     expect(describeDetail(event('filing_rule_created', filing))).toBe('invoice documents, by month under Invoices')

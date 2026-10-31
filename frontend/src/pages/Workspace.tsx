@@ -177,6 +177,14 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
         setMobilePane('library')
         go({ library: { folderId: null, q: '', run: runId } })
       },
+      showQuestionSets() {
+        setMobilePane('library')
+        go({ library: { folderId: null, q: '', questionSets: true } })
+      },
+      showReport(reportId) {
+        setMobilePane('library')
+        go({ library: { folderId: null, q: '', report: reportId } })
+      },
       showReviews(whose = 'all') {
         setMobilePane('library')
         go({ library: { folderId: null, q: '', reviews: whose } })

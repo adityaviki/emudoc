@@ -72,6 +72,7 @@ from app.models import (
     Project,
     ProjectExport,
     ProjectMember,
+    QuestionSet,
     Section,
     ShareLink,
     SupportGrant,
@@ -104,6 +105,7 @@ from app.schemas import (
     ExportedProject,
     ExportedProjectChat,
     ExportedProjectShareLink,
+    ExportedQuestionSet,
     ExportedSection,
     ExportedSession,
     ExportedShareLink,
@@ -129,9 +131,10 @@ ABOUT = (
     "see, the browsers and devices you signed in from in the last month and when each browser you "
     "signed in with did so first and last, the chats you started with every question and answer, "
     "the chats you pinned, the documents you starred and the ones you opened lately, the links you "
-    "made that show a document or an answer to whoever holds them, the notices in your "
-    "notification centre, the usage counted to you, and what the audit logs of your organisations "
-    "recorded you doing. Answers cite passages of documents as [P<number>]. The documents "
+    "made that show a document or an answer to whoever holds them, the question sets you made "
+    "with their questions, the notices in your notification centre, the usage counted to you, and "
+    "what the audit logs of your organisations recorded you doing. Answers cite passages of "
+    "documents as [P<number>]. The documents "
     "themselves are not in this file: they belong to the organisation that holds them. Your "
     "password and recovery codes are kept only as hashes, and they and your authenticator secret "
     "are left out."
@@ -253,6 +256,13 @@ def account_export(session: Session, user: User) -> AccountExport:
         .where(ShareLink.user_id == user.id, ShareLink.expires_at > func.now())
         .order_by(ShareLink.id)
     ).all()
+    question_sets = session.execute(
+        select(QuestionSet, Organization.slug, Project.name)
+        .join(Organization, Organization.id == QuestionSet.org_id)
+        .join(Project, Project.id == QuestionSet.project_id)
+        .where(QuestionSet.created_by == user.id)
+        .order_by(QuestionSet.id)
+    ).all()
     notifications = session.execute(
         select(Notification, Organization.slug)
         .join(Organization, Organization.id == Notification.org_id)
@@ -308,6 +318,7 @@ def account_export(session: Session, user: User) -> AccountExport:
                 joined_at=membership.created_at,
                 private_projects=private_projects[organization.id],
                 support_until=leaves.get(organization.id),
+                digested_on=membership.digested_on,
             )
             for membership, organization in memberships
         ],
@@ -376,6 +387,23 @@ def account_export(session: Session, user: User) -> AccountExport:
                 last_viewed_at=link.last_viewed_at,
             )
             for link, slug, project, filename in share_links
+        ],
+        question_sets=[
+            ExportedQuestionSet(
+                organization=slug,
+                project=project,
+                title=row.title,
+                questions=row.questions,
+                schedule=row.schedule,
+                weekday=row.weekday,
+                hour=row.hour,
+                on_arrivals=row.on_arrivals,
+                audience=row.audience,
+                enabled=row.enabled,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+            )
+            for row, slug, project in question_sets
         ],
         notifications=[
             ExportedNotification(

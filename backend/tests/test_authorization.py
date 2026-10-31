@@ -11,9 +11,10 @@ from app.check_runs import run_workflow
 from app.config import get_settings
 from app.drafts import write_draft
 from app.encrypted import CONNECTOR_TOKENS, encrypt
-from app.flags import CONNECTORS, DRAFTS, EMAIL_IN, SHARE_LINKS
+from app.flags import CONNECTORS, DRAFTS, EMAIL_IN, QUESTION_SETS, SHARE_LINKS
 from app.indexing.pipeline import process_document
 from app.models import Connector
+from app.question_reports import write_report
 from tests.conftest import FakeTurn
 from tests.test_api import create_project
 from tests.test_chats import answered, ask, new_chat
@@ -24,20 +25,24 @@ from tests.test_templates import INVOICE, turn_on
 Route = tuple[str, str, dict]
 # An automation of the world's project (tests/test_automations.py imports this module).
 AUTOMATION = {"title": "New invoices", "kind": "invoice"}
+# A question set of the world's project (tests/test_question_sets.py imports this module).
+QUESTION_SET = {"title": "Every morning", "questions": ["What is due?"], "schedule": "daily"}
 
 
 @dataclass
 class World:
     """A project with a folder, an indexed document with a fact a member checked, the upload it came
     in with, an extraction template of its own, a cross-check with a run of it and an automation, a
-    draft the model wrote, and a chat holding one answered
+    draft the model wrote, a question set with a report of its answers, and a chat holding one
+    answered
     question, and in its trash a folder, a document and a chat; another project in the trash; an
     invitation to the organisation and an API key of it, all made by the local owner in the local
     organisation, and another member of it; the project has an address, a folder of the
     owner's Google Drive connected, and its document a share link; the project has a tag its
     document carries, a smart folder of it and a filing rule. The extraction templates are
-    on for every organisation, and so are the drafts, email in, connected folders and share
-    links, so that what refuses another organisation is the project's scope, not the flag."""
+    on for every organisation, and so are the drafts, email in, connected folders, share links
+    and question sets, so that what refuses another organisation is the project's scope, not the
+    flag."""
 
     org_id: int
     project_id: int
@@ -68,6 +73,8 @@ class World:
     tag_id: int
     smart_folder_id: int
     filing_rule_id: int
+    question_set_id: int
+    report_id: int
 
 
 @pytest.fixture
@@ -77,6 +84,7 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
     turn_on(monkeypatch, EMAIL_IN)
     turn_on(monkeypatch, CONNECTORS)
     turn_on(monkeypatch, SHARE_LINKS)
+    turn_on(monkeypatch, QUESTION_SETS)
     monkeypatch.setattr(get_settings(), "inbound_domain", "in.emudoc.test")
     monkeypatch.setattr(get_settings(), "google_drive_client_id", "drive-client")
     monkeypatch.setattr(get_settings(), "google_drive_client_secret", "drive-secret")
@@ -149,6 +157,11 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
         f"/api/projects/{project['id']}/filing-rules", json=filing_rule(folder["id"])
     )
     assert rule.status_code == 201, rule.text
+    question_set = client.post(f"/api/projects/{project['id']}/question-sets", json=QUESTION_SET)
+    assert question_set.status_code == 201, question_set.text
+    report = client.post(f"/api/question-sets/{question_set.json()['id']}/run").json()
+    services.llm.agent_turns.append(FakeTurn(TextPart("Nothing is due.")))
+    write_report(report["id"], services)
     for path in (
         f"/api/folders/{trashed_folder['id']}",
         f"/api/documents/{note['id']}",
@@ -186,6 +199,8 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
         tag["id"],
         smart.json()["id"],
         rule.json()["id"],
+        question_set.json()["id"],
+        report["id"],
     )
 
 
@@ -232,6 +247,9 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/check-runs/{w.run_id}", {}),
         ("GET", f"/api/check-runs/{w.run_id}/findings", {"params": {"rule": 0}}),
         ("GET", f"/api/projects/{w.project_id}/automations", {}),
+        ("GET", f"/api/projects/{w.project_id}/question-sets", {}),
+        ("GET", f"/api/projects/{w.project_id}/reports", {}),
+        ("GET", f"/api/reports/{w.report_id}", {}),
         ("GET", f"/api/projects/{w.project_id}/reviews", {}),
         ("GET", f"/api/projects/{w.project_id}/reviewers", {}),
         ("GET", f"/api/projects/{w.project_id}/drafts", {}),
@@ -315,6 +333,9 @@ def writes(w: World) -> list[Route]:
         ("POST", f"/api/check-runs/{w.run_id}/report", {}),
         ("POST", f"/api/projects/{w.project_id}/automations", {"json": AUTOMATION}),
         ("PUT", f"/api/automations/{w.automation_id}", {"json": AUTOMATION}),
+        ("POST", f"/api/projects/{w.project_id}/question-sets", {"json": QUESTION_SET}),
+        ("PUT", f"/api/question-sets/{w.question_set_id}", {"json": QUESTION_SET}),
+        ("POST", f"/api/question-sets/{w.question_set_id}/run", {}),
         ("POST", f"/api/projects/{w.project_id}/drafts", {"json": {"kind": "report"}}),
         ("POST", f"/api/drafts/{w.draft_id}/versions", {"json": {"text": "Mine.", "base": 1}}),
         ("POST", f"/api/drafts/{w.draft_id}/rewrite", {"json": {}}),
@@ -357,6 +378,8 @@ def writes(w: World) -> list[Route]:
         ("DELETE", f"/api/drafts/{w.draft_id}", {}),
         ("DELETE", f"/api/projects/{w.project_id}/draft-templates/report", {}),
         ("DELETE", f"/api/automations/{w.automation_id}", {}),
+        ("DELETE", f"/api/reports/{w.report_id}", {}),
+        ("DELETE", f"/api/question-sets/{w.question_set_id}", {}),
         ("DELETE", f"/api/filing-rules/{w.filing_rule_id}", {}),
         ("DELETE", f"/api/smart-folders/{w.smart_folder_id}", {}),
         ("DELETE", f"/api/tags/{w.tag_id}", {}),

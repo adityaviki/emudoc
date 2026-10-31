@@ -19,6 +19,10 @@ export const WEBHOOK_EVENTS: Record<WebhookEvent, { label: string; hint: string 
     label: 'Cross-checks were run',
     hint: 'Once a run of a project’s cross-checks is worked out, and again when its report is written.',
   },
+  'report.completed': {
+    label: 'A question set’s report is ready',
+    hint: 'Once a question set’s questions are answered, with what the report is but none of its answers.',
+  },
 }
 
 export const EVENT_ORDER = Object.keys(WEBHOOK_EVENTS) as WebhookEvent[]
@@ -75,9 +79,11 @@ export function deliveryWords(delivery: WebhookDelivery): { state: string; tone:
   return { state: 'Trying again', tone: 'warn', detail: `${delivery.error ?? ''}${next}`.trim() }
 }
 
-/** What the event was about: the document or the run, by its id, as the API names them. */
+/** What the event was about: the document, the run or the report, by its id, as the API names them. */
 export function subjectWords(delivery: WebhookDelivery): string {
-  return delivery.event_type === 'check_run.completed' ? `run ${delivery.subject_id}` : `document ${delivery.subject_id}`
+  if (delivery.event_type === 'check_run.completed') return `run ${delivery.subject_id}`
+  if (delivery.event_type === 'report.completed') return `report ${delivery.subject_id}`
+  return `document ${delivery.subject_id}`
 }
 
 const capitalised = (text: string) => text[0].toUpperCase() + text.slice(1)

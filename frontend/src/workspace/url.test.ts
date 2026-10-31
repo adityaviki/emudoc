@@ -96,6 +96,8 @@ describe('buildWorkspaceUrl', () => {
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', checks: true } })).toBe('/projects/3?checks=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', check: 5 } })).toBe('/projects/3?check=5')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', run: 8 } })).toBe('/projects/3?run=8')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', questionSets: true } })).toBe('/projects/3?question-sets=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', report: 12 } })).toBe('/projects/3?report=12')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', reviews: 'all' } })).toBe('/projects/3?reviews=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', reviews: 'mine' } })).toBe('/projects/3?reviews=mine')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', drafts: true } })).toBe('/projects/3?drafts=')
@@ -129,6 +131,8 @@ describe('buildWorkspaceUrl', () => {
       { ...home, library: { folderId: null, q: '', checks: true }, chatId: 12 },
       { ...home, library: { folderId: null, q: '', check: 5 }, document: { id: 41, focus: { block: 2 } } },
       { ...home, library: { folderId: null, q: '', run: 8 }, document: { id: 41, focus: { block: 2 } } },
+      { ...home, library: { folderId: null, q: '', questionSets: true }, chatId: 12 },
+      { ...home, library: { folderId: null, q: '', report: 12 }, document: { id: 41, focus: { passage: 812 } } },
       { ...home, library: { folderId: null, q: '', reviews: 'all' }, chatId: 12 },
       { ...home, library: { folderId: null, q: '', reviews: 'mine' }, document: { id: 41, focus: null } },
       { ...home, library: { folderId: null, q: '', drafts: true }, chatId: 12 },

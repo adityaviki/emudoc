@@ -15,8 +15,32 @@ newest entry first.
 
 ## 2026-10-31
 
+Members:
+
+- Question sets: save the questions you ask again and again in a project, and have them asked
+  for you every day or one day a week at an hour you choose, once new documents arrive, or both.
+  The library's "Question sets" makes them and runs one at once with "Run now"; each run is a
+  report of the answers, citing the passages as a chat does, which you, everyone who sees the
+  project or nobody is told of, in the app and by email as each of you chose: the set's name and
+  how many questions were answered, never an answer. Each question counts as one of the month's
+  questions. Question sets come with Pro and above, and reach organisations as they are rolled
+  out.
+- What arrived this week: a notice you turn on from your account page, which on Monday morning
+  names the documents that arrived over the week in each project you see. It is off until you,
+  or your organisation's owners and admins for its members, turn it on.
+
 Operators:
 
+- Question sets, behind the flag `question_sets`, rolled out to none, on Pro, Team and
+  Enterprise (the plans' `question_sets`): a set's job (`run_question_set`) queues its next
+  waking as it ends, and the housekeeper queues one lost; a report is answered by
+  `write_question_report` in the answerers' lane, each question counted as one of the month's
+  and held to the day's spending, its calls `answer` usage of the report, and kept as long as a
+  chat. Programs hear of a report by the webhook event `report.completed` and read it from
+  `GET /api/v1/projects/{id}/reports` and `GET /api/v1/reports/{id}`. The weekly digest is told
+  by a `send_digests` job that wakes every hour, which the housekeeper queues when there is
+  none. Migration 28ce2d5915d8; the privacy policy names the sets, their reports and the new
+  notices.
 - pyasn1 0.6.5, past four HIGH CVEs Audit found in 0.6.4 (denials of service in its decoder),
   which google-auth's `pyasn1-modules` brings into the image.
 - Three findings Audit made in the images beside the app are accepted in

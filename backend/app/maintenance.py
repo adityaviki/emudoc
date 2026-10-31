@@ -102,6 +102,7 @@ from app.config import PACK_UNITS, export_env_file, get_settings
 from app.connectors.sync import prune_connectors
 from app.db import MIGRATION_LOCK, SessionLocal, check_schema, engine, unbounded
 from app.deadletters import NamedJob, describe, failed_jobs, named_jobs, requeue
+from app.digests import queue_digests
 from app.encrypted import describe_encrypted, encrypt_secrets, keys
 from app.entitlements import (
     FIELDS,
@@ -147,12 +148,14 @@ from app.notices import (
 from app.operators import grant, operators, revoke
 from app.parsing import MIME_TYPES
 from app.postgres import concerns, database_report, describe_database, span
+from app.question_sets import queue_due_sets
 from app.ratelimit import prune_rate_limits
 from app.restore import after_restore, describe_restore
 from app.retention import (
     day,
     prune_chats,
     prune_drafts,
+    prune_reports,
     prune_runs,
     purge_due_accounts,
     purge_due_organizations,
@@ -541,6 +544,7 @@ def housekeeping(storage: Storage) -> None:
         deliveries = prune_deliveries(connection)
         chats = prune_chats(connection)
         runs = prune_runs(connection)
+        reports = prune_reports(connection)
         drafts = prune_drafts(connection)
         audited = prune_audit(connection)
         credentials = prune_credentials(connection)
@@ -560,6 +564,9 @@ def housekeeping(storage: Storage) -> None:
     organizations = purge_due_organizations(storage, renews=renews)
     lapsed = end_grace_periods()
     uploads = settle_uploads()
+    with SessionLocal() as session:
+        sets = queue_due_sets(session)
+        digests = queue_digests(session)
     if accounts:
         log.info("Housekeeping: deleted %s accounts whose deletion was due", accounts)
     if organizations:
@@ -606,6 +613,15 @@ def housekeeping(storage: Storage) -> None:
         log.info(
             "Housekeeping: deleted %s runs of cross-checks kept past their plan's retention", runs
         )
+    if reports:
+        log.info(
+            "Housekeeping: deleted %s reports of question sets kept past their plan's retention",
+            reports,
+        )
+    if sets:
+        log.info("Housekeeping: queued again the jobs of %s question sets that had none", sets)
+    if digests:
+        log.info("Housekeeping: queued the weekly digests' job, which had none")
     if drafts:
         log.info("Housekeeping: deleted %s drafts kept past their plan's retention", drafts)
     if emptied.projects or emptied.folders or emptied.documents or emptied.chats:

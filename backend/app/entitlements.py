@@ -53,7 +53,9 @@ how long a chat is kept after its last question, which the housekeeper holds it 
 app/apikeys.py), `connectors` whether they may connect folders of Google Drive, Dropbox or
 OneDrive to its projects and have them synced (`check_connectors`, app/connectors/), and
 `share_links` whether they may show a document to someone outside it by a link that needs no
-account (`check_share_links`, app/share_links.py); `model_tier` is declared for the model tiers
+account (`check_share_links`, app/share_links.py), and `question_sets` whether they may save a
+project's questions to be asked on a schedule or as documents arrive (`check_question_sets`,
+app/question_sets.py); `model_tier` is declared for the model tiers
 and enforced by nothing yet.
 """
 
@@ -149,6 +151,9 @@ class Entitlements:
     # Whether its members may share a document by a link that needs no account
     # (app/share_links.py).
     share_links: bool
+    # Whether its members may save a project's questions to be asked of its documents on a
+    # schedule or as documents arrive, their answers kept as reports (app/question_sets.py).
+    question_sets: bool
     # How many days a chat is kept after its last question (app/retention.py).
     retention_days: int | None
     # How many days the organisation's audit log keeps a row (app/audit.py): longer than a
@@ -176,6 +181,7 @@ PLANS: dict[str, Entitlements] = {
         api_access=False,
         connectors=False,
         share_links=False,
+        question_sets=False,
         retention_days=30,
         audit_days=90,
         model_tier="standard",
@@ -192,6 +198,7 @@ PLANS: dict[str, Entitlements] = {
         api_access=True,
         connectors=False,
         share_links=True,
+        question_sets=True,
         retention_days=365,
         audit_days=365,
         model_tier="standard",
@@ -210,6 +217,7 @@ PLANS: dict[str, Entitlements] = {
         api_access=True,
         connectors=True,
         share_links=True,
+        question_sets=True,
         retention_days=None,
         audit_days=365,
         model_tier="premium",
@@ -228,6 +236,7 @@ PLANS: dict[str, Entitlements] = {
         api_access=True,
         connectors=True,
         share_links=True,
+        question_sets=True,
         retention_days=None,
         audit_days=None,
         model_tier="premium",
@@ -341,6 +350,22 @@ def check_share_links(organization: Organization) -> Refusal | None:
         "share_links",
         f"The {_label(organization)} plan does not include share links. {way} to show a "
         "document to someone outside the organisation by a link.",
+    )
+
+
+def check_question_sets(organization: Organization) -> Refusal | None:
+    """Why the plan refuses question sets, made, changed or run, or None when it includes them."""
+    if entitlements_of(organization).question_sets:
+        return None
+    way = (
+        "Ask for them in the organisation's terms"
+        if organization.plan == PLAN_NAMES[-1]
+        else "Upgrade your plan"
+    )
+    return Refusal(
+        "question_sets",
+        f"The {_label(organization)} plan does not include question sets. {way} to have a "
+        "project's questions asked on a schedule or as documents arrive.",
     )
 
 

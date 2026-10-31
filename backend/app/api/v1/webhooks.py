@@ -8,7 +8,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Header
 
-from app.api.v1.schemas import CheckRunEvent, DocumentEvent
+from app.api.v1.schemas import CheckRunEvent, DocumentEvent, ReportEvent
 from app.webhooks import FIRST_WAIT, MAX_TRIES, TIMEOUT, TOLERANCE
 
 events = APIRouter(tags=["webhooks"])
@@ -53,3 +53,12 @@ def document_failed(body: DocumentEvent, signature: Signature, event: Event) -> 
 def check_run_completed(body: CheckRunEvent, signature: Signature, event: Event) -> None:
     """A run of a project's cross-checks was worked out, or failed, and its discrepancy report,
     when one was asked for, was written or failed. Sent again when a report is asked for after."""
+
+
+@events.post(
+    "report.completed", summary="A report of a question set is kept", response_description=TAKEN
+)
+def report_completed(body: ReportEvent, signature: Signature, event: Event) -> None:
+    """A report of a project's question set was kept, every question answered or refused, or it
+    failed. The body says what the report is; read its answers with `GET
+    /api/v1/reports/{report_id}`."""

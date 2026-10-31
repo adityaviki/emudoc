@@ -71,10 +71,11 @@ it is told of:
 | `document.ready` | once a document can be searched and asked about, and again each time it is indexed again |
 | `document.failed` | once a document could not be read, or the malware scan quarantined it |
 | `check_run.completed` | once a run of a project's cross-checks is worked out, and again when its report is written |
+| `report.completed` | once a question set's report is answered, or failed; it says which set and how many questions were answered, and a program reads the answers by the report's id |
 
 Each event is posted as JSON: its `id`, its `type`, `created_at` and `data`, which is what the
-versioned API answers for the document or the run, so a program reads one model however it
-heard. It is signed with the webhook's secret, shown once as the webhook is added: the
+versioned API answers for the document, the run or the report (without its answers), so a
+program reads one model however it heard. It is signed with the webhook's secret, shown once as the webhook is added: the
 `Emudoc-Signature` header is `t=` the time in seconds and `v1=` the HMAC-SHA256, in hex, of
 that time, a full stop and the body as sent. Check it before anything else, as in Python:
 

@@ -768,6 +768,72 @@ export interface Automation extends AutomationInput {
   updated_at: string
 }
 
+/** When a question set is asked on a schedule (QUESTION_SET_SCHEDULES in backend/app/models.py), and what made a report of its answers (REPORT_TRIGGERS). */
+export type QuestionSetSchedule = 'daily' | 'weekly'
+export type ReportTrigger = 'schedule' | 'arrivals' | 'member'
+
+/** A question set as a member writes it, whole (QuestionSetIn): its name, its questions in the order they are asked, its schedule (every day, or one day a week by `weekday`, Monday 0, at `hour` o'clock of its maker's zone) or none, whether documents arriving run it, whom its schedule's and its arrivals' reports are told to, and whether it is on. */
+export interface QuestionSetInput {
+  title: string
+  questions: string[]
+  schedule: QuestionSetSchedule | null
+  weekday: number | null
+  hour: number
+  on_arrivals: boolean
+  audience: AutomationAudience
+  enabled: boolean
+}
+
+/** A project's question set (QuestionSetOut): the zone its hour is in, when its schedule runs it next, who made it, why it would run nothing or tell nobody now, when it last made a report and whether one is being answered. */
+export interface QuestionSet extends QuestionSetInput {
+  id: number
+  time_zone: string
+  next_run_at: string | null
+  created_by: number | null
+  made_by: string | null
+  problem: string | null
+  last_report_at: string | null
+  running: boolean
+  updated_at: string
+}
+
+/** One question of a report as it was asked, and its answer citing `sources` as [P<id>] (ReportAnswerOut): `queued`, `running`, `done`, or `failed` with `error` saying why. */
+export interface ReportAnswer {
+  question: string
+  status: RunStatus
+  content: string
+  sources: Source[]
+  notice: string | null
+  error: string | null
+}
+
+/** A report as the project's list shows it (QuestionReportSummaryOut): its set by id while it is there and by name as it was, what ran it, how far it is, how many questions were answered and failed, and the documents that arrived for it, the first few by name. */
+export interface QuestionReportSummary {
+  id: number
+  question_set_id: number | null
+  title: string
+  trigger: ReportTrigger
+  /** The member who ran it, as they are named now; null for the schedule's and the arrivals', or once their account is gone. */
+  run_by: string | null
+  status: RunStatus
+  questions: number
+  answered: number
+  failed: number
+  arrived: number
+  names: string[]
+  created_at: string
+  finished_at: string | null
+}
+
+/** A report whole (QuestionReportOut): every question with its answer, why it failed, and what its answers used. */
+export interface QuestionReport extends QuestionReportSummary {
+  project_id: number
+  user_id: number | null
+  error: string | null
+  answers: ReportAnswer[]
+  usage: Record<string, Usage>
+}
+
 /** A project's address as its members set it (MailboxIn): whom it takes mail from besides themselves, each an address or a domain, and the folder what arrives goes into, the root when null. */
 export interface MailboxInput {
   senders: string[]
@@ -1269,6 +1335,7 @@ export type PlanLimit =
   | 'api_access'
   | 'connectors'
   | 'share_links'
+  | 'question_sets'
 
 /** What the organisation's plan turned down: the sentence, and the figure it is held to, null when the server named none. */
 export interface PlanRefusal {
@@ -1325,7 +1392,7 @@ export interface Organization {
 }
 
 /** The names of the feature flags (FLAGS in backend/app/flags.py), so that a page that reads a misspelt one fails the build. */
-export type Flag = 'extraction_templates' | 'drafts' | 'email_in' | 'connectors' | 'share_links'
+export type Flag = 'extraction_templates' | 'drafts' | 'email_in' | 'connectors' | 'share_links' | 'question_sets'
 
 /** What the organisation page changes about the organisation (OrganizationChangeIn in backend/app/schemas.py). */
 export interface OrganizationChange {
@@ -1424,6 +1491,8 @@ export interface Allowance {
   connectors: boolean
   /** Whether its members may share a document by a link that needs no account (backend/app/share_links.py). */
   share_links: boolean
+  /** Whether its members may save a project's questions to be asked on a schedule or as documents arrive (backend/app/question_sets.py). */
+  question_sets: boolean
   /** Which of them were agreed with the organisation in place of its plan's. */
   agreed: string[]
   /** The pages and questions bought in packs for this month, on top of the plan's. */
@@ -1546,7 +1615,7 @@ export interface Member {
 }
 
 /** The kinds of notice (NOTICE_KINDS in backend/app/models.py, backend/app/notices.py). */
-export type NoticeKind = 'upload_indexed' | 'quota' | 'project_export' | 'checks_run' | 'review_assigned'
+export type NoticeKind = 'upload_indexed' | 'quota' | 'project_export' | 'checks_run' | 'review_assigned' | 'report_ready' | 'weekly_digest'
 
 /** How one kind of notice is told: in the notification centre, by email, both or neither. */
 export interface NoticeChoice {
@@ -1742,6 +1811,11 @@ export type AuditAction =
   | 'automation_created'
   | 'automation_changed'
   | 'automation_deleted'
+  | 'question_set_created'
+  | 'question_set_changed'
+  | 'question_set_deleted'
+  | 'question_set_run'
+  | 'question_report_deleted'
   | 'filing_rule_created'
   | 'filing_rule_changed'
   | 'filing_rule_deleted'
@@ -1841,7 +1915,7 @@ export interface ApiKeyMade extends ApiKey {
 }
 
 /** What a webhook is told of (WEBHOOK_EVENTS in backend/app/models.py), and how a delivery to it stands. */
-export type WebhookEvent = 'document.ready' | 'document.failed' | 'check_run.completed'
+export type WebhookEvent = 'document.ready' | 'document.failed' | 'check_run.completed' | 'report.completed'
 export type WebhookDeliveryStatus = 'pending' | 'delivered' | 'failed'
 
 /** An event sent to a webhook, as its delivery log shows it (WebhookDeliveryOut in backend/app/schemas.py): never what it said. */
@@ -2540,6 +2614,22 @@ export const api = {
     request<Automation>(`/projects/${projectId}/automations`, json('POST', body)),
   updateAutomation: (id: number, body: AutomationInput) => request<Automation>(`/automations/${id}`, json('PUT', body)),
   deleteAutomation: (id: number) => request<void>(`/automations/${id}`, { method: 'DELETE' }),
+  /** The project's question sets, which ask their questions on a schedule or as documents arrive. */
+  questionSets: (projectId: number) =>
+    request<{ question_sets: QuestionSet[]; max_question_sets: number; max_questions: number }>(`/projects/${projectId}/question-sets`),
+  createQuestionSet: (projectId: number, body: QuestionSetInput) =>
+    request<QuestionSet>(`/projects/${projectId}/question-sets`, json('POST', body)),
+  updateQuestionSet: (id: number, body: QuestionSetInput) => request<QuestionSet>(`/question-sets/${id}`, json('PUT', body)),
+  deleteQuestionSet: (id: number) => request<void>(`/question-sets/${id}`, { method: 'DELETE' }),
+  /** Ask the set's questions now, for a report told to the member alone. */
+  runQuestionSet: (id: number) => request<QuestionReport>(`/question-sets/${id}/run`, { method: 'POST' }),
+  /** A page of the project's reports, newest first, before the report `before` names. */
+  questionReports: (projectId: number, before: number | null = null) =>
+    request<{ reports: QuestionReportSummary[]; next_before: number | null }>(
+      `/projects/${projectId}/reports${before != null ? `?before=${before}` : ''}`,
+    ),
+  questionReport: (id: number) => request<QuestionReport>(`/reports/${id}`),
+  deleteQuestionReport: (id: number) => request<void>(`/reports/${id}`, { method: 'DELETE' }),
   /** The project's address, with what it received lately. */
   mailbox: (projectId: number) => request<Mailbox>(`/projects/${projectId}/mailbox`),
   /** Give the project an address, or change whom it takes mail from and where it goes. */

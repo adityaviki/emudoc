@@ -114,6 +114,8 @@ from app.models import (
     Folder,
     Passage,
     Project,
+    QuestionReport,
+    QuestionSet,
     SmartFolder,
     Tag,
     User,
@@ -513,6 +515,33 @@ def get_automation(automation_id: int, session: SessionDep, account: AccountDep)
     return automation
 
 
+def get_question_set(set_id: int, session: SessionDep, account: AccountDep) -> QuestionSet:
+    """A project's question set (app/question_sets.py), provided the account sees the project
+    and it is out of the trash."""
+    row = session.scalar(
+        select(QuestionSet)
+        .join(Project, Project.id == QuestionSet.project_id)
+        .where(QuestionSet.id == set_id, visible_to(account))
+    )
+    if row is None:
+        raise HTTPException(404, "Question set not found")
+    about(project_id=row.project_id)
+    return row
+
+
+def get_report(report_id: int, session: SessionDep, account: AccountDep) -> QuestionReport:
+    """A report of a project's question set (app/question_reports.py), under the same terms."""
+    report = session.scalar(
+        select(QuestionReport)
+        .join(Project, Project.id == QuestionReport.project_id)
+        .where(QuestionReport.id == report_id, visible_to(account))
+    )
+    if report is None:
+        raise HTTPException(404, "Report not found")
+    about(project_id=report.project_id)
+    return report
+
+
 def get_tag(tag_id: int, session: SessionDep, account: AccountDep) -> Tag:
     """A project's tag (app/tags.py), provided the account sees the project and it is out of the
     trash."""
@@ -652,6 +681,31 @@ def get_deletable_run(
     return run
 
 
+def get_editable_question_set(
+    row: Annotated[QuestionSet, Depends(get_question_set)],
+    account: AccountDep,
+    session: SessionDep,
+) -> QuestionSet:
+    get_editor(account, session)
+    return row
+
+
+def get_deletable_question_set(
+    row: Annotated[QuestionSet, Depends(get_question_set)], account: AccountDep
+) -> QuestionSet:
+    """The set, for deleting it: by role alone, as a document is."""
+    _refuse_viewer(account)
+    return row
+
+
+def get_deletable_report(
+    report: Annotated[QuestionReport, Depends(get_report)], account: AccountDep
+) -> QuestionReport:
+    """The report, for deleting it: by role alone, as a run of cross-checks is."""
+    _refuse_viewer(account)
+    return report
+
+
 def get_editable_draft(
     draft: Annotated[Draft, Depends(get_draft)], account: AccountDep, session: SessionDep
 ) -> Draft:
@@ -758,6 +812,11 @@ EditableDraftDep = Annotated[Draft, Depends(get_editable_draft)]
 DeletableDraftDep = Annotated[Draft, Depends(get_deletable_draft)]
 AutomationDep = Annotated[Automation, Depends(get_automation)]
 EditableAutomationDep = Annotated[Automation, Depends(get_editable_automation)]
+QuestionSetDep = Annotated[QuestionSet, Depends(get_question_set)]
+EditableQuestionSetDep = Annotated[QuestionSet, Depends(get_editable_question_set)]
+DeletableQuestionSetDep = Annotated[QuestionSet, Depends(get_deletable_question_set)]
+ReportDep = Annotated[QuestionReport, Depends(get_report)]
+DeletableReportDep = Annotated[QuestionReport, Depends(get_deletable_report)]
 EditableTagDep = Annotated[Tag, Depends(get_editable_tag)]
 DeletableTagDep = Annotated[Tag, Depends(get_deletable_tag)]
 SmartFolderDep = Annotated[SmartFolder, Depends(get_smart_folder)]

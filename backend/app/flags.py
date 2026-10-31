@@ -55,6 +55,7 @@ DRAFTS = "drafts"
 EMAIL_IN = "email_in"
 CONNECTORS = "connectors"
 SHARE_LINKS = "share_links"
+QUESTION_SETS = "question_sets"
 
 # Every feature behind a flag, by name, in the order the operator's area lists them.
 FLAGS: dict[str, Flag] = {
@@ -91,6 +92,12 @@ FLAGS: dict[str, Flag] = {
     SHARE_LINKS: Flag(
         "Share links: a link that shows a document to anyone who holds it, without an account, "
         "until it expires or is revoked"
+    ),
+    # A project's questions saved to be asked of its documents on a schedule or as documents
+    # arrive (app/question_sets.py), each run's answers kept as a report.
+    QUESTION_SETS: Flag(
+        "Question sets: a project's questions asked on a schedule or as documents arrive, their "
+        "answers kept as reports"
     ),
 }
 

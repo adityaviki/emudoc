@@ -257,6 +257,8 @@ def test_the_account_page_chooses_how_each_kind_of_notice_is_told(client, sessio
         {"kind": "project_export", "app": True, "email": True},
         {"kind": "checks_run", "app": True, "email": True},
         {"kind": "review_assigned", "app": True, "email": True},
+        {"kind": "report_ready", "app": True, "email": True},
+        {"kind": "weekly_digest", "app": False, "email": False},
     ]
     off = client.patch("/api/auth/profile", json={"notices": [{"kind": "quota", "email": False}]})
     assert off.status_code == 200
@@ -283,6 +285,8 @@ def test_the_account_page_chooses_how_each_kind_of_notice_is_told(client, sessio
         {"kind": "project_export", "app": True, "email": True},
         {"kind": "checks_run", "app": True, "email": True},
         {"kind": "review_assigned", "app": True, "email": True},
+        {"kind": "report_ready", "app": True, "email": True},
+        {"kind": "weekly_digest", "app": False, "email": False},
     ]
     assert not suppressed(session, "ada@example.com")
 

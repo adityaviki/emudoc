@@ -105,7 +105,7 @@ assert set(SOLD_PLANS) <= set(PLANS) - {PLAN_NAMES[0], PLAN_NAMES[-1]}, "only pa
 
 # The entitlements that are a yes or a no; `model_tier` is one of MODEL_TIERS, `priority` a
 # weight of at least 1, and every other one a limit, a count of at least 0 or None for none.
-SWITCHES = ("api_access", "connectors", "share_links")
+SWITCHES = ("api_access", "connectors", "share_links", "question_sets")
 # Stands for a figure not agreed, which a figure agreed to be no limit (None) is not.
 _NONE = object()
 

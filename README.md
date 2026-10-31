@@ -238,6 +238,27 @@ question is. The drafts are the project's: everyone who sees it reads them (`GET
 /api/projects/{id}/drafts`, `GET /api/drafts/{id}`, `GET /api/drafts/{id}/versions/{n}`), whoever
 may change it asks for, edits and deletes them, each a row of the audit log by the draft's kind,
 never what it says; a draft is kept as long as a chat, from when it was last written or saved.
+
+A project's question sets ask its documents the same questions on their own
+(`backend/app/question_sets.py`, `GET|POST /api/projects/{id}/question-sets`, `PUT|DELETE
+/api/question-sets/{id}`): every day or one day a week at an hour of its maker's zone, once new
+documents arrive in the project (waiting, as an automation does, until none has arrived for two
+minutes, at most a quarter of an hour after the first), or both, and whoever may change the
+project runs one there and then (`POST /api/question-sets/{id}/run`). Each run is a report
+(`backend/app/question_reports.py`, `GET /api/projects/{id}/reports`, `GET|DELETE
+/api/reports/{id}`), which the background worker answers one question after another as a chat
+would, citing passages, the agent told which documents arrived when they made it run; each
+question counts as one of the month's questions and is held to the day's spending as a member's
+is, and the questions a month or a day has no room left for say so in the report. Its report is
+told to the set's maker, everyone who sees the project or nobody (a member's own run, to them),
+in the app and by email as each chose for the notice, by the set's name and how many questions
+were answered, never an answer; programs hear of it by the `report.completed` webhook and read
+it from the API (`GET /api/v1/reports/{id}`). The library's "Question sets" lists the sets with
+when each runs next and the reports, newest first, each opening its answers. Question sets are
+on the Pro, Team and Enterprise plans, behind the flag `question_sets` while they are rolled
+out; making, changing, running and deleting one, or deleting a report, is a row of the audit log
+naming the set and counting its questions, never one of them, and a report is kept as long as a
+chat.
 Each version downloads as a Word document, a PDF or its Markdown (`GET
 /api/drafts/{id}/versions/{n}/export?format=docx|pdf|md`, `backend/app/draft_export.py`), its
 citations numbered notes naming the document, section and pages of each passage, and its line
@@ -1006,7 +1027,9 @@ signs any of them out, and chooses how each kind of notice is told, the news a m
 without: that an upload which took five minutes or more to index is done, naming the files that
 could not be indexed and why, and to an organisation's owners and admins that its pages or
 questions for the month reached 80 % of what it may use, all of it, or for pages too few for a
-document (`backend/app/notices.py`). Each is told under the bell in the header, the member's
+document (`backend/app/notices.py`), that a question set's report is ready, and, once a member
+turns it on, on Monday morning of their zone what arrived over the week in the projects they see,
+by name (`backend/app/digests.py`). Each is told under the bell in the header, the member's
 notification centre of every organisation they belong to (opening one switches to its
 organisation; kept 90 days), and by email, each way on or off by kind; a notice's own link and a
 mail program's "Unsubscribe" turn its kind's email off, and a browser may show them as they come
@@ -1126,9 +1149,10 @@ EMUDOC_API_KEY=emk_… python3 emudoc_upload.py watch --server https://emudoc.ex
 ```
 Its owners and admins also give its programs webhooks (`backend/app/webhooks.py`), beside the
 API keys and on the same plans: an address and the events posted to it as they happen,
-`document.ready` and `document.failed` once a document's indexing ended, and
-`check_run.completed` once a run of cross-checks is worked out with its report. An event's body
-is what the versioned API answers for the document or the run, in an envelope (`id`, `type`,
+`document.ready` and `document.failed` once a document's indexing ended,
+`check_run.completed` once a run of cross-checks is worked out with its report, and
+`report.completed` once a question set's report is answered. An event's body is what the
+versioned API answers for the document, the run or the report (without its answers), in an envelope (`id`, `type`,
 `created_at`, `data`) the contract lists beside the routes, and it is signed with the webhook's
 secret, shown once (`Emudoc-Signature: t=…,v1=…`, the HMAC-SHA256 of the time, a full stop and
 the body). Anything but a 2xx within 10 seconds is tried again, the wait doubling from a

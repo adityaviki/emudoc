@@ -41,7 +41,9 @@ organisation uploaded a document about you, ask the organisation first; we help 
   the notes on documents you wrote, which your organisation's members see beside your name until
   another changes them, the tags, smart folders and filing rules you made, the runs of a project's
   cross-checks you made, with the values they compared and the reports the model wrote from them,
-  and the drafts you asked the model for or edited, with what you asked of them and every version.
+  the drafts you asked the model for or edited, with what you asked of them and every version,
+  and the question sets you made, with their questions and when they are asked, and the reports
+  of their answers, which your organisation's members who see the project read.
   We need them to provide the service.
 - **Invitations**: the email address a member of an organisation invited to join it, the role
   offered and who sent it, to mail the invitation and let whoever holds the address join; the
@@ -106,7 +108,9 @@ your notification centre in the app and by email: when documents you uploaded to
 index, that they are done and which could not be indexed; when an organisation's automation
 that names you ran a project's cross-checks after documents arrived, what they found about them,
 by counts and file names; when a member or an automation assigned you a document to review, which
-and who; and
+and who; when a question set that names you, or one you ran, has its answers ready, by its name
+and how many were answered; once you turn it on, on Monday morning, what arrived over the week
+in the projects you see, by file names and counts; and
 an organisation's owners and admins,
 when its pages or questions for the month are mostly or all used. You choose how you
 are told each kind on your account page, and can stop each kind by email with the link at the
@@ -131,8 +135,10 @@ of you.
   you confirm an address there; it learns of you only if you join.
 - **The programs an organisation's owners and admins give webhooks to** receive, at the
   addresses they chose, what the service tells them of its documents (their names, what was
-  read of them, how far they are indexed) and of its runs of cross-checks (what they found and
-  their reports). The organisation chose them and answers for them; they are not ours.
+  read of them, how far they are indexed), of its runs of cross-checks (what they found and
+  their reports) and of the reports of its question sets (which set, what made it run and how
+  many questions were answered, never an answer). The organisation chose them and answers for
+  them; they are not ours.
 - **Whoever holds a share link** sees the document it shows, its text, pages and file, or the
   answer it shows with its question and the passages it cites, with the name of the member who
   made the link and of their organisation, until it expires or is revoked: the member chose to
@@ -165,6 +171,9 @@ $region
   sooner.
 - **Drafts**, with their versions, for as long as the organisation keeps a chat, counted from
   when one was last asked for or saved, unless a member deletes it sooner.
+- **Question sets**, until a member deletes them or their project goes; **the reports of their
+  answers**, for as long as the organisation keeps a chat, counted from when the report was
+  made, unless a member deletes them sooner.
 - **Audit log entries**, for as long as the organisation's plan keeps them
   ($audit_retention), or the terms agreed with the organisation in its place; after a move to
   a plan or terms that keep them for less time, as before for $held_days days after the move.

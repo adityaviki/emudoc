@@ -82,6 +82,14 @@ TAG_COLORS = ("grey", "red", "orange", "yellow", "green", "teal", "blue", "purpl
 # or of its year and then its month, or tags it.
 FILING_CONDITIONS = ("type", "fact", "any")
 FILING_ACTIONS = ("folder", "by_year", "by_month", "tag")
+# When a project's question set (app/question_sets.py) is asked of its documents on a schedule:
+# every day, or one day a week, at an hour of its maker's zone. What made a report of its answers:
+# the schedule, documents that arrived, or a member who ran it there and then. How far a report
+# and each of its answers is: waiting for the worker, being asked (an answer: its question counted
+# and the agent at work), kept, or failed.
+QUESTION_SET_SCHEDULES = ("daily", "weekly")
+REPORT_TRIGGERS = ("schedule", "arrivals", "member")
+QUESTION_REPORT_STATUSES = ("queued", "running", "done", "failed")
 # What a draft is (app/drafts.py), each kind with its own instructions to the agent: a reply to
 # an email, a letter disputing a document, a memo summing documents up, a table setting them side
 # by side, and a report.
@@ -106,9 +114,9 @@ PROJECT_VISIBILITIES = ("organization", "private")
 # which reads too; either within the role of the member who made it.
 API_KEY_SCOPES = ("read", "write")
 # What an organisation's webhooks are told of (app/webhooks.py): a document indexed, one that
-# could not be, and a run of cross-checks worked out; and how a delivery to one stands: being
-# tried, answered with a 2xx, or given up.
-WEBHOOK_EVENTS = ("document.ready", "document.failed", "check_run.completed")
+# could not be, a run of cross-checks worked out, and a report of a question set's answers kept;
+# and how a delivery to one stands: being tried, answered with a 2xx, or given up.
+WEBHOOK_EVENTS = ("document.ready", "document.failed", "check_run.completed", "report.completed")
 WEBHOOK_DELIVERY_STATUSES = ("pending", "delivered", "failed")
 # What a background job can be (app/jobs.py). A worker only claims the kinds it has a handler
 # for, so a kind can be queued by a newer API before an older worker knows it.
@@ -126,6 +134,9 @@ JOB_KINDS = (
     "receive_mail",
     "deliver_webhook",
     "suggest_questions",
+    "run_question_set",
+    "write_question_report",
+    "send_digests",
 )
 JOB_STATUSES = ("queued", "running", "done", "failed")
 # Why an address is sent no notices (app/bounces.py): mail to it bounced for good, or its reader
@@ -140,7 +151,8 @@ MESSAGE_STATUSES = ("streaming", "done", "stopped", "failed")
 # What an organisation is metered for (app/usage.py): the activity a row counts, and what the
 # count is in. The stored `usage` of a document, a message, a run of cross-checks or a draft
 # (`Document.usage`, `ChatMessage.usage`, `WorkflowRun.usage`, `Draft.usage`) is keyed by the same
-# kinds.
+# kinds; a report of a question set's answers (`QuestionReport.usage`) is kept under `answer`,
+# since each of its answers is the agent's as a chat's is.
 USAGE_KINDS = (
     "answer",
     "upload",
@@ -162,9 +174,19 @@ PLANS = ("free", "pro", "team", "enterprise")
 QUOTA_FIGURES = ("pages_per_month", "questions_per_month")
 # The kinds of notice the app tells members about their work (app/notices.py), and the ways each
 # reaches them: the notification centre in the app, and email. A member chooses each way of
-# each kind (`User.notices`).
-NOTICE_KINDS = ("upload_indexed", "quota", "project_export", "checks_run", "review_assigned")
+# each kind (`User.notices`). Every kind is told until it is turned off, but those a member turns
+# on: the weekly digest of what arrived (app/digests.py), news nobody asked for by their work.
+NOTICE_KINDS = (
+    "upload_indexed",
+    "quota",
+    "project_export",
+    "checks_run",
+    "review_assigned",
+    "report_ready",
+    "weekly_digest",
+)
 NOTICE_CHANNELS = ("app", "email")
+CHOSEN_NOTICES = ("weekly_digest",)
 # What became of a message sent to a project's address (app/inbound.py): documents were kept
 # from it, it was turned away whole (its sender, the project, the plan), or nothing in it could
 # be kept.
@@ -195,8 +217,10 @@ NATURAL_ORDER = "natural_order"
 # its documents' content leaving the app; a run of its cross-checks is made, by a member or by an
 # automation, a discrepancy report asked of the agent and the run deleted for good
 # (app/check_runs.py), and its automations made, changed and deleted (app/automations.py), as
-# are the filing rules that move and tag its new documents (app/filing.py). A document's review
-# moves from state to state and is assigned to a member (app/reviews.py). A draft is asked of the
+# are its question sets, each run by a member or by the app, and their reports deleted for good
+# (app/question_sets.py), and the filing rules that move and tag its new documents
+# (app/filing.py). A document's review moves from state to state and is assigned to a member
+# (app/reviews.py). A draft is asked of the
 # agent, changed by a member's version or the agent's writing it again, and deleted for good
 # (app/drafts.py), and a version of it downloaded as a file (app/draft_export.py),
 # which is what documents say leaving the app; a project's own template of a kind of draft is
@@ -283,6 +307,11 @@ AUDIT_ACTIONS = (
     "automation_created",
     "automation_changed",
     "automation_deleted",
+    "question_set_created",
+    "question_set_changed",
+    "question_set_deleted",
+    "question_set_run",
+    "question_report_deleted",
     "filing_rule_created",
     "filing_rule_changed",
     "filing_rule_deleted",
@@ -450,11 +479,17 @@ class User(Base):
         chosen = (self.notices or {}).get(kind, {}).get(channel)
         if chosen is None:
             chosen = (defaults or {}).get(kind, {}).get(channel)
-        return chosen is not False
+        return _told(kind, chosen)
 
     def choose(self, kind: str, channel: str, on: bool) -> None:
         """Tell the user notices of the kind that way from now on, or not."""
         self.notices = _choosing(self.notices, kind, channel, on)
+
+
+def _told(kind: str, chosen: bool | None) -> bool:
+    """Whether a kind of notice is told as chosen, None for not: on until turned off, but a kind
+    of CHOSEN_NOTICES, off until turned on."""
+    return chosen is True if kind in CHOSEN_NOTICES else chosen is not False
 
 
 def _choosing(notices: dict | None, kind: str, channel: str, on: bool) -> dict:
@@ -627,7 +662,7 @@ class Organization(Base):
 
     def tells(self, kind: str, channel: str) -> bool:
         """Whether its members are told notices of the kind that way until they choose."""
-        return (self.notices or {}).get(kind, {}).get(channel) is not False
+        return _told(kind, (self.notices or {}).get(kind, {}).get(channel))
 
     def choose(self, kind: str, channel: str, on: bool) -> None:
         """Tell its members notices of the kind that way until they choose, or not."""
@@ -649,6 +684,10 @@ class Membership(Base):
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # The Monday, in the member's zone, whose weekly digest of what arrived in the organisation's
+    # projects they were last told (app/digests.py), so that a week is told once; null before
+    # the first.
+    digested_on: Mapped[dt.date | None] = mapped_column(Date)
 
     organization: Mapped[Organization] = relationship(back_populates="memberships")
     user: Mapped[User] = relationship(back_populates="memberships")
@@ -2173,6 +2212,145 @@ class AutomationArrival(Base):
     arrived_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class QuestionSet(Base):
+    """A project's questions saved to be asked of its documents on their own
+    (app/question_sets.py): on a schedule, every day or one day a week at an hour of its maker's
+    zone, as documents arrive, or both, each run answering every question as a chat would and
+    keeping the answers as a report (`QuestionReport`), told to whom it names."""
+
+    __tablename__ = "question_sets"
+    __table_args__ = (
+        _one_of("schedule", QUESTION_SET_SCHEDULES, "question_sets"),
+        _one_of("audience", AUTOMATION_AUDIENCES, "question_sets"),
+        # A weekly schedule names its day, and no other set does.
+        CheckConstraint(
+            "(schedule = 'weekly') = (weekday IS NOT NULL)", name="ck_question_sets_weekday"
+        ),
+        CheckConstraint("weekday BETWEEN 0 AND 6", name="ck_question_sets_weekday_range"),
+        CheckConstraint("hour BETWEEN 0 AND 23", name="ck_question_sets_hour"),
+        # Something runs it: a set with neither would wait for good.
+        CheckConstraint("schedule IS NOT NULL OR on_arrivals", name="ck_question_sets_runs"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # The tenant, as for every row a member reaches by its id.
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    title: Mapped[str] = mapped_column(String(200))
+    # The questions in the order they are asked, each as a member would type it in a chat.
+    questions: Mapped[list] = mapped_column(JSONB)
+    # One of QUESTION_SET_SCHEDULES, null for none; the day of a weekly one, Monday 0; and the
+    # hour of the day it runs at, in its maker's zone.
+    schedule: Mapped[str | None] = mapped_column(String(20))
+    weekday: Mapped[int | None] = mapped_column(Integer)
+    hour: Mapped[int] = mapped_column(Integer, default=8, server_default=text("8"))
+    # Whether documents arriving in the project run it, once they have gone quiet.
+    on_arrivals: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    # One of AUTOMATION_AUDIENCES: whom its schedule's and its arrivals' reports are told to.
+    audience: Mapped[str] = mapped_column(String(20), default="maker", server_default="maker")
+    # Off, nothing runs it, a member's press aside.
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    # When its schedule runs it next, null without one or while it is off.
+    next_run_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    # Who made it, whose zone its hour is in and whom `maker` tells; null once their account is
+    # gone. Indexed for the account purge.
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class QuestionSetArrival(Base):
+    """A document that arrived for a question set that runs on arrivals, waiting for its next
+    report (app/question_sets.py), which takes the set's arrivals as it is made; a document
+    deleted meanwhile goes with its row."""
+
+    __tablename__ = "question_set_arrivals"
+
+    set_id: Mapped[int] = mapped_column(
+        ForeignKey("question_sets.id", ondelete="CASCADE"), primary_key=True
+    )
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    arrived_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class QuestionReport(Base):
+    """One run of a question set (app/question_reports.py): its questions as they were, each
+    answered by the agent over the project's documents as they read then, the answers kept as a
+    chat keeps one, with the passages they cite, and what made it run.
+
+    The worker answers the questions one after another (`write_question_report` jobs), each
+    counted as one of the month's questions as it is asked, and the page follows `status` until
+    it settles. A report holds what documents say, as a chat does, and is kept as long."""
+
+    __tablename__ = "question_reports"
+    __table_args__ = (
+        _one_of("status", QUESTION_REPORT_STATUSES, "question_reports"),
+        _one_of("trigger", REPORT_TRIGGERS, "question_reports"),
+        _one_of("audience", AUTOMATION_AUDIENCES, "question_reports"),
+        # The project's reports, newest first, as its list pages them.
+        Index("ix_question_reports_project", "project_id", "id"),
+        # What the agent's runs in flight count (app/answers.py): the few reports being written.
+        Index(
+            "ix_question_reports_writing",
+            "org_id",
+            postgresql_where=text("status IN ('queued', 'running')"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # The tenant, as for every row a member reaches by its id.
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    # The set it ran, null once the set is deleted, `title` still naming it.
+    set_id: Mapped[int | None] = mapped_column(
+        ForeignKey("question_sets.id", ondelete="SET NULL"), index=True
+    )
+    title: Mapped[str] = mapped_column(String(200))
+    # One of REPORT_TRIGGERS; the member who ran it, for `member`, null once their account is
+    # gone; and whom it is told to, the set's audience as it was, or for a member's run them.
+    trigger: Mapped[str] = mapped_column(String(20))
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    audience: Mapped[str] = mapped_column(String(20), default="maker", server_default="maker")
+    # What arrived for it: the ids of the documents, and the names of the first few.
+    arrived: Mapped[dict | None] = mapped_column(JSONB)
+    # One of QUESTION_REPORT_STATUSES, and why it failed, in the sentence its members read.
+    status: Mapped[str] = mapped_column(String(20), default="queued", server_default="queued")
+    error: Mapped[str | None] = mapped_column(Text)
+    # Each question as it was asked, in order, with how far its answer is (one of
+    # QUESTION_REPORT_STATUSES, `running` while it is asked), and once settled the answer as the
+    # agent wrote it, citing passages as [P<id>], the passages it was shown, and how its run
+    # ended when not as it should (cut off, failed, refused by the plan).
+    answers: Mapped[list] = mapped_column(JSONB)
+    # What its answers used, by kind (`answer`: the model calls, tokens and cost), as
+    # app/usage.py keeps it.
+    usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    # When it told whom it names that it was kept: once, as it settles.
+    told_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # When its last answer was kept, or it failed.
+    finished_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Draft(Base):
