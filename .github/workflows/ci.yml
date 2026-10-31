@@ -1,5 +1,6 @@
 # The checks a change passes before it is called done (CLAUDE.md, "Commands"), on every push to
-# main, on every pull request, and by hand on any branch (Actions, CI, Run workflow). Each step
+# main and by hand on any branch (Actions, CI, Run workflow); on a pull request all but the
+# heavy jobs (`e2e` below says which), which Dependabot's pull requests run too. Each step
 # runs the command a developer would, so a red step is reproduced by running it on a checkout.
 # Actions are pinned by commit and the tools that come as images by digest: a moved tag changes
 # nothing here until this file does. A push to main also pushes the image it checked and, once
@@ -134,6 +135,11 @@ jobs:
   # and the same answer every run. On a failure the report and the trace are kept for a week.
   e2e:
     name: End to end
+    # The heavy jobs (this one, the load test, the image, the embeddings and OpenTofu) run on a
+    # push to main, by hand, and on Dependabot's pull requests, whose updates they are what
+    # checks; not on the developer's own pull requests, which are merged once the checks of
+    # CLAUDE.md pass on the developer's machine, main's run checking the same tree after.
+    if: &heavy ${{ github.event_name != 'pull_request' || github.event.pull_request.user.login == 'dependabot[bot]' }}
     runs-on: *runner
     timeout-minutes: 15
     steps:
@@ -184,6 +190,7 @@ jobs:
   # On a failure its logs are kept for a week.
   loadtest:
     name: Load test
+    if: *heavy
     runs-on: *runner
     timeout-minutes: 10
     steps:
@@ -220,6 +227,7 @@ jobs:
   # (deploying.md, "Releases from CI") the job stops after the smoke test.
   image:
     name: Image
+    if: *heavy
     runs-on: *runner
     timeout-minutes: 20
     # A pull request's token says pull_request and another branch's names it: AWS refuses both.
@@ -264,6 +272,7 @@ jobs:
   # every week, and nothing else here starts it.
   embeddings:
     name: Embeddings
+    if: *heavy
     runs-on: *runner
     timeout-minutes: 10
     steps:
@@ -275,6 +284,7 @@ jobs:
 
   opentofu:
     name: OpenTofu
+    if: *heavy
     runs-on: *runner
     timeout-minutes: 15
     steps:
