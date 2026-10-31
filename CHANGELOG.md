@@ -17,6 +17,11 @@ newest entry first.
 
 Members:
 
+- Search by meaning understands other languages: a question finds the passage that answers it
+  whichever language either is written in, so asking in English how much notice ends a
+  contract finds the German one's "Frist von drei Monaten" and the Chinese one's "提前九十日".
+  Documents uploaded before are matched this way once Emudoc has prepared them again, which it
+  does by itself over the following hours.
 - Each document is searched in its own language: Emudoc tells which language a document is
   written in as it reads it, so that a German contract's "Lieferungen" is found by "Lieferung"
   in an organisation that works in English. A document whose words are too few to tell, such as
@@ -48,6 +53,17 @@ Members:
 
 Operators:
 
+- The default embedding model is Google's EmbeddingGemma 300M (`EMBEDDING_MODEL=embeddinggemma`,
+  its prefixes `task: search result | query: ` and `title: none | text: `), in place of
+  nomic-embed-text v1.5, which was trained on English: it ranked an English question's passage
+  in another language first 34 times of 42 where v1.5 did twice. `deploy/compose.yml` downloads
+  its 334 MB of weights at 8 bits from ggml-org, and the server's batches hold 24,576 tokens, so
+  that 6,000 characters it reads as their bytes are refused as past the context, which the app
+  cuts. Its licence is the Gemma Terms of Use, which an operator reads before running it. The
+  vectors keep their size, 768: a deployment on the defaults embeds every document again after
+  its next release, at bulk priority, about 38 seconds per 32 passages on two CPUs; to stay on
+  v1.5, set its model, prefixes and weights first (deploying.md, "The embeddings endpoint").
+  Development runs `ollama pull embeddinggemma` once.
 - The worker tells each document's language as it parses it, with py3langid's model (BSD, with
   numpy), which it loads at the first parse and holds, about 75 MB; the API's process never
   loads it. The migration adds two columns to `documents`; a member's change of a document's

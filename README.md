@@ -642,7 +642,11 @@ another, Polish say, is searched by its words as written), and a document whose 
 few or too mixed to tell, a delivery log of dates and amounts, follows its organisation's
 language (`backend/app/languages.py`). The agent is told a document's language where it is not
 the organisation's, so that it searches the document by its own words. A language set moves the
-document's passages by the same background job a change of the organisation's language queues. A document has a **note**, one text its project's
+document's passages by the same background job a change of the organisation's language queues.
+Search by meaning needs no language: the default embedding model, EmbeddingGemma, puts a
+question and a passage that says the same near each other whichever languages they are written
+in, so an English question finds the German clause that answers it, whose words it does not
+share (`deploying.md`, "The embeddings endpoint"). A document has a **note**, one text its project's
 members share (`backend/app/notes.py`): whoever may change the project writes it on the tab,
 everyone who reads the document reads it with who changed it last, and it travels with the
 document into the trash and the project's export; neither the agent nor the search reads it.
@@ -720,10 +724,11 @@ never alters the database itself: at start it checks that the schema is current 
 serve otherwise, naming that command. A database made by a version from before there were
 migrations cannot be upgraded; the command says so, and `docker compose down -v` resets it.
 
-For semantic search, run [Ollama](https://ollama.com) with `ollama pull nomic-embed-text`, or
-point `EMBEDDING_BASE_URL` at any OpenAI-compatible embeddings endpoint. The backend asks it for
-one vector at start and logs what it found. A deployment runs llama.cpp's server with the same
-model beside the app (`deploy/compose.yml`), whose vectors agree with Ollama's.
+For semantic search, run [Ollama](https://ollama.com) with `ollama pull embeddinggemma`
+(Google's EmbeddingGemma, under the Gemma Terms of Use), or point `EMBEDDING_BASE_URL` at any
+OpenAI-compatible embeddings endpoint. The backend asks it for one vector at start and logs what
+it found. A deployment runs llama.cpp's server with the same model beside the app
+(`deploy/compose.yml`), whose vectors agree with Ollama's.
 
 When working on the app, run `./dev.sh` instead and open <http://localhost:5173>. It starts the
 database, applies the migrations, and runs the backend (restarting when Python changes) and the

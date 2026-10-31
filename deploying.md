@@ -537,7 +537,7 @@ to spare. `rebuild-embeddings` builds the index the same way.
 Search by meaning, the library's and the agent's, needs every passage turned into a vector as
 it is indexed and every search as it is asked, by an OpenAI-compatible `/embeddings` endpoint:
 `EMBEDDING_BASE_URL`, with `EMBEDDING_MODEL`, `EMBEDDING_DIM` (the vectors' size) and the
-model's prefixes (`EMBEDDING_QUERY_PREFIX`, `EMBEDDING_DOCUMENT_PREFIX`, nomic-embed-text's by
+model's prefixes (`EMBEDDING_QUERY_PREFIX`, `EMBEDDING_DOCUMENT_PREFIX`, EmbeddingGemma's by
 default). Without one, search matches keywords only, so neither a member nor the agent finds a
 passage worded otherwise than the question, and every document's embed stage is tried again
 after 1, 2, 4 and 8 minutes and then given up, each a failed job for `ALERT_EMAIL`. The default
@@ -545,7 +545,7 @@ address, an Ollama on 127.0.0.1, is in the image the container itself, so produc
 start with `EMBEDDING_BASE_URL` unset or blank.
 
 Every process asks the endpoint for one vector at start and says what it found: "Passages are
-embedded by nomic-embed-text at http://embeddings:8080/v1". An endpoint that turns the request
+embedded by embeddinggemma at http://embeddings:8080/v1". An endpoint that turns the request
 down stops a production start, with the settings to look at: a model it does not serve (404;
 an Ollama's until `ollama pull`), a model that makes no embeddings (501 from Ollama), a key it
 refuses (401), vectors of another size than `EMBEDDING_DIM`. One that is out of reach or busy
@@ -560,14 +560,16 @@ its `server` image) as `embeddings`, on its network only, as an unprivileged use
 filesystem, with the weights in the `embedding-model` volume. A one-shot `embedding-model`
 service fills it before the server starts: it downloads `EMBEDDING_WEIGHTS_URL` when the volume
 has no file named by `EMBEDDING_WEIGHTS_SHA256`, checks the download against that hash and
-keeps it under it, so a first `up` needs the weights' 274 MB from Hugging Face and later ones
+keeps it under it, so a first `up` needs the weights' 334 MB from Hugging Face and later ones
 nothing from anywhere, and every machine and every release serves the same file. The default is
-nomic-embed-text v1.5 at 16 bits as Nomic published it, at a fixed commit of its repository. The
-server answers whatever model a request names, so `EMBEDDING_MODEL` stays the app's name for
-the weights, under which the vectors are stored and priced. Its vectors are Ollama's:
-llama.cpp b11706 and Ollama 0.40.5 embedded the same texts to a cosine of 0.999999 or closer,
-with the same token counts, so a deployment that ran Ollama keeps its stored vectors and its
-`EMBEDDING_MODEL`, and can remove what Ollama leaves behind (`docker volume rm
+Google's EmbeddingGemma 300M at 8 bits, as llama.cpp's own organisation published it
+(`ggml-org/embeddinggemma-300M-GGUF`), at a fixed commit of its repository. The server answers
+whatever model a request names, so `EMBEDDING_MODEL` stays the app's name for the weights,
+`embeddinggemma`, Ollama's, under which the vectors are stored and priced. Its vectors are
+Ollama's: llama.cpp b11706 on these weights and Ollama 0.40.13 on its own at 16 bits embedded
+the same texts in eight languages to a cosine of 0.9992 or closer, with the same token counts,
+so vectors stored from Ollama's `embeddinggemma` are kept. A deployment that ran Ollama in this
+compose file, before llama.cpp's server, can remove what it left behind (`docker volume rm
 emudoc-deploy_models`, `docker image rm ollama/ollama:0.40.5`). Other weights are another GGUF
 file named to compose beside `EMUDOC_IMAGE`, `export
 EMBEDDING_WEIGHTS_URL=https://huggingface.co/<repository>/resolve/<commit>/<file>.gguf
@@ -576,13 +578,47 @@ EMBEDDING_WEIGHTS_SHA256=<the SHA-256 Hugging Face shows for the file>`, with a 
 below); on AWS the two are settings like the others. A file that does not match the hash stops
 `up` with "The file at EMBEDDING_WEIGHTS_URL is not the one EMBEDDING_WEIGHTS_SHA256 names."
 
+**The model and its terms.** EmbeddingGemma reads more than a hundred languages into one
+space, so a question finds the passage that answers it whichever language either is written in,
+which the keyword half of a search cannot (it stems each passage in its document's language;
+the README, "The workspace"). It replaced nomic-embed-text v1.5, which was trained on English,
+on 2026-10-31: asked 42 questions in English about contract, invoice and delivery passages in
+seven other languages, among 48 passages, v1.5 ranked the right one first for 2 of them and
+EmbeddingGemma for 34, and asked in each passage's own language, for 22 and 40 (bge-m3 for 35
+and 39; Qwen3-Embedding 0.6B, four times slower, for 28 and 38). It is Google's, under the
+[Gemma Terms of Use](https://ai.google.dev/gemma/terms), not an open-source licence: it may be
+used commercially, Google claims no rights in the vectors, and its use must keep to Google's
+[Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy), which Google may
+change. Google's own repository on Hugging Face is gated behind accepting those terms; the
+compose file downloads ggml-org's copy, which is not, but the terms hold for the weights
+whichever copy, so the operator reads them before running it. A deployment that should run only
+openly licensed weights names another model ("Changing the model", below): bge-m3 (MIT, 1,024
+dimensions,
+`https://huggingface.co/ggml-org/bge-m3-Q8_0-GGUF/resolve/9eba04c5d75ba5a1595e45de734d36bef4e5cb98/bge-m3-q8_0.gguf`,
+`aa473d51f451a22f0fcf39ba3330c14bed38a385712b1113440f69df4047a173`, both prefixes empty)
+ranked about as well, at twice the time a batch.
+
+A deployment from before 2026-10-31 that left these settings to their defaults moves to
+EmbeddingGemma at its next release: the server downloads the new weights, and the start queues
+every document to be embedded again at bulk priority. The vectors keep their size, 768, so
+nothing is rebuilt; the backlog is that of "Changing the embedding model or its size", and
+until a document's turn a search by meaning ranks it poorly. To stay on nomic-embed-text v1.5,
+set before that release `EMBEDDING_MODEL=nomic-embed-text`,
+`EMBEDDING_QUERY_PREFIX="search_query: "` and `EMBEDDING_DOCUMENT_PREFIX="search_document: "`,
+and for the server beside the app
+`EMBEDDING_WEIGHTS_URL=https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/0188c9bf409793f810680a5a431e7b899c46104c/nomic-embed-text-v1.5.f16.gguf`
+and `EMBEDDING_WEIGHTS_SHA256=f7af6f66802f4df86eda10fe9bbcfc75c39562bed48ef6ace719a251cf1c2fdb`.
+
 The server makes embeddings alone (no chat page, no slots endpoint) and logs warnings and
-errors, never what it is sent. It holds about 500 MB with nomic-embed-text, and its image is 300
-MB to download and 1.2 GB on disk. Its batches hold 8,192 tokens (`--ubatch-size`), more than
-the 6,000 characters the app sends at most, so that an input past the model's context of 2,048
-tokens, such as a passage of dense Chinese or a long row of a table, is refused as such (400,
-`exceed_context_size_error`) rather than as a failure of the server's; the app then embeds that
-input from its beginning, cut to what the context holds, as Ollama did by itself. llama.cpp has
+errors, never what it is sent. It holds about 200 MB with EmbeddingGemma, and its image is 300
+MB to download and 1.2 GB on disk. Its batches hold 24,576 tokens (`--ubatch-size`), more than
+the 6,000 characters the app sends at most, even of characters the model has no token for and
+reads as their UTF-8 bytes, four tokens each, so that an input past the model's context of
+2,048 tokens, such as a passage of dense Chinese, a long row of a table or a line of emoji, is
+refused as such (400, `exceed_context_size_error`) rather than as a failure of the server's,
+which the app would try again; the app then embeds that input from its beginning, cut to what
+the context holds, as Ollama does by itself. The larger batch takes no more memory than 8,192
+did. llama.cpp has
 no releases but a build a day under the `server` tag: Dependabot proposes the newest digest
 every Monday, and CI's Embeddings job (`.github/scripts/check-embeddings.sh`) starts the compose
 file's two services with it and fails when the vectors of `.github/scripts/embeddings.json` move
@@ -595,10 +631,13 @@ plain HTTP ("Encryption"); on another machine there, such as a GPU server for a 
 (llama.cpp's CUDA image), it listens on a private address, and across a network the deployment
 does not own it sits behind TLS, as production requires.
 
-On a CPU, embedding is the slow part of indexing. On an 8-core laptop CPU (Ryzen 7 7435HS, in
-Docker, October 2026), llama.cpp b11706 embedded a batch of 32 passages of 1,500 characters in
-7 seconds and of 6,000 characters (the most the app sends) in 23, and Ollama 0.40.5 in 9 to 11
-and in 23; the app waits 120 seconds for a batch. Hugging Face's text-embeddings-inference also
+On a CPU, embedding is the slow part of indexing. On a 6-core laptop CPU (Core i5-11400H, in
+Docker, 2026-10-31), llama.cpp b11706 embedded a batch of 32 passages of 1,500 characters with
+EmbeddingGemma in 18 seconds on every thread and in 29 on two, as many as the AWS instance has,
+and of 2,300 characters (the longest passages, with their headings) in 29 and in 47;
+nomic-embed-text v1.5 took 18 and 36, and 30 and 60. The app waits 120 seconds for a batch.
+Earlier, on an 8-core laptop CPU (Ryzen 7 7435HS), nomic-embed-text v1.5 embedded the batch of
+1,500 characters in 7 seconds and one of 6,000 in 23. Hugging Face's text-embeddings-inference also
 serves `/v1/embeddings`, from a 240 MB image, but its CPU build (1.9) could not load
 nomic-embed-text v1.5 on its fast backend and ran it five times slower than Ollama, so that a
 batch of long passages outlasted the 120 seconds; it suits a GPU, or a model its ONNX backend
@@ -2496,7 +2535,7 @@ Each run of a job ends with one line at INFO that says where its time went, here
    {"kind": "agent", "at": 0.021, "seconds": 4.917, "model": "anthropic:claude-sonnet-5-5",
     "outcome": "ok", "first_event": 1.302, "input_tokens": 5120, "output_tokens": 61},
    {"kind": "tool", "at": 4.961, "seconds": 5.904, "tool": "search", "outcome": "ok"},
-   {"kind": "embed", "at": 4.963, "seconds": 5.801, "model": "nomic-embed-text", "outcome": "ok"},
+   {"kind": "embed", "at": 4.963, "seconds": 5.801, "model": "embeddinggemma", "outcome": "ok"},
    …]}}
 ```
 
@@ -2794,11 +2833,11 @@ By kind of work and model:
   answer  google:gemini-3.5-flash-lite    0.7885  1,642  6,732,200     288,080
   enrich  google:gemini-3.5-flash-lite    0.1858    258  1,548,000      77,400
   answer  anthropic:claude-haiku-5-5      0.0465      9     36,000       2,100
-  embed   nomic-embed-text              unpriced      0  3,850,000           0
+  embed   embeddinggemma                unpriced      0  3,850,000           0
 
 These models' tokens were recorded without a price, so no cost above counts them;
 MODEL_PRICES prices a model per million tokens in and out from its next row on:
-  nomic-embed-text  3,850,000 tokens  (embed)
+  embeddinggemma    3,850,000 tokens  (embed)
 ```
 
 A day that reached its limit is one on which the organisation's questions were refused and
@@ -3803,10 +3842,11 @@ Every passage is embedded again, which is the expensive part:
 
 1. What it costs. `maintenance database` gives the rows of `passages`. A hosted endpoint is paid
    per token: the last full embedding's tokens are the `embed` rows of `maintenance costs` (or
-   `usage <slug>`) since it, at the new model's price. On the instance's CPUs llama.cpp takes 7
-   to 23 seconds per 32 passages, by their length, so 400,000 passages keep one server busy for
-   one to three days. Until a document's turn, a search by meaning ranks it poorly, and its
-   words still find it.
+   `usage <slug>`) since it, at the new model's price. On two CPUs llama.cpp takes 29 to 47
+   seconds per 32 passages with EmbeddingGemma, by their length ("The embeddings endpoint"), so
+   400,000 passages keep one server busy for four to seven days; a GPU server or a larger
+   instance for the backlog shortens it. Until a document's turn, a search by meaning ranks it
+   poorly, and its words still find it.
 2. A new `EMBEDDING_MODEL` of the same size (with its prefixes, and for the server beside the app
    `EMBEDDING_WEIGHTS_URL` and `EMBEDDING_WEIGHTS_SHA256`): set it and release, and the start
    queues every document's embed stage at bulk priority, behind the members' uploads. A new
@@ -4622,10 +4662,10 @@ and the like), named on its models' pages.
 | --- | --- | --- | --- |
 | `EMBEDDING_BASE_URL` | `http://127.0.0.1:11434/v1` | required | The OpenAI-compatible endpoint ("The embeddings endpoint") |
 | `EMBEDDING_API_KEY` | none | a secret, for a hosted endpoint | Its key |
-| `EMBEDDING_MODEL` | `nomic-embed-text` | | The model's name, under which the vectors are stored and priced |
+| `EMBEDDING_MODEL` | `embeddinggemma` | | The model's name, under which the vectors are stored and priced |
 | `EMBEDDING_DIM` | `768` | | The vectors' size; a change needs `rebuild-embeddings` |
-| `EMBEDDING_QUERY_PREFIX` | `search_query: ` | | What a search is prefixed with |
-| `EMBEDDING_DOCUMENT_PREFIX` | `search_document: ` | | What a passage is prefixed with |
+| `EMBEDDING_QUERY_PREFIX` | `task: search result \| query: ` | | What a search is prefixed with |
+| `EMBEDDING_DOCUMENT_PREFIX` | `title: none \| text: ` | | What a passage is prefixed with |
 | `FTS_LANGUAGE` | `english` | | The text search configuration of new passages, for an organisation that chose no language of its own |
 
 ### The worker and the limits

@@ -39,8 +39,10 @@ import subprocess
 import sys
 
 reference, mode, compose = sys.argv[1], sys.argv[2], sys.argv[3:]
-# Ollama's nomic-embed-text on a CPU and on a GPU agree to 0.99999, and llama.cpp's build and
-# Ollama's on a CPU to 0.999999; a changed tokenizer, pooling or normalisation is far below.
+# The same file on a CPU embeds the same text to 0.99999 or closer from one build to another
+# (nomic-embed-text v1.5's on llama.cpp and on Ollama agreed to 0.999999), and EmbeddingGemma at
+# 8 bits here and at 16 in Ollama to 0.9992; a changed tokenizer, pooling, projection or
+# normalisation is far below.
 MIN_COSINE = 0.9999
 TOO_LONG = "exceed_context_size_error"
 
@@ -51,7 +53,7 @@ def embed(texts):
     request += ["-w", "\n%{http_code}", "http://127.0.0.1:8080/v1/embeddings"]
     run = subprocess.run(
         [*compose, "exec", "-T", "embeddings", *request],
-        input=json.dumps({"model": "nomic-embed-text", "input": texts}),
+        input=json.dumps({"model": "embeddinggemma", "input": texts}),
         capture_output=True,
         text=True,
         check=True,
@@ -96,17 +98,24 @@ tokens = answer.get("usage", {}).get("prompt_tokens")
 if tokens != expected["tokens"]:
     failures.append(f"The texts took {tokens} tokens, not {expected['tokens']}: the tokens moved.")
 
-status, answer = embed([expected["texts"][0] + " " + "请" * 3000])
-error = answer.get("error") if isinstance(answer, dict) else None
-sizes = [error.get(field) for field in ("n_prompt_tokens", "n_ctx")] if error else []
-refused = status == 400 and error and error.get("type") == TOO_LONG
-if not refused or not all(isinstance(n, int) for n in sizes):
-    failures.append(
-        f"An input past the context was answered {status}, not 400 with {TOO_LONG} and the "
-        f"sizes beside it, which the app cuts such an input on: {answer}"
-    )
-else:
-    print(f"An input of {sizes[0]} tokens is refused as past the model's {sizes[1]}.")
+# An input past the context, and the longest the app sends (MAX_INPUT_CHARS in
+# backend/app/embeddings.py) of characters the model has no token for, each read as its four
+# UTF-8 bytes: past the server's batch, that one would be a server error the app tries again.
+for words, text in (
+    ("An input past the context", expected["texts"][0] + " " + "请" * 3000),
+    ("6,000 characters the model reads as their bytes", "🦤" * 6000),
+):
+    status, answer = embed([text])
+    error = answer.get("error") if isinstance(answer, dict) else None
+    sizes = [error.get(field) for field in ("n_prompt_tokens", "n_ctx")] if error else []
+    refused = status == 400 and error and error.get("type") == TOO_LONG
+    if not refused or not all(isinstance(n, int) for n in sizes):
+        failures.append(
+            f"{words} was answered {status}, not 400 with {TOO_LONG} and the sizes beside it, "
+            f"which the app cuts such an input on: {answer}"
+        )
+    else:
+        print(f"{words}, {sizes[0]} tokens, is refused as past the model's {sizes[1]}.")
 
 if failures:
     sys.exit("\n".join(failures))

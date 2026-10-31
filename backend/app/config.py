@@ -478,13 +478,15 @@ class Settings(BaseSettings):
     # Embeddings: any OpenAI-compatible /embeddings endpoint (app/embeddings.py), sent every
     # passage as it is indexed and every search. The default is an Ollama on this machine,
     # for development; production refuses to start without one named, and asks it once at
-    # start (app/startup.py).
+    # start (app/startup.py). The model is Google's EmbeddingGemma, which reads a hundred
+    # languages and matches a question with a passage in another (deploying.md, "The
+    # embeddings endpoint"), and the prefixes are the ones it was trained to search with.
     embedding_base_url: str = "http://127.0.0.1:11434/v1"
     embedding_api_key: str | None = None
-    embedding_model: str = "nomic-embed-text"
+    embedding_model: str = "embeddinggemma"
     embedding_dim: int = 768
-    embedding_query_prefix: str = "search_query: "
-    embedding_document_prefix: str = "search_document: "
+    embedding_query_prefix: str = "task: search result | query: "
+    embedding_document_prefix: str = "title: none | text: "
 
     # The text search configuration written into each passage as it is indexed; a search parses
     # its query with each passage's own, so changing this only affects later uploads.

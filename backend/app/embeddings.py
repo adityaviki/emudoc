@@ -17,7 +17,7 @@ BATCH_SIZE = 32
 # Passages are far shorter; this only guards the model's context window.
 MAX_INPUT_CHARS = 6000
 # The error type of llama.cpp's server for an input past the model's context (2,048 tokens
-# for nomic-embed-text, a few hundred characters of dense text past what a passage usually
+# for EmbeddingGemma, a few hundred characters of dense text past what a passage usually
 # holds), with the input's tokens and the context beside it. Ollama cuts such an input to the
 # context itself; this server refuses the whole request, so the app cuts it instead, to the
 # share of its characters that the context holds and a margin, as tokens are not spread
