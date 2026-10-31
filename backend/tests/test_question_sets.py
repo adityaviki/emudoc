@@ -25,8 +25,15 @@ from app.models import (
     Organization,
     QuestionReport,
     QuestionSet,
+    UsageEvent,
 )
-from app.question_reports import ASKED_ALONE, PROJECT_GONE, abandon_report, write_report
+from app.question_reports import (
+    ASKED_ALONE,
+    PROJECT_GONE,
+    QUESTION_SET_PROMPT_VERSION,
+    abandon_report,
+    write_report,
+)
 from app.question_sets import queue_due_sets
 from app.retention import prune_reports
 from tests.conftest import FakeTurn
@@ -211,6 +218,13 @@ def test_the_schedule_makes_a_report_answers_each_question_and_tells_the_maker(
     # Each question counts as one of the month's, and the model calls are the report's.
     assert questions_counted(session) == 2
     assert kept["usage"]["answer"]["calls"] == 2
+    # Answers of a set's own prompts: an answer's, with the task of a question asked alone.
+    versions = session.scalars(
+        select(UsageEvent.prompt_version).where(
+            UsageEvent.ref_type == "question_report", UsageEvent.ref_id == report.id
+        )
+    ).all()
+    assert set(versions) == {QUESTION_SET_PROMPT_VERSION}
     # Each was asked of the project with the task of a question asked alone.
     assert all(ASKED_ALONE in prompt for prompt in services.llm.agent_prompts)
 

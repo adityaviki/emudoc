@@ -3,10 +3,11 @@ its bill.
 
 Every row of `usage_events` is one measure of one thing an organisation did. A row names the
 activity (`kind`), what was measured (`unit`) and how much (`quantity`), who did it (the
-organisation, the project, the user), the model when one was called, and what it was for
-(`ref_type`, `ref_id`: a chat message, a document), so that a figure on a bill can be traced
-to its cause. The kinds (USAGE_KINDS in app/models.py) are an answer's model calls (`answer`,
-recorded by `answer` in app/answers.py) and the question it answers (`answer` in `questions`,
+organisation, the project, the user), the model when one was called and the version of the
+prompts it was asked with (`prompt_version`, app/prompts.py), and what it was for (`ref_type`,
+`ref_id`: a chat message, a document), so that a figure on a bill can be traced to its cause.
+The kinds (USAGE_KINDS in app/models.py) are an answer's model calls (`answer`, recorded by
+`answer` in app/answers.py) and the question it answers (`answer` in `questions`,
 one a question, by the ask route in app/api/chats.py, with no reference: it is what the plan
 counts, and it stays when its chat is deleted), what an upload brought in (`upload`: its
 bytes, by the request in app/api/documents.py, and its pages, by the first parse), the model
@@ -34,9 +35,9 @@ is not tokens, has none.
 
 The message, document, run or draft a row was for shows what it used: `ChatMessage.usage`,
 `Document.usage`, `WorkflowRun.usage` and `Draft.usage` (app/models.py) hold the rows for the row,
-by kind, each unit summed over every run, the model the latest row named, and the cost summed
-when any row has one. `record` adds to it as it adds the rows, in the same transaction, so the
-two never drift apart.
+by kind, each unit summed over every run, the model and the prompts' version the latest row
+named, and the cost summed when any row has one. `record` adds to it as it adds the rows, in
+the same transaction, so the two never drift apart.
 
 `daily` is the rollup: an organisation's quantities and costs per day in UTC, by kind and
 unit, which is what a quota or an invoice reads. It is a query over the events, which is
@@ -47,8 +48,10 @@ day or per month, for the usage page (app/api/usage.py).
 
 `organization_costs` and `model_costs` are the platform's side of the same rows: what each
 organisation's work cost over a span of days, costliest first, with the days that make it up,
-and what each kind of work cost by the model that did it. The `costs` command prints them for
-the operator; an internal admin page would read the same functions.
+and what each kind of work cost by the model that did it; `prompt_costs` is the same by the
+version of its prompts, with the first and last day each was seen, for the quality program to
+read what a change to the prompts did to the cost. The `costs` command prints the three for the
+operator; the operator's area reads the first two.
 """
 
 from collections import Counter
@@ -161,6 +164,24 @@ _BY_MODEL = text(
     ORDER BY sum(cost_micros) DESC NULLS LAST, calls DESC, kind, model
     """
 )
+# A kind's versions, the latest seen first.
+_BY_PROMPT = text(
+    """
+    SELECT kind, prompt_version,
+           min(occurred_at AT TIME ZONE 'UTC')::date AS first_day,
+           max(occurred_at AT TIME ZONE 'UTC')::date AS last_day,
+           sum(cost_micros)::bigint AS cost_micros,
+           coalesce(sum(quantity) FILTER (WHERE unit = 'calls'), 0)::bigint AS calls,
+           coalesce(sum(quantity) FILTER (WHERE unit = 'input_tokens'), 0)::bigint
+               AS input_tokens,
+           coalesce(sum(quantity) FILTER (WHERE unit = 'output_tokens'), 0)::bigint
+               AS output_tokens
+    FROM usage_events
+    WHERE occurred_at >= :since AND occurred_at < :until AND prompt_version IS NOT NULL
+    GROUP BY kind, prompt_version
+    ORDER BY kind, max(occurred_at) DESC, prompt_version
+    """
+)
 
 
 @dataclass
@@ -265,7 +286,8 @@ class Meter:
     under the model that answered, and counts anything else with `add`; the run writes the
     rows with `record` at the end of every stage, however the stage ended, so a stage that
     failed halfway is charged for the calls it made before, and the next stage starts from
-    nothing.
+    nothing. `prompts` is the version of each kind's prompts (app/prompts.py), which its rows
+    carry.
     """
 
     def __init__(
@@ -275,9 +297,11 @@ class Meter:
         project_id: int | None,
         user_id: int | None,
         ref: tuple[str, int] | None,
+        prompts: Mapping[str, str] | None = None,
     ):
         self._payer = {"org_id": org_id, "project_id": project_id, "user_id": user_id}
         self._ref = ref
+        self._prompts = dict(prompts or {})
         self._spent: dict[str, _Spent] = {}
 
     def calls(self, kind: str) -> ModelUsage:
@@ -299,6 +323,7 @@ class Meter:
         a scan's model read)."""
         rows: list[UsageEvent] = []
         for kind, spent in self._spent.items():
+            prompts = self._prompts.get(kind)
             for model, calls in spent.calls.models.items():
                 rows += record(
                     session,
@@ -306,6 +331,7 @@ class Meter:
                     kind=kind,
                     measures=calls.measures,
                     model=model,
+                    prompt_version=prompts,
                     ref=self._ref,
                 )
             rows += record(
@@ -314,6 +340,7 @@ class Meter:
                 kind=kind,
                 measures=spent.counts,
                 model=spent.model or spent.calls.model,
+                prompt_version=prompts,
                 ref=self._ref,
             )
         self._spent = {}
@@ -329,12 +356,14 @@ def record(
     kind: str,
     measures: Mapping[str, int],
     model: str | None = None,
+    prompt_version: str | None = None,
     ref: tuple[str, int] | None = None,
     occurred_at: datetime | None = None,
 ) -> list[UsageEvent]:
     """Add one row per measure of what was used to the caller's transaction, which also holds
     the work it was for when there is any, and add them to the usage the referenced row shows.
-    A measure of zero adds no row."""
+    A measure of zero adds no row. `prompt_version` is the version of the prompts the model was
+    asked with (app/prompts.py), for the kinds that ask one."""
     ref_type, ref_id = ref if ref is not None else (None, None)
     # Left unset, the column's default stamps the row as it is written.
     when = {"occurred_at": occurred_at} if occurred_at is not None else {}
@@ -347,6 +376,7 @@ def record(
             unit=unit,
             quantity=quantity,
             model=model,
+            prompt_version=prompt_version,
             cost_micros=cost_of(model, unit, quantity),
             ref_type=ref_type,
             ref_id=ref_id,
@@ -386,13 +416,16 @@ def _total(costs: Iterable[int | None]) -> int | None:
 
 def add(usage: Mapping[str, Mapping[str, Any]], rows: Iterable[UsageEvent]) -> dict[str, dict]:
     """`usage` with the rows added, as a row's `usage` column holds it: by kind, each unit
-    summed, the model the latest row named, the cost summed when any row has one."""
+    summed, the model and the prompts' version the latest row named, the cost summed when any
+    row has one."""
     merged = {kind: dict(spent) for kind, spent in usage.items()}
     for row in rows:
         spent = merged.setdefault(row.kind, {})
         spent[row.unit] = spent.get(row.unit, 0) + row.quantity
         if row.model is not None:
             spent["model"] = row.model
+        if row.prompt_version is not None:
+            spent["prompt_version"] = row.prompt_version
         if row.cost_micros is not None:
             spent["cost_micros"] = spent.get("cost_micros", 0) + row.cost_micros
     return merged
@@ -522,6 +555,22 @@ class ModelCost:
     unpriced_tokens: int
 
 
+@dataclass(frozen=True)
+class PromptCost:
+    """What one kind of work cost asked with one version of its prompts (app/prompts.py) over a
+    span of days in UTC, and the first and last day of the span it was seen on."""
+
+    kind: str
+    prompt_version: str
+    first_day: date
+    last_day: date
+    # None while no row has a cost.
+    cost_micros: int | None
+    calls: int
+    input_tokens: int
+    output_tokens: int
+
+
 def organization_costs(session: Session, since: date, until: date) -> list[OrganizationCost]:
     """Every organisation that used anything from `since` to `until` inclusive, in UTC, with
     what it came to: the costliest first, then the busiest, so that the organisations whose
@@ -567,6 +616,13 @@ def model_costs(session: Session, since: date, until: date) -> list[ModelCost]:
     """What each kind of work cost by each model that did it, from `since` to `until`
     inclusive, in UTC, the costliest first."""
     return [ModelCost(*row) for row in session.execute(_BY_MODEL, _span(since, until))]
+
+
+def prompt_costs(session: Session, since: date, until: date) -> list[PromptCost]:
+    """What each kind of work cost by each version of its prompts, from `since` to `until`
+    inclusive, in UTC: by kind, the version seen last first. The rows that carry no version, of
+    the kinds that ask no model and from before versions were kept, are in none."""
+    return [PromptCost(*row) for row in session.execute(_BY_PROMPT, _span(since, until))]
 
 
 def _span(since: date, until: date) -> dict[str, datetime]:

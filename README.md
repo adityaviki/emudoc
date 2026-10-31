@@ -412,7 +412,10 @@ was stopped, a scan that failed at its tenth page and a stage a worker lost are 
 the calls they made. `uv run python -m app.maintenance usage <slug>` (in `backend/`) prints an
 organisation's use per day in UTC, by kind and unit, over the last 30 days or `--days`, and
 `costs` what every organisation's model use cost over the same span, costliest first, against
-its plan's daily limit, with the platform's total and the cost by kind of work and model.
+its plan's daily limit, with the platform's total and the cost by kind of work and model, then by
+kind and version of its prompts: each kind's prompts have a version, a hash of what the model is
+told for it that any edit changes (`backend/app/prompts.py`), which the rows of its model calls
+carry.
 An answer shows what it used under its text (the model, its calls and tokens, and, to the
 organisation's owners and admins alone, the cost, which the server sends no member or viewer:
 `backend/app/costs.py`), and a document's header shows what bringing it in and indexing it used,
@@ -1572,7 +1575,8 @@ each cited passage says what its sentence does (`backend/app/golden.py`); both a
 change to the prompts, the agent or the sample is on `main` (`deploying.md`, "The models"). `python -m app.maintenance
 fact-accuracy`, run by hand, indexes the sample with extraction templates on and scores the facts
 the indexing model reads from its contract, invoices and price list against values labelled by
-hand (`backend/app/fact_accuracy.py`), each field's recall and precision.
+hand (`backend/app/fact_accuracy.py`), each field's recall and precision. Both reports name the
+versions of the prompts they ran, so two runs with the same versions differ by the model alone.
 
 Dependabot (`.github/dependabot.yml`) proposes the updates of both lock files and of the
 workflows' actions once a week, a week after their release, and those of the images, which

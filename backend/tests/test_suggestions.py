@@ -17,7 +17,7 @@ from app.config import get_settings
 from app.jobs import BULK, INDEX_DOCUMENT, SUGGEST_QUESTIONS, claim
 from app.llm import LLMUnavailable
 from app.models import Job, Organization, Project, UsageEvent
-from app.suggestions import AGAIN_AFTER, write_suggestions
+from app.suggestions import AGAIN_AFTER, SUGGESTIONS_PROMPT_VERSION, write_suggestions
 from app.usage import SUGGESTIONS
 from app.worker import Worker
 from tests.conftest import SUGGESTED, FakeTurn
@@ -107,6 +107,7 @@ def test_a_project_s_questions_are_written_from_its_catalogue_once_its_documents
     assert {(row.org_id, row.project_id, row.user_id, row.model) for row in rows} == {
         (account.organization.id, project["id"], None, get_settings().index_model)
     }
+    assert {row.prompt_version for row in rows} == {SUGGESTIONS_PROMPT_VERSION}
 
 
 def test_questions_are_written_again_an_hour_after_at_the_soonest_one_writing_at_a_time(

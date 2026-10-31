@@ -36,8 +36,9 @@ from app.db import SessionLocal
 from app.indexing.pipeline import Services
 from app.jobs import BULK, SUGGEST_QUESTIONS, Lease, LeaseLost, enqueue, renew
 from app.languages import WORDS_AS_WRITTEN, language_name
-from app.llm import LLMError
+from app.llm import INDEX_SYSTEM, LLMError
 from app.models import Document, Organization, Project
+from app.prompts import prompt_version
 from app.spending import check_platform_spend, check_spend
 from app.usage import SUGGESTIONS, ModelUsage, record
 
@@ -187,5 +188,18 @@ def _charge(usage: ModelUsage, payer: dict) -> None:
         return
     with SessionLocal() as session:
         for model, calls in usage.models.items():
-            record(session, **payer, kind=SUGGESTIONS, measures=calls.measures, model=model)
+            record(
+                session,
+                **payer,
+                kind=SUGGESTIONS,
+                measures=calls.measures,
+                model=model,
+                prompt_version=SUGGESTIONS_PROMPT_VERSION,
+            )
         session.commit()
+
+
+# The version of what the questions are asked with (app/prompts.py), which their usage rows carry:
+# the prompt, the sentence of the language, and the reply's schema; the catalogue is what it is
+# asked about.
+SUGGESTIONS_PROMPT_VERSION = prompt_version(INDEX_SYSTEM, PROMPT, _language, SuggestedQuestions)

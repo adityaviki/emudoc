@@ -18,15 +18,16 @@ from sqlalchemy import func, select
 import app.answers as answers_module
 import app.indexing.pipeline as pipeline
 from app.agent.tools import TOOLS
-from app.answers import answer
+from app.answers import ANSWER_PROMPT_VERSION, answer
 from app.billing import change_plan
 from app.config import get_settings
 from app.entitlements import CHARS_PER_PAGE, month_of
+from app.indexing.enrich import ENRICH_PROMPT_VERSION, SECTIONS_PROMPT_VERSION
 from app.indexing.pipeline import StageFailure, process_document, reset_stages
 from app.jobs import ANSWER_QUESTION, INDEX_DOCUMENT, LeaseLost, claim
-from app.llm import LLMError
+from app.llm import OCR_PROMPT_VERSION, LLMError
 from app.maintenance import main
-from app.models import AllowancePack, Organization, Passage, UsageEvent, User
+from app.models import AllowancePack, ChatMessage, Document, Organization, Passage, UsageEvent, User
 from app.schemas import UsageOut
 from app.spending import day_of, spent_since
 from app.usage import (
@@ -43,12 +44,14 @@ from app.usage import (
     Metered,
     ModelCost,
     OrganizationCost,
+    PromptCost,
     add,
     cost_of,
     daily,
     metered,
     model_costs,
     organization_costs,
+    prompt_costs,
     record,
     summed,
 )
@@ -141,6 +144,11 @@ def test_an_answer_records_its_model_calls_and_tokens(client, session, services,
         assert row.org_id == account.organization.id and row.user_id == account.user.id
         assert row.project_id == indexed.project_id and row.cost_micros is None
         assert datetime.now(UTC) - row.occurred_at < timedelta(minutes=1)
+        # Asked with the answers' prompts, which the message's usage names too, for the
+        # operator's costs by version; the page is not shown it.
+        assert row.prompt_version == ANSWER_PROMPT_VERSION
+    usage = session.get(ChatMessage, message_id).usage[ANSWER]
+    assert usage["prompt_version"] == ANSWER_PROMPT_VERSION
 
     # An answer that never reached the model used nothing.
     services.llm.stream_agent = lambda *args: (_ for _ in ()).throw(RuntimeError("down"))
@@ -296,6 +304,16 @@ def test_indexing_a_document_records_its_pages_model_calls_and_embeddings(
         ENRICH: index_model,
         EMBED: "fake-embedder",
     }
+    # The model was asked with the enrich stage's prompts; the upload and the embeddings ask
+    # none. The document's usage names the version, which the page is not shown.
+    assert {row.kind: row.prompt_version for row in rows} == {
+        UPLOAD: None,
+        ENRICH: ENRICH_PROMPT_VERSION,
+        EMBED: None,
+    }
+    assert session.get(Document, document.id).usage[ENRICH]["prompt_version"] == (
+        ENRICH_PROMPT_VERSION
+    )
     # The document shows the same, by kind.
     assert usage_shown(client, f"/api/documents/{document.id}") == {
         UPLOAD: shown(pages=2),
@@ -360,6 +378,9 @@ def test_inferring_sections_is_charged_as_its_own_kind(session, services, make_d
 
     rows = rows_of(session, (DOCUMENT, document.id))
     assert spent(rows, INFER_SECTIONS) == model_calls(INFER_SECTIONS, 1)
+    assert {row.prompt_version for row in rows if row.kind == INFER_SECTIONS} == {
+        SECTIONS_PROMPT_VERSION
+    }
     # A text file has no pages of its own, and counts those of its text.
     assert spent(rows, UPLOAD) == [(UPLOAD, "pages", 1)]
 
@@ -385,6 +406,8 @@ def test_a_scan_is_charged_per_page_read_even_when_the_stage_fails_half_way(
     rows = rows_of(session, (DOCUMENT, document.id))
     assert spent(rows) == [*model_calls(OCR, 1), (OCR, "pages", 1)]
     assert {row.model for row in rows} == {get_settings().index_model}
+    # The pages were read with the scans' prompt, as the calls were.
+    assert {row.prompt_version for row in rows} == {OCR_PROMPT_VERSION}
 
     # The retry reads both pages and is charged for both, and the upload is now two pages.
     monkeypatch.setattr(services.llm, "ocr_page", read_page)
@@ -648,18 +671,37 @@ def test_what_work_cost_is_shown_to_owners_and_admins_alone(
 def test_adding_rows_to_a_usage_sums_each_unit_and_the_known_costs():
     rows = [
         UsageEvent(kind=OCR, unit="pages", quantity=2, model="m2"),
-        UsageEvent(kind=OCR, unit="calls", quantity=2, model="m2", cost_micros=None),
-        UsageEvent(kind=OCR, unit="input_tokens", quantity=400, model="m2", cost_micros=40),
+        UsageEvent(
+            kind=OCR, unit="calls", quantity=2, model="m2", prompt_version="v2", cost_micros=None
+        ),
+        UsageEvent(
+            kind=OCR,
+            unit="input_tokens",
+            quantity=400,
+            model="m2",
+            prompt_version="v2",
+            cost_micros=40,
+        ),
         UsageEvent(kind=RENDER, unit="pages", quantity=1),
     ]
-    before = {OCR: {"pages": 1, "calls": 1, "model": "m1", "cost_micros": 5}}
+    before = {
+        OCR: {"pages": 1, "calls": 1, "model": "m1", "prompt_version": "v1", "cost_micros": 5}
+    }
     assert add(before, rows) == {
-        # The latest row names the model; a row without a cost adds nothing to it.
-        OCR: {"pages": 3, "calls": 3, "input_tokens": 400, "model": "m2", "cost_micros": 45},
+        # The latest row names the model and the prompts' version; a row without a cost adds
+        # nothing to it.
+        OCR: {
+            "pages": 3,
+            "calls": 3,
+            "input_tokens": 400,
+            "model": "m2",
+            "prompt_version": "v2",
+            "cost_micros": 45,
+        },
         RENDER: {"pages": 1},
     }
     # What was given is left as it was.
-    assert before == {OCR: {"pages": 1, "calls": 1, "model": "m1", "cost_micros": 5}}
+    assert before[OCR]["model"] == "m1" and before[OCR]["prompt_version"] == "v1"
     assert add({}, []) == {}
 
 
@@ -950,11 +992,12 @@ def charge(
     when: datetime,
     *,
     model: str | None = None,
+    prompts: str | None = None,
     ref: tuple[str, int] | None = None,
     cost: str | None = None,
 ) -> None:
-    """Record what an organisation used at `when`, costing its input tokens `cost` of currency
-    by hand when one is given."""
+    """Record what an organisation used at `when`, asked with the prompts' version `prompts`,
+    costing its input tokens `cost` of currency by hand when one is given."""
     rows = record(
         session,
         org_id=org_id,
@@ -963,6 +1006,7 @@ def charge(
         kind=kind,
         measures=measures,
         model=model,
+        prompt_version=prompts,
         ref=ref,
         occurred_at=when,
     )
@@ -985,25 +1029,33 @@ def test_the_costs_of_every_organisation_add_up_costliest_first(
         return datetime(2026, 10, day, hour, minute, tzinfo=UTC)
 
     # An answer whose run was lost before midnight and started over after it: one answer,
-    # charged on two days.
+    # charged on two days, and asked with the answers' prompts as they were, then as a release
+    # after midnight changed them.
     tokens = {"calls": 1, "input_tokens": 1000, "output_tokens": 100}
-    charge(session, local, ANSWER, tokens, at(10, 23, 30), model=PRICED, ref=(CHAT_MESSAGE, 1))
+    at_first = {"model": PRICED, "prompts": "aaaa1111", "ref": (CHAT_MESSAGE, 1)}
+    charge(session, local, ANSWER, tokens, at(10, 23, 30), **at_first)
     tokens = {"calls": 2, "input_tokens": 2000, "output_tokens": 200}
-    charge(session, local, ANSWER, tokens, at(11, 0, 10), model=PRICED, ref=(CHAT_MESSAGE, 1))
+    changed = {"model": PRICED, "prompts": "bbbb2222", "ref": (CHAT_MESSAGE, 1)}
+    charge(session, local, ANSWER, tokens, at(11, 0, 10), **changed)
     # Another, which a model without a price answered.
     tokens = {"calls": 1, "input_tokens": 500}
-    charge(session, local, ANSWER, tokens, at(11, 9), model=UNPRICED, ref=(CHAT_MESSAGE, 2))
-    # A scanned upload: its pages, the model that read them, and the embeddings endpoint.
+    unpriced = {"model": UNPRICED, "prompts": "bbbb2222", "ref": (CHAT_MESSAGE, 2)}
+    charge(session, local, ANSWER, tokens, at(11, 9), **unpriced)
+    # A scanned upload: its pages, the model that read them, and the embeddings endpoint, which
+    # asks no prompt.
     charge(session, globex, UPLOAD, {"bytes": 4096, "pages": 3}, at(11, 8), ref=(DOCUMENT, 7))
     tokens = {"calls": 3, "input_tokens": 9000, "output_tokens": 300}
-    charge(session, globex, OCR, tokens, at(11, 8), model=PRICED, ref=(DOCUMENT, 7))
+    read = {"model": PRICED, "prompts": "cccc3333", "ref": (DOCUMENT, 7)}
+    charge(session, globex, OCR, tokens, at(11, 8), **read)
     tokens = {"inputs": 4, "input_tokens": 40}
     charge(session, globex, EMBED, tokens, at(11, 8), model="nomic-embed-text", ref=(DOCUMENT, 7))
     tokens = {"calls": 5, "input_tokens": 50}
-    charge(session, initech, ANSWER, tokens, at(10, 9), model=UNPRICED, ref=(CHAT_MESSAGE, 3))
+    at_first = {"model": UNPRICED, "prompts": "aaaa1111", "ref": (CHAT_MESSAGE, 3)}
+    charge(session, initech, ANSWER, tokens, at(10, 9), **at_first)
     # The last minute before the span.
     tokens = {"calls": 9, "input_tokens": 9}
-    charge(session, hooli, ANSWER, tokens, at(9, 23, 59), model=PRICED, ref=(CHAT_MESSAGE, 4))
+    late = {"model": PRICED, "prompts": "aaaa1111", "ref": (CHAT_MESSAGE, 4)}
+    charge(session, hooli, ANSWER, tokens, at(9, 23, 59), **late)
     session.commit()
 
     oct10, oct11 = date(2026, 10, 10), date(2026, 10, 11)
@@ -1075,6 +1127,50 @@ def test_the_costs_of_every_organisation_add_up_costliest_first(
             unpriced_tokens=40,
         ),
     ]
+    # By kind and the version of its prompts, the latest seen first; the upload and the
+    # embeddings asked none, and the minute before the span is left out of its days.
+    assert prompt_costs(session, oct10, oct11) == [
+        PromptCost(
+            ANSWER,
+            "bbbb2222",
+            oct11,
+            oct11,
+            cost_micros=2400,
+            calls=3,
+            input_tokens=2500,
+            output_tokens=200,
+        ),
+        PromptCost(
+            ANSWER,
+            "aaaa1111",
+            oct10,
+            oct10,
+            cost_micros=1200,
+            calls=6,
+            input_tokens=1050,
+            output_tokens=100,
+        ),
+        PromptCost(
+            OCR,
+            "cccc3333",
+            oct11,
+            oct11,
+            cost_micros=9600,
+            calls=3,
+            input_tokens=9000,
+            output_tokens=300,
+        ),
+    ]
+    assert prompt_costs(session, date(2026, 10, 9), oct10)[0] == PromptCost(
+        ANSWER,
+        "aaaa1111",
+        date(2026, 10, 9),
+        oct10,
+        cost_micros=1209,
+        calls=15,
+        input_tokens=1059,
+        output_tokens=100,
+    )
     assert organization_costs(session, date(2026, 10, 12), date(2026, 10, 31)) == []
 
 
@@ -1092,13 +1188,16 @@ def test_the_costs_command_holds_each_organisation_to_its_plans_daily_limit(
 
     # The free plan's limit is 1.00 a day: Globex went past it yesterday.
     tokens = {"calls": 3, "input_tokens": 1000}
-    charge(session, globex, OCR, tokens, yesterday, model=PRICED, ref=(DOCUMENT, 1), cost="1.20")
+    read = {"model": PRICED, "prompts": "cccc3333", "ref": (DOCUMENT, 1), "cost": "1.20"}
+    charge(session, globex, OCR, tokens, yesterday, **read)
     charge(session, globex, UPLOAD, {"bytes": 2048, "pages": 4}, yesterday, ref=(DOCUMENT, 1))
     tokens = {"calls": 1, "input_tokens": 100}
-    charge(session, globex, ANSWER, tokens, now, model=PRICED, ref=(CHAT_MESSAGE, 1), cost="0.40")
+    asked = {"model": PRICED, "prompts": "bbbb2222", "ref": (CHAT_MESSAGE, 1), "cost": "0.40"}
+    charge(session, globex, ANSWER, tokens, now, **asked)
     # The enterprise plan has no limit.
     tokens = {"calls": 2, "input_tokens": 50}
-    charge(session, local, ANSWER, tokens, now, model=PRICED, ref=(CHAT_MESSAGE, 2), cost="0.05")
+    asked = {"model": PRICED, "prompts": "bbbb2222", "ref": (CHAT_MESSAGE, 2), "cost": "0.05"}
+    charge(session, local, ANSWER, tokens, now, **asked)
     charge(session, local, RENDER, {"pages": 2}, now, ref=(DOCUMENT, 2))
     tokens = {"calls": 1, "input_tokens": 30}
     charge(session, initech, ANSWER, tokens, now, model=UNPRICED, ref=(CHAT_MESSAGE, 3))
@@ -1132,6 +1231,13 @@ def test_the_costs_command_holds_each_organisation_to_its_plans_daily_limit(
         "  ocr     google:priced      1.2000      3      1,000           0",
         "  answer  google:priced      0.4500      3        150           0",
         "  answer  google:unpriced  unpriced      1         30           0",
+        "",
+        # Initech's answer was recorded before the versions were kept.
+        "By kind of work and version of its prompts, the latest first, with the days seen:",
+        "  kind    prompts   first       last          cost  calls  tokens in  tokens out",
+        f"  answer  bbbb2222  {today}  {today}  0.4500      3        150           0",
+        f"  ocr     cccc3333  {yesterday.date()}  {yesterday.date()}  1.2000      3      1,000"
+        "           0",
         "",
         "These models' tokens were recorded without a price, so no cost above counts them;",
         "MODEL_PRICES prices a model per million tokens in and out from its next row on:",

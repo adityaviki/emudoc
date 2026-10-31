@@ -24,6 +24,11 @@ Members:
 
 Operators:
 
+- Each kind of model work's prompts have a version, a short hash of what the model is told for
+  it, which changes with any edit to them and is kept on the usage rows of its calls.
+  `python -m app.maintenance costs` adds the cost of each kind of work by the version of its
+  prompts, with the days each was seen, and `golden` and `fact-accuracy` name the versions they
+  ran.
 - `python -m app.maintenance golden` grades and judges each answer as members read it, without
   the note the model wrote beside a step.
 

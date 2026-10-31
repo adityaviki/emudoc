@@ -11,8 +11,10 @@ from pydantic import BaseModel
 
 from app.extraction import Template, chosen
 from app.indexing.structure import SectionHint
-from app.llm import LLM
+from app.llm import INDEX_SYSTEM, LLM
+from app.locales import reading_line
 from app.models import Block, Document, Section
+from app.prompts import prompt_version
 from app.usage import ModelUsage
 
 # Text per request. Sections are kept whole unless one alone is larger than this, and a block
@@ -646,3 +648,27 @@ def _reading(read: Sequence[_Window], blocks: Sequence[Block]) -> Reading:
     within = sum(len(block.text) for block in blocks if block.ordinal <= last)
     page = max((b.page for b in blocks if b.ordinal <= last and b.page), default=None)
     return Reading(page=page, share=within / total if total else 1.0)
+
+
+# The versions of what the model is asked of a document (app/prompts.py), which the
+# `infer_sections` and `enrich` usage rows carry: the instructions, the functions that write the
+# requests around the document, the paragraph on its dates and numbers, and the replies' schemas.
+# The document as shown, its outline and the templates' fields are what is asked about, in neither.
+SECTIONS_PROMPT_VERSION = prompt_version(INDEX_SYSTEM, infer_sections, InferredSections)
+ENRICH_PROMPT_VERSION = prompt_version(
+    INDEX_SYSTEM,
+    PROFILE_INSTRUCTIONS,
+    SECTION_INSTRUCTIONS,
+    FACT_INSTRUCTIONS,
+    TEMPLATE_INSTRUCTIONS,
+    template_facts,
+    analyze_document,
+    _choose_in_window,
+    _read_window,
+    reading_line,
+    DocumentAnalysis,
+    TemplatedDocumentAnalysis,
+    WindowAnalysis,
+    TemplatedWindowAnalysis,
+    ProfileWithSections,
+)

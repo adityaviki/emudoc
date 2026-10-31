@@ -197,6 +197,7 @@ from app.usage import (
     model_costs,
     money,
     organization_costs,
+    prompt_costs,
     summed,
 )
 from app.webhooks import DELIVERIES_KEPT, prune_deliveries
@@ -733,8 +734,9 @@ def costs_report(session: Session, days: int) -> list[str]:
     """The lines the `costs` command prints for the last `days` days up to today, in UTC:
     every organisation that used anything, costliest first, with its plan's daily limit, its
     costliest day against it and the days it reached it; the platform's line, held to
-    DAILY_SPEND_CAP; the cost by kind of work and model; and the models whose tokens were
-    recorded without a price, which no cost counts."""
+    DAILY_SPEND_CAP; the cost by kind of work and model, then by kind and version of its prompts
+    (app/prompts.py), the latest seen first, with the first and last day each was seen; and the
+    models whose tokens were recorded without a price, which no cost counts."""
     settings = get_settings()
     today = datetime.now(UTC).date()
     since = today - timedelta(days=days - 1)
@@ -793,6 +795,27 @@ def costs_report(session: Session, days: int) -> list[str]:
                 )
             )
         lines += ["", "By kind of work and model:", *_table(rows, left={0, 1})]
+    prompts = prompt_costs(session, since, today)
+    if prompts:
+        rows = [("kind", "prompts", "first", "last", "cost", "calls", "tokens in", "tokens out")]
+        for spent in prompts:
+            rows.append(
+                (
+                    spent.kind,
+                    spent.prompt_version,
+                    str(spent.first_day),
+                    str(spent.last_day),
+                    _known(spent.cost_micros, spent.input_tokens + spent.output_tokens),
+                    f"{spent.calls:,}",
+                    f"{spent.input_tokens:,}",
+                    f"{spent.output_tokens:,}",
+                )
+            )
+        lines += [
+            "",
+            "By kind of work and version of its prompts, the latest first, with the days seen:",
+            *_table(rows, left={0, 1, 2, 3}),
+        ]
     unpriced: Counter[str] = Counter()
     kinds: dict[str, list[str]] = {}
     for spent in models:
@@ -1517,8 +1540,9 @@ def main(argv: list[str] | None = None) -> None:
         "UTC, over the last days up to today, costliest first: its plan, the plan's daily "
         "limit, its costliest day against that limit and the days it reached it, its answers, "
         "model calls and pages indexed; then the platform's total against DAILY_SPEND_CAP, the "
-        "cost by kind of work and model, and the models whose tokens were recorded without a "
-        "price in MODEL_PRICES. `usage <slug>` breaks one organisation down by day.",
+        "cost by kind of work and model, then by kind and version of its prompts, and the "
+        "models whose tokens were recorded without a price in MODEL_PRICES. `usage <slug>` "
+        "breaks one organisation down by day.",
     )
     costs.add_argument(
         "--days", type=int, default=30, help="how many days back from today; 30 by default"
@@ -1665,11 +1689,11 @@ def main(argv: list[str] | None = None) -> None:
         "each answer on the figures and names a right one says and the documents it cites; "
         "INDEX_MODEL then judges whether each answer is right and whether each passage it cites "
         "says what the sentence citing it does, which is reported and fails nothing. It prints "
-        "each question's verdict, a failed or doubted answer whole with what it lacks, what the "
-        "answers and the judging used and what the judge found, records nothing as an "
-        "organisation's usage, and exits with 1 when an answer was not as known. It costs a "
-        "dozen answers of AGENT_MODEL and as many calls of INDEX_MODEL; run it after a change "
-        "to the prompts, the agent or the model.",
+        "each question's verdict, a failed or doubted answer whole with what it lacks, the "
+        "versions of the prompts, what the answers and the judging used and what the judge "
+        "found, records nothing as an organisation's usage, and exits with 1 when an answer was "
+        "not as known. It costs a dozen answers of AGENT_MODEL and as many calls of "
+        "INDEX_MODEL; run it after a change to the prompts, the agent or the model.",
     )
     commands.add_parser(
         "fact-accuracy",
@@ -1679,10 +1703,10 @@ def main(argv: list[str] | None = None) -> None:
         "after it, and score the facts read from its contract, invoices and price list against "
         "the values labelled by hand (backend/app/fact_accuracy.py): each field's recall, the "
         "labelled values some fact holds, and precision, the facts that hold a labelled value. "
-        "It prints each field's verdict with what was missed and read wrong, records nothing as "
-        "an organisation's usage, and exits with 1 when a field was not read as labelled. It "
-        "costs the indexing of eight short documents; run it after a change to the enrich "
-        "stage's prompts, the built-in templates or INDEX_MODEL.",
+        "It prints each field's verdict with what was missed and read wrong and the versions of "
+        "the prompts, records nothing as an organisation's usage, and exits with 1 when a field "
+        "was not read as labelled. It costs the indexing of eight short documents; run it after "
+        "a change to the enrich stage's prompts, the built-in templates or INDEX_MODEL.",
     )
     commands.add_parser(
         "build-sample",

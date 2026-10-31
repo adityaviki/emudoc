@@ -35,7 +35,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
-from app.agent.loop import run_agent
+from app.agent.loop import AGENT_PROMPTS, run_agent
 from app.answers import Reply
 from app.audit import audit_event
 from app.db import SessionLocal
@@ -54,6 +54,7 @@ from app.notices import (
     note_quota,
     tell,
 )
+from app.prompts import prompt_version
 from app.question_sets import (
     arrivals_due_at,
     plan_next,
@@ -340,6 +341,12 @@ def _arrivals_told(session: Session, report: QuestionReport) -> str:
     )
 
 
+# The version of a question set's answers' prompts (app/prompts.py), which their usage rows
+# carry: an answer's, with the task said after it. They are `answer` usage, so a set's answers
+# and the chats' show under that kind as two versions at once.
+QUESTION_SET_PROMPT_VERSION = prompt_version(*AGENT_PROMPTS, ASKED_ALONE, _arrivals_told)
+
+
 def _answer(report_id: int, asked: Asked, services: Services, lease: Lease | None) -> None:
     """Have the agent answer the question over the project and keep the answer in its place,
     with what it used, whichever way its run ended."""
@@ -411,6 +418,7 @@ def _charge(usage: ModelUsage, report_id: int, payer: dict[str, int | None]) -> 
                     kind=ANSWER,
                     measures=calls.measures,
                     model=model,
+                    prompt_version=QUESTION_SET_PROMPT_VERSION,
                     ref=(QUESTION_REPORT, report_id),
                 )
             session.commit()

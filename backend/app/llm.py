@@ -78,6 +78,7 @@ from pydantic_ai.usage import RequestUsage, RunUsage
 from app.config import AGENT, INDEX, ModelSetting, Settings, model_provider
 from app.errors import AppError, provider_codes
 from app.metrics import MODEL_FALLBACKS, model_request
+from app.prompts import prompt_version
 from app.usage import ModelUsage
 
 log = logging.getLogger(__name__)
@@ -170,6 +171,8 @@ OCR_PROMPT = (
     "except heading set level to null. Leave out page numbers and running headers or footers. "
     "If the page has no text, return an empty list."
 )
+# The version of what a page is asked (app/prompts.py), which the `ocr` usage rows carry.
+OCR_PROMPT_VERSION = prompt_version(INDEX_SYSTEM, OCR_PROMPT, OcrPage)
 
 
 def describe_error(error: Exception) -> str:

@@ -252,13 +252,15 @@ class FieldScore:
 
 @dataclass(frozen=True)
 class Spent:
-    """What the run's reading used, by the models that answered."""
+    """What the run's reading used, by the models that answered, and the version of the prompts
+    each kind of its model work was asked with (app/prompts.py), as its usage rows name them."""
 
     models: list[str]
     calls: int
     input_tokens: int
     output_tokens: int
     cost_micros: int | None
+    prompts: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -317,6 +319,7 @@ def _spent(session: Session, org_id: int) -> Spent:
         units["input_tokens"],
         units["output_tokens"],
         sum(costs) if costs else None,
+        {event.kind: event.prompt_version for event in events if event.prompt_version},
     )
 
 
@@ -357,8 +360,9 @@ def score(
 
 def describe_facts(run: FactRun) -> list[str]:
     """The lines the `fact-accuracy` command prints: each kind's fields with their verdict, a
-    failed field's values missed and facts read wrong, what kept a document from its kind, what
-    the reading used, and a last line with the recall and the precision."""
+    failed field's values missed and facts read wrong, what kept a document from its kind, the
+    versions of the prompts, what the reading used, and a last line with the recall and the
+    precision."""
     lines: list[str] = []
     kind = None
     for scored in run.fields:
@@ -372,6 +376,9 @@ def describe_facts(run: FactRun) -> list[str]:
         lines += [f"            {line}" for line in scored.missed + scored.wrong]
     lines += run.problems
     spent = run.spent
+    if spent.prompts:
+        versions = ", ".join(f"{kind} {version}" for kind, version in sorted(spent.prompts.items()))
+        lines.append(f"Prompt versions: {versions}.")
     if spent.calls:
         used = (
             f"Read by {listing(spent.models)}: {spent.calls:,} calls, "

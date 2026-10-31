@@ -903,8 +903,9 @@ is right and whether each passage states what the sentence citing it takes from 
 judge's verdicts are reported and fail nothing, since a judge misreads too. The command prints
 each question's verdict; a failed answer whole with what it lacks and what the judge made of
 it; an answer the words pass and the judge doubts whole with the judge's reason; each citation
-the judge finds unsupported with its sentence; what the answers and the judging used and cost;
-the answers the judge found right and the citations it found supported, which is the answers'
+the judge finds unsupported with its sentence; the versions of the prompts that asked and judged
+(`Prompt versions: answer fa439547, judge 99ad62fe.`, "The prompts' versions", below); what the
+answers and the judging used and cost; the answers the judge found right and the citations it found supported, which is the answers'
 citation precision; and exits with 1 when an answer was not as known by its words:
 
 ```bash
@@ -945,13 +946,25 @@ built-in template of each kind at a time: its recall, the labelled values some f
 holds, and its precision, the field's facts that hold a labelled value, a field the document does
 not state counting any fact of it wrong. A fact holds a value by its figure, its day or its words
 in one of the ways listed. It prints each field's verdict, with the values missed and the facts
-read wrong, what the reading cost, and the recall and precision over every field, and exits with
+read wrong, the version of the prompts the facts were read with (`Prompt versions: enrich
+62252e89.`), what the reading cost, and the recall and precision over every field, and exits with
 1 when a field was not read as labelled. On 2026-10-31 Claude Haiku 5.5 read 71 to 73 of the 79
 values, every fact it read right, for USD 0.01 a run; what it missed changed from run to run (an
 invoice's unit prices and quantities, which its line items held, or the contract's early
 termination rates). Run it after changing `INDEX_MODEL` or its fallback, the enrich stage's
 prompts or a built-in template; a right reading worded in a way the labels do not list gets its
 way added there.
+
+**The prompts' versions.** Each kind of model work (an answer, a question set's answer, a draft,
+a discrepancy report, reading a scan, finding a document's sections, enriching it, a project's
+suggested questions, the golden questions' judge) asks with prompts whose version is the first
+eight hex digits of a hash of what the model is told for it (`backend/app/prompts.py`): its
+instructions, the tools it is offered and the schema of its reply, never the documents or the
+member's words. Nobody bumps a version: an edit to any of them gives a new one with the release
+that carries it, and a version that stayed means none was edited, so two golden or fact-accuracy
+runs with the same versions differ by the model alone. The usage rows of each kind's model calls
+carry its version, which `costs` splits each kind's cost by ("What each organisation costs",
+below); the rows recorded before 2026-11-01 carry none.
 
 **Every morning, from GitHub.** The Models workflow (`.github/workflows/models.yml`) runs the
 same command at 05:47 UTC, and the golden questions beside it in a job of their own against the
@@ -2917,6 +2930,26 @@ These models' tokens were recorded without a price, so no cost above counts them
 MODEL_PRICES prices a model per million tokens in and out from its next row on:
   embeddinggemma    3,850,000 tokens  (embed)
 ```
+
+Between the two tables comes the cost of each kind of work by the version of its prompts ("The
+prompts' versions", above), the latest seen first, with the first and last day of the span it
+was seen on, so that what a change to the prompts did to a kind's calls and tokens reads from one
+line to the next (here a release on 2026-10-17 that changed the answers' prompts):
+
+```text
+By kind of work and version of its prompts, the latest first, with the days seen:
+  kind    prompts   first       last          cost  calls  tokens in  tokens out
+  answer  b7e2049c  2026-10-17  2026-10-19  0.2310    498  1,976,000      84,620
+  answer  41d9a6f3  2026-10-13  2026-10-16  0.6040  1,153  4,792,200     205,560
+  enrich  0c58e1d7  2026-10-13  2026-10-19  0.1858    258  1,548,000      77,400
+  ocr     e93f2a60  2026-10-13  2026-10-19  1.1730  2,550  4,590,000   1,785,000
+```
+
+The days are those within the span, and a version's calls are many answers' or documents' that
+vary: compare tokens per call, and a golden run for what the answers say. A question set's
+answers are `answer` work with a task of their own after the prompt, so they show as a version
+beside the chats' at once. The embeddings, uploads and pages drawn ask no prompt and are in no
+line.
 
 A day that reached its limit is one on which the organisation's questions were refused and
 its indexing waited for midnight UTC; the answers are those that called a model, counted once
