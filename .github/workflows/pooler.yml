@@ -1,17 +1,16 @@
 # The backend's suite through pgbouncer in transaction mode, as a deployment behind such a pooler
 # runs, with the worker's listener on Postgres itself (deploying.md, "A pooler"). It
 # was CI's on every pull request until 2026-10-31, doubling the suite's minutes for a check that
-# only a change to how the app talks to the database can fail; now it runs every night, on a
-# pull request or push that changes such a file, and by hand. It is not one of main's required
+# only a change to how the app talks to the database can fail; now it runs once such a change is
+# on main, and by hand (every night and on pull requests too, until the same day: nothing else
+# changes between two runs of the same tree). It is not one of main's required
 # checks (.github/rulesets/main.json): a red run is read and fixed like Audit's.
 name: Pooler
 
 on:
-  schedule:
-    - cron: "37 4 * * *"
   push:
     branches: [main]
-    paths: &pooled
+    paths:
       # What sets a session's state, prepares statements, listens or takes advisory locks, and
       # what the suite's database and dependencies come from.
       - backend/app/config.py
@@ -31,16 +30,14 @@ on:
       - backend/uv.lock
       - docker-compose.yml
       - .github/workflows/pooler.yml
-  pull_request:
-    paths: *pooled
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: pooler-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: pooler-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   pooler:

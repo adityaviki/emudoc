@@ -168,7 +168,7 @@ llama.cpp's server, Caddy), so a commit builds the same image whenever it is bui
 moved on a registry changes nothing until a commit does. A security fix in Debian therefore
 reaches a deployment as a commit and a release. Dependabot proposes the digest a base was
 rebuilt with every Monday (`.github/dependabot.yml`), and the Audit workflow builds the image
-every morning and fails on a high or critical vulnerability that has a fix (trivy), which is the
+every Monday morning and fails on a high or critical vulnerability that has a fix (trivy), which is the
 sign to take that pull request, or to move the digest by hand (`docker buildx imagetools inspect
 python:3.13-slim-trixie` prints the tag's), and to release the new commit. The same scan by
 hand, of an image built here, with what was accepted in `.trivyignore.yaml`:
@@ -4278,29 +4278,29 @@ Without `AWS_PUSH_ROLE` CI checks the image and pushes nothing, and without it o
 
 ### The repository's rules
 
-`main` takes a commit only through a pull request whose checks passed, and production takes
-only a release its reviewer approved. Both are settings GitHub keeps, which a private
-repository has on a paid plan (Team or Enterprise; the organisation is on Enterprise since
-2026-10-24):
+`main` takes a commit only through a pull request, and production takes only a release its
+reviewer approved. Both are settings GitHub keeps, which a private repository has on a paid
+plan (Team or Enterprise; the organisation is on Enterprise since 2026-10-24, though GitHub's
+rulesets API has answered 403 since the payment hold of 2026-10-26, so the ruleset holds nothing
+until it answers again):
 
 - **`main`** is held by the ruleset `main` (Settings, Rules, Rulesets), written in
   `.github/rulesets/main.json`: nothing reaches it but a pull request's merge, rebased or
   squashed so that the history stays one line; it is never deleted or rewritten; and nobody
   goes past it, the organisation's owners included. A pull request needs no approval (its
-  author may not approve it, and the organisation has one member) but every check CI runs on
-  a pull request, each reported by GitHub Actions, on the branch brought up to date with
-  `main`: the backend's suite in three parts against Postgres ("Backend (postgres, 1 of 3)"
-  and so on), Frontend, Scripts and configuration, and Secrets. Not the heavy jobs, End to
-  end, Load test, Image, Embeddings and OpenTofu, which since 2026-10-31, while the app is in
-  development, run on a push to `main`, by hand and on Dependabot's pull requests alone, the
-  developer merging their own pull requests once the checks pass on their machine and `main`'s
-  run checking the whole tree after; not Staging, which runs after
-  the merge, nor Audit's jobs or Models', which fail on news rather than on the change, nor Pooler's, the
-  suite through pgbouncer, which runs every night and on a change to what a pooler sees.
-  Before the app has users, put the heavy jobs back on every pull request (`if: *heavy` in
-  `ci.yml`, and their names in the file) and wait for the checks again.
-  `tests/test_repository.py` holds the file to CI's jobs, so a job renamed or added changes the
-  file in the same pull request; GitHub waits for the checks the applied ruleset names, so
+  author may not approve it, and the organisation has one member) and, while the app is in
+  development (since 2026-10-31), no check: each check runs once for a change. The developer
+  runs the backend's suite and the frontend's checks on their machine and merges at once; CI
+  runs the heavy jobs (End to end, Load test, Image, Secrets, Scripts and configuration) once
+  the change is on `main`, OpenTofu, Embeddings, Pooler (the suite through pgbouncer) and Audit
+  run once a change to what they check is there (Audit every Monday too, for advisories
+  published meanwhile), and Dependabot's pull requests run everything, on GitHub's runners, for
+  the owner to merge. A red run on `main` is fixed by the next change. Before the app has users,
+  take the conditions off CI's jobs (`if: *checked_here`, `if: *heavy` in `ci.yml`), put the
+  checks back in the file as `required_status_checks` (each by its check run's name, from GitHub
+  Actions, on the branch brought up to date with `main`), apply it, and wait for them again.
+  `tests/test_repository.py` holds the file to CI's jobs and pins where each runs, so a job
+  renamed, added or moved changes the file in the same pull request; with checks required,
   that pull request is mergeable once its checks passed and its file was applied (the second
   command below, from its branch), and the other open ones once brought up to date.
 - **`production`** is a GitHub environment (Settings, Environments): a job of it waits until its

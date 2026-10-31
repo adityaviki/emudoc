@@ -31,10 +31,16 @@ Members:
 
 Operators:
 
-- CI's heavy jobs (the browser test, the load test, the image, the embeddings and OpenTofu) run
-  on a push to `main`, by hand and on Dependabot's pull requests, no longer on the developer's
-  own, which are merged once the checks pass on the developer's machine; `main.json`'s required
-  checks are the other six. Put them back on every pull request before the app has users.
+- Each check runs once for a change while the app is in development: the developer's own pull
+  requests run nothing and are merged once the suite and the frontend's checks pass on their
+  machine; CI runs the browser test, the load test, the image, the secrets and the scripts once
+  the change is on `main` (the suite and the frontend's checks by hand and on Dependabot's pull
+  requests, which run everything); OpenTofu (`opentofu.yml`) and the embeddings server's check
+  (`embeddings.yml`) are workflows of their own, run once a change to what they check is on
+  `main`; Pooler runs only then too, no longer every night or on pull requests; Audit runs every
+  Monday rather than every morning, and on `main` alone; `main.json` requires no check. Put the
+  checks back on every pull request before the app has users (deploying.md, "The repository's
+  rules").
 - Question sets, behind the flag `question_sets`, rolled out to none, on Pro, Team and
   Enterprise (the plans' `question_sets`): a set's job (`run_question_set`) queues its next
   waking as it ends, and the housekeeper queues one lost; a report is answered by

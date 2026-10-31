@@ -57,8 +57,9 @@ import { gzipSync } from 'node:zlib'
 // take each part off, "Search within these", and a smart folder saved with the search's words;
 // 314 kB on 2026-10-31 by a project's question sets (310.4 kB): the library's place of the sets
 // with their form, run now, turned off and on, and their reports, and a report's answers with the
-// passages they cite. The figures are CI's: this laptop's Node (24.22.1) gzips the same file 2.5
-// kB larger (312.9 kB), which the budget leaves room for, so that the check passes on both.
+// passages they cite. The figures up to here are CI's: this laptop's Node (24.22.1) gzips the
+// same file 2.5 kB larger (312.9 kB). CI no longer runs this check on the developer's changes
+// (2026-10-31), so the figures from here on are this laptop's.
 // A change that passes it makes the scripts smaller (a dependency left out, a page loaded only
 // when it is opened) or raises this number, saying why in its commit.
 const BUDGET = 314_000

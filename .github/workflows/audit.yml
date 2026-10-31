@@ -1,18 +1,20 @@
 # The known vulnerabilities of the dependencies, of the image and of the images the deployment
-# runs beside it, every morning and on every change to a manifest, a lock file, the Dockerfile or
-# the deployment's compose files. CI runs only when the code changes, so it would find an
-# advisory published since at the next change; this finds it the day after, and GitHub mails a
-# failed scheduled run to whoever last changed the schedule below. Each step is the command a
+# runs beside it, every Monday morning and once a change to a manifest, a lock file, the
+# Dockerfile or the deployment's compose files is on main (every morning, and on pull requests
+# too, until 2026-10-31: weekly while the app is in development, as Dependabot proposes its
+# updates). CI runs only when the code changes, so it would find an advisory published since at
+# the next change; this finds it within the week, and GitHub mails a failed scheduled run to
+# whoever last changed the schedule below. Each step is the command a
 # developer runs (CLAUDE.md, "Commands"); Dependabot (.github/dependabot.yml) proposes the
 # updates that fix most findings.
 name: Audit
 
 on:
   schedule:
-    - cron: "17 5 * * *"
+    - cron: "17 5 * * 1"
   push:
     branches: [main]
-    paths: &audited
+    paths:
       - backend/pyproject.toml
       - backend/uv.lock
       - frontend/package.json
@@ -25,8 +27,6 @@ on:
       - deploy/aws/compose.yml
       - deploy/.trivyignore.yaml
       - .github/workflows/audit.yml
-  pull_request:
-    paths: *audited
   workflow_dispatch:
 
 # The audits read the lock files and ask the advisory databases: no step writes to the
@@ -35,8 +35,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: audit-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: audit-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   # CI's (ci.yml); .github/scripts/check-versions.sh holds the two to one image.

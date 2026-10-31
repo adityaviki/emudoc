@@ -1,0 +1,61 @@
+# The AWS module and its roots (deploy/aws): formatted, valid and their tests passing against a
+# mocked AWS, run once a change to them is on main and by hand; it was a job of CI on every push
+# until 2026-10-31. Dependabot updates none of its providers. Not one of main's required checks:
+# a red run is read and fixed like Audit's.
+name: OpenTofu
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - deploy/aws/**
+      - .github/workflows/opentofu.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opentofu-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  opentofu:
+    name: OpenTofu
+    runs-on: ${{ github.actor != 'dependabot[bot]' && vars.RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: 1.12.6
+          tofu_wrapper: false
+      # The AWS provider is some 700 MB unpacked and every root needs it: one download for all
+      # of them, kept between runs for as long as the lock files name the same versions.
+      - name: Provider cache
+        run: |
+          mkdir -p "$HOME/.cache/opentofu"
+          echo "TF_PLUGIN_CACHE_DIR=$HOME/.cache/opentofu" >>"$GITHUB_ENV"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/opentofu
+          key: opentofu-${{ hashFiles('deploy/aws/*/.terraform.lock.hcl', 'deploy/aws/modules/environment/.terraform.lock.hcl') }}
+      - name: Format
+        run: tofu fmt -check -diff -recursive deploy/aws
+      # Without the state's bucket, which validating needs no more than the KMS key the
+      # roots' encryption names.
+      - name: Validate
+        run: |
+          for root in account staging production; do
+            tofu -chdir="deploy/aws/$root" init -backend=false -input=false
+            tofu -chdir="deploy/aws/$root" validate
+          done
+      # The module and the account root against a mocked AWS: no account, no credentials. The
+      # account root was set up by the step before.
+      - name: Test
+        run: |
+          tofu -chdir=deploy/aws/modules/environment init -input=false
+          tofu -chdir=deploy/aws/modules/environment test
+          tofu -chdir=deploy/aws/account test
