@@ -2109,7 +2109,11 @@ function GapRow({ gap, busy, onMore, onRetry }: GapRowProps) {
       <span className="ml-1 flex items-center gap-2">
         {gap.gap === 'loading' ? (
           <>
-            <Spinner /> Loading files…
+            {/* The words say it: a named spinner would be an image among the tree's rows, which a tree may not hold. */}
+            <span aria-hidden className="inline-flex">
+              <Spinner />
+            </span>
+            Loading files…
           </>
         ) : gap.gap === 'failed' ? (
           <>
