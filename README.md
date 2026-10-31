@@ -1558,7 +1558,10 @@ docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/src:ro" -
 The suites answer for the models from recorded responses, so the models themselves are asked
 every morning by the Models workflow (`.github/workflows/models.yml`), once the repository
 names them and holds their keys: `python -m app.maintenance models` against every model and
-fallback the deployment names (`deploying.md`, "The models").
+fallback the deployment names, and `python -m app.maintenance golden`, thirteen questions about
+the sample project whose answers are known, asked of the agent and graded on what each answer
+says and cites (`backend/app/golden.py`); both also once a change to the prompts, the agent or
+the sample is on `main` (`deploying.md`, "The models").
 
 Dependabot (`.github/dependabot.yml`) proposes the updates of both lock files and of the
 workflows' actions once a week, a week after their release, and those of the images, which

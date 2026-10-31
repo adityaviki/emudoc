@@ -158,17 +158,7 @@ def add_sample(session: Session, organization: Organization, storage: Storage) -
 
 
 def _copy(session: Session, organization: Organization, storage: Storage) -> Project:
-    files = sample_files()
-    project = Project(
-        org_id=organization.id,
-        name=NAME,
-        description=DESCRIPTION,
-        sample=True,
-        suggestions=list(QUESTIONS),
-    )
-    session.add(project)
-    session.flush()
-    documents = [_copy_document(session, project, storage, file) for file in files]
+    project, documents = copy_sample(session, organization, storage)
     # The vectors are the deployment's: each document's job runs its embed stage, the one not
     # done, before an upload waiting to be indexed, since its member is about to ask.
     queue_index_by_id(session.connection(), [document.id for document in documents], LIVE)
@@ -181,6 +171,26 @@ def _copy(session: Session, organization: Organization, storage: Storage) -> Pro
         detail={"name": project.name, "documents": len(documents)},
     )
     return project
+
+
+def copy_sample(
+    session: Session, organization: Organization, storage: Storage
+) -> tuple[Project, list[Document]]:
+    """The sample project and its documents written into the organisation from the index, and
+    their files put into the storage, each document ready but for its embed stage, which
+    nothing is queued to run: a sign-up queues it (`add_sample`), and the golden questions run
+    it themselves (app/golden.py)."""
+    files = sample_files()
+    project = Project(
+        org_id=organization.id,
+        name=NAME,
+        description=DESCRIPTION,
+        sample=True,
+        suggestions=list(QUESTIONS),
+    )
+    session.add(project)
+    session.flush()
+    return project, [_copy_document(session, project, storage, file) for file in files]
 
 
 def _copy_document(
