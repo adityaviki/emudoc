@@ -63,7 +63,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import ChatMessage, Document, Draft, UsageEvent, WorkflowRun
+from app.models import ChatMessage, Document, Draft, QuestionReport, UsageEvent, WorkflowRun
 
 USAGE_COMMAND = "uv run python -m app.maintenance usage"
 # The kinds the app records, and what it records them for.
@@ -80,6 +80,7 @@ SUGGESTIONS = "suggestions"
 CHAT_MESSAGE = "chat_message"
 DOCUMENT = "document"
 WORKFLOW_RUN = "workflow_run"
+QUESTION_REPORT = "question_report"
 # The row a reference names, which carries the usage recorded for it. A draft's usage is
 # referenced by the kind's own name.
 _REFERENCED = {
@@ -87,6 +88,7 @@ _REFERENCED = {
     DOCUMENT: Document,
     WORKFLOW_RUN: WorkflowRun,
     DRAFT: Draft,
+    QUESTION_REPORT: QuestionReport,
 }
 
 _DAILY = text(

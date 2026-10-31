@@ -27,6 +27,14 @@ export const NOTICE_KINDS: Record<NoticeKind, { label: string; detail: string }>
     label: 'A document is assigned to you',
     detail: 'When a member assigns you a document to review, which document and where its review stands.',
   },
+  report_ready: {
+    label: 'A question set’s report is ready',
+    detail: 'When a question set that tells you, or one you ran, has its answers ready: how many of its questions were answered.',
+  },
+  weekly_digest: {
+    label: 'What arrived this week',
+    detail: 'On Monday morning, the documents that arrived over the week in the projects you see, by name. Off until you turn it on.',
+  },
 }
 
 /** Where the notices are kept in the cache: the newest page, which the bell asks every minute. */

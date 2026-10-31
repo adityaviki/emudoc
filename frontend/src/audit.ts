@@ -104,6 +104,11 @@ export const ACTIONS: Record<AuditAction, [label: string, kind: AuditKind]> = {
   automation_created: ['Made an automation', 'files'],
   automation_changed: ['Changed an automation', 'files'],
   automation_deleted: ['Deleted an automation', 'files'],
+  question_set_created: ['Made a question set', 'files'],
+  question_set_changed: ['Changed a question set', 'files'],
+  question_set_deleted: ['Deleted a question set', 'files'],
+  question_set_run: ['Ran a question set', 'files'],
+  question_report_deleted: ['Deleted a report of a question set', 'files'],
   filing_rule_created: ['Made a filing rule', 'files'],
   filing_rule_changed: ['Changed a filing rule', 'files'],
   filing_rule_deleted: ['Deleted a filing rule', 'files'],
@@ -217,6 +222,7 @@ export function describeDetail(event: AuditEvent, names: ReadonlyMap<number, str
   else if (CROSS_CHECK_ACTIONS.has(event.action)) parts.push(describeCrossCheck(detail))
   else if (RUN_ACTIONS.has(event.action)) parts.push(describeRun(detail))
   else if (AUTOMATION_ACTIONS.has(event.action)) parts.push(describeAutomation(detail))
+  else if (QUESTION_SET_ACTIONS.has(event.action)) parts.push(describeQuestionSet(detail))
   else if (FILING_ACTIONS.has(event.action)) parts.push(describeFilingRule(detail))
   else if (DRAFT_ACTIONS.has(event.action)) parts.push(describeDraft(detail))
   else if (DRAFT_TEMPLATE_ACTIONS.has(event.action)) parts.push(describeDraftTemplate(detail))
@@ -389,6 +395,49 @@ function describeAutomation(detail: AuditEvent['detail']): string {
   if (detail.enabled === false) parts.push('off')
   if (Array.isArray(detail.changed) && detail.changed.length > 0) {
     parts.push(`changed ${detail.changed.map((part) => AUTOMATION_PARTS[String(part)] ?? String(part)).join(', ')}`)
+  }
+  return parts.join(', ')
+}
+
+const QUESTION_SET_ACTIONS = new Set<AuditAction>([
+  'question_set_created',
+  'question_set_changed',
+  'question_set_deleted',
+  'question_set_run',
+  'question_report_deleted',
+])
+
+/** What a change of a question set changed, by its parts as the server names them. */
+const QUESTION_SET_PARTS: Record<string, string> = {
+  title: 'its name',
+  questions: 'its questions',
+  schedule: 'its schedule',
+  arrivals: 'whether arrivals run it',
+  audience: 'whom it tells',
+  enabled: 'on or off',
+}
+
+/** What ran a question set, as the server names it. */
+const RAN_BY: Record<string, string> = {
+  schedule: 'on its schedule',
+  arrivals: 'as documents arrived',
+  member: 'there and then',
+}
+
+/** A project's question set made, changed, deleted or run, or a report of it deleted: how many questions it asks, when it runs, never a question. */
+function describeQuestionSet(detail: AuditEvent['detail']): string {
+  const parts: string[] = []
+  if (typeof detail.questions === 'number') parts.push(`${detail.questions} question${detail.questions === 1 ? '' : 's'}`)
+  if (typeof detail.trigger === 'string') {
+    const arrived = typeof detail.arrived === 'number' ? detail.arrived : 0
+    parts.push(arrived > 0 ? `after ${arrived} document${arrived === 1 ? '' : 's'} arrived` : (RAN_BY[detail.trigger] ?? detail.trigger))
+  } else {
+    if (typeof detail.schedule === 'string') parts.push(detail.schedule)
+    if (detail.arrivals === true) parts.push('as documents arrive')
+    if (detail.enabled === false) parts.push('off')
+  }
+  if (Array.isArray(detail.changed) && detail.changed.length > 0) {
+    parts.push(`changed ${detail.changed.map((part) => QUESTION_SET_PARTS[String(part)] ?? String(part)).join(', ')}`)
   }
   return parts.join(', ')
 }

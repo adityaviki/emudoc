@@ -39,6 +39,8 @@ export function libraryPlace(view: LibraryView): string {
   if (view.check != null) return `check:${view.check}`
   if (view.run != null) return `run:${view.run}`
   if (view.checks) return 'checks'
+  if (view.report != null) return `report:${view.report}`
+  if (view.questionSets) return 'question-sets'
   if (view.reviews) return `reviews:${view.reviews}`
   if (view.draft != null) return `draft:${view.draft}`
   if (view.drafts) return 'drafts'

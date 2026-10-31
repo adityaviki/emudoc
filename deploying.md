@@ -1447,14 +1447,23 @@ What the app mails, and to whom:
   (`tell_run` in `backend/app/check_runs.py`); to the member another assigned a document's review,
   who did and which file, in the change's transaction (`tell_assigned` in
   `backend/app/reviews.py`), or an automation's run several, once, naming the first three
-  (`put_in_review`); and to an organisation's owners and admins, once a month
+  (`put_in_review`); to whom a project's question set names (its maker, everyone who sees the
+  project, or nobody; a member's own run to them), once its report is answered, the set's name
+  and how many of its questions were answered, never a question or an answer (`tell_report` in
+  `backend/app/question_reports.py`); to a member who turned on the weekly digest (off until
+  chosen, by them or as the organisation's default), on Monday from 08:00 of their zone, the
+  documents that arrived over the week in each project of the organisation they see, by name
+  and count, nothing for a week with none (`backend/app/digests.py`: a `send_digests` job that
+  wakes at the top of every hour, queued again by the housekeeper when lost); and to an
+  organisation's owners and admins, once a month
   for each, when its pages or questions for the month reach 80 % of what it may use (its plan's
   and the packs bought for the month), when they reach all of it, and for pages when what is
   left could not take a document. A pack bought afterwards starts the count again. Each notice
   is told twice, in the same transaction: in the member's notification centre, under the bell
   in the app's header (`notifications`, kept `NOTIFICATION_DAYS`, 90, read or not, and gone
   with the membership of the organisation it is about), and by email. A member chooses each
-  way of each kind on the account page (`users.notices`, every way on until they choose); the
+  way of each kind on the account page (`users.notices`, every way on until they choose but the
+  weekly digest's, off until chosen); the
   link at the foot of a notice turns its kind's email off, and a mail program's own
   "Unsubscribe" does in one click: a notice carries `List-Unsubscribe` and
   `List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC 8058), whose address
@@ -1781,7 +1790,9 @@ An organisation's owners and admins give its programs addresses to hear of its w
 "Organisations, members and roles" says what a member reads): `document.ready` and
 `document.failed` once a document's indexing ended and none is to run after it,
 `check_run.completed` once a run of cross-checks is worked out and its report, when asked for,
-written. The end of the job that brings each about announces it, and each delivery is a job of
+written, and `report.completed` once a question set's report is answered or failed, its body
+what the report is and never what an answer says. The end of the job that brings each about
+announces it, and each delivery is a job of
 its own, `deliver_webhook`, with the indexers: the body is the versioned API's document or run
 in an envelope (`{id, type, created_at, data}`, listed in the contract's `webhooks`), signed
 with the webhook's secret as Stripe signs its own (`Emudoc-Signature: t=…,v1=…`), the secret
@@ -1943,6 +1954,10 @@ every six hours), and so what the privacy notice can promise:
   `backend/app/check_runs.py`) go as a chat would, counted from when the run was made
   (`prune_runs` in `backend/app/retention.py`), never one the worker is still working out or
   writing a report for.
+- **Reports of question sets** (`question_reports`, with their answers,
+  `backend/app/question_reports.py`) go as a chat would, counted from when the report was made
+  (`prune_reports`), never one the worker is still answering. A member deletes one for good; the
+  question sets themselves stay until a member deletes them or their project goes.
 - **Drafts** (`drafts`, with their versions, `backend/app/drafts.py`) go as a chat would,
   counted from when one was last asked for, written or saved (`prune_drafts`), never one the
   worker is writing. A member deletes one for good; drafts have no trash.
@@ -1981,7 +1996,9 @@ every six hours), and so what the privacy notice can promise:
   told of goes once the month is over (`quota_notices`); an upload's row, which names who sent
   its files, stays as long as its project, and forgets them when their account goes; a document
   waiting for an automation's run (`automation_arrivals`) goes as the run is made, within a
-  quarter of an hour of its arrival while a worker runs, or with the document; a notice
+  quarter of an hour of its arrival while a worker runs, or with the document, and so does one
+  waiting for a question set's report (`question_set_arrivals`); a membership keeps the Monday
+  of its last weekly digest (`memberships.digested_on`), as long as the membership; a notice
   in a member's notification centre goes after `NOTIFICATION_DAYS` (90), read or not, and those
   about an organisation when they leave it or are removed from it.
 

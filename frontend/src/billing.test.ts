@@ -71,6 +71,7 @@ const free: Organization = {
     api_access: false,
     connectors: false,
     share_links: false,
+    question_sets: false,
     agreed: [],
     pages_bought: 0,
     questions_bought: 0,

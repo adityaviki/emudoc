@@ -65,6 +65,10 @@ export interface Workspace {
   showFindings(checkId: number): void
   /** Shows a run of the project's cross-checks, kept with what it found, in the library, likewise. */
   showRun(runId: number): void
+  /** Shows the project's question sets, with the reports of their answers, in the library, likewise. */
+  showQuestionSets(): void
+  /** Shows one report of a question set's answers in the library, likewise. */
+  showReport(reportId: number): void
   /** Shows the project's documents in review in the library, every member's or those assigned to the member, likewise. */
   showReviews(whose?: Reviews): void
   /** Shows the drafts the model wrote from the project's documents in the library, likewise. */

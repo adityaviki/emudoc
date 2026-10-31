@@ -44,8 +44,6 @@ from sqlalchemy import delete, exists, func, insert, or_, select, text, update
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
-from app.access import visible_to
-from app.accounts import Account
 from app.agent.loop import run_agent
 from app.answers import Reply
 from app.audit import audit_event
@@ -77,14 +75,20 @@ from app.models import (
     Automation,
     CrossCheck,
     Document,
-    Membership,
     Passage,
     Project,
-    User,
     WorkflowFinding,
     WorkflowRun,
 )
-from app.notices import CHECKS_RUN, MONTH_QUESTIONS, PROJECT_PAGE, app_address, note_quota, tell
+from app.notices import (
+    CHECKS_RUN,
+    MONTH_QUESTIONS,
+    PROJECT_PAGE,
+    app_address,
+    audience_of,
+    note_quota,
+    tell,
+)
 from app.reviews import put_in_review
 from app.spending import check_platform_spend, check_spend
 from app.usage import ANSWER, REPORT, WORKFLOW_RUN, ModelUsage, record
@@ -612,7 +616,7 @@ def _tell_run(
     page = RUN_PAGE.format(project.id, run.id)
     url = app_address()
     told = 0
-    for user in _audience(session, automation, project):
+    for user in audience_of(session, project, automation.audience, automation.created_by):
         content = checks_run_email(
             user.name,
             organization.name,
@@ -627,24 +631,6 @@ def _tell_run(
             in_organization(f"{url}{page}", organization.id),
         )
         told += tell(session, user, organization.id, CHECKS_RUN, content, page, url)
-    return told
-
-
-def _audience(session: Session, automation: Automation, project: Project) -> list[User]:
-    """Whom the automation tells, of the organisation's members who see the project now: its
-    maker, everyone, or nobody."""
-    if automation.audience == "nobody":
-        return []
-    query = select(Membership).where(Membership.org_id == project.org_id)
-    if automation.audience == "maker":
-        if automation.created_by is None:
-            return []
-        query = query.where(Membership.user_id == automation.created_by)
-    told = []
-    for membership in session.scalars(query.order_by(Membership.user_id)):
-        account = Account(project.organization, membership.user, membership.role)
-        if session.scalar(select(exists().where(Project.id == project.id, visible_to(account)))):
-            told.append(membership.user)
     return told
 
 

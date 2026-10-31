@@ -591,6 +591,7 @@ def test_figures_agreed_with_an_organisation_take_the_place_of_its_plans(session
         "api_access": True,
         "connectors": True,
         "share_links": True,
+        "question_sets": True,
         "agreed": ["projects", "storage_bytes"],
         "pages_bought": 0,
         "questions_bought": 0,
@@ -698,8 +699,8 @@ def test_the_plan_command_sells_seats_and_agrees_figures(session, account, clien
     assert lines[1] == "  projects            500 (agreed; the plan's 50)"
     assert lines[3] == "  storage_bytes       1,500 GB (agreed; the plan's 100 GB)"
     assert lines[7] == "  api_access          no (agreed; the plan's yes)"
-    assert lines[11] == "  audit_days          no limit (agreed; the plan's 365)"
-    assert lines[14] == "  daily_spend_micros  USD 25.00 a day (agreed; the plan's USD 50.00 a day)"
+    assert lines[12] == "  audit_days          no limit (agreed; the plan's 365)"
+    assert lines[15] == "  daily_spend_micros  USD 25.00 a day (agreed; the plan's USD 50.00 a day)"
     organization = session.get(Organization, account.organization.id)
     assert organization.overrides == {
         "projects": 500,

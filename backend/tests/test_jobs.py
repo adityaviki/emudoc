@@ -322,7 +322,8 @@ def test_housekeeping_prunes_old_finished_jobs(session, services, account):
     session.commit()
 
     housekeeping(services.storage)
-    kept = {job.id for job in all_jobs(session)}
+    # The weekly digests' job, which the housekeeper queues when there is none, aside.
+    kept = {job.id for job in all_jobs(session) if job.kind != "send_digests"}
     assert kept == {rows["recent"], rows["queued"]}
 
 

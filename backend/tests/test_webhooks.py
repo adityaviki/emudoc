@@ -17,17 +17,28 @@ from sqlalchemy import func, select, text, update
 
 from app import webhooks
 from app.api.v1.library import document_of
+from app.api.v1.reports import summary_of
 from app.api.v1.runs import run_of
 from app.billing import change_plan
 from app.config import get_settings
 from app.encrypted import WEBHOOK_SECRETS, decrypt, encrypt_secrets
+from app.flags import QUESTION_SETS
 from app.help import articles
-from app.jobs import DELIVER_WEBHOOK, INDEX_DOCUMENT, RUN_WORKFLOW, Lease, LeaseLost, claim
+from app.jobs import (
+    DELIVER_WEBHOOK,
+    INDEX_DOCUMENT,
+    RUN_WORKFLOW,
+    WRITE_QUESTION_REPORT,
+    Lease,
+    LeaseLost,
+    claim,
+)
 from app.keyring import key_of
 from app.models import (
     Document,
     Job,
     Organization,
+    QuestionReport,
     Webhook,
     WebhookDelivery,
     WorkflowRun,
@@ -54,6 +65,7 @@ from app.webhooks import (
 from app.worker import Worker
 from tests.test_api import create_project
 from tests.test_audit import actions
+from tests.test_authorization import QUESTION_SET
 from tests.test_check_runs import TOTAL, invoices, made, run
 from tests.test_encrypted import fingerprint, keyed, new_key  # noqa: F401 (a fixture)
 from tests.test_templates import turn_on
@@ -456,6 +468,27 @@ def test_a_run_of_cross_checks_worked_out_is_announced(
     assert [d["subject_id"] for d in log_of(client, hook["id"])["deliveries"]] == [
         started["id"]
     ] * 2
+
+
+def test_a_report_of_a_question_set_is_announced_without_its_answers(
+    client, session, services, receiver, monkeypatch
+):
+    turn_on(monkeypatch, QUESTION_SETS)
+    hook = add(client, events=["report.completed"])
+    project = create_project(client)
+    question_set = client.post(f"/api/projects/{project['id']}/question-sets", json=QUESTION_SET)
+    started = client.post(f"/api/question-sets/{question_set.json()['id']}/run").json()
+    services.llm.agent_turns.append(_report())
+    assert run_due(services, WRITE_QUESTION_REPORT) == 1
+    run_due(services, DELIVER_WEBHOOK)
+    [event] = receiver.bodies()
+    assert event["type"] == "report.completed"
+    kept = session.get(QuestionReport, started["id"], populate_existing=True)
+    assert event["data"] == summary_of(kept).model_dump(mode="json")
+    assert (event["data"]["status"], event["data"]["answered"]) == ("done", 1)
+    # What the report is, never what an answer says.
+    assert b"INV-1" not in receiver.requests[0].content
+    assert [d["subject_id"] for d in log_of(client, hook["id"])["deliveries"]] == [started["id"]]
 
 
 def _report():
