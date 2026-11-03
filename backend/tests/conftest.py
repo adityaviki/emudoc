@@ -965,8 +965,15 @@ class FakeTurn:
 
 
 def drop_schema() -> None:
-    """Empty the test database of tables, so the migrations build the schema from nothing."""
+    """Empty the test database of tables, so the migrations build the schema from nothing: those
+    the models name, and any a migration has since dropped (`smart_folders`, 2026-11-03), which a
+    database the suite built before still holds and whose keys would keep the others."""
     with engine.begin() as connection:
+        held = connection.execute(
+            text("SELECT tablename FROM pg_tables WHERE schemaname = current_schema()")
+        ).scalars()
+        for name in set(held) - set(Base.metadata.tables) - {"alembic_version"}:
+            connection.execute(text(f'DROP TABLE "{name}" CASCADE'))
         Base.metadata.drop_all(connection)
         connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
         # A migration makes the collation, and no table takes it with it.

@@ -1,9 +1,9 @@
-// The library's ways of reading a project (backend/app/tags.py, smart_folders.py, filing.py): its places and orders as the
-// page names them, a document's tags, what a smart folder lists and a filing rule does in words, why a draft of either
-// cannot be saved, and where the grid's keys move its cursor.
+// The library's ways of reading a project (backend/app/tags.py, document_filter.py, filing.py): its places and orders as
+// the page names them, a document's tags, what narrows a search and what a filing rule does in words, why either as written
+// cannot be used, and where the grid's keys move its cursor.
 
 import { THUMBNAIL_TYPES } from './api.ts'
-import type { Document, DocumentFilter, DocumentSort, FilingRuleInput, ListingPlace, SmartFolder, SortOrder, Tag, TagColor } from './api.ts'
+import type { Document, DocumentFilter, DocumentSort, FilingRuleInput, ListingPlace, SortOrder, Tag, TagColor } from './api.ts'
 import { fieldWords } from './factTable.ts'
 import { formatDate } from './format.ts'
 import { scanPassed } from './indexing.ts'
@@ -51,20 +51,18 @@ export function tagsWords(carried: Tag[]): string | null {
 }
 
 /** The place of the library's that the view names, or null for a folder's. */
-export function placeOf(view: { tag?: number; smart?: number; favorites?: true; recent?: true }): ListingPlace | null {
+export function placeOf(view: { tag?: number; favorites?: true; recent?: true }): ListingPlace | null {
   if (view.tag != null) return { tag: view.tag }
-  if (view.smart != null) return { smart: view.smart }
   if (view.favorites) return { favorites: true }
   if (view.recent) return { recent: true }
   return null
 }
 
 /** What a place that is not a folder is called. */
-export function placeName(place: ListingPlace, tags: Tag[], smartFolders: SmartFolder[]): string {
+export function placeName(place: ListingPlace, tags: Tag[]): string {
   if ('favorites' in place) return 'Favourites'
   if ('recent' in place) return 'Recent'
   if ('tag' in place) return tags.find((tag) => tag.id === place.tag)?.name ?? 'A tag'
-  if ('smart' in place) return smartFolders.find((folder) => folder.id === place.smart)?.name ?? 'A smart folder'
   return ''
 }
 
@@ -74,8 +72,7 @@ export function emptyPlaceWords(place: ListingPlace): { title: string; body: str
     return { title: 'No favourites yet', body: 'Choose “Add to favourites” in a document’s menu to find it here again, wherever it is in the project.' }
   }
   if ('recent' in place) return { title: 'Nothing opened yet', body: 'The documents you open in this project are listed here, the latest first.' }
-  if ('tag' in place) return { title: 'No document has this tag', body: 'Choose “Tags…” in a document’s menu to give it one.' }
-  return { title: 'Nothing matches this smart folder', body: 'Documents that match what it lists by show here as they arrive, wherever they are.' }
+  return { title: 'No document has this tag', body: 'Choose “Tags…” in a document’s menu to give it one.' }
 }
 
 export const EMPTY_FILTER: DocumentFilter = { tags: [], every_tag: false, types: [], after: null, before: null, reviews: [], folder_id: null, mentions: [] }
@@ -141,21 +138,14 @@ export function withoutPart(filter: DocumentFilter, part: FilterPart): DocumentF
 /** Whether the filter narrows anything, or matches every document of the project. */
 export const narrows = (filter: DocumentFilter) => filterParts(filter, [], null).length > 0
 
-/** What a smart folder lists, in words: each part it narrows by, its tags and folder by their names as they are now. */
+/** What a filter matches, in words: each part it narrows by, its tags and folder by their names as they are now. */
 export function filterWords(filter: DocumentFilter, tags: Tag[], folder: string | null): string {
   const parts = filterParts(filter, tags, folder).map(({ words }) => words)
   return parts.length ? `Documents ${parts.join(', ')}` : 'Every document of the project'
 }
 
-/** What a saved search does, or a smart folder lists without words to search for, in words. */
-export function smartFolderWords(filter: DocumentFilter, query: string | null, tags: Tag[], folder: string | null): string {
-  const listing = filterWords(filter, tags, folder)
-  return query?.trim() ? `Searches ${listing.charAt(0).toLowerCase()}${listing.slice(1)} for “${query.trim()}”` : listing
-}
-
-/** Why a smart folder as written cannot be saved, in the words the server would refuse it with; null when it can. */
-export function smartFolderProblem(name: string, filter: DocumentFilter): string | null {
-  if (!name.trim()) return 'Give the smart folder a name.'
+/** Why a filter's dates cannot be searched by, in the words the server would refuse them with (BACKWARDS in backend/app/document_filter.py); null when they can. */
+export function datesProblem(filter: Pick<DocumentFilter, 'after' | 'before'>): string | null {
   if (filter.after && filter.before && filter.after > filter.before) return 'Its earliest date is after its latest. Choose dates the other way round.'
   return null
 }

@@ -8,6 +8,7 @@ from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.api.deps import ProjectDep, ServicesDep, SessionDep, limited
+from app.document_filter import BACKWARDS, matching
 from app.fact_checks import fact_out
 from app.indexing.pipeline import Services
 from app.models import Document, Fact, Folder, Project
@@ -23,7 +24,6 @@ from app.schemas import (
     SnippetSegment,
 )
 from app.search import SearchHit, SearchResult, hybrid_search
-from app.smart_folders import BACKWARDS, matching
 
 router = APIRouter(
     prefix="/projects/{project_id}", tags=["query"], dependencies=[Depends(limited(SEARCHES))]
@@ -38,8 +38,8 @@ def search(
     asked: Annotated[SearchIn, Query()],
 ):
     """Search the project's passages, within one document and the documents a filter matches if
-    asked: the library's search in a folder, with what a member chose to narrow it by, within
-    what earlier searches found, or a saved search's."""
+    asked: the library's search in a folder, with what a member chose to narrow it by, and
+    within what earlier searches found."""
     chosen = DocumentFilter.model_validate(
         asked.model_dump(include=set(DocumentFilter.model_fields))
     )
@@ -57,7 +57,7 @@ def searched(
 ) -> SearchOut:
     """The search of the documents the filter matches, or of the whole project for none (v1's
     search too, by its folder alone). A folder of another project is 404, as the filter's; one
-    in the trash matches nothing, as a saved search's does once its folder is gone."""
+    in the trash matches nothing."""
     if chosen.folder_id is not None:
         held_by = session.scalar(select(Folder.project_id).where(Folder.id == chosen.folder_id))
         if held_by != project.id:
@@ -159,8 +159,8 @@ def list_fact_names(project: ProjectDep, session: SessionDep):
 @router.get("/document-types", response_model=list[DocumentTypeOut])
 def list_document_types(project: ProjectDep, session: SessionDep):
     """The types of the project's documents out of the trash, as the model read them or a member
-    set them (app/details.py), the most common first: what a smart folder or a filing rule offers
-    to choose from."""
+    set them (app/details.py), the most common first: what the search's filter or a filing rule
+    offers to choose from."""
     rows = session.execute(
         select(Document.doc_type, func.count())
         .where(

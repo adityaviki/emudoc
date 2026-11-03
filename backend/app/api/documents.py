@@ -68,7 +68,6 @@ from app.models import (
     Fact,
     Project,
     Section,
-    SmartFolder,
     Tag,
 )
 from app.notices import NOT_INDEXED, record_upload, settle_upload
@@ -82,7 +81,6 @@ from app.scanning import scan_passed
 from app.schemas import (
     DocumentContent,
     DocumentDetailsIn,
-    DocumentFilter,
     DocumentOut,
     DocumentPage,
     DocumentPatch,
@@ -99,7 +97,6 @@ from app.schemas import (
     UploadStatusOut,
 )
 from app.selection import NOT_CHOSEN, chosen_documents
-from app.smart_folders import matching
 from app.storage import Storage
 from app.trash import trash_document
 from app.uploads import Incoming, take_files
@@ -127,8 +124,8 @@ MAX_PAGE_SIZE = 500
 BAD_CURSOR = "This page of the folder cannot be found. List the folder again from its start."
 BOTH_WAYS = "Give a detail a value of your own, or take what the reading found for it, not both."
 ONE_PLACE = (
-    "Ask for one place of the library at a time: a folder, a tag, a smart folder, your "
-    "favourites or your recent documents."
+    "Ask for one place of the library at a time: a folder, a tag, your favourites or your "
+    "recent documents."
 )
 # The columns each order of a listing runs by before the id, which `ix_documents_listing` and
 # the `ix_documents_listing_*` indexes serve for a folder; "date" is `doc_date`, its undated
@@ -183,7 +180,6 @@ def list_documents(
     response: Response,
     folder_id: int | None = None,
     tag: int | None = None,
-    smart: int | None = None,
     favorites: bool = False,
     recent: bool = False,
     sort: DocumentSort = "name",
@@ -193,15 +189,15 @@ def list_documents(
 ):
     """A page of the documents in one place of the library, in the order asked for, past the one
     `after` names when it is given: directly in a folder (the root when no folder is given); or
-    wherever they are in the project, those of a tag, of a smart folder (app/smart_folders.py),
-    the reader's favourites, or the documents they opened lately, the newest first (`RECENT` of
-    them, on one page, whatever the order asked for).
+    wherever they are in the project, those of a tag, the reader's favourites, or the documents
+    they opened lately, the newest first (`RECENT` of them, on one page, whatever the order asked
+    for).
 
     The page carries an ETag of exactly what it shows, and a request whose If-None-Match names
     it is answered 304 without a body: the library asks again every moment while a document in
     the place is being indexed, and most of those moments change nothing on its page.
     """
-    place = _place(session, project, account, folder_id, tag, smart, favorites, recent)
+    place = _place(session, project, account, folder_id, tag, favorites, recent)
     if place.recent:
         limit = RECENT
     cursor = None if after is None or place.recent else _cursor(after, sort, order)
@@ -239,13 +235,12 @@ def _place(
     account: Account,
     folder_id: int | None,
     tag: int | None,
-    smart: int | None,
     favorites: bool,
     recent: bool,
 ) -> _Place:
-    """The place a listing asks for, the project's own; a folder, tag or smart folder that is not
-    found, and more than one place, are refused."""
-    named = [tag is not None, smart is not None, favorites, recent]
+    """The place a listing asks for, the project's own; a folder or tag that is not found, and
+    more than one place, are refused."""
+    named = [tag is not None, favorites, recent]
     if sum(named) > 1 or (any(named) and folder_id is not None):
         raise HTTPException(422, ONE_PLACE)
     live = (Document.project_id == project.id, Document.deleted_at.is_(None))
@@ -253,14 +248,6 @@ def _place(
         if not session.scalar(select(Tag.id).where(Tag.id == tag, Tag.project_id == project.id)):
             raise HTTPException(404, "Tag not found")
         return _Place((*live, Document.tag_ids.contains([tag])), flat=True)
-    if smart is not None:
-        found = session.scalar(
-            select(SmartFolder).where(SmartFolder.id == smart, SmartFolder.project_id == project.id)
-        )
-        if found is None:
-            raise HTTPException(404, "Smart folder not found")
-        chosen = DocumentFilter.model_validate(found.filter)
-        return _Place((*live, *matching(session, project.id, chosen)), flat=True)
     if favorites or recent:
         held = DocumentFavorite if favorites else DocumentVisit
         joined = and_(held.document_id == Document.id, held.user_id == account.user.id)
@@ -289,8 +276,8 @@ def _listed(
         latest = DocumentVisit.opened_at.desc(), Document.id.desc()
         return list(session.execute(query.order_by(*latest).limit(limit)).all())
     if place.flat:
-        # How many documents a tag or a filter takes decides the plan, so it is planned for
-        # this project rather than once for every one (database.md).
+        # How many documents a tag or the favourites take decides the plan, so it is planned
+        # for this project rather than once for every one (database.md).
         session.execute(text("SET LOCAL plan_cache_mode = force_custom_plan"))
     after = operator.lt if order == "desc" else operator.gt
     by = (lambda column: column.desc()) if order == "desc" else (lambda column: column.asc())

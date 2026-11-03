@@ -44,7 +44,6 @@ export function libraryPlace(view: LibraryView): string {
   if (view.reviews) return `reviews:${view.reviews}`
   if (view.draft != null) return `draft:${view.draft}`
   if (view.drafts) return 'drafts'
-  if (view.smart != null) return `smart:${view.smart}`
   const narrowed = view.search ? `&${JSON.stringify(view.search)}` : ''
   return view.trash ? 'trash' : view.templates ? 'templates' : `${view.folderId ?? 'root'}?${view.q}${narrowed}`
 }

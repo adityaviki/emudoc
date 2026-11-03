@@ -1,5 +1,5 @@
-// A place's documents as the library holds them (a folder's, a tag's, a smart folder's, the
-// reader's favourites or recent ones), in an order: the pages it has asked for, each with the tag
+// A place's documents as the library holds them (a folder's, a tag's, the reader's favourites or
+// recent ones), in an order: the pages it has asked for, each with the tag
 // the server named it by, so that asking again while a document is indexed costs a 304 for every
 // page that has not changed (`list_documents` in backend/app/api/documents.py). Each place in each
 // order is a query of its own, and an open document one more, so no request ever carries the
@@ -67,7 +67,6 @@ export const BY_NAME: Arrangement = { sort: 'name', order: 'asc' }
 export function placeKey(place: ListingPlace): number | string | null {
   if ('folder' in place) return place.folder
   if ('tag' in place) return `tag:${place.tag}`
-  if ('smart' in place) return `smart:${place.smart}`
   return 'favorites' in place ? 'favorites' : 'recent'
 }
 

@@ -3,8 +3,8 @@
 Indexing reads all four (the parse stage the file's own title and the language of its words, the
 structure stage its opening heading, the enrich stage the model's reading), and whoever may change
 the project may set any of them in its place (`PATCH /api/documents/{id}/details`). What
-everything reads, the library and its date order, smart folders, filing rules, search hits and the
-agent's catalogue, is the value in force in `documents.title`, `doc_type`, `doc_date` and
+everything reads, the library and its date order, the search's filter, filing rules, search hits
+and the agent's catalogue, is the value in force in `documents.title`, `doc_type`, `doc_date` and
 `language`; `read_title`, `read_doc_type`, `read_doc_date` and `read_language` keep what the last
 reading found, and `edited_details` names the fields a member set, which every later reading
 leaves as they are, "Index again" and a new version alike. A member takes the reading's again by
@@ -115,7 +115,7 @@ def edit_details(
 
 def _cleaned(name: str, value: object) -> object:
     """The member's value as indexing would have written it: a title and a kind on one line, the
-    kind in lower case as smart folders and filing rules compare it."""
+    kind in lower case as the search's filter and filing rules compare it."""
     if not isinstance(value, str):
         return value
     text = " ".join(clean_text(value).split())

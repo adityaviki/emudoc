@@ -1,27 +1,14 @@
-import { ArrowDownUp, ChevronDown, Clock, FolderCog, FolderSearch, Folder as FolderIcon, LayoutGrid, List, Plus, Search, Star, Tag as TagIcon, Tags, X } from 'lucide-react'
+import { ArrowDownUp, ChevronDown, Clock, FolderCog, Folder as FolderIcon, LayoutGrid, List, Star, Tag as TagIcon, Tags, X } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import { REVIEW_LABELS, REVIEW_STATES } from '../reviews.ts'
 import { TAG_COLORS } from '../api.ts'
-import type { Document, DocumentFilter, DocumentType, Folder, ListingPlace, SmartFolder, SmartFolderInput, Tag, TagColor } from '../api.ts'
+import type { Document, DocumentFilter, DocumentType, Folder, ListingPlace, Tag, TagColor } from '../api.ts'
 import { folderChoices } from '../automations.ts'
 import { Confirm } from '../components/Confirm.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
 import { Checkbox, FIELD, IconButton, InputField, SelectField } from '../components/ui.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
-import {
-  EMPTY_FILTER,
-  FIRST_ORDER,
-  MAX_WITHIN,
-  SORTS,
-  SORT_NAMES,
-  TAG_COLOR_LABELS,
-  filterWords,
-  placeName,
-  smartFolderProblem,
-  smartFolderWords,
-  sortWords,
-  tagsWords,
-} from '../library.ts'
+import { FIRST_ORDER, MAX_WITHIN, SORTS, SORT_NAMES, TAG_COLOR_LABELS, datesProblem, filterWords, placeName, sortWords, tagsWords } from '../library.ts'
 import type { LibraryLayout } from '../library.ts'
 import { nextState, overfull, overfullWords, tagStates, tagsChange } from '../selection.ts'
 import type { TagState, TagsChange } from '../selection.ts'
@@ -84,40 +71,25 @@ interface PlaceBarProps {
   layout: LibraryLayout
   onLayout: (layout: LibraryLayout) => void
   tags: Tag[]
-  smartFolders: SmartFolder[]
-  /** Whether the member's role may change the library: making smart folders and tags is then offered. */
-  changes: boolean
   onPlace: (place: ListingPlace) => void
-  onNewSmartFolder: () => void
   onTags: () => void
   onFiling: () => void
 }
 
 /**
- * Under the library's search: what it shows (all its files, the member's favourites or recent ones, a tag's documents or a
- * smart folder's) and the way to the project's tags and filing rules, the order it lists them in, and as a list or a grid.
+ * Under the library's search: what it shows (all its files, the member's favourites or recent ones, or a tag's documents)
+ * and the way to the project's tags and filing rules, the order it lists them in, and as a list or a grid.
  */
 export function PlaceBar(props: PlaceBarProps) {
-  const { place, arrangement, layout, tags, smartFolders, changes } = props
+  const { place, arrangement, layout, tags } = props
   const menu = useContextMenu()
   const folder = 'folder' in place
   const recent = 'recent' in place
-  const current = folder ? 'All files' : placeName(place, tags, smartFolders)
+  const current = folder ? 'All files' : placeName(place, tags)
   const isPlace = (other: ListingPlace) => JSON.stringify(other) === JSON.stringify(place)
   const choose = (other: ListingPlace): MenuItem => ({
-    label: 'tag' in other ? placeName(other, tags, []) : 'smart' in other ? placeName(other, [], smartFolders) : 'favorites' in other ? 'Favourites' : 'recent' in other ? 'Recent' : 'All files',
-    icon:
-      'tag' in other
-        ? TagIcon
-        : 'smart' in other
-          ? smartFolders.find((smart) => smart.id === other.smart)?.query
-            ? Search
-            : FolderSearch
-          : 'favorites' in other
-            ? Star
-            : 'recent' in other
-              ? Clock
-              : FolderIcon,
+    label: 'folder' in other ? 'All files' : placeName(other, tags),
+    icon: 'tag' in other ? TagIcon : 'favorites' in other ? Star : 'recent' in other ? Clock : FolderIcon,
     checked: 'folder' in other ? folder : isPlace(other),
     onSelect: () => props.onPlace(other),
   })
@@ -126,9 +98,7 @@ export function PlaceBar(props: PlaceBarProps) {
     choose({ favorites: true }),
     choose({ recent: true }),
     ...(tags.length ? (['separator', ...tags.map((tag) => choose({ tag: tag.id }))] as MenuItem[]) : []),
-    ...(smartFolders.length ? (['separator', ...smartFolders.map((smart) => choose({ smart: smart.id }))] as MenuItem[]) : []),
     'separator',
-    ...(changes ? [{ label: 'New smart folder…', icon: Plus, onSelect: props.onNewSmartFolder }] : []),
     { label: 'Tags…', icon: Tags, onSelect: props.onTags },
     { label: 'Filing rules…', icon: FolderCog, onSelect: props.onFiling },
   ]
@@ -471,68 +441,15 @@ function FilterFields({ filter, onChange, tags, types, folders, reviews }: Filte
   )
 }
 
-interface SmartFolderDialogProps extends Omit<FilterFieldsProps, 'filter' | 'onChange'> {
-  /** The smart folder being changed; null for a new one. */
-  editing: SmartFolder | null
-  /** What a new one starts from: a search to save. */
-  draft?: SmartFolderInput
-  onSave: (smart: SmartFolderInput) => void
-  onClose: () => void
-}
-
-/**
- * Asks what a smart folder lists: by tags, types, the documents' dates, their reviews, a folder and the words they mention;
- * what it is called; and, for a saved search, the words it searches them for.
- */
-export function SmartFolderDialog({ editing, draft, onSave, onClose, ...fields }: SmartFolderDialogProps) {
-  const start = editing ?? draft
-  const [name, setName] = useState(start?.name ?? '')
-  const [filter, setFilter] = useState<DocumentFilter>(start?.filter ?? EMPTY_FILTER)
-  const [query, setQuery] = useState(start?.query ?? '')
-  const problem = smartFolderProblem(name, filter)
-  const folderPath = folderChoices(fields.folders).find((choice) => choice.id === filter.folder_id)?.label ?? null
-  const searching = query.trim() !== ''
-  return (
-    <Confirm
-      title={editing ? `Change “${editing.name}”` : draft ? 'Save the search' : 'New smart folder'}
-      body={
-        searching
-          ? 'A saved search runs again each time it is opened, over the documents that match what it lists by, wherever they are in the project. Everyone who reads the project sees it.'
-          : 'A smart folder lists the documents that match what it lists by, wherever they are in the project, as they arrive. Everyone who reads the project sees it.'
-      }
-      action={editing || draft ? 'Save' : 'Make'}
-      danger={false}
-      disabled={problem !== null}
-      onConfirm={() => onSave({ name: name.trim(), filter, query: query.trim() || null })}
-      onClose={onClose}
-    >
-      <div className="max-h-[55vh] space-y-4 overflow-y-auto pr-1">
-        <InputField label="Name" data-autofocus value={name} maxLength={100} onChange={(event) => setName(event.target.value)} />
-        <InputField
-          label="Search for"
-          hint="Words its documents are searched for each time it is opened. Left empty, it lists the documents."
-          value={query}
-          maxLength={200}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        <FilterFields {...fields} filter={filter} onChange={setFilter} />
-        <p className="text-xs text-muted" aria-live="polite">
-          {problem ?? `${smartFolderWords(filter, query, fields.tags, folderPath)}.`}
-        </p>
-      </div>
-    </Confirm>
-  )
-}
-
 interface SearchFilterDialogProps extends Omit<FilterFieldsProps, 'onChange'> {
   onApply: (filter: DocumentFilter) => void
   onClose: () => void
 }
 
-/** Asks what a search searches within: the same parts as a smart folder lists by. */
+/** Asks what a search searches within: by tags, types, the documents' dates, their reviews, a folder and the words they mention. */
 export function SearchFilterDialog({ filter: held, onApply, onClose, ...fields }: SearchFilterDialogProps) {
   const [filter, setFilter] = useState(held)
-  const problem = smartFolderProblem('-', filter)
+  const problem = datesProblem(filter)
   const folderPath = folderChoices(fields.folders).find((choice) => choice.id === filter.folder_id)?.label ?? null
   return (
     <Confirm

@@ -1,6 +1,6 @@
 """A project's tags: the labels its members put on its documents, shown on them in the library,
-which lists a tag's documents wherever they are, and which smart folders (app/smart_folders.py)
-and filing rules (app/filing.py) match and put on documents.
+which lists a tag's documents wherever they are, and which the search's filter
+(app/document_filter.py) and filing rules (app/filing.py) match and put on documents.
 
 A document holds the ids of its tags on its own row (`Document.tag_ids`), so that tagging it
 changes the row whose version the library's pages are tagged by, and so the page of a folder
@@ -100,7 +100,7 @@ def add_tag(document: Document, tag_id: int) -> bool:
 def delete_tag(session: Session, tag: Tag) -> None:
     """Delete the tag, taking it off every document of its project, those in the trash too, so
     that none is left carrying an id that names nothing. Its filing rules go with it by the
-    foreign key; a smart folder that names it then matches nothing by it (app/smart_folders.py)."""
+    foreign key."""
     session.execute(
         update(Document)
         .where(Document.project_id == tag.project_id, Document.tag_ids.contains([tag.id]))

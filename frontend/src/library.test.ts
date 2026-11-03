@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Document, SmartFolder, Tag } from './api.ts'
+import type { Document, Tag } from './api.ts'
 import { formatDate } from './format.ts'
 import {
   EMPTY_FILTER,
@@ -7,6 +7,7 @@ import {
   filterParts,
   filterWords,
   gridMove,
+  datesProblem,
   hasThumbnail,
   placeName,
   placeOf,
@@ -15,8 +16,6 @@ import {
   ruleSentence,
   narrows,
   searchView,
-  smartFolderProblem,
-  smartFolderWords,
   sortWords,
   tagsOf,
   tagsWords,
@@ -31,15 +30,12 @@ describe('a place', () => {
   it('is named by the view, and called by its own name or the library’s', () => {
     expect(placeOf({})).toBeNull()
     expect(placeOf({ tag: 2 })).toEqual({ tag: 2 })
-    expect(placeOf({ smart: 4 })).toEqual({ smart: 4 })
     expect(placeOf({ favorites: true })).toEqual({ favorites: true })
     expect(placeOf({ recent: true })).toEqual({ recent: true })
-    const smart = { id: 4, name: 'Unpaid invoices' } as SmartFolder
-    expect(placeName({ tag: 2 }, TAGS, [])).toBe('Paid')
-    expect(placeName({ tag: 9 }, TAGS, [])).toBe('A tag')
-    expect(placeName({ smart: 4 }, TAGS, [smart])).toBe('Unpaid invoices')
-    expect(placeName({ favorites: true }, TAGS, [])).toBe('Favourites')
-    expect(placeName({ recent: true }, TAGS, [])).toBe('Recent')
+    expect(placeName({ tag: 2 }, TAGS)).toBe('Paid')
+    expect(placeName({ tag: 9 }, TAGS)).toBe('A tag')
+    expect(placeName({ favorites: true }, TAGS)).toBe('Favourites')
+    expect(placeName({ recent: true }, TAGS)).toBe('Recent')
   })
 
   it('is listed in an order its button words', () => {
@@ -58,8 +54,8 @@ describe('a document’s tags', () => {
   })
 })
 
-describe('a smart folder', () => {
-  it('says what it lists, its tags and folder by their names', () => {
+describe('a filter', () => {
+  it('says what it matches, its tags and folder by their names', () => {
     expect(filterWords(EMPTY_FILTER, TAGS, null)).toBe('Every document of the project')
     expect(filterWords({ ...EMPTY_FILTER, tags: [1, 2], every_tag: true }, TAGS, null)).toBe('Documents tagged “Urgent” and “Paid”')
     expect(
@@ -69,20 +65,15 @@ describe('a smart folder', () => {
     expect(filterWords({ ...EMPTY_FILTER, after: '2024-01-15' }, TAGS, null)).toMatch(/^Documents dated .+ or later$/)
   })
 
-  it('is saved with a name, and dates the right way round', () => {
-    expect(smartFolderProblem('  ', EMPTY_FILTER)).toBe('Give the smart folder a name.')
-    expect(smartFolderProblem('Q1', { ...EMPTY_FILTER, after: '2024-04-01', before: '2024-01-01' })).toMatch(/^Its earliest date is after/)
-    expect(smartFolderProblem('Q1', { ...EMPTY_FILTER, after: '2024-01-01', before: '2024-03-31' })).toBeNull()
+  it('takes its dates the right way round', () => {
+    expect(datesProblem(EMPTY_FILTER)).toBeNull()
+    expect(datesProblem({ after: '2024-04-01', before: '2024-01-01' })).toMatch(/^Its earliest date is after/)
+    expect(datesProblem({ after: '2024-01-01', before: '2024-03-31' })).toBeNull()
   })
 
-  it('says what a saved search searches for, and lists by the words its documents mention', () => {
+  it('says the words its documents mention', () => {
     const mentioning = { ...EMPTY_FILTER, types: ['invoice'], mentions: ['late delivery', 'penalty'] }
     expect(filterWords(mentioning, TAGS, null)).toBe('Documents of type invoice, mentioning “late delivery”, mentioning “penalty”')
-    expect(smartFolderWords(mentioning, ' how much ', TAGS, null)).toBe(
-      'Searches documents of type invoice, mentioning “late delivery”, mentioning “penalty” for “how much”',
-    )
-    expect(smartFolderWords(EMPTY_FILTER, 'penalty', TAGS, null)).toBe('Searches every document of the project for “penalty”')
-    expect(smartFolderWords(EMPTY_FILTER, '  ', TAGS, null)).toBe('Every document of the project')
   })
 })
 

@@ -1898,7 +1898,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await releaseTurns(request)
   })
 
-  await test.step('tag a document, and list a tag, a smart folder, the favourites and the recent ones, in another order and as a grid, then file an invoice by a rule', async () => {
+  await test.step('tag a document, and list a tag, the favourites and the recent ones, in another order and as a grid, then file an invoice by a rule', async () => {
     const invoice = page.getByRole('treeitem', { name: 'invoice.md', exact: true })
     const show = page.getByRole('button', { name: /^Show: / })
     // A tag made from the file's menu and put on it, which its row then names. A scroll closes the menu, as above.
@@ -1925,21 +1925,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('treeitem')).toHaveCount(1)
     await expect(invoice).toHaveAccessibleDescription(/Tagged Unpaid in /)
     await expectAccessible(page, "a tag's documents")
-
-    // A smart folder of the unpaid invoices, made in its dialog and opened.
-    await show.click()
-    await page.getByRole('menuitem', { name: 'New smart folder…' }).click()
-    const smart = page.getByRole('dialog', { name: 'New smart folder' })
-    await expect(smart.getByLabel('Name')).toBeFocused()
-    await smart.getByLabel('Name').fill('Unpaid invoices')
-    await smart.getByRole('checkbox', { name: 'Unpaid' }).check()
-    await smart.getByRole('checkbox', { name: 'invoice', exact: true }).check()
-    await expect(smart).toContainText('Documents tagged “Unpaid”, of type invoice.')
-    await expectAccessible(page, 'a smart folder being made')
-    await smart.getByRole('button', { name: 'Make' }).click()
-    await expect(show).toHaveAccessibleName('Show: Unpaid invoices')
-    await expect(page.getByRole('treeitem')).toHaveCount(1)
-    await expect(page.getByRole('button', { name: 'Change “Unpaid invoices”' })).toBeVisible()
 
     // A favourite, and the documents opened lately, the latest first.
     await invoice.click({ button: 'right' })
@@ -2100,7 +2085,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(panel.getByText(/^Chosen documents: 2 documents, [\d.]+ kB, until /)).toBeVisible({ timeout: 30_000 })
   })
 
-  await test.step('search within a tag, filter the search, search within what it found and save it', async () => {
+  await test.step('search within a tag, filter the search and search within what it found', async () => {
     // The project's card is a link named by everything on it.
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
     const show = page.getByRole('button', { name: /^Show: / })
@@ -2147,23 +2132,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(hit('INV-2026-0412').first()).toBeVisible()
     await expect(hit('INV-2026-0413')).toHaveCount(0)
     await expect(hit('INV-2026-0502')).toHaveCount(0)
-
-    // Saved as a smart folder with its words, which runs the search again as it is opened.
-    await page.getByRole('button', { name: 'Save the search' }).click()
-    const saving = page.getByRole('dialog', { name: 'Save the search' })
-    await expect(saving.getByLabel('Name')).toBeFocused()
-    await expect(saving.getByLabel('Search for')).toHaveValue('total amount')
-    await saving.getByLabel('Name').fill('March totals')
-    await expect(saving).toContainText('Searches documents of type invoice, mentioning “March” for “total amount”.')
-    await expectAccessible(page, 'a search being saved')
-    await saving.getByRole('button', { name: 'Save' }).click()
-    await expect(show).toHaveAccessibleName('Show: March totals')
-    await expect(box).toHaveValue('total amount')
-    await expect(page.getByRole('button', { name: 'Change “March totals”' })).toBeVisible()
-    await page.reload()
-    await expect(hit('INV-2026-0412').first()).toBeVisible()
-    await expect(hit('INV-2026-0413')).toHaveCount(0)
-    await expectAccessible(page, 'a saved search')
+    // With words in the box, whose "Clear search" is then a target axe measures.
+    await expectAccessible(page, 'a search within what another found, with its words')
   })
 
   await test.step('search every project from the projects page, filter it to one of them and open a hit at its passage', async () => {

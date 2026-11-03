@@ -52,7 +52,6 @@ from app.api import (
     reviews,
     search,
     share_links,
-    smart_folders,
     support,
     tags,
     templates,
@@ -482,7 +481,6 @@ KEYED = (
     drafts.router,
     mailbox.router,
     tags.router,
-    smart_folders.router,
     filing.router,
 )
 

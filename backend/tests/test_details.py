@@ -74,27 +74,21 @@ def test_a_members_details_hold_through_every_reading_until_the_readings_are_tak
     assert paths(client, session, document["id"])[0] == "Master Services Agreement › terms"
 
 
-def test_a_detail_is_cleaned_set_to_none_and_read_by_the_library_and_smart_folders(
-    client, services
-):
+def test_a_detail_is_cleaned_set_to_none_and_read_by_the_library_and_its_search(client, services):
     project = create_project(client)
     document = text_document(client, services, project["id"])
-    other = text_document(client, services, project["id"], b"A second file.\n", "second.txt")
+    other = text_document(client, services, project["id"], b"The second fee.\n", "second.txt")
 
     changed = details(client, document["id"], doc_type=" Purchase\n Order ", title=None)
     # A kind compares in lower case, as the reading writes it; no title shows the file's name.
     assert changed["doc_type"] == "purchase order" and changed["title"] is None
     types = client.get(f"/api/projects/{project['id']}/document-types").json()
     assert "purchase order" in str(types)
-    folder = client.post(
-        f"/api/projects/{project['id']}/smart-folders",
-        json={"name": "Orders", "filter": {"types": ["Purchase order"]}},
+    found = client.get(
+        f"/api/projects/{project['id']}/search", params={"q": "fee", "types": ["Purchase order"]}
     )
-    assert folder.status_code == 201, folder.text
-    listed = client.get(
-        f"/api/projects/{project['id']}/documents", params={"smart": folder.json()["id"]}
-    ).json()
-    assert [row["id"] for row in listed["documents"]] == [document["id"]]
+    assert found.status_code == 200, found.text
+    assert {hit["document_id"] for hit in found.json()["hits"]} == {document["id"]}
 
     # The library's date order reads the member's date.
     details(client, other["id"], doc_date="2020-01-01")

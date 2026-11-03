@@ -1390,7 +1390,7 @@ class Document(Base):
     page_count: Mapped[int | None] = mapped_column(Integer)
     # [[width, height], ...] in PDF points, one per page; empty for formats without pages.
     page_sizes: Mapped[list] = mapped_column(JSONB, default=list)
-    # Its title, kind and date as everything reads them (the library, smart folders, filing
+    # Its title, kind and date as everything reads them (the library, its search, filing
     # rules, the agent): a member's where one set it (`edited_details`, app/details.py), else what
     # its last reading found, which `read_title`, `read_doc_type` and `read_doc_date` keep either
     # way, for the member to take again.
@@ -1531,8 +1531,9 @@ class DocumentVersion(Base):
 
 class Tag(Base):
     """A label of a project's that its members put on its documents (app/tags.py): shown on
-    them in the library, which lists a tag's documents wherever they are, as smart folders and
-    filing rules use them too. A document holds the ids of its tags itself (`Document.tag_ids`)."""
+    them in the library, which lists a tag's documents wherever they are, as the search's filter
+    and filing rules use them too. A document holds the ids of its tags itself
+    (`Document.tag_ids`)."""
 
     __tablename__ = "tags"
     __table_args__ = (
@@ -1557,43 +1558,6 @@ class Tag(Base):
     )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
-    )
-
-
-class SmartFolder(Base):
-    """A project's saved view of its documents (app/smart_folders.py): those its filter matches,
-    wherever they are, which the library lists as it lists a folder's, or with a query, the
-    search of its words within them. Everyone who reads the project sees it; a member who may
-    change the project makes, changes and deletes it."""
-
-    __tablename__ = "smart_folders"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    # The tenant, as for every row a member reaches by its id.
-    org_id: Mapped[int] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
-    )
-    project_id: Mapped[int] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), index=True
-    )
-    name: Mapped[str] = mapped_column(String(100))
-    # What it matches, as `DocumentFilter` in app/schemas.py writes it: tags, types, a span of
-    # the documents' dates, review states, a folder with its subfolders and words they mention.
-    # A tag or folder it names that is gone matches nothing, so that it never widens into more
-    # than was saved.
-    filter: Mapped[dict] = mapped_column(JSONB)
-    # The words of a saved search, which the library opens as the search of them within the
-    # documents the filter matches; None for a smart folder that lists them.
-    query: Mapped[str | None] = mapped_column(String(200))
-    # Indexed for the account purge.
-    created_by: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), index=True
-    )
-    created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    updated_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
 

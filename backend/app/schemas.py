@@ -635,8 +635,8 @@ class ReviewsOut(BaseModel):
 
 class DocumentPage(BaseModel):
     """A page of the documents the library lists in one place (directly in a folder, of a tag,
-    of a smart folder, the reader's favourites or the documents they opened lately), in the order
-    asked for: by name (the `natural_order` collation in app/models.py) unless another is."""
+    the reader's favourites or the documents they opened lately), in the order asked for: by
+    name (the `natural_order` collation in app/models.py) unless another is."""
 
     documents: list[DocumentOut]
     # What to pass as `after` for the next page; None on the last one.
@@ -731,12 +731,12 @@ MAX_MENTIONS = 5
 
 
 class DocumentFilter(BaseModel):
-    """What a smart folder matches (app/smart_folders.py), and a search searches within
-    (app/api/query.py), each part narrowing the others: the documents carrying any of its tags,
-    or every one with `every_tag`; of one of its types, as the model names a document's kind;
-    dated on or after `after` and on or before `before`, which leaves out the undated; in one of
-    its review states; in its folder or below it; with a passage holding every word of each of
-    its `mentions`. A part left out matches every document."""
+    """What a search searches within (app/api/query.py, app/document_filter.py), each part
+    narrowing the others: the documents carrying any of its tags, or every one with `every_tag`;
+    of one of its types, as the model names a document's kind; dated on or after `after` and on
+    or before `before`, which leaves out the undated; in one of its review states; in its folder
+    or below it; with a passage holding every word of each of its `mentions`. A part left out
+    matches every document."""
 
     tags: list[int] = Field(default_factory=list, max_length=20)
     every_tag: bool = False
@@ -746,36 +746,6 @@ class DocumentFilter(BaseModel):
     reviews: list[ReviewState] = Field(default_factory=list, max_length=3)
     folder_id: int | None = None
     mentions: list[_Words] = Field(default_factory=list, max_length=MAX_MENTIONS)
-
-
-class SmartFolderIn(BaseModel):
-    """A smart folder as a member writes it, whole: its name, what it matches and, for a saved
-    search, the words it searches its documents for."""
-
-    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
-    filter: DocumentFilter
-    # None lists the documents; words make it a saved search, which the library opens as the
-    # search of them within its documents.
-    query: Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)] | None = None
-
-
-class SmartFolderOut(SmartFolderIn):
-    id: int
-    # Its folder's path as it is now, from the project's root, to word it by; None for none.
-    folder: str | None
-    # Why it matches nothing as the project stands now (a tag or its folder gone); None when
-    # it lists what it says.
-    problem: str | None
-    # Who made it, by their name as it is now; None once their account is gone.
-    made_by: str | None
-    updated_at: dt.datetime
-
-
-class SmartFoldersOut(BaseModel):
-    """A project's smart folders, by name, and how many it may have."""
-
-    smart_folders: list[SmartFolderOut]
-    max_smart_folders: int
 
 
 # FILING_CONDITIONS and FILING_ACTIONS in app/models.py.
