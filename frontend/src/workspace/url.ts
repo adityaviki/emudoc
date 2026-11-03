@@ -12,10 +12,10 @@ export type Focus = { passage: number } | { block: number } | { page: number } |
 /** Whose documents in review the reviews view lists: every member's, or those assigned to the member. */
 export type Reviews = 'all' | 'mine'
 
-/** What the library's search is narrowed by beside its folder: the other parts of a smart folder's filter. */
+/** What the library's search is narrowed by beside its folder: the other parts of its filter. */
 export type SearchFilter = Omit<DocumentFilter, 'folder_id'>
 
-/** The folder the library shows, and the search running in it, with what narrows it; or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, with `changes`, what their last readings changed, with `checks`, its cross-checks, with `check`, what that one finds, with `run`, a run of them kept with what it found, with `questionSets`, its question sets with the reports of their answers, with `report`, one of those reports, with `reviews`, its documents in review, with `activity`, what was done in it lately, with `drafts`, the drafts the model wrote from its documents, with `draft`, one of them, with `draftTemplates`, how its drafts of each kind read, with `mail`, its address and what it received, with `connectors`, the folders of its members' Google Drive, Dropbox or OneDrive it keeps in step with; with `tag`, the documents of one of its tags wherever they are, with `smart`, a smart folder's, with `favorites`, the member's favourites, with `recent`, the documents they opened lately; with `tags`, its tags to make and change, and with `filing`, its filing rules. */
+/** The folder the library shows, and the search running in it, with what narrows it; or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, with `changes`, what their last readings changed, with `checks`, its cross-checks, with `check`, what that one finds, with `run`, a run of them kept with what it found, with `questionSets`, its question sets with the reports of their answers, with `report`, one of those reports, with `reviews`, its documents in review, with `activity`, what was done in it lately, with `drafts`, the drafts the model wrote from its documents, with `draft`, one of them, with `draftTemplates`, how its drafts of each kind read, with `mail`, its address and what it received, with `connectors`, the folders of its members' Google Drive, Dropbox or OneDrive it keeps in step with; with `tag`, the documents of one of its tags wherever they are, with `favorites`, the member's favourites, with `recent`, the documents they opened lately; with `tags`, its tags to make and change, and with `filing`, its filing rules. */
 export interface LibraryView {
   folderId: number | null
   q: string
@@ -37,7 +37,6 @@ export interface LibraryView {
   mail?: true
   connectors?: true
   tag?: number
-  smart?: number
   favorites?: true
   recent?: true
   tags?: true
@@ -91,7 +90,6 @@ export function parseWorkspaceUrl(pathname: string, search: string): WorkspaceUr
   else if (params.has('mail')) library.mail = true
   else if (params.has('connectors')) library.connectors = true
   else if (id(params.get('tag')) != null) library.tag = id(params.get('tag')) ?? undefined
-  else if (id(params.get('smart')) != null) library.smart = id(params.get('smart')) ?? undefined
   else if (params.has('favorites')) library.favorites = true
   else if (params.has('recent')) library.recent = true
   else if (params.has('tags')) library.tags = true
@@ -196,7 +194,6 @@ export function buildWorkspaceUrl(url: Omit<WorkspaceUrl, 'canonical'>): string 
   if (url.library.mail) params.set('mail', '')
   if (url.library.connectors) params.set('connectors', '')
   if (url.library.tag != null) params.set('tag', String(url.library.tag))
-  if (url.library.smart != null) params.set('smart', String(url.library.smart))
   if (url.library.favorites) params.set('favorites', '')
   if (url.library.recent) params.set('recent', '')
   if (url.library.tags) params.set('tags', '')

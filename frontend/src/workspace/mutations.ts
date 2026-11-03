@@ -395,8 +395,8 @@ export function useReviewChange(projectId: number) {
 
 /**
  * Set a document's details as the member's, or take what the reading found again (backend/app/details.py), then show the
- * document so wherever the page holds it, and ask again for the listings, whose date order and smart folders read them,
- * and the project's types.
+ * document so wherever the page holds it, and ask again for the listings, whose date order reads them, and the project's
+ * types.
  */
 export function useDetailsChange(projectId: number) {
   const queryClient = useQueryClient()

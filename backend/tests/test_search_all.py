@@ -7,15 +7,15 @@ from sqlalchemy import text
 
 from app.api.deps import get_account
 from app.apikeys import ELSEWHERE
+from app.document_filter import BACKWARDS
 from app.indexing.pipeline import process_document
 from app.schemas import MAX_SEARCHED_PROJECTS
 from app.search import search_projects
-from app.smart_folders import BACKWARDS
 from tests.conftest import FakeEmbedder
 from tests.test_access import access, crew  # noqa: F401
 from tests.test_api import create_project
 from tests.test_apikeys import make_key, program
-from tests.test_smart_folders import set_columns
+from tests.test_search_filter import set_columns
 
 
 def write(client, services, project_id, name, words, index=True) -> dict:

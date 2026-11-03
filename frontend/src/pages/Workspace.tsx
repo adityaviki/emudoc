@@ -215,7 +215,7 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
       },
       showPlace(place) {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', ...('tag' in place ? { tag: place.tag } : 'smart' in place ? { smart: place.smart } : place) } })
+        go({ library: { folderId: null, q: '', ...('tag' in place ? { tag: place.tag } : place) } })
       },
       showTags() {
         setMobilePane('library')

@@ -61,7 +61,7 @@ a member who may change the project does three things to as many as $chosen of t
 - **Export … documents** makes a ZIP file of them alone, as a project's export makes of the whole
   project, without its chats ([Your data](/help/data)).
 
-## Tags, smart folders and favourites
+## Tags and favourites
 
 The library can show a project's documents other ways than by their folders. Choose what it shows
 with the menu above the files, which reads "All files" at first:
@@ -69,11 +69,6 @@ with the menu above the files, which reads "All files" at first:
 - **Tags** mark documents wherever they are. Give a document its tags with "Tags…" in its menu,
   where you can make a new tag too, and change or delete the project's tags under "Tags…" in the
   menu above the files. Choose a tag there to list its documents.
-- **Smart folders** list the documents that match what you choose: tags (any of them, or every
-  one), types, a span of dates, review states, a folder and words a passage of theirs holds.
-  "New smart folder…" makes one; everyone who reads the project sees it, and its documents
-  arrive in it as they are read. Give it words to search for and it is a saved search, which
-  searches its documents for them each time it is opened ([Searching](/help/asking)).
 - **Favourites** are the documents you starred with "Add to favourites" in their menu, and
   **Recent** the last $recent you opened in the project. Both are yours alone.
 
@@ -94,8 +89,8 @@ document elsewhere afterwards and it stays where you put it.
 
 ## A document's details and its note
 
-Each document is read for its title, its type and its date, which the library's date order, smart
-folders, filing rules and the agent use, and for the language it is written in, which the search
+Each document is read for its title, its type and its date, which the library's date order, its
+search's filter, filing rules and the agent use, and for the language it is written in, which the search
 matches its words in, so that "Lieferung" finds "Lieferungen" in a German contract. Where the
 reading got one wrong, set it yourself with "Edit details" on the document's tab: what you set is
 kept whenever the document is read again or given a new version, and the dialog shows what the

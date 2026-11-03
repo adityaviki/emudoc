@@ -16,7 +16,6 @@ import {
   Folder as FolderIcon,
   FolderInput,
   FolderPlus,
-  FolderSearch,
   FolderSync,
   FolderUp,
   GitCompareArrows,
@@ -51,7 +50,7 @@ import {
   sectionPath,
   thumbnailUrl,
 } from '../api.ts'
-import type { Document, Folder, ListingPlace, ScopeIn, SearchHit, SmartFolder, SmartFolderInput, Tag, UploadItem } from '../api.ts'
+import type { Document, Folder, ListingPlace, ScopeIn, SearchHit, Tag, UploadItem } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { folderChoices } from '../automations.ts'
 import { startChat } from '../chat.ts'
@@ -110,8 +109,8 @@ import type { Arrangement, Listing } from './listing.ts'
 import { useLibraryMutations, useReviewChange } from './mutations.ts'
 import { QuestionSetsView, ReportView } from './QuestionSets.tsx'
 import type { LibraryMutations } from './mutations.ts'
-import { useDocumentMarks, useDocumentTypes, useFavorites, useOrganizing, useSmartFolders, useTags } from './organizing.ts'
-import { DocumentTagsDialog, PlaceBar, SearchFilterDialog, Seen, SmartFolderDialog, TagChips } from './Places.tsx'
+import { useDocumentMarks, useDocumentTypes, useFavorites, useOrganizing, useTags } from './organizing.ts'
+import { DocumentTagsDialog, PlaceBar, SearchFilterDialog, Seen, TagChips } from './Places.tsx'
 import { ReviewMark, ReviewsView } from './Reviews.tsx'
 import { useWorkspace } from './state.ts'
 import { TagsView } from './Tags.tsx'
@@ -236,27 +235,17 @@ export function Library() {
   const folderName = (id: number | null | undefined) => tree.byId.get(id ?? -1)?.name ?? project.name
   const { followed } = mutations
 
-  // A tag's documents, a smart folder's, the member's favourites or recent ones, each across the
-  // project's folders; else the folder's tree.
+  // A tag's documents, the member's favourites or recent ones, each across the project's folders;
+  // else the folder's tree.
   const place: ListingPlace = placeOf(workspace.url.library) ?? { folder: folderId }
   const flat = !('folder' in place)
   const [arrangement, setArrangement] = useLocalStorage<Arrangement>(ARRANGEMENT_KEY, BY_NAME, isArrangement)
   const [layout, setLayout] = useLocalStorage<LibraryLayout>(LAYOUT_KEY, 'list', isLayout)
   const tags = useTags(project.id)
-  const smartFolders = useSmartFolders(project.id)
-  const organizing = useOrganizing(project.id)
-  const [smartEditing, setSmartEditing] = useState<{ smart: SmartFolder | null; draft?: SmartFolderInput } | null>(null)
-  const [smartAsking, setSmartAsking] = useState<SmartFolder | null>(null)
-  const openSmart = 'smart' in place ? smartFolders.data?.smart_folders.find((smart) => smart.id === place.smart) : undefined
-  // A smart folder with words is a saved search, run as it is opened; any other search is the URL's.
-  const saved = openSmart?.query ? openSmart : null
-  const search: LibrarySearch | null = saved ? { q: saved.query ?? '', filter: saved.filter } : viewedSearch(workspace.url.library)
+  const search: LibrarySearch | null = viewedSearch(workspace.url.library)
   const searchBox = useRef<HTMLInputElement>(null)
-  const smartRoom = (smartFolders.data?.smart_folders.length ?? 0) < (smartFolders.data?.max_smart_folders ?? 0)
-  // A tag or smart folder deleted, here or elsewhere, falls back to the root.
-  const placeGone =
-    ('tag' in place && tags.isSuccess && !tags.data.tags.some((tag) => tag.id === place.tag)) ||
-    ('smart' in place && smartFolders.isSuccess && openSmart === undefined)
+  // A tag deleted, here or elsewhere, falls back to the root.
+  const placeGone = 'tag' in place && tags.isSuccess && !tags.data.tags.some((tag) => tag.id === place.tag)
   useEffect(() => {
     if (placeGone) workspace.goToFolder(null, { replace: true })
   }, [placeGone, workspace])
@@ -302,25 +291,21 @@ export function Library() {
   if (workspace.url.library.connectors && connectors) return <ConnectorsView />
   if (workspace.url.library.tags) return <TagsView />
   if (workspace.url.library.filing) return <FilingView />
-  const placeLabel = flat ? placeName(place, tags.data?.tags ?? [], smartFolders.data?.smart_folders ?? []) : null
-  // The box searches where the member is: a saved search's documents, a tag's or a smart folder's, else the folder, within
-  // what narrows its search; the favourites and the recent ones are no filter, and it searches the project from them.
+  const placeLabel = flat ? placeName(place, tags.data?.tags ?? []) : null
+  // The box searches where the member is: a tag's documents, else the folder, within what narrows its search; the
+  // favourites and the recent ones are no filter, and it searches the project from them.
   const searchFrom = (q: string) => {
-    if (saved) workspace.showSearch({ q, filter: saved.filter })
-    else if ('tag' in place) workspace.showSearch({ q, filter: { ...EMPTY_FILTER, tags: [place.tag] } })
-    else if (openSmart) workspace.showSearch({ q, filter: openSmart.filter })
+    if ('tag' in place) workspace.showSearch({ q, filter: { ...EMPTY_FILTER, tags: [place.tag] } })
     else workspace.setSearch(q)
   }
   const narrowed = search != null && narrows({ ...search.filter, folder_id: null })
-  const searchPlaceholder = saved
-    ? `Search in ${saved.name}`
-    : narrowed
-      ? 'Search within these documents'
-      : flat && placeLabel && ('tag' in place || 'smart' in place)
-        ? `Search in ${placeLabel}`
-        : folderId == null
-          ? 'Search the project'
-          : `Search in ${currentName}`
+  const searchPlaceholder = narrowed
+    ? 'Search within these documents'
+    : flat && placeLabel && 'tag' in place
+      ? `Search in ${placeLabel}`
+      : folderId == null
+        ? 'Search the project'
+        : `Search in ${currentName}`
   return (
     <div
       data-tour="library"
@@ -350,20 +335,10 @@ export function Library() {
             dragging={dragging}
             onUpload={uploads ? uploadDropped : null}
           />
-          {openSmart && changes && (
-            <span className="ml-auto flex shrink-0 gap-0.5">
-              <IconButton label={`Change “${openSmart.name}”`} onClick={() => setSmartEditing({ smart: openSmart })}>
-                <Pencil className="size-3.5" />
-              </IconButton>
-              <IconButton label={`Delete “${openSmart.name}”`} danger onClick={() => setSmartAsking(openSmart)}>
-                <Trash2 className="size-3.5" />
-              </IconButton>
-            </span>
-          )}
         </div>
         {/* With every feature on, its buttons take a second line rather than run under the pane beside it. */}
         <div className="flex flex-wrap items-center gap-2 px-3 pb-2.5">
-          <SearchBox query={saved ? (saved.query ?? '') : query} placeholder={searchPlaceholder} onSearch={searchFrom} inputRef={searchBox} />
+          <SearchBox query={query} placeholder={searchPlaceholder} onSearch={searchFrom} inputRef={searchBox} />
           <Button
             icon={<Trash2 className="size-4" />}
             onClick={workspace.showTrash}
@@ -502,10 +477,7 @@ export function Library() {
           layout={layout}
           onLayout={setLayout}
           tags={tags.data?.tags ?? []}
-          smartFolders={smartFolders.data?.smart_folders ?? []}
-          changes={changes}
           onPlace={(chosen) => ('folder' in chosen ? workspace.goToFolder(null) : workspace.showPlace(chosen))}
-          onNewSmartFolder={() => setSmartEditing({ smart: null })}
           onTags={workspace.showTags}
           onFiling={workspace.showFiling}
         />
@@ -635,16 +607,10 @@ export function Library() {
         {search ? (
           <SearchResults
             search={search}
-            saved={saved}
             tags={tags.data?.tags ?? []}
             folders={folders.data ?? []}
             reviews={templates}
             searchBox={searchBox}
-            onSave={
-              changes && smartRoom
-                ? (draft) => setSmartEditing({ smart: null, draft: { name: draft.q.slice(0, 100), filter: draft.filter, query: draft.q } })
-                : null
-            }
           />
         ) : (
           <Listing
@@ -738,37 +704,6 @@ export function Library() {
         </>
       )}
 
-      {smartEditing && (
-        <SmartFolderEditor
-          editing={smartEditing.smart}
-          draft={smartEditing.draft}
-          tags={tags.data?.tags ?? []}
-          folders={folders.data ?? []}
-          reviews={templates}
-          onSave={(input) =>
-            organizing.saveSmartFolder.mutate(
-              { id: smartEditing.smart?.id ?? null, ...input },
-              { onSuccess: (saved) => workspace.showPlace({ smart: saved.id }), onError: (error) => mutations.setNotice(error.message) },
-            )
-          }
-          onClose={() => setSmartEditing(null)}
-        />
-      )}
-      {smartAsking && (
-        <Confirm
-          title={`Delete the smart folder “${smartAsking.name}”?`}
-          body="It lists the documents no more; they stay where they are, as they are."
-          action="Delete"
-          onConfirm={() =>
-            organizing.deleteSmartFolder.mutate(smartAsking.id, {
-              onSuccess: () => workspace.goToFolder(null),
-              onError: (error) => mutations.setNotice(error.message),
-            })
-          }
-          onClose={() => setSmartAsking(null)}
-        />
-      )}
-
       {workspace.draggingFiles && overPane && (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-page/80 p-4 backdrop-blur-xs">
           <div className="rounded-xl border-2 border-dashed border-accent/60 bg-surface px-8 py-6 text-center text-sm shadow-lg shadow-ink/5">
@@ -782,13 +717,6 @@ export function Library() {
       )}
     </div>
   )
-}
-
-/** The smart folder form, with the types the model gave the project's documents to choose from, asked for as it opens. */
-function SmartFolderEditor(props: Omit<Parameters<typeof SmartFolderDialog>[0], 'types'>) {
-  const { project } = useWorkspace()
-  const types = useDocumentTypes(project.id)
-  return <SmartFolderDialog {...props} types={types.data ?? []} />
 }
 
 interface BreadcrumbProps {
@@ -2195,19 +2123,15 @@ function GhostFolderRow({ onCommit, onCancel }: GhostFolderRowProps) {
 
 interface SearchResultsProps {
   search: LibrarySearch
-  /** The saved search being run, which any change leaves for a search of its own; null for one of the URL's. */
-  saved: SmartFolder | null
   tags: Tag[]
   folders: Folder[]
   /** Whether documents' reviews are rolled out to the organisation, which a search may then be narrowed by. */
   reviews: boolean
   /** The search box, which takes the focus once what held it goes. */
   searchBox: RefObject<HTMLInputElement | null>
-  /** Saves the search as a smart folder; null for a role that may not, or a project that holds all it may. */
-  onSave: ((search: LibrarySearch) => void) | null
 }
 
-function SearchResults({ search, saved, tags, folders, reviews, searchBox, onSave }: SearchResultsProps) {
+function SearchResults({ search, tags, folders, reviews, searchBox }: SearchResultsProps) {
   const workspace = useWorkspace()
   const { q: query, filter } = search
   const [filtering, setFiltering] = useState(false)
@@ -2218,8 +2142,8 @@ function SearchResults({ search, saved, tags, folders, reviews, searchBox, onSav
     enabled: query !== '',
   })
   const folder = folderChoices(folders).find((choice) => choice.id === filter.folder_id)?.label ?? null
-  // An unsaved search's folder is the library's, which the path above shows; a saved one's is a part of it as the rest.
-  const parts = filterParts(saved ? filter : { ...filter, folder_id: null }, tags, folder)
+  // The search's folder is the library's, which the path above shows.
+  const parts = filterParts({ ...filter, folder_id: null }, tags, folder)
   const hits = results.data?.hits ?? []
   const scope = filter.folder_id == null ? null : (folder ?? 'its folder')
   const within = query !== '' && hits.length > 0 && filter.mentions.length < MAX_WITHIN
@@ -2257,11 +2181,6 @@ function SearchResults({ search, saved, tags, folders, reviews, searchBox, onSav
               }}
             >
               Search within these
-            </Button>
-          )}
-          {onSave && !saved && query && (
-            <Button icon={<FolderSearch className="size-3.5" />} className="h-7 px-2 text-xs" onClick={() => onSave(search)}>
-              Save the search
             </Button>
           )}
         </span>

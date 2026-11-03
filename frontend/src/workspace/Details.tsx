@@ -90,7 +90,7 @@ export function DetailsDialog({ document, onClose }: { document: Document; onClo
           </IconButton>
         </div>
         <p id={`${id}-body`} className="mt-1 text-sm text-muted">
-          The library, smart folders, filing rules and the agent read these, and the search matches the document’s words in its
+          The library, its search, filing rules and the agent read these, and the search matches the document’s words in its
           language. What you set is kept when the document is read again or given a new version.
         </p>
         <div className="mt-4 space-y-3">

@@ -83,7 +83,7 @@ export interface Workspace {
   showMailbox(): void
   /** Shows the project's connected folders in the library, likewise. */
   showConnectors(): void
-  /** Shows a place of the library that is not a folder (a tag's documents, a smart folder's, the member's favourites or recent ones), likewise. */
+  /** Shows a place of the library that is not a folder (a tag's documents, the member's favourites or recent ones), likewise. */
   showPlace(place: Exclude<ListingPlace, { folder: number | null }>): void
   /** Shows the project's tags to make and change in the library, likewise. */
   showTags(): void

@@ -422,10 +422,10 @@ export type SortOrder = 'asc' | 'desc'
 
 /**
  * Where the library lists documents (`list_documents` in backend/app/api/documents.py): directly in a folder, the root's
- * for null; or wherever they are in the project, those of a tag, of a smart folder, the reader's favourites, or the
- * documents they opened lately, newest first whatever the order.
+ * for null; or wherever they are in the project, those of a tag, the reader's favourites, or the documents they opened
+ * lately, newest first whatever the order.
  */
-export type ListingPlace = { folder: number | null } | { tag: number } | { smart: number } | { favorites: true } | { recent: true }
+export type ListingPlace = { folder: number | null } | { tag: number } | { favorites: true } | { recent: true }
 
 /** TAG_COLORS in backend/app/models.py, each drawn by a token of index.css (`--color-tag-*`). */
 export const TAG_COLORS = ['grey', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'] as const
@@ -440,8 +440,8 @@ export interface Tag {
 }
 
 /**
- * What a smart folder matches and a search searches within (DocumentFilter in backend/app/schemas.py), each part narrowing
- * the others; a part left empty matches every document.
+ * What a search searches within (DocumentFilter in backend/app/schemas.py), each part narrowing the others; a part left
+ * empty matches every document.
  */
 export interface DocumentFilter {
   tags: number[]
@@ -456,22 +456,6 @@ export interface DocumentFilter {
   folder_id: number | null
   /** The documents with a passage that holds every word of each: what the earlier searches of a search within found. */
   mentions: string[]
-}
-
-/** A project's smart folder (SmartFolderOut): its folder's path as it is now, why it lists nothing if it does not, and who made it. */
-/** A smart folder as a member writes it, whole; with a query, a saved search, which the library opens as the search of its words. */
-export interface SmartFolderInput {
-  name: string
-  filter: DocumentFilter
-  query: string | null
-}
-
-export interface SmartFolder extends SmartFolderInput {
-  id: number
-  folder: string | null
-  problem: string | null
-  made_by: string | null
-  updated_at: string
 }
 
 /** FILING_CONDITIONS and FILING_ACTIONS in backend/app/models.py. */
@@ -2819,7 +2803,6 @@ export const api = {
     const params = new URLSearchParams()
     if ('folder' in place && place.folder != null) params.set('folder_id', String(place.folder))
     if ('tag' in place) params.set('tag', String(place.tag))
-    if ('smart' in place) params.set('smart', String(place.smart))
     if ('favorites' in place) params.set('favorites', 'true')
     if ('recent' in place) params.set('recent', 'true')
     // The library's first order is the server's when none is named.
@@ -2871,13 +2854,6 @@ export const api = {
   /** Put tags on every one of the chosen documents and take tags off every one, the rest of each one's left as they are. */
   tagDocuments: (projectId: number, documentIds: number[], add: number[], remove: number[]) =>
     request<Document[]>(`/projects/${projectId}/documents/tags`, json('POST', { document_ids: documentIds, add, remove })),
-  smartFolders: (projectId: number) =>
-    request<{ smart_folders: SmartFolder[]; max_smart_folders: number }>(`/projects/${projectId}/smart-folders`),
-  createSmartFolder: (projectId: number, body: SmartFolderInput) =>
-    request<SmartFolder>(`/projects/${projectId}/smart-folders`, json('POST', body)),
-  updateSmartFolder: (id: number, body: SmartFolderInput) =>
-    request<SmartFolder>(`/smart-folders/${id}`, json('PUT', body)),
-  deleteSmartFolder: (id: number) => request<void>(`/smart-folders/${id}`, { method: 'DELETE' }),
   filingRules: (projectId: number) =>
     request<{ rules: FilingRule[]; max_filing_rules: number }>(`/projects/${projectId}/filing-rules`),
   createFilingRule: (projectId: number, body: FilingRuleInput) =>

@@ -4,9 +4,8 @@
 
 The search box above the library finds passages by their words and by their meaning together,
 so "late delivery penalty" also finds a clause about liquidated damages. It searches the
-project, or the folder you are in, or a tag's or a smart folder's documents while the library
-shows them. Words are matched in each document's language, so that "invoices" also finds
-"invoice": the one the document was read to be written in, or the one your organisation chose
+project, or the folder you are in, or a tag's documents while the library shows them. Words
+are matched in each document's language, so that "invoices" also finds "invoice": the one the document was read to be written in, or the one your organisation chose
 on its page ([A document's details](/help/documents)). The passages that hold every word you typed come first, then
 those that hold all but one of them, then those that hold any.
 
@@ -16,9 +15,6 @@ those that hold all but one of them, then those that hold any.
 - **Search within these** keeps the words you searched for and empties the box: the next words
   search only the documents with a passage that holds every one of them. Do it again to narrow
   further, up to $within times.
-- **Save the search** keeps it, its words with what narrows it, as a smart folder of the
-  project ([Tags, smart folders and favourites](/help/documents)), which runs the search again
-  each time it is opened from the menu above the files.
 
 To search every project you see at once, type in the box above the projects on the projects
 page. Its page lists the best passages first wherever they are, each with its project's name;

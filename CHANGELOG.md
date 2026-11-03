@@ -13,6 +13,21 @@ to: `## YYYY-MM-DD` a day (or `## YYYY-MM-DD to YYYY-MM-DD`), the newest first, 
 and `Operators:`, each a list of `- ` entries whose lines go on indented by two spaces, a day's
 newest entry first.
 
+## 2026-11-03
+
+Members:
+
+- Smart folders and saved searches are gone: the menu above the files no longer offers "New
+  smart folder…", and a search no longer offers "Save the search". The documents they listed
+  stay where they are. A search is still narrowed by "Filter" and "Search within these", and a
+  tag still lists its documents wherever they are.
+
+Operators:
+
+- Migration 45a76579a0ca drops the `smart_folders` table with the smart folders and saved
+  searches in it; a downgrade makes it again, empty. `GET|POST /api/projects/{id}/smart-folders`,
+  `PUT|DELETE /api/smart-folders/{id}` and the documents listing's `smart=` are gone.
+
 ## 2026-11-01
 
 Members:

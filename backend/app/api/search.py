@@ -6,7 +6,7 @@ every query the server makes for it, and the versioned API too, until a program 
 
 The projects are those `visible_to` the account, as the projects page lists them: a private one
 is searched for its chosen members and the owners and admins alone, and one in the trash for
-nobody. Tags, folders and smart folders are each project's own, so nothing here narrows by them.
+nobody. Tags and folders are each project's own, so nothing here narrows by them.
 Like the project's search, it is held to RATE_SEARCHES a minute."""
 
 from typing import Annotated
@@ -17,6 +17,7 @@ from sqlalchemy import func, select, text
 from app.access import visible_to
 from app.api.deps import AccountDep, ServicesDep, SessionDep, limited
 from app.api.query import hit_fields
+from app.document_filter import BACKWARDS, anywhere
 from app.models import Document, Project
 from app.ratelimit import SEARCHES
 from app.schemas import (
@@ -27,7 +28,6 @@ from app.schemas import (
     SearchAllOut,
 )
 from app.search import SearchResult, search_projects
-from app.smart_folders import BACKWARDS, anywhere
 
 router = APIRouter(tags=["query"], dependencies=[Depends(limited(SEARCHES))])
 

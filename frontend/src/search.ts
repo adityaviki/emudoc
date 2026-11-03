@@ -2,7 +2,7 @@
 // projects: its address, what narrows it in words, and where a hit opens.
 
 import type { Project, SearchAllFilter, SearchAllHit } from './api.ts'
-import { EMPTY_FILTER, filterParts, listed, smartFolderProblem } from './library.ts'
+import { EMPTY_FILTER, datesProblem, filterParts, listed } from './library.ts'
 import { buildWorkspaceUrl } from './workspace/url.ts'
 
 export const SEARCH_PATH = '/search'
@@ -81,7 +81,7 @@ export function searchAllWords(filter: SearchAllFilter, projects: Pick<Project, 
 
 /** Why the filter as chosen cannot be applied, in the words the server would refuse it with; null when it can. */
 export function searchAllProblem(filter: SearchAllFilter): string | null {
-  return smartFolderProblem('-', { ...EMPTY_FILTER, after: filter.after, before: filter.before })
+  return datesProblem(filter)
 }
 
 /** Where a hit opens: its document in its project, at the passage. */

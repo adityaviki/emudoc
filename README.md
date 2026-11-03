@@ -596,20 +596,16 @@ The library reads a project more ways than by its folders. A member who may chan
 gives it **tags** (`backend/app/tags.py`: a name and one of nine colours, a project's own) and
 puts them on its documents from a file's menu, "Tags…", a document holding its tags' ids on its
 own row (`documents.tag_ids`) so that the page of its folder asked again shows them. Above the
-files, the place menu shows instead of the folders, across all of them, a tag's documents, a
-**smart folder**'s (`backend/app/smart_folders.py`: a project's saved filter by tags, any or every
-one, the documents' types, a span of the documents' own dates, review states, a folder with
-its subfolders and words a passage of theirs holds, which everyone who reads the project sees; a
-tag or the folder it names gone, it lists nothing by that part rather than more; one that keeps a
-search's words is a **saved search**, which opens as that search within its documents), the
+files, the place menu shows instead of the folders, across all of them, a tag's documents, the
 member's own **favourites** (starred from a file's menu) and **recent** documents (the last 20 of
 the project they opened in the middle pane, `backend/app/recents.py`). The search box above them
-searches the folder shown, or a tag's or a smart folder's documents, narrowed by the same parts
-as a smart folder's filter (its "Filter" dialog, each part a chip that takes it off; the search
-route takes them as query parameters, `SearchIn`, and resolves the documents' ids before the
-ranking); "Search within these" makes the words searched one of those parts, so that the next
-words search only the documents with a passage holding every one of them, and "Save the search"
-keeps it all as a smart folder. The projects page searches **every project** the member sees at
+searches the folder shown, or a tag's documents, narrowed by tags, any or every one, the
+documents' types, a span of the documents' own dates, review states and a folder with its
+subfolders (its "Filter" dialog, each part a chip that takes it off; the search route takes them
+as query parameters, `SearchIn`, and `backend/app/document_filter.py` resolves the documents' ids
+before the ranking); "Search within these" makes the words searched one of those parts, so that
+the next words search only the documents with a passage holding every one of them. The projects
+page searches **every project** the member sees at
 once (`/search`, `backend/app/api/search.py`, one ranking over all their passages, each hit
 naming its project and opening its document at the passage), narrowed to some of those projects,
 to types and to a span of dates; a private project is searched by those who see it alone, and
@@ -639,10 +635,10 @@ when one is not (`POST /api/projects/{id}/documents/tags`, `/documents/reprocess
 A document's **details**, its title, type, date and language, are what its reading found until a
 member who may change the project sets one of them in their place from its tab's "Edit details"
 (`backend/app/details.py`, `PATCH /api/documents/{id}/details`): the member's value is the one
-the library, its date order, smart folders, filing rules, search hits and the agent read, and it
-holds through "Index again" and a new version, while what each reading finds is kept beside it
-for the dialog to show and "Use the reading" to take again; a title set starts the outline's
-paths, which the passages are searched with. Its language is the one its words are searched in:
+the library, its date order, the search's filter, filing rules, search hits and the agent read,
+and it holds through "Index again" and a new version, while what each reading finds is kept
+beside it for the dialog to show and "Use the reading" to take again; a title set starts the
+outline's paths, which the passages are searched with. Its language is the one its words are searched in:
 the parse stage tells it from the document's first 20,000 characters of words (py3langid's
 model, on the worker, which knows 97 languages; the database stems 28 of them, and a document in
 another, Polish say, is searched by its words as written), and a document whose words are too

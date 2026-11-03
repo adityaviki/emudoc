@@ -125,12 +125,12 @@ describe('fetchListing', () => {
     replies.push(sent('"f"', [a], null), sent('"r"', [b], null), sent('"s"', [], null))
     await fetchListing(3, { favorites: true }, { sort: 'name', order: 'desc' }, undefined)
     await fetchListing(3, { recent: true }, BY_NAME, undefined)
-    await fetchListing(3, { smart: 2 }, { sort: 'date', order: 'asc' }, undefined)
+    await fetchListing(3, { tag: 2 }, { sort: 'date', order: 'asc' }, undefined)
     expect(calls.map((call) => call.url)).toEqual([
       '/api/projects/3/documents?tag=5&sort=size&order=desc',
       '/api/projects/3/documents?favorites=true&order=desc',
       '/api/projects/3/documents?recent=true',
-      '/api/projects/3/documents?smart=2&sort=date',
+      '/api/projects/3/documents?tag=2&sort=date',
     ])
     // Each place in each order is held apart, a folder by its id as before.
     expect(listingKey(3, { tag: 5 }, { sort: 'size', order: 'desc' })).toEqual(['documents', 3, 'tag:5', 'size', 'desc'])
