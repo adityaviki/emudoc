@@ -339,13 +339,6 @@ export function Library() {
         {/* With every feature on, its buttons take a second line rather than run under the pane beside it. */}
         <div className="flex flex-wrap items-center gap-2 px-3 pb-2.5">
           <SearchBox query={query} placeholder={searchPlaceholder} onSearch={searchFrom} inputRef={searchBox} />
-          <Button
-            icon={<Trash2 className="size-4" />}
-            onClick={workspace.showTrash}
-            title="The trash: what was deleted, until it is deleted for good"
-            aria-label="Trash"
-            className="px-2"
-          />
           {templates && (
             <Button
               icon={<TableProperties className="size-4" />}
@@ -418,16 +411,9 @@ export function Library() {
               className="px-2"
             />
           )}
+          {/* A new folder is made from the menu of the listing's empty space, as in a file manager. */}
           {changes && (
             <>
-              <Button
-                icon={<FolderPlus className="size-4" />}
-                onClick={() => setCreating(true)}
-                disabled={search != null || flat}
-                title="New folder"
-                aria-label="New folder"
-                className="px-2"
-              />
               {/* A narrow pane keeps the icon only. */}
               {uploads && (
                 <Button
@@ -480,6 +466,7 @@ export function Library() {
           onPlace={(chosen) => ('folder' in chosen ? workspace.goToFolder(null) : workspace.showPlace(chosen))}
           onTags={workspace.showTags}
           onFiling={workspace.showFiling}
+          onTrash={workspace.showTrash}
         />
       </div>
 
