@@ -2,6 +2,10 @@
 # so nothing else can reach it, and its password is the well-known `emudoc` on purpose, so
 # that `cp .env.example .env` works. The app has no such default: a deployment runs its own
 # database and names it in DATABASE_URL.
+#
+# Named, so that a worktree (worktree.sh), whose folder has another name, runs these same
+# containers rather than a second set on the same ports.
+name: emudoc
 services:
   db:
     image: pgvector/pgvector:0.8.7-pg17@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d

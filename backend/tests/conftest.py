@@ -27,9 +27,18 @@ from sqlalchemy.engine import URL, make_url
 # The container docker-compose.yml runs; the app itself has no default database.
 SERVER = os.environ.get("TEST_DATABASE_SERVER", "emudoc:emudoc@127.0.0.1:5437")
 # Under pytest-xdist (`-n`) each worker truncates and rebuilds a database of its own,
-# emudoc_test_gw0 and on, so that the workers never empty each other's tables.
+# emudoc_test_gw0 and on, so that the workers never empty each other's tables. A git worktree
+# (worktree.sh, whose checkout holds a `.git` file where the main one holds the directory) puts
+# its name in them, emudoc_test_wt_<name>_gw0, so that two checkouts' runs never do either; the
+# name is cut to 40 characters, within Postgres's 63 for the whole.
 _WORKER = os.environ.get("PYTEST_XDIST_WORKER")
-TEST_DATABASE = f"emudoc_test_{_WORKER}" if _WORKER else "emudoc_test"
+_CHECKOUT = Path(__file__).resolve().parents[2]
+_WORKTREE = (
+    "wt_" + re.sub(r"\W+", "_", _CHECKOUT.name.lower())[:40]
+    if (_CHECKOUT / ".git").is_file()
+    else None
+)
+TEST_DATABASE = "_".join(part for part in ("emudoc_test", _WORKTREE, _WORKER) if part)
 TEST_DATABASE_URL = f"postgresql+psycopg://{SERVER}/{TEST_DATABASE}"
 # Set to run against a server that is not on this machine, such as a CI job's database container
 # reached by its service name.

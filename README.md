@@ -749,6 +749,15 @@ frontend dev server (updating the open page as you edit, no build needed), which
 the backend. Ctrl+C stops both
 servers. Port 8000 still serves the last build, so it does not show your edits.
 
+To work on several things at once, `./worktree.sh start <name>` makes a second checkout of
+`origin/main` on a branch of that name, under `.claude/worktrees/<name>`, and starts Claude Code
+in it. The checkout has a database of its own (`emudoc_wt_<name>`, on the same compose server),
+this checkout's `.env` naming that database, its packages installed and its schema migrated, and
+its tests use databases of their own. `./worktree.sh new <name>` makes one and prints its path,
+and `./worktree.sh remove <name>` takes it away with its databases, and its branch once `main`
+holds its commits. `dev.sh`, the browser test and the load test use fixed ports, so they run in
+one checkout at a time.
+
 ## What works without what
 
 | Missing          | Still works                                           | Does not                                          |
@@ -1587,7 +1596,8 @@ workflows' actions once a week, a week after their release, and those of the ima
 are pinned by digest: the image's bases in the `Dockerfile` and the compose files' images, a
 newer version a week after its release and a rebuilt tag's new digest at once.
 
-The backend tests use a separate `emudoc_test` database and make no network calls: the AI
+The backend tests use a separate `emudoc_test` database (`emudoc_test_wt_<name>` in a worktree
+made by `worktree.sh`) and make no network calls: the AI
 model, the embedding model, the mailer and the identity providers are replaced by stand-ins, and
 the requests to Gemini, Claude and OpenRouter are checked through their real SDKs against recorded
 responses. The tests empty that database, so they refuse to run against any other, and against a
