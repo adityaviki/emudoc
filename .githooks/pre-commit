@@ -20,5 +20,8 @@ if ! docker info >/dev/null 2>&1; then
     "check with git commit --no-verify." >&2
   exit 1
 fi
-exec docker run --rm -v "$PWD:/repo:ro" -w /repo "$image" git --pre-commit --staged --redact \
-  --verbose --no-banner --log-level warn --ignore-gitleaks-allow .
+# A worktree's .git is a file naming a folder in the main checkout's .git, which the container
+# needs at the same path; without it gitleaks reads no repository and still exits 0.
+common=$(git rev-parse --path-format=absolute --git-common-dir)
+exec docker run --rm -v "$PWD:/repo:ro" -v "$common:$common:ro" -w /repo "$image" git \
+  --pre-commit --staged --redact --verbose --no-banner --log-level warn --ignore-gitleaks-allow .

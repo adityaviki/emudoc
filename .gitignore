@@ -4,6 +4,11 @@
 # uploaded files and rendered page images
 backend/data/
 
+# the checkouts beside this one, and in one the link to the rules outside the repository
+# (worktree.sh)
+.claude/worktrees/
+/.claude/rules
+
 # python
 __pycache__/
 *.py[cod]
