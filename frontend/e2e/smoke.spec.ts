@@ -11,16 +11,15 @@ import { printed } from './print.ts'
 import { STANDIN, heldTurns, holdNextTurn, hooksReceived, refuseEmbeddings, releaseTurns } from './standin.ts'
 
 // The member's way through the app, end to end: read the home page and the plans a visitor is
-// shown, sign up through the link the app mails, find the
-// organisation's first steps listed, skip the tour the first project shows, ask the sample
+// shown, sign up through the link the app mails, skip the tour the first project shows, ask the sample
 // project the organisation starts with one of its questions, print its contract's pages, make a project, upload a contract,
 // begun offline and waiting for the connection, wait for it to be indexed, find it by searching, ask about it, stop the
 // answer while the model thinks and try it again, open the passage the answer
 // cites and print the contract as it reads, which the Free plan's chat follows with the way to a plan for a team, upload a folder,
 // whose panel follows each file while its request is held, and put it in the trash, export the project,
 // download it and open the bell's notice that it is ready, start a second
-// organisation, choose its settings, read them in its audit log and download it, hide its first
-// steps, delete it and keep it, and switch back, and, on Team, invite a colleague as a
+// organisation, find its empty projects page, choose its settings, read them in its audit log and
+// download it, delete it and keep it, and switch back, and, on Team, invite a colleague as a
 // viewer from under that answer, who makes an account from the invitation's link, ends her tour, finds
 // the project and is offered no change to it until made a member, write to support from the
 // help menu, which mails the page written from, read the help pages and what's new, add a webhook,
@@ -83,8 +82,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   // The first organisation's, for the operator's command, and the first member's address.
   let slug = ''
   let address = ''
-  // The projects page's list of the organisation's first steps.
-  const firstSteps = page.getByRole('region', { name: 'Get started' })
   // The chat's suggestion to invite the team, under an answer about the organisation's documents.
   const inviteTeam = page.getByRole('region', { name: 'Invite your team' })
   // The organisation page's webhooks, and the secret of the one added, which signs its events.
@@ -130,8 +127,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByLabel(/I accept the terms of service/).check()
     await page.getByRole('button', { name: 'Create account' }).click()
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
-    await expect(firstSteps).toContainText('0 of 3 done')
-    await expectAccessible(page, 'the projects page with its first steps')
+    await expect(page.getByText(SAMPLE)).toBeVisible()
+    await expectAccessible(page, 'the projects page')
   })
 
   await test.step('skip the tour, and ask the sample project one of its questions', async () => {
@@ -182,7 +179,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(account).toBeFocused()
     await page.getByRole('link', { name: 'Emudoc' }).click()
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
-    await expect(firstSteps).toContainText('1 of 3 done')
   })
 
   await test.step('make a project', async () => {
@@ -557,11 +553,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('menuitem', { name: 'New organisation' }).click()
     await page.getByLabel('Name', { exact: true }).fill('Lovelace Legal')
     await page.getByRole('button', { name: 'Create organisation' }).click()
-    // A new organisation's first steps, which hidden leave the empty page its own way on.
-    await expect(firstSteps).toContainText('0 of 3 done')
-    await expect(page.getByText('No projects yet')).toHaveCount(0)
-    await page.getByRole('button', { name: 'Hide the first steps' }).click()
-    await expect(firstSteps).toHaveCount(0)
+    // A new organisation's projects page, empty, with its own way on.
     await expect(page.getByText('No projects yet')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Create a project' })).toBeVisible()
     // Its settings: the language its documents are searched in, and chats kept for less time
