@@ -5,7 +5,7 @@
 # checkout's .env naming that database, its packages installed and its schema migrated. Its
 # files go to its own backend/data, and the suite in it names its own databases
 # (tests/conftest.py). `remove` takes away what `new` made, the branch only once main holds its
-# commits.
+# commits, and fast-forwards the main checkout's main to origin/main when it is checked out.
 #
 #   emudoc/worktree.sh start <name>    make it unless it is there, and start Claude Code in it
 #   emudoc/worktree.sh new <name>      make it; prints its path and nothing else on stdout
@@ -64,6 +64,12 @@ case $1 in
   remove)
     git worktree remove "$dir"
     git fetch -q origin
+    # The main checkout's main moved up to what was merged, as dev.sh does before it starts:
+    # nothing else here does it.
+    if [ "$(git symbolic-ref --short -q HEAD)" = main ]; then
+      git merge -q --ff-only origin/main \
+        || echo "Left main where it was: it cannot fast-forward to origin/main."
+    fi
     # Merged by rebase, its commits are on main under other hashes: `git cherry` finds them by
     # what they change.
     if git cherry origin/main "$name" | grep -q '^+'; then
