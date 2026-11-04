@@ -70,6 +70,17 @@ const DELIVERIES = join(import.meta.dirname, 'fixtures', 'deliveries')
 // The project every sign-up's organisation starts with (backend/app/sample).
 const SAMPLE = 'Sample: Acme supplier contract'
 
+/** "New folder" from the menu of the listing's empty space, under its last row, where its own padding is. */
+async function newFolder(page: Page, name: string) {
+  const files = page.getByRole('tree', { name: 'Files' })
+  const box = await files.boundingBox()
+  if (!box) throw new Error('The listing is not shown.')
+  await files.click({ button: 'right', position: { x: box.width / 2, y: box.height - 4 } })
+  await page.getByRole('menuitem', { name: 'New folder' }).click()
+  await page.getByLabel('New name').fill(name)
+  await page.getByLabel('New name').press('Enter')
+}
+
 test('a new member uploads a contract, finds it, asks about it and opens the cited passage', async ({ page, browser, request }) => {
   // About 3.5 minutes on a machine of its own (2026-10-24, with the connected folder's step);
   // CI's runners share one (ci-runner/), where it took 5 beside the backend suites and an image
@@ -335,9 +346,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(contract).toBeVisible()
     await expect(undo).toHaveCount(0)
 
-    await page.getByRole('button', { name: 'New folder' }).click()
-    await page.getByLabel('New name').fill('Contracts')
-    await page.getByLabel('New name').press('Enter')
+    await newFolder(page, 'Contracts')
     // The folder first: a drag pressed while it is still being made finds the rows moved under it.
     const folder = page.getByRole('treeitem', { name: /Contracts/ })
     await expect(folder).toBeVisible()
@@ -416,7 +425,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await folder.click()
     await page.keyboard.press('Delete')
     await expect(folder).toHaveCount(0)
-    await page.getByRole('button', { name: 'Trash', exact: true }).click()
+    await page.getByRole('button', { name: /^Show: / }).click()
+    await page.getByRole('menuitem', { name: 'Trash…' }).click()
     await expect(page).toHaveURL(/[?&]trash/)
     await page.getByRole('button', { name: 'Restore service-contract.md' }).click()
     const trashed = page.getByRole('list', { name: 'In the trash' })
@@ -1954,9 +1964,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('menuitemradio', { name: 'A to Z' }).click()
 
     // A rule that files the next invoice into a folder of its own, as it is read.
-    await page.getByRole('button', { name: 'New folder' }).click()
-    await page.getByLabel('New name').fill('Invoices')
-    await page.getByLabel('New name').press('Enter')
+    await newFolder(page, 'Invoices')
     await expect(page.getByRole('treeitem', { name: 'Invoices', exact: true })).toBeVisible()
     await show.click()
     await page.getByRole('menuitem', { name: 'Filing rules…' }).click()

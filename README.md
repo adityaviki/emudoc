@@ -99,7 +99,7 @@ template's fields first, under the fields' names and of their types, then any ot
 before; a long document's first part names its kind, and the parts after it are shown that
 template alone. The document takes the template's kind, and its stage says which of the fields
 every document of the kind states were not found in it. The library's "Extraction templates"
-button, beside the trash, lists them with their fields; whoever may change the project makes a
+button, beside the search, lists them with their fields; whoever may change the project makes a
 template, customises a built-in one into the project's own, changes and deletes them, each a row
 of the audit log. After a change they have the template's documents read again from their
 summaries and facts ("Read them again", `POST /api/projects/{id}/templates/read-again`): those
@@ -668,8 +668,8 @@ tab, each a link to it there, and listed on the projects page's "See the duplica
 (`backend/app/duplicates.py`, `/duplicates`), by the same bytes alone.
 
 Deleting puts things in a **trash** rather than removing them (`backend/app/trash.py`): a file
-or a folder with everything in it goes into its project's trash, where the library's trash
-button finds it, and the library offers to undo the deletion at once; a chat goes into its
+or a folder with everything in it goes into its project's trash, which "Trash…" in the
+library's "Show" menu opens, and the library offers to undo the deletion at once; a chat goes into its
 starter's trash, which the chat list's "Deleted chats" opens; a project goes, with everything
 in it, into the organisation's trash under the projects. What is in the trash is out of the
 library, the search, the agent's answers and the counts, and counts against nothing on the

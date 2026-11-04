@@ -1,4 +1,4 @@
-import { ArrowDownUp, ChevronDown, Clock, FolderCog, Folder as FolderIcon, LayoutGrid, List, Star, Tag as TagIcon, Tags, X } from 'lucide-react'
+import { ArrowDownUp, ChevronDown, Clock, FolderCog, Folder as FolderIcon, LayoutGrid, List, Star, Tag as TagIcon, Tags, Trash2, X } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import { REVIEW_LABELS, REVIEW_STATES } from '../reviews.ts'
 import { TAG_COLORS } from '../api.ts'
@@ -74,11 +74,12 @@ interface PlaceBarProps {
   onPlace: (place: ListingPlace) => void
   onTags: () => void
   onFiling: () => void
+  onTrash: () => void
 }
 
 /**
  * Under the library's search: what it shows (all its files, the member's favourites or recent ones, or a tag's documents)
- * and the way to the project's tags and filing rules, the order it lists them in, and as a list or a grid.
+ * and the way to the project's tags, filing rules and trash, the order it lists them in, and as a list or a grid.
  */
 export function PlaceBar(props: PlaceBarProps) {
   const { place, arrangement, layout, tags } = props
@@ -101,6 +102,7 @@ export function PlaceBar(props: PlaceBarProps) {
     'separator',
     { label: 'Tags…', icon: Tags, onSelect: props.onTags },
     { label: 'Filing rules…', icon: FolderCog, onSelect: props.onFiling },
+    { label: 'Trash…', icon: Trash2, onSelect: props.onTrash },
   ]
   const orders: MenuItem[] = [
     ...SORT_NAMES.map((sort) => ({

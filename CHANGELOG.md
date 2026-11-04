@@ -17,6 +17,9 @@ newest entry first.
 
 Members:
 
+- The library's buttons beside the search no longer include Trash and New folder. The trash
+  opens from "Trash…" in the "Show" menu under the search, and a new folder from the menu you
+  get by right-clicking the library's empty space.
 - The projects page no longer lists the first steps under "Get started". A new organisation's
   empty projects page still offers "Create a project", and after an answer about your own
   documents the chat still suggests inviting your team.

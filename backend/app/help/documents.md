@@ -40,8 +40,8 @@ it is done, naming any file that could not be read.
 
 ## Folders
 
-Make folders with New folder, drag files and folders into them, and rename an item with F2 or
-from its menu. A folder uploaded is filed as it was, inside the folder it goes into; where that
+Make a folder with New folder, in the menu you get by right-clicking the library's empty space,
+drag files and folders into it, and rename an item with F2 or from its menu. A folder uploaded is filed as it was, inside the folder it goes into; where that
 holds a folder of the same name already, its files go into that one. A move or a rename can be undone at once from the notice under the library's
 toolbar. Two files of the same project cannot hold the same bytes: uploading one again says
 where it is.
@@ -161,8 +161,8 @@ Emudoc never takes the same file twice into a project.
 
 Deleting a file, a folder or a project puts it in the trash for $trash_days days, from which a
 member restores it as it was, while the plan has room for it; after that it is deleted for good.
-The library's Trash button opens the project's trash, and the projects page lists the projects
-in the trash. Nothing in the trash is searched, asked about or counted against your plan. The
+"Trash…", in the menu that opens from "Show" under the library's search, opens the project's
+trash, and the projects page lists the projects in the trash. Nothing in the trash is searched, asked about or counted against your plan. The
 library also offers to undo a deletion at once.
 
 ## Downloading and printing
