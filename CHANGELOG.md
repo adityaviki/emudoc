@@ -13,6 +13,14 @@ to: `## YYYY-MM-DD` a day (or `## YYYY-MM-DD to YYYY-MM-DD`), the newest first, 
 and `Operators:`, each a list of `- ` entries whose lines go on indented by two spaces, a day's
 newest entry first.
 
+## 2026-11-04
+
+Members:
+
+- The projects page no longer lists the first steps under "Get started". A new organisation's
+  empty projects page still offers "Create a project", and after an answer about your own
+  documents the chat still suggests inviting your team.
+
 ## 2026-11-03
 
 Members:

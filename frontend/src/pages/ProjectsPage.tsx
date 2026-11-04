@@ -1,19 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Circle, CircleCheck, Download, FolderOpen, Lock, Plus, RotateCcw, Search, Sparkles, Trash2, Users, X } from 'lucide-react'
+import { Download, FolderOpen, Lock, Plus, RotateCcw, Search, Sparkles, Trash2, Users } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { api, auth, isPlanLimit, mayChange, organizations } from '../api.ts'
+import { api, isPlanLimit, mayChange } from '../api.ts'
 import type { PlanRefusal, Project, TrashedProject } from '../api.ts'
-import { ME_KEY, setSignedIn, useMe } from '../auth.ts'
+import { ME_KEY, useMe } from '../auth.ts'
 import { Confirm } from '../components/Confirm.tsx'
 import { PlanLimitNotice } from '../components/PlanLimit.tsx'
-import { Button, Checkbox, EmptyState, FIELD, IconButton, LinkButton, Loading, Notice } from '../components/ui.tsx'
+import { Button, Checkbox, EmptyState, FIELD, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { DUPLICATES_KEY, duplicatesWords } from '../details.ts'
 import { formatDate } from '../format.ts'
 import { EXPORT_QUERY } from '../exports.ts'
-import { checklistOf } from '../onboarding.ts'
-import type { ChecklistStep } from '../onboarding.ts'
 import { describeTrashedProject, projectPurgeQuestion, TRASHED_PROJECTS_KEY } from '../trash.ts'
 import { EMPTY_SEARCH_ALL, searchAllUrl } from '../search.ts'
 import { ProjectAccessForm } from './ProjectAccessForm.tsx'
@@ -22,13 +20,6 @@ import { ProjectExports } from './ProjectExports.tsx'
 export function ProjectsPage() {
   const me = useMe()
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects })
-  // Asked again each time the page shows, since a step is taken elsewhere: in a project, on the
-  // organisation page, or by another member.
-  const onboarding = useQuery({
-    queryKey: ['onboarding', me.organization.id],
-    queryFn: organizations.onboarding,
-    enabled: !me.checklist_hidden,
-  })
   const [creating, setCreating] = useState(false)
   // The project whose access the form above the projects shows, by id.
   const [managing, setManaging] = useState<number | null>(null)
@@ -41,10 +32,6 @@ export function ProjectsPage() {
   const changes = mayChange(me.role)
   const managed = projects.data?.find((project) => project.id === managing)
   const exported = changes ? projects.data?.find((project) => project.id === exporting) : undefined
-  const checklist =
-    me.checklist_hidden || !onboarding.data || !projects.data ? null : checklistOf(onboarding.data.steps, projects.data)
-  // The list says what to do first, so an empty page says nothing more while it shows or may.
-  const listing = checklist !== null || (!me.checklist_hidden && onboarding.isPending)
   const create = () => {
     setManaging(null)
     setParams({}, { replace: true })
@@ -73,13 +60,12 @@ export function ProjectsPage() {
           </div>
         </div>
 
-        {checklist && <GettingStarted steps={checklist} onCreate={create} />}
         {creating && <NewProjectForm onClose={() => setCreating(false)} />}
         {managed && <ProjectAccessForm key={managed.id} project={managed} me={me} onClose={() => setManaging(null)} />}
         {exported && <ProjectExports key={exported.id} project={exported} onClose={() => setParams({}, { replace: true })} />}
         {projects.isPending && <Loading />}
         {projects.isError && <Notice tone="bad">Could not load projects: {projects.error.message}</Notice>}
-        {projects.data?.length === 0 && !creating && !listing && (
+        {projects.data?.length === 0 && !creating && (
           <div className="rounded-xl border border-dashed border-line">
             <EmptyState icon={<FolderOpen />} title="No projects yet">
               {changes ? (
@@ -227,63 +213,6 @@ function ProjectTrash() {
         ))}
       </ul>
       {asking && <Confirm {...projectPurgeQuestion(asking)} onConfirm={() => purge.mutate(asking)} onClose={() => setAsking(null)} />}
-    </section>
-  )
-}
-
-/**
- * The organisation's first steps, each with the way to take it, until they are taken or the
- * member hides the list, which stays hidden in every organisation of theirs.
- */
-function GettingStarted({ steps, onCreate }: { steps: ChecklistStep[]; onCreate: () => void }) {
-  const queryClient = useQueryClient()
-  const hide = useMutation({
-    mutationFn: () => auth.chooseOnboarding({ checklist_hidden: true }),
-    onSuccess: (me) => setSignedIn(queryClient, me),
-  })
-  const done = steps.filter((step) => step.done).length
-
-  return (
-    <section aria-labelledby="getting-started" className="mb-6 rounded-xl border border-line bg-surface p-5 shadow-xs">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 id="getting-started" className="font-semibold">
-            Get started
-          </h2>
-          <p className="mt-0.5 text-[13px] text-muted tabular-nums">
-            {done} of {steps.length} done
-          </p>
-        </div>
-        <IconButton label="Hide the first steps" onClick={() => hide.mutate()} disabled={hide.isPending}>
-          <X className="size-4" />
-        </IconButton>
-      </div>
-      <ol className="mt-4 space-y-3">
-        {steps.map((step) => (
-          <li key={step.key} className="flex flex-wrap items-start gap-x-3 gap-y-2">
-            {step.done ? (
-              <CircleCheck role="img" className="mt-0.5 size-4.5 shrink-0 text-good" aria-label="Done" />
-            ) : (
-              <Circle role="img" className="mt-0.5 size-4.5 shrink-0 text-muted" aria-label="To do" />
-            )}
-            <div className="min-w-0 flex-1 basis-64">
-              <p className={`text-[13px] font-medium ${step.done ? 'text-muted line-through' : ''}`}>{step.title}</p>
-              {!step.done && <p className="text-[13px] leading-relaxed text-muted">{step.detail}</p>}
-            </div>
-            {step.action &&
-              ('create' in step.action ? (
-                <Button onClick={onCreate}>{step.action.label}</Button>
-              ) : (
-                <LinkButton to={step.action.to}>{step.action.label}</LinkButton>
-              ))}
-          </li>
-        ))}
-      </ol>
-      {hide.isError && (
-        <div className="mt-3">
-          <Notice tone="bad">{hide.error.message}</Notice>
-        </div>
-      )}
     </section>
   )
 }

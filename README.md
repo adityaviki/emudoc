@@ -1051,18 +1051,14 @@ its invoices, the price list, the delivery log, an email and meeting notes, inde
 for an upload, and an empty chat in it offers three questions that read the documents against
 each other. It counts against nothing on the plan and takes no uploads; its questions count, and
 it is deleted like any project (`SAMPLE_PROJECT=false` turns it off; deploying.md, "The sample
-project"). The projects page lists the organisation's first steps (upload its own documents, ask
-about them, invite its team), each with the way to take it, read from what the organisation has
-done, so a member who joins a team at work finds them taken; a member is offered uploading and
-asking, an owner or admin inviting too, a viewer nothing (`backend/app/onboarding.py`). Hiding the
-list hides it in every organisation of the account. The first project a member opens shows a
-short tour of the workspace, card by card, which "Skip the tour" or Escape ends; the user menu
-offers it again inside a project. Once an answer about the organisation's own documents is done
-(not the sample's), the chat suggests inviting the team under it to an owner or admin while
-nobody else is a member or invited, with a form that sends the invitation there, or on a plan
-for one the way to a larger one; its cross hides it in every organisation of the account
-(`frontend/src/workspace/InviteTeam.tsx`). The form answers
-an address that has an account the same, and that address is told by mail instead, so the form
+project"). The first project a member opens shows a short tour of the workspace, card by card,
+which "Skip the tour" or Escape ends; the user menu offers it again inside a project. Once an
+answer about the organisation's own documents is done (not the sample's), the chat suggests
+inviting the team under it to an owner or admin while nobody else is a member or invited (read
+from what the organisation has done, `backend/app/onboarding.py`), with a form that sends the
+invitation there, or on a plan for one the way to a larger one; its cross hides it in every
+organisation of the account (`frontend/src/workspace/InviteTeam.tsx`). The form answers an
+address that has an account the same, and that address is told by mail instead, so the form
 says nothing of who uses the deployment. An account made through Google or Microsoft whose
 address the provider does not vouch for gets a verification link, and a banner asks for it until
 it is used. Sign-in sets a session cookie, marked `Secure` over HTTPS and always in production. The account page (the
@@ -1620,8 +1616,8 @@ backend/app/
   accounts.py   who a request acts as; signing up makes a user and their organisation
   sample/       the sample project a sign-up's organisation starts with: its files, the index
                 the pipeline made of them, the copy and the build-sample command's build
-  onboarding.py the organisation's first steps the projects page lists, read from what it did,
-                and the account's choices about them, the tour and the invite suggestion
+  onboarding.py the organisation's first steps, read from what it did, which the invite
+                suggestion reads, and the account's choices about the tour and the suggestion
   invitations.py
                 invitations to an organisation, and joining one by an address's domain
   auth.py       passwords, sessions, one-time links and authenticator codes
@@ -1676,8 +1672,8 @@ frontend/src/
   auth.ts       who is signed in, for the shell and its pages
   chat.ts       a chat's messages as the chat pane holds them, and the answers being followed
   scopes.ts     what a chat is about in words, and the questions a chat about part of it asks
-  onboarding.ts the first steps' words and ways on, and when the chat suggests inviting the
-                team; tour.ts the workspace's tour, which components/Tour.tsx shows
+  onboarding.ts when the chat suggests inviting the team; tour.ts the workspace's tour, which
+                components/Tour.tsx shows
 deploy/
   compose.yml   the image on one machine: the migrations, the API, a worker and ClamAV
   restore-drill.sh

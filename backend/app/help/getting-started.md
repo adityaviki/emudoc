@@ -14,6 +14,5 @@ read so that you can check each answer against its source.
 4. **Invite your team** from the [organisation page](/organization), on a plan with room for
    them ([Organisations, members and roles](/help/organisations)).
 $sample
-The projects page lists your organisation's first steps until they are taken or hidden, and the
-first project you open shows a short tour; the menu behind your initials offers it again inside
-a project. Anything else: [Getting help](/help/support).
+The first project you open shows a short tour; the menu behind your initials offers it again
+inside a project. Anything else: [Getting help](/help/support).
