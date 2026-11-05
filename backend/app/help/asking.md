@@ -87,7 +87,7 @@ note naming the document, section and pages of its passage.
 
 ## When the assistant cannot answer
 
-The header says when the AI model or the search by meaning is out of reach: search then matches
-words alone, and asking is off until the model is back. A question past the
+The Ask tab says when the AI model is out of reach, and asking is off until it is back; a search
+that cannot find passages by their meaning says so, and matches words alone. A question past the
 organisation's questions for the month, or its spending for the day, is refused with what
 lifts the limit ([Plans and usage](/help/plans)).

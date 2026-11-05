@@ -17,6 +17,8 @@ newest entry first.
 
 Members:
 
+- The top right of the page no longer shows "AI model" and "Semantic search". When the AI model
+  is out of reach the Ask tab still says so, and a search that matched words alone says that.
 - The path above the library's files is always there, reading "All files" at the top, so
   choosing Favourites or Recent no longer pushes the files down. The trash icon now sits in the
   same group as All files, Favourites and Recent.

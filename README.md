@@ -769,14 +769,14 @@ one checkout at a time.
 | Embeddings       | Keyword search, everything else                       | Search by meaning                                 |
 | ClamAV           | Everything; each document says it was not scanned     | Malware scanning of uploads (off by choice only in production) |
 
-The header shows which of the two is available; the backend asks the embeddings endpoint at
-most once a minute for it, so an endpoint that comes back shows within the minute. In
-development it names the models and says what stops one and what to change; a deployment's
-members are told only what they cannot do for now and to try later, and the reason is the
-operator's, in the log, the metrics and the alerts. After adding a key, restart the backend and
+The Ask tab says when the model is out of reach, and a search when it matched keywords only;
+the backend asks the embeddings endpoint at most once a minute, so an endpoint that comes back
+is used within the minute. In development the Ask tab says what stops the model and what to
+change; a deployment's members are told only what they cannot do for now and to try later, and
+the reason is the operator's, in the log, the metrics and the alerts. After adding a key, restart the backend and
 press "Index the rest" in the library to enrich what was indexed without it.
 `DISABLED_PROVIDERS` switches a provider's models off on purpose, with the same effect and the
-reason shown in the header in development, and the same button enriches what was indexed
+reason shown in the Ask tab in development, and the same button enriches what was indexed
 meanwhile once it is lifted; a fallback of another provider (`AGENT_FALLBACK_MODEL`, `INDEX_FALLBACK_MODEL`, below)
 does the work meanwhile instead. Running without the model is for development: with `ENVIRONMENT=production` the
 backend refuses to start until the key is in the environment, unless the model was switched
@@ -868,7 +868,7 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   `provider:model` name, separated by commas (`google,anthropic`). A model of a provider named
   here cannot be used until the name is removed and the backend and the worker restarted;
   meanwhile the app runs as it does without a key, and says why in its log (and, in
-  development, in the header). Production starts with it, unlike with a missing key. The
+  development, in the Ask tab). Production starts with it, unlike with a missing key. The
   operator's area switches a provider off the same way without a restart, and on again; one
   this setting names stays off whatever the area says.
 - `ENVIRONMENT` is `development` (the default) or `production`. In development the backend
