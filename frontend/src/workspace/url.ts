@@ -19,7 +19,7 @@ export interface WorkspaceSearch {
   filter: DocumentFilter
 }
 
-/** The folder the library shows, with `name` its files wherever they are whose names hold those letters; or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, with `changes`, what their last readings changed, with `checks`, its cross-checks, with `check`, what that one finds, with `run`, a run of them kept with what it found, with `questionSets`, its question sets with the reports of their answers, with `report`, one of those reports, with `reviews`, its documents in review, with `activity`, what was done in it lately, with `drafts`, the drafts the model wrote from its documents, with `draft`, one of them, with `draftTemplates`, how its drafts of each kind read, with `mail`, its address and what it received, with `connectors`, the folders of its members' Google Drive, Dropbox or OneDrive it keeps in step with; with `tag`, the documents of one of its tags wherever they are, with `favorites`, the member's favourites, with `recent`, the documents they opened lately; and with `tags`, its tags to make and change. A tag's, the favourites' and the recent
+/** The folder the library shows, with `name` its files wherever they are whose names hold those letters; or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, with `changes`, what their last readings changed, with `checks`, its cross-checks, with `check`, what that one finds, with `run`, a run of them kept with what it found, with `questionSets`, its question sets with the reports of their answers, with `report`, one of those reports, with `reviews`, its documents in review, with `activity`, what was done in it lately, with `drafts`, the drafts the model wrote from its documents, with `draft`, one of them, with `draftTemplates`, how its drafts of each kind read, with `mail`, its address and what it received, with `connectors`, the folders of its members' Google Drive, Dropbox or OneDrive it keeps in step with; with `favorites`, the member's favourites, and with `recent`, the documents they opened lately. The favourites and the recent
 documents take `name` too. */
 export interface LibraryView {
   folderId: number | null
@@ -40,10 +40,8 @@ export interface LibraryView {
   draftTemplates?: true
   mail?: true
   connectors?: true
-  tag?: number
   favorites?: true
   recent?: true
-  tags?: true
 }
 
 export interface OpenDocument {
@@ -94,10 +92,8 @@ export function parseWorkspaceUrl(pathname: string, query: string): WorkspaceUrl
   else if (params.has('draft-templates')) library.draftTemplates = true
   else if (params.has('mail')) library.mail = true
   else if (params.has('connectors')) library.connectors = true
-  else if (id(params.get('tag')) != null) library.tag = id(params.get('tag')) ?? undefined
   else if (params.has('favorites')) library.favorites = true
   else if (params.has('recent')) library.recent = true
-  else if (params.has('tags')) library.tags = true
 
   let document: OpenDocument | null = null
   let canonical = true
@@ -129,8 +125,6 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/
 function parseSearch(params: URLSearchParams, open: boolean): WorkspaceSearch | null {
   const day = (value: string | null) => (value != null && DAY.test(value) ? value : null)
   const filter: DocumentFilter = {
-    tags: params.getAll('tagged').flatMap((value) => id(value) ?? []),
-    every_tag: params.has('every-tag'),
     types: params.getAll('type').filter(Boolean),
     after: day(params.get('after')),
     before: day(params.get('before')),
@@ -138,18 +132,15 @@ function parseSearch(params: URLSearchParams, open: boolean): WorkspaceSearch | 
     folder_id: id(params.get('in')),
     mentions: params.getAll('within').filter((value) => value.trim() !== ''),
   }
-  filter.every_tag &&= filter.tags.length > 1
   const q = params.get('q')?.trim() ?? ''
   const narrowed =
-    filter.tags.length || filter.types.length || filter.after || filter.before || filter.reviews.length || filter.folder_id != null || filter.mentions.length
+    filter.types.length || filter.after || filter.before || filter.reviews.length || filter.folder_id != null || filter.mentions.length
   return q || narrowed || open ? { q, filter } : null
 }
 
 function writeSearch(params: URLSearchParams, { q, filter: search }: WorkspaceSearch) {
   if (q) params.set('q', q)
   if (search.folder_id != null) params.set('in', String(search.folder_id))
-  for (const tag of search.tags) params.append('tagged', String(tag))
-  if (search.every_tag && search.tags.length > 1) params.set('every-tag', '')
   for (const type of search.types) params.append('type', type)
   if (search.after) params.set('after', search.after)
   if (search.before) params.set('before', search.before)
@@ -208,10 +199,8 @@ export function buildWorkspaceUrl(url: Omit<WorkspaceUrl, 'canonical'>): string 
   if (url.library.draftTemplates) params.set('draft-templates', '')
   if (url.library.mail) params.set('mail', '')
   if (url.library.connectors) params.set('connectors', '')
-  if (url.library.tag != null) params.set('tag', String(url.library.tag))
   if (url.library.favorites) params.set('favorites', '')
   if (url.library.recent) params.set('recent', '')
-  if (url.library.tags) params.set('tags', '')
   if (url.document) {
     path += `/documents/${url.document.id}`
     const focus = url.document.focus

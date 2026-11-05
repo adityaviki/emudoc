@@ -1,20 +1,14 @@
-// The library's ways of reading a project as the page holds them (backend/app/api/tags.py, favorites.py): the project's
-// tags, the reader's favourites, and the changes to them.
-// Tagging a document or several chosen together and starring one show at once and are put back if the server refuses;
-// every listing a change may touch is asked for again either way.
+// The library's ways of reading a project as the page holds them (backend/app/api/favorites.py, query.py): the reader's
+// favourites and the types of the project's documents. Starring a document shows at once and is put back if the server
+// refuses; the favourites' listing is asked for again either way.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api.ts'
-import type { Document, TagColor } from '../api.ts'
-import { retagged } from '../selection.ts'
-import type { TagsChange } from '../selection.ts'
-import { documentKey, editListings, listingsKey, placeListingsKey, restore, snapshotListings } from './listing.ts'
+import { placeListingsKey } from './listing.ts'
 
-export const tagsKey = (projectId: number) => ['tags', projectId] as const
 export const favoritesKey = (projectId: number) => ['favorites', projectId] as const
 export const documentTypesKey = (projectId: number) => ['document-types', projectId] as const
 
-export const useTags = (projectId: number) => useQuery({ queryKey: tagsKey(projectId), queryFn: () => api.tags(projectId) })
 export const useDocumentTypes = (projectId: number) =>
   useQuery({ queryKey: documentTypesKey(projectId), queryFn: () => api.documentTypes(projectId) })
 
@@ -24,50 +18,9 @@ export function useFavorites(projectId: number): Set<number> {
   return new Set(favorites.data?.document_ids)
 }
 
-/** Tagging a document or several and starring one, each shown at once wherever the page holds it, and put back if refused. */
+/** Starring a document, shown at once wherever the page holds it, and put back if refused. */
 export function useDocumentMarks(projectId: number, fail: (error: Error) => void) {
   const queryClient = useQueryClient()
-  const tag = useMutation({
-    mutationFn: ({ id, tagIds }: { id: number; tagIds: number[] }) => api.tagDocument(id, tagIds),
-    onMutate: async ({ id, tagIds }) => {
-      const previous = await snapshotListings(queryClient, projectId)
-      const open = queryClient.getQueryData<Document>(documentKey(id))
-      const change = (document: Document) => (document.id === id ? { ...document, tag_ids: tagIds } : document)
-      editListings(queryClient, projectId, (documents) => documents.map(change))
-      if (open) queryClient.setQueryData(documentKey(id), change(open))
-      return { previous, open }
-    },
-    onError: (error, { id }, context) => {
-      restore(queryClient, context?.previous)
-      queryClient.setQueryData(documentKey(id), context?.open)
-      fail(error)
-    },
-    // The tags' counts, and the place that lists by a tag.
-    onSettled: (_data, _error, { id }) => {
-      for (const queryKey of [listingsKey(projectId), documentKey(id), tagsKey(projectId)]) void queryClient.invalidateQueries({ queryKey })
-    },
-  })
-  // Several at once: each keeps what the change does not name, as the server keeps it.
-  const tagMany = useMutation({
-    mutationFn: ({ ids, change }: { ids: number[]; change: TagsChange }) => api.tagDocuments(projectId, ids, change.add, change.remove),
-    onMutate: async ({ ids, change }) => {
-      const previous = await snapshotListings(queryClient, projectId)
-      const chosen = new Set(ids)
-      const open = ids.map((id) => [id, queryClient.getQueryData<Document>(documentKey(id))] as const)
-      const edit = (document: Document) => (chosen.has(document.id) ? { ...document, tag_ids: retagged(document.tag_ids, change) } : document)
-      editListings(queryClient, projectId, (documents) => documents.map(edit))
-      for (const [id, document] of open) if (document) queryClient.setQueryData(documentKey(id), edit(document))
-      return { previous, open }
-    },
-    onError: (error, _variables, context) => {
-      restore(queryClient, context?.previous)
-      for (const [id, document] of context?.open ?? []) queryClient.setQueryData(documentKey(id), document)
-      fail(error)
-    },
-    onSettled: (_data, _error, { ids }) => {
-      for (const queryKey of [listingsKey(projectId), tagsKey(projectId), ...ids.map(documentKey)]) void queryClient.invalidateQueries({ queryKey })
-    },
-  })
   const star = useMutation({
     mutationFn: ({ id, starred }: { id: number; starred: boolean }) => (starred ? api.starDocument(id) : api.unstarDocument(id)),
     onMutate: async ({ id, starred }) => {
@@ -88,26 +41,5 @@ export function useDocumentMarks(projectId: number, fail: (error: Error) => void
       }
     },
   })
-  return { tag, tagMany, star }
-}
-
-/** Making, changing and deleting the project's tags, each asked for again with what it touches. */
-export function useOrganizing(projectId: number) {
-  const queryClient = useQueryClient()
-  const invalidate = (...keys: readonly unknown[][]) => {
-    for (const queryKey of keys) void queryClient.invalidateQueries({ queryKey })
-  }
-  // A tag renamed shows on every document by its new name; one deleted comes off them.
-  const tagTouched = () => invalidate([...tagsKey(projectId)], [...listingsKey(projectId)], ['document'])
-  const createTag = useMutation({
-    mutationFn: (body: { name: string; color: TagColor }) => api.createTag(projectId, body),
-    onSettled: () => invalidate([...tagsKey(projectId)]),
-  })
-  const updateTag = useMutation({
-    mutationFn: ({ id, ...body }: { id: number; name?: string; color?: TagColor }) => api.updateTag(id, body),
-    onSettled: tagTouched,
-  })
-  const deleteTag = useMutation({ mutationFn: (id: number) => api.deleteTag(id), onSettled: tagTouched })
-
-  return { createTag, updateTag, deleteTag }
+  return { star }
 }

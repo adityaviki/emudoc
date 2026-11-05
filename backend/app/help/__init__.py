@@ -29,7 +29,6 @@ from app.sample import NAME as SAMPLE_NAME
 from app.schemas import MAX_MENTIONS
 from app.selection import MAX_CHOSEN
 from app.support import SUPPORT_SESSION
-from app.tags import MAX_DOCUMENT_TAGS
 from app.trash import TRASH_DAYS
 from app.webhooks import DELIVERIES_KEPT, FIRST_WAIT, MAX_TRIES, MAX_WEBHOOKS, TIMEOUT, TOLERANCE
 
@@ -125,7 +124,6 @@ def _values(settings: Settings) -> dict[str, str]:
         "recent": str(RECENT),
         "chosen": str(MAX_CHOSEN),
         "within": str(MAX_MENTIONS),
-        "document_tags": str(MAX_DOCUMENT_TAGS),
         "question_chars": f"{settings.max_question_chars:,}",
         "chat_retention": by_plan(lambda plan: plan.retention_days, "until deleted"),
         "invitation_days": str(INVITATION_TTL.days),

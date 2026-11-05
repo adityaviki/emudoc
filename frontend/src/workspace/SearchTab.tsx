@@ -13,7 +13,7 @@ import { folderChoices } from '../automations.ts'
 import { Button, Chip, EmptyState, IconButton, Loading, Notice } from '../components/ui.tsx'
 import { EMPTY_FILTER, MAX_WITHIN, filterParts, filterWords, narrows, withoutPart } from '../library.ts'
 import { EMPTY_SEARCH_ALL, HEADER_SEARCH, searchAllUrl } from '../search.ts'
-import { useDocumentTypes, useTags } from './organizing.ts'
+import { useDocumentTypes } from './organizing.ts'
 import { SearchFilterDialog } from './Places.tsx'
 import { useWorkspace } from './state.ts'
 import type { WorkspaceSearch } from './url.ts'
@@ -27,7 +27,6 @@ export function SearchTab({ search }: { search: WorkspaceSearch }) {
   const { q: query, filter } = search
   // Documents' reviews narrow a search where they are rolled out to the organisation (backend/app/flags.py).
   const reviews = me.organization.flags_on.includes('extraction_templates')
-  const tags = useTags(project.id).data?.tags ?? []
   const [filtering, setFiltering] = useState(false)
   const filterButton = useRef<HTMLButtonElement>(null)
   const results = useQuery({
@@ -36,7 +35,7 @@ export function SearchTab({ search }: { search: WorkspaceSearch }) {
     enabled: query !== '',
   })
   const folder = folderChoices(folders).find((choice) => choice.id === filter.folder_id)?.label ?? null
-  const parts = filterParts(filter, tags, folder)
+  const parts = filterParts(filter, folder)
   const hits = results.data?.hits ?? []
   const within = query !== '' && hits.length > 0 && filter.mentions.length < MAX_WITHIN
 
@@ -79,7 +78,7 @@ export function SearchTab({ search }: { search: WorkspaceSearch }) {
       </div>
       {!query && (
         <EmptyState icon={<Search />} title="What should be searched for?">
-          {filterWords(filter, tags, folder)}. Type words in the search box at the top to search them.
+          {filterWords(filter, folder)}. Type words in the search box at the top to search them.
         </EmptyState>
       )}
       {results.isPending && query !== '' && <Loading />}
@@ -107,7 +106,6 @@ export function SearchTab({ search }: { search: WorkspaceSearch }) {
       {filtering && (
         <SearchFilterEditor
           filter={filter}
-          tags={tags}
           folders={folders}
           reviews={reviews}
           onApply={(chosen) => workspace.showSearch({ q: query, filter: chosen })}

@@ -39,7 +39,7 @@ class World:
     invitation to the organisation and an API key of it, all made by the local owner in the local
     organisation, and another member of it; the project has an address, a folder of the
     owner's Google Drive connected, and its document a share link and a thread of the owner's
-    comment; the project has a tag its document carries. The extraction
+    comment. The extraction
     templates are on for every organisation, and so are the drafts, email in, connected folders,
     share links, question sets and comments, so that what refuses another organisation is the
     project's scope, not the flag."""
@@ -70,7 +70,6 @@ class World:
     connector_id: int
     webhook_id: int
     link_id: int
-    tag_id: int
     question_set_id: int
     report_id: int
     thread_id: int
@@ -149,9 +148,6 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
     session.flush()
     connector.refresh_token = encrypt(CONNECTOR_TOKENS, connector.id, "refresh-1")
     session.commit()
-    tag = client.post(f"/api/projects/{project['id']}/tags", json={"name": "Signed"}).json()
-    tagged = client.put(f"/api/documents/{document['id']}/tags", json={"tag_ids": [tag["id"]]})
-    assert tagged.status_code == 200, tagged.text
     question_set = client.post(f"/api/projects/{project['id']}/question-sets", json=QUESTION_SET)
     assert question_set.status_code == 201, question_set.text
     report = client.post(f"/api/question-sets/{question_set.json()['id']}/run").json()
@@ -191,7 +187,6 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
         connector.id,
         hook.json()["id"],
         link.json()["id"],
-        tag["id"],
         question_set.json()["id"],
         report["id"],
         thread.json()["id"],
@@ -206,9 +201,7 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/projects/{w.project_id}/access", {}),
         ("GET", f"/api/projects/{w.project_id}/folders", {}),
         ("GET", f"/api/projects/{w.project_id}/documents", {}),
-        ("GET", f"/api/projects/{w.project_id}/documents", {"params": {"tag": w.tag_id}}),
         ("GET", f"/api/projects/{w.project_id}/documents", {"params": {"recent": True}}),
-        ("GET", f"/api/projects/{w.project_id}/tags", {}),
         ("GET", f"/api/projects/{w.project_id}/favorites", {}),
         ("GET", f"/api/projects/{w.project_id}/document-types", {}),
         ("GET", f"/api/projects/{w.project_id}/uploads", {"params": {"ids": w.upload_id}}),
@@ -278,14 +271,6 @@ def writes(w: World) -> list[Route]:
             {"json": {"kind": "invoice"}},
         ),
         ("POST", f"/api/projects/{w.project_id}/folders", {"json": {"name": "Invoices"}}),
-        ("POST", f"/api/projects/{w.project_id}/tags", {"json": {"name": "Paid"}}),
-        ("PATCH", f"/api/tags/{w.tag_id}", {"json": {"color": "green"}}),
-        ("PUT", f"/api/documents/{w.document_id}/tags", {"json": {"tag_ids": []}}),
-        (
-            "POST",
-            f"/api/projects/{w.project_id}/documents/tags",
-            {"json": {"document_ids": [w.document_id], "add": [w.tag_id]}},
-        ),
         (
             "POST",
             f"/api/projects/{w.project_id}/documents/reprocess",
@@ -350,7 +335,6 @@ def writes(w: World) -> list[Route]:
         ("DELETE", f"/api/automations/{w.automation_id}", {}),
         ("DELETE", f"/api/reports/{w.report_id}", {}),
         ("DELETE", f"/api/question-sets/{w.question_set_id}", {}),
-        ("DELETE", f"/api/tags/{w.tag_id}", {}),
         ("DELETE", f"/api/projects/{w.project_id}/mailbox", {}),
         ("DELETE", f"/api/projects/{w.project_id}/connectors/{w.connector_id}", {}),
         ("DELETE", f"/api/cross-checks/{w.cross_check_id}", {}),

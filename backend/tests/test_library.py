@@ -227,7 +227,7 @@ def test_a_name_filter_finds_the_files_whose_names_hold_its_letters_in_every_fol
 ):
     project = create_project(client)
     root = ["Invoice 2.txt", "annex.txt", "50%_off.txt", "500 off.txt"]
-    loose = upload(client, project["id"], *files(tmp_path, root))["documents"]
+    upload(client, project["id"], *files(tmp_path, root))
     contracts = make_folder(client, project["id"], "Contracts")
     inside = files(tmp_path / "c", ["invoice 10.txt", "msa.txt"])
     (invoice, _) = upload_into(client, project["id"], contracts["id"], *inside)["documents"]
@@ -248,13 +248,6 @@ def test_a_name_filter_finds_the_files_whose_names_hold_its_letters_in_every_fol
     assert named("0%_") == ["50%_off.txt"]
     # Spaces alone are no filter: the root, as without one.
     assert named("   ") == ["50%_off.txt", "500 off.txt", "annex.txt", "Invoice 2.txt"]
-    # It narrows a tag's documents too.
-    made = client.post(f"/api/projects/{project['id']}/tags", json={"name": "Due", "color": "red"})
-    tag_id = made.json()["id"]
-    for document in (invoice, loose[1]):
-        put = client.put(f"/api/documents/{document['id']}/tags", json={"tag_ids": [tag_id]})
-        assert put.status_code == 200, put.text
-    assert named("invoice", tag=tag_id) == ["invoice 10.txt"]
     # In the trash, a file is no longer found.
     client.delete(f"/api/documents/{invoice['id']}")
     assert named("invoice") == ["Invoice 2.txt"]

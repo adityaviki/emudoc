@@ -550,7 +550,7 @@ the middle, the **document**, with a tab for each open file; the tabs stay open 
 and closing the last one leaves the library and the agent side by side again.
 
 Everything there works by the keyboard as well (WCAG 2.2 AA). The library is one stop of Tab:
-the arrows move through its rows, which a screen reader reads out by name and state (its tags, its star and,
+the arrows move through its rows, which a screen reader reads out by name and state (its star and,
 in a place across the folders, where it is), or in the grid by a tile and by a row, Enter opens
 one, F2 renames, Delete deletes, and Tab goes on to the actions of the row it is on, whose "Move
 to…" asks for a folder in a dialog, the way to move without a drag. The tabs open with the arrows
@@ -592,19 +592,16 @@ download it and show its text, the project's export to hold it, and the plan's s
 it. A new version's pages count again as it is read, and it is an upload of its own, its notice,
 automations and `document.ready` following its reading.
 
-The library reads a project more ways than by its folders. A member who may change the project
-gives it **tags** (`backend/app/tags.py`: a name and one of nine colours, a project's own) and
-puts them on its documents from a file's menu, "Tags…", a document holding its tags' ids on its
-own row (`documents.tag_ids`) so that the page of its folder asked again shows them. Above the
-files, the place menu shows instead of the folders, across all of them, a tag's documents, the
-member's own **favourites** (starred from a file's menu) and **recent** documents (the last 20 of
-the project they opened in the middle pane, `backend/app/recents.py`). The box above them
-**filters the files by name** (`name` on the listing: the letters anywhere in a file's name, in
-any case, from every folder of the project, each file shown with its folder, or narrowing a tag's
-documents, the favourites or the recent ones). The project is searched from the **header's search
-box**, its hits in a Search tab at the front of the middle pane's tabs, beside the open documents,
-each opening its document at the passage in a tab of its own; it is narrowed by tags, any or every
-one, the documents' types, a span of the documents' own dates, review states and a folder with its
+The library reads a project more ways than by its folders. Above the files, a row of icons shows
+all the files in their folders, or instead, across all of them, the member's own **favourites**
+(starred from a file's menu) and **recent** documents (the last 20 of the project they opened in
+the middle pane, `backend/app/recents.py`), the icon of the place shown pressed, and beside them
+the way to the project's trash. The box under them **filters the files by name** (`name` on the
+listing: the letters anywhere in a file's name, in any case, from every folder of the project,
+each file shown with its folder, or narrowing the favourites or the recent ones). The project is
+searched from the **header's search box**, its hits in a Search tab at the front of the middle
+pane's tabs, beside the open documents, each opening its document at the passage in a tab of its
+own; it is narrowed by the documents' types, a span of the documents' own dates, review states and a folder with its
 subfolders (its "Filter" dialog, each part a chip that takes it off; the search route takes them
 as query parameters, `SearchIn`, and `backend/app/document_filter.py` resolves the documents' ids
 before the ranking); "Search within these" makes the words searched one of those parts, so that
@@ -620,14 +617,11 @@ draws of a PDF's first page, a scan or an image, the browser remembering both ch
 
 Files **chosen together** in the library (Ctrl or Shift and a click, or Ctrl+A), up to 100 at a
 time (`backend/app/selection.py`), are moved and deleted together, and by whoever may change the
-project tagged together from their menu ("Tags of n documents…": a tag ticked goes on every one, a
-tag cleared comes off every one, and one only some carry, shown half ticked, stays as it is
-unless pressed; refused whole, naming the document, when one would carry more than 20), indexed
-again ("Index n documents again", or "Index the rest" of the partly indexed among them; one being
+project indexed again ("Index n documents again", or "Index the rest" of the partly indexed among them; one being
 indexed already is left to its run and counted), and exported alone ("Export n documents": the
 project export's ZIP file of those documents, without the chats). Each change is one request
 that checks every chosen document is the project's and out of the trash, and is refused whole
-when one is not (`POST /api/projects/{id}/documents/tags`, `/documents/reprocess`).
+when one is not (`POST /api/projects/{id}/documents/reprocess`).
 
 A document's **details**, its title, type, date and language, are what its reading found until a
 member who may change the project sets one of them in their place from its tab's "Edit details"
@@ -665,8 +659,8 @@ tab, each a link to it there, and listed on the projects page's "See the duplica
 (`backend/app/duplicates.py`, `/duplicates`), by the same bytes alone.
 
 Deleting puts things in a **trash** rather than removing them (`backend/app/trash.py`): a file
-or a folder with everything in it goes into its project's trash, which "Trash…" in the
-library's "Show" menu opens, and the library offers to undo the deletion at once; a chat goes into its
+or a folder with everything in it goes into its project's trash, which the trash icon above
+the library's files opens, and the library offers to undo the deletion at once; a chat goes into its
 starter's trash, which the chat list's "Deleted chats" opens; a project goes, with everything
 in it, into the organisation's trash under the projects. What is in the trash is out of the
 library, the search, the agent's answers and the counts, and counts against nothing on the

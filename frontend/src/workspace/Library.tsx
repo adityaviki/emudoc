@@ -30,7 +30,6 @@ import {
   Star,
   StarOff,
   TableProperties,
-  Tag as TagIcon,
   Trash2,
   Upload,
   WifiOff,
@@ -45,7 +44,7 @@ import {
   SCOPE_DOCUMENTS,
   thumbnailUrl,
 } from '../api.ts'
-import type { Document, Folder, ListingPlace, ScopeIn, Tag, UploadItem } from '../api.ts'
+import type { Document, Folder, ListingPlace, ScopeIn, UploadItem } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { startChat } from '../chat.ts'
 import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
@@ -70,13 +69,11 @@ import {
   hasThumbnail,
   placeName,
   placeOf,
-  tagsOf,
 } from '../library.ts'
 import type { LibraryLayout } from '../library.ts'
 import { stateMoves } from '../reviews.ts'
 import { SUMMARY_QUESTION, comparisonQuestion } from '../scopes.ts'
-import { MAX_CHOSEN, retagged } from '../selection.ts'
-import type { TagsChange } from '../selection.ts'
+import { MAX_CHOSEN } from '../selection.ts'
 import { askHeld } from '../status.ts'
 import { VERSION_EXTENSIONS } from '../versions.ts'
 import { describeChange } from './changes.ts'
@@ -97,11 +94,10 @@ import type { Arrangement, Listing } from './listing.ts'
 import { useLibraryMutations, useReviewChange } from './mutations.ts'
 import { QuestionSetsView, ReportView } from './QuestionSets.tsx'
 import type { LibraryMutations } from './mutations.ts'
-import { useDocumentMarks, useFavorites, useOrganizing, useTags } from './organizing.ts'
-import { DocumentTagsDialog, PlaceBar, Seen, TagChips } from './Places.tsx'
+import { useDocumentMarks, useFavorites } from './organizing.ts'
+import { PlaceBar, Seen } from './Places.tsx'
 import { ReviewMark, ReviewsView } from './Reviews.tsx'
 import { useWorkspace } from './state.ts'
-import { TagsView } from './Tags.tsx'
 import { TemplatesView } from './Templates.tsx'
 import { TrashView } from './Trash.tsx'
 import { UploadPanel } from './UploadPanel.tsx'
@@ -223,18 +219,12 @@ export function Library() {
   const folderName = (id: number | null | undefined) => tree.byId.get(id ?? -1)?.name ?? project.name
   const { followed } = mutations
 
-  // A tag's documents, the member's favourites or recent ones, each across the project's folders, or the files whose
+  // The member's favourites or recent ones, each across the project's folders, or the files whose
   // names hold what the filter was given, every folder's or those of one of those; else the folder's tree.
   const place: ListingPlace = placeOf(workspace.url.library) ?? { folder: folderId }
   const flat = !('folder' in place)
   const [arrangement, setArrangement] = useLocalStorage<Arrangement>(ARRANGEMENT_KEY, BY_NAME, isArrangement)
   const [layout, setLayout] = useLocalStorage<LibraryLayout>(LAYOUT_KEY, 'list', isLayout)
-  const tags = useTags(project.id)
-  // A tag deleted, here or elsewhere, falls back to the root.
-  const placeGone = 'tag' in place && tags.isSuccess && !tags.data.tags.some((tag) => tag.id === place.tag)
-  useEffect(() => {
-    if (placeGone) workspace.goToFolder(null, { replace: true })
-  }, [placeGone, workspace])
 
   function uploadItems(items: UploadItem[], targetId: number | null, unread: string[] = []) {
     const refusal = project.sample ? SAMPLE_UPLOADS : mutations.startUpload(items, targetId, unread)
@@ -275,9 +265,8 @@ export function Library() {
   if (workspace.url.library.draftTemplates && drafts) return <DraftTemplatesView />
   if (workspace.url.library.mail && mail) return <MailboxView />
   if (workspace.url.library.connectors && connectors) return <ConnectorsView />
-  if (workspace.url.library.tags) return <TagsView />
-  // The files of the whole project a name filter finds are no place of their own: "Show: All files" says where they are.
-  const placeLabel = flat && !allNamed(place) ? placeName(place, tags.data?.tags ?? []) : null
+  // The files of the whole project a name filter finds are no place of their own: "All files", pressed, says where they are.
+  const placeLabel = flat && !allNamed(place) ? placeName(place) : null
   const atRoot = (folderId == null || allNamed(place)) && placeLabel === null
   return (
     <div
@@ -312,9 +301,10 @@ export function Library() {
             />
           </div>
         )}
-        {/* With every feature on, its buttons take a second line rather than run under the pane beside it. */}
-        <div className={`flex flex-wrap items-center gap-2 px-3 pb-2.5 ${atRoot ? 'pt-2.5' : ''}`}>
-          <SearchBox label="Filter by name" placeholder="Filter by name" query={name ?? ''} onSearch={workspace.filterByName} />
+        {/* The library's buttons, then what it shows and how, then the filter by name over the files it narrows. */}
+        <div className={`flex flex-col gap-2 px-3 pb-2.5 ${atRoot ? 'pt-2.5' : ''}`}>
+        {/* With every feature on, its buttons take a second line rather than run under the pane beside it; none, no line. */}
+        <div className="flex flex-wrap items-center gap-2 empty:hidden">
           {templates && (
             <Button
               icon={<TableProperties className="size-4" />}
@@ -438,11 +428,11 @@ export function Library() {
           onArrange={setArrangement}
           layout={layout}
           onLayout={setLayout}
-          tags={tags.data?.tags ?? []}
           onPlace={(chosen) => ('folder' in chosen ? workspace.goToFolder(null) : workspace.showPlace(chosen))}
-          onTags={workspace.showTags}
           onTrash={workspace.showTrash}
         />
+        <SearchBox label="Filter by name" placeholder="Filter by name" query={name ?? ''} onSearch={workspace.filterByName} className="w-full" />
+        </div>
       </div>
 
       <div className="shrink-0 space-y-2 empty:hidden px-3 pt-2">
@@ -565,8 +555,6 @@ export function Library() {
           place={place}
           arrangement={arrangement}
           layout={layout}
-          tags={tags.data?.tags ?? []}
-          canTag={(tags.data?.tags.length ?? 0) < (tags.data?.max_tags ?? 0)}
           creating={creating}
           onCreatingChange={setCreating}
           mutations={mutations}
@@ -761,10 +749,6 @@ interface ListingProps {
   arrangement: Arrangement
   /** Rows, or a grid of tiles of the place itself, its folders opened by going into them. */
   layout: LibraryLayout
-  /** The project's tags, which each document's are read by. */
-  tags: Tag[]
-  /** Whether the project has room for one more tag, which the tags' dialog then offers to make. */
-  canTag: boolean
   creating: boolean
   onCreatingChange: (creating: boolean) => void
   mutations: LibraryMutations
@@ -786,8 +770,6 @@ function Listing({
   place,
   arrangement,
   layout,
-  tags,
-  canTag,
   creating,
   onCreatingChange,
   mutations,
@@ -810,7 +792,6 @@ function Listing({
   const [openFolders, setOpenFolders] = useLocalStorage<number[]>(treeKey(project.id), [], isIdList)
   const review = useReviewChange(project.id)
   const marks = useDocumentMarks(project.id, (error) => mutations.setNotice(error.message))
-  const organizing = useOrganizing(project.id)
   const favorites = useFavorites(project.id)
   const flat = !('folder' in place)
   const grid = layout === 'grid'
@@ -834,9 +815,8 @@ function Listing({
   const [cursor, setCursor] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
-  // What "Move to…" moves while its dialog asks where, and the documents whose tags are being chosen.
+  // What "Move to…" moves while its dialog asks where.
   const [moving, setMoving] = useState<Item[] | null>(null)
-  const [tagging, setTagging] = useState<Document[] | null>(null)
   // How many tiles a row of the grid holds, from the listing's width.
   const [columns, setColumns] = useState(1)
   const menu = useContextMenu()
@@ -1009,19 +989,18 @@ function Listing({
 
   /**
    * What whoever may change the project does to several files at once (backend/app/selection.py), a page of them at
-   * most: their tags, indexing them again or the rest of the partly indexed, and an export of them alone.
+   * most: indexing them again or the rest of the partly indexed, and an export of them alone.
    */
   function chosenMenu(targets: Item[]): MenuItem[] {
     const files = targets.flatMap((item) => (item.kind === 'file' ? [item.document] : []))
     if (!changes || files.length !== targets.length) return []
     if (files.length > MAX_CHOSEN) {
-      return [{ label: `Choose at most ${MAX_CHOSEN} files to tag, index or export them together`, disabled: true, onSelect: () => {} }]
+      return [{ label: `Choose at most ${MAX_CHOSEN} files to index or export them together`, disabled: true, onSelect: () => {} }]
     }
     const ids = files.map((document) => document.id)
     const partly = files.filter((document) => unfinishedStages(document).length > 0)
     const missing = [...new Set(partly.flatMap(unfinishedStages))]
     return [
-      { label: `Tags of ${files.length} documents…`, icon: TagIcon, onSelect: () => setTagging(files) },
       {
         label: `Index ${files.length} documents again`,
         icon: RefreshCw,
@@ -1040,14 +1019,6 @@ function Listing({
         : []),
       { label: `Export ${files.length} documents`, icon: Download, onSelect: () => mutations.exportChosen.mutate(ids) },
     ]
-  }
-
-  /** Save the tags the dialog chose: a document's own as it now carries them, several's as what goes on and comes off. */
-  function saveTags(documents: Document[], change: TagsChange) {
-    if (!change.add.length && !change.remove.length) return
-    const [one] = documents
-    if (documents.length === 1) marks.tag.mutate({ id: one.id, tagIds: retagged(one.tag_ids, change) })
-    else marks.tagMany.mutate({ ids: documents.map((document) => document.id), change })
   }
 
   /** What can be done to the items; for several at once, a chat about them and what the role may change. */
@@ -1117,7 +1088,6 @@ function Listing({
       : []
     return [
       ...reading,
-      { label: 'Tags…', icon: TagIcon, onSelect: () => setTagging([item.document]) },
       rename,
       moveTo,
       ...version,
@@ -1383,7 +1353,6 @@ function Listing({
       // A flat place holds no folder to drag a file into.
       movable: changes && !flat,
       dropping: dropTarget === key,
-      tags: item.kind === 'file' ? tagsOf(item.document, tags) : [],
       favorite: item.kind === 'file' && favorites.has(item.document.id),
       where: flat && item.kind === 'file' ? whereOf(item.document) : undefined,
       onSelect: (event) => select(key, event),
@@ -1483,16 +1452,6 @@ function Listing({
           places={placesFor(tree, project.name, payloadOf(outermost(moving, tree)))}
           onMove={(targetId) => move(moving, targetId)}
           onClose={() => setMoving(null)}
-        />
-      )}
-      {tagging && (
-        <DocumentTagsDialog
-          documents={tagging}
-          tags={tags}
-          room={canTag}
-          onCreate={(name, color) => organizing.createTag.mutateAsync({ name, color })}
-          onSave={(change) => saveTags(tagging, change)}
-          onClose={() => setTagging(null)}
         />
       )}
     </>
@@ -1644,8 +1603,6 @@ interface RowProps {
   item: Item
   /** How far below the shown folder the item sits, which is how far it is indented. */
   depth: number
-  /** A file's tags, as its project holds them. */
-  tags: Tag[]
   /** Whether the reader starred the file. */
   favorite: boolean
   /** In a place across the project's folders, the folder a file is in, by its path. */
@@ -1681,15 +1638,15 @@ function ItemIcon({ item, className }: { item: Item; className: string }) {
 
 /**
  * What describes a file's row or tile, by the ids of what says it: its state as the status icon gives it, its review, its
- * tags, its star and where it is, rather than all it holds.
+ * star and where it is, rather than all it holds.
  */
 function describedBy(id: string, props: RowProps): string | undefined {
   if (props.item.kind === 'folder') return undefined
-  const parts = [`${id}-status`, props.item.document.review && `${id}-review`, props.tags.length > 0 && `${id}-tags`]
+  const parts = [`${id}-status`, props.item.document.review && `${id}-review`]
   return [...parts, props.favorite && `${id}-star`, props.where && `${id}-where`].filter(Boolean).join(' ')
 }
 
-/** A star on a file the reader made a favourite, read out as one in its description (a `hidden` word, as `TagChips`'). */
+/** A star on a file the reader made a favourite, read out as one in its description (a `hidden` word, which a description still reads). */
 function FavoriteMark({ id }: { id: string }) {
   return (
     <span className="ml-1.5 flex shrink-0">
@@ -1805,7 +1762,6 @@ function Row(props: RowProps) {
           </p>
         )}
       </div>
-      {!renaming && <TagChips tags={props.tags} id={`${id}-tags`} />}
       {props.favorite && <FavoriteMark id={`${id}-star`} />}
       {item.kind === 'file' && item.document.review && (
         <span className="ml-2 flex">
@@ -1824,7 +1780,7 @@ function Row(props: RowProps) {
 
 /**
  * A folder or a file as a tile of the grid: a file's thumbnail where the server draws one (a PDF, a scan, an image),
- * else its kind's icon, with its name, state and menu under it, and then its review, tags and star.
+ * else its kind's icon, with its name, state and menu under it, and then its review and star.
  */
 function Tile(props: RowProps) {
   const { item, selected, isCursor, renaming, movable, dropping, folderCount } = props
@@ -1899,7 +1855,6 @@ function Tile(props: RowProps) {
       <div className="flex min-h-5 min-w-0 items-center text-[11px] text-muted">
         {item.kind === 'folder' && <Seen text={folderCount === 1 ? '1 item' : `${folderCount ?? 0} items`} />}
         {item.kind === 'file' && item.document.review && <ReviewMark id={`${id}-review`} document={item.document} />}
-        <TagChips tags={props.tags} id={`${id}-tags`} shown={1} />
         {props.favorite && <FavoriteMark id={`${id}-star`} />}
         {props.where && <Where id={`${id}-where`} where={props.where} className="ml-1.5 min-w-0 truncate" />}
       </div>

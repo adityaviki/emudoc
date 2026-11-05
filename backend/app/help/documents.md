@@ -51,31 +51,26 @@ where it is.
 
 Choose several files with Ctrl (⌘ on a Mac) or Shift and a click, or every one shown with Ctrl+A,
 and open the menu of one of them. Besides asking about them together, moving and deleting them,
-a member who may change the project does three things to as many as $chosen of them at once:
+a member who may change the project does two things to as many as $chosen of them at once:
 
-- **Tags of … documents…** puts tags on them and takes tags off. Tick a tag to put it on every
-  one, or clear it to take it off every one. A tag only some of them carry is half ticked, and
-  stays as it is unless you press it. Where a document would carry more than
-  $document_tags tags, nothing changes and the dialog says which one.
 - **Index … documents again** reads each of them again from the start, and **Index the rest**
   indexes the partly indexed among them in full. One being indexed already is left to finish.
 - **Export … documents** makes a ZIP file of them alone, as a project's export makes of the whole
   project, without its chats ([Your data](/help/data)).
 
-## Tags and favourites
+## Favourites and recent documents
 
 The library can show a project's documents other ways than by their folders. Choose what it shows
-with the menu above the files, which reads "All files" at first:
+with the icons above the files:
 
-- **Tags** mark documents wherever they are. Give a document its tags with "Tags…" in its menu,
-  where you can make a new tag too, and change or delete the project's tags under "Tags…" in the
-  menu above the files. Choose a tag there to list its documents.
+- **All files** shows the folders and the files in them.
 - **Favourites** are the documents you starred with "Add to favourites" in their menu, and
   **Recent** the last $recent you opened in the project. Both are yours alone.
+- **Trash** shows what was deleted from the project, to take back or delete for good.
 
-Beside it, the order of the files (by name, date added, the document's own date or size, either
+Beside them, the order of the files (by name, date added, the document's own date or size, either
 way) and whether they show as a list or as a grid of pictures of their first pages. Your browser
-remembers both.
+remembers both. Under them, **Filter by name** finds files by their names.
 
 ## A document's details and its note
 
@@ -151,7 +146,7 @@ Emudoc never takes the same file twice into a project.
 
 Deleting a file, a folder or a project puts it in the trash for $trash_days days, from which a
 member restores it as it was, while the plan has room for it; after that it is deleted for good.
-"Trash…", in the menu that opens from "Show" under the library's filter by name, opens the project's
+The trash icon above the library's files, beside All files, Favourites and Recent, opens the project's
 trash, and the projects page lists the projects in the trash. Nothing in the trash is searched, asked about or counted against your plan. The
 library also offers to undo a deletion at once.
 

@@ -1,6 +1,5 @@
 """The documents a member chose together in the library, which its bulk routes act on at once:
-tagging them (app/api/tags.py), indexing them again (app/api/documents.py) and exporting them
-(app/api/exports.py).
+indexing them again (app/api/documents.py) and exporting them (app/api/exports.py).
 
 A choice is files alone, at most a page of the library's listing (`PAGE_SIZE` in
 app/api/documents.py): the page offers these only when every chosen item is a file, and a

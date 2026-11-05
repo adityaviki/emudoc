@@ -17,9 +17,15 @@ newest entry first.
 
 Members:
 
+- Tags are gone: a document's menu no longer offers "Tags…", the library no longer lists a tag's
+  documents, and a search's "Filter" no longer narrows by tags. The documents stay where they
+  are. A search is still narrowed by type, date, review and folder.
+- The library shows what it lists with icons above the files in place of the "Show" menu: All
+  files, Favourites and Recent, the one shown pressed, and beside them Trash. Filter by name now
+  has a line of its own under them, just above the files.
 - Filing rules are gone: the "Show" menu above the files no longer offers "Filing rules…", and
-  new documents stay where you upload them. The documents your rules moved or tagged keep their
-  folders and tags. Move a document yourself by dragging it onto a folder or with "Move to…".
+  new documents stay where you upload them. The documents your rules moved keep their
+  folders. Move a document yourself by dragging it onto a folder or with "Move to…".
 - The search box is now at the top of every page. In a project it searches the project, and the
   results open in a Search tab beside the documents you have open, so you can open a result and
   go back to the others. Anywhere else it searches every project you see when you press Enter.
@@ -38,6 +44,11 @@ Members:
 
 Operators:
 
+- Migration 9e1493ee558b drops the `tags` table with the tags in it, and `documents.tag_ids`
+  with its index; a downgrade makes them again, the table empty and every document carrying
+  none. `GET|POST /api/projects/{id}/tags`, `PATCH|DELETE /api/tags/{id}`,
+  `PUT /api/documents/{id}/tags`, `POST /api/projects/{id}/documents/tags`, the documents
+  listing's `tag=`, the search's `tags` and `every_tag`, and the project export's tags are gone.
 - Migration ca622aa5d107 drops the `filing_rules` table with the rules in it, and
   `documents.filed_at`; a downgrade makes them again, the table empty and every document marked
   filed. `GET|POST /api/projects/{id}/filing-rules` and `PUT|DELETE /api/filing-rules/{id}` are

@@ -44,6 +44,6 @@ export function libraryPlace(view: LibraryView): string {
   if (view.reviews) return `reviews:${view.reviews}`
   if (view.draft != null) return `draft:${view.draft}`
   if (view.drafts) return 'drafts'
-  const place = view.tag != null ? `tag:${view.tag}` : view.favorites ? 'favorites' : view.recent ? 'recent' : (view.folderId ?? 'root')
+  const place = view.favorites ? 'favorites' : view.recent ? 'recent' : (view.folderId ?? 'root')
   return view.trash ? 'trash' : view.templates ? 'templates' : `${place}?${view.name ?? ''}`
 }

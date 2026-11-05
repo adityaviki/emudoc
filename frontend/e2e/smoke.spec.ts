@@ -448,8 +448,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await folder.click()
     await page.keyboard.press('Delete')
     await expect(folder).toHaveCount(0)
-    await page.getByRole('button', { name: /^Show: / }).click()
-    await page.getByRole('menuitem', { name: 'Trash…' }).click()
+    await page.getByRole('button', { name: 'Trash', exact: true }).click()
     await expect(page).toHaveURL(/[?&]trash/)
     await page.getByRole('button', { name: 'Restore service-contract.md' }).click()
     const trashed = page.getByRole('list', { name: 'In the trash' })
@@ -1923,49 +1922,35 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await releaseTurns(request)
   })
 
-  await test.step('tag a document, and list a tag, the favourites and the recent ones, in another order and as a grid, then move a new invoice into a folder', async () => {
+  await test.step('list the favourites and the recent ones from the icons above the files, in another order and as a grid, then move a new invoice into a folder', async () => {
     const invoice = page.getByRole('treeitem', { name: 'invoice.md', exact: true })
-    const show = page.getByRole('button', { name: /^Show: / })
-    // A tag made from the file's menu and put on it, which its row then names. A scroll closes the menu, as above.
+    // What the library shows, a place an icon, the one shown pressed.
+    const places = page.getByRole('group', { name: 'Show' })
+    const allFiles = places.getByRole('button', { name: 'All files' })
+    const favourites = places.getByRole('button', { name: 'Favourites' })
+    await expect(allFiles).toHaveAttribute('aria-pressed', 'true')
+    await expect(favourites).toHaveAttribute('aria-pressed', 'false')
+    await expectAccessible(page, "the library's places")
+
+    // A favourite, wherever it is, and the documents opened lately, the latest first. A scroll closes the menu, as above.
     await expect(async () => {
       await invoice.click({ button: 'right' })
-      await page.getByRole('menuitem', { name: 'Tags…' }).click({ timeout: 2_000 })
+      await page.getByRole('menuitem', { name: 'Add to favourites' }).click({ timeout: 2_000 })
     }).toPass({ timeout: 60_000 })
-    const tagging = page.getByRole('dialog', { name: 'Tags of “invoice.md”' })
-    await expect(tagging.getByLabel('New tag')).toBeFocused()
-    await tagging.getByLabel('New tag').fill('Unpaid')
-    await tagging.getByLabel('Colour').selectOption('red')
-    await tagging.getByRole('button', { name: 'Add' }).click()
-    await expect(tagging.getByRole('checkbox', { name: 'Unpaid' })).toBeChecked()
-    await expectAccessible(page, "a document's tags")
-    await tagging.getByRole('button', { name: 'Save' }).click()
-    await expect(invoice).toHaveAccessibleDescription(/Tagged Unpaid/)
-
-    // The tag's documents, wherever they are, from the place menu above the files.
-    await show.click()
-    await expect(page.getByRole('menuitemradio', { name: 'All files' })).toBeFocused()
-    await expectAccessible(page, "the library's places")
-    await page.getByRole('menuitemradio', { name: 'Unpaid' }).click()
-    await expect(show).toHaveAccessibleName('Show: Unpaid')
+    await favourites.click()
+    await expect(favourites).toHaveAttribute('aria-pressed', 'true')
+    await expect(allFiles).toHaveAttribute('aria-pressed', 'false')
     await expect(page.getByRole('treeitem')).toHaveCount(1)
-    await expect(invoice).toHaveAccessibleDescription(/Tagged Unpaid in /)
-    await expectAccessible(page, "a tag's documents")
-
-    // A favourite, and the documents opened lately, the latest first.
-    await invoice.click({ button: 'right' })
-    await page.getByRole('menuitem', { name: 'Add to favourites' }).click()
-    await show.click()
-    await page.getByRole('menuitemradio', { name: 'Favourites' }).click()
-    await expect(page.getByRole('treeitem', { name: 'invoice.md', exact: true })).toHaveAccessibleDescription(/Favourite/)
+    await expect(invoice).toHaveAccessibleDescription(/Favourite/)
+    await expectAccessible(page, 'the favourites')
     await invoice.dblclick()
-    await show.click()
-    await page.getByRole('menuitemradio', { name: 'Recent' }).click()
+    await places.getByRole('button', { name: 'Recent' }).click()
     await expect(page.getByRole('treeitem').first()).toHaveAccessibleName('invoice.md')
     await expect(page.getByRole('button', { name: 'Order: the latest opened first' })).toBeDisabled()
 
     // Every file, by name from Z, then as a grid of tiles that the arrows move through.
-    await show.click()
-    await page.getByRole('menuitemradio', { name: 'All files' }).click()
+    await allFiles.click()
+    await expect(allFiles).toHaveAttribute('aria-pressed', 'true')
     const order = page.getByRole('button', { name: /^Order: / })
     await order.click()
     await page.getByRole('menuitemradio', { name: 'Z to A' }).click()
@@ -2054,30 +2039,17 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('link', { name: 'Supplier contracts', exact: true })).toBeVisible()
   })
 
-  await test.step('tag two invoices chosen together, index them again and export them alone', async () => {
+  await test.step('index two invoices chosen together again and export them alone', async () => {
     await page.getByRole('link', { name: 'Supplier contracts', exact: true }).click()
     const invoice = page.getByRole('treeitem', { name: 'invoice.md', exact: true })
     const second = page.getByRole('treeitem', { name: 'second-invoice.md', exact: true })
     await invoice.click()
     await second.click({ modifiers: ['ControlOrMeta'] })
-    // A tag only the first carries is half ticked; pressed, it goes on both. A scroll closes the menu, as above.
+    // A scroll closes the menu, as above.
     await expect(async () => {
       await second.click({ button: 'right' })
-      await page.getByRole('menuitem', { name: 'Tags of 2 documents…' }).click({ timeout: 2_000 })
+      await page.getByRole('menuitem', { name: 'Index 2 documents again' }).click({ timeout: 2_000 })
     }).toPass({ timeout: 60_000 })
-    const tagging = page.getByRole('dialog', { name: 'Tags of 2 documents' })
-    const unpaid = tagging.getByRole('checkbox', { name: 'Unpaid' })
-    await expect(unpaid).toBeFocused()
-    await expect(unpaid).toBeChecked({ indeterminate: true })
-    await expectAccessible(page, "the tags of documents chosen together")
-    await unpaid.click()
-    await expect(unpaid).toBeChecked()
-    await tagging.getByRole('button', { name: 'Save' }).click()
-    await expect(second).toHaveAccessibleDescription(/Tagged Unpaid/)
-    await expect(invoice).toHaveAccessibleDescription(/Tagged Unpaid/)
-
-    await second.click({ button: 'right' })
-    await page.getByRole('menuitem', { name: 'Index 2 documents again' }).click()
     await expect(page.getByText('Indexing 2 documents again.')).toBeVisible()
 
     // An export of the two alone, which the projects page lists with the project's own.
@@ -2091,7 +2063,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(panel.getByText(/^Chosen documents: 2 documents, [\d.]+ kB, until /)).toBeVisible({ timeout: 30_000 })
   })
 
-  await test.step('filter the library by name, filter the search by a tag and a type, and search within what it found', async () => {
+  await test.step('filter the library by name, filter the search by a type and a folder, and search within what it found', async () => {
     // The project's card is a link named by everything on it.
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
     // The library's box filters the files by name, in any case, from every folder.
@@ -2116,23 +2088,23 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(hit('INV-2026-0413').first()).toBeVisible()
     await expect(hit('INV-2026-0502').first()).toBeVisible()
 
-    // Narrowed by the tag and a type in its dialog; the tag taken off, the third invoice is found again.
+    // Narrowed by a type and a folder in its dialog; the folder taken off, the first invoice is found again.
     const filter = page.getByRole('button', { name: 'Filter', exact: true })
     await filter.click()
     const filtering = page.getByRole('dialog', { name: 'Filter the search' })
-    await filtering.getByRole('checkbox', { name: 'Unpaid', exact: true }).check()
     await filtering.getByRole('checkbox', { name: 'invoice', exact: true }).check()
-    await expect(filtering).toContainText('Documents tagged “Unpaid”, of type invoice.')
+    await filtering.getByLabel('In', { exact: true }).selectOption({ label: 'Invoices and the folders in it' })
+    await expect(filtering).toContainText('Documents of type invoice, in Invoices.')
     await expectAccessible(page, 'a search being filtered')
     await filtering.getByRole('button', { name: 'Apply' }).click()
     await expect(filter).toBeFocused()
-    await expect(page).toHaveURL(/[?&]tagged=\d+/)
-    await expect(hit('INV-2026-0412').first()).toBeVisible()
-    await expect(hit('INV-2026-0502')).toHaveCount(0)
-    await page.getByRole('button', { name: 'Take off: tagged “Unpaid”' }).click()
+    await expect(page).toHaveURL(/[?&]in=\d+/)
+    await expect(hit('INV-2026-0502').first()).toBeVisible()
+    await expect(hit('INV-2026-0412')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Take off: in Invoices' }).click()
     await expect(filter).toBeFocused()
     await expect(page.getByRole('button', { name: 'Take off: of type invoice' })).toBeVisible()
-    await expect(hit('INV-2026-0502').first()).toBeVisible()
+    await expect(hit('INV-2026-0412').first()).toBeVisible()
 
     // Within what "March" found: the next words search only the invoice that mentions it.
     await box.fill('March')
