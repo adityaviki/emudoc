@@ -1863,7 +1863,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(chooser).toHaveText('About: All documents')
 
     // Two invoices chosen together in the library are compared in a chat about them alone.
-    await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).click()
+    await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).click({ modifiers: ['ControlOrMeta'] })
     await page.getByRole('treeitem', { name: 'second-invoice.md', exact: true }).click({ modifiers: ['ControlOrMeta'] })
     await page.getByRole('treeitem', { name: 'second-invoice.md', exact: true }).click({ button: 'right' })
     await page.getByRole('menuitem', { name: 'Compare the two documents' }).click()
@@ -1968,11 +1968,14 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('button', { name: 'Grid' }).click()
     const grid = page.getByRole('grid', { name: 'Files' })
     const tile = grid.getByRole('gridcell', { name: 'second-invoice.md', exact: true })
+    // A click puts the keyboard on the tile without selecting it, and the arrows move it on.
+    const tileId = (await tile.getAttribute('id')) ?? ''
     await tile.click()
     await expect(grid).toBeFocused()
-    await expect(tile).toHaveAttribute('aria-selected', 'true')
-    await page.keyboard.press('ArrowRight')
+    await expect(grid).toHaveAttribute('aria-activedescendant', tileId)
     await expect(tile).toHaveAttribute('aria-selected', 'false')
+    await page.keyboard.press('ArrowRight')
+    await expect(grid).not.toHaveAttribute('aria-activedescendant', tileId)
     await expectAccessible(page, 'the library as a grid')
     await page.getByRole('button', { name: 'List' }).click()
     await order.click()
@@ -2050,8 +2053,10 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('link', { name: 'Supplier contracts', exact: true }).click()
     const invoice = page.getByRole('treeitem', { name: 'invoice.md', exact: true })
     const second = page.getByRole('treeitem', { name: 'second-invoice.md', exact: true })
-    // The second chosen by its box, with no key held, and the bar under the files counting them.
+    // Each chosen by its box, with no key held (a plain click selects nothing), and the bar under the files counting them.
     await invoice.click()
+    await expect(invoice).toHaveAttribute('aria-selected', 'false')
+    await invoice.getByTitle('Select', { exact: true }).click()
     await second.hover()
     await second.getByTitle('Select', { exact: true }).click()
     await expect(second).toHaveAttribute('aria-selected', 'true')

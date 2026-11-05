@@ -49,13 +49,15 @@ where it is.
 
 ## Several files at once
 
-Choose several files with the box at the left of each one, which shows as you point at a file
-and on every file once two are chosen, and always on a touch screen. Ctrl (⌘ on a Mac) or Shift
-and a click do the same, and Ctrl+A chooses every file shown. From the keyboard, Shift and the
-arrows choose the files in a row, and Ctrl and the arrows move without choosing, Space then
-adding the file reached or taking it out. The bar under the files says how many are chosen; its
-Actions offers what the menu of one of them does, and Clear selection or Esc lets them go; a click
-on the empty space beside them keeps them chosen. Besides
+Choose files with the box at the left of each one, which shows as you point at a file, on every
+file once one is chosen, and always on a touch screen. Ctrl (⌘ on a Mac) and a click do the same,
+Shift and a click choose every file from the last one, and Ctrl+A chooses every file shown. A
+plain click chooses nothing: it only marks where the keyboard is, and a double-click opens the
+file. From the keyboard, the arrows move without choosing, Space adds the file reached or takes
+it out, and Shift and the arrows choose the files in a row; F2 renames the file the keyboard is
+on, and Delete deletes the chosen files, or that file when none is chosen. The bar under the
+files says how many are chosen; its Actions offers what can be done to them, and Clear selection
+or Esc lets them go. Opening a file's menu or clicking the empty space keeps them chosen. Besides
 asking about them together, moving and deleting them,
 a member who may change the project does two things to as many as $chosen of them at once:
 

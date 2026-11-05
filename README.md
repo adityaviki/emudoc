@@ -617,8 +617,8 @@ server, and shown as the tree or as a **grid** of tiles, each file's the thumbna
 draws of a PDF's first page, a scan or an image, the browser remembering both choices.
 
 Files **chosen together** in the library (the box at each one's left, Ctrl or Shift and a click,
-Ctrl+A, Shift or Ctrl and the arrows with Space; the bar under the files counts them and offers
-their menu), up to 100 at a
+Ctrl+A, Space and Shift with the arrows, never a plain click; the bar under the files counts them
+and offers their menu), up to 100 at a
 time (`backend/app/selection.py`), are moved and deleted together, and by whoever may change the
 project indexed again ("Index n documents again", or "Index the rest" of the partly indexed among them; one being
 indexed already is left to its run and counted), and exported alone ("Export n documents": the
