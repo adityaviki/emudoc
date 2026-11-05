@@ -1382,10 +1382,15 @@ function Listing({
       dropping: dropTarget === key,
       favorite: item.kind === 'file' && favorites.has(item.document.id),
       where: flat && item.kind === 'file' ? whereOf(item.document) : undefined,
-      onSelect: (event) => select(key, event),
+      // A plain click opens the item (a file in the middle pane, a folder in place or gone into in the grid; the owner's
+      // word of 2026-11-05) and puts the cursor on it; with Ctrl or Shift it selects instead. A double-click's second
+      // click opens nothing again, so a folder does not close as it opened.
+      onClick: (event) => {
+        select(key, event)
+        if (event.detail <= 1 && !event.ctrlKey && !event.metaKey && !event.shiftKey) activate(item)
+      },
       // The box adds the item to the selection or takes it out, as Ctrl and a click do; Shift reaches it from the last one.
       onCheck: (event) => select(key, { ctrlKey: true, metaKey: false, shiftKey: event.shiftKey }),
-      onOpen: () => activate(item),
       onToggle: () => item.kind === 'folder' && setExpanded(item.folder.id, !openSet.has(item.folder.id)),
       onContextMenu: (event) => onContextMenu(event, item),
       menuOpen: menu.element != null && menuFor === key,
@@ -1682,9 +1687,8 @@ interface RowProps {
   movable: boolean
   dropping: boolean
   folderCount?: number
-  onSelect: (event: MouseEvent) => void
+  onClick: (event: MouseEvent) => void
   onCheck: (event: MouseEvent) => void
-  onOpen: () => void
   onToggle: () => void
   onContextMenu: (event: MouseEvent) => void
   onMenuButton: (element: HTMLElement) => void
@@ -1753,9 +1757,8 @@ function Row(props: RowProps) {
     draggable: movable && !renaming,
     onClick: (event: MouseEvent) => {
       event.stopPropagation()
-      if (!renaming) props.onSelect(event)
+      if (!renaming) props.onClick(event)
     },
-    onDoubleClick: () => !renaming && props.onOpen(),
     onContextMenu: props.onContextMenu,
     onDragStart: props.onDragStart,
     onDragEnd: props.onDragEnd,
@@ -1871,9 +1874,8 @@ function Tile(props: RowProps) {
       draggable={movable && !renaming}
       onClick={(event) => {
         event.stopPropagation()
-        if (!renaming) props.onSelect(event)
+        if (!renaming) props.onClick(event)
       }}
-      onDoubleClick={() => !renaming && props.onOpen()}
       onContextMenu={props.onContextMenu}
       onDragStart={props.onDragStart}
       onDragEnd={props.onDragEnd}

@@ -17,9 +17,10 @@ newest entry first.
 
 Members:
 
+- A click on a file in the library opens it, and a click on a folder opens it, with no
+  double-click needed. Ctrl-click, Shift-click and the boxes still select without opening.
 - Clicking a file in the library no longer selects it: tick its box, or Ctrl-click or Shift-click
-  it. A click only marks where the keyboard is, and a double-click still opens the file. Once one
-  file is selected, every file shows its box and the bar under the files appears. From the
+  it. Once one file is selected, every file shows its box and the bar under the files appears. From the
   keyboard the arrows move without selecting and Space selects; F2 renames the file you are on,
   and Delete deletes the selected files, or the one you are on when none is selected.
 - Opening a file's menu, by its "…" button or a right-click, no longer selects it: the files you
