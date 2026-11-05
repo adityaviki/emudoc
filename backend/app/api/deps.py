@@ -112,7 +112,6 @@ from app.models import (
     ExtractionTemplate,
     Fact,
     FactCheck,
-    FilingRule,
     Folder,
     Passage,
     Project,
@@ -549,14 +548,9 @@ def get_tag(tag_id: int, session: SessionDep, account: AccountDep) -> Tag:
     return _of_project(session, account, Tag, tag_id, "Tag not found")
 
 
-def get_filing_rule(rule_id: int, session: SessionDep, account: AccountDep) -> FilingRule:
-    """A project's filing rule (app/filing.py), under the same terms as a tag."""
-    return _of_project(session, account, FilingRule, rule_id, "Filing rule not found")
-
-
-def _of_project[T: (Tag, FilingRule)](
-    session: Session, account: Account, model: type[T], object_id: int, missing: str
-) -> T:
+def _of_project(
+    session: Session, account: Account, model: type[Tag], object_id: int, missing: str
+) -> Tag:
     found = session.scalar(
         select(model)
         .join(Project, Project.id == model.project_id)
@@ -759,15 +753,6 @@ def get_deletable_tag(tag: Annotated[Tag, Depends(get_tag)], account: AccountDep
     return tag
 
 
-def get_editable_filing_rule(
-    rule: Annotated[FilingRule, Depends(get_filing_rule)],
-    account: AccountDep,
-    session: SessionDep,
-) -> FilingRule:
-    get_editor(account, session)
-    return rule
-
-
 def get_deletable_project(project: ProjectDep, account: AccountDep) -> Project:
     """The project, for deleting it: by role alone, since deleting is how an organisation past
     its plan gets within it."""
@@ -815,7 +800,6 @@ ReportDep = Annotated[QuestionReport, Depends(get_report)]
 DeletableReportDep = Annotated[QuestionReport, Depends(get_deletable_report)]
 EditableTagDep = Annotated[Tag, Depends(get_editable_tag)]
 DeletableTagDep = Annotated[Tag, Depends(get_deletable_tag)]
-EditableFilingRuleDep = Annotated[FilingRule, Depends(get_editable_filing_rule)]
 EditableFactDep = Annotated[Fact, Depends(get_editable_fact)]
 EditableFactCheckDep = Annotated[FactCheck, Depends(get_editable_fact_check)]
 DeletableProjectDep = Annotated[Project, Depends(get_deletable_project)]

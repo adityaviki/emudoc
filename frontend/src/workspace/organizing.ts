@@ -1,23 +1,20 @@
-// The library's ways of reading a project as the page holds them (backend/app/api/tags.py, filing.py, favorites.py): the
-// project's tags and filing rules, the reader's favourites, and the changes to them.
+// The library's ways of reading a project as the page holds them (backend/app/api/tags.py, favorites.py): the project's
+// tags, the reader's favourites, and the changes to them.
 // Tagging a document or several chosen together and starring one show at once and are put back if the server refuses;
 // every listing a change may touch is asked for again either way.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api.ts'
-import type { Document, FilingRuleInput, TagColor } from '../api.ts'
+import type { Document, TagColor } from '../api.ts'
 import { retagged } from '../selection.ts'
 import type { TagsChange } from '../selection.ts'
 import { documentKey, editListings, listingsKey, placeListingsKey, restore, snapshotListings } from './listing.ts'
 
 export const tagsKey = (projectId: number) => ['tags', projectId] as const
-export const filingRulesKey = (projectId: number) => ['filing-rules', projectId] as const
 export const favoritesKey = (projectId: number) => ['favorites', projectId] as const
 export const documentTypesKey = (projectId: number) => ['document-types', projectId] as const
 
 export const useTags = (projectId: number) => useQuery({ queryKey: tagsKey(projectId), queryFn: () => api.tags(projectId) })
-export const useFilingRules = (projectId: number) =>
-  useQuery({ queryKey: filingRulesKey(projectId), queryFn: () => api.filingRules(projectId) })
 export const useDocumentTypes = (projectId: number) =>
   useQuery({ queryKey: documentTypesKey(projectId), queryFn: () => api.documentTypes(projectId) })
 
@@ -94,14 +91,14 @@ export function useDocumentMarks(projectId: number, fail: (error: Error) => void
   return { tag, tagMany, star }
 }
 
-/** Making, changing and deleting the project's tags and filing rules, each asked for again with what it touches. */
+/** Making, changing and deleting the project's tags, each asked for again with what it touches. */
 export function useOrganizing(projectId: number) {
   const queryClient = useQueryClient()
   const invalidate = (...keys: readonly unknown[][]) => {
     for (const queryKey of keys) void queryClient.invalidateQueries({ queryKey })
   }
-  // A tag renamed shows on every document by its new name; one deleted comes off them, and takes its rules with it.
-  const tagTouched = () => invalidate([...tagsKey(projectId)], [...listingsKey(projectId)], ['document'], [...filingRulesKey(projectId)])
+  // A tag renamed shows on every document by its new name; one deleted comes off them.
+  const tagTouched = () => invalidate([...tagsKey(projectId)], [...listingsKey(projectId)], ['document'])
   const createTag = useMutation({
     mutationFn: (body: { name: string; color: TagColor }) => api.createTag(projectId, body),
     onSettled: () => invalidate([...tagsKey(projectId)]),
@@ -112,13 +109,5 @@ export function useOrganizing(projectId: number) {
   })
   const deleteTag = useMutation({ mutationFn: (id: number) => api.deleteTag(id), onSettled: tagTouched })
 
-  const rulesTouched = () => invalidate([...filingRulesKey(projectId)])
-  const saveRule = useMutation({
-    mutationFn: ({ id, rule }: { id: number | null; rule: FilingRuleInput }) =>
-      id == null ? api.createFilingRule(projectId, rule) : api.updateFilingRule(id, rule),
-    onSettled: rulesTouched,
-  })
-  const deleteRule = useMutation({ mutationFn: (id: number) => api.deleteFilingRule(id), onSettled: rulesTouched })
-
-  return { createTag, updateTag, deleteTag, saveRule, deleteRule }
+  return { createTag, updateTag, deleteTag }
 }

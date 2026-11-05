@@ -975,8 +975,9 @@ class FakeTurn:
 
 def drop_schema() -> None:
     """Empty the test database of tables, so the migrations build the schema from nothing: those
-    the models name, and any a migration has since dropped (`smart_folders`, 2026-11-03), which a
-    database the suite built before still holds and whose keys would keep the others."""
+    the models name, and any a migration has since dropped (`smart_folders`, 2026-11-03;
+    `filing_rules`, 2026-11-05), which a database the suite built before still holds and whose
+    keys would keep the others."""
     with engine.begin() as connection:
         held = connection.execute(
             text("SELECT tablename FROM pg_tables WHERE schemaname = current_schema()")

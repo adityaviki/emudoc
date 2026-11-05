@@ -1,4 +1,4 @@
-import { ArrowDownUp, ChevronDown, Clock, FolderCog, Folder as FolderIcon, LayoutGrid, List, Star, Tag as TagIcon, Tags, Trash2, X } from 'lucide-react'
+import { ArrowDownUp, ChevronDown, Clock, Folder as FolderIcon, LayoutGrid, List, Star, Tag as TagIcon, Tags, Trash2, X } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import { REVIEW_LABELS, REVIEW_STATES } from '../reviews.ts'
 import { TAG_COLORS } from '../api.ts'
@@ -73,13 +73,12 @@ interface PlaceBarProps {
   tags: Tag[]
   onPlace: (place: ListingPlace) => void
   onTags: () => void
-  onFiling: () => void
   onTrash: () => void
 }
 
 /**
  * Under the library's filter by name: what it shows (all its files, the member's favourites or recent ones, or a tag's
- * documents), the way to the project's tags, filing rules and trash, the order it lists them in, and as a list or a grid.
+ * documents), the way to the project's tags and trash, the order it lists them in, and as a list or a grid.
  * A name filter narrows the place shown, all the files of the project from a folder.
  */
 export function PlaceBar(props: PlaceBarProps) {
@@ -103,7 +102,6 @@ export function PlaceBar(props: PlaceBarProps) {
     ...(tags.length ? (['separator', ...tags.map((tag) => choose({ tag: tag.id }))] as MenuItem[]) : []),
     'separator',
     { label: 'Tags…', icon: Tags, onSelect: props.onTags },
-    { label: 'Filing rules…', icon: FolderCog, onSelect: props.onFiling },
     { label: 'Trash…', icon: Trash2, onSelect: props.onTrash },
   ]
   const orders: MenuItem[] = [

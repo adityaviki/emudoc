@@ -77,21 +77,10 @@ Beside it, the order of the files (by name, date added, the document's own date 
 way) and whether they show as a list or as a grid of pictures of their first pages. Your browser
 remembers both.
 
-## Filing rules
-
-A project's filing rules put new documents where they belong as they arrive. Under "Filing
-rules…" in the menu above the files, a rule says what it looks for, a type of document such as
-invoice, words a fact read from it holds (a supplier's name), or every document, and what it does:
-move the document into a folder, file it under a folder by its year, or its year and month, or give
-it a tag. Once a new document has been read for its type and facts, the first rule that moves it
-files it, if it arrived at the top of the library; a document you uploaded into a folder stays
-there. Every rule that tags it tags it. A rule files what arrives after it is made, once: move a
-document elsewhere afterwards and it stays where you put it.
-
 ## A document's details and its note
 
 Each document is read for its title, its type and its date, which the library's date order, its
-search's filter, filing rules and the agent use, and for the language it is written in, which the search
+search's filter and the agent use, and for the language it is written in, which the search
 matches its words in, so that "Lieferung" finds "Lieferungen" in a German contract. Where the
 reading got one wrong, set it yourself with "Edit details" on the document's tab: what you set is
 kept whenever the document is read again or given a new version, and the dialog shows what the

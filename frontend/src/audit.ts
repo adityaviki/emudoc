@@ -451,6 +451,7 @@ function describeQuestionSet(detail: AuditEvent['detail']): string {
   return parts.join(', ')
 }
 
+// Filing rules were removed on 2026-11-05; their entries written before still read.
 const FILING_ACTIONS = new Set<AuditAction>(['filing_rule_created', 'filing_rule_changed', 'filing_rule_deleted'])
 
 /** What a change of a filing rule changed, by its parts as the server names them. */

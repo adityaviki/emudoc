@@ -234,10 +234,6 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
         setMobilePane('library')
         go({ library: { folderId: null, tags: true } })
       },
-      showFiling() {
-        setMobilePane('library')
-        go({ library: { folderId: null, filing: true } })
-      },
       openChat(chatId, options) {
         // Opened from the library too, as a chat about what was chosen there.
         if (chatId != null) setMobilePane('chat')

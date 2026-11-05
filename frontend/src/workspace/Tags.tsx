@@ -136,7 +136,7 @@ export function TagsView() {
       {asking && (
         <Confirm
           title={`Delete the tag “${asking.name}”?`}
-          body={`It is taken off the ${asking.document_count} document${asking.document_count === 1 ? '' : 's'} that carry it, and the filing rules that give it go with it. The documents stay where they are.`}
+          body={`It is taken off the ${asking.document_count} document${asking.document_count === 1 ? '' : 's'} that carry it. The documents stay where they are.`}
           action="Delete"
           onConfirm={() => {
             heading.current?.focus()

@@ -159,8 +159,8 @@ def list_fact_names(project: ProjectDep, session: SessionDep):
 @router.get("/document-types", response_model=list[DocumentTypeOut])
 def list_document_types(project: ProjectDep, session: SessionDep):
     """The types of the project's documents out of the trash, as the model read them or a member
-    set them (app/details.py), the most common first: what the search's filter or a filing rule
-    offers to choose from."""
+    set them (app/details.py), the most common first: what the search's filter offers to choose
+    from."""
     rows = session.execute(
         select(Document.doc_type, func.count())
         .where(

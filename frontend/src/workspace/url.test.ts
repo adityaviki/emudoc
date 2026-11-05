@@ -131,7 +131,6 @@ describe('buildWorkspaceUrl', () => {
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, favorites: true } })).toBe('/projects/3?favorites=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, recent: true } })).toBe('/projects/3?recent=')
     expect(buildWorkspaceUrl({ ...home, library: { folderId: null, tags: true } })).toBe('/projects/3?tags=')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, filing: true } })).toBe('/projects/3?filing=')
     expect(buildWorkspaceUrl({ ...home, chatId: 'new', about: { folder_id: 7 } })).toBe('/projects/3?chat=new&about=f7')
     expect(buildWorkspaceUrl({ ...home, chatId: 'new', about: { document_ids: [41, 42] } })).toBe('/projects/3?chat=new&about=d41-42')
     expect(buildWorkspaceUrl({ ...home, chatId: 'new', about: {} })).toBe('/projects/3?chat=new')
@@ -170,7 +169,6 @@ describe('buildWorkspaceUrl', () => {
       { ...home, library: { folderId: null, favorites: true } },
       { ...home, library: { folderId: null, recent: true } },
       { ...home, library: { folderId: null, tags: true } },
-      { ...home, library: { folderId: null, filing: true } },
       { ...home, chatId: 'new', about: { folder_id: 7 } },
       { ...home, document: { id: 41, focus: null }, chatId: 'new', about: { document_ids: [41, 42] } },
     ]
