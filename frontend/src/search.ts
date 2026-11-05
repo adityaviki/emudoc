@@ -62,7 +62,7 @@ export function searchAllParts(filter: SearchAllFilter, projects: Pick<Project, 
     parts.push({ part: 'projects', words: `in ${listed(names, 'or')}` })
   }
   // The types and the dates in the words the library's search says them in.
-  for (const { part, words } of filterParts({ ...EMPTY_FILTER, types: filter.types, after: filter.after, before: filter.before }, [], null)) {
+  for (const { part, words } of filterParts({ ...EMPTY_FILTER, types: filter.types, after: filter.after, before: filter.before }, null)) {
     parts.push({ part: part === 'types' ? 'types' : 'dates', words })
   }
   return parts

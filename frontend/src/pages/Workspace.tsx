@@ -228,11 +228,7 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
       },
       showPlace(place) {
         setMobilePane('library')
-        go({ library: { folderId: null, ...('tag' in place ? { tag: place.tag } : place) } })
-      },
-      showTags() {
-        setMobilePane('library')
-        go({ library: { folderId: null, tags: true } })
+        go({ library: { folderId: null, ...place } })
       },
       openChat(chatId, options) {
         // Opened from the library too, as a chat about what was chosen there.

@@ -52,7 +52,6 @@ from app.api import (
     search,
     share_links,
     support,
-    tags,
     templates,
     trash,
     usage,
@@ -479,7 +478,6 @@ KEYED = (
     reviews.router,
     drafts.router,
     mailbox.router,
-    tags.router,
 )
 
 

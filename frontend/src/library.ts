@@ -1,9 +1,9 @@
-// The library's ways of reading a project (backend/app/tags.py, document_filter.py): its places and orders as the page
-// names them, a document's tags, what narrows a search in words and why it cannot be used as written, and where the grid's
-// keys move its cursor.
+// The library's ways of reading a project (backend/app/api/documents.py, document_filter.py): its places and orders as
+// the page names them, what narrows a search in words and why it cannot be used as written, and where the grid's keys move
+// its cursor.
 
 import { THUMBNAIL_TYPES } from './api.ts'
-import type { Document, DocumentFilter, DocumentSort, ListingPlace, SortOrder, Tag, TagColor } from './api.ts'
+import type { Document, DocumentFilter, DocumentSort, ListingPlace, SortOrder } from './api.ts'
 import { formatDate } from './format.ts'
 import { scanPassed } from './indexing.ts'
 import { REVIEW_LABELS } from './reviews.ts'
@@ -26,36 +26,12 @@ export const sortWords = (sort: DocumentSort, order: SortOrder) => `${SORTS[sort
 /** How the library shows a place: a tree of rows, or a grid of tiles. */
 export type LibraryLayout = 'list' | 'grid'
 
-export const TAG_COLOR_LABELS: Record<TagColor, string> = {
-  grey: 'Grey',
-  red: 'Red',
-  orange: 'Orange',
-  yellow: 'Yellow',
-  green: 'Green',
-  teal: 'Teal',
-  blue: 'Blue',
-  purple: 'Purple',
-  pink: 'Pink',
-}
-
-/** The tags a document carries as its project holds them, in the order they were put on it; one gone meanwhile is left out. */
-export function tagsOf(document: Pick<Document, 'tag_ids'>, tags: Tag[]): Tag[] {
-  const byId = new Map(tags.map((tag) => [tag.id, tag]))
-  return document.tag_ids.flatMap((id) => byId.get(id) ?? [])
-}
-
-/** Its tags in a sentence, for whoever reads the library by ear. */
-export function tagsWords(carried: Tag[]): string | null {
-  return carried.length ? `Tagged ${carried.map((tag) => tag.name).join(', ')}` : null
-}
-
 /**
- * The place of the library's that the view names, or null for a folder's: a tag's, the favourites or the recent documents,
- * narrowed to the files whose names hold `name`; a name alone is every such file of the project's, wherever the folder.
+ * The place of the library's that the view names, or null for a folder's: the favourites or the recent documents, narrowed
+ * to the files whose names hold `name`; a name alone is every such file of the project's, wherever the folder.
  */
-export function placeOf(view: Pick<LibraryView, 'tag' | 'favorites' | 'recent' | 'name'>): ListingPlace | null {
+export function placeOf(view: Pick<LibraryView, 'favorites' | 'recent' | 'name'>): ListingPlace | null {
   const named = view.name ? { name: view.name } : {}
-  if (view.tag != null) return { tag: view.tag, ...named }
   if (view.favorites) return { favorites: true, ...named }
   if (view.recent) return { recent: true, ...named }
   return view.name ? { name: view.name } : null
@@ -63,13 +39,12 @@ export function placeOf(view: Pick<LibraryView, 'tag' | 'favorites' | 'recent' |
 
 /** Whether a place is the files of the whole project whose names hold some letters, which "All files" shows filtered. */
 export const allNamed = (place: ListingPlace): place is { name: string } =>
-  !('folder' in place || 'tag' in place || 'favorites' in place || 'recent' in place)
+  !('folder' in place || 'favorites' in place || 'recent' in place)
 
 /** What a place that is not a folder is called; the files of the project a name filter finds are "All files". */
-export function placeName(place: ListingPlace, tags: Tag[]): string {
+export function placeName(place: ListingPlace): string {
   if ('favorites' in place) return 'Favourites'
   if ('recent' in place) return 'Recent'
-  if ('tag' in place) return tags.find((tag) => tag.id === place.tag)?.name ?? 'A tag'
   return 'All files'
 }
 
@@ -86,27 +61,24 @@ export function emptyPlaceWords(place: ListingPlace): { title: string; body: str
   if ('favorites' in place) {
     return { title: 'No favourites yet', body: 'Choose “Add to favourites” in a document’s menu to find it here again, wherever it is in the project.' }
   }
-  if ('recent' in place) return { title: 'Nothing opened yet', body: 'The documents you open in this project are listed here, the latest first.' }
-  return { title: 'No document has this tag', body: 'Choose “Tags…” in a document’s menu to give it one.' }
+  return { title: 'Nothing opened yet', body: 'The documents you open in this project are listed here, the latest first.' }
 }
 
-export const EMPTY_FILTER: DocumentFilter = { tags: [], every_tag: false, types: [], after: null, before: null, reviews: [], folder_id: null, mentions: [] }
+export const EMPTY_FILTER: DocumentFilter = { types: [], after: null, before: null, reviews: [], folder_id: null, mentions: [] }
 
 /** How many searches a search may be within (MAX_MENTIONS in backend/app/schemas.py). */
 export const MAX_WITHIN = 5
 
 /** What narrows a filter that a member can take off alone: one of its parts, or one of the searches it is within by its place. */
-export type FilterPart = 'tags' | 'types' | 'dates' | 'reviews' | 'folder' | number
+export type FilterPart = 'types' | 'dates' | 'reviews' | 'folder' | number
 
 /** Words in a list a sentence reads: `a, b or c`. */
 export const listed = (words: string[], last: 'and' | 'or') =>
   words.length < 2 ? (words[0] ?? '') : `${words.slice(0, -1).join(', ')} ${last} ${words.at(-1)}`
 
-/** Each part a filter narrows by in words, its tags and folder by their names as they are now, in the order a sentence lists them. */
-export function filterParts(filter: DocumentFilter, tags: Tag[], folder: string | null): { part: FilterPart; words: string }[] {
+/** Each part a filter narrows by in words, its folder by its path as it is now, in the order a sentence lists them. */
+export function filterParts(filter: DocumentFilter, folder: string | null): { part: FilterPart; words: string }[] {
   const parts: { part: FilterPart; words: string }[] = []
-  const names = filter.tags.map((id) => tags.find((tag) => tag.id === id)?.name ?? 'a deleted tag').map((name) => `“${name}”`)
-  if (names.length) parts.push({ part: 'tags', words: `tagged ${listed(names, filter.every_tag ? 'and' : 'or')}` })
   if (filter.types.length) parts.push({ part: 'types', words: `of type ${listed(filter.types, 'or')}` })
   if (filter.after && filter.before) parts.push({ part: 'dates', words: `dated ${formatDate(filter.after)} to ${formatDate(filter.before)}` })
   else if (filter.after) parts.push({ part: 'dates', words: `dated ${formatDate(filter.after)} or later` })
@@ -121,7 +93,6 @@ export function filterParts(filter: DocumentFilter, tags: Tag[], folder: string 
 export function withoutPart(filter: DocumentFilter, part: FilterPart): DocumentFilter {
   if (typeof part === 'number') return { ...filter, mentions: filter.mentions.filter((_, index) => index !== part) }
   const emptied: Record<Exclude<FilterPart, number>, Partial<DocumentFilter>> = {
-    tags: { tags: [], every_tag: false },
     types: { types: [] },
     dates: { after: null, before: null },
     reviews: { reviews: [] },
@@ -131,11 +102,11 @@ export function withoutPart(filter: DocumentFilter, part: FilterPart): DocumentF
 }
 
 /** Whether the filter narrows anything, or matches every document of the project. */
-export const narrows = (filter: DocumentFilter) => filterParts(filter, [], null).length > 0
+export const narrows = (filter: DocumentFilter) => filterParts(filter, null).length > 0
 
-/** What a filter matches, in words: each part it narrows by, its tags and folder by their names as they are now. */
-export function filterWords(filter: DocumentFilter, tags: Tag[], folder: string | null): string {
-  const parts = filterParts(filter, tags, folder).map(({ words }) => words)
+/** What a filter matches, in words: each part it narrows by, its folder by its path as it is now. */
+export function filterWords(filter: DocumentFilter, folder: string | null): string {
+  const parts = filterParts(filter, folder).map(({ words }) => words)
   return parts.length ? `Documents ${parts.join(', ')}` : 'Every document of the project'
 }
 

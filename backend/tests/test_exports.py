@@ -28,10 +28,8 @@ from tests.test_audit import actions
 from tests.test_auth import PASSWORD, another_browser, signup
 from tests.test_chats import answered, new_chat
 from tests.test_folders import make_folder
-from tests.test_library import files
 from tests.test_maintenance import age
 from tests.test_organizations import join
-from tests.test_tags import make_tag, tag
 
 
 def ask(client, project_id: int):
@@ -353,22 +351,3 @@ def test_a_member_who_leaves_takes_their_exports_along(client, session, services
     job = run_export(services)
     session.expire_all()
     assert session.get(Job, job.id).status == "done"
-
-
-def test_an_export_lists_the_project_s_tags_and_each_document_s(client, services, tmp_path):
-    project = create_project(client)
-    a, b = upload(client, project["id"], *files(tmp_path, ["a.txt", "b.txt"]))["documents"]
-    urgent = make_tag(client, project["id"], "Urgent", "red")
-    paid = make_tag(client, project["id"], "Paid", "green")
-    tag(client, a["id"], urgent["id"], paid["id"])
-    made = ask(client, project["id"]).json()
-    run_export(services)
-    listing = json.loads(archive_of(client, project["id"], made["id"]).read("project.json"))
-    assert listing["tags"] == [
-        {"name": "Paid", "color": "green"},
-        {"name": "Urgent", "color": "red"},
-    ]
-    assert {d["filename"]: d["tags"] for d in listing["documents"]} == {
-        "a.txt": ["Urgent", "Paid"],
-        "b.txt": [],
-    }

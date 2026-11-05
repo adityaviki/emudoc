@@ -35,7 +35,6 @@ function doc(id: number, filename: string, folderId: number | null = null): Docu
     assignee: null,
     review_changer: null,
     review_changed_at: null,
-    tag_ids: [],
   }
 }
 
@@ -120,24 +119,24 @@ describe('fetchListing', () => {
   })
 
   it('asks for a place that is not a folder, and an order that is not the first, by name', async () => {
-    replies.push(sent('"t"', [b, a], null))
-    await fetchListing(3, { tag: 5 }, { sort: 'size', order: 'desc' }, undefined)
-    replies.push(sent('"f"', [a], null), sent('"r"', [b], null), sent('"s"', [], null), sent('"n"', [], null), sent('"t"', [], null))
+    replies.push(sent('"f"', [b, a], null))
+    await fetchListing(3, { favorites: true }, { sort: 'size', order: 'desc' }, undefined)
+    replies.push(sent('"g"', [a], null), sent('"r"', [b], null), sent('"s"', [], null), sent('"n"', [], null), sent('"t"', [], null))
     await fetchListing(3, { favorites: true }, { sort: 'name', order: 'desc' }, undefined)
     await fetchListing(3, { recent: true }, BY_NAME, undefined)
-    await fetchListing(3, { tag: 2 }, { sort: 'date', order: 'asc' }, undefined)
+    await fetchListing(3, { favorites: true }, { sort: 'date', order: 'asc' }, undefined)
     await fetchListing(3, { name: 'inv 2' }, BY_NAME, undefined)
-    await fetchListing(3, { tag: 2, name: 'inv' }, BY_NAME, undefined)
+    await fetchListing(3, { favorites: true, name: 'inv' }, BY_NAME, undefined)
     expect(calls.map((call) => call.url)).toEqual([
-      '/api/projects/3/documents?tag=5&sort=size&order=desc',
+      '/api/projects/3/documents?favorites=true&sort=size&order=desc',
       '/api/projects/3/documents?favorites=true&order=desc',
       '/api/projects/3/documents?recent=true',
-      '/api/projects/3/documents?tag=2&sort=date',
+      '/api/projects/3/documents?favorites=true&sort=date',
       '/api/projects/3/documents?name=inv+2',
-      '/api/projects/3/documents?tag=2&name=inv',
+      '/api/projects/3/documents?favorites=true&name=inv',
     ])
     // Each place in each order is held apart, a folder by its id as before, a name filter last, under its place's.
-    expect(listingKey(3, { tag: 5 }, { sort: 'size', order: 'desc' })).toEqual(['documents', 3, 'tag:5', 'size', 'desc', null])
+    expect(listingKey(3, { favorites: true }, { sort: 'size', order: 'desc' })).toEqual(['documents', 3, 'favorites', 'size', 'desc', null])
     expect(listingKey(3, SEVEN)).toEqual(['documents', 3, 7, 'name', 'asc', null])
     expect(listingKey(3, { name: 'inv' })).toEqual(['documents', 3, 'named', 'name', 'asc', 'inv'])
     expect(listingKey(3, { recent: true, name: 'inv' })).toEqual(['documents', 3, 'recent', 'name', 'asc', 'inv'])

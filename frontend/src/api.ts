@@ -268,8 +268,6 @@ export interface Document {
   assignee: string | null
   review_changer: string | null
   review_changed_at: string | null
-  /** The ids of its tags (backend/app/tags.py), in the order they were put on it. */
-  tag_ids: number[]
 }
 
 /** DOCUMENT_DETAILS in backend/app/models.py: what a member may set in place of what a document's reading found. */
@@ -422,37 +420,21 @@ export type SortOrder = 'asc' | 'desc'
 
 /**
  * Where the library lists documents (`list_documents` in backend/app/api/documents.py): directly in a folder, the root's
- * for null; or wherever they are in the project, those of a tag, the reader's favourites, or the documents they opened
- * lately, newest first whatever the order; each of those narrowed to the files whose names hold `name`, which alone is
- * every such file of the project's.
+ * for null; or wherever they are in the project, the reader's favourites, or the documents they opened lately, newest
+ * first whatever the order; each of those narrowed to the files whose names hold `name`, which alone is every such file of
+ * the project's.
  */
 export type ListingPlace =
   | { folder: number | null }
-  | { tag: number; name?: string }
   | { favorites: true; name?: string }
   | { recent: true; name?: string }
   | { name: string }
-
-/** TAG_COLORS in backend/app/models.py, each drawn by a token of index.css (`--color-tag-*`). */
-export const TAG_COLORS = ['grey', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'] as const
-export type TagColor = (typeof TAG_COLORS)[number]
-
-/** A tag of a project's (TagOut), and how many of its documents out of the trash carry it. */
-export interface Tag {
-  id: number
-  name: string
-  color: TagColor
-  document_count: number
-}
 
 /**
  * What a search searches within (DocumentFilter in backend/app/schemas.py), each part narrowing the others; a part left
  * empty matches every document.
  */
 export interface DocumentFilter {
-  tags: number[]
-  /** Every one of the tags rather than any. */
-  every_tag: boolean
   types: string[]
   /** Dated on or after, and on or before, as `YYYY-MM-DD`; either leaves out the undated. */
   after: string | null
@@ -1081,8 +1063,6 @@ export interface SearchResult {
 /** The library's search as its route asks it (SearchIn in backend/app/schemas.py): each part of the filter given, a list's each value once. */
 export function searchParams(query: string, filter: DocumentFilter, limit = 20): URLSearchParams {
   const params = new URLSearchParams({ q: query, limit: String(limit) })
-  for (const id of filter.tags) params.append('tags', String(id))
-  if (filter.tags.length > 1 && filter.every_tag) params.set('every_tag', 'true')
   for (const type of filter.types) params.append('types', type)
   if (filter.after) params.set('after', filter.after)
   if (filter.before) params.set('before', filter.before)
@@ -2780,7 +2760,6 @@ export const api = {
   ): Promise<(DocumentPage & { etag: string | null }) | null> => {
     const params = new URLSearchParams()
     if ('folder' in place && place.folder != null) params.set('folder_id', String(place.folder))
-    if ('tag' in place) params.set('tag', String(place.tag))
     if ('favorites' in place) params.set('favorites', 'true')
     if ('recent' in place) params.set('recent', 'true')
     if ('name' in place && place.name) params.set('name', place.name)
@@ -2822,17 +2801,6 @@ export const api = {
       { signal },
     ),
   document: (id: number) => request<Document>(`/documents/${id}`),
-  tags: (projectId: number) => request<{ tags: Tag[]; max_tags: number }>(`/projects/${projectId}/tags`),
-  createTag: (projectId: number, body: { name: string; color: TagColor }) =>
-    request<Tag>(`/projects/${projectId}/tags`, json('POST', body)),
-  updateTag: (id: number, body: { name?: string; color?: TagColor }) => request<Tag>(`/tags/${id}`, json('PATCH', body)),
-  /** Deletes the tag for good, taking it off every document. */
-  deleteTag: (id: number) => request<void>(`/tags/${id}`, { method: 'DELETE' }),
-  /** Every tag the document carries: one it carries that is left out is taken off. */
-  tagDocument: (id: number, tagIds: number[]) => request<Document>(`/documents/${id}/tags`, json('PUT', { tag_ids: tagIds })),
-  /** Put tags on every one of the chosen documents and take tags off every one, the rest of each one's left as they are. */
-  tagDocuments: (projectId: number, documentIds: number[], add: number[], remove: number[]) =>
-    request<Document[]>(`/projects/${projectId}/documents/tags`, json('POST', { document_ids: documentIds, add, remove })),
   /** The ids of the project's documents the reader starred, the newest star first. */
   favorites: (projectId: number) => request<{ document_ids: number[] }>(`/projects/${projectId}/favorites`),
   starDocument: (id: number) => request<void>(`/documents/${id}/favorite`, { method: 'PUT' }),

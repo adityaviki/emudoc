@@ -1,4 +1,4 @@
-// A place's documents as the library holds them (a folder's, a tag's, the reader's favourites or
+// A place's documents as the library holds them (a folder's, the reader's favourites or
 // recent ones, or the files whose names hold some letters), in an order: the pages it has asked for, each with the tag
 // the server named it by, so that asking again while a document is indexed costs a 304 for every
 // page that has not changed (`list_documents` in backend/app/api/documents.py). Each place in each
@@ -66,7 +66,6 @@ export const BY_NAME: Arrangement = { sort: 'name', order: 'asc' }
 /** A place as a query key: a folder by its id, the root's null, the others by a word of their own, a name filter's alone `named`. */
 export function placeKey(place: ListingPlace): number | string | null {
   if ('folder' in place) return place.folder
-  if ('tag' in place) return `tag:${place.tag}`
   if ('favorites' in place) return 'favorites'
   return 'recent' in place ? 'recent' : 'named'
 }

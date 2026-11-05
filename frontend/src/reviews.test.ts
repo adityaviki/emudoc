@@ -9,7 +9,6 @@ const reviewed = (fields: Partial<Document> = {}) => ({
   assignee: null,
   review_changer: null,
   review_changed_at: null,
-  tag_ids: [],
   ...fields,
 })
 

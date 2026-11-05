@@ -12,7 +12,7 @@ on its page ([A document's details](/help/documents)). The passages that hold ev
 those that hold all but one of them, then those that hold any.
 
 - **Filter**, above the results, narrows a search to the documents of some types, dated within
-  a span, carrying tags, in review or in a folder. Each part shows beside it, and its cross
+  a span, in review or in a folder. Each part shows beside it, and its cross
   takes it off.
 - **Search within these** keeps the words you searched for and empties the box: the next words
   search only the documents with a passage that holds every one of them. Do it again to narrow
@@ -20,8 +20,8 @@ those that hold all but one of them, then those that hold any.
 
 The box above the library's files finds files by their names instead: type part of a name in
 **Filter by name** to list the files whose names hold those letters, in any case, from every folder
-of the project, each with the folder it is in. While the library shows a tag, your favourites or
-your recent files, it narrows those. Empty the box, or press Escape in it, to see the folders again.
+of the project, each with the folder it is in. While the library shows your favourites or your
+recent files, it narrows those. Empty the box, or press Escape in it, to see the folders again.
 
 To search every project you see at once, type in the box at the top of any page outside a
 project and press Enter, or choose **Search every project** when a project's search finds

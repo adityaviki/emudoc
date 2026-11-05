@@ -34,16 +34,6 @@
   --color-file-sheet: #1f7a4d;
   --color-file-image: #8b3fb4;
   --color-file-slides: #be185d;
-  /* A tag's dot (TAG_COLORS in api.ts); its name is written in ink beside it. */
-  --color-tag-grey: #8a8a94;
-  --color-tag-red: #d6453d;
-  --color-tag-orange: #e07b25;
-  --color-tag-yellow: #d4a514;
-  --color-tag-green: #2f9e5b;
-  --color-tag-teal: #1a9a95;
-  --color-tag-blue: #3b6fe0;
-  --color-tag-purple: #8b5cd6;
-  --color-tag-pink: #d6458f;
 }
 
 :root {
@@ -74,15 +64,6 @@
     --color-file-sheet: #6cc391;
     --color-file-image: #c892e8;
     --color-file-slides: #f39ac2;
-    --color-tag-grey: #9a9aa3;
-    --color-tag-red: #f07a70;
-    --color-tag-orange: #f2a15a;
-    --color-tag-yellow: #e8c24a;
-    --color-tag-green: #5fc08a;
-    --color-tag-teal: #4ec4bd;
-    --color-tag-blue: #7ea0ff;
-    --color-tag-purple: #b494f0;
-    --color-tag-pink: #f08cc0;
   }
 }
 

@@ -1,9 +1,9 @@
-"""What narrows the library's search: a project's documents by tags, types, dates, reviews, a
-folder and the words they mention (`DocumentFilter` in app/schemas.py), as the conditions on
+"""What narrows the library's search: a project's documents by types, dates, reviews, a folder
+and the words they mention (`DocumentFilter` in app/schemas.py), as the conditions on
 `documents` that `searched` in app/api/query.py resolves before it ranks a passage, and the
 search of every project (app/api/search.py) by the parts that mean the same in any project.
 
-A filter names tags and a folder by id. A folder in the trash or deleted leaves it matching
+A filter names a folder by id. A folder in the trash or deleted leaves it matching
 nothing by that part rather than dropping the part, so that a search never runs wider than the
 member asked for.
 """
@@ -23,9 +23,6 @@ def matching(session: Session, project_id: int, chosen: DocumentFilter) -> list[
     """The conditions on `documents` of the filter, for a query of the project's documents out of
     the trash."""
     conditions = anywhere(chosen)
-    if chosen.tags:
-        held = Document.tag_ids.contains if chosen.every_tag else Document.tag_ids.overlap
-        conditions.append(held(chosen.tags))
     if chosen.reviews:
         conditions.append(Document.review.in_(chosen.reviews))
     if chosen.folder_id is not None:

@@ -73,9 +73,6 @@ DOCUMENT_DETAILS = ("title", "doc_type", "doc_date", "language")
 # What an automation's run puts in review (app/reviews.py), of the documents that arrived for it
 # and are in none: those its cross-checks found a difference about, or every one it watches.
 AUTOMATION_REVIEWS = ("differs", "arrived")
-# The colours a tag of a project's (app/tags.py) is drawn in, each a token of the page's in its
-# light theme and its dark (frontend/src/index.css).
-TAG_COLORS = ("grey", "red", "orange", "yellow", "green", "teal", "blue", "purple", "pink")
 # When a project's question set (app/question_sets.py) is asked of its documents on a schedule:
 # every day, or one day a week, at an hour of its maker's zone. What made a report of its answers:
 # the schedule, documents that arrived, or a member who ran it there and then. How far a report
@@ -1300,8 +1297,6 @@ class Document(Base):
         Index("ix_documents_listing_added", "project_id", "folder_id", "id"),
         Index("ix_documents_listing_size", "project_id", "folder_id", "size_bytes", "id"),
         Index("ix_documents_listing_date", "project_id", "folder_id", "doc_date", "id"),
-        # A project's documents of a tag, or of any or all of several (app/tags.py).
-        Index("ix_documents_tag_ids", "tag_ids", postgresql_using="gin"),
         *_trash_indexes("documents", "project_id"),
         # A null review passes, as a check that is not false does.
         _one_of("review", REVIEW_STATES, "documents"),
@@ -1430,13 +1425,6 @@ class Document(Base):
         .scalar_subquery()
     )
     review_changed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
-    # The ids of its tags (`Tag`), each one of its project's, in the order they were put on it.
-    # On the row rather than in a table of their own, so that tagging a document changes the
-    # row whose version tags the library's pages (`_page_tag` in app/api/documents.py); a tag
-    # deleted is taken out of every document's (app/tags.py).
-    tag_ids: Mapped[list[int]] = mapped_column(
-        ARRAY(Integer), default=list, server_default=text("'{}'::integer[]")
-    )
 
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -1515,37 +1503,6 @@ class DocumentVersion(Base):
     )
     uploaded_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
     replaced_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-
-
-class Tag(Base):
-    """A label of a project's that its members put on its documents (app/tags.py): shown on
-    them in the library, which lists a tag's documents wherever they are, as the search's filter
-    uses them too. A document holds the ids of its tags itself (`Document.tag_ids`)."""
-
-    __tablename__ = "tags"
-    __table_args__ = (
-        # The same name in another case is refused by the route (`name_taken`), which reads
-        # what this cannot.
-        UniqueConstraint("project_id", "name"),
-        _one_of("color", TAG_COLORS, "tags"),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    # The tenant, as for every row a member reaches by its id.
-    org_id: Mapped[int] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), index=True
-    )
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
-    name: Mapped[str] = mapped_column(String(50))
-    # One of TAG_COLORS.
-    color: Mapped[str] = mapped_column(String(20), default="grey", server_default="grey")
-    # Indexed for the account purge.
-    created_by: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), index=True
-    )
-    created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 

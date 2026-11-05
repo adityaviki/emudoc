@@ -583,8 +583,6 @@ class DocumentOut(_FromORM):
     assignee: str | None
     review_changer: str | None
     review_changed_at: dt.datetime | None
-    # The ids of its tags (app/tags.py), in the order they were put on it.
-    tag_ids: list[int] = []
 
 
 class DocumentVersionOut(BaseModel):
@@ -647,59 +645,12 @@ class DocumentPage(BaseModel):
 # were added, by the documents' own dates (the undated after the dated either way), by size.
 DocumentSort = Literal["name", "added", "date", "size"]
 SortOrder = Literal["asc", "desc"]
-# TAG_COLORS in app/models.py.
-TagColor = Literal["grey", "red", "orange", "yellow", "green", "teal", "blue", "purple", "pink"]
-_TagName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)]
-
-
-class TagIn(BaseModel):
-    """A tag as a member makes it (app/tags.py): its name, which no other tag of the project
-    carries whatever its case, and its colour."""
-
-    name: _TagName
-    color: TagColor = "grey"
-
-
-class TagPatch(BaseModel):
-    """Rename and/or recolour a tag. A field that is left out is left unchanged."""
-
-    name: _TagName | None = None
-    color: TagColor | None = None
-
-
-class TagOut(_FromORM):
-    id: int
-    name: str
-    color: TagColor
-    # How many of the project's documents out of the trash carry it.
-    document_count: int = 0
-
-
-class TagsOut(BaseModel):
-    """A project's tags, by name, and how many it may have."""
-
-    tags: list[TagOut]
-    max_tags: int
-
-
-class DocumentTagsIn(BaseModel):
-    """Every tag a document carries, by id: one it carries that is left out is taken off it."""
-
-    tag_ids: list[int] = Field(max_length=20)
 
 
 class ChosenDocumentsIn(BaseModel):
     """Documents a member chose together in the library, by id (app/selection.py)."""
 
     document_ids: list[int] = Field(min_length=1, max_length=MAX_CHOSEN)
-
-
-class DocumentsTagsIn(ChosenDocumentsIn):
-    """Tags to put on every chosen document and tags to take off every one, by id; a tag in
-    neither stays on the documents that carry it and off the others."""
-
-    add: list[int] = Field(default=[], max_length=20)
-    remove: list[int] = Field(default=[], max_length=100)
 
 
 # The stage a reprocess run starts from; later stages run too, and so does an earlier one
@@ -732,14 +683,11 @@ MAX_MENTIONS = 5
 
 class DocumentFilter(BaseModel):
     """What a search searches within (app/api/query.py, app/document_filter.py), each part
-    narrowing the others: the documents carrying any of its tags, or every one with `every_tag`;
-    of one of its types, as the model names a document's kind; dated on or after `after` and on
-    or before `before`, which leaves out the undated; in one of its review states; in its folder
-    or below it; with a passage holding every word of each of its `mentions`. A part left out
-    matches every document."""
+    narrowing the others: the documents of one of its types, as the model names a document's
+    kind; dated on or after `after` and on or before `before`, which leaves out the undated; in
+    one of its review states; in its folder or below it; with a passage holding every word of
+    each of its `mentions`. A part left out matches every document."""
 
-    tags: list[int] = Field(default_factory=list, max_length=20)
-    every_tag: bool = False
     types: list[_TypeName] = Field(default_factory=list, max_length=20)
     after: dt.date | None = None
     before: dt.date | None = None
@@ -3308,8 +3256,6 @@ class ExportedDocument(BaseModel):
     # (app/versions.py).
     version: int = 1
     versions: list[ExportedVersion] = []
-    # The names of its tags (app/tags.py), as the project's `tags` list them.
-    tags: list[str] = []
     # Its note, which the project's members share (app/notes.py), if it has one.
     note: ExportedNote | None = None
     # The threads of comments on it, oldest first (app/comments.py).
@@ -3438,13 +3384,6 @@ class ProjectExportFile(BaseModel):
     templates: list[ExportedTemplate]
     # The links that show its documents to whoever holds them (app/share_links.py).
     share_links: list[ExportedProjectShareLink] = []
-    # Its tags (app/tags.py), by name, which each document lists by name.
-    tags: list["ExportedTag"] = []
-
-
-class ExportedTag(BaseModel):
-    name: str
-    color: str
 
 
 # The operator's area (app/operators.py, app/api/operator.py): what the maintenance commands

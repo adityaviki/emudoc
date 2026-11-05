@@ -117,7 +117,6 @@ from app.models import (
     Project,
     QuestionReport,
     QuestionSet,
-    Tag,
     User,
     UserSession,
     WorkflowRun,
@@ -542,26 +541,6 @@ def get_report(report_id: int, session: SessionDep, account: AccountDep) -> Ques
     return report
 
 
-def get_tag(tag_id: int, session: SessionDep, account: AccountDep) -> Tag:
-    """A project's tag (app/tags.py), provided the account sees the project and it is out of the
-    trash."""
-    return _of_project(session, account, Tag, tag_id, "Tag not found")
-
-
-def _of_project(
-    session: Session, account: Account, model: type[Tag], object_id: int, missing: str
-) -> Tag:
-    found = session.scalar(
-        select(model)
-        .join(Project, Project.id == model.project_id)
-        .where(model.id == object_id, visible_to(account))
-    )
-    if found is None:
-        raise HTTPException(404, missing)
-    about(project_id=found.project_id)
-    return found
-
-
 def get_draft(draft_id: int, session: SessionDep, account: AccountDep) -> Draft:
     """A draft of a project's (app/drafts.py), provided the account sees the project and it is
     out of the trash."""
@@ -740,19 +719,6 @@ def get_editable_fact_check(
     return check
 
 
-def get_editable_tag(
-    tag: Annotated[Tag, Depends(get_tag)], account: AccountDep, session: SessionDep
-) -> Tag:
-    get_editor(account, session)
-    return tag
-
-
-def get_deletable_tag(tag: Annotated[Tag, Depends(get_tag)], account: AccountDep) -> Tag:
-    """The tag, for deleting it: by role alone, as a document is."""
-    _refuse_viewer(account)
-    return tag
-
-
 def get_deletable_project(project: ProjectDep, account: AccountDep) -> Project:
     """The project, for deleting it: by role alone, since deleting is how an organisation past
     its plan gets within it."""
@@ -798,8 +764,6 @@ EditableQuestionSetDep = Annotated[QuestionSet, Depends(get_editable_question_se
 DeletableQuestionSetDep = Annotated[QuestionSet, Depends(get_deletable_question_set)]
 ReportDep = Annotated[QuestionReport, Depends(get_report)]
 DeletableReportDep = Annotated[QuestionReport, Depends(get_deletable_report)]
-EditableTagDep = Annotated[Tag, Depends(get_editable_tag)]
-DeletableTagDep = Annotated[Tag, Depends(get_deletable_tag)]
 EditableFactDep = Annotated[Fact, Depends(get_editable_fact)]
 EditableFactCheckDep = Annotated[FactCheck, Depends(get_editable_fact_check)]
 DeletableProjectDep = Annotated[Project, Depends(get_deletable_project)]

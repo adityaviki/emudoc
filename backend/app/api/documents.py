@@ -68,7 +68,6 @@ from app.models import (
     Fact,
     Project,
     Section,
-    Tag,
 )
 from app.notices import NOT_INDEXED, record_upload, settle_upload
 from app.parsing import IMAGE_TYPES, PAGE_TYPES, FileTooLarge
@@ -124,8 +123,8 @@ MAX_PAGE_SIZE = 500
 BAD_CURSOR = "This page of the folder cannot be found. List the folder again from its start."
 BOTH_WAYS = "Give a detail a value of your own, or take what the reading found for it, not both."
 ONE_PLACE = (
-    "Ask for one place of the library at a time: a folder, a tag, your favourites or your "
-    "recent documents."
+    "Ask for one place of the library at a time: a folder, your favourites or your recent "
+    "documents."
 )
 # A name filter looks through every folder of the project, so it cannot be one folder's.
 NAME_IN_FOLDER = (
@@ -185,7 +184,6 @@ def list_documents(
     request: Request,
     response: Response,
     folder_id: int | None = None,
-    tag: int | None = None,
     favorites: bool = False,
     recent: bool = False,
     sort: DocumentSort = "name",
@@ -196,16 +194,16 @@ def list_documents(
 ):
     """A page of the documents in one place of the library, in the order asked for, past the one
     `after` names when it is given: directly in a folder (the root when no folder is given); or
-    wherever they are in the project, those of a tag, the reader's favourites, or the documents
-    they opened lately, the newest first (`RECENT` of them, on one page, whatever the order asked
-    for). With `name`, only the files whose names hold those letters in any case, from every
-    folder of the project, or from the tag, the favourites or the recent documents asked for.
+    wherever they are in the project, the reader's favourites, or the documents they opened
+    lately, the newest first (`RECENT` of them, on one page, whatever the order asked for). With
+    `name`, only the files whose names hold those letters in any case, from every folder of the
+    project, or from the favourites or the recent documents asked for.
 
     The page carries an ETag of exactly what it shows, and a request whose If-None-Match names
     it is answered 304 without a body: the library asks again every moment while a document in
     the place is being indexed, and most of those moments change nothing on its page.
     """
-    place = _place(session, project, account, folder_id, tag, favorites, recent, name)
+    place = _place(session, project, account, folder_id, favorites, recent, name)
     if place.recent:
         limit = RECENT
     cursor = None if after is None or place.recent else _cursor(after, sort, order)
@@ -242,15 +240,14 @@ def _place(
     project: Project,
     account: Account,
     folder_id: int | None,
-    tag: int | None,
     favorites: bool,
     recent: bool,
     name: str | None = None,
 ) -> _Place:
-    """The place a listing asks for, the project's own; a folder or tag that is not found, and
-    more than one place, are refused. A name narrows a tag, the favourites or the recent ones,
-    and on its own spans the project's folders, so it is refused with a folder."""
-    named = [tag is not None, favorites, recent]
+    """The place a listing asks for, the project's own; a folder that is not found, and more
+    than one place, are refused. A name narrows the favourites or the recent ones, and on its
+    own spans the project's folders, so it is refused with a folder."""
+    named = [favorites, recent]
     if sum(named) > 1 or (any(named) and folder_id is not None):
         raise HTTPException(422, ONE_PLACE)
     words = (name or "").strip()
@@ -261,10 +258,6 @@ def _place(
         live = (*live, Document.filename.icontains(words, autoescape=True))
         if not any(named):
             return _Place(live, flat=True)
-    if tag is not None:
-        if not session.scalar(select(Tag.id).where(Tag.id == tag, Tag.project_id == project.id)):
-            raise HTTPException(404, "Tag not found")
-        return _Place((*live, Document.tag_ids.contains([tag])), flat=True)
     if favorites or recent:
         held = DocumentFavorite if favorites else DocumentVisit
         joined = and_(held.document_id == Document.id, held.user_id == account.user.id)

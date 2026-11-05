@@ -114,7 +114,6 @@ from app.schemas import (
     ExportedSession,
     ExportedShareLink,
     ExportedSpared,
-    ExportedTag,
     ExportedTemplate,
     ExportedThread,
     ExportedUsage,
@@ -126,7 +125,6 @@ from app.schemas import (
     TemplateFieldOut,
 )
 from app.storage import Storage, export_key
-from app.tags import project_tags
 
 log = logging.getLogger(__name__)
 
@@ -163,7 +161,7 @@ PROJECT_ABOUT = (
     "A copy of a project in Emudoc, for the member named in exported_by. originals/ holds each "
     "document as it was uploaded, in its folders, once the malware scan passed it, and versions/ "
     "the files a document had before a new version took their place. project.json lists the "
-    "project, its folders, its tags, its documents with theirs and the threads of comments on "
+    "project, its folders, its documents and the threads of comments on "
     "them, and the chats about them: those shared with the project and the member's own, whose "
     "answers cite passages as [P<number>]. "
     "documents/ holds what was read from each document: its outline, its passages by number, and "
@@ -176,8 +174,8 @@ CHOSEN_ABOUT = (
     "A copy of documents chosen from a project in Emudoc, for the member named in exported_by. "
     "originals/ holds each chosen document as it was uploaded, in its folders, once the malware "
     "scan passed it, and versions/ the files a document had before a new version took their "
-    "place. project.json lists the project, the folders the documents are in, the project's tags "
-    "and the documents with theirs and the threads of comments on them. documents/ holds what was "
+    "place. project.json lists the project, the folders the documents are in, and the documents "
+    "and the threads of comments on them. documents/ holds what was "
     "read from each document: its outline, its passages by number, and the facts found in it, "
     "each with the passage it came from. templates holds the project's own extraction templates, "
     "the fields its documents of each kind are read for, and share_links the links that show the "
@@ -536,8 +534,6 @@ def _write(path: Path, export_id: int, storage: Storage) -> int:
         else:
             listed_folders = _holding(session, project.id, ids, folders)
             chats = []
-        tags = project_tags(session, project.id)
-        tag_names = {tag.id: tag.name for tag in tags}
         head = {
             "organization": organization.name,
             "project": ExportedProject(
@@ -553,7 +549,6 @@ def _write(path: Path, export_id: int, storage: Storage) -> int:
             "share_links": _share_links(
                 session, project.id, user.id, None if chosen is None else ids
             ),
-            "tags": [ExportedTag(name=tag.name, color=tag.color) for tag in tags],
         }
     names = _Names()
     listed: list[ExportedDocument] = []
@@ -574,7 +569,6 @@ def _write(path: Path, export_id: int, storage: Storage) -> int:
                                 _version(archive, storage, names, version, folder)
                                 for version in earlier
                             ],
-                            "tags": [tag_names[i] for i in document.tag_ids if i in tag_names],
                             "note": note,
                             "threads": threads,
                         }

@@ -1,5 +1,5 @@
 """The library's search narrowed by what a member chose (`DocumentFilter`, app/document_filter.py,
-`searched` in app/api/query.py): by tags, types, dates, reviews and a folder, and within what
+`searched` in app/api/query.py): by types, dates, reviews and a folder, and within what
 earlier searches found, by the words they were for."""
 
 from sqlalchemy import text
@@ -9,7 +9,6 @@ from app.indexing.pipeline import process_document
 from app.schemas import MAX_MENTIONS
 from tests.test_api import create_project, upload
 from tests.test_folders import make_folder, upload_into
-from tests.test_tags import make_tag, tag
 
 
 def set_columns(session, document, **columns):
@@ -67,11 +66,6 @@ def test_a_search_is_narrowed_by_what_its_member_chose(client, services, session
     c, d = written(
         client, services, project["id"], invoices["id"], tmp_path / "i", ["c.txt", "d.txt"]
     )
-    urgent = make_tag(client, project["id"], "Urgent")
-    paid = make_tag(client, project["id"], "Paid")
-    tag(client, a["id"], urgent["id"])
-    tag(client, b["id"], urgent["id"], paid["id"])
-    tag(client, c["id"], paid["id"])
     set_columns(session, a, doc_type="invoice", doc_date="2024-01-10")
     set_columns(session, b, doc_type="contract", doc_date="2024-06-01", review="disputed")
     set_columns(session, c, doc_type="invoice", doc_date="2023-12-31", review="approved")
@@ -81,14 +75,11 @@ def test_a_search_is_narrowed_by_what_its_member_chose(client, services, session
     pid = project["id"]
 
     assert found(client, pid) == every
-    both = [urgent["id"], paid["id"]]
-    assert found(client, pid, tags=both) == ["a", "b", "c"]
-    assert found(client, pid, tags=both, every_tag=True) == ["b"]
     assert found(client, pid, types=["Invoice"]) == ["a", "c", "d"]
     assert found(client, pid, after="2024-01-01") == ["a", "b"]
     assert found(client, pid, before="2024-01-10", types=["invoice"]) == ["a", "c"]
     assert found(client, pid, reviews=["approved", "disputed"]) == ["b", "c"]
-    assert found(client, pid, folder_id=invoices["id"], tags=[paid["id"]]) == ["c"]
+    assert found(client, pid, folder_id=invoices["id"], reviews=["approved"]) == ["c"]
     assert found(client, pid, document_id=a["id"], types=["contract"]) == []
 
     # Within what earlier searches found: the documents with a passage holding every word of
