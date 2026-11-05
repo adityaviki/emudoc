@@ -2798,7 +2798,7 @@ An error the page renders into replaces the part of the page that broke (the pag
 header, or in a project the library, the document or the chat) with a sentence, a Reload
 button and a reference, and is reported to the app (`POST /api/page-errors`,
 `RATE_PAGE_ERRORS` a minute per client address), not to the tracker: the browser runs no
-SDK, so the page's address with the library's search words, its requests and its console go
+SDK, so the page's address with a search's words, its requests and its console go
 nowhere, and the page's policy needs no other origin.
 The app logs one line and sends the tracker an event of the `javascript` platform: the error's
 kind, the API's status when it was the API's refusal, the frames in the page's built scripts

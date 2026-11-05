@@ -162,7 +162,7 @@ Emudoc never takes the same file twice into a project.
 
 Deleting a file, a folder or a project puts it in the trash for $trash_days days, from which a
 member restores it as it was, while the plan has room for it; after that it is deleted for good.
-"Trash…", in the menu that opens from "Show" under the library's search, opens the project's
+"Trash…", in the menu that opens from "Show" under the library's filter by name, opens the project's
 trash, and the projects page lists the projects in the trash. Nothing in the trash is searched, asked about or counted against your plan. The
 library also offers to undo a deletion at once.
 

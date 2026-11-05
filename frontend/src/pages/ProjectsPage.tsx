@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Download, FolderOpen, Lock, Plus, RotateCcw, Search, Sparkles, Trash2, Users } from 'lucide-react'
+import { Download, FolderOpen, Lock, Plus, RotateCcw, Sparkles, Trash2, Users } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
@@ -13,7 +13,6 @@ import { DUPLICATES_KEY, duplicatesWords } from '../details.ts'
 import { formatDate } from '../format.ts'
 import { EXPORT_QUERY } from '../exports.ts'
 import { describeTrashedProject, projectPurgeQuestion, TRASHED_PROJECTS_KEY } from '../trash.ts'
-import { EMPTY_SEARCH_ALL, searchAllUrl } from '../search.ts'
 import { ProjectAccessForm } from './ProjectAccessForm.tsx'
 import { ProjectExports } from './ProjectExports.tsx'
 
@@ -51,7 +50,6 @@ export function ProjectsPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {(projects.data?.length ?? 0) > 0 && <SearchAllBox />}
             {changes && !creating && (
               <Button variant="primary" icon={<Plus className="size-4" />} onClick={create}>
                 New project
@@ -107,31 +105,6 @@ export function ProjectsPage() {
         {changes && <ProjectTrash />}
       </div>
     </div>
-  )
-}
-
-/** The search of every project the member sees, which its own page runs once the words are given. */
-function SearchAllBox() {
-  const navigate = useNavigate()
-  const [words, setWords] = useState('')
-  return (
-    <form
-      role="search"
-      className="relative"
-      onSubmit={(event) => {
-        event.preventDefault()
-        navigate(searchAllUrl({ q: words, filter: EMPTY_SEARCH_ALL }))
-      }}
-    >
-      <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted" />
-      <input
-        value={words}
-        onChange={(event) => setWords(event.target.value)}
-        placeholder="Search all projects"
-        aria-label="Search all projects"
-        className="field h-8 w-60 pl-8 text-[13px]"
-      />
-    </form>
   )
 }
 

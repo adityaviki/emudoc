@@ -19,30 +19,34 @@ describe('failureWords', () => {
 
 describe('libraryPlace', () => {
   it('is the same for the same place, so a broken library stays broken while nothing moves', () => {
-    expect(libraryPlace({ folderId: 4, q: 'invoice' })).toBe(libraryPlace({ folderId: 4, q: 'invoice' }))
-    expect(libraryPlace({ folderId: null, q: '' })).toBe(libraryPlace({ folderId: null, q: '' }))
+    expect(libraryPlace({ folderId: 4, name: 'invoice' })).toBe(libraryPlace({ folderId: 4, name: 'invoice' }))
+    expect(libraryPlace({ folderId: null })).toBe(libraryPlace({ folderId: null }))
   })
 
-  it('changes with the folder, the search, the trash, the templates, a facts table and its changes, each of which starts it afresh', () => {
+  it('changes with the folder, a place, the filter by name, the trash, the templates, a facts table and its changes, each of which starts it afresh', () => {
     const places = [
-      libraryPlace({ folderId: null, q: '' }),
-      libraryPlace({ folderId: 4, q: '' }),
-      libraryPlace({ folderId: 5, q: '' }),
-      libraryPlace({ folderId: 4, q: 'invoice' }),
-      libraryPlace({ folderId: null, q: 'invoice' }),
-      libraryPlace({ folderId: null, q: '', trash: true }),
-      libraryPlace({ folderId: null, q: '', templates: true }),
-      libraryPlace({ folderId: null, q: '', facts: 'invoice' }),
-      libraryPlace({ folderId: null, q: '', facts: 'purchase order' }),
-      libraryPlace({ folderId: null, q: '', changes: 'invoice' }),
-      libraryPlace({ folderId: null, q: '', questionSets: true }),
-      libraryPlace({ folderId: null, q: '', report: 12 }),
-      libraryPlace({ folderId: null, q: '', report: 13 }),
+      libraryPlace({ folderId: null }),
+      libraryPlace({ folderId: 4 }),
+      libraryPlace({ folderId: 5 }),
+      libraryPlace({ folderId: 4, name: 'invoice' }),
+      libraryPlace({ folderId: null, name: 'invoice' }),
+      libraryPlace({ folderId: null, tag: 2 }),
+      libraryPlace({ folderId: null, tag: 2, name: 'invoice' }),
+      libraryPlace({ folderId: null, favorites: true }),
+      libraryPlace({ folderId: null, recent: true }),
+      libraryPlace({ folderId: null, trash: true }),
+      libraryPlace({ folderId: null, templates: true }),
+      libraryPlace({ folderId: null, facts: 'invoice' }),
+      libraryPlace({ folderId: null, facts: 'purchase order' }),
+      libraryPlace({ folderId: null, changes: 'invoice' }),
+      libraryPlace({ folderId: null, questionSets: true }),
+      libraryPlace({ folderId: null, report: 12 }),
+      libraryPlace({ folderId: null, report: 13 }),
     ]
     expect(new Set(places).size).toBe(places.length)
   })
 
-  it('tells a search for a folder\'s number from that folder', () => {
-    expect(libraryPlace({ folderId: null, q: '4' })).not.toBe(libraryPlace({ folderId: 4, q: '' }))
+  it("tells a filter by a folder's number from that folder", () => {
+    expect(libraryPlace({ folderId: null, name: '4' })).not.toBe(libraryPlace({ folderId: 4 }))
   })
 })

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { buildWorkspaceUrl, parseWorkspaceUrl, sameFocus } from './url.ts'
+import { EMPTY_FILTER } from '../library.ts'
+import { buildWorkspaceUrl, parseWorkspaceUrl, sameFocus, searchedUrl, searching } from './url.ts'
 import type { WorkspaceUrl } from './url.ts'
 
 const parse = (url: string) => {
@@ -9,8 +10,9 @@ const parse = (url: string) => {
 
 const home: WorkspaceUrl = {
   projectId: 3,
-  library: { folderId: null, q: '' },
+  library: { folderId: null },
   document: null,
+  search: null,
   chatId: null,
   about: null,
   canonical: true,
@@ -22,14 +24,28 @@ describe('parseWorkspaceUrl', () => {
     expect(parse('/projects/3/')).toEqual(home)
   })
 
-  it('reads the folder, the search, the open document and the chat', () => {
-    expect(parse('/projects/3/documents/41?folder=7&q=late+delivery&page=2&chat=12')).toEqual({
+  it('reads the folder, its filter by name, the search, the open document and the chat', () => {
+    expect(parse('/projects/3/documents/41?folder=7&name=inv&q=late+delivery&page=2&chat=12')).toEqual({
       ...home,
-      library: { folderId: 7, q: 'late delivery' },
+      library: { folderId: 7, name: 'inv' },
       document: { id: 41, focus: { page: 2 } },
+      search: { q: 'late delivery', filter: EMPTY_FILTER },
       chatId: 12,
     })
     expect(parse('/projects/3?chat=new')?.chatId).toBe('new')
+    // Spaces alone filter nothing.
+    expect(parse('/projects/3?name=+')?.library).toEqual({ folderId: null })
+  })
+
+  it('reads the search tab shown, its words or none, and it beside a document open in front of it', () => {
+    const shown = parse('/projects/3/search?q=notice')!
+    expect(shown).toEqual({ ...home, search: { q: 'notice', filter: EMPTY_FILTER } })
+    expect(searching(shown)).toBe(true)
+    expect(parse('/projects/3/search')?.search).toEqual({ q: '', filter: EMPTY_FILTER })
+    const behind = parse('/projects/3/documents/41?q=notice')!
+    expect(behind.search).toEqual({ q: 'notice', filter: EMPTY_FILTER })
+    expect(searching(behind)).toBe(false)
+    expect(searching(home)).toBe(false)
   })
 
   it("reads what a new chat will be about, a folder or documents, and nothing beside another's", () => {
@@ -59,14 +75,15 @@ describe('parseWorkspaceUrl', () => {
     })
   })
 
-  it('reads the old chat and search pages as the workspace, to be rewritten', () => {
+  it('reads the old chat page, and a search in the library as it was, as the workspace, to be rewritten', () => {
     expect(parse('/projects/3/ask')).toEqual({ ...home, canonical: false })
     expect(parse('/projects/3/ask/5')).toEqual({ ...home, chatId: 5, canonical: false })
     expect(parse('/projects/3/ask/new')).toEqual({ ...home, chatId: 'new', canonical: false })
     expect(parse('/projects/3/ask?chat=9')).toEqual({ ...home, chatId: 9, canonical: false })
-    expect(parse('/projects/3/search?q=notice')).toEqual({
+    expect(parse('/projects/3?folder=7&q=notice')).toEqual({
       ...home,
-      library: { folderId: null, q: 'notice' },
+      library: { folderId: 7 },
+      search: { q: 'notice', filter: EMPTY_FILTER },
       canonical: false,
     })
   })
@@ -84,34 +101,37 @@ describe('buildWorkspaceUrl', () => {
     expect(
       buildWorkspaceUrl({
         ...home,
-        library: { folderId: 7, q: 'late delivery' },
+        library: { folderId: 7, name: 'inv' },
         document: { id: 41, focus: { passage: 812 } },
+        search: { q: 'late delivery', filter: EMPTY_FILTER },
         chatId: 'new',
       }),
-    ).toBe('/projects/3/documents/41?folder=7&q=late+delivery&passage=812&chat=new')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', trash: true } })).toBe('/projects/3?trash=')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', templates: true } })).toBe('/projects/3?templates=')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', facts: 'purchase order' } })).toBe('/projects/3?facts=purchase+order')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', changes: 'invoice' } })).toBe('/projects/3?changes=invoice')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', checks: true } })).toBe('/projects/3?checks=')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', check: 5 } })).toBe('/projects/3?check=5')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', run: 8 } })).toBe('/projects/3?run=8')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', questionSets: true } })).toBe('/projects/3?question-sets=')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', report: 12 } })).toBe('/projects/3?report=12')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', reviews: 'all' } })).toBe('/projects/3?reviews=')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', reviews: 'mine' } })).toBe('/projects/3?reviews=mine')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', activity: true } })).toBe('/projects/3?activity=')
+    ).toBe('/projects/3/documents/41?folder=7&name=inv&q=late+delivery&passage=812&chat=new')
+    expect(buildWorkspaceUrl({ ...home, search: { q: 'notice', filter: EMPTY_FILTER } })).toBe('/projects/3/search?q=notice')
+    expect(buildWorkspaceUrl({ ...home, search: { q: '', filter: EMPTY_FILTER } })).toBe('/projects/3/search')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, trash: true } })).toBe('/projects/3?trash=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, templates: true } })).toBe('/projects/3?templates=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, facts: 'purchase order' } })).toBe('/projects/3?facts=purchase+order')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, changes: 'invoice' } })).toBe('/projects/3?changes=invoice')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, checks: true } })).toBe('/projects/3?checks=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, check: 5 } })).toBe('/projects/3?check=5')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, run: 8 } })).toBe('/projects/3?run=8')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, questionSets: true } })).toBe('/projects/3?question-sets=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, report: 12 } })).toBe('/projects/3?report=12')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, reviews: 'all' } })).toBe('/projects/3?reviews=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, reviews: 'mine' } })).toBe('/projects/3?reviews=mine')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, activity: true } })).toBe('/projects/3?activity=')
     expect(buildWorkspaceUrl({ ...home, document: { id: 41, focus: { thread: 5 } } })).toBe('/projects/3/documents/41?thread=5')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', drafts: true } })).toBe('/projects/3?drafts=')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', draft: 9 } })).toBe('/projects/3?draft=9')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', draftTemplates: true } })).toBe('/projects/3?draft-templates=')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', mail: true } })).toBe('/projects/3?mail=')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', connectors: true } })).toBe('/projects/3?connectors=')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', tag: 4 } })).toBe('/projects/3?tag=4')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', favorites: true } })).toBe('/projects/3?favorites=')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', recent: true } })).toBe('/projects/3?recent=')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', tags: true } })).toBe('/projects/3?tags=')
-    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, q: '', filing: true } })).toBe('/projects/3?filing=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, drafts: true } })).toBe('/projects/3?drafts=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, draft: 9 } })).toBe('/projects/3?draft=9')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, draftTemplates: true } })).toBe('/projects/3?draft-templates=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, mail: true } })).toBe('/projects/3?mail=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, connectors: true } })).toBe('/projects/3?connectors=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, tag: 4 } })).toBe('/projects/3?tag=4')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, favorites: true } })).toBe('/projects/3?favorites=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, recent: true } })).toBe('/projects/3?recent=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, tags: true } })).toBe('/projects/3?tags=')
+    expect(buildWorkspaceUrl({ ...home, library: { folderId: null, filing: true } })).toBe('/projects/3?filing=')
     expect(buildWorkspaceUrl({ ...home, chatId: 'new', about: { folder_id: 7 } })).toBe('/projects/3?chat=new&about=f7')
     expect(buildWorkspaceUrl({ ...home, chatId: 'new', about: { document_ids: [41, 42] } })).toBe('/projects/3?chat=new&about=d41-42')
     expect(buildWorkspaceUrl({ ...home, chatId: 'new', about: {} })).toBe('/projects/3?chat=new')
@@ -122,31 +142,35 @@ describe('buildWorkspaceUrl', () => {
     const urls: WorkspaceUrl[] = [
       home,
       { ...home, chatId: 12 },
-      { ...home, library: { folderId: null, q: 'a & b = c?' } },
+      { ...home, search: { q: 'a & b = c?', filter: EMPTY_FILTER } },
+      { ...home, search: { q: '', filter: EMPTY_FILTER }, chatId: 12 },
+      { ...home, search: { q: 'notice', filter: EMPTY_FILTER }, document: { id: 41, focus: { passage: 812 } } },
+      { ...home, library: { folderId: 7, name: 'a & b' } },
+      { ...home, library: { folderId: null, tag: 4, name: 'inv' } },
       { ...home, document: { id: 41, focus: { block: 0 } }, chatId: 12 },
-      { ...home, library: { folderId: 7, q: '' }, document: { id: 41, focus: { page: 3 } } },
-      { ...home, library: { folderId: null, q: '', trash: true }, chatId: 12 },
-      { ...home, library: { folderId: null, q: '', templates: true }, document: { id: 41, focus: null } },
-      { ...home, library: { folderId: null, q: '', facts: 'delivery note' }, document: { id: 41, focus: { block: 7 } } },
-      { ...home, library: { folderId: null, q: '', changes: 'delivery note' }, chatId: 12 },
-      { ...home, library: { folderId: null, q: '', checks: true }, chatId: 12 },
-      { ...home, library: { folderId: null, q: '', check: 5 }, document: { id: 41, focus: { block: 2 } } },
-      { ...home, library: { folderId: null, q: '', run: 8 }, document: { id: 41, focus: { block: 2 } } },
-      { ...home, library: { folderId: null, q: '', questionSets: true }, chatId: 12 },
-      { ...home, library: { folderId: null, q: '', report: 12 }, document: { id: 41, focus: { passage: 812 } } },
-      { ...home, library: { folderId: null, q: '', reviews: 'all' }, chatId: 12 },
-      { ...home, library: { folderId: null, q: '', reviews: 'mine' }, document: { id: 41, focus: null } },
-      { ...home, library: { folderId: null, q: '', activity: true }, document: { id: 41, focus: { thread: 5 } } },
-      { ...home, library: { folderId: null, q: '', drafts: true }, chatId: 12 },
-      { ...home, library: { folderId: null, q: '', draft: 9 }, document: { id: 41, focus: { passage: 812 } } },
-      { ...home, library: { folderId: null, q: '', draftTemplates: true } },
-      { ...home, library: { folderId: null, q: '', mail: true }, chatId: 12 },
-      { ...home, library: { folderId: null, q: '', connectors: true } },
-      { ...home, library: { folderId: null, q: '', tag: 4 }, document: { id: 41, focus: null } },
-      { ...home, library: { folderId: null, q: '', favorites: true } },
-      { ...home, library: { folderId: null, q: '', recent: true } },
-      { ...home, library: { folderId: null, q: '', tags: true } },
-      { ...home, library: { folderId: null, q: '', filing: true } },
+      { ...home, library: { folderId: 7 }, document: { id: 41, focus: { page: 3 } } },
+      { ...home, library: { folderId: null, trash: true }, chatId: 12 },
+      { ...home, library: { folderId: null, templates: true }, document: { id: 41, focus: null } },
+      { ...home, library: { folderId: null, facts: 'delivery note' }, document: { id: 41, focus: { block: 7 } } },
+      { ...home, library: { folderId: null, changes: 'delivery note' }, chatId: 12 },
+      { ...home, library: { folderId: null, checks: true }, chatId: 12 },
+      { ...home, library: { folderId: null, check: 5 }, document: { id: 41, focus: { block: 2 } } },
+      { ...home, library: { folderId: null, run: 8 }, document: { id: 41, focus: { block: 2 } } },
+      { ...home, library: { folderId: null, questionSets: true }, chatId: 12 },
+      { ...home, library: { folderId: null, report: 12 }, document: { id: 41, focus: { passage: 812 } } },
+      { ...home, library: { folderId: null, reviews: 'all' }, chatId: 12 },
+      { ...home, library: { folderId: null, reviews: 'mine' }, document: { id: 41, focus: null } },
+      { ...home, library: { folderId: null, activity: true }, document: { id: 41, focus: { thread: 5 } } },
+      { ...home, library: { folderId: null, drafts: true }, chatId: 12 },
+      { ...home, library: { folderId: null, draft: 9 }, document: { id: 41, focus: { passage: 812 } } },
+      { ...home, library: { folderId: null, draftTemplates: true } },
+      { ...home, library: { folderId: null, mail: true }, chatId: 12 },
+      { ...home, library: { folderId: null, connectors: true } },
+      { ...home, library: { folderId: null, tag: 4 }, document: { id: 41, focus: null } },
+      { ...home, library: { folderId: null, favorites: true } },
+      { ...home, library: { folderId: null, recent: true } },
+      { ...home, library: { folderId: null, tags: true } },
+      { ...home, library: { folderId: null, filing: true } },
       { ...home, chatId: 'new', about: { folder_id: 7 } },
       { ...home, document: { id: 41, focus: null }, chatId: 'new', about: { document_ids: [41, 42] } },
     ]
@@ -154,38 +178,43 @@ describe('buildWorkspaceUrl', () => {
   })
 
   it('rewrites an old URL to the current shape', () => {
-    const old = parse('/projects/3/ask/5')!
-    expect(buildWorkspaceUrl(old)).toBe('/projects/3?chat=5')
+    expect(buildWorkspaceUrl(parse('/projects/3/ask/5')!)).toBe('/projects/3?chat=5')
+    expect(buildWorkspaceUrl(parse('/projects/3?folder=7&q=notice')!)).toBe('/projects/3/search?folder=7&q=notice')
+  })
+
+  it("shows the header's words in the search tab, in front of a document, what narrows the search kept", () => {
+    const filter = { ...EMPTY_FILTER, types: ['invoice'] }
+    const reading = { ...home, document: { id: 41, focus: null }, search: { q: 'notice', filter } }
+    expect(searchedUrl(reading, 'late fee')).toBe('/projects/3/search?q=late+fee&type=invoice')
+    expect(searchedUrl({ ...home, library: { folderId: 7 } }, 'late fee')).toBe('/projects/3/search?folder=7&q=late+fee')
   })
 })
 
 describe('a search in the URL', () => {
-  const search = {
+  const filter = {
     tags: [4, 5],
     every_tag: true,
     types: ['invoice', 'credit note'],
     after: '2024-01-01',
     before: null,
     reviews: ['disputed' as const],
+    folder_id: 9,
     mentions: ['late delivery', 'penalty'],
   }
 
-  it('keeps what narrows it, each part its own parameter, and reads it back', () => {
-    const url = buildWorkspaceUrl({ ...home, library: { folderId: 7, q: 'notice', search } })
+  it("keeps what narrows it, each part its own parameter, its folder apart from the library's, and reads it back", () => {
+    const url = buildWorkspaceUrl({ ...home, library: { folderId: 7 }, search: { q: 'notice', filter } })
     expect(url).toBe(
-      '/projects/3?folder=7&q=notice&tagged=4&tagged=5&every-tag=&type=invoice&type=credit+note&after=2024-01-01&review=disputed&within=late+delivery&within=penalty',
+      '/projects/3/search?folder=7&q=notice&in=9&tagged=4&tagged=5&every-tag=&type=invoice&type=credit+note&after=2024-01-01&review=disputed&within=late+delivery&within=penalty',
     )
-    expect(parse(url)?.library).toEqual({ folderId: 7, q: 'notice', search })
+    expect(parse(url)).toEqual({ ...home, library: { folderId: 7 }, search: { q: 'notice', filter } })
   })
 
-  it('leaves out what it cannot read, and reads no search where nothing narrows it', () => {
-    expect(parse('/projects/3?q=notice&tagged=x&after=2024-1-1&review=lost&within=+&every-tag=')?.library).toEqual({ folderId: null, q: 'notice' })
-    expect(parse('/projects/3?tagged=4&every-tag=')?.library.search).toMatchObject({ tags: [4], every_tag: false })
-    expect(parse('/projects/3?within=penalty')?.library).toEqual({
-      folderId: null,
-      q: '',
-      search: { tags: [], every_tag: false, types: [], after: null, before: null, reviews: [], mentions: ['penalty'] },
-    })
+  it('leaves out what it cannot read, and opens no search where nothing is asked', () => {
+    expect(parse('/projects/3/search?q=notice&tagged=x&after=2024-1-1&review=lost&within=+&every-tag=&in=y')?.search).toEqual({ q: 'notice', filter: EMPTY_FILTER })
+    expect(parse('/projects/3/search?tagged=4&every-tag=')?.search?.filter).toMatchObject({ tags: [4], every_tag: false })
+    expect(parse('/projects/3/documents/41?within=penalty')?.search).toEqual({ q: '', filter: { ...EMPTY_FILTER, mentions: ['penalty'] } })
+    expect(parse('/projects/3/documents/41?tagged=x&q=+')?.search).toBeNull()
   })
 })
 

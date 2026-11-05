@@ -4,6 +4,8 @@ import { formatDate } from './format.ts'
 import {
   EMPTY_FILTER,
   NEW_RULE,
+  allNamed,
+  emptyPlaceWords,
   filterParts,
   filterWords,
   gridMove,
@@ -15,11 +17,9 @@ import {
   ruleProblem,
   ruleSentence,
   narrows,
-  searchView,
   sortWords,
   tagsOf,
   tagsWords,
-  viewedSearch,
   withoutPart,
 } from './library.ts'
 
@@ -36,6 +36,24 @@ describe('a place', () => {
     expect(placeName({ tag: 9 }, TAGS)).toBe('A tag')
     expect(placeName({ favorites: true }, TAGS)).toBe('Favourites')
     expect(placeName({ recent: true }, TAGS)).toBe('Recent')
+  })
+
+  it('is narrowed by a name, which alone takes the files of every folder', () => {
+    expect(placeOf({ name: 'inv' })).toEqual({ name: 'inv' })
+    expect(placeOf({ tag: 2, name: 'inv' })).toEqual({ tag: 2, name: 'inv' })
+    expect(placeOf({ recent: true, name: 'inv' })).toEqual({ recent: true, name: 'inv' })
+    expect(placeOf({ name: '' })).toBeNull()
+    expect(allNamed({ name: 'inv' })).toBe(true)
+    expect(allNamed({ tag: 2, name: 'inv' })).toBe(false)
+    expect(allNamed({ folder: null })).toBe(false)
+    expect(placeName({ name: 'inv' }, TAGS)).toBe('All files')
+    expect(placeName({ tag: 2, name: 'inv' }, TAGS)).toBe('Paid')
+    expect(emptyPlaceWords({ name: 'inv' })).toEqual({
+      title: 'No file’s name holds “inv”',
+      body: 'The filter looks for these letters, in any case, in the names of the files in every folder of the project.',
+    })
+    expect(emptyPlaceWords({ favorites: true, name: 'inv' }).body).toBe('The filter looks for these letters, in any case, in the names of the files listed here.')
+    expect(emptyPlaceWords({ favorites: true }).title).toBe('No favourites yet')
   })
 
   it('is listed in an order its button words', () => {
@@ -104,21 +122,6 @@ describe('a search', () => {
     expect(withoutPart(filter, 1).mentions).toEqual(['late delivery'])
     expect(narrows(EMPTY_FILTER)).toBe(false)
     expect(narrows({ ...EMPTY_FILTER, mentions: ['x'] })).toBe(true)
-  })
-
-  it('is the view of the library that runs it, its folder the view’s and the rest left out when it narrows nothing', () => {
-    expect(viewedSearch({ folderId: 7, q: '' })).toBeNull()
-    expect(viewedSearch({ folderId: 7, q: 'notice' })).toEqual({ q: 'notice', filter: { ...EMPTY_FILTER, folder_id: 7 } })
-    const view = searchView({ q: ' notice ', filter })
-    expect(view).toEqual({
-      folderId: 7,
-      q: 'notice',
-      search: { ...filter, folder_id: undefined },
-    })
-    expect(viewedSearch(view)).toEqual({ q: 'notice', filter })
-    expect(searchView({ q: 'notice', filter: { ...EMPTY_FILTER, folder_id: 3 } })).toEqual({ folderId: 3, q: 'notice' })
-    // Within what a search found, before the next words are typed.
-    expect(viewedSearch({ folderId: null, q: '', search: { ...EMPTY_FILTER, mentions: ['penalty'] } })?.filter.mentions).toEqual(['penalty'])
   })
 })
 

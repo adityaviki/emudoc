@@ -17,6 +17,12 @@ newest entry first.
 
 Members:
 
+- The search box is now at the top of every page. In a project it searches the project, and the
+  results open in a Search tab beside the documents you have open, so you can open a result and
+  go back to the others. Anywhere else it searches every project you see when you press Enter.
+- The box above the library's files now filters them by name: type part of a name to list the
+  matching files from every folder, each with the folder it is in. While the library shows a
+  tag, your favourites or your recent files, it narrows those.
 - The library no longer repeats the project's name above its search, which the header already
   shows. In a folder, or in a tag, your favourites or your recent files, the path above the
   search starts from "All files", which takes you back to every file.
