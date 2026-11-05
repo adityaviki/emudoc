@@ -292,6 +292,7 @@ export function Library() {
   if (workspace.url.library.tags) return <TagsView />
   if (workspace.url.library.filing) return <FilingView />
   const placeLabel = flat ? placeName(place, tags.data?.tags ?? []) : null
+  const atRoot = folderId == null && placeLabel === null
   // The box searches where the member is: a tag's documents, else the folder, within what narrows its search; the
   // favourites and the recent ones are no filter, and it searches the project from them.
   const searchFrom = (q: string) => {
@@ -327,17 +328,20 @@ export function Library() {
       }}
     >
       <div className="@container shrink-0 border-b border-line bg-surface">
-        <div className="flex h-11 items-center gap-1 px-3">
-          <Breadcrumb
-            folderId={folderId}
-            placeLabel={placeLabel}
-            mutations={mutations}
-            dragging={dragging}
-            onUpload={uploads ? uploadDropped : null}
-          />
-        </div>
+        {/* At the root the path would only repeat the header's project: it shows from a folder or another place on. */}
+        {atRoot ? null : (
+          <div className="flex h-11 items-center gap-1 px-3">
+            <Breadcrumb
+              folderId={folderId}
+              placeLabel={placeLabel}
+              mutations={mutations}
+              dragging={dragging}
+              onUpload={uploads ? uploadDropped : null}
+            />
+          </div>
+        )}
         {/* With every feature on, its buttons take a second line rather than run under the pane beside it. */}
-        <div className="flex flex-wrap items-center gap-2 px-3 pb-2.5">
+        <div className={`flex flex-wrap items-center gap-2 px-3 pb-2.5 ${atRoot ? 'pt-2.5' : ''}`}>
           <SearchBox query={query} placeholder={searchPlaceholder} onSearch={searchFrom} inputRef={searchBox} />
           {templates && (
             <Button
@@ -702,7 +706,7 @@ export function Library() {
 
 interface BreadcrumbProps {
   folderId: number | null
-  /** The name of a place that is not a folder, which follows the project's in the path; null for a folder's. */
+  /** The name of a place that is not a folder, which follows the root's in the path; null for a folder's. */
   placeLabel: string | null
   mutations: LibraryMutations
   dragging: DragRef
@@ -710,12 +714,15 @@ interface BreadcrumbProps {
   onUpload: Uploads | null
 }
 
-/** The path to the current folder. Each part opens that folder and takes drops into it. */
+/**
+ * The path to the current folder, from "All files" (the place menu's word for the root; the header names the
+ * project). Each part opens that folder and takes drops into it.
+ */
 function Breadcrumb({ folderId, placeLabel, mutations, dragging, onUpload }: BreadcrumbProps) {
   const workspace = useWorkspace()
-  // A place that is not a folder follows the project's root, where nothing is dropped; -1 is no folder's id.
+  // A place that is not a folder follows the root, where nothing is dropped; -1 is no folder's id.
   const crumbs: { id: number | null; name: string }[] = [
-    { id: null, name: workspace.project.name },
+    { id: null, name: 'All files' },
     ...(placeLabel === null
       ? workspace.tree.pathTo(folderId).map((folder) => ({ id: folder.id, name: folder.name }))
       : [{ id: -1, name: placeLabel }]),
