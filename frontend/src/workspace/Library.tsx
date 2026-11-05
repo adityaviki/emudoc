@@ -853,11 +853,18 @@ function Listing({
     return () => observer.disconnect()
   }, [grid])
 
+  /**
+   * Where a click or an arrow puts the cursor, and what it selects: Shift everything from the anchor, Ctrl (⌘) the item
+   * in or out, and nothing held nothing, the selection staying as it was (the owner's word of 2026-11-05: an item is
+   * selected by its box, or by a click or key with Ctrl or Shift, never by a plain click).
+   */
   function select(key: string, event?: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) {
     setCursor(key)
-    if (event?.shiftKey && anchor && present.has(anchor)) {
-      const [from, to] = [keys.indexOf(anchor), keys.indexOf(key)].sort((a, b) => a - b)
-      setSelected(new Set(keys.slice(from, to + 1)))
+    if (event?.shiftKey) {
+      const from = anchor && present.has(anchor) ? anchor : key
+      if (from === key) setAnchor(key)
+      const [first, last] = [keys.indexOf(from), keys.indexOf(key)].sort((a, b) => a - b)
+      setSelected(new Set(keys.slice(first, last + 1)))
       return
     }
     setAnchor(key)
@@ -868,8 +875,6 @@ function Listing({
         else next.add(key)
         return next
       })
-    } else {
-      setSelected(new Set([key]))
     }
   }
 
@@ -1152,10 +1157,10 @@ function Listing({
       menu.open(event, backgroundMenu)
       return
     }
-    // Opening a menu leaves the selection as it is (the owner's word of 2026-11-05): one of several selected offers what
-    // they do together, any other item what it does alone.
+    // Opening a menu leaves the selection as it is (the owner's word of 2026-11-05): a selected item offers what the
+    // selection does together, any other item what it does alone.
     const key = itemKey(item)
-    const targets = liveSelected.has(key) && liveSelected.size > 1 ? selectedItems : [item]
+    const targets = liveSelected.has(key) ? selectedItems : [item]
     const offered = itemsMenu(targets)
     if (!offered.length) return
     setMenuFor(key)
@@ -1170,10 +1175,8 @@ function Listing({
     const moveTo = (next: number) => {
       if (!keys.length) return
       event.preventDefault()
-      const key = keys[Math.max(0, Math.min(keys.length - 1, next))]
-      // Ctrl with an arrow moves the cursor alone, so that Space adds what it reaches to the selection.
-      if ((event.ctrlKey || event.metaKey) && event.key.startsWith('Arrow')) setCursor(key)
-      else select(key, { ctrlKey: false, metaKey: false, shiftKey: event.shiftKey })
+      // The arrows move the cursor alone, Space then selecting what it reached; with Shift they select as they go.
+      select(keys[Math.max(0, Math.min(keys.length - 1, next))], { ctrlKey: false, metaKey: false, shiftKey: event.shiftKey })
     }
     // The grid's arrows move by a tile and by a row; its folders are gone into with Enter.
     if (grid && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) && !event.altKey) {
@@ -1229,15 +1232,17 @@ function Listing({
         event.preventDefault()
         return goUp()
       case 'F2':
-        if (changes && liveSelected.size === 1) {
+        // The item the cursor is on, selected or not.
+        if (changes && item) {
           event.preventDefault()
-          setRenaming([...liveSelected][0])
+          setRenaming(keys[index])
         }
         return
       case 'Delete':
+        // The selection, else the item the cursor is on.
         if (!changes) return
         event.preventDefault()
-        return remove(selectedItems)
+        return remove(selectedItems.length ? selectedItems : item ? [item] : [])
       case 'Escape':
         setSelected(new Set())
         return
@@ -1259,7 +1264,7 @@ function Listing({
     const key = itemKey(item)
     // A folder carries its contents, so anything selected inside a dragged folder stays where it is.
     const dragged = outermost(liveSelected.has(key) ? selectedItems : [item], tree)
-    if (!liveSelected.has(key)) select(key)
+    setCursor(key)
     const payload = payloadOf(dragged)
     onDragChange(payload)
     event.dataTransfer.setData(ITEMS_TYPE, JSON.stringify(payload))
@@ -1369,7 +1374,7 @@ function Listing({
       depth,
       expanded: item.kind === 'folder' && openSet.has(item.folder.id),
       selected: liveSelected.has(key),
-      several: liveSelected.size > 1,
+      selecting: liveSelected.size > 0,
       isCursor: cursor === key,
       renaming: renaming === key,
       // A flat place holds no folder to drag a file into.
@@ -1423,12 +1428,12 @@ function Listing({
     onKeyDown,
   }
   // A click on the empty space keeps the selection, as does the click there that closes a menu (the owner's word of
-  // 2026-11-05): Esc, Clear selection or a click on another item changes it.
+  // 2026-11-05): Esc and Clear selection let it go, the boxes and the keys held change it.
   const background = {
     onContextMenu: (event: MouseEvent) => onContextMenu(event),
   }
   // What the items selected together offer, from the bar under the listing as from the menu of one of them.
-  const severalMenu = liveSelected.size > 1 ? itemsMenu(selectedItems) : []
+  const selectionMenu = liveSelected.size ? itemsMenu(selectedItems) : []
   // The grid's rows, each `columns` tiles, a gap after a place's files on a row of its own.
   const gridRows: Line[][] = []
   for (const line of lines) {
@@ -1473,7 +1478,7 @@ function Listing({
         </div>
       )}
       {/* Under the listing, so that it shifts no item the next click aims at; its Actions the one button that stands out. */}
-      {liveSelected.size > 1 && (
+      {liveSelected.size > 0 && (
         <div className="flex shrink-0 items-center gap-2 border-t border-line bg-surface px-3 py-2 text-[13px]">
           <p className="min-w-0 flex-1 truncate font-medium">{liveSelected.size} selected</p>
           <Button
@@ -1487,14 +1492,14 @@ function Listing({
           >
             Clear selection
           </Button>
-          {severalMenu.length > 0 && (
+          {selectionMenu.length > 0 && (
             <Button
               variant="primary"
               className="h-7 pr-2"
               aria-haspopup="menu"
               onClick={(event) => {
                 setMenuFor(null)
-                menu.openAt(event.currentTarget, severalMenu)
+                menu.openAt(event.currentTarget, selectionMenu)
               }}
             >
               Actions
@@ -1667,8 +1672,8 @@ interface RowProps {
   /** Whether a folder shows its contents. */
   expanded: boolean
   selected: boolean
-  /** Whether more than one item is selected, when every item shows its box. */
-  several: boolean
+  /** Whether anything is selected, when every item shows its box. */
+  selecting: boolean
   /** Whether the item's own menu is open, which marks it as hover does without selecting it. */
   menuOpen: boolean
   isCursor: boolean
@@ -1733,7 +1738,7 @@ function Where({ id, where, className = '' }: { id: string; where: string; class
 }
 
 function Row(props: RowProps) {
-  const { item, depth, expanded, selected, several, menuOpen, isCursor, renaming, movable, dropping, folderCount } = props
+  const { item, depth, expanded, selected, selecting, menuOpen, isCursor, renaming, movable, dropping, folderCount } = props
   const name = itemName(item)
   const id = rowId(itemKey(item))
 
@@ -1788,7 +1793,7 @@ function Row(props: RowProps) {
       aria-expanded={folder ? expanded : undefined}
       className={`group flex h-7 items-center rounded-md pr-0.5 pl-1.5 text-[13px] transition-colors select-none ${state}`}
     >
-      <SelectBox selected={selected} shown={selected || several} onCheck={props.onCheck} className="-ml-1" />
+      <SelectBox selected={selected} shown={selecting} onCheck={props.onCheck} className="-ml-1" />
       {/* A guide line for each level above, under the chevron of the folder it belongs to. */}
       {Array.from({ length: depth }, (_, level) => (
         <span
@@ -1846,7 +1851,7 @@ function Row(props: RowProps) {
  * else its kind's icon, with its name, state and menu under it, and then its review and star.
  */
 function Tile(props: RowProps) {
-  const { item, selected, several, menuOpen, isCursor, renaming, movable, dropping, folderCount } = props
+  const { item, selected, selecting, menuOpen, isCursor, renaming, movable, dropping, folderCount } = props
   const name = itemName(item)
   const id = rowId(itemKey(item))
   // A thumbnail the server could not draw (an unreadable page, a missing file) leaves the kind's icon in its place.
@@ -1878,7 +1883,7 @@ function Tile(props: RowProps) {
       className={`group flex min-w-0 flex-col rounded-lg border p-1.5 text-[13px] transition-colors select-none ${state}`}
     >
       <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden rounded-md bg-sunken">
-        <SelectBox selected={selected} shown={selected || several} onCheck={props.onCheck} className="absolute top-0.5 left-0.5" />
+        <SelectBox selected={selected} shown={selecting} onCheck={props.onCheck} className="absolute top-0.5 left-0.5" />
         {picture ? (
           <img
             src={thumbnailUrl(item.document)}
@@ -1928,7 +1933,7 @@ function Tile(props: RowProps) {
 
 /**
  * The box that puts an item into the selection or takes it out without a key held, on a touch screen too: shown on
- * hover, on the selected and on every item while several are, and always where the pointer is a finger. The listing's
+ * hover, on every item while anything is selected, and always where the pointer is a finger. The listing's
  * `aria-selected` says the same to a screen reader, and Space does it from the keyboard, so the box is the pointer's
  * alone, never a stop of Tab.
  */
