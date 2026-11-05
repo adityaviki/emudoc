@@ -1766,10 +1766,11 @@ function Row(props: RowProps) {
     onDragLeave: props.onDragLeave,
     onDrop: props.onDrop,
   }
-  // The keyboard cursor is only marked while the keyboard is in the listing.
-  const state = `${selected ? 'bg-accent-soft' : menuOpen ? 'bg-sunken' : 'hover:bg-sunken'} ${isCursor ? 'group-focus/list:ring-1 group-focus/list:ring-accent/50' : ''} ${
-    dropping ? 'bg-accent-soft ring-2 ring-accent' : ''
-  }`
+  // The keyboard cursor is only marked while the keyboard is in the listing. The rows touch, so a ring is drawn inside its
+  // row: outside, the next row's hover or selection would paint over its lower edge.
+  const state = `${selected ? 'bg-accent-soft' : menuOpen ? 'bg-sunken' : 'hover:bg-sunken'} ${
+    isCursor ? 'group-focus/list:ring-1 group-focus/list:ring-accent/50 group-focus/list:ring-inset' : ''
+  } ${dropping ? 'bg-accent-soft ring-2 ring-accent ring-inset' : ''}`
   const rename = (
     <RenameInput value={name} isFile={item.kind === 'file'} onCommit={props.onRename} onCancel={props.onCancelRename} />
   )
