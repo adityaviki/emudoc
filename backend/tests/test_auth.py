@@ -515,6 +515,7 @@ def test_a_taken_address_is_answered_alike_and_told_instead(
     assert "write to help@emudoc.example at once" in mailer.sent[-1][2]
 
 
+@pytest.mark.usefixtures("one_minute")
 def test_an_address_is_asked_for_at_a_rate(client, mailer, monkeypatch, signed_in_only):
     monkeypatch.setattr(get_settings(), "rate_sign_ins", 1)
     signup(client)

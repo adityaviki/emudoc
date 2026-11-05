@@ -5,7 +5,6 @@ sign-ins an hour, past which the browsers that have not signed in to the account
 while its own carry on."""
 
 from datetime import UTC, datetime, timedelta, timezone
-from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select, text, update
@@ -46,13 +45,9 @@ FOR_EMAIL = "for this email address"
 FROM_BROWSER = "from this browser"
 
 
-@pytest.fixture(autouse=True)
-def one_minute(monkeypatch):
-    """Hold the limiter's clock in the middle of this minute, as if a test took no time: the
-    minute is a fixed window, so one that turned while a test signed in would start its counts
-    over, which only `minute_turned` should do."""
-    now = datetime.now(UTC).replace(second=30, microsecond=0)
-    monkeypatch.setattr("app.ratelimit.datetime", SimpleNamespace(now=lambda tz: now))
+# Every test here holds the limiter's clock in the middle of the minute (`one_minute` in
+# tests/conftest.py): only `minute_turned` should start a count over.
+pytestmark = pytest.mark.usefixtures("one_minute")
 
 
 def counts(session) -> list[tuple[str, str, int]]:

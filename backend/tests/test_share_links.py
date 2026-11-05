@@ -171,6 +171,7 @@ def test_a_link_with_a_password_opens_with_it_alone(client, shared, visitor, mon
     assert int(paused.headers["Retry-After"]) > 0
 
 
+@pytest.mark.usefixtures("one_minute")
 def test_opening_links_is_held_to_a_rate_per_address(client, shared, visitor, monkeypatch):
     made = make(client, shared["id"])
     monkeypatch.setattr(get_settings(), "rate_shared_links", 2)

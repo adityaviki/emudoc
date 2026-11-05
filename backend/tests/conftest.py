@@ -16,6 +16,7 @@ import tempfile
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit
 
 import httpx
@@ -1021,6 +1022,17 @@ def _root_logging():
     level = root.level
     yield
     root.setLevel(level)
+
+
+@pytest.fixture
+def one_minute(monkeypatch):
+    """Hold the rate limiter's clock in the middle of this minute, as if a test took no time: the
+    minute is a fixed window (app/ratelimit.py), so one that turned while a test made its
+    requests would start their count over, and the request it means to see refused would pass.
+    A test that holds a rate low and asks for a refusal takes it; `minute_turned` in
+    tests/test_ratelimit.py turns the minute on purpose, by the counts' windows."""
+    now = datetime.now(UTC).replace(second=30, microsecond=0)
+    monkeypatch.setattr("app.ratelimit.datetime", SimpleNamespace(now=lambda tz: now))
 
 
 @pytest.fixture

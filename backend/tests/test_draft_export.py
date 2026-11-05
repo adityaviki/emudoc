@@ -191,6 +191,7 @@ def test_a_pdf_that_cannot_be_laid_out_says_so(client, session, written, monkeyp
     assert exported(session) == []
 
 
+@pytest.mark.usefixtures("one_minute")
 def test_a_viewer_downloads_a_draft_within_the_rate_of_downloads(
     client, account, written, monkeypatch, make_account, act_as
 ):

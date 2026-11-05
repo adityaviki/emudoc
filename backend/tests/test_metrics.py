@@ -264,6 +264,7 @@ def test_a_request_is_counted_under_the_pattern_of_its_route(client, monkeypatch
     )
 
 
+@pytest.mark.usefixtures("one_minute")
 def test_uploads_are_measured_and_the_refused_files_counted_by_why(client, monkeypatch):
     project = create_project(client)
     url = f"/api/projects/{project['id']}/documents"
