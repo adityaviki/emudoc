@@ -27,7 +27,7 @@ spending limit, with the stage's arc amber), the page asks about it again at tha
 than every second and a half, and after the last try it stays failed until "Index again". A stage that failed for a reason that will not pass on its own, such
 as a rejected key or a file nothing can be read from, is not retried. A document read without
 its summaries and facts or its search by meaning (enrich or embed failed, or skipped for want of
-the model) is "Partly indexed", with an amber check: found by its words meanwhile, and finished
+the model) is "Partly indexed", with an amber dot: found by its words meanwhile, and finished
 by "Index the rest" on its tab or in its menu, which runs only the stages it went without, or by
 the same button in the library for every such document of the project; the button waits, saying
 why, while the model or the embeddings endpoint it needs is unavailable. In development the

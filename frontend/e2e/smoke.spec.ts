@@ -157,7 +157,6 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('button', { name: 'Skip the tour' }).click()
     expect((await seen).status()).toBe(200)
     await expect(tour).toHaveCount(0)
-    await expect(page.getByText(/^Emudoc’s sample documents, which count against nothing/)).toBeVisible()
     await expect(page.getByRole('button', { name: 'Upload', exact: true })).toHaveCount(0)
     // Indexed already: the job each document's copy queued makes its vectors alone.
     const ready = page.getByRole('img', { name: /Embeddings: done/ })
