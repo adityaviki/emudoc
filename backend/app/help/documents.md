@@ -24,12 +24,13 @@ unpacked between them. $scanning
 An upload is read in the background, in steps that its status ring fills one by one: the file
 is checked, its text is read, its sections are found, each section is summarised and its facts
 (dates, amounts, parties) are noted, and its passages are indexed for search by meaning. Hover
-over the ring to see where it stands. A document can be searched and asked about once it is
-read; the summaries and the search by meaning follow. If a step fails, the ring says why;
+over the ring to see where it stands; once the document is indexed, a green dot takes its
+place. A document can be searched and asked about once it is read; the summaries and the search
+by meaning follow. If a step fails, the ring says why;
 Emudoc tries again by itself when the cause may pass, and says when (its step turns amber in the
 ring until then), and "Index again" in the file's menu
 (right-click it in the library) starts it again at once. A document read without its summaries
-and facts, or without its search by meaning, is marked "Partly indexed" with an amber check and
+and facts, or without its search by meaning, is marked "Partly indexed" with an amber dot and
 says what it lacks; it is found by its words meanwhile. "Index the rest", on its tab or in its
 menu, adds only what it lacks, and the library offers the same for all such documents at once;
 while the AI model or search by meaning is unavailable, the button waits and says why. Once an

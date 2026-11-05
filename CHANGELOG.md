@@ -13,6 +13,17 @@ to: `## YYYY-MM-DD` a day (or `## YYYY-MM-DD to YYYY-MM-DD`), the newest first, 
 and `Operators:`, each a list of `- ` entries whose lines go on indented by two spaces, a day's
 newest entry first.
 
+## 2026-11-05
+
+Members:
+
+- A document that is indexed shows a green dot beside its name in place of the tick, which
+  looked like a box to tick. A partly indexed one shows an amber dot, and the ring still fills in
+  while a document is read.
+- The sample project's library no longer shows a note about Emudoc's sample documents above the
+  files. The projects page still marks the sample as Emudoc's own documents, which count against
+  nothing on your plan.
+
 ## 2026-11-04
 
 Members:

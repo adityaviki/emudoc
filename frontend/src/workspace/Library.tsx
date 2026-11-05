@@ -471,12 +471,6 @@ export function Library() {
       </div>
 
       <div className="shrink-0 space-y-2 empty:hidden px-3 pt-2">
-        {project.sample && !search && (
-          <Notice tone="info">
-            Emudoc’s sample documents, which count against nothing on your plan: ask about them in the chat. Your own
-            documents go in a project of your own.
-          </Notice>
-        )}
         {mutations.notice && (
           <Notice tone="bad">
             <div className="flex items-start justify-between gap-3">

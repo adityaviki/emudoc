@@ -1,7 +1,7 @@
-import { CircleAlert, CircleCheck, ShieldAlert } from 'lucide-react'
+import { CircleAlert, ShieldAlert } from 'lucide-react'
 import { STAGES, isIndexing } from '../api.ts'
 import type { Document, Stage } from '../api.ts'
-import { missingStages, missingWords, stageOf, statusLabel, statusTitle, unfinishedStages, waitingRetry } from '../indexing.ts'
+import { missingWords, stageOf, statusLabel, statusTitle, unfinishedStages, waitingRetry } from '../indexing.ts'
 
 // Each stage's arc in the ring while the document is indexed. Every arc but a pending one, the
 // faint track the others fill, stands out from the row under it by 3:1 or more (WCAG's non-text
@@ -24,9 +24,11 @@ const GAP = 3
 /**
  * The document's indexing state as one icon: while it is indexed, a ring with an arc per stage that
  * fills in as they finish, a stage that waits for a retry in amber, which keeps the ring on a
- * ready document until the retry; once ready, a check, green with every stage done, amber while
- * it is partly indexed and grey without a scan the deployment runs none for; an alert when it
- * failed, and a shield when the malware scan quarantined it.
+ * ready document until the retry; once ready, a dot, green, or amber while it is partly indexed;
+ * an alert when it failed, and a shield when the malware scan quarantined it. The dot is a status
+ * light, never a check, which at the end of a row reads as a box to tick. A scan the deployment
+ * runs none for leaves it green: that is the deployment's, the same for every file, and the
+ * tooltip and the document's tab say it.
  */
 export function StatusIcon({ id, document, className = 'size-3.5' }: { id?: string; document: Document; className?: string }) {
   const title = statusTitle(document)
@@ -38,7 +40,9 @@ export function StatusIcon({ id, document, className = 'size-3.5' }: { id?: stri
       ) : document.status === 'failed' ? (
         <CircleAlert className={`text-bad ${className}`} />
       ) : document.status === 'ready' && !retry ? (
-        <CircleCheck className={`${checkTone(document)} ${className}`} />
+        <span className={`flex items-center justify-center ${className}`}>
+          <span className={`size-2 rounded-full ${unfinishedStages(document).length ? 'bg-warn' : 'bg-good'}`} />
+        </span>
       ) : (
         <svg viewBox="0 0 16 16" fill="none" strokeWidth={2} className={`-rotate-90 ${className}`}>
           {STAGES.map((name, index) => (
@@ -59,9 +63,6 @@ export function StatusIcon({ id, document, className = 'size-3.5' }: { id?: stri
     </span>
   )
 }
-
-const checkTone = (document: Document) =>
-  unfinishedStages(document).length ? WAITING_TONE : missingStages(document).length ? 'text-muted' : 'text-good'
 
 /**
  * The status icon with the document's state beside it, and what went wrong, was left out, or
