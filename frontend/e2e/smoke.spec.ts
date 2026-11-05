@@ -1925,7 +1925,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
   await test.step('list the favourites and the recent ones from the icons above the files, in another order and as a grid, then move a new invoice into a folder', async () => {
     const invoice = page.getByRole('treeitem', { name: 'invoice.md', exact: true })
     // What the library shows, a place an icon, the one shown pressed.
-    const places = page.getByRole('group', { name: 'Show' })
+    const places = page.getByRole('group', { name: 'Show', exact: true })
     const allFiles = places.getByRole('button', { name: 'All files' })
     const favourites = places.getByRole('button', { name: 'Favourites' })
     await expect(allFiles).toHaveAttribute('aria-pressed', 'true')
@@ -1940,6 +1940,9 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await favourites.click()
     await expect(favourites).toHaveAttribute('aria-pressed', 'true')
     await expect(allFiles).toHaveAttribute('aria-pressed', 'false')
+    // The path is there whatever the place, so that choosing one moves nothing under it.
+    const path = page.getByRole('navigation', { name: 'Folder path' })
+    await expect(path).toContainText('Favourites')
     await expect(page.getByRole('treeitem')).toHaveCount(1)
     await expect(invoice).toHaveAccessibleDescription(/Favourite/)
     await expectAccessible(page, 'the favourites')
@@ -1947,10 +1950,14 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await places.getByRole('button', { name: 'Recent' }).click()
     await expect(page.getByRole('treeitem').first()).toHaveAccessibleName('invoice.md')
     await expect(page.getByRole('button', { name: 'Order: the latest opened first' })).toBeDisabled()
+    // Measured with the invoice open, whose tab narrows the library: its buttons may take two lines.
+    const top = (await places.boundingBox())?.y
 
     // Every file, by name from Z, then as a grid of tiles that the arrows move through.
     await allFiles.click()
     await expect(allFiles).toHaveAttribute('aria-pressed', 'true')
+    await expect(path).toHaveText('All files')
+    expect((await places.boundingBox())?.y).toBe(top)
     const order = page.getByRole('button', { name: /^Order: / })
     await order.click()
     await page.getByRole('menuitemradio', { name: 'Z to A' }).click()

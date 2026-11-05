@@ -267,7 +267,6 @@ export function Library() {
   if (workspace.url.library.connectors && connectors) return <ConnectorsView />
   // The files of the whole project a name filter finds are no place of their own: "All files", pressed, says where they are.
   const placeLabel = flat && !allNamed(place) ? placeName(place) : null
-  const atRoot = (folderId == null || allNamed(place)) && placeLabel === null
   return (
     <div
       data-tour="library"
@@ -289,20 +288,18 @@ export function Library() {
       }}
     >
       <div className="@container shrink-0 border-b border-line bg-surface">
-        {/* At the root the path would only repeat the header's project: it shows from a folder or another place on. */}
-        {atRoot ? null : (
-          <div className="flex h-11 items-center gap-1 px-3">
-            <Breadcrumb
-              folderId={folderId}
-              placeLabel={placeLabel}
-              mutations={mutations}
-              dragging={dragging}
-              onUpload={uploads ? uploadDropped : null}
-            />
-          </div>
-        )}
+        {/* Always there, "All files" alone at the root, so that choosing a place or a folder moves nothing under it. */}
+        <div className="flex h-11 items-center gap-1 px-3">
+          <Breadcrumb
+            folderId={allNamed(place) ? null : folderId}
+            placeLabel={placeLabel}
+            mutations={mutations}
+            dragging={dragging}
+            onUpload={uploads ? uploadDropped : null}
+          />
+        </div>
         {/* The library's buttons, then what it shows and how, then the filter by name over the files it narrows. */}
-        <div className={`flex flex-col gap-2 px-3 pb-2.5 ${atRoot ? 'pt-2.5' : ''}`}>
+        <div className="flex flex-col gap-2 px-3 pb-2.5">
         {/* With every feature on, its buttons take a second line rather than run under the pane beside it; none, no line. */}
         <div className="flex flex-wrap items-center gap-2 empty:hidden">
           {templates && (

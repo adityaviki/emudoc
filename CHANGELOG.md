@@ -17,6 +17,9 @@ newest entry first.
 
 Members:
 
+- The path above the library's files is always there, reading "All files" at the top, so
+  choosing Favourites or Recent no longer pushes the files down. The trash icon now sits in the
+  same group as All files, Favourites and Recent.
 - Tags are gone: a document's menu no longer offers "Tags…", the library no longer lists a tag's
   documents, and a search's "Filter" no longer narrows by tags. The documents stay where they
   are. A search is still narrowed by type, date, review and folder.

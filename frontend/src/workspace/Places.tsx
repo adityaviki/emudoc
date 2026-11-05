@@ -44,8 +44,9 @@ const segment = (pressed: boolean) =>
 
 /**
  * Above the library's filter by name: what it shows, each place an icon pressed while it is shown (all its files, the
- * member's favourites or recent ones), the way to the project's trash, the order it lists them in, and as a list or a
- * grid. A name filter narrows the place shown, all the files of the project from a folder.
+ * member's favourites or recent ones), and in the same group the way to the project's trash, a page of its own that is
+ * never pressed here; then the order it lists them in, and as a list or a grid. A name filter narrows the place shown,
+ * all the files of the project from a folder.
  */
 export function PlaceBar(props: PlaceBarProps) {
   const { place, arrangement, layout } = props
@@ -83,10 +84,10 @@ export function PlaceBar(props: PlaceBarProps) {
             <Icon className="size-3.5" />
           </button>
         ))}
+        <button type="button" aria-label="Trash" title="Trash" onClick={props.onTrash} className={segment(false)}>
+          <Trash2 className="size-3.5" />
+        </button>
       </div>
-      <IconButton label="Trash" onClick={props.onTrash}>
-        <Trash2 className="size-3.5" />
-      </IconButton>
       <div className="flex-1" />
       <button
         type="button"
