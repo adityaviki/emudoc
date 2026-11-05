@@ -748,55 +748,6 @@ class DocumentFilter(BaseModel):
     mentions: list[_Words] = Field(default_factory=list, max_length=MAX_MENTIONS)
 
 
-# FILING_CONDITIONS and FILING_ACTIONS in app/models.py.
-FilingCondition = Literal["type", "fact", "any"]
-FilingAction = Literal["folder", "by_year", "by_month", "tag"]
-_FilingField = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
-]
-_FilingValue = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)
-]
-
-
-class FilingRuleIn(BaseModel):
-    """A filing rule as a member writes it, whole (app/filing.py): what it looks at in a new
-    document (its `type`, a `fact` read from it by the field's name, or `any` document), what
-    that holds (the type, or words the fact's value holds whatever their case; nothing for any
-    document); what it does to a document it matches (moves it into `folder_id`, files it below
-    `folder_id`, the root when null, in a folder of its year, and of its month in that for
-    `by_month`, or tags it with `tag_id`); and whether it is on."""
-
-    condition: FilingCondition
-    field: _FilingField | None = None
-    value: _FilingValue | None = None
-    action: FilingAction
-    folder_id: int | None = None
-    tag_id: int | None = None
-    enabled: bool = True
-
-
-class FilingRuleOut(FilingRuleIn):
-    id: int
-    # The folder's path as it is now, from the project's root, and the tag's name, to word it
-    # by; None for none.
-    folder: str | None
-    tag: str | None
-    # Why it would file nothing as the project stands now (its folder in the trash); None when
-    # it files as it says.
-    problem: str | None
-    # Who made it, by their name as it is now; None once their account is gone.
-    made_by: str | None
-    created_at: dt.datetime
-
-
-class FilingRulesOut(BaseModel):
-    """A project's filing rules in the order they apply, and how many it may have."""
-
-    rules: list[FilingRuleOut]
-    max_filing_rules: int
-
-
 class FavoritesOut(BaseModel):
     """The documents of a project the reader starred, by id, the newest star first."""
 

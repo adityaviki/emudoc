@@ -92,7 +92,6 @@ import { MailboxView } from './Mailbox.tsx'
 import { ChangesView } from './FactChanges.tsx'
 import { FactsView } from './FactsTable.tsx'
 import { fileKind, originalFileItem } from './files.ts'
-import { FilingView } from './Filing.tsx'
 import { BY_NAME, growing, hasMore, listed, nameOf, placeKey, showMore, useListings } from './listing.ts'
 import type { Arrangement, Listing } from './listing.ts'
 import { useLibraryMutations, useReviewChange } from './mutations.ts'
@@ -277,7 +276,6 @@ export function Library() {
   if (workspace.url.library.mail && mail) return <MailboxView />
   if (workspace.url.library.connectors && connectors) return <ConnectorsView />
   if (workspace.url.library.tags) return <TagsView />
-  if (workspace.url.library.filing) return <FilingView />
   // The files of the whole project a name filter finds are no place of their own: "Show: All files" says where they are.
   const placeLabel = flat && !allNamed(place) ? placeName(place, tags.data?.tags ?? []) : null
   const atRoot = (folderId == null || allNamed(place)) && placeLabel === null
@@ -443,7 +441,6 @@ export function Library() {
           tags={tags.data?.tags ?? []}
           onPlace={(chosen) => ('folder' in chosen ? workspace.goToFolder(null) : workspace.showPlace(chosen))}
           onTags={workspace.showTags}
-          onFiling={workspace.showFiling}
           onTrash={workspace.showTrash}
         />
       </div>

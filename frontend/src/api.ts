@@ -464,34 +464,6 @@ export interface DocumentFilter {
   mentions: string[]
 }
 
-/** FILING_CONDITIONS and FILING_ACTIONS in backend/app/models.py. */
-export type FilingCondition = 'type' | 'fact' | 'any'
-export type FilingAction = 'folder' | 'by_year' | 'by_month' | 'tag'
-
-/** A filing rule as a member writes it, whole (FilingRuleIn in backend/app/schemas.py). */
-export interface FilingRuleInput {
-  condition: FilingCondition
-  /** The fact's field, for a `fact` condition. */
-  field: string | null
-  /** The type, or the words the fact's value holds; null for any document. */
-  value: string | null
-  action: FilingAction
-  /** The folder it moves into or files below, the root for null. */
-  folder_id: number | null
-  tag_id: number | null
-  enabled: boolean
-}
-
-/** A project's filing rule (FilingRuleOut): its folder's path and its tag's name as they are now, why it files nothing if it does not, and who made it. */
-export interface FilingRule extends FilingRuleInput {
-  id: number
-  folder: string | null
-  tag: string | null
-  problem: string | null
-  made_by: string | null
-  created_at: string
-}
-
 /** A type the model gave a project's documents, and how many of them out of the trash. */
 export interface DocumentType {
   type: string
@@ -2854,19 +2826,13 @@ export const api = {
   createTag: (projectId: number, body: { name: string; color: TagColor }) =>
     request<Tag>(`/projects/${projectId}/tags`, json('POST', body)),
   updateTag: (id: number, body: { name?: string; color?: TagColor }) => request<Tag>(`/tags/${id}`, json('PATCH', body)),
-  /** Deletes the tag for good, taking it off every document and its filing rules with it. */
+  /** Deletes the tag for good, taking it off every document. */
   deleteTag: (id: number) => request<void>(`/tags/${id}`, { method: 'DELETE' }),
   /** Every tag the document carries: one it carries that is left out is taken off. */
   tagDocument: (id: number, tagIds: number[]) => request<Document>(`/documents/${id}/tags`, json('PUT', { tag_ids: tagIds })),
   /** Put tags on every one of the chosen documents and take tags off every one, the rest of each one's left as they are. */
   tagDocuments: (projectId: number, documentIds: number[], add: number[], remove: number[]) =>
     request<Document[]>(`/projects/${projectId}/documents/tags`, json('POST', { document_ids: documentIds, add, remove })),
-  filingRules: (projectId: number) =>
-    request<{ rules: FilingRule[]; max_filing_rules: number }>(`/projects/${projectId}/filing-rules`),
-  createFilingRule: (projectId: number, body: FilingRuleInput) =>
-    request<FilingRule>(`/projects/${projectId}/filing-rules`, json('POST', body)),
-  updateFilingRule: (id: number, body: FilingRuleInput) => request<FilingRule>(`/filing-rules/${id}`, json('PUT', body)),
-  deleteFilingRule: (id: number) => request<void>(`/filing-rules/${id}`, { method: 'DELETE' }),
   /** The ids of the project's documents the reader starred, the newest star first. */
   favorites: (projectId: number) => request<{ document_ids: number[] }>(`/projects/${projectId}/favorites`),
   starDocument: (id: number) => request<void>(`/documents/${id}/favorite`, { method: 'PUT' }),

@@ -17,6 +17,9 @@ newest entry first.
 
 Members:
 
+- Filing rules are gone: the "Show" menu above the files no longer offers "Filing rules…", and
+  new documents stay where you upload them. The documents your rules moved or tagged keep their
+  folders and tags. Move a document yourself by dragging it onto a folder or with "Move to…".
 - The search box is now at the top of every page. In a project it searches the project, and the
   results open in a Search tab beside the documents you have open, so you can open a result and
   go back to the others. Anywhere else it searches every project you see when you press Enter.
@@ -32,6 +35,13 @@ Members:
 - The sample project's library no longer shows a note about Emudoc's sample documents above the
   files. The projects page still marks the sample as Emudoc's own documents, which count against
   nothing on your plan.
+
+Operators:
+
+- Migration ca622aa5d107 drops the `filing_rules` table with the rules in it, and
+  `documents.filed_at`; a downgrade makes them again, the table empty and every document marked
+  filed. `GET|POST /api/projects/{id}/filing-rules` and `PUT|DELETE /api/filing-rules/{id}` are
+  gone. The audit log's earlier `filing_rule_created|changed|deleted` entries stay and still read.
 
 ## 2026-11-04
 

@@ -3,7 +3,6 @@ import type { Document, Tag } from './api.ts'
 import { formatDate } from './format.ts'
 import {
   EMPTY_FILTER,
-  NEW_RULE,
   allNamed,
   emptyPlaceWords,
   filterParts,
@@ -13,9 +12,6 @@ import {
   hasThumbnail,
   placeName,
   placeOf,
-  ruleInput,
-  ruleProblem,
-  ruleSentence,
   narrows,
   sortWords,
   tagsOf,
@@ -122,37 +118,6 @@ describe('a search', () => {
     expect(withoutPart(filter, 1).mentions).toEqual(['late delivery'])
     expect(narrows(EMPTY_FILTER)).toBe(false)
     expect(narrows({ ...EMPTY_FILTER, mentions: ['x'] })).toBe(true)
-  })
-})
-
-describe('a filing rule', () => {
-  it('reads as a sentence', () => {
-    expect(ruleSentence({ ...NEW_RULE, value: 'invoice', folder_id: 3 }, 'Invoices', null)).toBe('A new invoice document goes into Invoices')
-    expect(ruleSentence({ ...NEW_RULE, condition: 'fact', field: 'supplier_name', value: 'Acme', action: 'by_month' }, null, null)).toBe(
-      'A new document whose supplier name holds “Acme” is filed under the top of the library, a folder for its year and one for its month',
-    )
-    expect(ruleSentence({ ...NEW_RULE, condition: 'any', value: null, action: 'tag', tag_id: 1 }, null, 'Urgent')).toBe('Every new document is tagged “Urgent”')
-    expect(ruleSentence({ ...NEW_RULE, condition: 'any', action: 'by_year' }, 'Archive', null)).toBe(
-      'Every new document is filed under Archive, a folder for its year',
-    )
-  })
-
-  it('is refused for what it lacks, as the server would, and sent with only what it uses', () => {
-    expect(ruleProblem(NEW_RULE)).toMatch(/^Say which type of document/)
-    expect(ruleProblem({ ...NEW_RULE, condition: 'fact', field: 'supplier', value: ' ' })).toMatch(/^Say which fact/)
-    expect(ruleProblem({ ...NEW_RULE, value: 'invoice' })).toBe('Choose the folder the rule moves documents into.')
-    expect(ruleProblem({ ...NEW_RULE, value: 'invoice', action: 'tag' })).toBe('Choose the tag the rule puts on documents.')
-    expect(ruleProblem({ ...NEW_RULE, condition: 'any', action: 'by_year' })).toBeNull()
-    expect(ruleInput({ ...NEW_RULE, condition: 'any', field: 'left', value: 'over', action: 'tag', folder_id: 3, tag_id: 1 })).toEqual({
-      ...NEW_RULE,
-      condition: 'any',
-      field: null,
-      value: null,
-      action: 'tag',
-      folder_id: null,
-      tag_id: 1,
-    })
-    expect(ruleInput({ ...NEW_RULE, value: ' invoice ', field: 'x', folder_id: 3, tag_id: 1 })).toMatchObject({ field: null, value: 'invoice', folder_id: 3, tag_id: null })
   })
 })
 

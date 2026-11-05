@@ -616,14 +616,7 @@ to types and to a span of dates; a private project is searched by those who see 
 the agent and the versioned API still search one project. Any place is listed by name, as added, by the documents' own dates (the
 undated after the dated) or by size, either way, each order a keyset of its own on the
 server, and shown as the tree or as a **grid** of tiles, each file's the thumbnail the server
-draws of a PDF's first page, a scan or an image, the browser remembering both choices. And a
-project's **filing rules** (`backend/app/filing.py`) file what arrives: once a new document is
-read for its type and facts, the first rule that moves and whose condition it meets (its type, a
-fact whose value holds some words, or any document) moves it into a folder or below one in a
-folder of its year, or year and month, made where none is, if it arrived in the project's root and
-not from a connected folder; and every rule that tags and whose condition it meets tags it,
-wherever it arrived. A document is filed once, and those there were before the rules none; the
-rules' changes are in the audit log.
+draws of a PDF's first page, a scan or an image, the browser remembering both choices.
 
 Files **chosen together** in the library (Ctrl or Shift and a click, or Ctrl+A), up to 100 at a
 time (`backend/app/selection.py`), are moved and deleted together, and by whoever may change the
@@ -639,7 +632,7 @@ when one is not (`POST /api/projects/{id}/documents/tags`, `/documents/reprocess
 A document's **details**, its title, type, date and language, are what its reading found until a
 member who may change the project sets one of them in their place from its tab's "Edit details"
 (`backend/app/details.py`, `PATCH /api/documents/{id}/details`): the member's value is the one
-the library, its date order, the search's filter, filing rules, search hits and the agent read,
+the library, its date order, the search's filter, search hits and the agent read,
 and it holds through "Index again" and a new version, while what each reading finds is kept
 beside it for the dialog to show and "Use the reading" to take again; a title set starts the
 outline's paths, which the passages are searched with. Its language is the one its words are searched in:

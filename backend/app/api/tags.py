@@ -95,8 +95,7 @@ def update_tag(tag: EditableTagDep, body: TagPatch, session: SessionDep):
 
 @router.delete("/tags/{tag_id}", status_code=204)
 def remove_tag(tag: DeletableTagDep, session: SessionDep):
-    """Delete the tag for good, taking it off every document that carries it, and its filing
-    rules with it."""
+    """Delete the tag for good, taking it off every document that carries it."""
     delete_tag(session, tag)
     session.commit()
 

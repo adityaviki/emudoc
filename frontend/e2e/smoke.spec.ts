@@ -63,7 +63,7 @@ const INVOICE = join(import.meta.dirname, 'fixtures', 'invoice.md')
 const PURCHASE_ORDER = join(import.meta.dirname, 'fixtures', 'purchase-order.md')
 // A second invoice of the same order, 120 EUR over its total, which an automation checks as it arrives.
 const SECOND_INVOICE = join(import.meta.dirname, 'fixtures', 'second-invoice.md')
-// A third invoice, which a filing rule files as it is read.
+// A third invoice, which is moved into a folder of its own.
 const THIRD_INVOICE = join(import.meta.dirname, 'fixtures', 'third-invoice.md')
 // A folder of two delivery notes, one of them in a folder of its own.
 const DELIVERIES = join(import.meta.dirname, 'fixtures', 'deliveries')
@@ -1923,7 +1923,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await releaseTurns(request)
   })
 
-  await test.step('tag a document, and list a tag, the favourites and the recent ones, in another order and as a grid, then file an invoice by a rule', async () => {
+  await test.step('tag a document, and list a tag, the favourites and the recent ones, in another order and as a grid, then move a new invoice into a folder', async () => {
     const invoice = page.getByRole('treeitem', { name: 'invoice.md', exact: true })
     const show = page.getByRole('button', { name: /^Show: / })
     // A tag made from the file's menu and put on it, which its row then names. A scroll closes the menu, as above.
@@ -1986,35 +1986,18 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await order.click()
     await page.getByRole('menuitemradio', { name: 'A to Z' }).click()
 
-    // A rule that files the next invoice into a folder of its own, as it is read.
+    // The next invoice, uploaded at the top, dragged into a folder of its own, which the tree then shows it under.
     await newFolder(page, 'Invoices')
-    await expect(page.getByRole('treeitem', { name: 'Invoices', exact: true })).toBeVisible()
-    await show.click()
-    await page.getByRole('menuitem', { name: 'Filing rules…' }).click()
-    const heading = page.getByRole('heading', { name: 'Filing rules' })
-    await expect(heading).toBeVisible()
-    // Enabled once the rules are read: measured before, its fade from the disabled look could run under axe.
-    await expect(page.getByRole('button', { name: 'New rule' })).toBeEnabled()
-    await expectAccessible(page, 'the filing rules, none yet')
-    await page.getByRole('button', { name: 'New rule' }).click()
-    await page.getByLabel('Type', { exact: true }).fill('invoice')
-    await page.getByLabel('Folder').selectOption({ label: 'Invoices' })
-    await expect(page.getByText('A new invoice document goes into Invoices.')).toBeVisible()
-    await expectAccessible(page, 'a filing rule being made')
-    await page.getByRole('button', { name: 'Make the rule' }).click()
-    await expect(heading).toBeFocused()
-    const rules = page.getByRole('list', { name: 'The project’s filing rules, in the order they apply' })
-    await expect(rules.getByRole('listitem')).toHaveText(['A new invoice document goes into Invoices.'])
-    await expectAccessible(page, 'the filing rules')
-    await page.getByRole('button', { name: 'Back to the library' }).click()
+    // The folder first: a drag pressed while it is still being made finds the rows moved under it.
+    const invoicesFolder = page.getByRole('treeitem', { name: 'Invoices', exact: true })
+    await expect(invoicesFolder).toBeVisible()
     await page.locator('input[name="files"]').setInputFiles(THIRD_INVOICE)
-    // Read for the invoice template, it is filed into the folder as it is made ready, which the tree then shows,
-    // and no longer at the top.
-    await page.getByRole('treeitem', { name: 'Invoices', exact: true }).getByRole('button', { name: 'Expand' }).click({ timeout: 60_000 })
-    await expect(page.getByRole('treeitem', { name: 'third-invoice.md', exact: true })).toHaveAttribute('aria-level', '2')
-    await page.goto('/organization/audit')
-    await page.getByLabel('What').selectOption('filing_rule_created')
-    await expect(page.getByRole('listitem').filter({ hasText: 'Made a filing rule' })).toContainText('invoice documents, into Invoices')
+    const third = page.getByRole('treeitem', { name: 'third-invoice.md', exact: true })
+    await expect(third).toHaveAttribute('aria-level', '1')
+    await third.dragTo(invoicesFolder)
+    await expect(page.getByText('“third-invoice.md” is now in “Invoices”.')).toBeVisible()
+    await invoicesFolder.getByRole('button', { name: 'Expand' }).click()
+    await expect(third).toHaveAttribute('aria-level', '2')
   })
 
   await test.step("set the invoice's date in its details, write it a note, and find its copy in another project among the duplicates", async () => {

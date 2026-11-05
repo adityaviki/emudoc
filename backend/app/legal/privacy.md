@@ -39,7 +39,7 @@ organisation uploaded a document about you, ask the organisation first; we help 
   the top of your list, the documents you starred and the last $recent of each project's you opened
   with when, the titles, kinds and dates you gave documents in place of what was read from them,
   the notes on documents you wrote, which your organisation's members see beside your name until
-  another changes them, the tags and filing rules you made, the runs of a project's
+  another changes them, the tags you made, the runs of a project's
   cross-checks you made, with the values they compared and the reports the model wrote from them,
   the drafts you asked the model for or edited, with what you asked of them and every version,
   the question sets you made, with their questions and when they are asked, and the reports

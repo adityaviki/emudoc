@@ -35,7 +35,6 @@ from app.api import (
     duplicates,
     exports,
     favorites,
-    filing,
     folders,
     help,
     invitations,
@@ -481,7 +480,6 @@ KEYED = (
     drafts.router,
     mailbox.router,
     tags.router,
-    filing.router,
 )
 
 

@@ -39,7 +39,7 @@ class World:
     invitation to the organisation and an API key of it, all made by the local owner in the local
     organisation, and another member of it; the project has an address, a folder of the
     owner's Google Drive connected, and its document a share link and a thread of the owner's
-    comment; the project has a tag its document carries and a filing rule. The extraction
+    comment; the project has a tag its document carries. The extraction
     templates are on for every organisation, and so are the drafts, email in, connected folders,
     share links, question sets and comments, so that what refuses another organisation is the
     project's scope, not the flag."""
@@ -71,7 +71,6 @@ class World:
     webhook_id: int
     link_id: int
     tag_id: int
-    filing_rule_id: int
     question_set_id: int
     report_id: int
     thread_id: int
@@ -153,10 +152,6 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
     tag = client.post(f"/api/projects/{project['id']}/tags", json={"name": "Signed"}).json()
     tagged = client.put(f"/api/documents/{document['id']}/tags", json={"tag_ids": [tag["id"]]})
     assert tagged.status_code == 200, tagged.text
-    rule = client.post(
-        f"/api/projects/{project['id']}/filing-rules", json=filing_rule(folder["id"])
-    )
-    assert rule.status_code == 201, rule.text
     question_set = client.post(f"/api/projects/{project['id']}/question-sets", json=QUESTION_SET)
     assert question_set.status_code == 201, question_set.text
     report = client.post(f"/api/question-sets/{question_set.json()['id']}/run").json()
@@ -197,17 +192,11 @@ def world(client, session, services, sample_pdf, account, make_account, monkeypa
         hook.json()["id"],
         link.json()["id"],
         tag["id"],
-        rule.json()["id"],
         question_set.json()["id"],
         report["id"],
         thread.json()["id"],
         thread.json()["comments"][0]["id"],
     )
-
-
-def filing_rule(folder_id: int) -> dict:
-    """A filing rule of the world's project: its contracts into its folder."""
-    return {"condition": "type", "value": "contract", "action": "folder", "folder_id": folder_id}
 
 
 def reads(w: World) -> list[Route]:
@@ -220,7 +209,6 @@ def reads(w: World) -> list[Route]:
         ("GET", f"/api/projects/{w.project_id}/documents", {"params": {"tag": w.tag_id}}),
         ("GET", f"/api/projects/{w.project_id}/documents", {"params": {"recent": True}}),
         ("GET", f"/api/projects/{w.project_id}/tags", {}),
-        ("GET", f"/api/projects/{w.project_id}/filing-rules", {}),
         ("GET", f"/api/projects/{w.project_id}/favorites", {}),
         ("GET", f"/api/projects/{w.project_id}/document-types", {}),
         ("GET", f"/api/projects/{w.project_id}/uploads", {"params": {"ids": w.upload_id}}),
@@ -305,12 +293,6 @@ def writes(w: World) -> list[Route]:
         ),
         (
             "POST",
-            f"/api/projects/{w.project_id}/filing-rules",
-            {"json": filing_rule(w.folder_id)},
-        ),
-        ("PUT", f"/api/filing-rules/{w.filing_rule_id}", {"json": filing_rule(w.folder_id)}),
-        (
-            "POST",
             f"/api/projects/{w.project_id}/templates",
             {"json": {**INVOICE, "doc_type": "credit note"}},
         ),
@@ -368,7 +350,6 @@ def writes(w: World) -> list[Route]:
         ("DELETE", f"/api/automations/{w.automation_id}", {}),
         ("DELETE", f"/api/reports/{w.report_id}", {}),
         ("DELETE", f"/api/question-sets/{w.question_set_id}", {}),
-        ("DELETE", f"/api/filing-rules/{w.filing_rule_id}", {}),
         ("DELETE", f"/api/tags/{w.tag_id}", {}),
         ("DELETE", f"/api/projects/{w.project_id}/mailbox", {}),
         ("DELETE", f"/api/projects/{w.project_id}/connectors/{w.connector_id}", {}),

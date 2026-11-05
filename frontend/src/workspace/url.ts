@@ -19,7 +19,7 @@ export interface WorkspaceSearch {
   filter: DocumentFilter
 }
 
-/** The folder the library shows, with `name` its files wherever they are whose names hold those letters; or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, with `changes`, what their last readings changed, with `checks`, its cross-checks, with `check`, what that one finds, with `run`, a run of them kept with what it found, with `questionSets`, its question sets with the reports of their answers, with `report`, one of those reports, with `reviews`, its documents in review, with `activity`, what was done in it lately, with `drafts`, the drafts the model wrote from its documents, with `draft`, one of them, with `draftTemplates`, how its drafts of each kind read, with `mail`, its address and what it received, with `connectors`, the folders of its members' Google Drive, Dropbox or OneDrive it keeps in step with; with `tag`, the documents of one of its tags wherever they are, with `favorites`, the member's favourites, with `recent`, the documents they opened lately; with `tags`, its tags to make and change, and with `filing`, its filing rules. A tag's, the favourites' and the recent
+/** The folder the library shows, with `name` its files wherever they are whose names hold those letters; or, with `trash`, the project's trash, with `templates`, its extraction templates, with `facts`, the facts table of its documents of that kind, with `changes`, what their last readings changed, with `checks`, its cross-checks, with `check`, what that one finds, with `run`, a run of them kept with what it found, with `questionSets`, its question sets with the reports of their answers, with `report`, one of those reports, with `reviews`, its documents in review, with `activity`, what was done in it lately, with `drafts`, the drafts the model wrote from its documents, with `draft`, one of them, with `draftTemplates`, how its drafts of each kind read, with `mail`, its address and what it received, with `connectors`, the folders of its members' Google Drive, Dropbox or OneDrive it keeps in step with; with `tag`, the documents of one of its tags wherever they are, with `favorites`, the member's favourites, with `recent`, the documents they opened lately; and with `tags`, its tags to make and change. A tag's, the favourites' and the recent
 documents take `name` too. */
 export interface LibraryView {
   folderId: number | null
@@ -44,7 +44,6 @@ export interface LibraryView {
   favorites?: true
   recent?: true
   tags?: true
-  filing?: true
 }
 
 export interface OpenDocument {
@@ -99,7 +98,6 @@ export function parseWorkspaceUrl(pathname: string, query: string): WorkspaceUrl
   else if (params.has('favorites')) library.favorites = true
   else if (params.has('recent')) library.recent = true
   else if (params.has('tags')) library.tags = true
-  else if (params.has('filing')) library.filing = true
 
   let document: OpenDocument | null = null
   let canonical = true
@@ -214,7 +212,6 @@ export function buildWorkspaceUrl(url: Omit<WorkspaceUrl, 'canonical'>): string 
   if (url.library.favorites) params.set('favorites', '')
   if (url.library.recent) params.set('recent', '')
   if (url.library.tags) params.set('tags', '')
-  if (url.library.filing) params.set('filing', '')
   if (url.document) {
     path += `/documents/${url.document.id}`
     const focus = url.document.focus

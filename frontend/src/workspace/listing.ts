@@ -140,8 +140,7 @@ export function partlyCountBehind(before: Document[], after: Document[], counted
 
 /**
  * Whether a document the listing showed being indexed has settled since, or left it: then the folders' counts may have
- * moved, and so may another listing, since a filing rule files a new document as it is made ready (backend/app/filing.py),
- * into a folder that may be new.
+ * moved, and so may another listing that shows it.
  */
 export function settledMeanwhile(before: Document[], after: Document[]): boolean {
   const now = new Map(after.map((document) => [document.id, document]))

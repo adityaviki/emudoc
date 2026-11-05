@@ -1,10 +1,9 @@
-// The library's ways of reading a project (backend/app/tags.py, document_filter.py, filing.py): its places and orders as
-// the page names them, a document's tags, what narrows a search and what a filing rule does in words, why either as written
-// cannot be used, and where the grid's keys move its cursor.
+// The library's ways of reading a project (backend/app/tags.py, document_filter.py): its places and orders as the page
+// names them, a document's tags, what narrows a search in words and why it cannot be used as written, and where the grid's
+// keys move its cursor.
 
 import { THUMBNAIL_TYPES } from './api.ts'
-import type { Document, DocumentFilter, DocumentSort, FilingRuleInput, ListingPlace, SortOrder, Tag, TagColor } from './api.ts'
-import { fieldWords } from './factTable.ts'
+import type { Document, DocumentFilter, DocumentSort, ListingPlace, SortOrder, Tag, TagColor } from './api.ts'
 import { formatDate } from './format.ts'
 import { scanPassed } from './indexing.ts'
 import { REVIEW_LABELS } from './reviews.ts'
@@ -144,47 +143,6 @@ export function filterWords(filter: DocumentFilter, tags: Tag[], folder: string 
 export function datesProblem(filter: Pick<DocumentFilter, 'after' | 'before'>): string | null {
   if (filter.after && filter.before && filter.after > filter.before) return 'Its earliest date is after its latest. Choose dates the other way round.'
   return null
-}
-
-export const NEW_RULE: FilingRuleInput = { condition: 'type', field: null, value: '', action: 'folder', folder_id: null, tag_id: null, enabled: true }
-
-/** A filing rule in a sentence, its folder and tag by their names as they are now. */
-export function ruleSentence(rule: FilingRuleInput, folder: string | null, tag: string | null): string {
-  const what =
-    rule.condition === 'type'
-      ? `A new ${rule.value ?? ''} document`
-      : rule.condition === 'fact'
-        ? `A new document whose ${fieldWords(rule.field ?? 'field')} holds “${rule.value ?? ''}”`
-        : 'Every new document'
-  const under = folder ?? 'the top of the library'
-  if (rule.action === 'folder') return `${what} goes into ${under}`
-  if (rule.action === 'by_year') return `${what} is filed under ${under}, a folder for its year`
-  if (rule.action === 'by_month') return `${what} is filed under ${under}, a folder for its year and one for its month`
-  return `${what} is tagged “${tag ?? 'a deleted tag'}”`
-}
-
-/** Why a filing rule as written cannot be saved, in the words the server would refuse it with; null when it can. */
-export function ruleProblem(rule: FilingRuleInput): string | null {
-  if (rule.condition === 'type' && !rule.value?.trim()) return 'Say which type of document the rule files: the type the model gives it, such as invoice.'
-  if (rule.condition === 'fact' && (!rule.field?.trim() || !rule.value?.trim())) {
-    return 'Say which fact the rule reads, by its field’s name, and the words its value holds.'
-  }
-  if (rule.action === 'folder' && rule.folder_id == null) return 'Choose the folder the rule moves documents into.'
-  if (rule.action === 'tag' && rule.tag_id == null) return 'Choose the tag the rule puts on documents.'
-  return null
-}
-
-/** The rule as the server takes it: only what its condition and action use. */
-export function ruleInput(rule: FilingRuleInput): FilingRuleInput {
-  return {
-    condition: rule.condition,
-    field: rule.condition === 'fact' ? (rule.field?.trim() ?? null) : null,
-    value: rule.condition === 'any' ? null : (rule.value?.trim() ?? null),
-    action: rule.action,
-    folder_id: rule.action === 'tag' ? null : rule.folder_id,
-    tag_id: rule.action === 'tag' ? rule.tag_id : null,
-    enabled: rule.enabled,
-  }
 }
 
 /** Whether the server draws the document a thumbnail: a PDF, a scan or an image, once its scan has passed. */
