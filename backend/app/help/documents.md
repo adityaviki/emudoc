@@ -54,7 +54,8 @@ and on every file once two are chosen, and always on a touch screen. Ctrl (⌘ o
 and a click do the same, and Ctrl+A chooses every file shown. From the keyboard, Shift and the
 arrows choose the files in a row, and Ctrl and the arrows move without choosing, Space then
 adding the file reached or taking it out. The bar under the files says how many are chosen; its
-Actions offers what the menu of one of them does, and Clear selection lets them go. Besides
+Actions offers what the menu of one of them does, and Clear selection or Esc lets them go; a click
+on the empty space beside them keeps them chosen. Besides
 asking about them together, moving and deleting them,
 a member who may change the project does two things to as many as $chosen of them at once:
 

@@ -1409,11 +1409,10 @@ function Listing({
     },
     onKeyDown,
   }
+  // A click on the empty space keeps the selection, as does the click there that closes a menu (the owner's word of
+  // 2026-11-05): Esc, Clear selection or a click on another item changes it.
   const background = {
     onContextMenu: (event: MouseEvent) => onContextMenu(event),
-    onClick: (event: MouseEvent) => {
-      if (event.target === event.currentTarget) setSelected(new Set())
-    },
   }
   // What the items selected together offer, from the bar under the listing as from the menu of one of them.
   const severalMenu = liveSelected.size > 1 ? itemsMenu(selectedItems) : []
