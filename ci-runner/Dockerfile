@@ -2,8 +2,9 @@
 # GitHub's ubuntu-24.04 runners, with what the workflows take from those runners' image rather
 # than set up themselves (git, Python 3 for the stand-in model and the scripts, the Docker CLI
 # with buildx and compose, sudo for the libraries Playwright installs, libatomic for pnpm's
-# binary). Node, pnpm, uv and OpenTofu come from the workflows' setup actions, at the versions
-# they name.
+# binary, and a Node with its npm on PATH, which pnpm's setup action runs before setup-node's).
+# The Node a job builds with, pnpm, uv and OpenTofu come from the workflows' setup actions, at
+# the versions they name.
 #
 #   docker compose -f ci-runner/compose.yml build
 
@@ -28,6 +29,20 @@ RUN apt-get update \
 
 COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker /usr/local/libexec/docker/cli-plugins /usr/local/libexec/docker/cli-plugins
+
+# Node and npm on PATH, as on GitHub's image, checked against the release's SHASUMS256.txt.
+# pnpm/action-setup runs `npm ci` by PATH, falling back to the runner's own Node, whose npm the
+# runner's update to 2.338.2 unpacked as a copy of npm's script rather than its link, which
+# then cannot find `../lib/cli.js` (every End to end job from 2026-11-03 to 2026-11-05).
+ARG NODE_VERSION=24.22.2
+ARG NODE_SHA256=48cc0e21e048790e54c0cf5749c2725005313d652651c40b7a21feb9697aaf75
+RUN curl -fsSL -o /tmp/node.tar.xz \
+        "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+    && echo "${NODE_SHA256}  /tmp/node.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 --no-same-owner \
+        "node-v${NODE_VERSION}-linux-x64/bin" "node-v${NODE_VERSION}-linux-x64/lib" \
+    && rm /tmp/node.tar.xz \
+    && node --version && npm --version
 
 # Every job runs as this user, uid 1001 as on GitHub's runners, never as root: the suite checks
 # what an unprivileged process may not write.
