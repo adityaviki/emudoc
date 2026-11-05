@@ -17,6 +17,9 @@ newest entry first.
 
 Members:
 
+- The library no longer repeats the project's name above its search, which the header already
+  shows. In a folder, or in a tag, your favourites or your recent files, the path above the
+  search starts from "All files", which takes you back to every file.
 - A document that is indexed shows a green dot beside its name in place of the tick, which
   looked like a box to tick. A partly indexed one shows an amber dot, and the ring still fills in
   while a document is read.
