@@ -49,7 +49,9 @@ where it is.
 
 Each document you open gets a tab above it, and the tabs stay open until you close them. Drag a
 tab to put it elsewhere among them, or use Move left and Move right in its menu, or Ctrl+Shift
-and an arrow (⌘+Shift on a Mac) while it has the focus; the Search tab stays first.
+and an arrow (⌘+Shift on a Mac) while it has the focus; the Search tab stays first. Pin a tab
+from its menu to keep it before the others: it shows a pin instead of its cross, and Close others
+and Close all leave it open. Click the pin, or Unpin in its menu, to let it go.
 
 ## Several files at once
 
