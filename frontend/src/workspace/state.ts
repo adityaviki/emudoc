@@ -28,6 +28,27 @@ export function isTabsStore(value: unknown): value is TabsStore {
   )
 }
 
+/**
+ * The open tabs with one of them moved to `index` among them, clamped to the ends; the same list
+ * when it stays where it was, so that a store given it back is not written again.
+ */
+export function moved(open: OpenTab[], id: number, index: number): OpenTab[] {
+  const from = open.findIndex((tab) => tab.id === id)
+  const to = Math.max(0, Math.min(index, open.length - 1))
+  if (from < 0 || from === to) return open
+  const rest = open.filter((tab) => tab.id !== id)
+  return [...rest.slice(0, to), open[from], ...rest.slice(to)]
+}
+
+/**
+ * Where a tab dropped into a gap between the tabs lands among them: `gap` counts the tabs before
+ * the gap, as they stand while the tab is still in its place, so the gaps on either side of it
+ * leave it there.
+ */
+export function droppedAt(from: number, gap: number): number {
+  return gap > from ? gap - 1 : gap
+}
+
 /** The panes, left to right. The middle one is only there while a document or the search is open in it. */
 export type Pane = 'library' | 'document' | 'chat'
 
@@ -43,6 +64,8 @@ export interface Workspace {
   activeDocumentId: number | null
   openDocument(id: number, focus?: Focus | null, options?: { replace?: boolean }): void
   closeTabs(ids: number[]): void
+  /** Moves an open document's tab to `index` among the documents' tabs, by a drag, its menu or its keys. */
+  moveTab(id: number, index: number): void
   clearFocus(): void
   /** Shows a folder in the library; the open document stays where it is. */
   goToFolder(folderId: number | null, options?: { replace?: boolean }): void

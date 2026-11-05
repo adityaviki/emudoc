@@ -33,6 +33,31 @@ export function shortcutOf(pressed: Pressed, mac: boolean): Shortcut | null {
   return null
 }
 
+/**
+ * Which way a key pressed on an open document's tab moves the tab, or null: the tab strip's own
+ * keys (not the workspace's), ⌘+Shift with an arrow on a Mac and Ctrl+Shift elsewhere, never
+ * both, the keyboard's way to do what a drag does. Ctrl+Shift+Page Up and Page Down, which move
+ * tabs in desktop editors, are the browser's own.
+ */
+export function tabMoveOf(pressed: Pressed, mac: boolean): -1 | 1 | null {
+  const command = mac ? pressed.metaKey && !pressed.ctrlKey : pressed.ctrlKey && !pressed.metaKey
+  if (!command || !pressed.shiftKey || pressed.altKey) return null
+  if (pressed.key === 'ArrowLeft') return -1
+  if (pressed.key === 'ArrowRight') return 1
+  return null
+}
+
+/** The keys that move a tab: as its menu shows them, and as `aria-keyshortcuts` names them. */
+export function tabMoveKeys(mac: boolean): { left: string; right: string; named: string } {
+  const command = mac ? '⌘' : 'Ctrl'
+  const named = mac ? 'Meta' : 'Control'
+  return {
+    left: `${command}+Shift+←`,
+    right: `${command}+Shift+→`,
+    named: `${named}+Shift+ArrowLeft ${named}+Shift+ArrowRight`,
+  }
+}
+
 /** The shortcuts as their list shows them: the keys pressed together, and what they do. */
 export function shortcutList(mac: boolean): { keys: string[]; does: string }[] {
   const command = mac ? '⌘' : 'Ctrl'

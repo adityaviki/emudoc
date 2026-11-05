@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { askForComposer, listHint, onMac, shortcutList, shortcutOf, takeComposerAsk } from './shortcuts.ts'
+import { askForComposer, listHint, onMac, shortcutList, shortcutOf, tabMoveKeys, tabMoveOf, takeComposerAsk } from './shortcuts.ts'
 import type { Pressed } from './shortcuts.ts'
 
 const key = (key: string, held: Partial<Pressed> = {}): Pressed => ({
@@ -33,6 +33,35 @@ describe('shortcutOf', () => {
 
   it('takes no key alone, which a field would type or a layer closes on', () => {
     for (const alone of ['o', 'O', '/', '?', 'Escape', 'n']) expect(shortcutOf(key(alone), false)).toBeNull()
+  })
+})
+
+describe('tabMoveOf', () => {
+  it('moves a tab by Ctrl and Shift with an arrow, ⌘ on a Mac, never both', () => {
+    expect(tabMoveOf(key('ArrowLeft', { ctrlKey: true, shiftKey: true }), false)).toBe(-1)
+    expect(tabMoveOf(key('ArrowRight', { ctrlKey: true, shiftKey: true }), false)).toBe(1)
+    expect(tabMoveOf(key('ArrowRight', { metaKey: true, shiftKey: true }), true)).toBe(1)
+    expect(tabMoveOf(key('ArrowRight', { metaKey: true, shiftKey: true }), false)).toBeNull()
+    expect(tabMoveOf(key('ArrowRight', { ctrlKey: true, shiftKey: true }), true)).toBeNull()
+    expect(tabMoveOf(key('ArrowRight', { ctrlKey: true, metaKey: true, shiftKey: true }), false)).toBeNull()
+  })
+
+  it('leaves the arrows alone, and with fewer or more keys, to show another tab', () => {
+    expect(tabMoveOf(key('ArrowLeft'), false)).toBeNull()
+    expect(tabMoveOf(key('ArrowLeft', { ctrlKey: true }), false)).toBeNull()
+    expect(tabMoveOf(key('ArrowLeft', { shiftKey: true }), false)).toBeNull()
+    expect(tabMoveOf(key('ArrowLeft', { ctrlKey: true, shiftKey: true, altKey: true }), false)).toBeNull()
+    expect(tabMoveOf(key('Home', { ctrlKey: true, shiftKey: true }), false)).toBeNull()
+  })
+
+  it('names the keys for the menu and for screen readers', () => {
+    expect(tabMoveKeys(false)).toEqual({
+      left: 'Ctrl+Shift+←',
+      right: 'Ctrl+Shift+→',
+      named: 'Control+Shift+ArrowLeft Control+Shift+ArrowRight',
+    })
+    expect(tabMoveKeys(true).left).toBe('⌘+Shift+←')
+    expect(tabMoveKeys(true).named).toBe('Meta+Shift+ArrowLeft Meta+Shift+ArrowRight')
   })
 })
 
