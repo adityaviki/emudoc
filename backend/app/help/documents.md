@@ -52,8 +52,8 @@ where it is.
 Choose files with the box at the left of each one, which shows as you point at a file, on every
 file once one is chosen, and always on a touch screen. Ctrl (⌘ on a Mac) and a click do the same,
 Shift and a click choose every file from the last one, and Ctrl+A chooses every file shown. A
-plain click chooses nothing: it only marks where the keyboard is, and a double-click opens the
-file. From the keyboard, the arrows move without choosing, Space adds the file reached or takes
+plain click opens a file, or a folder (in place in the list, or going into it in the grid), and
+chooses nothing. From the keyboard, the arrows move without choosing, Space adds the file reached or takes
 it out, and Shift and the arrows choose the files in a row; F2 renames the file the keyboard is
 on, and Delete deletes the chosen files, or that file when none is chosen. The bar under the
 files says how many are chosen; its Actions offers what can be done to them, and Clear selection

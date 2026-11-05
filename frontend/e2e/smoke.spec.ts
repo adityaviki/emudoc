@@ -170,7 +170,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(inviteTeam).toHaveCount(0)
     await expectAccessible(page, 'a project with an answer')
     // Printed, a PDF is its pages alone, a sheet each, under the document's name, the app's again after.
-    await page.getByRole('treeitem', { name: 'acme-service-contract.pdf' }).dblclick()
+    await page.getByRole('treeitem', { name: 'acme-service-contract.pdf' }).click()
     await expect(page.getByRole('heading', { name: 'Master Services Agreement', exact: true })).toBeVisible()
     await expect(page.getByRole('img', { name: 'Page 1' })).toBeVisible()
     expect(await printed(page)).toEqual({ sheets: 2, title: 'Master Services Agreement' })
@@ -409,8 +409,8 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('menuitem', { name: 'Upload a new version…' }).click()
     await (await chooser).setFiles({ name: 'service-contract.md', mimeType: 'text/markdown', buffer: Buffer.from(signed) })
     await expect(page.getByText(/^“service-contract\.md” is now version 2\./)).toBeVisible()
-    // Read again from its new file, in its place in the library.
-    await expect(page.getByRole('img', { name: /^Ready/ })).toBeVisible({ timeout: 60_000 })
+    // Read again from its new file, in its place in the library (its tab, open since the click, says so too).
+    await expect(contract.getByRole('img', { name: /^Ready/ })).toBeVisible({ timeout: 60_000 })
     await contract.click()
     await page.keyboard.press('Enter')
     await expect(page.getByRole('heading', { name: 'Service contract', exact: true })).toBeVisible()
@@ -1379,7 +1379,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(row).toHaveAccessibleDescription(/To review$/)
 
     // Its tab assigns it, to a colleague who sees the project and may change it.
-    await row.dblclick()
+    await row.click()
     await expect(page.getByLabel('Review', { exact: true })).toHaveValue('to_review')
     const assigning = page.waitForResponse((response) => response.url().endsWith('/review') && response.request().method() === 'PUT')
     await page.getByLabel('Assigned to').selectOption({ label: 'Grace Hopper' })
@@ -1438,7 +1438,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     chooseFlag(slug, 'drafts', 'on')
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
-    await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).dblclick()
+    await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).click()
     const disputing = page.waitForResponse((response) => response.url().endsWith('/review') && response.request().method() === 'PUT')
     await page.getByLabel('Review', { exact: true }).selectOption('disputed')
     await disputing
@@ -1669,7 +1669,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     chooseFlag(slug, 'share_links', 'on')
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
-    await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).dblclick()
+    await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).click()
     const share = page.getByRole('button', { name: 'Share by link' })
     await share.click()
     const dialog = page.getByRole('dialog', { name: 'Share “invoice.md”' })
@@ -1946,7 +1946,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('treeitem')).toHaveCount(1)
     await expect(invoice).toHaveAccessibleDescription(/Favourite/)
     await expectAccessible(page, 'the favourites')
-    await invoice.dblclick()
+    await invoice.click()
     await places.getByRole('button', { name: 'Recent' }).click()
     await expect(page.getByRole('treeitem').first()).toHaveAccessibleName('invoice.md')
     await expect(page.getByRole('button', { name: 'Order: the latest opened first' })).toBeDisabled()
@@ -2007,7 +2007,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
 
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
-    await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).dblclick()
+    await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).click()
     // Its date as the member sets it, which later readings keep, what the reading found said beside it.
     const edit = page.getByRole('button', { name: 'Edit details' })
     await edit.click()
@@ -2233,7 +2233,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     chooseFlag(slug, 'comments', 'on')
     await page.goto('/')
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
-    await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).dblclick()
+    await page.getByRole('treeitem', { name: 'invoice.md', exact: true }).click()
     await page.getByRole('button', { name: 'Comments, none open' }).click()
     const comments = page.getByRole('complementary', { name: 'Comments' })
     await expect(comments).toContainText('No comments yet.')
