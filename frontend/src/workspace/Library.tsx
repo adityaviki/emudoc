@@ -4,6 +4,7 @@ import {
   BadgeCheck,
   CalendarClock,
   Camera,
+  Check,
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
@@ -1156,7 +1157,10 @@ function Listing({
     const moveTo = (next: number) => {
       if (!keys.length) return
       event.preventDefault()
-      select(keys[Math.max(0, Math.min(keys.length - 1, next))], { ctrlKey: false, metaKey: false, shiftKey: event.shiftKey })
+      const key = keys[Math.max(0, Math.min(keys.length - 1, next))]
+      // Ctrl with an arrow moves the cursor alone, so that Space adds what it reaches to the selection.
+      if ((event.ctrlKey || event.metaKey) && event.key.startsWith('Arrow')) setCursor(key)
+      else select(key, { ctrlKey: false, metaKey: false, shiftKey: event.shiftKey })
     }
     // The grid's arrows move by a tile and by a row; its folders are gone into with Enter.
     if (grid && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) && !event.altKey) {
@@ -1199,6 +1203,13 @@ function Listing({
         if (item) {
           event.preventDefault()
           activate(item)
+        }
+        return
+      case ' ':
+        // The cursor's item into the selection or out of it, as its box does; with Shift, everything from the last one.
+        if (item) {
+          event.preventDefault()
+          select(keys[index], { ctrlKey: true, metaKey: false, shiftKey: event.shiftKey })
         }
         return
       case 'Backspace':
@@ -1345,6 +1356,7 @@ function Listing({
       depth,
       expanded: item.kind === 'folder' && openSet.has(item.folder.id),
       selected: liveSelected.has(key),
+      several: liveSelected.size > 1,
       isCursor: cursor === key,
       renaming: renaming === key,
       // A flat place holds no folder to drag a file into.
@@ -1353,6 +1365,8 @@ function Listing({
       favorite: item.kind === 'file' && favorites.has(item.document.id),
       where: flat && item.kind === 'file' ? whereOf(item.document) : undefined,
       onSelect: (event) => select(key, event),
+      // The box adds the item to the selection or takes it out, as Ctrl and a click do; Shift reaches it from the last one.
+      onCheck: (event) => select(key, { ctrlKey: true, metaKey: false, shiftKey: event.shiftKey }),
       onOpen: () => activate(item),
       onToggle: () => item.kind === 'folder' && setExpanded(item.folder.id, !openSet.has(item.folder.id)),
       onContextMenu: (event) => onContextMenu(event, item),
@@ -1400,6 +1414,8 @@ function Listing({
       if (event.target === event.currentTarget) setSelected(new Set())
     },
   }
+  // What the items selected together offer, from the bar under the listing as from the menu of one of them.
+  const severalMenu = liveSelected.size > 1 ? itemsMenu(selectedItems) : []
   // The grid's rows, each `columns` tiles, a gap after a place's files on a row of its own.
   const gridRows: Line[][] = []
   for (const line of lines) {
@@ -1441,6 +1457,33 @@ function Listing({
           {ghost}
           {lines.map((line) => (isEntry(line) ? <Row key={itemKey(line.item)} {...propsOf(line.item, line.depth)} /> : gapOf(line)))}
           {menu.element}
+        </div>
+      )}
+      {/* Under the listing, so that it shifts no item the next click aims at. */}
+      {liveSelected.size > 1 && (
+        <div className="flex shrink-0 items-center gap-1 border-t border-line px-3 py-1.5 text-[13px]">
+          <p className="min-w-0 flex-1 truncate">{liveSelected.size} selected</p>
+          {severalMenu.length > 0 && (
+            <Button
+              variant="ghost"
+              className="h-6 px-2"
+              icon={<MoreHorizontal className="size-4" />}
+              onClick={(event) => menu.openAt(event.currentTarget, severalMenu)}
+            >
+              Actions
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            className="h-6 px-2"
+            // The bar goes with the selection: the keyboard goes on from the listing.
+            onClick={() => {
+              setSelected(new Set())
+              list.current?.focus()
+            }}
+          >
+            Clear selection
+          </Button>
         </div>
       )}
       {moving && (
@@ -1607,6 +1650,8 @@ interface RowProps {
   /** Whether a folder shows its contents. */
   expanded: boolean
   selected: boolean
+  /** Whether more than one item is selected, when every item shows its box. */
+  several: boolean
   isCursor: boolean
   renaming: boolean
   /** Whether the item may be dragged into another folder. */
@@ -1614,6 +1659,7 @@ interface RowProps {
   dropping: boolean
   folderCount?: number
   onSelect: (event: MouseEvent) => void
+  onCheck: (event: MouseEvent) => void
   onOpen: () => void
   onToggle: () => void
   onContextMenu: (event: MouseEvent) => void
@@ -1668,7 +1714,7 @@ function Where({ id, where, className = '' }: { id: string; where: string; class
 }
 
 function Row(props: RowProps) {
-  const { item, depth, expanded, selected, isCursor, renaming, movable, dropping, folderCount } = props
+  const { item, depth, expanded, selected, several, isCursor, renaming, movable, dropping, folderCount } = props
   const name = itemName(item)
   const id = rowId(itemKey(item))
 
@@ -1723,6 +1769,7 @@ function Row(props: RowProps) {
       aria-expanded={folder ? expanded : undefined}
       className={`group flex h-7 items-center rounded-md pr-0.5 pl-1.5 text-[13px] transition-colors select-none ${state}`}
     >
+      <SelectBox selected={selected} shown={selected || several} onCheck={props.onCheck} className="-ml-1" />
       {/* A guide line for each level above, under the chevron of the folder it belongs to. */}
       {Array.from({ length: depth }, (_, level) => (
         <span
@@ -1780,7 +1827,7 @@ function Row(props: RowProps) {
  * else its kind's icon, with its name, state and menu under it, and then its review and star.
  */
 function Tile(props: RowProps) {
-  const { item, selected, isCursor, renaming, movable, dropping, folderCount } = props
+  const { item, selected, several, isCursor, renaming, movable, dropping, folderCount } = props
   const name = itemName(item)
   const id = rowId(itemKey(item))
   // A thumbnail the server could not draw (an unreadable page, a missing file) leaves the kind's icon in its place.
@@ -1811,7 +1858,8 @@ function Tile(props: RowProps) {
       onDrop={props.onDrop}
       className={`group flex min-w-0 flex-col rounded-lg border p-1.5 text-[13px] transition-colors select-none ${state}`}
     >
-      <div className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-md bg-sunken">
+      <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden rounded-md bg-sunken">
+        <SelectBox selected={selected} shown={selected || several} onCheck={props.onCheck} className="absolute top-0.5 left-0.5" />
         {picture ? (
           <img
             src={thumbnailUrl(item.document)}
@@ -1856,6 +1904,38 @@ function Tile(props: RowProps) {
         {props.where && <Where id={`${id}-where`} where={props.where} className="ml-1.5 min-w-0 truncate" />}
       </div>
     </div>
+  )
+}
+
+/**
+ * The box that puts an item into the selection or takes it out without a key held, on a touch screen too: shown on
+ * hover, on the selected and on every item while several are, and always where the pointer is a finger. The listing's
+ * `aria-selected` says the same to a screen reader, and Space does it from the keyboard, so the box is the pointer's
+ * alone, never a stop of Tab.
+ */
+function SelectBox(props: { selected: boolean; shown: boolean; onCheck: (event: MouseEvent) => void; className?: string }) {
+  const { selected, shown, className = '' } = props
+  return (
+    <span
+      aria-hidden
+      title={selected ? 'Unselect' : 'Select'}
+      onClick={(event) => {
+        event.stopPropagation()
+        props.onCheck(event)
+      }}
+      onDoubleClick={(event) => event.stopPropagation()}
+      className={`flex size-6 shrink-0 cursor-pointer items-center justify-center ${
+        shown ? '' : 'opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100'
+      } ${className}`}
+    >
+      <span
+        className={`flex size-3.5 items-center justify-center rounded-[3px] border transition-colors ${
+          selected ? 'border-accent bg-accent text-accent-ink' : 'border-muted bg-surface'
+        }`}
+      >
+        {selected && <Check className="size-3" strokeWidth={3} />}
+      </span>
+    </span>
   )
 }
 
