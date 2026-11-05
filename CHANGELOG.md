@@ -17,6 +17,8 @@ newest entry first.
 
 Members:
 
+- Clicking an empty part of the library, or clicking there to close a menu, no longer clears the
+  files you selected. Clear selection or Esc does.
 - Each file and folder in the library has a box at its left to select it, so several can be
   chosen with no key held, on a touch screen too. The boxes show as you point at a file, and on
   every one once two are selected. A bar under the files then says how many are selected, with
