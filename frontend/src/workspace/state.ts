@@ -8,6 +8,8 @@ import type { Focus, Reviews, WorkspaceSearch, WorkspaceUrl } from './url.ts'
 export interface OpenTab {
   id: number
   focus?: Focus
+  /** Pinned: kept before the others, and left open by "Close others" and "Close all". */
+  pinned?: true
 }
 
 export interface TabsStore {
@@ -29,15 +31,37 @@ export function isTabsStore(value: unknown): value is TabsStore {
 }
 
 /**
- * The open tabs with one of them moved to `index` among them, clamped to the ends; the same list
- * when it stays where it was, so that a store given it back is not written again.
+ * The open tabs with one of them moved to `index` among them, clamped to the ends of its group,
+ * the pinned tabs before the rest; the same list when it stays where it was, so that a store given
+ * it back is not written again.
  */
 export function moved(open: OpenTab[], id: number, index: number): OpenTab[] {
   const from = open.findIndex((tab) => tab.id === id)
-  const to = Math.max(0, Math.min(index, open.length - 1))
-  if (from < 0 || from === to) return open
+  if (from < 0) return open
+  const pins = open.filter((tab) => tab.pinned).length
+  const [first, last] = open[from].pinned ? [0, pins - 1] : [pins, open.length - 1]
+  const to = Math.max(first, Math.min(index, last))
+  if (from === to) return open
   const rest = open.filter((tab) => tab.id !== id)
   return [...rest.slice(0, to), open[from], ...rest.slice(to)]
+}
+
+/**
+ * The open tabs with one of them pinned, after the tabs pinned before it, or unpinned, first of the
+ * rest; the same list when it is so already.
+ */
+export function pinned(open: OpenTab[], id: number, pin: boolean): OpenTab[] {
+  const tab = open.find((each) => each.id === id)
+  if (!tab || Boolean(tab.pinned) === pin) return open
+  const rest = open.filter((each) => each.id !== id)
+  const pins = rest.filter((each) => each.pinned).length
+  // Left undefined, the key is not written to the store.
+  return [...rest.slice(0, pins), { ...tab, pinned: pin || undefined }, ...rest.slice(pins)]
+}
+
+/** The tabs "Close others" closes from a tab's menu, or with no tab named, "Close all": none pinned. */
+export function closedByMenu(open: OpenTab[], except: number | null = null): number[] {
+  return open.filter((tab) => !tab.pinned && tab.id !== except).map((tab) => tab.id)
 }
 
 /**
@@ -66,6 +90,8 @@ export interface Workspace {
   closeTabs(ids: number[]): void
   /** Moves an open document's tab to `index` among the documents' tabs, by a drag, its menu or its keys. */
   moveTab(id: number, index: number): void
+  /** Pins an open document's tab, or unpins it. */
+  pinTab(id: number, pin: boolean): void
   clearFocus(): void
   /** Shows a folder in the library; the open document stays where it is. */
   goToFolder(folderId: number | null, options?: { replace?: boolean }): void

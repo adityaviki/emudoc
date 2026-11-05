@@ -1,4 +1,4 @@
-import { FileText, Search, X } from 'lucide-react'
+import { FileText, Pin, PinOff, Search, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { DragEvent, KeyboardEvent, MouseEvent } from 'react'
 import type { Document } from '../api.ts'
@@ -7,7 +7,7 @@ import { useContextMenu } from '../components/useContextMenu.tsx'
 import { searchTabName } from '../search.ts'
 import { onMac, tabMoveKeys, tabMoveOf } from '../shortcuts.ts'
 import { fileKind, originalFileItem } from './files.ts'
-import { droppedAt, useWorkspace } from './state.ts'
+import { closedByMenu, droppedAt, moved, useWorkspace } from './state.ts'
 import { searching } from './url.ts'
 
 /**
@@ -16,7 +16,9 @@ import { searching } from './url.ts'
  * and Delete closes it. The close button is the pointer's alone, hidden from screen readers, since
  * a tab's content is read as its name and cannot hold a button of its own. A document's tab is
  * put in another place among the documents' by a drag, by Ctrl+Shift and an arrow, or by its
- * menu's "Move left" and "Move right"; the search's stays first.
+ * menu's "Move left" and "Move right"; the search's stays first. A pinned tab stays before the
+ * others, shows its pin where the others' close button is, and is left open by "Close others" and
+ * "Close all"; it closes by its menu's "Close", by Delete and by a middle click.
  */
 export function TabStrip() {
   const workspace = useWorkspace()
@@ -47,19 +49,30 @@ export function TabStrip() {
   }, [activeDocumentId, searchShown, orderKey])
 
   function tabMenu(event: MouseEvent, document: Document) {
-    const others = openTabs.filter((tab) => tab.id !== document.id).map((tab) => tab.id)
+    const others = closedByMenu(openTabs, document.id)
+    const all = closedByMenu(openTabs)
     const index = openTabs.findIndex((tab) => tab.id === document.id)
+    const pinned = openTabs[index]?.pinned ?? false
     menu.open(event, [
       { label: 'Close', shortcut: 'Delete', onSelect: () => workspace.closeTabs([document.id]) },
       { label: 'Close others', disabled: others.length === 0, onSelect: () => workspace.closeTabs(others) },
-      { label: 'Close all', onSelect: () => workspace.closeTabs(openTabs.map((tab) => tab.id)) },
+      { label: 'Close all', disabled: all.length === 0, onSelect: () => workspace.closeTabs(all) },
       'separator',
-      // The ways to move a tab without a drag (WCAG 2.5.7), as its keys are the keyboard's.
-      { label: 'Move left', shortcut: moveKeys.left, disabled: index <= 0, onSelect: () => workspace.moveTab(document.id, index - 1) },
+      pinned
+        ? { label: 'Unpin', icon: PinOff, onSelect: () => workspace.pinTab(document.id, false) }
+        : { label: 'Pin', icon: Pin, onSelect: () => workspace.pinTab(document.id, true) },
+      // The ways to move a tab without a drag (WCAG 2.5.7), as its keys are the keyboard's; a
+      // tab moves among those pinned as it is, or not.
+      {
+        label: 'Move left',
+        shortcut: moveKeys.left,
+        disabled: moved(openTabs, document.id, index - 1) === openTabs,
+        onSelect: () => workspace.moveTab(document.id, index - 1),
+      },
       {
         label: 'Move right',
         shortcut: moveKeys.right,
-        disabled: index === openTabs.length - 1,
+        disabled: moved(openTabs, document.id, index + 1) === openTabs,
         onSelect: () => workspace.moveTab(document.id, index + 1),
       },
       'separator',
@@ -90,7 +103,8 @@ export function TabStrip() {
       // The search's tab stays first, and the arrows with these keys show no other tab.
       event.preventDefault()
       const index = openTabs.findIndex((tab) => tab.id === id)
-      if (id == null || index + step < 0 || index + step >= openTabs.length) return
+      // At an end of its group the tab stays, and nothing is drawn again to take the focus back.
+      if (id == null || moved(openTabs, id, index + step) === openTabs) return
       refocus.current = true
       workspace.moveTab(id, index + step)
       return
@@ -133,9 +147,11 @@ export function TabStrip() {
     const box = event.currentTarget.getBoundingClientRect()
     if (event.clientX < box.left + EDGE) event.currentTarget.scrollLeft -= SCROLL_STEP
     else if (event.clientX > box.right - EDGE) event.currentTarget.scrollLeft += SCROLL_STEP
+    // The line shows where the tab lands, which for one dragged past the end of its group, the
+    // pinned or the rest, is that end.
     const from = openTabs.findIndex((tab) => tab.id === id)
-    const at = gapAt(event.clientX)
-    setGap(droppedAt(from, at) === from ? null : at)
+    const to = moved(openTabs, id, droppedAt(from, gapAt(event.clientX))).findIndex((tab) => tab.id === id)
+    setGap(to === from ? null : to > from ? to + 1 : to)
   }
 
   function onDrop(event: DragEvent<HTMLDivElement>) {
@@ -244,18 +260,33 @@ export function TabStrip() {
           >
             <Icon className={`size-4 shrink-0 ${kind?.color ?? ''}`} />
             <span className="min-w-0 truncate">{document?.filename ?? `Document ${tab.id}`}</span>
+            {tab.pinned && <span className="sr-only">, pinned</span>}
             {document && <StatusDot document={document} />}
-            <span
-              aria-hidden
-              title="Close tab"
-              onClick={(event) => {
-                event.stopPropagation()
-                workspace.closeTabs([tab.id])
-              }}
-              className={`-mr-0.5 rounded p-0.5 text-muted transition hover:bg-line hover:text-ink ${selected ? '' : 'opacity-0 group-hover:opacity-100'}`}
-            >
-              <X className="size-3.5" />
-            </span>
+            {tab.pinned ? (
+              <span
+                aria-hidden
+                title="Unpin tab"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  workspace.pinTab(tab.id, false)
+                }}
+                className="-mr-0.5 rounded p-0.5 text-muted transition hover:bg-line hover:text-ink"
+              >
+                <Pin className="size-3.5" />
+              </span>
+            ) : (
+              <span
+                aria-hidden
+                title="Close tab"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  workspace.closeTabs([tab.id])
+                }}
+                className={`-mr-0.5 rounded p-0.5 text-muted transition hover:bg-line hover:text-ink ${selected ? '' : 'opacity-0 group-hover:opacity-100'}`}
+              >
+                <X className="size-3.5" />
+              </span>
+            )}
           </div>
         )
       })}

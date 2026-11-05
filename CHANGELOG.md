@@ -17,6 +17,9 @@ newest entry first.
 
 Members:
 
+- Pin a document's tab from its menu to keep it at the front of your open tabs. A pinned tab
+  shows a pin instead of its cross and stays open when you close the others or close all; click
+  the pin to unpin it.
 - Drag a document's tab to put it elsewhere among your open tabs. From the keyboard, Ctrl+Shift
   and an arrow (⌘+Shift on a Mac) moves the tab you are on, and a tab's menu has Move left and
   Move right.
