@@ -342,6 +342,7 @@ def test_an_expired_invitation_says_whom_to_ask_and_goes_in_time(client, session
     assert invitations(client) == []
 
 
+@pytest.mark.usefixtures("one_minute")
 def test_invitations_are_held_to_a_rate_per_inviter_and_per_address(
     client, session, mailer, ada, monkeypatch
 ):

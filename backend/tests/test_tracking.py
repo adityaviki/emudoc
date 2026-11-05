@@ -298,6 +298,7 @@ def test_a_report_takes_nothing_but_kinds_frames_of_the_pages_scripts_and_a_bare
     assert client.post("/api/page-errors", json=REPORT | {"message": SECRET}).status_code == 202
 
 
+@pytest.mark.usefixtures("one_minute")
 def test_a_page_that_keeps_failing_is_held_to_a_rate(client, monkeypatch):
     monkeypatch.setattr(get_settings(), "rate_page_errors", 2)
     statuses = [client.post("/api/page-errors", json=REPORT).status_code for _ in range(3)]

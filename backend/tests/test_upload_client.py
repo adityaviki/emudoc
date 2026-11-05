@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 from sqlalchemy import select, update
@@ -322,6 +323,7 @@ def proxy(transport: uploader.Transport, most: int, calls: list) -> uploader.Tra
     return send
 
 
+@pytest.mark.usefixtures("one_minute")
 def test_files_go_in_as_many_requests_as_the_server_and_a_proxy_take(
     client, session, tmp_path, monkeypatch
 ):

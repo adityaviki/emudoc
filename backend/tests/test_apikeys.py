@@ -262,6 +262,7 @@ def test_the_plan_must_include_the_api(client, session, make_account, act_as):
     assert client.delete(f"/api/organization/keys/{made['id']}").status_code == 204
 
 
+@pytest.mark.usefixtures("one_minute")
 def test_a_key_is_counted_by_itself(client, session, monkeypatch):
     monkeypatch.setattr(get_settings(), "rate_api_requests", 2)
     api = program(client, make_key(client)["key"])

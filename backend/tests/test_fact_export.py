@@ -267,6 +267,7 @@ def test_what_the_table_refuses_the_export_refuses(client, session, templates_on
     assert exported(session) == []
 
 
+@pytest.mark.usefixtures("one_minute")
 def test_downloads_are_held_to_a_rate_of_their_own(client, monkeypatch, templates_on, three):
     monkeypatch.setattr(get_settings(), "rate_exports", 1)
     assert export(client, three).status_code == 200
