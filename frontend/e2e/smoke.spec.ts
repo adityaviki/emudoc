@@ -2050,11 +2050,17 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await page.getByRole('link', { name: 'Supplier contracts', exact: true }).click()
     const invoice = page.getByRole('treeitem', { name: 'invoice.md', exact: true })
     const second = page.getByRole('treeitem', { name: 'second-invoice.md', exact: true })
+    // The second chosen by its box, with no key held, and the bar under the files counting them.
     await invoice.click()
-    await second.click({ modifiers: ['ControlOrMeta'] })
+    await second.hover()
+    await second.getByTitle('Select', { exact: true }).click()
+    await expect(second).toHaveAttribute('aria-selected', 'true')
+    await expect(invoice).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByText('2 selected', { exact: true })).toBeVisible()
+    await expectAccessible(page, 'the library with two files selected')
     // A scroll closes the menu, as above.
     await expect(async () => {
-      await second.click({ button: 'right' })
+      await page.getByRole('button', { name: 'Actions', exact: true }).click()
       await page.getByRole('menuitem', { name: 'Index 2 documents again' }).click({ timeout: 2_000 })
     }).toPass({ timeout: 60_000 })
     await expect(page.getByText('Indexing 2 documents again.')).toBeVisible()

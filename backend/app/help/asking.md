@@ -68,8 +68,9 @@ About, above the box you ask in, says what the chat is about and changes it: all
 a folder with its subfolders, or a document open in a tab. The assistant then reads only those,
 whatever the question, and tells you when you ask about anything else. The library starts such a
 chat from a folder's or a document's menu: Ask about this folder; Summarise this folder, which
-asks for its summary at once; and Ask about this document. Choose several files with Ctrl (or ⌘)
-and a click for Ask about these documents, or two of them for Compare the two documents. A chat
+asks for its summary at once; and Ask about this document. Choose several files by their boxes,
+or with Ctrl (or ⌘) and a click, for Ask about these documents, or two of them for Compare the two
+documents. A chat
 whose folder or documents were deleted reads nothing until you choose again what it is about.
 
 ## Who sees a chat

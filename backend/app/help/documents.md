@@ -49,8 +49,13 @@ where it is.
 
 ## Several files at once
 
-Choose several files with Ctrl (⌘ on a Mac) or Shift and a click, or every one shown with Ctrl+A,
-and open the menu of one of them. Besides asking about them together, moving and deleting them,
+Choose several files with the box at the left of each one, which shows as you point at a file
+and on every file once two are chosen, and always on a touch screen. Ctrl (⌘ on a Mac) or Shift
+and a click do the same, and Ctrl+A chooses every file shown. From the keyboard, Shift and the
+arrows choose the files in a row, and Ctrl and the arrows move without choosing, Space then
+adding the file reached or taking it out. The bar under the files says how many are chosen; its
+Actions offers what the menu of one of them does, and Clear selection lets them go. Besides
+asking about them together, moving and deleting them,
 a member who may change the project does two things to as many as $chosen of them at once:
 
 - **Index … documents again** reads each of them again from the start, and **Index the rest**
