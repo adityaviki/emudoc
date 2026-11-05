@@ -743,13 +743,22 @@ OpenAI-compatible embeddings endpoint. The backend asks it for one vector at sta
 it found. A deployment runs llama.cpp's server with the same model beside the app
 (`deploy/compose.yml`), whose vectors agree with Ollama's.
 
-When working on the app, run `./dev.sh` instead and open <http://localhost:5173>. In this
-checkout on `main` it first fast-forwards to `origin/main`, so it runs what was merged since
-(elsewhere it only says how far behind `origin/main` the branch is), and installs what the
-frontend's lock file asks for. Then it starts the database, applies the migrations, and runs the backend (restarting when Python changes) and the
-frontend dev server (updating the open page as you edit, no build needed), which proxies `/api` to
-the backend. Ctrl+C stops both
-servers. Port 8000 still serves the last build, so it does not show your edits.
+When working on the app, run `./dev.sh` instead and open <http://localhost:5173>. It starts the
+database, installs what the frontend's lock file asks for, applies the migrations, and runs the
+backend (restarting when Python changes) and the frontend dev server (updating the open page as
+you edit, no build needed), which proxies `/api` to the backend. Ctrl+C stops both servers. Port
+8000 still serves the last build, so it does not show your edits.
+
+In this checkout on `main`, `dev.sh` follows `origin/main`: it fast-forwards before it starts,
+and every 30 seconds while it runs (`FOLLOW_SECONDS`), so what was merged on GitHub shows in the
+open page within the minute. The servers reload on the files that changed; a change they do not
+take in (`dev.sh` itself, the compose file, the packages, a migration) starts `dev.sh` again,
+which takes about ten seconds. A fast-forward that cannot be made, an edit or a commit of this
+checkout's own in the way, is said once, and the servers go on with what is here. In a worktree
+or on another branch it only says how far behind `origin/main` the branch is. `./dev.sh service`
+runs it from then on at login, as the systemd user service `emudoc-dev` (`journalctl --user -u
+emudoc-dev -f` its output, `systemctl --user disable --now emudoc-dev` to stop it for good); a
+second `dev.sh` refuses while one runs.
 
 To work on several things at once, `./worktree.sh start <name>` makes a second checkout of
 `origin/main` on a branch of that name, under `.claude/worktrees/<name>`, and starts Claude Code
