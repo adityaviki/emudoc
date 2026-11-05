@@ -5,6 +5,7 @@ import {
   CalendarClock,
   Camera,
   Check,
+  ChevronDown,
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
@@ -1459,23 +1460,13 @@ function Listing({
           {menu.element}
         </div>
       )}
-      {/* Under the listing, so that it shifts no item the next click aims at. */}
+      {/* Under the listing, so that it shifts no item the next click aims at; its Actions the one button that stands out. */}
       {liveSelected.size > 1 && (
-        <div className="flex shrink-0 items-center gap-1 border-t border-line px-3 py-1.5 text-[13px]">
-          <p className="min-w-0 flex-1 truncate">{liveSelected.size} selected</p>
-          {severalMenu.length > 0 && (
-            <Button
-              variant="ghost"
-              className="h-6 px-2"
-              icon={<MoreHorizontal className="size-4" />}
-              onClick={(event) => menu.openAt(event.currentTarget, severalMenu)}
-            >
-              Actions
-            </Button>
-          )}
+        <div className="flex shrink-0 items-center gap-2 border-t border-line bg-surface px-3 py-2 text-[13px]">
+          <p className="min-w-0 flex-1 truncate font-medium">{liveSelected.size} selected</p>
           <Button
             variant="ghost"
-            className="h-6 px-2"
+            className="h-7 px-2"
             // The bar goes with the selection: the keyboard goes on from the listing.
             onClick={() => {
               setSelected(new Set())
@@ -1484,6 +1475,17 @@ function Listing({
           >
             Clear selection
           </Button>
+          {severalMenu.length > 0 && (
+            <Button
+              variant="primary"
+              className="h-7 pr-2"
+              aria-haspopup="menu"
+              onClick={(event) => menu.openAt(event.currentTarget, severalMenu)}
+            >
+              Actions
+              <ChevronDown className="size-4" />
+            </Button>
+          )}
         </div>
       )}
       {moving && (

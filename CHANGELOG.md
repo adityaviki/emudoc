@@ -20,7 +20,7 @@ Members:
 - Each file and folder in the library has a box at its left to select it, so several can be
   chosen with no key held, on a touch screen too. The boxes show as you point at a file, and on
   every one once two are selected. A bar under the files then says how many are selected, with
-  their Actions and Clear selection. From the keyboard, Ctrl and the arrows move without
+  an Actions button for what can be done to them, and Clear selection. From the keyboard, Ctrl and the arrows move without
   selecting, and Space selects the file reached or lets it go.
 - The top right of the page no longer shows "AI model" and "Semantic search". When the AI model
   is out of reach the Ask tab still says so, and a search that matched words alone says that.
