@@ -398,8 +398,8 @@ function PlanBanner({ me }: { me: Me }) {
 }
 
 /**
- * Shows whether the two optional services, the AI model and semantic search, are usable, and in
- * their place while the browser is offline that it is, at every width.
+ * Shows that the background work is not running, while no worker runs, and in its place while
+ * the browser is offline that it is, at every width.
  */
 function ServiceStatus() {
   const { data } = useStatus()
