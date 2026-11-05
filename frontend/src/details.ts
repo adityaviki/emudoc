@@ -86,8 +86,9 @@ export function copyPlace(copy: DocumentCopy): string {
 export function copyUrl(copy: DocumentCopy): string {
   return buildWorkspaceUrl({
     projectId: copy.project_id,
-    library: { folderId: copy.folder_id, q: '' },
+    library: { folderId: copy.folder_id },
     document: { id: copy.id, focus: null },
+    search: null,
     chatId: null,
     about: null,
   })

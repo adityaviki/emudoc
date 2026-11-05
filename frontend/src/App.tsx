@@ -24,6 +24,7 @@ import { describeConnection } from './connection.ts'
 import { formatDate } from './format.ts'
 import { DELETION_SECTION, deletionWords } from './organizationSettings.ts'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
+import { HeaderSearch } from './components/HeaderSearch.tsx'
 import { Floating, Menu } from './components/Menu.tsx'
 import type { MenuItem } from './components/Menu.tsx'
 import { ThemeToggle } from './components/ThemeToggle.tsx'
@@ -163,17 +164,23 @@ function Shell() {
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
       <header className="shrink-0 border-b border-line bg-surface">
-        <div className="flex h-12 items-center justify-between gap-4 px-4">
-          <div className="flex min-w-0 items-center gap-1.5">
+        <div className="flex h-12 items-center gap-2 px-4 sm:gap-3">
+          <div className="flex min-w-0 shrink items-center gap-1.5">
             <Link to="/" className="flex shrink-0 items-center gap-2 rounded-md px-1 text-[15px] font-semibold tracking-tight">
               <img src="/favicon.svg" alt="" className="size-5" />
-              Emudoc
+              {/* A narrow screen keeps the mark, and room for the search; the link keeps its name. */}
+              <span className="sr-only sm:not-sr-only">Emudoc</span>
             </Link>
-            <Crumb />
+            {/* The organisation's switcher shows from a small screen up, and its crumb with it. */}
+            <Crumb className="hidden sm:inline" />
             <OrganizationSwitcher />
             <ProjectSwitcher />
           </div>
-          <div className="flex shrink-0 items-center gap-3">
+          {/* The one search box: the project's in a project, every project's elsewhere. */}
+          <div className="flex min-w-24 flex-1 justify-center">
+            <HeaderSearch />
+          </div>
+          <div className="flex shrink-0 items-center gap-1 sm:gap-3">
             <ServiceStatus />
             <HelpMenu />
             <NotificationBell />
@@ -235,9 +242,9 @@ function StatusPageNote() {
   )
 }
 
-function Crumb() {
+function Crumb({ className = '' }: { className?: string }) {
   return (
-    <span className="text-line select-none" aria-hidden>
+    <span className={`text-line select-none ${className}`} aria-hidden>
       <svg width="12" height="20" viewBox="0 0 12 20" fill="none" stroke="currentColor" strokeWidth="1.5">
         <path d="M9 2 3 18" />
       </svg>

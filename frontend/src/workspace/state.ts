@@ -3,8 +3,7 @@
 import { createContext, useContext } from 'react'
 import type { Document, Folder, ListingPlace, Project, ScopeIn } from '../api.ts'
 import type { FolderTree } from '../hooks.ts'
-import type { Search } from '../library.ts'
-import type { Focus, Reviews, WorkspaceUrl } from './url.ts'
+import type { Focus, Reviews, WorkspaceSearch, WorkspaceUrl } from './url.ts'
 
 export interface OpenTab {
   id: number
@@ -29,7 +28,7 @@ export function isTabsStore(value: unknown): value is TabsStore {
   )
 }
 
-/** The panes, left to right. The document pane is only there while a document is open. */
+/** The panes, left to right. The middle one is only there while a document or the search is open in it. */
 export type Pane = 'library' | 'document' | 'chat'
 
 export interface Workspace {
@@ -47,10 +46,12 @@ export interface Workspace {
   clearFocus(): void
   /** Shows a folder in the library; the open document stays where it is. */
   goToFolder(folderId: number | null, options?: { replace?: boolean }): void
-  /** Searches the folder shown, or the folder given (null for the whole project), within what the search is narrowed by. */
-  setSearch(q: string, folderId?: number | null): void
-  /** Runs a search in the library, its folder and what narrows it given whole, leaving any other place. */
-  showSearch(search: Search, options?: { replace?: boolean }): void
+  /** Narrows what the library shows to the files whose names hold these letters, every folder's from a folder; '' for all. */
+  filterByName(name: string): void
+  /** Runs a search in the search tab, what narrows it given whole, and brings the tab to the front. */
+  showSearch(search: WorkspaceSearch, options?: { replace?: boolean }): void
+  /** Closes the search tab, the next document's tab taking its place when it was the one shown. */
+  closeSearch(): void
   /** Shows the project's trash in the library; going to a folder leaves it. */
   showTrash(): void
   /** Shows the project's extraction templates in the library, likewise. */

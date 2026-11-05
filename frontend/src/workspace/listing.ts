@@ -1,5 +1,5 @@
 // A place's documents as the library holds them (a folder's, a tag's, the reader's favourites or
-// recent ones), in an order: the pages it has asked for, each with the tag
+// recent ones, or the files whose names hold some letters), in an order: the pages it has asked for, each with the tag
 // the server named it by, so that asking again while a document is indexed costs a 304 for every
 // page that has not changed (`list_documents` in backend/app/api/documents.py). Each place in each
 // order is a query of its own, and an open document one more, so no request ever carries the
@@ -63,15 +63,20 @@ export interface Arrangement {
 /** The library's first order: by name, as the server lists when none is named. */
 export const BY_NAME: Arrangement = { sort: 'name', order: 'asc' }
 
-/** A place as a query key: a folder by its id, the root's null, the others by a word of their own. */
+/** A place as a query key: a folder by its id, the root's null, the others by a word of their own, a name filter's alone `named`. */
 export function placeKey(place: ListingPlace): number | string | null {
   if ('folder' in place) return place.folder
   if ('tag' in place) return `tag:${place.tag}`
-  return 'favorites' in place ? 'favorites' : 'recent'
+  if ('favorites' in place) return 'favorites'
+  return 'recent' in place ? 'recent' : 'named'
 }
 
+/** The letters a place's file names are filtered by, or null for none. */
+export const nameOf = (place: ListingPlace): string | null => ('name' in place && place.name) || null
+
+// A name filter comes last, so that whatever asks again for a place's listings asks for its filtered ones too.
 export const listingKey = (projectId: number, place: ListingPlace, arrangement: Arrangement = BY_NAME) =>
-  ['documents', projectId, placeKey(place), arrangement.sort, arrangement.order] as const
+  ['documents', projectId, placeKey(place), arrangement.sort, arrangement.order, nameOf(place)] as const
 /** Every order of a place's listing, for a change of what the place holds. */
 export const placeListingsKey = (projectId: number, place: ListingPlace) => ['documents', projectId, placeKey(place)] as const
 /** Every folder's listing of the project, for a change that touches documents wherever they are. */

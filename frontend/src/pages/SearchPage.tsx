@@ -1,6 +1,7 @@
 // The search of every project the member sees (backend/app/api/search.py): one ranking of their passages, each hit
 // naming its project and opening its document at the passage, narrowed to some of the projects, the documents' types
-// and a span of their dates. The address holds the search (src/search.ts), so that it can be gone back to and shared.
+// and a span of their dates. The address holds the search (src/search.ts), so that it can be gone back to and shared;
+// the header's box (components/HeaderSearch.tsx) gives its words.
 
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Search, SlidersHorizontal, X } from 'lucide-react'
@@ -13,6 +14,7 @@ import { Button, Checkbox, EmptyState, IconButton, Loading, Notice } from '../co
 import {
   ALL_TYPES_KEY,
   EMPTY_SEARCH_ALL,
+  HEADER_SEARCH,
   hitUrl,
   narrowsAll,
   parseSearchAll,
@@ -23,7 +25,7 @@ import {
   withoutSearchAllPart,
 } from '../search.ts'
 import type { SearchAll } from '../search.ts'
-import { Hit, SearchBox } from '../workspace/Library.tsx'
+import { Hit } from '../workspace/SearchTab.tsx'
 import { DatesField, TypesField } from '../workspace/Places.tsx'
 
 export function SearchPage() {
@@ -37,16 +39,16 @@ export function SearchPage() {
     enabled: query !== '',
   })
   const [filtering, setFiltering] = useState(false)
-  const box = useRef<HTMLInputElement>(null)
   const filterButton = useRef<HTMLButtonElement>(null)
-  // The words typed replace the search in the history, as the library's box does; a filter changed is a step of its own.
-  const show = (search: SearchAll, replace = false) => navigate(searchAllUrl(search), { replace })
+  // A filter changed is a step of its own in the history; the header's box replaces the words as they rest.
+  const show = (search: SearchAll) => navigate(searchAllUrl(search))
   const named = projects.data ?? []
   const parts = searchAllParts(filter, named)
   const hits = results.data?.hits ?? []
 
+  // Opened from a link, the page is ready for words; from the header's box, the box has the focus already.
   useEffect(() => {
-    box.current?.focus()
+    window.document.getElementById(HEADER_SEARCH)?.focus()
   }, [])
 
   return (
@@ -58,8 +60,7 @@ export function SearchPage() {
         </Link>
         <h1 className="mt-3 text-2xl font-semibold tracking-tight">Search</h1>
         <p className="mt-1 mb-6 text-[13px] text-muted">Every project you see, by the words of its documents and by their meaning together.</p>
-        <div role="search" className="flex items-center gap-2">
-          <SearchBox label="Search all projects" placeholder="Search all projects" query={query} inputRef={box} onSearch={(q) => show({ q, filter }, true)} />
+        <div className="flex items-center gap-2">
           <Button ref={filterButton} icon={<SlidersHorizontal className="size-3.5" />} onClick={() => setFiltering(true)} className="h-8 px-2.5 text-[13px]">
             Filter
           </Button>
@@ -86,7 +87,7 @@ export function SearchPage() {
         <div className="mt-4 space-y-2">
           {!query && (
             <EmptyState icon={<Search />} title="What should be searched for?">
-              {searchAllWords(filter, named)}. Type words in the search box to search them.
+              {searchAllWords(filter, named)}. Type words in the search box at the top to search them.
             </EmptyState>
           )}
           {results.isPending && query !== '' && <Loading />}

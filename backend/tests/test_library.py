@@ -1,10 +1,10 @@
 """The library's listing: one folder's documents a page at a time, in the order the page shows
-them, and a page that has not changed answered with a 304 (`list_documents` in
-app/api/documents.py)."""
+them, a page that has not changed answered with a 304, and the files whose names hold some
+letters wherever they are (`list_documents` in app/api/documents.py)."""
 
 from sqlalchemy import text
 
-from app.api.documents import BAD_CURSOR
+from app.api.documents import BAD_CURSOR, MAX_NAME_FILTER, NAME_IN_FOLDER
 from app.indexing.pipeline import process_document
 from tests.test_api import create_project, upload
 from tests.test_folders import make_folder, upload_into
@@ -220,3 +220,45 @@ def test_a_cursor_holds_only_for_the_order_it_was_given_in(client, tmp_path):
         "c.txt",
     ]
     assert client.get(url, params={"sort": "colour"}).status_code == 422
+
+
+def test_a_name_filter_finds_the_files_whose_names_hold_its_letters_in_every_folder(
+    client, tmp_path
+):
+    project = create_project(client)
+    root = ["Invoice 2.txt", "annex.txt", "50%_off.txt", "500 off.txt"]
+    loose = upload(client, project["id"], *files(tmp_path, root))["documents"]
+    contracts = make_folder(client, project["id"], "Contracts")
+    inside = files(tmp_path / "c", ["invoice 10.txt", "msa.txt"])
+    (invoice, _) = upload_into(client, project["id"], contracts["id"], *inside)["documents"]
+    other = create_project(client, "Other")
+    upload(client, other["id"], *files(tmp_path / "o", ["invoice 3.txt"]))
+    url = f"/api/projects/{project['id']}/documents"
+
+    def named(name, sort="name", order="asc", **params):
+        return sum(ordered(client, project["id"], sort, order, 100, name=name, **params), [])
+
+    # Any case, from every folder of this project alone, a page at a time in the order asked for.
+    assert ordered(client, project["id"], "name", "asc", 1, name="INVOICE") == [
+        ["Invoice 2.txt"],
+        ["invoice 10.txt"],
+    ]
+    assert named(" invoice ", sort="size", order="desc") == ["invoice 10.txt", "Invoice 2.txt"]
+    # Its letters as they are: a % or an _ is no wildcard.
+    assert named("0%_") == ["50%_off.txt"]
+    # Spaces alone are no filter: the root, as without one.
+    assert named("   ") == ["50%_off.txt", "500 off.txt", "annex.txt", "Invoice 2.txt"]
+    # It narrows a tag's documents too.
+    made = client.post(f"/api/projects/{project['id']}/tags", json={"name": "Due", "color": "red"})
+    tag_id = made.json()["id"]
+    for document in (invoice, loose[1]):
+        put = client.put(f"/api/documents/{document['id']}/tags", json={"tag_ids": [tag_id]})
+        assert put.status_code == 200, put.text
+    assert named("invoice", tag=tag_id) == ["invoice 10.txt"]
+    # In the trash, a file is no longer found.
+    client.delete(f"/api/documents/{invoice['id']}")
+    assert named("invoice") == ["Invoice 2.txt"]
+    # A folder's listing is that folder's alone, which a name filter is not.
+    refused = client.get(url, params={"name": "invoice", "folder_id": contracts["id"]})
+    assert refused.status_code == 422 and refused.json()["detail"] == NAME_IN_FOLDER
+    assert client.get(url, params={"name": "x" * (MAX_NAME_FILTER + 1)}).status_code == 422

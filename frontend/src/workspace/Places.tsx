@@ -8,7 +8,7 @@ import { Confirm } from '../components/Confirm.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
 import { Checkbox, FIELD, IconButton, InputField, SelectField } from '../components/ui.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
-import { FIRST_ORDER, MAX_WITHIN, SORTS, SORT_NAMES, TAG_COLOR_LABELS, datesProblem, filterWords, placeName, sortWords, tagsWords } from '../library.ts'
+import { FIRST_ORDER, MAX_WITHIN, SORTS, SORT_NAMES, TAG_COLOR_LABELS, allNamed, datesProblem, filterWords, placeName, sortWords, tagsWords } from '../library.ts'
 import type { LibraryLayout } from '../library.ts'
 import { nextState, overfull, overfullWords, tagStates, tagsChange } from '../selection.ts'
 import type { TagState, TagsChange } from '../selection.ts'
@@ -78,16 +78,18 @@ interface PlaceBarProps {
 }
 
 /**
- * Under the library's search: what it shows (all its files, the member's favourites or recent ones, or a tag's documents)
- * and the way to the project's tags, filing rules and trash, the order it lists them in, and as a list or a grid.
+ * Under the library's filter by name: what it shows (all its files, the member's favourites or recent ones, or a tag's
+ * documents), the way to the project's tags, filing rules and trash, the order it lists them in, and as a list or a grid.
+ * A name filter narrows the place shown, all the files of the project from a folder.
  */
 export function PlaceBar(props: PlaceBarProps) {
   const { place, arrangement, layout, tags } = props
   const menu = useContextMenu()
-  const folder = 'folder' in place
+  const folder = 'folder' in place || allNamed(place)
   const recent = 'recent' in place
   const current = folder ? 'All files' : placeName(place, tags)
-  const isPlace = (other: ListingPlace) => JSON.stringify(other) === JSON.stringify(place)
+  const unnamed = (one: ListingPlace) => JSON.stringify({ ...one, name: undefined })
+  const isPlace = (other: ListingPlace) => unnamed(other) === unnamed(place)
   const choose = (other: ListingPlace): MenuItem => ({
     label: 'folder' in other ? 'All files' : placeName(other, tags),
     icon: 'tag' in other ? TagIcon : 'favorites' in other ? Star : 'recent' in other ? Clock : FolderIcon,

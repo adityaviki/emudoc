@@ -127,6 +127,12 @@ ONE_PLACE = (
     "Ask for one place of the library at a time: a folder, a tag, your favourites or your "
     "recent documents."
 )
+# A name filter looks through every folder of the project, so it cannot be one folder's.
+NAME_IN_FOLDER = (
+    "A filter by name looks in every folder of the project: ask for it without a folder."
+)
+# The longest part of a file's name the library's filter looks for.
+MAX_NAME_FILTER = 200
 # The columns each order of a listing runs by before the id, which `ix_documents_listing` and
 # the `ix_documents_listing_*` indexes serve for a folder; "date" is `doc_date`, its undated
 # documents after the dated (`_listed`).
@@ -186,18 +192,20 @@ def list_documents(
     order: SortOrder = "asc",
     after: str | None = None,
     limit: int = Query(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    name: str | None = Query(None, max_length=MAX_NAME_FILTER),
 ):
     """A page of the documents in one place of the library, in the order asked for, past the one
     `after` names when it is given: directly in a folder (the root when no folder is given); or
     wherever they are in the project, those of a tag, the reader's favourites, or the documents
     they opened lately, the newest first (`RECENT` of them, on one page, whatever the order asked
-    for).
+    for). With `name`, only the files whose names hold those letters in any case, from every
+    folder of the project, or from the tag, the favourites or the recent documents asked for.
 
     The page carries an ETag of exactly what it shows, and a request whose If-None-Match names
     it is answered 304 without a body: the library asks again every moment while a document in
     the place is being indexed, and most of those moments change nothing on its page.
     """
-    place = _place(session, project, account, folder_id, tag, favorites, recent)
+    place = _place(session, project, account, folder_id, tag, favorites, recent, name)
     if place.recent:
         limit = RECENT
     cursor = None if after is None or place.recent else _cursor(after, sort, order)
@@ -237,13 +245,22 @@ def _place(
     tag: int | None,
     favorites: bool,
     recent: bool,
+    name: str | None = None,
 ) -> _Place:
     """The place a listing asks for, the project's own; a folder or tag that is not found, and
-    more than one place, are refused."""
+    more than one place, are refused. A name narrows a tag, the favourites or the recent ones,
+    and on its own spans the project's folders, so it is refused with a folder."""
     named = [tag is not None, favorites, recent]
     if sum(named) > 1 or (any(named) and folder_id is not None):
         raise HTTPException(422, ONE_PLACE)
+    words = (name or "").strip()
+    if words and folder_id is not None:
+        raise HTTPException(422, NAME_IN_FOLDER)
     live = (Document.project_id == project.id, Document.deleted_at.is_(None))
+    if words:
+        live = (*live, Document.filename.icontains(words, autoescape=True))
+        if not any(named):
+            return _Place(live, flat=True)
     if tag is not None:
         if not session.scalar(select(Tag.id).where(Tag.id == tag, Tag.project_id == project.id)):
             raise HTTPException(404, "Tag not found")

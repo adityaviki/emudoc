@@ -423,9 +423,15 @@ export type SortOrder = 'asc' | 'desc'
 /**
  * Where the library lists documents (`list_documents` in backend/app/api/documents.py): directly in a folder, the root's
  * for null; or wherever they are in the project, those of a tag, the reader's favourites, or the documents they opened
- * lately, newest first whatever the order.
+ * lately, newest first whatever the order; each of those narrowed to the files whose names hold `name`, which alone is
+ * every such file of the project's.
  */
-export type ListingPlace = { folder: number | null } | { tag: number } | { favorites: true } | { recent: true }
+export type ListingPlace =
+  | { folder: number | null }
+  | { tag: number; name?: string }
+  | { favorites: true; name?: string }
+  | { recent: true; name?: string }
+  | { name: string }
 
 /** TAG_COLORS in backend/app/models.py, each drawn by a token of index.css (`--color-tag-*`). */
 export const TAG_COLORS = ['grey', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'] as const
@@ -2805,6 +2811,7 @@ export const api = {
     if ('tag' in place) params.set('tag', String(place.tag))
     if ('favorites' in place) params.set('favorites', 'true')
     if ('recent' in place) params.set('recent', 'true')
+    if ('name' in place && place.name) params.set('name', place.name)
     // The library's first order is the server's when none is named.
     if (order.sort !== 'name') params.set('sort', order.sort)
     if (order.order !== 'asc') params.set('order', order.order)

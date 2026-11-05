@@ -2,9 +2,11 @@
 
 ## Searching
 
-The search box above the library finds passages by their words and by their meaning together,
-so "late delivery penalty" also finds a clause about liquidated damages. It searches the
-project, or the folder you are in, or a tag's documents while the library shows them. Words
+The search box at the top of the page finds passages by their words and by their meaning
+together, so "late delivery penalty" also finds a clause about liquidated damages. In a project it
+searches the project, and the results open in a **Search** tab beside the documents you have open:
+click a result to open its document at that passage in a tab of its own, then click the Search tab
+to go back to the results. Close the tab with its cross, or with Delete while it has the focus. Words
 are matched in each document's language, so that "invoices" also finds "invoice": the one the document was read to be written in, or the one your organisation chose
 on its page ([A document's details](/help/documents)). The passages that hold every word you typed come first, then
 those that hold all but one of them, then those that hold any.
@@ -16,8 +18,14 @@ those that hold all but one of them, then those that hold any.
   search only the documents with a passage that holds every one of them. Do it again to narrow
   further, up to $within times.
 
-To search every project you see at once, type in the box above the projects on the projects
-page. Its page lists the best passages first wherever they are, each with its project's name;
+The box above the library's files finds files by their names instead: type part of a name in
+**Filter by name** to list the files whose names hold those letters, in any case, from every folder
+of the project, each with the folder it is in. While the library shows a tag, your favourites or
+your recent files, it narrows those. Empty the box, or press Escape in it, to see the folders again.
+
+To search every project you see at once, type in the box at the top of any page outside a
+project and press Enter, or choose **Search every project** when a project's search finds
+nothing. Its page lists the best passages first wherever they are, each with its project's name;
 click one to open its document at that passage. **Filter** there narrows the search to some of
 the projects, to documents of some types or to those dated within a span. A private project is
 searched only by those who see it: its chosen members, and the organisation's owners and admins.

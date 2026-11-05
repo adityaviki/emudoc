@@ -152,7 +152,7 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeFocused()
     await expectAccessible(page, 'the tour')
     await page.getByRole('button', { name: 'Next', exact: true }).click()
-    await expect(tour).toContainText('Search')
+    await expect(tour).toContainText('Ask')
     const seen = page.waitForResponse((response) => response.url().endsWith('/api/auth/onboarding'))
     await page.getByRole('button', { name: 'Skip the tour' }).click()
     expect((await seen).status()).toBe(200)
@@ -249,12 +249,36 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(page.getByRole('dialog')).toHaveCount(0)
   })
 
-  await test.step('search the project', async () => {
-    await page.getByLabel('Search', { exact: true }).fill('written notice')
+  await test.step('search the project from the header, in a tab beside the documents, open a hit and come back to it', async () => {
+    const box = page.getByLabel('Search the project')
+    await box.fill('written notice')
+    await expect(page).toHaveURL(/\/search\?q=written\+notice/)
+    const searchTab = page.getByRole('tab', { name: 'Search: written notice' })
+    await expect(searchTab).toHaveAttribute('aria-selected', 'true')
     const hit = page.getByRole('button', { name: /Service contract/ })
     await expect(hit.first().locator('mark', { hasText: /^notice$/i }).first()).toBeVisible()
+    await expectAccessible(page, 'the search in its tab')
+    // A hit opens its document in a tab of its own, the search's staying beside it to go back to.
+    await hit.first().click()
+    await expect(page).toHaveURL(/\/documents\/\d+\?(.*&)?passage=\d+/)
+    const documentTab = page.getByRole('tab', { name: /^service-contract\.md/ })
+    await expect(documentTab).toHaveAttribute('aria-selected', 'true')
+    await expect(searchTab).toHaveAttribute('aria-selected', 'false')
+    await searchTab.click()
+    await expect(searchTab).toHaveAttribute('aria-selected', 'true')
+    await expect(hit.first()).toBeVisible()
     await page.getByRole('button', { name: 'Clear search' }).click()
     await expect(page).not.toHaveURL(/[?&]q=/)
+    await expect(box).toBeFocused()
+    await expect(page.getByText('What should be searched for?')).toBeVisible()
+    // Closed by its key, the search gives its place to the document's tab, which closes the pane with it.
+    await page.getByRole('tab', { name: 'Search', exact: true }).focus()
+    await page.keyboard.press('Delete')
+    await expect(page.getByRole('tab', { name: /^Search/ })).toHaveCount(0)
+    await expect(documentTab).toBeFocused()
+    await page.keyboard.press('Delete')
+    await expect(documentTab).toHaveCount(0)
+    await expect(page.getByRole('tree', { name: 'Files' })).toBeFocused()
   })
 
   await test.step('ask, stop the answer while the model thinks, try it again and get an answer that cites the contract', async () => {
@@ -2084,32 +2108,44 @@ test('a new member uploads a contract, finds it, asks about it and opens the cit
     await expect(panel.getByText(/^Chosen documents: 2 documents, [\d.]+ kB, until /)).toBeVisible({ timeout: 30_000 })
   })
 
-  await test.step('search within a tag, filter the search and search within what it found', async () => {
+  await test.step('filter the library by name, filter the search by a tag and a type, and search within what it found', async () => {
     // The project's card is a link named by everything on it.
     await page.getByRole('link', { name: /^Supplier contracts/ }).click()
-    const show = page.getByRole('button', { name: /^Show: / })
-    const box = page.getByLabel('Search', { exact: true })
+    // The library's box filters the files by name, in any case, from every folder.
+    const byName = page.getByLabel('Filter by name')
+    await byName.fill('INVOICE')
+    await expect(page).toHaveURL(/[?&]name=INVOICE/)
+    const filed = page.getByRole('treeitem', { name: 'third-invoice.md', exact: true })
+    await expect(filed).toHaveAccessibleDescription(/in Invoices/)
+    await expect(page.getByRole('treeitem', { name: 'invoice.md', exact: true })).toBeVisible()
+    await expect(page.getByRole('treeitem', { name: 'Invoices', exact: true })).toHaveCount(0)
+    await expectAccessible(page, 'the library filtered by name')
+    await byName.press('Escape')
+    await expect(page).not.toHaveURL(/[?&]name=/)
+    await expect(page.getByRole('treeitem', { name: 'Invoices', exact: true })).toBeVisible()
+
+    // The header's box searches the whole project.
+    const box = page.getByLabel('Search the project')
     const hit = (number: string) => page.getByRole('button', { name: new RegExp(`Invoice ${number}`) })
-    // From a tag's documents, the box searches them alone, the tag a part of the search's filter.
-    await show.click()
-    await page.getByRole('menuitemradio', { name: 'Unpaid', exact: true }).click()
-    await expect(box).toHaveAttribute('placeholder', 'Search in Unpaid')
     await box.fill('total amount')
-    await expect(page).toHaveURL(/[?&]q=total\+amount/)
-    await expect(page).toHaveURL(/[?&]tagged=\d+/)
+    await expect(page).toHaveURL(/\/search\?q=total\+amount/)
     await expect(hit('INV-2026-0412').first()).toBeVisible()
     await expect(hit('INV-2026-0413').first()).toBeVisible()
-    await expect(hit('INV-2026-0502')).toHaveCount(0)
+    await expect(hit('INV-2026-0502').first()).toBeVisible()
 
-    // Narrowed by a type in its dialog; the tag taken off, the third invoice is found as well.
+    // Narrowed by the tag and a type in its dialog; the tag taken off, the third invoice is found again.
     const filter = page.getByRole('button', { name: 'Filter', exact: true })
     await filter.click()
     const filtering = page.getByRole('dialog', { name: 'Filter the search' })
+    await filtering.getByRole('checkbox', { name: 'Unpaid', exact: true }).check()
     await filtering.getByRole('checkbox', { name: 'invoice', exact: true }).check()
     await expect(filtering).toContainText('Documents tagged “Unpaid”, of type invoice.')
     await expectAccessible(page, 'a search being filtered')
     await filtering.getByRole('button', { name: 'Apply' }).click()
     await expect(filter).toBeFocused()
+    await expect(page).toHaveURL(/[?&]tagged=\d+/)
+    await expect(hit('INV-2026-0412').first()).toBeVisible()
+    await expect(hit('INV-2026-0502')).toHaveCount(0)
     await page.getByRole('button', { name: 'Take off: tagged “Unpaid”' }).click()
     await expect(filter).toBeFocused()
     await expect(page.getByRole('button', { name: 'Take off: of type invoice' })).toBeVisible()

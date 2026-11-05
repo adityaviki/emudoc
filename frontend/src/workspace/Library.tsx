@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Activity as ActivityIcon,
   BadgeCheck,
@@ -27,8 +27,6 @@ import {
   PenLine,
   RefreshCw,
   ScrollText,
-  Search,
-  SlidersHorizontal,
   Star,
   StarOff,
   TableProperties,
@@ -38,28 +36,25 @@ import {
   WifiOff,
   X,
 } from 'lucide-react'
-import { createElement, Fragment, useEffect, useEffectEvent, useRef, useState } from 'react'
+import { createElement, Fragment, useEffect, useRef, useState } from 'react'
 import type { DragEvent, FocusEvent, KeyboardEvent, MouseEvent, RefObject } from 'react'
 import {
   ACCEPTED_EXTENSIONS,
   ACCEPTED_TYPES_LABEL,
-  api,
   mayChange,
-  pageLabel,
   SCOPE_DOCUMENTS,
-  sectionPath,
   thumbnailUrl,
 } from '../api.ts'
-import type { Document, Folder, ListingPlace, ScopeIn, SearchHit, Tag, UploadItem } from '../api.ts'
+import type { Document, Folder, ListingPlace, ScopeIn, Tag, UploadItem } from '../api.ts'
 import { useMe } from '../auth.ts'
-import { folderChoices } from '../automations.ts'
 import { startChat } from '../chat.ts'
 import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
 import { StatusIcon } from '../components/IndexingStatus.tsx'
 import type { MenuItem } from '../components/Menu.tsx'
 import { PlanLimitNotice, PlanOffer } from '../components/PlanLimit.tsx'
+import { SearchBox } from '../components/SearchBox.tsx'
 import { Confirm } from '../components/Confirm.tsx'
-import { Button, Chip, EmptyState, IconButton, Loading, Notice, SelectField, Spinner } from '../components/ui.tsx'
+import { Button, EmptyState, IconButton, Notice, SelectField, Spinner } from '../components/ui.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
 import { uploadCutOff, uploadWaiting } from '../connection.ts'
 import { libraryPlace } from '../failures.ts'
@@ -68,22 +63,16 @@ import { useFolders, useLocalStorage, useOnline, useStatus } from '../hooks.ts'
 import type { FolderTree } from '../hooks.ts'
 import { partlyIndexedWords, restHeld, unfinishedStages } from '../indexing.ts'
 import {
-  EMPTY_FILTER,
-  MAX_WITHIN,
   SORT_NAMES,
+  allNamed,
   emptyPlaceWords,
-  filterParts,
-  filterWords,
   gridMove,
   hasThumbnail,
-  narrows,
   placeName,
   placeOf,
   tagsOf,
-  viewedSearch,
-  withoutPart,
 } from '../library.ts'
-import type { LibraryLayout, Search as LibrarySearch } from '../library.ts'
+import type { LibraryLayout } from '../library.ts'
 import { stateMoves } from '../reviews.ts'
 import { SUMMARY_QUESTION, comparisonQuestion } from '../scopes.ts'
 import { MAX_CHOSEN, retagged } from '../selection.ts'
@@ -104,13 +93,13 @@ import { ChangesView } from './FactChanges.tsx'
 import { FactsView } from './FactsTable.tsx'
 import { fileKind, originalFileItem } from './files.ts'
 import { FilingView } from './Filing.tsx'
-import { BY_NAME, growing, hasMore, listed, placeKey, showMore, useListings } from './listing.ts'
+import { BY_NAME, growing, hasMore, listed, nameOf, placeKey, showMore, useListings } from './listing.ts'
 import type { Arrangement, Listing } from './listing.ts'
 import { useLibraryMutations, useReviewChange } from './mutations.ts'
 import { QuestionSetsView, ReportView } from './QuestionSets.tsx'
 import type { LibraryMutations } from './mutations.ts'
-import { useDocumentMarks, useDocumentTypes, useFavorites, useOrganizing, useTags } from './organizing.ts'
-import { DocumentTagsDialog, PlaceBar, SearchFilterDialog, Seen, TagChips } from './Places.tsx'
+import { useDocumentMarks, useFavorites, useOrganizing, useTags } from './organizing.ts'
+import { DocumentTagsDialog, PlaceBar, Seen, TagChips } from './Places.tsx'
 import { ReviewMark, ReviewsView } from './Reviews.tsx'
 import { useWorkspace } from './state.ts'
 import { TagsView } from './Tags.tsx'
@@ -191,7 +180,7 @@ const TILE_WIDTH = 128
 export function Library() {
   const workspace = useWorkspace()
   const { tree, project } = workspace
-  const { folderId, q: query } = workspace.url.library
+  const { folderId, name } = workspace.url.library
   const folders = useFolders(project.id)
   const mutations = useLibraryMutations()
   const byPlan = mutations.rejected.find((file) => file.limit !== null)
@@ -235,15 +224,13 @@ export function Library() {
   const folderName = (id: number | null | undefined) => tree.byId.get(id ?? -1)?.name ?? project.name
   const { followed } = mutations
 
-  // A tag's documents, the member's favourites or recent ones, each across the project's folders;
-  // else the folder's tree.
+  // A tag's documents, the member's favourites or recent ones, each across the project's folders, or the files whose
+  // names hold what the filter was given, every folder's or those of one of those; else the folder's tree.
   const place: ListingPlace = placeOf(workspace.url.library) ?? { folder: folderId }
   const flat = !('folder' in place)
   const [arrangement, setArrangement] = useLocalStorage<Arrangement>(ARRANGEMENT_KEY, BY_NAME, isArrangement)
   const [layout, setLayout] = useLocalStorage<LibraryLayout>(LAYOUT_KEY, 'list', isLayout)
   const tags = useTags(project.id)
-  const search: LibrarySearch | null = viewedSearch(workspace.url.library)
-  const searchBox = useRef<HTMLInputElement>(null)
   // A tag deleted, here or elsewhere, falls back to the root.
   const placeGone = 'tag' in place && tags.isSuccess && !tags.data.tags.some((tag) => tag.id === place.tag)
   useEffect(() => {
@@ -291,22 +278,9 @@ export function Library() {
   if (workspace.url.library.connectors && connectors) return <ConnectorsView />
   if (workspace.url.library.tags) return <TagsView />
   if (workspace.url.library.filing) return <FilingView />
-  const placeLabel = flat ? placeName(place, tags.data?.tags ?? []) : null
-  const atRoot = folderId == null && placeLabel === null
-  // The box searches where the member is: a tag's documents, else the folder, within what narrows its search; the
-  // favourites and the recent ones are no filter, and it searches the project from them.
-  const searchFrom = (q: string) => {
-    if ('tag' in place) workspace.showSearch({ q, filter: { ...EMPTY_FILTER, tags: [place.tag] } })
-    else workspace.setSearch(q)
-  }
-  const narrowed = search != null && narrows({ ...search.filter, folder_id: null })
-  const searchPlaceholder = narrowed
-    ? 'Search within these documents'
-    : flat && placeLabel && 'tag' in place
-      ? `Search in ${placeLabel}`
-      : folderId == null
-        ? 'Search the project'
-        : `Search in ${currentName}`
+  // The files of the whole project a name filter finds are no place of their own: "Show: All files" says where they are.
+  const placeLabel = flat && !allNamed(place) ? placeName(place, tags.data?.tags ?? []) : null
+  const atRoot = (folderId == null || allNamed(place)) && placeLabel === null
   return (
     <div
       data-tour="library"
@@ -342,7 +316,7 @@ export function Library() {
         )}
         {/* With every feature on, its buttons take a second line rather than run under the pane beside it. */}
         <div className={`flex flex-wrap items-center gap-2 px-3 pb-2.5 ${atRoot ? 'pt-2.5' : ''}`}>
-          <SearchBox query={query} placeholder={searchPlaceholder} onSearch={searchFrom} inputRef={searchBox} />
+          <SearchBox label="Filter by name" placeholder="Filter by name" query={name ?? ''} onSearch={workspace.filterByName} />
           {templates && (
             <Button
               icon={<TableProperties className="size-4" />}
@@ -563,7 +537,7 @@ export function Library() {
             </div>
           </Notice>
         )}
-        {changes && partly > 0 && !query && (
+        {changes && partly > 0 && (
           <Notice tone="info">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -587,46 +561,36 @@ export function Library() {
         )}
       </div>
 
-      {/* A folder or a search that breaks leaves the path and the search box, from which another opens. */}
+      {/* A folder or a filter that breaks leaves the path and the filter's box, from which another opens. */}
       <ErrorBoundary part="library" resetKey={libraryPlace(workspace.url.library)}>
-        {search ? (
-          <SearchResults
-            search={search}
-            tags={tags.data?.tags ?? []}
-            folders={folders.data ?? []}
-            reviews={templates}
-            searchBox={searchBox}
-          />
-        ) : (
-          <Listing
-            key={`${placeKey(place)}:${layout}`}
-            place={place}
-            arrangement={arrangement}
-            layout={layout}
-            tags={tags.data?.tags ?? []}
-            canTag={(tags.data?.tags.length ?? 0) < (tags.data?.max_tags ?? 0)}
-            creating={creating}
-            onCreatingChange={setCreating}
-            mutations={mutations}
-            changes={changes}
-            reviews={templates}
-            dragging={dragging}
-            onDragChange={(payload) => {
-              dragging.current = payload
-            }}
-            onUploadDropped={uploadDropped}
-            onPickFiles={() => fileInput.current?.click()}
-            onPickFolder={() => folderInput.current?.click()}
-            onPickVersion={
-              uploads
-                ? (document) => {
-                    versionOf.current = document
-                    versionInput.current?.click()
-                  }
-                : undefined
-            }
-          />
-        )}
+        <Listing
+          key={`${placeKey(place)}:${nameOf(place) ?? ''}:${layout}`}
+          place={place}
+          arrangement={arrangement}
+          layout={layout}
+          tags={tags.data?.tags ?? []}
+          canTag={(tags.data?.tags.length ?? 0) < (tags.data?.max_tags ?? 0)}
+          creating={creating}
+          onCreatingChange={setCreating}
+          mutations={mutations}
+          changes={changes}
+          reviews={templates}
+          dragging={dragging}
+          onDragChange={(payload) => {
+            dragging.current = payload
+          }}
+          onUploadDropped={uploadDropped}
+          onPickFiles={() => fileInput.current?.click()}
+          onPickFolder={() => folderInput.current?.click()}
+          onPickVersion={
+            uploads
+              ? (document) => {
+                  versionOf.current = document
+                  versionInput.current?.click()
+                }
+              : undefined
+          }
+        />
       </ErrorBoundary>
 
       {uploads && (
@@ -793,62 +757,6 @@ function canDropItems(tree: FolderTree, targetId: number | null, payload: DragPa
 }
 // The folder each document is in, kept current by the Listing for the drop checks above.
 const documentsParent = new Map<number, number | null>()
-
-interface SearchBoxProps {
-  query: string
-  placeholder: string
-  onSearch: (q: string) => void
-  inputRef: RefObject<HTMLInputElement | null>
-  /** Its name, where the page has more than one way to search: the search of every project's. */
-  label?: string
-}
-
-/** A search box that searches as the words are typed, once they rest. */
-export function SearchBox({ query, placeholder, onSearch, inputRef, label = 'Search' }: SearchBoxProps) {
-  const [draft, setDraft] = useState(query)
-  // The URL can change the query from outside (opening a tab, going back).
-  const [lastQuery, setLastQuery] = useState(query)
-  if (query !== lastQuery) {
-    setLastQuery(query)
-    setDraft(query)
-  }
-
-  // The library's latest way to search, which a render makes anew, without starting the wait again.
-  const search = useEffectEvent(onSearch)
-  useEffect(() => {
-    const trimmed = draft.trim()
-    if (trimmed === query) return
-    const timer = window.setTimeout(() => search(trimmed), 300)
-    return () => window.clearTimeout(timer)
-  }, [draft, query])
-
-  return (
-    <div data-tour="search" className="relative min-w-40 flex-1">
-      <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted" />
-      <input
-        ref={inputRef}
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') setDraft('')
-        }}
-        placeholder={placeholder}
-        aria-label={label}
-        className="field h-8 pr-8 pl-8 text-[13px]"
-      />
-      {draft && (
-        <button
-          type="button"
-          aria-label="Clear search"
-          onClick={() => setDraft('')}
-          className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded text-muted transition hover:bg-sunken hover:text-ink"
-        >
-          <X className="size-3.5" />
-        </button>
-      )}
-    </div>
-  )
-}
 
 interface ListingProps {
   /** A folder, shown as a tree of it and the folders in it; or a place across the project's folders, shown flat. */
@@ -2106,154 +2014,5 @@ function GhostFolderRow({ onCommit, onCancel }: GhostFolderRowProps) {
         <RenameInput value="New folder" isFile={false} onCommit={onCommit} onCancel={onCancel} />
       </div>
     </div>
-  )
-}
-
-interface SearchResultsProps {
-  search: LibrarySearch
-  tags: Tag[]
-  folders: Folder[]
-  /** Whether documents' reviews are rolled out to the organisation, which a search may then be narrowed by. */
-  reviews: boolean
-  /** The search box, which takes the focus once what held it goes. */
-  searchBox: RefObject<HTMLInputElement | null>
-}
-
-function SearchResults({ search, tags, folders, reviews, searchBox }: SearchResultsProps) {
-  const workspace = useWorkspace()
-  const { q: query, filter } = search
-  const [filtering, setFiltering] = useState(false)
-  const filterButton = useRef<HTMLButtonElement>(null)
-  const results = useQuery({
-    queryKey: ['search', workspace.project.id, query, filter],
-    queryFn: () => api.search(workspace.project.id, query, filter),
-    enabled: query !== '',
-  })
-  const folder = folderChoices(folders).find((choice) => choice.id === filter.folder_id)?.label ?? null
-  // The search's folder is the library's, which the path above shows.
-  const parts = filterParts({ ...filter, folder_id: null }, tags, folder)
-  const hits = results.data?.hits ?? []
-  const scope = filter.folder_id == null ? null : (folder ?? 'its folder')
-  const within = query !== '' && hits.length > 0 && filter.mentions.length < MAX_WITHIN
-
-  return (
-    <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Button ref={filterButton} icon={<SlidersHorizontal className="size-3.5" />} onClick={() => setFiltering(true)} className="h-7 px-2 text-xs">
-          Filter
-        </Button>
-        {parts.map(({ part, words }) => (
-          <span key={String(part)} className="inline-flex max-w-full min-w-0 items-center gap-0.5 rounded-md bg-accent-soft py-px pr-0.5 pl-2 text-xs text-accent">
-            <span className="truncate">{words}</span>
-            <IconButton
-              label={`Take off: ${words}`}
-              className="size-5! text-accent hover:text-ink"
-              onClick={() => {
-                workspace.showSearch({ q: query, filter: withoutPart(filter, part) })
-                filterButton.current?.focus()
-              }}
-            >
-              <X className="size-3" />
-            </IconButton>
-          </span>
-        ))}
-        <span className="ml-auto flex gap-1.5">
-          {within && (
-            <Button
-              icon={<Search className="size-3.5" />}
-              title="Search again only in the documents with a passage that holds every one of these words"
-              className="h-7 px-2 text-xs"
-              onClick={() => {
-                workspace.showSearch({ q: '', filter: { ...filter, mentions: [...filter.mentions, query] } })
-                searchBox.current?.focus()
-              }}
-            >
-              Search within these
-            </Button>
-          )}
-        </span>
-      </div>
-      {!query && (
-        <EmptyState icon={<Search />} title="What should be searched for?">
-          {filterWords({ ...filter, folder_id: null }, tags, null)}
-          {scope ? `, in ${scope}` : ''}. Type words in the search box to search them.
-        </EmptyState>
-      )}
-      {results.isPending && query !== '' && <Loading />}
-      {results.isError && <Notice tone="bad">Search failed: {results.error.message}</Notice>}
-      {results.data && !results.data.semantic && (
-        <Notice>The embedding service is offline, so these are keyword matches only.</Notice>
-      )}
-      {results.data && hits.length === 0 && (
-        <EmptyState title={`Nothing found for "${query}"${scope ? ` in ${scope}` : ''}`}>
-          Results combine exact word matches with matches on meaning.
-          {/* A narrowed search may miss what the rest of the project holds. */}
-          {(scope || narrows({ ...filter, folder_id: null })) && (
-            <div className="mt-4">
-              <Button icon={<Search className="size-4" />} onClick={() => workspace.showSearch({ q: query, filter: EMPTY_FILTER })}>
-                Search all of {workspace.project.name}
-              </Button>
-            </div>
-          )}
-        </EmptyState>
-      )}
-      {hits.map((hit) => (
-        <Hit key={hit.passage_id} hit={hit} onOpen={() => workspace.openDocument(hit.document_id, { passage: hit.passage_id })} />
-      ))}
-      {filtering && (
-        <SearchFilterEditor
-          filter={filter}
-          tags={tags}
-          folders={folders}
-          reviews={reviews}
-          onApply={(chosen) => workspace.showSearch({ q: query, filter: chosen })}
-          onClose={() => setFiltering(false)}
-        />
-      )}
-    </div>
-  )
-}
-
-/** The search's filter form, with the types the model gave the project's documents to choose from, asked for as it opens. */
-function SearchFilterEditor(props: Omit<Parameters<typeof SearchFilterDialog>[0], 'types'>) {
-  const { project } = useWorkspace()
-  const types = useDocumentTypes(project.id)
-  return <SearchFilterDialog {...props} types={types.data ?? []} />
-}
-
-/** A passage a search found, which opens the document at it; `project` names where it is, for a search of several projects. */
-export function Hit({ hit, project, onOpen }: { hit: SearchHit; project?: string; onOpen: () => void }) {
-  const location = [project, sectionPath(hit.context, hit.document_title), pageLabel(hit.page_start, hit.page_end)]
-    .filter(Boolean)
-    .join(' · ')
-  // Which ranking found the passage: exact words, meaning, or both.
-  const found = [hit.keyword_rank && 'words', hit.vector_rank && 'meaning'].filter(Boolean).join(' + ')
-
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="block w-full rounded-lg border border-line bg-surface px-4 py-3 text-left shadow-xs transition hover:border-ink/15 hover:shadow-sm"
-    >
-      <div className="flex items-baseline justify-between gap-3">
-        <p className="min-w-0 truncate text-[13px] font-semibold">
-          {hit.document_title}
-          {hit.doc_type && (
-            <span className="ml-2 align-middle">
-              <Chip>{hit.doc_type}</Chip>
-            </span>
-          )}
-        </p>
-        <span className="shrink-0 text-[11px] text-muted" title="How this passage was found">
-          {found}
-        </span>
-      </div>
-      {location && <p className="mt-0.5 text-xs text-muted">{location}</p>}
-      <p className="mt-2 text-[13px] leading-relaxed text-ink/90">
-        {hit.snippet.map((segment, index) =>
-          segment.match ? <mark key={index}>{segment.text}</mark> : <span key={index}>{segment.text}</span>,
-        )}
-      </p>
-    </button>
   )
 }

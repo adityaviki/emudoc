@@ -1,6 +1,6 @@
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { UseQueryResult } from '@tanstack/react-query'
-import { FileText, Library as LibraryIcon, MessageSquare } from 'lucide-react'
+import { FileText, Library as LibraryIcon, MessageSquare, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { api, auth } from '../api.ts'
@@ -11,7 +11,6 @@ import { Tour } from '../components/Tour.tsx'
 import { Loading, Notice, Segmented } from '../components/ui.tsx'
 import { libraryPlace } from '../failures.ts'
 import { useFolderTree, useFolders, useLocalStorage } from '../hooks.ts'
-import { searchView } from '../library.ts'
 import { offerTour, workspaceTour } from '../tour.ts'
 import { ChatPane } from '../workspace/ChatPane.tsx'
 import { DocumentTab } from '../workspace/DocumentTab.tsx'
@@ -20,23 +19,24 @@ import { documentQuery, isGone, placeListingsKey } from '../workspace/listing.ts
 import { WorkspaceShortcuts } from '../workspace/Shortcuts.tsx'
 import { SplitPanes } from '../workspace/SplitPane.tsx'
 import type { Pane as SplitPane } from '../workspace/SplitPane.tsx'
-import { DOCUMENT_PANEL, TAB_ID, TabStrip } from '../workspace/TabStrip.tsx'
+import { SearchTab } from '../workspace/SearchTab.tsx'
+import { DOCUMENT_PANEL, SEARCH_TAB, TAB_ID, TabStrip } from '../workspace/TabStrip.tsx'
 import { SPLIT_KEY, WorkspaceContext, isTabsStore, tabsStorageKey, useWorkspace } from '../workspace/state.ts'
 import type { OpenTab, Pane, TabsStore, Workspace as WorkspaceState } from '../workspace/state.ts'
-import { buildWorkspaceUrl, sameFocus, useWorkspaceUrl } from '../workspace/url.ts'
+import { buildWorkspaceUrl, sameFocus, searching, useWorkspaceUrl } from '../workspace/url.ts'
 import type { Go, WorkspaceUrl } from '../workspace/url.ts'
 
 const EMPTY_TABS: TabsStore = { v: 1, open: [] }
 
 /**
- * A project's panes: the library on the left, the agent on the right, and while a document is
- * open, the document between them.
+ * A project's panes: the library on the left, the agent on the right, and while a document or
+ * the search is open, the tabs of both between them.
  */
 export function Workspace() {
   const [url, go] = useWorkspaceUrl()
   const navigate = useNavigate()
 
-  // Old URL shapes (/ask, /search) are rewritten to the current one.
+  // Old URL shapes (/ask, a search without /search) are rewritten to the current one.
   useEffect(() => {
     if (url && !url.canonical) navigate(buildWorkspaceUrl(url), { replace: true })
   }, [url, navigate])
@@ -59,6 +59,14 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
 
   const activeDocumentId = url.document?.id ?? null
   const activeFocus = url.document?.focus ?? null
+  const searchShown = searching(url)
+  // A search run from the header shows its tab on a narrow screen too, where one pane fits.
+  const shownWords = searchShown ? (url.search?.q ?? '') : null
+  const [lastWords, setLastWords] = useState(shownWords)
+  if (shownWords !== lastWords) {
+    setLastWords(shownWords)
+    if (shownWords != null) setMobilePane('document')
+  }
 
   // The URL is the active tab: make sure it is in the open list, and remember where it points
   // so that coming back to it restores the highlight.
@@ -105,7 +113,7 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
   }, [goneIds, activeDocumentId, setTabs, go])
 
   const goToFolder = useCallback<WorkspaceState['goToFolder']>(
-    (folderId, options) => go({ library: { folderId, q: '' } }, options),
+    (folderId, options) => go({ library: { folderId } }, options),
     [go],
   )
 
@@ -142,88 +150,93 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
         if (activeDocumentId != null) go({ document: { id: activeDocumentId, focus: null } }, { replace: true })
       },
       goToFolder,
-      setSearch(q, folderId = url.library.folderId) {
-        go({ library: { folderId, q, search: url.library.search } }, { replace: true })
+      filterByName(name) {
+        go({ library: { ...url.library, name: name.trim() || undefined } }, { replace: true })
       },
       showSearch(search, options) {
-        setMobilePane('library')
-        go({ library: searchView(search) }, options)
+        setMobilePane('document')
+        go({ document: null, search: { ...search, q: search.q.trim() } }, options)
+      },
+      closeSearch() {
+        // Shown, it gives its place to the first document's tab, the one beside it; else the document stays.
+        const next = activeDocumentId == null ? openTabs[0] : undefined
+        go({ search: null, ...(next ? { document: { id: next.id, focus: next.focus ?? null } } : {}) }, { replace: true })
       },
       showTrash() {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', trash: true } })
+        go({ library: { folderId: null, trash: true } })
       },
       showTemplates() {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', templates: true } })
+        go({ library: { folderId: null, templates: true } })
       },
       showFacts(kind) {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', facts: kind } })
+        go({ library: { folderId: null, facts: kind } })
       },
       showChanges(kind) {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', changes: kind } })
+        go({ library: { folderId: null, changes: kind } })
       },
       showChecks() {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', checks: true } })
+        go({ library: { folderId: null, checks: true } })
       },
       showFindings(checkId) {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', check: checkId } })
+        go({ library: { folderId: null, check: checkId } })
       },
       showRun(runId) {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', run: runId } })
+        go({ library: { folderId: null, run: runId } })
       },
       showQuestionSets() {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', questionSets: true } })
+        go({ library: { folderId: null, questionSets: true } })
       },
       showReport(reportId) {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', report: reportId } })
+        go({ library: { folderId: null, report: reportId } })
       },
       showReviews(whose = 'all') {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', reviews: whose } })
+        go({ library: { folderId: null, reviews: whose } })
       },
       showActivity() {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', activity: true } })
+        go({ library: { folderId: null, activity: true } })
       },
       showDrafts() {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', drafts: true } })
+        go({ library: { folderId: null, drafts: true } })
       },
       showDraft(draftId) {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', draft: draftId } })
+        go({ library: { folderId: null, draft: draftId } })
       },
       showDraftTemplates() {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', draftTemplates: true } })
+        go({ library: { folderId: null, draftTemplates: true } })
       },
       showMailbox() {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', mail: true } })
+        go({ library: { folderId: null, mail: true } })
       },
       showConnectors() {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', connectors: true } })
+        go({ library: { folderId: null, connectors: true } })
       },
       showPlace(place) {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', ...('tag' in place ? { tag: place.tag } : place) } })
+        go({ library: { folderId: null, ...('tag' in place ? { tag: place.tag } : place) } })
       },
       showTags() {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', tags: true } })
+        go({ library: { folderId: null, tags: true } })
       },
       showFiling() {
         setMobilePane('library')
-        go({ library: { folderId: null, q: '', filing: true } })
+        go({ library: { folderId: null, filing: true } })
       },
       openChat(chatId, options) {
         // Opened from the library too, as a chat about what was chosen there.
@@ -251,8 +264,11 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
   }
 
   const hasDocument = activeDocumentId != null
-  // The document pane goes away with its last tab; a narrow screen then shows the library.
-  const shown: Pane = mobilePane === 'document' && !hasDocument ? 'library' : mobilePane
+  // The middle pane holds the documents' tabs and the search's; it goes away with the last of them, and a narrow screen
+  // then shows the library.
+  const hasMiddle = hasDocument || url.search != null
+  const middleLabel = searchShown ? 'Search' : 'Document'
+  const shown: Pane = mobilePane === 'document' && !hasMiddle ? 'library' : mobilePane
   // Beside a document the library is a sidebar; alone with the agent it is the main view.
   // Each pane breaks alone, and starts afresh once it is moved elsewhere (src/failures.ts).
   const panes: SplitPane[] = [
@@ -264,17 +280,17 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
           <Library />
         </ErrorBoundary>
       ),
-      share: hasDocument ? 25 : 55,
+      share: hasMiddle ? 25 : 55,
       min: 240,
     },
-    ...(hasDocument
+    ...(hasMiddle
       ? [
           {
             key: 'document',
-            label: 'Document',
+            label: middleLabel,
             node: (
-              <ErrorBoundary part="document" resetKey={activeDocumentId}>
-                <DocumentPane documentId={activeDocumentId} />
+              <ErrorBoundary part="document" resetKey={activeDocumentId ?? SEARCH_TAB}>
+                <MiddlePane documentId={activeDocumentId} />
               </ErrorBoundary>
             ),
             share: 45,
@@ -293,7 +309,7 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
           </ErrorBoundary>
         </div>
       ),
-      share: hasDocument ? 30 : 45,
+      share: hasMiddle ? 30 : 45,
       min: 320,
     },
   ]
@@ -310,7 +326,7 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
             onChange={setMobilePane}
             options={[
               { value: 'library', label: 'Library', icon: LibraryIcon },
-              ...(hasDocument ? [{ value: 'document' as const, label: 'Document', icon: FileText }] : []),
+              ...(hasMiddle ? [{ value: 'document' as const, label: middleLabel, icon: searchShown ? Search : FileText }] : []),
               { value: 'chat', label: 'Chat', icon: MessageSquare },
             ]}
           />
@@ -362,15 +378,34 @@ function tabsCame(results: UseQueryResult<Document>[]) {
   }
 }
 
-/** The middle pane: the tab strip with the active document below it. */
-function DocumentPane({ documentId }: { documentId: number }) {
+/** The middle pane: the tab strip with the search or the active document below it. */
+function MiddlePane({ documentId }: { documentId: number | null }) {
+  const workspace = useWorkspace()
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-page">
+      <TabStrip />
+      {documentId == null ? (
+        <div id={DOCUMENT_PANEL} role="tabpanel" aria-labelledby={SEARCH_TAB} className="flex min-h-0 flex-1 flex-col">
+          {/* A search that breaks leaves the tabs and the header's box, from which another runs. */}
+          <ErrorBoundary part="document" resetKey={JSON.stringify(workspace.url.search)}>
+            {workspace.url.search && <SearchTab search={workspace.url.search} />}
+          </ErrorBoundary>
+        </div>
+      ) : (
+        <DocumentPanel documentId={documentId} />
+      )}
+    </div>
+  )
+}
+
+/** The active document below the tabs. */
+function DocumentPanel({ documentId }: { documentId: number }) {
   const workspace = useWorkspace()
   const queryClient = useQueryClient()
   const document = useQuery(documentQuery(queryClient, workspace.project.id, documentId))
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-page">
-      <TabStrip />
+    <>
       <div id={DOCUMENT_PANEL} role="tabpanel" aria-labelledby={`${TAB_ID}${documentId}`} className="min-h-0 flex-1">
         {/* A document that breaks leaves the tabs, from which another opens. */}
         <ErrorBoundary part="document" resetKey={documentId}>
@@ -390,7 +425,7 @@ function DocumentPane({ documentId }: { documentId: number }) {
           )}
         </ErrorBoundary>
       </div>
-    </div>
+    </>
   )
 }
 

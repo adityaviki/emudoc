@@ -28,11 +28,6 @@ export function workspaceTour(sample: boolean): TourStep[] {
       body: `Add files here, or drop them anywhere on the library: ${ACCEPTED_TYPES_LABEL}. Each is scanned, read, outlined and indexed in the background.`,
     },
     {
-      target: 'search',
-      title: 'Search',
-      body: 'Find passages across the project, or in the folder you are in, by their words and by what they mean.',
-    },
-    {
       target: 'chat',
       title: 'Ask',
       body: 'Ask about the documents. An answer cites the passages it relies on, and each citation opens its document there: check them, since a model can be wrong.',
@@ -41,6 +36,11 @@ export function workspaceTour(sample: boolean): TourStep[] {
       target: 'organization',
       title: 'Your organisations',
       body: 'The organisation you work in. Switch to another of yours here, or start a new one.',
+    },
+    {
+      target: 'search',
+      title: 'Search',
+      body: 'Find passages across the project by their words and by what they mean. The results open in a tab beside your documents; the library’s own box filters its files by name.',
     },
     {
       target: 'notifications',

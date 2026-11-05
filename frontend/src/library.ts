@@ -50,24 +50,40 @@ export function tagsWords(carried: Tag[]): string | null {
   return carried.length ? `Tagged ${carried.map((tag) => tag.name).join(', ')}` : null
 }
 
-/** The place of the library's that the view names, or null for a folder's. */
-export function placeOf(view: { tag?: number; favorites?: true; recent?: true }): ListingPlace | null {
-  if (view.tag != null) return { tag: view.tag }
-  if (view.favorites) return { favorites: true }
-  if (view.recent) return { recent: true }
-  return null
+/**
+ * The place of the library's that the view names, or null for a folder's: a tag's, the favourites or the recent documents,
+ * narrowed to the files whose names hold `name`; a name alone is every such file of the project's, wherever the folder.
+ */
+export function placeOf(view: Pick<LibraryView, 'tag' | 'favorites' | 'recent' | 'name'>): ListingPlace | null {
+  const named = view.name ? { name: view.name } : {}
+  if (view.tag != null) return { tag: view.tag, ...named }
+  if (view.favorites) return { favorites: true, ...named }
+  if (view.recent) return { recent: true, ...named }
+  return view.name ? { name: view.name } : null
 }
 
-/** What a place that is not a folder is called. */
+/** Whether a place is the files of the whole project whose names hold some letters, which "All files" shows filtered. */
+export const allNamed = (place: ListingPlace): place is { name: string } =>
+  !('folder' in place || 'tag' in place || 'favorites' in place || 'recent' in place)
+
+/** What a place that is not a folder is called; the files of the project a name filter finds are "All files". */
 export function placeName(place: ListingPlace, tags: Tag[]): string {
   if ('favorites' in place) return 'Favourites'
   if ('recent' in place) return 'Recent'
   if ('tag' in place) return tags.find((tag) => tag.id === place.tag)?.name ?? 'A tag'
-  return ''
+  return 'All files'
 }
 
 /** What a place that is not a folder holds, when it holds nothing. */
 export function emptyPlaceWords(place: ListingPlace): { title: string; body: string } {
+  if ('name' in place && place.name) {
+    return {
+      title: `No file’s name holds “${place.name}”`,
+      body: allNamed(place)
+        ? 'The filter looks for these letters, in any case, in the names of the files in every folder of the project.'
+        : 'The filter looks for these letters, in any case, in the names of the files listed here.',
+    }
+  }
   if ('favorites' in place) {
     return { title: 'No favourites yet', body: 'Choose “Add to favourites” in a document’s menu to find it here again, wherever it is in the project.' }
   }
@@ -79,26 +95,6 @@ export const EMPTY_FILTER: DocumentFilter = { tags: [], every_tag: false, types:
 
 /** How many searches a search may be within (MAX_MENTIONS in backend/app/schemas.py). */
 export const MAX_WITHIN = 5
-
-/** The library's search: its words, and the documents it searches, by its folder and what narrows it (`folder_id` the folder's). */
-export interface Search {
-  q: string
-  filter: DocumentFilter
-}
-
-/** The search a view of the library runs, in its folder with what narrows it; null for none. */
-export function viewedSearch(view: LibraryView): Search | null {
-  if (!view.q && !view.search) return null
-  return { q: view.q, filter: { ...EMPTY_FILTER, ...view.search, folder_id: view.folderId } }
-}
-
-/** The view of the library that runs a search, which leaves any other place. */
-export function searchView(search: Search): LibraryView {
-  const { folder_id: folderId, ...narrowing } = search.filter
-  const view: LibraryView = { folderId, q: search.q.trim() }
-  if (narrows({ ...narrowing, folder_id: null })) view.search = narrowing
-  return view
-}
 
 /** What narrows a filter that a member can take off alone: one of its parts, or one of the searches it is within by its place. */
 export type FilterPart = 'tags' | 'types' | 'dates' | 'reviews' | 'folder' | number
