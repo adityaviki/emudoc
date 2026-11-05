@@ -595,8 +595,9 @@ automations and `document.ready` following its reading.
 The library reads a project more ways than by its folders. Above the files, a row of icons shows
 all the files in their folders, or instead, across all of them, the member's own **favourites**
 (starred from a file's menu) and **recent** documents (the last 20 of the project they opened in
-the middle pane, `backend/app/recents.py`), the icon of the place shown pressed, and beside them
-the way to the project's trash. The box under them **filters the files by name** (`name` on the
+the middle pane, `backend/app/recents.py`), the icon of the place shown pressed, and in the same
+group the way to the project's trash. The path above them is always there, "All files" alone at
+the top, so that choosing a place moves nothing. The box under them **filters the files by name** (`name` on the
 listing: the letters anywhere in a file's name, in any case, from every folder of the project,
 each file shown with its folder, or narrowing the favourites or the recent ones). The project is
 searched from the **header's search box**, its hits in a Search tab at the front of the middle
