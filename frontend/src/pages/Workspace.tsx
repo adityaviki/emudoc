@@ -21,7 +21,7 @@ import { SplitPanes } from '../workspace/SplitPane.tsx'
 import type { Pane as SplitPane } from '../workspace/SplitPane.tsx'
 import { SearchTab } from '../workspace/SearchTab.tsx'
 import { DOCUMENT_PANEL, SEARCH_TAB, TAB_ID, TabStrip } from '../workspace/TabStrip.tsx'
-import { SPLIT_KEY, WorkspaceContext, isTabsStore, tabsStorageKey, useWorkspace } from '../workspace/state.ts'
+import { SPLIT_KEY, WorkspaceContext, isTabsStore, moved, tabsStorageKey, useWorkspace } from '../workspace/state.ts'
 import type { OpenTab, Pane, TabsStore, Workspace as WorkspaceState } from '../workspace/state.ts'
 import { buildWorkspaceUrl, sameFocus, searching, useWorkspaceUrl } from '../workspace/url.ts'
 import type { Go, WorkspaceUrl } from '../workspace/url.ts'
@@ -145,6 +145,12 @@ function ProjectWorkspace({ url, go }: { url: WorkspaceUrl; go: Go }) {
           go({ document: next ? { id: next.id, focus: next.focus ?? null } : null }, { replace: true })
         }
         setTabs((store) => ({ v: 1, open: store.open.filter((tab) => !closing.has(tab.id)) }))
+      },
+      moveTab(id, index) {
+        setTabs((store) => {
+          const open = moved(store.open, id, index)
+          return open === store.open ? store : { v: 1, open }
+        })
       },
       clearFocus() {
         if (activeDocumentId != null) go({ document: { id: activeDocumentId, focus: null } }, { replace: true })

@@ -47,6 +47,10 @@ holds a folder of the same name already, its files go into that one. A move or a
 toolbar. Two files of the same project cannot hold the same bytes: uploading one again says
 where it is.
 
+Each document you open gets a tab above it, and the tabs stay open until you close them. Drag a
+tab to put it elsewhere among them, or use Move left and Move right in its menu, or Ctrl+Shift
+and an arrow (⌘+Shift on a Mac) while it has the focus; the Search tab stays first.
+
 ## Several files at once
 
 Choose files with the box at the left of each one, which shows as you point at a file, on every

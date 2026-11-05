@@ -546,15 +546,17 @@ in its tab, and stays until its cross or the next upload. An upload begun while 
 one cut off on its way offers the files not sent again, a file that got through before the cut
 coming back as already in the project. The last deletion, move or rename is
 offered back at once with "Undo", until the next one or its cross. Opening a file adds a third pane in
-the middle, the **document**, with a tab for each open file; the tabs stay open across reloads,
-and closing the last one leaves the library and the agent side by side again.
+the middle, the **document**, with a tab for each open file; the tabs stay open across reloads, in
+the order they are dragged into (the search's tab stays first), and closing the last one leaves
+the library and the agent side by side again.
 
 Everything there works by the keyboard as well (WCAG 2.2 AA). The library is one stop of Tab:
 the arrows move through its rows, which a screen reader reads out by name and state (its star and,
 in a place across the folders, where it is), or in the grid by a tile and by a row, Enter opens
 one, F2 renames, Delete deletes, and Tab goes on to the actions of the row it is on, whose "Move
-to…" asks for a folder in a dialog, the way to move without a drag. The tabs open with the arrows
-and close with Delete, the text of a document scrolls once focused, and the dividers between the
+to…" asks for a folder in a dialog, the way to move without a drag. The tabs open with the arrows,
+close with Delete and move with Ctrl+Shift and an arrow (⌘+Shift on a Mac), or "Move left" and
+"Move right" in a tab's menu, the text of a document scrolls once focused, and the dividers between the
 panes move with the arrows. A click on a divider shows two buttons beside it that narrow or widen
 the pane before it, for whoever cannot drag; a double-click puts the panes back to their starting
 widths. Every menu and panel takes the keyboard as it opens, gives it back

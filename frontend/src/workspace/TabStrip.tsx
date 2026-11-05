@@ -1,19 +1,22 @@
 import { FileText, Search, X } from 'lucide-react'
-import { useEffect, useRef } from 'react'
-import type { KeyboardEvent, MouseEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { DragEvent, KeyboardEvent, MouseEvent } from 'react'
 import type { Document } from '../api.ts'
 import { StatusDot } from '../components/IndexingStatus.tsx'
 import { useContextMenu } from '../components/useContextMenu.tsx'
 import { searchTabName } from '../search.ts'
+import { onMac, tabMoveKeys, tabMoveOf } from '../shortcuts.ts'
 import { fileKind, originalFileItem } from './files.ts'
-import { useWorkspace } from './state.ts'
+import { droppedAt, useWorkspace } from './state.ts'
 import { searching } from './url.ts'
 
 /**
  * One tab per open document above the middle pane, after the search's while it is open. The tabs
  * are one stop of the keyboard: the shown tab takes focus, the arrows, Home and End show another,
  * and Delete closes it. The close button is the pointer's alone, hidden from screen readers, since
- * a tab's content is read as its name and cannot hold a button of its own.
+ * a tab's content is read as its name and cannot hold a button of its own. A document's tab is
+ * put in another place among the documents' by a drag, by Ctrl+Shift and an arrow, or by its
+ * menu's "Move left" and "Move right"; the search's stays first.
  */
 export function TabStrip() {
   const workspace = useWorkspace()
@@ -22,10 +25,18 @@ export function TabStrip() {
   const menu = useContextMenu()
   // Set by a key that moves or closes the open tab, whose tab then takes the focus.
   const refocus = useRef(false)
+  // The document whose tab is being dragged, and the gap it would drop into (the number of the
+  // documents' tabs before it), while that would move it.
+  const dragged = useRef<number | null>(null)
+  const [gap, setGap] = useState<number | null>(null)
   const search = url.search
   const searchShown = searching(url)
   // The tabs in the order the keys move through them: the search's first, null standing for it.
   const order: (number | null)[] = [...(search ? [null] : []), ...openTabs.map((tab) => tab.id)]
+  const mac = onMac()
+  const moveKeys = tabMoveKeys(mac)
+  // A tab moved by a key is moved in the page too, and may lose the focus as it goes.
+  const orderKey = order.join()
 
   // Keep the active tab in view when it changes, and in focus when the keyboard changed it.
   useEffect(() => {
@@ -33,14 +44,24 @@ export function TabStrip() {
     tab?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
     if (refocus.current) tab?.focus()
     refocus.current = false
-  }, [activeDocumentId, searchShown])
+  }, [activeDocumentId, searchShown, orderKey])
 
   function tabMenu(event: MouseEvent, document: Document) {
     const others = openTabs.filter((tab) => tab.id !== document.id).map((tab) => tab.id)
+    const index = openTabs.findIndex((tab) => tab.id === document.id)
     menu.open(event, [
       { label: 'Close', shortcut: 'Delete', onSelect: () => workspace.closeTabs([document.id]) },
       { label: 'Close others', disabled: others.length === 0, onSelect: () => workspace.closeTabs(others) },
       { label: 'Close all', onSelect: () => workspace.closeTabs(openTabs.map((tab) => tab.id)) },
+      'separator',
+      // The ways to move a tab without a drag (WCAG 2.5.7), as its keys are the keyboard's.
+      { label: 'Move left', shortcut: moveKeys.left, disabled: index <= 0, onSelect: () => workspace.moveTab(document.id, index - 1) },
+      {
+        label: 'Move right',
+        shortcut: moveKeys.right,
+        disabled: index === openTabs.length - 1,
+        onSelect: () => workspace.moveTab(document.id, index + 1),
+      },
       'separator',
       originalFileItem(document),
     ])
@@ -64,6 +85,16 @@ export function TabStrip() {
   }
 
   function onKeyDown(event: KeyboardEvent, id: number | null) {
+    const step = tabMoveOf(event, mac)
+    if (step != null) {
+      // The search's tab stays first, and the arrows with these keys show no other tab.
+      event.preventDefault()
+      const index = openTabs.findIndex((tab) => tab.id === id)
+      if (id == null || index + step < 0 || index + step >= openTabs.length) return
+      refocus.current = true
+      workspace.moveTab(id, index + step)
+      return
+    }
     const index = order.indexOf(id)
     const moves: Record<string, number> = { ArrowLeft: index - 1, ArrowRight: index + 1, Home: 0, End: order.length - 1 }
     if (event.key in moves) {
@@ -74,6 +105,46 @@ export function TabStrip() {
       event.preventDefault()
       close(id)
     }
+  }
+
+  // The gap among the documents' tabs a point of the strip is nearest: before the first tab whose
+  // middle is past it, else after the last.
+  function gapAt(x: number): number {
+    const tabs = [...(strip.current?.querySelectorAll<HTMLElement>(`[id^="${TAB_ID}"]`) ?? [])]
+    const after = tabs.findIndex((tab) => {
+      const box = tab.getBoundingClientRect()
+      return x < box.left + box.width / 2
+    })
+    return after < 0 ? tabs.length : after
+  }
+
+  // A drag over the strip is heard only for a tab of its own: files and the library's rows go
+  // to the library, and another window's tab belongs to its own strip.
+  function draggingTab(event: DragEvent): number | null {
+    return event.dataTransfer.types.includes(TAB_TYPE) ? dragged.current : null
+  }
+
+  function onDragOver(event: DragEvent<HTMLDivElement>) {
+    const id = draggingTab(event)
+    if (id == null) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    // Near an end, a strip wider than the pane scrolls on: dragover comes again and again while the pointer rests.
+    const box = event.currentTarget.getBoundingClientRect()
+    if (event.clientX < box.left + EDGE) event.currentTarget.scrollLeft -= SCROLL_STEP
+    else if (event.clientX > box.right - EDGE) event.currentTarget.scrollLeft += SCROLL_STEP
+    const from = openTabs.findIndex((tab) => tab.id === id)
+    const at = gapAt(event.clientX)
+    setGap(droppedAt(from, at) === from ? null : at)
+  }
+
+  function onDrop(event: DragEvent<HTMLDivElement>) {
+    const id = draggingTab(event)
+    setGap(null)
+    if (id == null) return
+    event.preventDefault()
+    const from = openTabs.findIndex((tab) => tab.id === id)
+    if (from >= 0) workspace.moveTab(id, droppedAt(from, gapAt(event.clientX)))
   }
 
   const base =
@@ -90,6 +161,11 @@ export function TabStrip() {
       onWheel={(event) => {
         event.currentTarget.scrollLeft += event.deltaY
       }}
+      onDragOver={onDragOver}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setGap(null)
+      }}
+      onDrop={onDrop}
       className="no-scrollbar flex shrink-0 items-stretch overflow-x-auto border-b border-line bg-surface"
     >
       {search && (
@@ -127,11 +203,13 @@ export function TabStrip() {
           </span>
         </div>
       )}
-      {openTabs.map((tab) => {
+      {openTabs.map((tab, index) => {
         const document = workspace.openDocuments.get(tab.id)
         const selected = tab.id === activeDocumentId
         const kind = document ? fileKind(document) : null
         const Icon = kind?.icon ?? FileText
+        // Where the dragged tab would drop: a line at this tab's left edge, or the last's right.
+        const mark = gap === index ? DROP_BEFORE : gap === openTabs.length && index === openTabs.length - 1 ? DROP_AFTER : ''
         return (
           <div
             key={tab.id}
@@ -139,9 +217,19 @@ export function TabStrip() {
             role="tab"
             aria-selected={selected}
             aria-controls={selected ? DOCUMENT_PANEL : undefined}
-            aria-keyshortcuts="Delete"
+            aria-keyshortcuts={`Delete ${moveKeys.named}`}
             tabIndex={selected ? 0 : -1}
             title={document?.title ?? document?.filename}
+            draggable
+            onDragStart={(event) => {
+              dragged.current = tab.id
+              event.dataTransfer.setData(TAB_TYPE, String(tab.id))
+              event.dataTransfer.effectAllowed = 'move'
+            }}
+            onDragEnd={() => {
+              dragged.current = null
+              setGap(null)
+            }}
             onClick={() => workspace.openDocument(tab.id, tab.focus ?? null)}
             onKeyDown={(event) => onKeyDown(event, tab.id)}
             onAuxClick={(event) => {
@@ -152,7 +240,7 @@ export function TabStrip() {
               if (event.button === 1) event.preventDefault()
             }}
             onContextMenu={(event) => document && tabMenu(event, document)}
-            className={`${base} max-w-52 cursor-pointer pr-1.5 ${selected ? active : inactive}`}
+            className={`${base} relative max-w-52 cursor-pointer pr-1.5 ${selected ? active : inactive} ${mark}`}
           >
             <Icon className={`size-4 shrink-0 ${kind?.color ?? ''}`} />
             <span className="min-w-0 truncate">{document?.filename ?? `Document ${tab.id}`}</span>
@@ -175,6 +263,15 @@ export function TabStrip() {
     </div>
   )
 }
+
+// What a dragged tab carries, so that nothing else takes it for files or the library's rows.
+const TAB_TYPE = 'application/x-emudoc-tab'
+// How near an end of the strip a dragged tab scrolls it, and by how much each time, in pixels.
+const EDGE = 40
+const SCROLL_STEP = 12
+// The line that shows where a dragged tab would drop, over the border between two tabs.
+const DROP_BEFORE = 'before:absolute before:inset-y-1.5 before:-left-px before:w-0.5 before:rounded-full before:bg-accent'
+const DROP_AFTER = 'after:absolute after:inset-y-1.5 after:-right-px after:w-0.5 after:rounded-full after:bg-accent'
 
 /** The panel below the tabs, which shows the open document or the search. */
 export const DOCUMENT_PANEL = 'document-panel'

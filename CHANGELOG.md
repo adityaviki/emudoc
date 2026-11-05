@@ -17,6 +17,9 @@ newest entry first.
 
 Members:
 
+- Drag a document's tab to put it elsewhere among your open tabs. From the keyboard, Ctrl+Shift
+  and an arrow (⌘+Shift on a Mac) moves the tab you are on, and a tab's menu has Move left and
+  Move right.
 - The outline around the file you last clicked in the library keeps all its edges when you point
   at the file next to it.
 - A click on a file in the library opens it, and a click on a folder opens it, with no
