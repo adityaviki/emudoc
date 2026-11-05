@@ -17,6 +17,8 @@ newest entry first.
 
 Members:
 
+- The outline around the file you last clicked in the library keeps all its edges when you point
+  at the file next to it.
 - A click on a file in the library opens it, and a click on a folder opens it, with no
   double-click needed. Ctrl-click, Shift-click and the boxes still select without opening.
 - Clicking a file in the library no longer selects it: tick its box, or Ctrl-click or Shift-click
