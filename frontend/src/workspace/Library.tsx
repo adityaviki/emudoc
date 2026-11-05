@@ -816,6 +816,8 @@ function Listing({
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   // What "Move to…" moves while its dialog asks where.
   const [moving, setMoving] = useState<Item[] | null>(null)
+  // The item whose own menu was opened last, marked while a menu is open in place of being selected.
+  const [menuFor, setMenuFor] = useState<string | null>(null)
   // How many tiles a row of the grid holds, from the listing's width.
   const [columns, setColumns] = useState(1)
   const menu = useContextMenu()
@@ -908,8 +910,14 @@ function Listing({
       inFolders: items.flatMap((i) => (i.kind === 'file' && i.document.folder_id != null && below.has(i.document.folder_id) ? [i.document.id] : [])),
       names: targets.map(itemName),
     })
-    setSelected(new Set())
+    unselect(chosen)
     leaving(targets)
+  }
+
+  /** Take the items out of the selection, the rest of it staying as it was: a file's own menu acts beside it. */
+  function unselect(chosen: Item[]) {
+    const gone = new Set(chosen.map(itemKey))
+    setSelected((current) => new Set([...current].filter((key) => !gone.has(key))))
   }
 
   /**
@@ -930,7 +938,7 @@ function Listing({
   function move(chosen: Item[], targetId: number | null) {
     const targets = outermost(chosen, tree)
     mutations.moveItems.mutate({ ...payloadOf(targets), targetId })
-    setSelected(new Set())
+    unselect(chosen)
     leaving(targets)
   }
 
@@ -1140,14 +1148,18 @@ function Listing({
 
   function onContextMenu(event: MouseEvent, item?: Item) {
     if (!item) {
+      setMenuFor(null)
       menu.open(event, backgroundMenu)
       return
     }
+    // Opening a menu leaves the selection as it is (the owner's word of 2026-11-05): one of several selected offers what
+    // they do together, any other item what it does alone.
     const key = itemKey(item)
-    if (!liveSelected.has(key)) select(key)
     const targets = liveSelected.has(key) && liveSelected.size > 1 ? selectedItems : [item]
     const offered = itemsMenu(targets)
-    if (offered.length) menu.open(event, offered)
+    if (!offered.length) return
+    setMenuFor(key)
+    menu.open(event, offered)
   }
 
   function onKeyDown(event: KeyboardEvent) {
@@ -1371,8 +1383,9 @@ function Listing({
       onOpen: () => activate(item),
       onToggle: () => item.kind === 'folder' && setExpanded(item.folder.id, !openSet.has(item.folder.id)),
       onContextMenu: (event) => onContextMenu(event, item),
+      menuOpen: menu.element != null && menuFor === key,
       onMenuButton: (element) => {
-        select(key)
+        setMenuFor(key)
         menu.openAt(element, itemsMenu([item]))
       },
       onRename: (value) => commitRename(item, value),
@@ -1479,7 +1492,10 @@ function Listing({
               variant="primary"
               className="h-7 pr-2"
               aria-haspopup="menu"
-              onClick={(event) => menu.openAt(event.currentTarget, severalMenu)}
+              onClick={(event) => {
+                setMenuFor(null)
+                menu.openAt(event.currentTarget, severalMenu)
+              }}
             >
               Actions
               <ChevronDown className="size-4" />
@@ -1653,6 +1669,8 @@ interface RowProps {
   selected: boolean
   /** Whether more than one item is selected, when every item shows its box. */
   several: boolean
+  /** Whether the item's own menu is open, which marks it as hover does without selecting it. */
+  menuOpen: boolean
   isCursor: boolean
   renaming: boolean
   /** Whether the item may be dragged into another folder. */
@@ -1715,7 +1733,7 @@ function Where({ id, where, className = '' }: { id: string; where: string; class
 }
 
 function Row(props: RowProps) {
-  const { item, depth, expanded, selected, several, isCursor, renaming, movable, dropping, folderCount } = props
+  const { item, depth, expanded, selected, several, menuOpen, isCursor, renaming, movable, dropping, folderCount } = props
   const name = itemName(item)
   const id = rowId(itemKey(item))
 
@@ -1741,7 +1759,7 @@ function Row(props: RowProps) {
     onDrop: props.onDrop,
   }
   // The keyboard cursor is only marked while the keyboard is in the listing.
-  const state = `${selected ? 'bg-accent-soft' : 'hover:bg-sunken'} ${isCursor ? 'group-focus/list:ring-1 group-focus/list:ring-accent/50' : ''} ${
+  const state = `${selected ? 'bg-accent-soft' : menuOpen ? 'bg-sunken' : 'hover:bg-sunken'} ${isCursor ? 'group-focus/list:ring-1 group-focus/list:ring-accent/50' : ''} ${
     dropping ? 'bg-accent-soft ring-2 ring-accent' : ''
   }`
   const rename = (
@@ -1752,7 +1770,7 @@ function Row(props: RowProps) {
       label="More actions"
       // Tab goes from the listing to the actions of the row its cursor is on, not through every row's.
       tabIndex={isCursor ? 0 : -1}
-      className={`size-6! shrink-0 ${selected ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
+      className={`size-6! shrink-0 ${selected || menuOpen ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
       onClick={(event) => {
         event.stopPropagation()
         props.onMenuButton(event.currentTarget)
@@ -1828,13 +1846,13 @@ function Row(props: RowProps) {
  * else its kind's icon, with its name, state and menu under it, and then its review and star.
  */
 function Tile(props: RowProps) {
-  const { item, selected, several, isCursor, renaming, movable, dropping, folderCount } = props
+  const { item, selected, several, menuOpen, isCursor, renaming, movable, dropping, folderCount } = props
   const name = itemName(item)
   const id = rowId(itemKey(item))
   // A thumbnail the server could not draw (an unreadable page, a missing file) leaves the kind's icon in its place.
   const [broken, setBroken] = useState(false)
   const picture = item.kind === 'file' && hasThumbnail(item.document) && !broken
-  const state = `${selected ? 'border-accent bg-accent-soft' : 'border-line bg-surface hover:bg-sunken'} ${
+  const state = `${selected ? 'border-accent bg-accent-soft' : menuOpen ? 'border-line bg-sunken' : 'border-line bg-surface hover:bg-sunken'} ${
     isCursor ? 'group-focus/list:ring-2 group-focus/list:ring-accent/50' : ''
   } ${dropping ? 'bg-accent-soft ring-2 ring-accent' : ''}`
   return (
@@ -1889,7 +1907,7 @@ function Tile(props: RowProps) {
           label="More actions"
           // Tab goes from the grid to the actions of the tile its cursor is on, not through every tile's.
           tabIndex={isCursor ? 0 : -1}
-          className={`size-6! shrink-0 ${selected ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
+          className={`size-6! shrink-0 ${selected || menuOpen ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
           onClick={(event) => {
             event.stopPropagation()
             props.onMenuButton(event.currentTarget)

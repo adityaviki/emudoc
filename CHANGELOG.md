@@ -17,6 +17,9 @@ newest entry first.
 
 Members:
 
+- Opening a file's menu, by its "…" button or a right-click, no longer selects it: the files you
+  selected stay selected, and the file whose menu is open is shaded while it is. Deleting or
+  moving a file from its own menu leaves the others selected.
 - Clicking an empty part of the library, or clicking there to close a menu, no longer clears the
   files you selected. Clear selection or Esc does.
 - Each file and folder in the library has a box at its left to select it, so several can be
