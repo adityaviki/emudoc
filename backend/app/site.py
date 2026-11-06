@@ -9,6 +9,11 @@ prices Stripe sells them at and the settings, and a part between `<!-- if flag -
 `<!-- end flag -->` is kept only once that feature's flag is on for every organisation
 (app/flags.py), so that the site offers nothing a new organisation would not find.
 
+While sign-up is closed (SIGNUP_OPEN=false, app/signups.py), as for a private beta, the pages
+offer the way to ask for an account (BOOKING_URL's "Book a call") where they offer the sign-up,
+by the parts marked `signup_open` and `signup_closed`, and the plans' page is put away: /pricing
+sends a visitor to the home page, and no search engine is told of it.
+
 A signed-in browser, or development's local account, gets the members' page at / as before;
 the session cookie alone tells them apart, so that the page asks the database nothing. Search
 engines are asked to list the public pages only where SEARCH_ENGINES says so: everywhere else
@@ -17,6 +22,7 @@ that is listed, every page but the public ones still does (a member's page, a sh
 """
 
 import hashlib
+import html as markup
 import logging
 import re
 import threading
@@ -39,6 +45,7 @@ from app.flags import flag
 from app.headers import PAGE_KEPT
 from app.help import ARTICLES, formats
 from app.payments import PaymentsError
+from app.signups import booking
 
 log = logging.getLogger(__name__)
 
@@ -64,8 +71,12 @@ NOT_LISTED = "noindex"
 # How long the prices read from Stripe are kept, and how soon a failed read is tried again.
 PRICES_KEPT = 3600.0
 PRICES_AGAIN = 300.0
-# A part of a page shown only while its feature's flag is on for every organisation.
+# A part of a page shown only while its feature's flag is on for every organisation, or while
+# sign-up is open or closed (`SIGNUP`).
 _FLAGGED = re.compile(r"[ \t]*<!-- if (\w+) -->\n?(.*?)[ \t]*<!-- end \1 -->\n?", re.S)
+SIGNUP = {"signup_open": True, "signup_closed": False}
+# The paths put away while sign-up is closed, and where they send a visitor instead.
+CLOSED_AWAY = {"pricing": "/"}
 # The currencies Stripe counts in whole units, and those in thousandths; the rest in hundredths.
 _WHOLE = frozenset(
     {"bif", "clp", "djf", "gnf", "jpy", "kmf", "krw", "mga", "pyg", "rwf", "ugx", "vnd", "vuv"}
@@ -146,11 +157,18 @@ def _money(amount: int, currency: str) -> str:
 
 def page_at(path: str, request: Request, settings: Settings) -> str | None:
     """The site's page that `path` shows this request, or None for the members' page: / to a
-    visitor without a session, /pricing to anyone."""
+    visitor without a session, /pricing to anyone while sign-up is open."""
     path = path.strip("/")
     if path == "" and (settings.local_account or request.cookies.get(SESSION_COOKIE)):
         return None
+    if moved(path, settings):
+        return None
     return PAGES.get(path)
+
+
+def moved(path: str, settings: Settings) -> str | None:
+    """Where a page put away while sign-up is closed sends a visitor instead, or None."""
+    return None if settings.signup_open else CLOSED_AWAY.get(path.strip("/"))
 
 
 def fill(
@@ -161,8 +179,16 @@ def fill(
 ) -> str:
     """The page with its flagged parts kept or left out and every `$name` filled in; the prices
     only for a page that shows them."""
-    shown = _FLAGGED.sub(lambda part: part[2] if flag(part[1]).share == 100 else "", html)
+    shown = _FLAGGED.sub(lambda part: part[2] if _shown(part[1], settings) else "", html)
     return Template(shown).substitute(values(settings, app_url, prices))
+
+
+def _shown(name: str, settings: Settings) -> bool:
+    """Whether a page's part marked `name` is kept: one about sign-up by SIGNUP_OPEN, one about
+    a feature once its flag is on for every organisation."""
+    if name in SIGNUP:
+        return settings.signup_open == SIGNUP[name]
+    return flag(name).share == 100
 
 
 def values(
@@ -171,6 +197,7 @@ def values(
     """What the site's pages say of this deployment, by placeholder."""
     support = settings.support_address
     on_sale = sold(settings)
+    book_url, book_label = booking(settings)
     found = {
         "app_url": app_url,
         "year": str(datetime.now(UTC).year),
@@ -187,6 +214,8 @@ def values(
         ),
         "chars_per_page": f"{CHARS_PER_PAGE:,}",
         "contact": f"mailto:{support}" if support else "/help/support",
+        "book": markup.escape(book_url),
+        "book_label": book_label,
         "trial": (
             f" {listed([name.title() for name in on_sale])} start"
             f"{'s' if len(on_sale) == 1 else ''} with a {settings.stripe_trial_days}-day trial."
@@ -283,7 +312,8 @@ def html_response(request: Request, html: str) -> Response:
 
 def listed_by_search_engines(path: str, settings: Settings) -> bool:
     """Whether a search engine may list the page at `path`."""
-    return settings.search_engines and path.strip("/") in INDEXED
+    path = path.strip("/")
+    return settings.search_engines and path in INDEXED and not moved(path, settings)
 
 
 def robots(settings: Settings, app_url: str) -> str:
@@ -294,9 +324,13 @@ def robots(settings: Settings, app_url: str) -> str:
     return f"User-agent: *\nDisallow: /api/\n\nSitemap: {app_url}/sitemap.xml\n"
 
 
-def sitemap(app_url: str) -> str:
+def sitemap(app_url: str, settings: Settings) -> str:
     """The public pages as a sitemap, for a deployment that search engines are asked to list."""
-    urls = "".join(f"  <url><loc>{escape(f'{app_url}/{path}')}</loc></url>\n" for path in LISTED)
+    urls = "".join(
+        f"  <url><loc>{escape(f'{app_url}/{path}')}</loc></url>\n"
+        for path in LISTED
+        if not moved(path, settings)
+    )
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'

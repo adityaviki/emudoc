@@ -183,6 +183,7 @@ from app.schemas import (
     TermsIn,
 )
 from app.security import mfa_due
+from app.signups import SIGNUP_CLOSED, SIGNUP_PAGE, booking
 from app.storage import Storage, content_disposition
 from app.support import NOT_IN_A_VIEW, leave_of
 from app.support import end as end_view
@@ -196,7 +197,6 @@ VERIFY_PAGE = "/verify"
 RESET_PAGE = "/reset-password"
 FORGOT_PAGE = "/forgot-password"
 EMAIL_PAGE = "/confirm-email"
-SIGNUP_PAGE = "/finish-signup"
 INVITATION_PAGE = "/invitation"
 ACCOUNT_PAGE = "/account"
 
@@ -297,11 +297,17 @@ class SignInRefused(Exception):
 
 @router.get("/options", response_model=AuthOptions)
 def options():
-    """What the sign-in page can offer: the identity providers that are set up."""
+    """What the sign-in pages can offer: the identity providers that are set up, and whether
+    anyone may sign up, with the way to ask for an account while nobody may (app/signups.py)."""
+    settings = get_settings()
+    book_url, book_label = booking(settings)
     return AuthOptions(
         providers=[
-            OAuthProviderOut(name=p.name, label=p.label) for p in providers(get_settings()).values()
-        ]
+            OAuthProviderOut(name=p.name, label=p.label) for p in providers(settings).values()
+        ],
+        signup_open=settings.signup_open,
+        book_url=book_url,
+        book_label=book_label,
     )
 
 
@@ -310,7 +316,10 @@ def signup(body: SignupIn, request: Request, session: SessionDep):
     """Start an account: mail the address the link that makes it (`finish_signup`). The answer
     is the same whether the address has an account or not, and so is the work behind it, a mail
     posted either way: an address with an account is told that someone tried, with the way to
-    sign in, so that nobody learns from the app who uses it."""
+    sign in, so that nobody learns from the app who uses it. While sign-up is closed every
+    address is refused alike, before anything is looked up (app/signups.py)."""
+    if not get_settings().signup_open:
+        raise HTTPException(403, SIGNUP_CLOSED)
     email = body.email.strip().lower()
     user = session.scalar(select(User).where(User.email == email))
     guesser = _guesser(session, request, user, email)
@@ -1072,7 +1081,8 @@ def _user_for_claims(
     says it is verified, and the account verified it too. Otherwise someone could sign up with
     another person's address and wait for them to sign in through a provider. A new account
     whose sign-in started from an invitation's page for its address joins that organisation
-    instead of starting its own, its address proven by the link as on that page.
+    instead of starting its own, its address proven by the link as on that page. While sign-up
+    is closed nothing else makes an account (app/signups.py).
     """
     identity = session.scalar(
         select(Identity).where(
@@ -1101,6 +1111,8 @@ def _user_for_claims(
         audit(session, account, request, "sign_up", detail={"method": provider.name})
         _accepted(session, account, request, invitation)
     elif user is None:
+        if not get_settings().signup_open:
+            raise SignInRefused(SIGNUP_CLOSED)
         account = create_account(
             session,
             claims.email,

@@ -1068,7 +1068,12 @@ its invoices, the price list, the delivery log, an email and meeting notes, inde
 for an upload, and an empty chat in it offers three questions that read the documents against
 each other. It counts against nothing on the plan and takes no uploads; its questions count, and
 it is deleted like any project (`SAMPLE_PROJECT=false` turns it off; deploying.md, "The sample
-project"). The first project a member opens shows a short tour of the workspace, card by card,
+project"). A deployment can close the sign-up, as for a private beta (`SIGNUP_OPEN=false`,
+`backend/app/signups.py`; deploying.md, "The private beta"): the form and a first sign-in
+through Google or Microsoft then make no account, the sign-up page and the site's home page
+offer "Book a call" (`BOOKING_URL`) instead, and an account comes only from an invitation into
+an organisation or a sign-up link the operator sends from the operator's area or with
+`maintenance invite <address>`. The first project a member opens shows a short tour of the workspace, card by card,
 which "Skip the tour" or Escape ends; the user menu offers it again inside a project. Once an
 answer about the organisation's own documents is done (not the sample's), the chat suggests
 inviting the team under it to an owner or admin while nobody else is a member or invited (read

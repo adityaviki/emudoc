@@ -2711,9 +2711,14 @@ class NotificationsReadIn(BaseModel):
 
 
 class AuthOptions(BaseModel):
-    """What the sign-in page can offer besides a password."""
+    """What the sign-in pages can offer besides a password, and whether anyone may sign up:
+    while nobody may, `book_url` is where a visitor asks for an account, under the button's
+    words `book_label` (app/signups.py)."""
 
     providers: list[OAuthProviderOut]
+    signup_open: bool
+    book_url: str
+    book_label: str
 
 
 class LLMStatus(BaseModel):
@@ -3682,6 +3687,19 @@ class RequeueOut(BaseModel):
     # How many documents were queued again, and what was done with each job, one line each.
     queued: int
     lines: list[str]
+
+
+class OperatorSignUpLinkIn(BaseModel):
+    """The address the operator sends a sign-up link, as `maintenance invite` does
+    (app/signups.py)."""
+
+    email: Email
+
+
+class OperatorSignUpLinkOut(BaseModel):
+    # The address the link went to, and when it stops working.
+    email: str
+    expires_at: dt.datetime
 
 
 class OperatorModelOut(BaseModel):

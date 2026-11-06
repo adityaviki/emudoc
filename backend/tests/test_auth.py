@@ -31,6 +31,7 @@ from app.legal import TERMS_VERSION
 from app.mail import MailError, Message
 from app.models import User
 from app.oidc import Handshake
+from app.signups import SIGNUP_CLOSED
 from tests.conftest import APP_HEADERS
 from tests.test_api import listed
 
@@ -779,12 +780,10 @@ def error_of(response) -> str:
 
 
 def test_providers_are_offered_only_when_set_up(client, oauth, monkeypatch):
-    assert client.get("/api/auth/options").json() == {
-        "providers": [
-            {"name": "google", "label": "Google"},
-            {"name": "microsoft", "label": "Microsoft"},
-        ]
-    }
+    assert client.get("/api/auth/options").json()["providers"] == [
+        {"name": "google", "label": "Google"},
+        {"name": "microsoft", "label": "Microsoft"},
+    ]
     monkeypatch.setattr(get_settings(), "microsoft_oauth_client_id", "")
     assert [p["name"] for p in client.get("/api/auth/options").json()["providers"]] == ["google"]
     response = client.get("/api/auth/oauth/microsoft/start", follow_redirects=False)
@@ -869,6 +868,32 @@ def test_google_sign_in_creates_an_account_and_links_verified_ones(
         "An account with this email already exists"
     )
     assert me(eve).json()["identities"] == []
+
+
+def test_a_provider_makes_no_new_account_while_sign_up_is_closed(
+    client, identity_provider, oauth, monkeypatch, signed_in_only
+):
+    # An account made before signs in through Google as ever.
+    ada = another_browser(client)
+    _, handshake = start(ada)
+    identity_provider.claims = google_claims(handshake.nonce)
+    assert callback(ada, code="the-code", state=handshake.state).status_code == 302
+    assert me(ada).json()["email"] == "ada@example.com"
+
+    monkeypatch.setattr(get_settings(), "signup_open", False)
+    ada.post("/api/auth/logout")
+    _, handshake = start(ada)
+    identity_provider.claims = google_claims(handshake.nonce)
+    assert callback(ada, code="the-code", state=handshake.state).headers["location"] == "/"
+    assert me(ada).json()["email"] == "ada@example.com"
+
+    # A new address is refused, and nothing is made.
+    _, handshake = start(client)
+    identity_provider.claims = google_claims(
+        handshake.nonce, sub="google-456", email="bob@example.com", name="Bob"
+    )
+    assert error_of(callback(client, code="the-code", state=handshake.state)) == SIGNUP_CLOSED
+    assert me(client).status_code == 401
 
 
 def test_microsoft_addresses_count_as_verified_only_when_the_provider_says_so(

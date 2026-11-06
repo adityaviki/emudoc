@@ -396,6 +396,23 @@ def sign_up_email(link: str) -> Content:
     )
 
 
+def invited_to_sign_up_email(link: str, days: int) -> Content:
+    """To an address the operator sent a sign-up link (app/signups.py), as while sign-up is
+    closed for a private beta: the same page as the form's link, for longer."""
+    return Content(
+        "Your invitation to Emudoc",
+        (
+            "Hi,",
+            "You are invited to Emudoc, where you upload a piece of work's documents into a "
+            "project and ask about them, each answer citing the passage it rests on. Open this "
+            "link to choose your password and make your account:",
+            Link(link, "Create your account"),
+            f"The link works for {days} days. If you were not expecting this, ignore this "
+            "message and no account will be made.",
+        ),
+    )
+
+
 def account_exists_email(name: str, sign_in: str, reset: str) -> Content:
     """To an address someone asked to make an account with, which has one already: said here,
     never in the answer to the request, so that nobody learns from the app whether an address

@@ -1769,6 +1769,16 @@ export interface OAuthProvider {
   label: string
 }
 
+/** What the sign-in pages can offer besides a password, and whether anyone may sign up. */
+export interface AuthOptions {
+  providers: OAuthProvider[]
+  signup_open: boolean
+  /** Where a visitor asks for an account while sign-up is closed: the booking page, a mail to support, or the help's page on it. */
+  book_url: string
+  /** The words of the button that leads there: "Book a call" or "Write to us". */
+  book_label: string
+}
+
 /** A signed-in browser or device. */
 export interface UserSession {
   id: number
@@ -2334,7 +2344,7 @@ export const auth = {
     if (!response.ok) throw new ApiError(response.status, response.statusText)
     return response.json()
   },
-  options: () => request<{ providers: OAuthProvider[] }>('/auth/options'),
+  options: () => request<AuthOptions>('/auth/options'),
   /**
    * Mails `email` the link that makes the account. Answers alike whether or not the address has an
    * account; one that has is told so by mail instead.

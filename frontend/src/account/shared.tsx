@@ -1,15 +1,15 @@
 // What the sign-in pages share: the page frame, the card the forms sit in, a password input
 // that can show what was typed, and the buttons for signing in through a provider.
 
-import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, Outlet } from 'react-router'
-import { auth, oauthStartUrl } from '../api.ts'
+import { oauthStartUrl } from '../api.ts'
 import { ThemeToggle } from '../components/ThemeToggle.tsx'
 import { InputField } from '../components/ui.tsx'
 import type { InputFieldProps } from '../components/ui.tsx'
 import { browserTimeZone } from '../timeZones.ts'
+import { useAuthOptions } from './authOptions.ts'
 
 /**
  * The frame of every page outside the signed-in shell: the logo above a centred card, and below
@@ -37,9 +37,11 @@ export function AuthLayout() {
 
 /**
  * The plans, the help, the terms, the privacy policy and the subprocessor list, at the foot of a
- * page. The plans are the public site's page, not the router's, so theirs is a plain link.
+ * page. The plans are the public site's page, not the router's, so theirs is a plain link, shown
+ * only while anyone may sign up: the site puts the page away while sign-up is closed.
  */
 export function LegalLinks() {
+  const pricing = useAuthOptions().data?.signup_open === true
   const links = [
     { to: '/help', label: 'Help' },
     { to: '/terms', label: 'Terms of service' },
@@ -48,9 +50,11 @@ export function LegalLinks() {
   ]
   return (
     <nav className="flex flex-wrap justify-center gap-x-4 gap-y-1 px-4 pb-6 text-xs text-muted">
-      <a href="/pricing" className="hover:text-ink hover:underline">
-        Pricing
-      </a>
+      {pricing && (
+        <a href="/pricing" className="hover:text-ink hover:underline">
+          Pricing
+        </a>
+      )}
       {links.map((link) => (
         <Link key={link.to} to={link.to} className="hover:text-ink hover:underline">
           {link.label}
@@ -127,7 +131,7 @@ const PROVIDER_ICONS: Record<string, ReactNode> = {
  * invitation's page passes its token, which an account the sign-in makes accepts.
  */
 export function ProviderButtons({ next, verb, invitation }: { next: string; verb: string; invitation?: string }) {
-  const options = useQuery({ queryKey: ['auth-options'], queryFn: auth.options, staleTime: Infinity })
+  const options = useAuthOptions()
   const providers = options.data?.providers ?? []
   if (!providers.length) return null
   return (
