@@ -1090,6 +1090,32 @@ meanwhile that the price is shown before paying; "On request" while nothing is s
 either page about a feature behind a flag is shown only once its flag is on for every
 organisation, so that the site offers nothing a new organisation would not find.
 
+### The private beta
+
+`SIGNUP_OPEN=false` closes the sign-up, as for a private beta, while the app is shown to a few
+teams at a time (`backend/app/signups.py`; the AWS module sets it for staging and production).
+The sign-up form refuses every address alike, with a sentence that says Emudoc is in a private
+beta, and a first sign-in through Google or Microsoft makes no account. The site's home page
+shows "Private beta" and offers "Book a call", which opens `BOOKING_URL`, a booking page of
+Cal.com, Calendly or the like (unset, "Write to us" mails the support address, or opens the
+help's page on support without one), where it offered "Start free"; `/pricing` sends a visitor
+to the home page, the header, the footer and the sign-in pages link no plans, and no search
+engine is told of them. The sign-up page says the same as the home page, with the button, and
+the sign-in page's "New to Emudoc?" leads to it.
+
+Two ways in stay. A member invites colleagues into their organisation as ever ("Invitations"),
+by the password page or through a provider. And the operator sends someone a sign-up link, which
+makes an account with an organisation of its own and the sample project, from the operator's
+area ("The operator's area", Users) or the command:
+
+```bash
+maintenance invite grace@example.com   # the link mailed, working for 14 days; refused for an address with an account
+```
+
+A link sent before the sign-up closed still makes its account until it expires. Setting
+`SIGNUP_OPEN=true` (the default) opens the sign-up again, and the site and the pages offer it
+and the plans at once, with no release.
+
 `SEARCH_ENGINES=true` asks search engines to list the public pages: robots.txt keeps them from
 `/api/` alone and names `/sitemap.xml` (the home page, the plans, the help and each of its
 articles, what's new, the API reference, the terms, the privacy policy, the subprocessors), and
@@ -3723,7 +3749,7 @@ on for and those it was turned on or off for (`flags`). What it shows is what th
 print, a member's name and address among it, never what a document, a question or an answer
 says.
 
-It changes four things, as the commands do:
+It changes five things, as the commands do:
 
 - **An organisation's plan.** "Change the plan" under its Plan shows the plan, the seats on a
   plan sold by the seat, and every figure, empty for the plan's own (shown in grey) or written
@@ -3786,6 +3812,12 @@ It changes four things, as the commands do:
   belong to no organisation: each is a line of the log naming the operator's id, `Operator 7
   switched the model provider google off`. `maintenance models` asks every model whatever the
   page says, which is how to try a provider before switching it on.
+- **A sign-up link sent.** Under Users, "Send a sign-up link" mails an address the link that
+  makes an account with an organisation of its own, which works for 14 days whether or not
+  anyone may sign up: how a private beta lets someone in ("The private beta"), as `invite
+  <address>` does. An address that has an account is refused with that said. A second link to
+  the address stops the first. It belongs to no organisation: a line of the log names the
+  operator's id, `Operator 7 sent a sign-up link`, never the address.
 
 And it opens a member's account as support, which no command does:
 
@@ -4736,6 +4768,8 @@ the roots' `settings` the others ("The settings").
 | `LOCAL_ACCOUNT` | `false` | refused when true | Requests without a session act as a local owner, for development |
 | `APP_URL` | the request's origin | required | Where members reach the app: the links in mail, the OAuth redirect |
 | `SEARCH_ENGINES` | `false` | `true` on the deployment the public reaches, never staging | Whether search engines are asked to list the public pages ("The public site") |
+| `SIGNUP_OPEN` | `true` | `false` during the private beta, which the AWS module sets | Whether anyone may make an account with an organisation of its own ("The private beta") |
+| `BOOKING_URL` | none | | The `https://` page "Book a call" opens while sign-up is closed; none mails the support address ("The private beta") |
 | `SESSION_DAYS` | `30` | | How long a sign-in lasts; an organisation may sign its members in again sooner |
 | `OPERATOR_NETWORKS` | `127.0.0.1/32,::1/128` in development, none in production | the operators' addresses | Where the operator's area answers from ("The operator's area") |
 | `SAMPLE_PROJECT` | `true` | | Whether the organisation an account signs up with starts with the sample project ("The sample project") |

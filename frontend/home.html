@@ -9,7 +9,8 @@
     <!--
       The public site's home page (backend/app/site.py), shown at / to a visitor without a session.
       The backend fills in each placeholder, and keeps a part marked "if" and "end" with a flag's name
-      only once that feature's flag is on for every organisation (backend/app/flags.py).
+      only once that feature's flag is on for every organisation (backend/app/flags.py), and a part
+      marked signup_open or signup_closed by whether anyone may sign up (backend/app/signups.py).
     -->
     <link rel="canonical" href="$app_url/" />
     <meta property="og:type" content="website" />
@@ -25,123 +26,244 @@
   <body>
     <!-- include header.html -->
     <main id="main">
-      <section class="mx-auto grid max-w-6xl items-center gap-12 px-4 pt-14 pb-16 sm:px-6 lg:grid-cols-[1.05fr_1fr] lg:pt-20 lg:pb-24">
-        <div>
-          <h1 class="text-4xl leading-tight font-semibold tracking-tight sm:text-5xl">Ask your documents, and see where each answer comes from.</h1>
-          <p class="mt-5 max-w-xl text-lg leading-relaxed text-muted">
-            Upload the contracts, invoices and reports of a piece of work into a project. Emudoc reads each one once, its text, tables and facts, and then answers your questions with citations that open the passage they rest on.
-          </p>
-          <div class="mt-8 flex flex-wrap gap-3">
-            <a href="/signup" class="rounded-lg bg-accent px-5 py-3 font-medium text-accent-ink hover:bg-accent-hover">Start free</a>
-            <a href="/pricing" class="rounded-lg border border-line bg-surface px-5 py-3 font-medium hover:bg-sunken">See the plans</a>
-          </div>
-          <p class="mt-4 text-sm text-muted">The free plan needs no card.</p>
-        </div>
-        <figure class="rounded-2xl border border-line bg-surface p-5 shadow-sm sm:p-6">
-          <figcaption class="sr-only">A question about a supplier's contract and invoice, and its answer with the sources it cites</figcaption>
-          <p class="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-accent-soft px-4 py-2.5">Does invoice INV-2026-0503 apply the volume discount the contract sets?</p>
-          <div class="mt-5 leading-relaxed">
-            <p>
-              No. The invoice bills 340 pallets in the month at the price list's prices, with no discount<a href="#source-1" class="ml-0.5 rounded bg-accent-soft px-1 text-xs font-medium text-accent">1</a>.
-              The agreement takes 6 % off a month of 250 pallets or more<a href="#source-2" class="ml-0.5 rounded bg-accent-soft px-1 text-xs font-medium text-accent">2</a>, so the invoice should carry it.
+      <section class="relative isolate overflow-hidden">
+        <div aria-hidden="true" class="absolute inset-x-0 top-0 -z-10 h-[36rem] bg-[radial-gradient(60%_60%_at_75%_10%,var(--color-accent-soft),transparent)]"></div>
+        <div class="mx-auto grid max-w-6xl items-center gap-12 px-4 pt-14 pb-16 sm:px-6 lg:grid-cols-[1.05fr_1fr] lg:pt-24 lg:pb-24">
+          <div>
+            <!-- if signup_closed -->
+            <p class="mb-5 inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1 text-sm font-medium text-accent">
+              <span aria-hidden="true" class="size-1.5 rounded-full bg-accent"></span>
+              Private beta
             </p>
-            <ol class="mt-4 space-y-2 border-t border-line pt-4 text-sm">
-              <li id="source-1" class="flex gap-2"><span class="font-medium text-accent">1</span><span><span class="font-medium">invoice-INV-2026-0503.pdf</span> <span class="text-muted">· page 1</span></span></li>
-              <li id="source-2" class="flex gap-2"><span class="font-medium text-accent">2</span><span><span class="font-medium">acme-service-contract.pdf</span> <span class="text-muted">· 2. Fees and Payment</span></span></li>
-            </ol>
+            <!-- end signup_closed -->
+            <h1 class="text-4xl leading-tight font-semibold tracking-tight sm:text-5xl lg:text-[3.4rem]">Ask your documents, and see where each answer comes from.</h1>
+            <p class="mt-5 max-w-xl text-lg leading-relaxed text-muted">
+              Upload the contracts, invoices and reports of a piece of work into a project. Emudoc reads each one once, its text, tables and facts, and then answers your questions with citations that open the passage they rest on.
+            </p>
+            <div class="mt-8 flex flex-wrap gap-3">
+              <!-- if signup_open -->
+              <a href="/signup" class="rounded-lg bg-accent px-5 py-3 font-medium text-accent-ink shadow-sm hover:bg-accent-hover">Start free</a>
+              <a href="/pricing" class="rounded-lg border border-line bg-surface px-5 py-3 font-medium hover:bg-sunken">See the plans</a>
+              <!-- end signup_open -->
+              <!-- if signup_closed -->
+              <a href="$book" class="rounded-lg bg-accent px-5 py-3 font-medium text-accent-ink shadow-sm hover:bg-accent-hover">$book_label</a>
+              <a href="#how" class="rounded-lg border border-line bg-surface px-5 py-3 font-medium hover:bg-sunken">See how it works</a>
+              <!-- end signup_closed -->
+            </div>
+            <!-- if signup_open -->
+            <p class="mt-4 text-sm text-muted">The free plan needs no card.</p>
+            <!-- end signup_open -->
+            <!-- if signup_closed -->
+            <p class="mt-4 text-sm text-muted">We are opening Emudoc to a few teams at a time. Invited already? <a href="/login" class="font-medium text-ink underline underline-offset-2 hover:text-accent">Sign in</a>.</p>
+            <!-- end signup_closed -->
           </div>
-        </figure>
+
+          <figure class="relative">
+            <figcaption class="sr-only">A question about a supplier's contract and invoice, its answer with the sources it cites, and the passage of the contract the second source opens</figcaption>
+            <div class="overflow-hidden rounded-2xl border border-line bg-surface shadow-xl shadow-ink/5">
+              <div aria-hidden="true" class="flex items-center gap-1.5 border-b border-line bg-sunken px-4 py-2.5">
+                <span class="size-2.5 rounded-full bg-line"></span>
+                <span class="size-2.5 rounded-full bg-line"></span>
+                <span class="size-2.5 rounded-full bg-line"></span>
+              </div>
+              <div class="p-5 sm:p-6">
+                <p class="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-accent-soft px-4 py-2.5">Does invoice INV-2026-0503 apply the volume discount the contract sets?</p>
+                <div class="mt-5 leading-relaxed">
+                  <p>
+                    No. The invoice bills 340 pallets in the month at the price list's prices, with no discount<a href="#source-1" class="ml-0.5 rounded bg-accent-soft px-1 text-xs font-medium text-accent">1</a>.
+                    The agreement takes 6 % off a month of 250 pallets or more<a href="#source-2" class="ml-0.5 rounded bg-accent-soft px-1 text-xs font-medium text-accent">2</a>, so the invoice should carry it.
+                  </p>
+                  <ol class="mt-4 space-y-2 border-t border-line pt-4 text-sm">
+                    <li id="source-1" class="flex gap-2"><span class="font-medium text-accent">1</span><span><span class="font-medium">invoice-INV-2026-0503.pdf</span> <span class="text-muted">· page 1</span></span></li>
+                    <li id="source-2" class="flex gap-2"><span class="font-medium text-accent">2</span><span><span class="font-medium">acme-service-contract.pdf</span> <span class="text-muted">· 2. Fees and Payment</span></span></li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+            <div class="relative mx-4 -mt-3 rounded-xl border border-line bg-surface p-4 text-sm shadow-lg shadow-ink/5 sm:mx-10">
+              <p class="text-xs font-medium text-muted">acme-service-contract.pdf · page 1</p>
+              <table class="mt-2 w-full text-left">
+                <thead class="text-muted">
+                  <tr><th scope="col" class="px-2 py-1 font-medium">Monthly volume (pallets)</th><th scope="col" class="px-2 py-1 font-medium">Discount</th></tr>
+                </thead>
+                <tbody>
+                  <tr class="border-t border-line"><td class="px-2 py-1">0 - 99</td><td class="px-2 py-1">0%</td></tr>
+                  <tr class="border-t border-line"><td class="px-2 py-1">100 - 249</td><td class="px-2 py-1">3%</td></tr>
+                  <tr class="border-t border-line bg-mark"><td class="px-2 py-1 font-medium">250+</td><td class="px-2 py-1 font-medium">6%</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </figure>
+        </div>
       </section>
 
-      <section aria-labelledby="what" class="border-y border-line bg-surface">
+      <section aria-labelledby="how" class="border-y border-line bg-surface">
         <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6">
-          <h2 id="what" class="text-3xl font-semibold tracking-tight">What it does with what you upload</h2>
-          <div class="mt-10 grid gap-x-10 gap-y-10 md:grid-cols-2">
+          <h2 id="how" class="text-3xl font-semibold tracking-tight">How it works</h2>
+          <ol class="mt-10 grid gap-6 md:grid-cols-3">
+            <li class="rounded-2xl border border-line bg-page p-6">
+              <span aria-hidden="true" class="flex size-8 items-center justify-center rounded-full bg-accent text-sm font-semibold text-accent-ink">1</span>
+              <h3 class="mt-4 text-lg font-semibold">Put a piece of work in a project</h3>
+              <p class="mt-2 leading-relaxed text-muted">The contract, its invoices, the price list and the delivery log: drop the files, or whole folders, into the project's library.</p>
+            </li>
+            <li class="rounded-2xl border border-line bg-page p-6">
+              <span aria-hidden="true" class="flex size-8 items-center justify-center rounded-full bg-accent text-sm font-semibold text-accent-ink">2</span>
+              <h3 class="mt-4 text-lg font-semibold">Emudoc reads each one once</h3>
+              <p class="mt-2 leading-relaxed text-muted">Its text, tables and headings, kept with the page they are on, an outline of its sections, and the facts it states.</p>
+            </li>
+            <li class="rounded-2xl border border-line bg-page p-6">
+              <span aria-hidden="true" class="flex size-8 items-center justify-center rounded-full bg-accent text-sm font-semibold text-accent-ink">3</span>
+              <h3 class="mt-4 text-lg font-semibold">Ask, and follow the citation</h3>
+              <p class="mt-2 leading-relaxed text-muted">Each claim in an answer cites the passage it rests on, and a click opens the document there.</p>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section aria-labelledby="what" class="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+        <h2 id="what" class="text-3xl font-semibold tracking-tight">What it does with what you upload</h2>
+        <div class="mt-10 grid gap-x-10 gap-y-10 md:grid-cols-2">
+          <div class="flex gap-4">
+            <span aria-hidden="true" class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /><path d="M8 9h8M8 13h5" /></svg>
+            </span>
             <div>
               <h3 class="text-lg font-semibold">Ask, and follow the citation</h3>
               <p class="mt-2 leading-relaxed text-muted">The assistant reads each document's outline, searches its passages and looks up its facts before it answers. Each claim cites the passage it rests on, and a click opens the document there. Ask about the whole project, a folder or the documents you chose.</p>
             </div>
+          </div>
+          <div class="flex gap-4">
+            <span aria-hidden="true" class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+            </span>
             <div>
               <h3 class="text-lg font-semibold">Find it by its words or its meaning</h3>
               <p class="mt-2 leading-relaxed text-muted">Search a project, or every project you see, by the words a passage uses and by what it means, whatever language it is written in. Narrow it by type, date or folder, and search again within what it found.</p>
             </div>
+          </div>
+          <div class="flex gap-4">
+            <span aria-hidden="true" class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
+            </span>
             <div>
               <h3 class="text-lg font-semibold">Keep the library in order</h3>
               <p class="mt-2 leading-relaxed text-muted">Folders, favourites and recent documents; each document's title, type and date beside what the reading found, its versions and its copies.</p>
             </div>
+          </div>
+          <div class="flex gap-4">
+            <span aria-hidden="true" class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>
+            </span>
             <div>
               <h3 class="text-lg font-semibold">Take the answer with you</h3>
               <p class="mt-2 leading-relaxed text-muted">Download an answer or a whole chat as a Word document, a PDF or Markdown, its citations as numbered notes. Share a chat with the project, and export a project whole, its originals, outline, facts and chats.</p>
             </div>
-            <!-- if extraction_templates -->
+          </div>
+          <!-- if extraction_templates -->
+          <div class="flex gap-4">
+            <span aria-hidden="true" class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 10h18M9 10v10" /></svg>
+            </span>
             <div>
               <h3 class="text-lg font-semibold">Read the facts into a table</h3>
               <p class="mt-2 leading-relaxed text-muted">Dates, amounts, parties and lines, read into a table you sort and filter, each cell with the words it came from. Extraction templates say which fields to read from each kind of document, and a corrected value is kept.</p>
             </div>
+          </div>
+          <div class="flex gap-4">
+            <span aria-hidden="true" class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="m5 12 4 4 10-10" /></svg>
+            </span>
             <div>
               <h3 class="text-lg font-semibold">Check one document against another</h3>
               <p class="mt-2 leading-relaxed text-muted">Cross-checks compare an invoice with its purchase order or a price with the price list, and say where they differ. Automations run them as documents arrive, and reviews keep who approved what.</p>
             </div>
-            <!-- end extraction_templates -->
-            <!-- if drafts -->
+          </div>
+          <!-- end extraction_templates -->
+          <!-- if drafts -->
+          <div class="flex gap-4">
+            <span aria-hidden="true" class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M4 20h4L19 9l-4-4L4 16z" /></svg>
+            </span>
             <div>
               <h3 class="text-lg font-semibold">Write from what you found</h3>
               <p class="mt-2 leading-relaxed text-muted">A dispute letter, a reply or a memo, drafted from the project's documents with its citations, edited in versions and downloaded.</p>
             </div>
-            <!-- end drafts -->
-            <!-- if question_sets -->
+          </div>
+          <!-- end drafts -->
+          <!-- if question_sets -->
+          <div class="flex gap-4">
+            <span aria-hidden="true" class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
+            </span>
             <div>
               <h3 class="text-lg font-semibold">Ask the same questions every week</h3>
               <p class="mt-2 leading-relaxed text-muted">Save a project's questions as a set, asked on a schedule or as documents arrive, each run a report of the answers.</p>
             </div>
-            <!-- end question_sets -->
-            <!-- if comments -->
+          </div>
+          <!-- end question_sets -->
+          <!-- if comments -->
+          <div class="flex gap-4">
+            <span aria-hidden="true" class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="size-5"><path d="M7 8h10M7 12h6" /><path d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-6l-5 4v-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" /></svg>
+            </span>
             <div>
               <h3 class="text-lg font-semibold">Talk it over beside the passage</h3>
               <p class="mt-2 leading-relaxed text-muted">Comment on the words you chose in a document, mention a colleague, and read what was done in the project lately.</p>
             </div>
-            <!-- end comments -->
           </div>
+          <!-- end comments -->
         </div>
       </section>
 
-      <section aria-labelledby="in" class="mx-auto max-w-6xl px-4 py-16 sm:px-6">
-        <h2 id="in" class="text-3xl font-semibold tracking-tight">Documents come in the way you work</h2>
-        <p class="mt-4 max-w-3xl text-lg leading-relaxed text-muted">Emudoc reads $formats. Scans and photos are read too, and a file's text, tables and headings are kept with the page they are on.</p>
-        <ul class="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <li class="rounded-xl border border-line bg-surface p-5"><span class="font-semibold">Upload files and folders</span><span class="mt-1 block text-muted">Drop them into the library, whole folders included, and give a document a new version in place.</span></li>
-          <li class="rounded-xl border border-line bg-surface p-5"><span class="font-semibold">Watch a scanner's folder</span><span class="mt-1 block text-muted">On $api_plans, the upload client sends a folder into a project, or each file a scanner saves there.</span></li>
-          <li class="rounded-xl border border-line bg-surface p-5"><span class="font-semibold">Program it</span><span class="mt-1 block text-muted">On $api_plans, a versioned API with its reference, and webhooks that say when a document is ready.</span></li>
-          <!-- if email_in -->
-          <li class="rounded-xl border border-line bg-surface p-5"><span class="font-semibold">Forward mail</span><span class="mt-1 block text-muted">A project's own address turns what your suppliers send into documents.</span></li>
-          <!-- end email_in -->
-          <!-- if connectors -->
-          <li class="rounded-xl border border-line bg-surface p-5"><span class="font-semibold">Connect a folder</span><span class="mt-1 block text-muted">A folder of Google Drive, Dropbox or OneDrive, kept in step with a project.</span></li>
-          <!-- end connectors -->
-          <!-- if share_links -->
-          <li class="rounded-xl border border-line bg-surface p-5"><span class="font-semibold">Share by a link</span><span class="mt-1 block text-muted">A document or an answer, for someone without an account, until the link expires.</span></li>
-          <!-- end share_links -->
-        </ul>
-      </section>
-
-      <section aria-labelledby="yours" class="border-y border-line bg-surface">
+      <section aria-labelledby="in" class="border-y border-line bg-surface">
         <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6">
-          <h2 id="yours" class="text-3xl font-semibold tracking-tight">Your documents stay yours</h2>
-          <ul class="mt-8 grid gap-x-10 gap-y-6 leading-relaxed text-muted md:grid-cols-2">
-            <li><span class="font-semibold text-ink">Used for you alone.</span> What you upload and ask is used to run the service for you and for nothing else: never sold, never shown to other customers, and never used to train AI models.</li>
-            <li><span class="font-semibold text-ink">Seen by whom you choose.</span> Roles from owner to viewer, private projects, and chats private until shared. An organisation can require two-factor sign-in of everyone in it.</li>
-            <li><span class="font-semibold text-ink">On the record.</span> The audit log keeps who did what in the organisation, and a project or an account can be exported whole, or deleted.</li>
-            <li><span class="font-semibold text-ink">Kept apart.</span> Every request is checked against the organisation it is for, and connections to the service, and from it to anything outside its own network, are encrypted.$kept</li>
+          <h2 id="in" class="text-3xl font-semibold tracking-tight">Documents come in the way you work</h2>
+          <p class="mt-4 max-w-3xl text-lg leading-relaxed text-muted">Emudoc reads $formats. Scans and photos are read too, and a file's text, tables and headings are kept with the page they are on.</p>
+          <ul class="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <li class="rounded-xl border border-line bg-page p-5"><span class="font-semibold">Upload files and folders</span><span class="mt-1 block text-muted">Drop them into the library, whole folders included, and give a document a new version in place.</span></li>
+            <li class="rounded-xl border border-line bg-page p-5"><span class="font-semibold">Watch a scanner's folder</span><span class="mt-1 block text-muted">On $api_plans, the upload client sends a folder into a project, or each file a scanner saves there.</span></li>
+            <li class="rounded-xl border border-line bg-page p-5"><span class="font-semibold">Program it</span><span class="mt-1 block text-muted">On $api_plans, a versioned API with its reference, and webhooks that say when a document is ready.</span></li>
+            <!-- if email_in -->
+            <li class="rounded-xl border border-line bg-page p-5"><span class="font-semibold">Forward mail</span><span class="mt-1 block text-muted">A project's own address turns what your suppliers send into documents.</span></li>
+            <!-- end email_in -->
+            <!-- if connectors -->
+            <li class="rounded-xl border border-line bg-page p-5"><span class="font-semibold">Connect a folder</span><span class="mt-1 block text-muted">A folder of Google Drive, Dropbox or OneDrive, kept in step with a project.</span></li>
+            <!-- end connectors -->
+            <!-- if share_links -->
+            <li class="rounded-xl border border-line bg-page p-5"><span class="font-semibold">Share by a link</span><span class="mt-1 block text-muted">A document or an answer, for someone without an account, until the link expires.</span></li>
+            <!-- end share_links -->
           </ul>
         </div>
       </section>
 
-      <section aria-labelledby="start" class="mx-auto max-w-6xl px-4 py-16 text-center sm:px-6">
-        <h2 id="start" class="text-3xl font-semibold tracking-tight">Try it on your own documents</h2>
-        <p class="mx-auto mt-4 max-w-2xl text-lg leading-relaxed text-muted">Start on the free plan, and move to a larger one when you need it.$sample</p>
-        <div class="mt-8 flex flex-wrap justify-center gap-3">
-          <a href="/signup" class="rounded-lg bg-accent px-5 py-3 font-medium text-accent-ink hover:bg-accent-hover">Start free</a>
-          <a href="/help/getting-started" class="rounded-lg border border-line bg-surface px-5 py-3 font-medium hover:bg-sunken">Read how it works</a>
+      <section aria-labelledby="yours" class="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+        <h2 id="yours" class="text-3xl font-semibold tracking-tight">Your documents stay yours</h2>
+        <ul class="mt-8 grid gap-x-10 gap-y-6 leading-relaxed text-muted md:grid-cols-2">
+          <li><span class="font-semibold text-ink">Used for you alone.</span> What you upload and ask is used to run the service for you and for nothing else: never sold, never shown to other customers, and never used to train AI models.</li>
+          <li><span class="font-semibold text-ink">Seen by whom you choose.</span> Roles from owner to viewer, private projects, and chats private until shared. An organisation can require two-factor sign-in of everyone in it.</li>
+          <li><span class="font-semibold text-ink">On the record.</span> The audit log keeps who did what in the organisation, and a project or an account can be exported whole, or deleted.</li>
+          <li><span class="font-semibold text-ink">Kept apart.</span> Every request is checked against the organisation it is for, and connections to the service, and from it to anything outside its own network, are encrypted.$kept</li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="start" class="mx-auto max-w-6xl px-4 pb-20 sm:px-6">
+        <div class="relative isolate overflow-hidden rounded-3xl border border-line bg-surface px-6 py-14 text-center shadow-sm sm:px-12">
+          <div aria-hidden="true" class="absolute inset-0 -z-10 bg-[radial-gradient(50%_80%_at_50%_0%,var(--color-accent-soft),transparent)]"></div>
+          <h2 id="start" class="text-3xl font-semibold tracking-tight">Try it on your own documents</h2>
+          <!-- if signup_open -->
+          <p class="mx-auto mt-4 max-w-2xl text-lg leading-relaxed text-muted">Start on the free plan, and move to a larger one when you need it.$sample</p>
+          <div class="mt-8 flex flex-wrap justify-center gap-3">
+            <a href="/signup" class="rounded-lg bg-accent px-5 py-3 font-medium text-accent-ink shadow-sm hover:bg-accent-hover">Start free</a>
+            <a href="/help/getting-started" class="rounded-lg border border-line bg-surface px-5 py-3 font-medium hover:bg-sunken">Read how it works</a>
+          </div>
+          <!-- end signup_open -->
+          <!-- if signup_closed -->
+          <p class="mx-auto mt-4 max-w-2xl text-lg leading-relaxed text-muted">Emudoc is in a private beta, opening to a few teams at a time. Tell us about the documents you work with, and we will set up an account for your team.$sample</p>
+          <div class="mt-8 flex flex-wrap justify-center gap-3">
+            <a href="$book" class="rounded-lg bg-accent px-5 py-3 font-medium text-accent-ink shadow-sm hover:bg-accent-hover">$book_label</a>
+            <a href="/help/getting-started" class="rounded-lg border border-line bg-surface px-5 py-3 font-medium hover:bg-sunken">Read how it works</a>
+          </div>
+          <!-- end signup_closed -->
         </div>
       </section>
     </main>

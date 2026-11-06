@@ -10,7 +10,7 @@ import httpx
 from anyio import CapacityLimiter, to_thread
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, OperationalError
@@ -111,6 +111,7 @@ from app.site import (
     fill,
     html_response,
     listed_by_search_engines,
+    moved,
     page_at,
     robots,
     sitemap,
@@ -619,7 +620,7 @@ def create_app(
         if not settings.search_engines:
             return Response(status_code=404, headers={"X-Robots-Tag": NOT_LISTED})
         return Response(
-            sitemap(auth.app_url(request)),
+            sitemap(auth.app_url(request), settings),
             media_type="application/xml",
             headers={"Cache-Control": PAGE_KEPT},
         )
@@ -641,6 +642,9 @@ def create_app(
             return response
 
         async def _page(path: str, request: Request) -> Response:
+            if (elsewhere := moved(path, settings)) is not None:
+                # A page of the site put away while sign-up is closed (app/site.py).
+                return RedirectResponse(elsewhere, status_code=302)
             if (site_page := page_at(path, request, settings)) is not None:
                 if served := await to_thread.run_sync(_site_page, site_page, request):
                     return served

@@ -13,6 +13,25 @@ to: `## YYYY-MM-DD` a day (or `## YYYY-MM-DD to YYYY-MM-DD`), the newest first, 
 and `Operators:`, each a list of `- ` entries whose lines go on indented by two spaces, a day's
 newest entry first.
 
+## 2026-11-06
+
+Members:
+
+- The home page has a new look: how Emudoc works in three steps, and the cited passage shown
+  beside the answer it supports.
+
+Operators:
+
+- `SIGNUP_OPEN=false` closes the sign-up for a private beta: the sign-up form and a first
+  sign-in through Google or Microsoft make no account, the home page and the sign-up page offer
+  "Book a call" (`BOOKING_URL`, a booking page; unset, a mail to the support address) where they
+  offered "Start free", and `/pricing` sends a visitor to the home page. Members still invite
+  their colleagues. The AWS module sets it for staging and production (deploying.md, "The
+  private beta").
+- Send someone a sign-up link from the operator's area (Users, "Send a sign-up link") or with
+  `maintenance invite <address>`: it makes an account with an organisation of its own, works for
+  14 days, and works while the sign-up is closed.
+
 ## 2026-11-05
 
 Members:

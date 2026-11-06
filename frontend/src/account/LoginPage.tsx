@@ -7,6 +7,7 @@ import { MeContext, safeNext, setSignedIn, signOut } from '../auth.ts'
 import { Button, InputField, Notice } from '../components/ui.tsx'
 import { usePageTitle } from '../hooks.ts'
 import { AuthCard, PasswordField, ProviderButtons } from './shared.tsx'
+import { useAuthOptions } from './authOptions.ts'
 
 /** What a page that sends the user here may leave in the router state. */
 interface LoginState {
@@ -52,6 +53,8 @@ function PasswordStep({ next, onCode }: { next: string; onCode: () => void }) {
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const notice = (useLocation().state as LoginState | null)?.notice
+  const options = useAuthOptions().data
+  const closed = options && !options.signup_open ? options : null
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const login = useMutation({
@@ -77,9 +80,16 @@ function PasswordStep({ next, onCode }: { next: string; onCode: () => void }) {
       footer={
         <>
           New to Emudoc?{' '}
-          <Link to={`/signup${params.has('next') ? `?${params}` : ''}`} className="font-medium text-accent hover:underline">
-            Create an account
-          </Link>
+          {closed ? (
+            // While sign-up is closed, the way to ask for an account: a page of another site, a mail or the help's.
+            <a href={closed.book_url} className="font-medium text-accent hover:underline">
+              {closed.book_label}
+            </a>
+          ) : (
+            <Link to={`/signup${params.has('next') ? `?${params}` : ''}`} className="font-medium text-accent hover:underline">
+              Create an account
+            </Link>
+          )}
         </>
       }
     >

@@ -13,7 +13,7 @@ from app.config import ROOT_DIR, get_settings
 from app.entitlements import PLANS
 from app.flags import FLAGS
 from app.help import ARTICLES
-from app.site import PRICES_AGAIN, Price, fill, price_of
+from app.site import PRICES_AGAIN, SIGNUP, Price, fill, price_of
 from tests.test_auth import signup
 
 FRONTEND = ROOT_DIR / "frontend"
@@ -153,9 +153,10 @@ def test_a_feature_behind_a_flag_is_shown_once_every_organisation_has_it(name, m
     # The site offers nothing a new organisation would not find: a part about a feature behind
     # a flag is left out until the flag's share is everyone's.
     html = built(name)
-    flagged = re.findall(r"<!-- if (\w+) -->", html)
+    marked = re.findall(r"<!-- if (\w+) -->", html)
+    assert marked == re.findall(r"<!-- end (\w+) -->", html)
+    flagged = [each for each in marked if each not in SIGNUP]
     assert flagged and set(flagged) <= FLAGS.keys()
-    assert flagged == re.findall(r"<!-- end (\w+) -->", html)
     settings = get_settings()
     prices = {"pro": None, "team": None} if name == "pricing.html" else None
     hidden = fill(html, settings, APP, prices)
@@ -279,3 +280,41 @@ def test_a_listed_deployment_names_its_public_pages_to_search_engines(visitor, m
         assert "x-robots-tag" not in visitor.get(path).headers, path
     for path in ("/projects/1", "/shared", "/organization", "/nowhere"):
         assert visitor.get(path).headers["x-robots-tag"] == "noindex", path
+
+
+def test_a_closed_sign_up_offers_a_call_and_puts_the_plans_away(visitor, monkeypatch):
+    settings = get_settings()
+    open_home = visitor.get("/").text
+    assert 'href="/signup"' in open_home and "Private beta" not in text_of(open_home)
+    assert 'href="/pricing"' in open_home
+
+    monkeypatch.setattr(settings, "signup_open", False)
+    monkeypatch.setattr(settings, "booking_url", "https://cal.com/emudoc/intro?a=1&b=2")
+    home = visitor.get("/").text
+    shown = text_of(home)
+    assert "Private beta" in shown and "Book a call" in shown
+    # The booking page's address is written as an attribute should be.
+    assert 'href="https://cal.com/emudoc/intro?a=1&amp;b=2"' in home
+    # Nothing leads to the sign-up or to the plans, which send a visitor home.
+    assert 'href="/signup"' not in home and 'href="/pricing"' not in home
+    assert not re.search(r"\$\w", home) and "<!-- if" not in home
+    moved = visitor.get("/pricing", follow_redirects=False)
+    assert moved.status_code == 302 and moved.headers["location"] == "/"
+    # A member's page links no plans either: the sign-in pages are told (app/signups.py).
+    assert visitor.get("/api/auth/options").json()["signup_open"] is False
+
+    # Without a booking page, the button writes to support.
+    monkeypatch.setattr(settings, "booking_url", "")
+    monkeypatch.setattr(settings, "support_email", "help@emudoc.test")
+    home = visitor.get("/").text
+    assert 'href="mailto:help@emudoc.test"' in home and "Write to us" in text_of(home)
+
+
+def test_a_closed_sign_up_names_no_plans_to_search_engines(visitor, monkeypatch):
+    monkeypatch.setattr(get_settings(), "search_engines", True)
+    monkeypatch.setattr(get_settings(), "app_url", APP)
+    monkeypatch.setattr(get_settings(), "signup_open", False)
+    listed = re.findall(r"<loc>([^<]+)</loc>", visitor.get("/sitemap.xml").text)
+    assert f"{APP}/" in listed and f"{APP}/pricing" not in listed
+    assert "x-robots-tag" not in visitor.get("/").headers
+    assert visitor.get("/pricing", follow_redirects=False).headers["x-robots-tag"] == "noindex"

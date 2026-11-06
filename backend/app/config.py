@@ -606,6 +606,15 @@ class Settings(BaseSettings):
     # robots.txt turns every crawler away and every page says not to be listed, as a staging
     # deployment or one on a machine of its own should, so it is on only where it is said to be.
     search_engines: bool = False
+    # Whether anyone may make an account with an organisation of its own, by email or through
+    # Google or Microsoft (app/signups.py). Off, as for a private beta, the sign-up page and the
+    # public site offer BOOKING_URL instead, the plans' page is put away, and an account comes
+    # only from an invitation into an organisation or a sign-up link the operator sends.
+    signup_open: bool = True
+    # The page a visitor books a call on (Cal.com, Calendly or the like), which "Book a call"
+    # opens on the public site and the sign-up page while sign-up is closed. Empty offers the
+    # support address instead.
+    booking_url: str = ""
     session_days: int = 30
     # The client addresses the operator's area (app/operators.py) answers, as networks or single
     # addresses separated by commas, read from the proxy's X-Forwarded-For as uvicorn believes
@@ -918,6 +927,18 @@ class Settings(BaseSettings):
         # A regconfig name; whether the database has one by that name is checked at start.
         if not re.fullmatch(r"[a-z_]+", value):
             raise ValueError("fts_language must be a Postgres text search configuration name")
+        return value
+
+    @field_validator("booking_url")
+    @classmethod
+    def _a_web_page(cls, value: str) -> str:
+        # Written into the pages' links as it is, so a page on the web and nothing else.
+        value = value.strip()
+        if value and not re.fullmatch(r"https://[^\s\"'<>]+", value):
+            raise ValueError(
+                "BOOKING_URL is the https:// address of a booking page, such as "
+                "https://cal.com/your-name"
+            )
         return value
 
     @field_validator("operator_email", "support_email")

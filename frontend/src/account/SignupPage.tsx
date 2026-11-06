@@ -4,11 +4,12 @@ import type { FormEvent, ReactNode } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import { ApiError, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, auth } from '../api.ts'
 import { MeContext, forgetUser, safeNext, setSignedIn } from '../auth.ts'
-import { Button, Checkbox, InputField, Notice, Spinner } from '../components/ui.tsx'
+import { Button, ButtonLink, Checkbox, InputField, Notice, Spinner } from '../components/ui.tsx'
 import { useLegal, usePageTitle } from '../hooks.ts'
 import { browserTimeZone } from '../timeZones.ts'
 import { useLinkToken } from './linkToken.ts'
 import { AuthCard, PasswordField, ProviderButtons } from './shared.tsx'
+import { useAuthOptions } from './authOptions.ts'
 
 const ASK_AGAIN = (
   <Link to="/signup" className="font-medium text-accent hover:underline">
@@ -20,7 +21,8 @@ const ASK_AGAIN = (
  * The start of a new account: the address alone, which is mailed the link to the page that makes
  * the account (FinishSignupPage). The server answers alike whether the address has an account or
  * not, and this page says the same either way; the mail tells an address that has one how to sign
- * in instead. An account made through a provider needs no link.
+ * in instead. An account made through a provider needs no link. While sign-up is closed, as for a
+ * private beta, the page offers the way to ask for an account instead (backend/app/signups.py).
  */
 export function SignupPage() {
   const me = useContext(MeContext)
@@ -28,8 +30,38 @@ export function SignupPage() {
   const next = safeNext(params.get('next'))
   const [email, setEmail] = useState('')
   const signup = useMutation({ mutationFn: () => auth.signup(email.trim()) })
+  const options = useAuthOptions()
   usePageTitle('Sign up · Emudoc')
   if (me) return <Navigate to={next} replace />
+  const signIn = (
+    <>
+      Already have an account?{' '}
+      <Link to={`/login${params.has('next') ? `?${params}` : ''}`} className="font-medium text-accent hover:underline">
+        Sign in
+      </Link>
+    </>
+  )
+
+  if (options.isPending) {
+    return (
+      <AuthCard title="Create your account">
+        <Spinner />
+      </AuthCard>
+    )
+  }
+  if (options.data && !options.data.signup_open) {
+    return (
+      <AuthCard title="Emudoc is in a private beta" intro="We are opening it to a few teams at a time, so accounts are made by invitation for now." footer={signIn}>
+        <p className="text-[13px] leading-relaxed text-muted">
+          Tell us about the documents you work with, and we will set up an account for your team. Invited already? Open the
+          link in the invitation's email.
+        </p>
+        <ButtonLink href={options.data.book_url} variant="primary" className="mt-5 w-full">
+          {options.data.book_label}
+        </ButtonLink>
+      </AuthCard>
+    )
+  }
 
   function submit(event: FormEvent) {
     event.preventDefault()
@@ -59,14 +91,7 @@ export function SignupPage() {
     <AuthCard
       title="Create your account"
       intro="You get a workspace of your own to upload documents into and ask questions about."
-      footer={
-        <>
-          Already have an account?{' '}
-          <Link to={`/login${params.has('next') ? `?${params}` : ''}`} className="font-medium text-accent hover:underline">
-            Sign in
-          </Link>
-        </>
-      }
+      footer={signIn}
     >
       <ProviderButtons next={next} verb="Sign up" />
       <form onSubmit={submit} className="space-y-3">

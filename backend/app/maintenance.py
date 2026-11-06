@@ -49,6 +49,10 @@ organisation (app/metrics.py), and prints organisations by slug and name, never 
 and `operators add|remove <address>` grants it or takes it back: the area's one way in, from a
 shell on the deployment, as the plan's changes are.
 
+`invite <address>` mails the address a link that makes an account with an organisation of its
+own, which works while sign-up is closed (SIGNUP_OPEN=false, app/signups.py), as the operator's
+area does: how a private beta lets someone in.
+
 `flags` lists the features behind a flag (app/flags.py), how far each is rolled out and the
 organisations an operator turned it on or off for, and `flags <slug> <flag> on|off|rollout`
 makes or takes back that choice for one, as the operator's area does.
@@ -180,7 +184,9 @@ from app.retention import (
     retention_held,
 )
 from app.sample import INDEX, build_sample, written
+from app.schemas import EMAIL_PATTERN
 from app.share_links import prune_share_links
+from app.signups import HasAnAccount, send_sign_up_link
 from app.storage import (
     DELETE_BATCH,
     ROOT_PREFIX,
@@ -1029,6 +1035,28 @@ def _rolled_out(share: int) -> str:
     return f"rolled out to {share} % of organisations"
 
 
+def invite_report(session: Session, email: str) -> list[str]:
+    """The lines the `invite` command prints, after mailing `email` the link that makes an
+    account with an organisation of its own (app/signups.py). The caller commits."""
+    email = email.strip().lower()
+    if not re.fullmatch(EMAIL_PATTERN, email):
+        raise RuntimeError(f"{email!r} is not an email address, such as ada@example.com.")
+    try:
+        expires_at = send_sign_up_link(session, email, app_address())
+    except HasAnAccount as refusal:
+        raise RuntimeError(str(refusal)) from None
+    lines = [
+        f"A sign-up link is on its way to {email}. It works until "
+        f"{expires_at:%Y-%m-%d %H:%M} UTC; sending another stops this one."
+    ]
+    if get_settings().signup_open:
+        lines.append(
+            "Sign-up is open (SIGNUP_OPEN), so anyone can make an account from the sign-up "
+            "page as well."
+        )
+    return lines
+
+
 def operators_report(session: Session, action: str | None = None, email: str = "") -> list[str]:
     """The lines the `operators` command prints: every operator, after granting the area to the
     account with the address `email` (`action` "add") or taking it back ("remove"), and where
@@ -1617,6 +1645,15 @@ def main(argv: list[str] | None = None) -> None:
         "action", nargs="?", choices=("add", "remove"), help="grant the area, or take it back"
     )
     granting.add_argument("email", nargs="?", metavar="ADDRESS", help="the account's address")
+    inviting = commands.add_parser(
+        "invite",
+        help="mail an address a link that makes an account, even while sign-up is closed",
+        description="Mail the address a link to the page that makes an account with an "
+        "organisation of its own, which works for 14 days whether or not SIGNUP_OPEN lets "
+        "anyone sign up: how a private beta lets someone in. Refused for an address that has "
+        "an account. The worker sends the mail.",
+    )
+    inviting.add_argument("email", metavar="ADDRESS", help="the address to invite")
     receiving = commands.add_parser(
         "receive-mail",
         help="hand a message saved as a file to the projects it is addressed to",
@@ -1986,6 +2023,13 @@ def main(argv: list[str] | None = None) -> None:
             storage = storage_from_settings(settings)
             for line in receive_mail_report(storage, args.path.read_bytes(), args.to):
                 print(line)
+        elif args.command == "invite":
+            check_schema()
+            with SessionLocal() as session:
+                lines = invite_report(session, args.email)
+                session.commit()
+                for line in lines:
+                    print(line)
         elif args.command == "operators":
             if (args.action is None) != (args.email is None):
                 parser.error("operators takes add or remove with an address, or neither")

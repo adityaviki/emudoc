@@ -527,3 +527,28 @@ def test_an_organisation_past_its_plan_invites_and_takes_nobody(client, session,
     assert client.delete(f"/api/organization/invitations/{sent['id']}").status_code == 204
     room(2)
     invite(client, "cat@example.com")
+
+
+def test_an_invitation_still_brings_a_colleague_in_while_sign_up_is_closed(
+    client, mailer, identity_provider, ada, monkeypatch
+):
+    # A private beta (app/signups.py): a team let in brings its colleagues, by its password page
+    # or through a provider, though nobody may sign up with an organisation of their own.
+    settings = get_settings()
+    monkeypatch.setattr(settings, "signup_open", False)
+    monkeypatch.setattr(settings, "google_oauth_client_id", "google-client")
+    monkeypatch.setattr(settings, "google_oauth_client_secret", "google-secret")
+    org_id = ada["organization"]["id"]
+    invite(client, "bob@acme.com")
+    joined = sign_up_invited(another_browser(client), mailer.token())
+    assert joined.status_code == 201, joined.text
+    assert joined.json()["organization"]["id"] == org_id
+
+    invite(client, "grace@acme.com")
+    grace = another_browser(client)
+    _, handshake = begin_oauth(grace, next="/invitation", invitation=mailer.token())
+    identity_provider.claims = google_claims(
+        handshake.nonce, sub="google-grace", email="grace@acme.com", name="Grace"
+    )
+    assert callback(grace, code="the-code", state=handshake.state).headers["location"] == "/"
+    assert me(grace).json()["organization"]["id"] == org_id

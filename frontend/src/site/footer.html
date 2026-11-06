@@ -8,7 +8,12 @@
         <nav aria-label="Emudoc">
           <h2 class="font-semibold">Emudoc</h2>
           <ul class="mt-3 space-y-2 text-muted">
+            <!-- if signup_open -->
             <li><a href="/pricing" class="hover:text-ink hover:underline">Pricing</a></li>
+            <!-- end signup_open -->
+            <!-- if signup_closed -->
+            <li><a href="$book" class="hover:text-ink hover:underline">$book_label</a></li>
+            <!-- end signup_closed -->
             <li><a href="/help" class="hover:text-ink hover:underline">Help</a></li>
             <li><a href="/whats-new" class="hover:text-ink hover:underline">What's new</a></li>
             <li><a href="/api-reference" class="hover:text-ink hover:underline">API reference</a></li>
