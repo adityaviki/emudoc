@@ -13,6 +13,13 @@ to: `## YYYY-MM-DD` a day (or `## YYYY-MM-DD to YYYY-MM-DD`), the newest first, 
 and `Operators:`, each a list of `- ` entries whose lines go on indented by two spaces, a day's
 newest entry first.
 
+## 2026-11-08
+
+Members:
+
+- A document's tab no longer shows the tokens and texts its indexing used, nor that it went
+  without a malware scan.
+
 ## 2026-11-06
 
 Members:

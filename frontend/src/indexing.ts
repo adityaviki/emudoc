@@ -113,14 +113,17 @@ export function statusLabel(document: Document, now = new Date()): string {
 
 /**
  * The line under a ready document's state: what a partly indexed one lacks, the stages it went
- * without otherwise, and when the one that waits runs again ("Without malware scan. Found by its
- * words, not yet by meaning", "Summaries and facts: retrying at 14:32"); null with every stage
- * done.
+ * without otherwise, and when the one that waits runs again ("Found by its words, not yet by
+ * meaning", "Without summaries and facts. Embeddings: retrying at 14:32"); null with every stage
+ * done. A scan the deployment runs none for is the operator's to know, not said here (the status
+ * icon's title still lists it).
  */
 export function missingWords(document: Document, now = new Date()): string | null {
   const retry = waitingRetry(document)
   const unfinished = unfinishedStages(document)
-  const without = missingStages(document).filter((name) => name !== retry?.stage && !unfinished.includes(name))
+  const without = missingStages(document).filter(
+    (name) => name !== 'scan' && name !== retry?.stage && !unfinished.includes(name),
+  )
   const words = [
     without.length ? `Without ${without.map((name) => STAGE_LABELS[name].toLowerCase()).join(', ')}` : '',
     ...lacking(unfinished),

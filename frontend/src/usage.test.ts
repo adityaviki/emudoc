@@ -1,31 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { Usage } from './api.ts'
-import { describeDocumentUsage, describeUsage } from './usage.ts'
+import { describeAnswerUsage, formatCost } from './usage.ts'
 
 const used = (spent: Partial<Usage>): Usage => ({ model: null, cost_micros: null, ...spent })
 
-describe('describeUsage', () => {
-  it('names the pages by what was done with them', () => {
-    expect(describeUsage(used({ bytes: 45_000, pages: 2 }), 'USD', 'upload')).toBe('45 kB · 2 pages')
-    expect(describeUsage(used({ pages: 1 }), 'USD', 'ocr')).toBe('1 page read')
-    expect(describeUsage(used({ pages: 3 }), 'USD', 'render')).toBe('3 pages rendered')
+describe('describeAnswerUsage', () => {
+  it('names the model, then the calls, the tokens and the cost', () => {
+    const usage = used({ model: 'google:gemini-2.5-flash-lite', calls: 2, input_tokens: 834, output_tokens: 56, cost_micros: 1200 })
+    expect(describeAnswerUsage(usage, 'USD')).toBe(`google:gemini-2.5-flash-lite · 2 calls · 834 tokens in, 56 out · ${formatCost(1200, 'USD')}`)
   })
 
-  it('says an upload without pages of its own was counted by its text', () => {
-    expect(describeUsage(used({ bytes: 45_000, pages: 12 }), 'USD', 'upload', true)).toBe('45 kB · 12 pages of text')
-    expect(describeUsage(used({ pages: 1 }), 'USD', 'upload', true)).toBe('1 page of text')
-  })
-
-  it('shows nothing of a count of 0, which marks a document counted before text was', () => {
-    expect(describeUsage(used({ bytes: 45_000, pages: 0 }), 'USD', 'upload', true)).toBe('45 kB')
-  })
-})
-
-describe('describeDocumentUsage', () => {
-  const usage = { upload: used({ bytes: 45_000, pages: 12 }), embed: used({ inputs: 8, input_tokens: 400 }) }
-
-  it('words the upload of a document without pages as pages of text', () => {
-    expect(describeDocumentUsage(usage, 'USD', false)?.detail).toBe('Upload: 45 kB · 12 pages of text\nEmbeddings: 400 tokens · 8 texts embedded')
-    expect(describeDocumentUsage(usage, 'USD')?.detail.split('\n')[0]).toBe('Upload: 45 kB · 12 pages')
+  it('leaves the cost out while the currency is not known', () => {
+    expect(describeAnswerUsage(used({ calls: 1, cost_micros: 1200 }), undefined)).toBe('1 call')
   })
 })
