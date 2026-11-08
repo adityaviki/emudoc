@@ -54,7 +54,7 @@ The chat's title, at the top of the chat, opens the list of your chats. Pin chat
 there, keeps it at the top under "Pinned", one you started or one shared with the project; your
 pins are yours alone, and Unpin chat puts it back among the others. Under an answer, a line says
 which AI model wrote it and how many calls and tokens it took, and to the organisation's owners
-and admins what it cost; a document's tab says the same of reading it.
+and admins what it cost.
 
 ## Keyboard shortcuts
 

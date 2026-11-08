@@ -15,7 +15,6 @@ import { formatDate } from '../format.ts'
 import { useLocalStorage, usePrintTitle, useStatus } from '../hooks.ts'
 import { notIndexedWords, restHeld, scanPassed, unfinishedStages } from '../indexing.ts'
 import { offersLinks } from '../shareLinks.ts'
-import { describeDocumentUsage } from '../usage.ts'
 import { CommentsPanel } from './Comments.tsx'
 import { Copies, DetailsDialog, NotePanel } from './Details.tsx'
 import { originalFile } from './files.ts'
@@ -82,9 +81,6 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
     queryFn: () => api.outline(document.id),
     enabled: indexed,
   })
-  // For the currency the document's cost is in.
-  const health = useStatus()
-  const usage = describeDocumentUsage(document.usage, health.data?.currency, document.page_count !== null)
   const content = useQuery({
     queryKey: ['content', document.id, status],
     queryFn: () => api.content(document.id),
@@ -177,11 +173,8 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
                 </span>
               )}
               {document.version > 1 && <span>version {document.version}</span>}
-              {/* What the document cost and where its indexing stands are the app's, not the document's. */}
+              {/* Where its indexing stands is the app's, not the document's. */}
               <span className="contents print:hidden">
-                {usage && (
-                  <span title={usage.detail}>{usage.summary}</span>
-                )}
                 <IndexingStatus document={document} />
                 {changes && unfinishedStages(document).length > 0 && (
                   <IndexTheRest document={document} onStarted={() => heading.current?.focus()} />

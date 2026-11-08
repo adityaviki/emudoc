@@ -423,8 +423,8 @@ told for it that any edit changes (`backend/app/prompts.py`), which the rows of 
 carry.
 An answer shows what it used under its text (the model, its calls and tokens, and, to the
 organisation's owners and admins alone, the cost, which the server sends no member or viewer:
-`backend/app/costs.py`), and a document's header shows what bringing it in and indexing it used,
-with the breakdown by stage on hover; the figures are kept on the message and the document as the
+`backend/app/costs.py`); a document's tab shows nothing of what bringing it in and indexing it
+used, which the API still gives as its `usage`. The figures are kept on the message and the document as the
 rows are recorded, summed over every run. The costs follow `MODEL_PRICES` in `.env`, what
 each model costs per million tokens in and out, in `PRICE_CURRENCY`, an embedding model's
 under the name `EMBEDDING_MODEL` gives; without prices, no cost is shown.

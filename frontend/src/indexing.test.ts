@@ -100,10 +100,11 @@ describe('a retry that waits', () => {
     const ready = doc('ready', { enrich: failed(at), embed: { status: 'pending' } })
     expect(statusLabel(ready, NOW)).toBe('Ready')
     expect(missingWords(ready, NOW)).toBe(`Summaries and facts: retrying at ${time(at)}`)
-    expect(missingWords(doc('ready', { scan: { status: 'skipped' } }), NOW)).toBe('Without malware scan')
-    // A stage left out for good is not one that comes later.
-    expect(missingWords(doc('ready', { scan: { status: 'skipped' }, enrich: failed(at), embed: { status: 'pending' } }), NOW)).toBe(
-      `Without malware scan. Summaries and facts: retrying at ${time(at)}`,
+    // A scan the deployment runs none for is not the member's to know.
+    expect(missingWords(doc('ready', { scan: { status: 'skipped' } }), NOW)).toBeNull()
+    // A stage left out while another waits is not one that comes later.
+    expect(missingWords(doc('ready', { scan: { status: 'skipped' }, enrich: { status: 'skipped' }, embed: failed(at) }), NOW)).toBe(
+      `Without summaries and facts. Embeddings: retrying at ${time(at)}`,
     )
     expect(missingWords(doc('ready', {}), NOW)).toBeNull()
 
@@ -163,7 +164,7 @@ describe('a partly indexed document', () => {
     expect(statusLabel(skipped, NOW)).toBe('Partly indexed')
     expect(missingWords(skipped, NOW)).toBe('No summary or facts yet')
     expect(missingWords(gaveUp, NOW)).toBe('Found by its words, not yet by meaning')
-    expect(missingWords(both, NOW)).toBe('Without malware scan. Found by its words, not yet by meaning. No summary or facts yet')
+    expect(missingWords(both, NOW)).toBe('Found by its words, not yet by meaning. No summary or facts yet')
     expect(statusTitle(gaveUp, NOW).split('\n')).toEqual([
       'Partly indexed',
       'Malware scan: done',
