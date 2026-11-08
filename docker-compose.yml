@@ -64,6 +64,36 @@ services:
     volumes:
       - clamdb:/var/lib/clamav
 
+  # The converter, for trying CONVERTER_URL=http://127.0.0.1:8090 by hand; nothing starts it
+  # unless asked: `docker compose --profile converter up -d --wait`, which builds the app's
+  # image for it first (a few minutes the first time; `--build` after a change to
+  # backend/app/converter.py). It runs as deploy/compose.yml runs it, but on a network of its
+  # own that the host reaches through its port, rather than one only the worker shares. The
+  # tests never need it: they run the converter with a stand-in for LibreOffice.
+  converter:
+    build: .
+    image: emudoc:converter
+    profiles: ["converter"]
+    command: [python, -m, app.converter]
+    networks: [converter]
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ports:
+      - "127.0.0.1:${CONVERTER_PORT:-8090}:8080"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=4)
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
   # pgbouncer in transaction mode in front of the database, for trying DATABASE_POOLER by hand;
   # nothing starts it unless asked: `docker compose --profile pgbouncer up -d --wait`. It hands
   # out a server connection per transaction and, like pgbouncer before 1.21, carries no
@@ -95,6 +125,10 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+# The converter's, apart from the database's.
+networks:
+  converter:
 
 volumes:
   pgdata:

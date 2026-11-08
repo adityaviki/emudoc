@@ -16,6 +16,7 @@ const deployment: SystemStatus = {
   workers: { running: true, error: null },
   currency: 'USD',
   uploads: { files: 100, request_bytes: 500 * 1024 * 1024, file_bytes: 100 * 1024 * 1024, extensions: ['.pdf'] },
+  views: false,
 }
 
 describe('the header', () => {

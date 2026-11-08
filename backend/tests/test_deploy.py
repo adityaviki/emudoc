@@ -30,6 +30,7 @@ WRITTEN = {
     "AWS_DEFAULT_REGION": "eu-central-1",
     "SCANNER_URL": "clamd://clamav:3310",
     "EMBEDDING_BASE_URL": "http://embeddings:8080/v1",
+    "CONVERTER_URL": "http://converter:8080",
     "HOSTING_PROVIDER": "Amazon Web Services, eu-central-1",
     "BACKUP_DAYS": "35",
     "ACCESS_LOG_DAYS": "30",
@@ -71,9 +72,10 @@ ALERTING = {
     "EMUDOC_HEARTBEAT": "arn:aws:sns:eu-central-1:123456789012:emudoc-staging-heartbeat",
 }
 # Written for the app's sake, not production's checks: boto3 signs for the bucket's region, the
-# error tracker files the reports by the environment's name, and the privacy policy names how
-# long the access and flow logs are kept, which a deployment without them need not say.
-NOT_CHECKED = {"AWS_DEFAULT_REGION", "SENTRY_ENVIRONMENT", "ACCESS_LOG_DAYS"}
+# error tracker files the reports by the environment's name, the privacy policy names how long
+# the access and flow logs are kept, which a deployment without them need not say, and the
+# converter shows Office files as they look, which a deployment may do without.
+NOT_CHECKED = {"AWS_DEFAULT_REGION", "SENTRY_ENVIRONMENT", "ACCESS_LOG_DAYS", "CONVERTER_URL"}
 
 
 @pytest.fixture(autouse=True)

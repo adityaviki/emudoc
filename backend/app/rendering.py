@@ -89,6 +89,10 @@ CRASHED = (
     "does, ask support about it."
 )
 UNSTARTED = "No process could be started to draw the page. Try again in a moment."
+# What a PDF is told by whose pages a child measured as no sizes; one it could not read at all is
+# told by the child's own sentence (app/parsing/render.py, which this process does not import:
+# it loads pdfium).
+UNMEASURABLE = "The PDF could not be read: its pages have no sizes the viewer can use."
 STOPPING = "The app is stopping, so the page was not drawn. Try again in a moment."
 
 
@@ -202,7 +206,7 @@ class Renderer:
         began = time.monotonic()
         outcome = "drawn"
         try:
-            return self._render(
+            _, image = self._exchange(
                 {
                     "path": str(path.absolute()),
                     "page": page,
@@ -212,6 +216,7 @@ class Renderer:
                 },
                 timeout,
             )
+            return image
         except RenderError as error:
             outcome = error.outcome
             raise
@@ -220,20 +225,37 @@ class Renderer:
             RENDER_SECONDS.labels(purpose).observe(time.monotonic() - began)
             note(RENDER, began, purpose=purpose, outcome=outcome)
 
-    def _render(self, request: dict, timeout: float) -> bytes:
+    def measure(self, path: Path, *, timeout: float | None = None) -> list[list[float]]:
+        """The size of each page of the PDF at `path`, [width, height] in points, read by a
+        child as a page is drawn: the PDF the converter made of an Office file
+        (app/conversion.py), which this process does not open with pdfium. `timeout` is
+        RENDER_TIMEOUT unless given. Raises `RenderError`, `refused` for a PDF the child could
+        not read or one whose sizes are not sizes."""
+        if timeout is None:
+            timeout = get_settings().render_timeout
+        header, _ = self._exchange(
+            {"path": str(path.absolute()), "measure": True, "seconds": timeout}, timeout
+        )
+        sizes = header.get("sizes")
+        if not isinstance(sizes, list) or not sizes or not all(map(_is_size, sizes)):
+            raise RenderError(UNMEASURABLE, "refused")
+        return sizes
+
+    def _exchange(self, request: dict, timeout: float) -> tuple[dict, bytes]:
+        """A child's answer to `request`: its header and the bytes after it. Raises
+        `RenderError`, `refused` for what the child could not do, which leaves it as it was."""
         child = self._free.get()
         kept: _Child | None = None
         try:
             if child is None:
                 child = self._start()
-            header, image = self._ask(child, request, timeout)
+            header, body = self._ask(child, request, timeout)
             child.drawn += 1
             if child.drawn < RENDERS_PER_CHILD:
                 kept = child
-            if "png" in header:
-                return image
-            # A page the child could not draw, which leaves the child as it was.
-            raise RenderError(str(header["error"]), "refused")
+            if "error" in header:
+                raise RenderError(str(header["error"]), "refused")
+            return header, body
         finally:
             if child is not None and kept is None:
                 self._end(child)
@@ -271,7 +293,7 @@ class Renderer:
                 raise RenderError(TIMED_OUT.format(limit=_seconds(timeout)), "timeout") from None
             log.warning("A render process ended with code %s while it drew a page", code)
             raise RenderError(CRASHED, "crashed") from None
-        if "png" in header or isinstance(header.get("error"), str):
+        if "png" in header or "sizes" in header or isinstance(header.get("error"), str):
             return header, image
         log.warning(
             "A render process failed to draw a page (%s): %s",
@@ -320,6 +342,18 @@ class Renderer:
                 child.process.kill()
         for child in children:
             child.process.wait()
+
+
+def _is_size(size: object) -> bool:
+    """Whether a child's page size is one: two finite numbers above zero."""
+    return (
+        isinstance(size, list)
+        and len(size) == 2
+        and all(
+            isinstance(side, int | float) and not isinstance(side, bool) and 0 < side < 1e6
+            for side in size
+        )
+    )
 
 
 def _seconds(seconds: float) -> str:

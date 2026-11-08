@@ -575,6 +575,10 @@ class DocumentOut(_FromORM):
     created_at: dt.datetime
     # Which version of the document its file is, from 1 (app/versions.py).
     version: int
+    # Its view, the PDF of a Word, PowerPoint, Excel, RTF or HTML file that shows it as it looks
+    # (app/conversion.py): being made, made, or failed with the sentence why; None for none.
+    view_state: Literal["queued", "ready", "failed"] | None = None
+    view_error: str | None = None
     # Its review (app/reviews.py), None for none: the member it is assigned to, by id and their
     # name as it is now, and who moved it to its state and when, None for an automation or an
     # account gone.
@@ -784,6 +788,9 @@ class DocumentContent(BaseModel):
     blocks: list[BlockOut]
     # [width, height] per page in the same units as block bboxes; empty when there are no pages.
     page_sizes: list[list[float]]
+    # The same for the pages of its view, a Word, PowerPoint or Excel file shown as it looks
+    # (app/conversion.py), whose blocks have no place on them; empty until it is made.
+    view_page_sizes: list[list[float]] = []
 
 
 class PassageOut(BaseModel):
@@ -2769,6 +2776,9 @@ class StatusOut(BaseModel):
     llm: LLMStatus
     embeddings: EmbeddingStatus
     workers: WorkerStatus
+    # Whether Word, PowerPoint, Excel, RTF and HTML documents are shown as they look
+    # (CONVERTER_URL, app/conversion.py); without, they are shown by their text.
+    views: bool = False
     # The currency the costs on usage are in (PRICE_CURRENCY), an ISO 4217 code.
     currency: str
     uploads: UploadLimitsOut

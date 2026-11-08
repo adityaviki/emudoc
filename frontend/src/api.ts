@@ -268,7 +268,12 @@ export interface Document {
   assignee: string | null
   review_changer: string | null
   review_changed_at: string | null
+  /** Its view, the PDF of a Word, PowerPoint, Excel, RTF or HTML file that shows it as it looks (backend/app/conversion.py): being made, made, or failed with the sentence why in `view_error`; null for none. */
+  view_state: ViewState | null
+  view_error: string | null
 }
+
+export type ViewState = 'queued' | 'ready' | 'failed'
 
 /** DOCUMENT_DETAILS in backend/app/models.py: what a member may set in place of what a document's reading found. */
 export type DocumentDetail = 'title' | 'doc_type' | 'doc_date' | 'language'
@@ -580,6 +585,8 @@ export interface Block {
 export interface DocumentContent {
   blocks: Block[]
   page_sizes: [number, number][]
+  /** The pages of its view, for a document shown as it looks (backend/app/conversion.py); empty until the view is made. */
+  view_page_sizes: [number, number][]
 }
 
 export interface Passage {
@@ -1123,6 +1130,8 @@ export interface SystemStatus {
   /** The currency the costs on usage are in, an ISO 4217 code. */
   currency: string
   uploads: UploadLimits
+  /** Whether Word, PowerPoint, Excel, RTF and HTML documents are shown as they look (backend/app/conversion.py); without, by their text. */
+  views: boolean
 }
 
 /** Whether the API can serve, and which version it runs (backend/app/version.py). */
@@ -2852,6 +2861,8 @@ export const api = {
     const query = params.toString()
     return request<DuplicatesPage>(query ? `/duplicates?${query}` : '/duplicates')
   },
+  /** Have the document's view made: one it never had, or one that failed; one queued or made is left as it is. */
+  makeView: (id: number) => request<Document>(`/documents/${id}/view`, { method: 'POST' }),
   reprocessDocument: (id: number, fromStage: StageName) =>
     request<Document>(`/documents/${id}/reprocess?from_stage=${fromStage}`, { method: 'POST' }),
   /** Index the chosen documents again from a stage, or without one the rest of those partly indexed; one being indexed is left. */
@@ -2960,6 +2971,16 @@ export const isImage = (document: Pick<Document, 'mime_type'>) =>
   document.mime_type.startsWith('image/') && !SCAN_TYPES.includes(document.mime_type)
 export const isSheet = (document: Pick<Document, 'mime_type'>) =>
   document.mime_type === 'text/csv' || document.mime_type.endsWith('spreadsheetml.sheet')
+/** The types shown as they look by a view, the PDF the converter makes of them (CONVERTIBLE in backend/app/conversion.py). */
+const VIEW_TYPES = new Set([
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/rtf',
+  'text/html',
+])
+/** Whether the document is of a type shown as it looks, where the deployment converts files. */
+export const hasView = (document: Pick<Document, 'mime_type'>) => VIEW_TYPES.has(document.mime_type)
 
 /** An event of an answer, with the id the server gave it; `end` has none. */
 export interface NumberedEvent {

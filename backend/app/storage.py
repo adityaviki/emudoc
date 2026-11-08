@@ -6,6 +6,7 @@ backends:
     orgs/{org}/projects/{project}/documents/{document}/original.pdf
     orgs/{org}/projects/{project}/documents/{document}/pages/{n}.png
     orgs/{org}/projects/{project}/documents/{document}/thumbnail.png
+    orgs/{org}/projects/{project}/documents/{document}/view.pdf
     orgs/{org}/projects/{project}/documents/{document}/versions/{n}/original.docx
     orgs/{org}/projects/{project}/exports/{export}.zip
 
@@ -18,13 +19,15 @@ an earlier file is served for the new one. The database holds the original's key
 derive from it (`Document.version_prefix`, `Document.storage_prefix`).
 
 The pages and the thumbnail are a cache: rendered from the original the first time they are
-asked for (a PDF's first pages once it is parsed, app/rendering.py), and removed again once
-they are older than PAGE_IMAGE_DAYS (`sweep_storage` in app/maintenance.py), since a 500-page
-PDF would otherwise stay 500 pictures of a few megabytes each for good. `is_rendered` tells
-those keys apart; a listing carries each object's age for it. The same walk finds what a delete
-left behind when the storage failed after the rows were gone: a prefix whose document or
-project has no row is removed, once it is old enough not to be an upload still in flight; and
-an export past EXPORT_DAYS goes too (`is_export`).
+asked for (a PDF's first pages once it is parsed, app/rendering.py), and removed again once they
+are older than PAGE_IMAGE_DAYS (`sweep_storage` in app/maintenance.py), since a 500-page PDF
+would otherwise stay 500 pictures of a few megabytes each for good. A Word, PowerPoint or Excel
+file's view, the PDF its pages are drawn from (app/conversion.py), is no cache: it stays with
+its version, as the original does. `is_rendered` tells the drawings' keys apart; a listing
+carries each object's age for it. The same walk finds what a delete left behind when the storage
+failed after the rows were gone: a prefix whose document or project has no row is removed, once
+it is old enough not to be an upload still in flight; and an export past EXPORT_DAYS goes too
+(`is_export`).
 
 The parsers open files by path, so `localize` gives the parse stage a local copy of an object
 for as long as it needs one; the local storage hands out the file itself. A reader that comes

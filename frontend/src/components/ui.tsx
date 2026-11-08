@@ -233,12 +233,14 @@ interface SegmentedProps<T extends string> {
   value: T
   onChange: (value: T) => void
   options: { value: T; label: string; icon?: LucideIcon }[]
+  /** What the choices are about, for a reader that cannot see the row's place. */
+  label?: string
 }
 
 /** A row of mutually exclusive choices, one of them pressed. */
-export function Segmented<T extends string>({ value, onChange, options }: SegmentedProps<T>) {
+export function Segmented<T extends string>({ value, onChange, options, label }: SegmentedProps<T>) {
   return (
-    <div className="flex shrink-0 rounded-md bg-sunken p-0.5 text-[13px]">
+    <div role={label ? 'group' : undefined} aria-label={label} className="flex shrink-0 rounded-md bg-sunken p-0.5 text-[13px]">
       {options.map((option) => (
         <button
           key={option.value}

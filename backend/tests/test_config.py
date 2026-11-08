@@ -610,27 +610,32 @@ def test_production_sends_nothing_off_its_own_network_unencrypted(
         mail_events_queue="http://sqs.example.com/123456789012/mail-events",
         inbound_domain="in.example.com",
         inbound_mail_queue="http://sqs.example.com/123456789012/inbound",
+        converter_url="http://converter.example.com",
     )
     with pytest.raises(SystemExit) as stop:
         load_settings(**deployment)
     lines = stop.value.code.splitlines()[1:]
-    assert len(lines) == 6
+    assert len(lines) == 7
     assert "DATABASE_URL connects to db.example.com without sslmode=verify-full" in lines[0]
     assert "SCANNER_URL streams every upload to the ClamAV daemon at clamav.example.com" in lines[1]
     assert (
         "EMBEDDING_BASE_URL sends every passage as it is indexed and every search to " in lines[2]
     )
     assert (
+        "CONVERTER_URL sends every Word, PowerPoint, Excel, RTF and HTML upload and the PDF made "
+        "of it to converter.example.com over plain HTTP" in lines[3]
+    )
+    assert (
         "PWNED_PASSWORDS_URL sends the start of the hash of every new password to "
-        "pwned.example.com over plain HTTP" in lines[3]
+        "pwned.example.com over plain HTTP" in lines[4]
     )
     assert (
         "MAIL_EVENTS_QUEUE sends the worker's requests for the addresses whose mail bounced to "
-        "sqs.example.com over plain HTTP" in lines[4]
+        "sqs.example.com over plain HTTP" in lines[5]
     )
     assert (
         "INBOUND_MAIL_QUEUE sends the worker's requests for the mail sent to projects' addresses "
-        "to sqs.example.com over plain HTTP" in lines[5]
+        "to sqs.example.com over plain HTTP" in lines[6]
     )
     assert "secret" not in stop.value.code
 
@@ -646,6 +651,7 @@ def test_production_sends_nothing_off_its_own_network_unencrypted(
         pwned_passwords_url="http://pwned:8080",
         mail_events_queue="https://sqs.eu-central-1.amazonaws.com/123456789012/mail-events",
         inbound_mail_queue="https://sqs.eu-central-1.amazonaws.com/123456789012/inbound",
+        converter_url="http://converter:8080",
     )
     assert load_settings(**deployment).production_problems() == []
 

@@ -508,6 +508,8 @@ def test_a_deployments_status_names_nothing_of_how_it_is_set_up(client, services
             "file_bytes": 100 * 1024**2,
             "extensions": sorted(SUPPORTED_EXTENSIONS),
         },
+        # Whether files are shown as they look, which says nothing of where the converter is.
+        "views": False,
     }
 
     services.embedder.fail = True

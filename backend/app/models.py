@@ -66,6 +66,10 @@ AUTOMATION_AUDIENCES = ("maker", "project", "nobody")
 # invoice: put in review for a member to look at, then approved, or disputed with whoever sent
 # it. A document in no review has none.
 REVIEW_STATES = ("to_review", "approved", "disputed")
+# Where a document's view stands, the PDF of its file the document pane shows a Word, PowerPoint
+# or Excel file by (app/conversion.py): being made, made, or not made for the reason
+# `view_error` gives; null for none (a type that is not converted, or one not asked for yet).
+VIEW_STATES = ("queued", "ready", "failed")
 # A document's details that a member may set in place of what its reading found (app/details.py):
 # its title, its kind, its date and the language its words are searched in, each kept through
 # every later reading until the member takes the reading's again.
@@ -128,6 +132,7 @@ JOB_KINDS = (
     "run_question_set",
     "write_question_report",
     "send_digests",
+    "convert_document",
 )
 JOB_STATUSES = ("queued", "running", "done", "failed")
 # Why an address is sent no notices (app/bounces.py): mail to it bounced for good, or its reader
@@ -1298,8 +1303,9 @@ class Document(Base):
         Index("ix_documents_listing_size", "project_id", "folder_id", "size_bytes", "id"),
         Index("ix_documents_listing_date", "project_id", "folder_id", "doc_date", "id"),
         *_trash_indexes("documents", "project_id"),
-        # A null review passes, as a check that is not false does.
+        # A null review passes, as a check that is not false does; so does a null view.
         _one_of("review", REVIEW_STATES, "documents"),
+        _one_of("view_state", VIEW_STATES, "documents"),
         # Whoever is assigned a document is assigned its review, which it is in; and a review
         # has the moment it was moved to its state, which orders the reviews view.
         CheckConstraint("assignee_id IS NULL OR review IS NOT NULL", name="ck_documents_assignee"),
@@ -1379,6 +1385,13 @@ class Document(Base):
     page_count: Mapped[int | None] = mapped_column(Integer)
     # [[width, height], ...] in PDF points, one per page; empty for formats without pages.
     page_sizes: Mapped[list] = mapped_column(JSONB, default=list)
+    # Its view (app/conversion.py): the PDF the converter made of a Word, PowerPoint, Excel, RTF
+    # or HTML file, kept at `view_key`, whose pages the document pane shows it by. One of
+    # VIEW_STATES, or null for none; the size of each of its pages as `page_sizes` holds a
+    # PDF's, empty until it is ready; and while it failed, the sentence a member is told why.
+    view_state: Mapped[str | None] = mapped_column(String(20))
+    view_page_sizes: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
+    view_error: Mapped[str | None] = mapped_column(Text)
     # Its title, kind and date as everything reads them (the library, its search, the agent): a
     # member's where one set it (`edited_details`, app/details.py), else what
     # its last reading found, which `read_title`, `read_doc_type` and `read_doc_date` keep either
@@ -1466,6 +1479,12 @@ class Document(Base):
     @property
     def thumbnail_key(self) -> str:
         return f"{self.version_prefix}thumbnail.png"
+
+    @property
+    def view_key(self) -> str:
+        """Where the current version's view is kept, the PDF its pages are drawn from in the
+        place of the original's (app/conversion.py)."""
+        return f"{self.version_prefix}view.pdf"
 
 
 class DocumentVersion(Base):

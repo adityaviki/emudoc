@@ -42,6 +42,8 @@ const doc = (id: number, filename: string, folderId: number | null = null): Docu
   assignee: null,
   review_changer: null,
   review_changed_at: null,
+  view_state: null,
+  view_error: null,
 })
 
 const folders = [folder(1, 'Invoices'), folder(2, '2024', 1), folder(3, 'Contracts')]

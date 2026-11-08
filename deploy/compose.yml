@@ -1,5 +1,5 @@
 # Emudoc on one machine from its image (deploying.md, "The image"): the release step, the API,
-# a worker, and ClamAV and llama.cpp's server for them. The database, the mail relay, the bucket
+# a worker, the converter, and ClamAV and llama.cpp's server for them. The database, the mail relay, the bucket
 # if there is one, and the reverse proxy that ends TLS in front of the API are the deployment's
 # ("The pieces").
 #
@@ -25,6 +25,7 @@
 #   STORAGE_URL=file:///var/lib/emudoc   for the files volume below, or s3://… for a bucket
 #   SCANNER_URL=clamd://clamav:3310      the daemon below
 #   EMBEDDING_BASE_URL=http://embeddings:8080/v1   the embeddings endpoint below
+#   CONVERTER_URL=http://converter:8080  the converter below
 #
 # The API and the worker serve their metrics on 9464 of their containers (the image's
 # METRICS_ADDRESS), which nothing below publishes: a scraper on this network asks api:9464 and
@@ -95,6 +96,8 @@ services:
   worker:
     <<: *app
     command: [python, -m, app.worker, --alive-file, /tmp/worker.alive]
+    # The converter's network as well, which nothing else of the app is on.
+    networks: [default, converter]
     # A stop gives the running jobs 8 seconds (--grace) within these 10 and hands the rest
     # back to the queue, for the next worker to start over; raise both together.
     stop_grace_period: 10s
@@ -115,6 +118,36 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 3
+
+  # The converter (deploying.md, "The converter"): the image run as a container of its own
+  # with LibreOffice, which turns a Word, PowerPoint, Excel, RTF or HTML upload into the PDF the
+  # document pane shows it by. LibreOffice reads every such upload, and a document can name
+  # files and addresses for it to fetch, so it is given no settings (no env_file), no volume and
+  # no network but `converter`, which the worker alone shares and which leads nowhere else. Its
+  # limits: --timeout seconds a file, --concurrency at once, --max-mb as large as MAX_UPLOAD_MB
+  # (raise them together), and the memory below, past which the kernel ends the conversion
+  # and the worker gives the file up after its tries.
+  converter:
+    image: ${EMUDOC_IMAGE:?set EMUDOC_IMAGE to the image to run, such as emudoc:<commit>}
+    command: [python, -m, app.converter, --concurrency, "2", --timeout, "120", --max-mb, "100"]
+    networks: [converter]
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 2g
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=4)
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    restart: unless-stopped
 
   clamav:
     image: clamav/clamav:1.5@sha256:638d90201ee7ee6a82d249a2fc23b132e578673b5f1f2766852b127676ca1ef6
@@ -211,6 +244,10 @@ networks:
       config:
         - subnet: 10.73.0.0/24
           gateway: 10.73.0.1
+  # The worker and the converter, and no way out of it: no gateway, so neither the internet,
+  # the instance's metadata nor the database is reached from it.
+  converter:
+    internal: true
 
 volumes:
   files:

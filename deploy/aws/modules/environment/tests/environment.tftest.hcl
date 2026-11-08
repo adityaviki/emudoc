@@ -530,8 +530,8 @@ run "staging" {
   assert {
     condition = toset(keys(aws_ssm_parameter.setting)) == toset([
       "APP_URL", "STORAGE_URL", "AWS_DEFAULT_REGION", "SCANNER_URL", "EMBEDDING_BASE_URL",
-      "HOSTING_PROVIDER", "BACKUP_DAYS", "ACCESS_LOG_DAYS", "SERVER_LOG_DAYS", "SENTRY_ENVIRONMENT",
-      "OPERATOR_NAME", "OPERATOR_EMAIL", "AGENT_MODEL", "INDEX_MODEL",
+      "CONVERTER_URL", "HOSTING_PROVIDER", "BACKUP_DAYS", "ACCESS_LOG_DAYS", "SERVER_LOG_DAYS",
+      "SENTRY_ENVIRONMENT", "OPERATOR_NAME", "OPERATOR_EMAIL", "AGENT_MODEL", "INDEX_MODEL",
     ])
     error_message = "Staging's settings are the module's and the root's, and no others."
   }
@@ -541,6 +541,7 @@ run "staging" {
       && aws_ssm_parameter.setting["STORAGE_URL"].value == "s3://emudoc-staging-documents-123456789012"
       && aws_ssm_parameter.setting["SCANNER_URL"].value == "clamd://clamav:3310"
       && aws_ssm_parameter.setting["EMBEDDING_BASE_URL"].value == "http://embeddings:8080/v1"
+      && aws_ssm_parameter.setting["CONVERTER_URL"].value == "http://converter:8080"
       && aws_ssm_parameter.setting["HOSTING_PROVIDER"].value == "Amazon Web Services, eu-central-1"
       && aws_ssm_parameter.setting["BACKUP_DAYS"].value == "35"
       && aws_ssm_parameter.setting["SENTRY_ENVIRONMENT"].value == "staging"

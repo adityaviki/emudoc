@@ -2,7 +2,8 @@
 # The image's smoke test (CI, "Image"): the release step, the API and the worker start from the
 # image as a deployment runs them, on a read-only filesystem with a tmpfs at /tmp and the files
 # on a volume, and the API answers its probes with the commit the image was built from and
-# serves the page, the files it names and what's new from the changelog. The
+# serves the page, the files it names and what's new from the changelog; and the converter,
+# with no network at all, turns a Word file into a PDF with the image's LibreOffice. The
 # suite builds no image, so this is what finds a file the image lacks (.dockerignore is an
 # allowlist), a path that moved or something written outside /tmp. Development's settings,
 # since production's want a mail relay, a scanner, a model key and the rest: what is checked is
@@ -41,12 +42,12 @@ sql() {
 passed=false
 cleanup() {
   if ! $passed; then
-    for part in api worker; do
+    for part in api worker converter; do
       echo "--- the $part's log" >&2
       docker logs "$name-$part" 2>&1 | tail -n 40 >&2 || true
     done
   fi
-  docker rm -f "$name-api" "$name-worker" >/dev/null 2>&1 || true
+  docker rm -f "$name-api" "$name-worker" "$name-converter" >/dev/null 2>&1 || true
   docker volume rm "$name-files" >/dev/null 2>&1 || true
   sql "DROP DATABASE IF EXISTS $database WITH (FORCE)" || true
 }
@@ -67,6 +68,9 @@ docker run -d --name "$name-api" -p 127.0.0.1::8000 "${app[@]}" "$image" >/dev/n
 docker run -d --name "$name-worker" "${app[@]}" "$image" \
   python -m app.worker --alive-file /tmp/worker.alive >/dev/null
 address=http://$(docker port "$name-api" 8000/tcp | head -n 1)
+# The converter as deploy/compose.yml runs it, but with no network at all: it is asked from inside.
+docker run -d --name "$name-converter" --network none --read-only --tmpfs /tmp --cap-drop ALL \
+  --security-opt no-new-privileges:true "$image" python -m app.converter >/dev/null
 
 running() {
   [[ $(docker inspect -f '{{.State.Running}}' "$name-$1") == true ]] || {
@@ -119,6 +123,35 @@ for ((tries = 30; ; tries--)); do
   sleep 1
 done
 running api
+for ((tries = 60; ; tries--)); do
+  running converter
+  docker exec "$name-converter" python -c "import urllib.request
+urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=4)" >/dev/null 2>&1 && break
+  ((tries > 1)) || {
+    echo "The converter was not ready within a minute." >&2
+    exit 1
+  }
+  sleep 1
+done
+# A Word file made in the container and converted there: LibreOffice and its fonts are in the
+# image, and run with nothing to write to but /tmp.
+docker exec "$name-converter" python -c '
+import io, urllib.request
+from docx import Document
+document = Document()
+document.add_heading("The image check", 0)
+document.add_paragraph("Converted by the image'"'"'s LibreOffice.")
+body = io.BytesIO()
+document.save(body)
+request = urllib.request.Request(
+    "http://127.0.0.1:8080/convert?type=docx", data=body.getvalue(), method="POST"
+)
+answer = urllib.request.urlopen(request, timeout=120).read()
+assert answer.startswith(b"%PDF-"), answer[:200]
+' || {
+  echo "The converter did not turn a Word file into a PDF." >&2
+  exit 1
+}
 # The metrics, on the port of their own the image listens on (METRICS_ADDRESS), which nothing
 # publishes: the API's requests, and the worker's figures of the database.
 metrics() {
@@ -135,4 +168,4 @@ grep -q '^emudoc_documents{' <<<"$(metrics worker)" || {
 }
 
 passed=true
-echo "The image $image ($revision) migrates, serves the page, its ${#files[@]} files, what's new and the probes, and runs the worker, and both serve their metrics."
+echo "The image $image ($revision) migrates, serves the page, its ${#files[@]} files, what's new and the probes, and runs the worker, and both serve their metrics; its converter turns a Word file into a PDF."

@@ -52,7 +52,7 @@ from tests.conftest import book_pdf
 from tests.test_api import create_project, upload
 from tests.test_audit import actions
 from tests.test_auth import me, signup
-from tests.test_authorization import reads, starts, statuses, world, writes  # noqa: F401 (a fixture)
+from tests.test_authorization import reads, shows, starts, statuses, world, writes  # noqa: F401 (a fixture)
 from tests.test_chats import new_chat
 from tests.test_pipeline import scanned_pdf
 from tests.test_usage import rows_of
@@ -790,6 +790,10 @@ def test_an_organisation_past_its_plan_is_read_only_until_it_is_within_it(
     # What it holds is read and asked about as a viewer's would be.
     seen = statuses(client, reads(world) + starts(world))
     assert set(seen.values()) <= {200, 201}, seen
+    # Having a document shown as it looks is reading too: past the plan's check, the suite's
+    # refusal is that it converts nothing.
+    shown = statuses(client, shows(world))
+    assert set(shown.values()) == {409}, shown
     asked = client.post(f"/api/chats/{world.chat_id}/messages", json={"content": "What else?"})
     assert asked.status_code == 201
 

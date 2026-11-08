@@ -47,7 +47,7 @@ holds a folder of the same name already, its files go into that one. A move or a
 toolbar. Two files of the same project cannot hold the same bytes: uploading one again says
 where it is.
 
-Each document you open gets a tab above it, and the tabs stay open until you close them. Drag a
+Each document you open gets a tab above it, and the tabs stay open until you close them.$views Drag a
 tab to put it elsewhere among them, or use Move left and Move right in its menu, or Ctrl+Shift
 and an arrow (⌘+Shift on a Mac) while it has the focus; the Search tab stays first. Pin a tab
 from its menu to keep it before the others: it shows a pin instead of its cross, and Close others

@@ -23,7 +23,8 @@ export const WAITING_REFRESH = 60_000
 /**
  * When to ask again about a folder or a document that shows these documents, in milliseconds,
  * or false for not until something else asks: every REFRESH while one is indexed or queued
- * without a known retry, else just after the soonest retry is due (when the worker takes it),
+ * without a known retry, or its view is being made (backend/app/conversion.py), whose pages and
+ * thumbnail come once it is, else just after the soonest retry is due (when the worker takes it),
  * at most WAITING_REFRESH from now. A ready document whose optional stage waits counts, so its
  * retry is seen when it runs.
  */
@@ -32,7 +33,7 @@ export function refreshAfter(documents: Document[], now = Date.now()): number | 
   for (const document of documents) {
     const retry = waitingRetry(document)
     if (retry) soonest = Math.min(soonest, retry.at.getTime())
-    else if (isIndexing(document)) return REFRESH
+    else if (isIndexing(document) || document.view_state === 'queued') return REFRESH
   }
   if (soonest === Infinity) return false
   return askAgainAt(soonest, now)

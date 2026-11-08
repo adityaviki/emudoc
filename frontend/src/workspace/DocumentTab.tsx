@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { History, Link2, ListChecks, ListTree, MessageSquare, MessageSquarePlus, PenLine, Printer, StickyNote, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { api, fileUrl, hasPages, isImage, isSheet, mayChange, pageImageUrl, pageLabel, sectionPath } from '../api.ts'
+import { api, fileUrl, hasPages, hasView, isImage, isSheet, mayChange, pageImageUrl, pageLabel, sectionPath } from '../api.ts'
 import type { Document, Section } from '../api.ts'
 import { useMe } from '../auth.ts'
 import { chosenIn, openWords, quoted, threadCounts, threadsKey } from '../comments.ts'
@@ -10,7 +10,7 @@ import { noteKey } from '../details.ts'
 import { ImagePreview, PagesView, Scrolled, SheetView, TextView } from '../components/DocumentViews.tsx'
 import type { BlockFocus } from '../components/DocumentViews.tsx'
 import { IndexingStatus } from '../components/IndexingStatus.tsx'
-import { Button, Chip, IconButton, Loading, Notice } from '../components/ui.tsx'
+import { Button, Chip, IconButton, Loading, Notice, Segmented, Spinner } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
 import { useLocalStorage, usePrintTitle, useStatus } from '../hooks.ts'
 import { notIndexedWords, restHeld, scanPassed, unfinishedStages } from '../indexing.ts'
@@ -22,6 +22,8 @@ import { documentKey, listingsKey } from './listing.ts'
 import { ReviewControls } from './Reviews.tsx'
 import { ShareDialog } from './ShareLinks.tsx'
 import { VersionsDialog } from './Versions.tsx'
+import { SHOWN_CHOICES, viewContent } from '../views.ts'
+import type { Shown } from '../views.ts'
 import { useWorkspace } from './state.ts'
 import { followedKey } from './uploads.ts'
 import type { Focus } from './url.ts'
@@ -37,7 +39,9 @@ interface DocumentTabProps {
 }
 
 /**
- * One open document: a PDF's rendered pages, or anything else's extracted text with the outline beside it.
+ * One open document: a PDF's rendered pages, or anything else's extracted text with the outline beside it;
+ * a Word, PowerPoint, Excel, RTF or HTML file's pages as it looks too, where the deployment converts
+ * files (backend/app/conversion.py), with a switch to its text.
  * Printed, it is the document alone (data-print, index.css): a PDF its pages, anything else its
  * heading and text, and none of the controls.
  */
@@ -75,20 +79,46 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
   // The original is served once its malware scan has passed, and never when it was flagged.
   const openable = scanPassed(document) && status !== 'quarantined'
   const original = originalFile(document)
-  // Derived data is fetched again whenever indexing changes the document's status.
+  // Derived data is fetched again whenever indexing changes the document's status, and the content
+  // when its view is made, which brings the view's pages.
   const outline = useQuery({
     queryKey: ['outline', document.id, status],
     queryFn: () => api.outline(document.id),
     enabled: indexed,
   })
   const content = useQuery({
-    queryKey: ['content', document.id, status],
+    queryKey: ['content', document.id, status, document.view_state],
     queryFn: () => api.content(document.id),
     enabled: indexed,
   })
+  // A Word, PowerPoint, Excel, RTF or HTML file is shown as it looks by the pages of its view, where the
+  // deployment converts files; its text, where a cited passage is marked, is a switch away.
+  const health = useStatus()
+  const queryClient = useQueryClient()
+  const looks = hasView(document) && (health.data?.views ?? false) && indexed && openable
+  const viewPages = document.view_state === 'ready' ? (content.data?.view_page_sizes ?? []) : []
+  const viewReady = looks && viewPages.length > 0
+  const makeView = useMutation({
+    mutationFn: () => api.makeView(document.id),
+    onSuccess: (made) => queryClient.setQueryData(documentKey(document.id), made),
+  })
+  // A document from before views were made, or from while no converter answered, has its view made as it is
+  // opened; a new upload's was queued by its parse.
+  const wantsView = looks && document.view_state === null
+  const { isIdle: viewUnasked, mutate: askForView } = makeView
+  useEffect(() => {
+    if (wantsView && viewUnasked) askForView()
+  }, [wantsView, viewUnasked, askForView])
   // A PDF saved from the print is named after the document rather than the app.
   usePrintTitle(document.title ?? document.filename)
   const passageId = focus && 'passage' in focus ? focus.passage : null
+  const blockId = focus && 'block' in focus ? focus.block : null
+  // A passage or a block asked for is marked in the text, which the view's pages cannot show: it shows the
+  // text, unless the member chose the pages while it was the one asked for.
+  const asked = passageId != null ? `passage ${passageId}` : blockId != null ? `block ${blockId}` : null
+  const [choice, setChoice] = useState<{ shown: Shown; asked: string | null }>({ shown: 'original', asked: null })
+  const shown: Shown = asked == null || choice.asked === asked ? choice.shown : 'text'
+  const choose = (value: Shown) => setChoice({ shown: value, asked })
   const passage = useQuery({
     queryKey: ['passage', passageId],
     queryFn: () => api.passage(passageId!),
@@ -107,8 +137,10 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
     content.data?.blocks.find((block) => block.ordinal === focusStart)?.page ??
     (focus && 'page' in focus ? focus.page : undefined)
 
-  // A PDF or a scan shows its rendered pages, with the text laid over them; everything else shows its text.
+  // A PDF or a scan shows its rendered pages, with the text laid over them; a document shown as it looks, its
+  // view's pages, with no text over them; everything else shows its text.
   const pages = hasPages(document)
+  const viewShown = viewReady && shown === 'original'
   const hasOutline = !pages && !isImage(document) && !isSheet(document)
 
   // The outline, when it arrives, narrows the text beside it and moves every block down, so the
@@ -152,7 +184,7 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
   return (
     <div data-print className="flex h-full min-h-0 flex-col">
       {/* A PDF's pages say on themselves what it is; its first page starts the first sheet. */}
-      <header className={`shrink-0 border-b border-line bg-surface px-4 py-2.5 ${pages ? 'print:hidden' : 'print:px-0'}`}>
+      <header className={`shrink-0 border-b border-line bg-surface px-4 py-2.5 ${pages || viewShown ? 'print:hidden' : 'print:px-0'}`}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2
@@ -183,7 +215,8 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5 print:hidden">
-            {hasOutline && outline.data && outline.data.length > 0 && (
+            {viewReady && <Segmented label="Show the document as" value={shown} onChange={choose} options={SHOWN_CHOICES} />}
+            {hasOutline && !viewShown && outline.data && outline.data.length > 0 && (
               <IconButton label={outlineOpen ? 'Hide outline' : 'Show outline'} onClick={() => setOutlineOpen((open) => !open)}>
                 <ListTree className="size-4" />
               </IconButton>
@@ -273,6 +306,9 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
       {/* The comments lie over the text in a narrow tab, and beside it where the text keeps its room. */}
       <div className="@container relative flex min-h-0 flex-1 print:block">
         <div ref={body} className="flex min-w-0 flex-1 flex-col print:block">
+          {looks && !viewReady && content.isSuccess && (
+            <ViewWaiting document={document} retrying={makeView.isPending} onRetry={() => makeView.mutate()} />
+          )}
           {!indexed ? (
             <div className="p-4">
               <Notice tone={document.status === 'failed' || document.status === 'quarantined' ? 'bad' : 'info'}>
@@ -290,6 +326,10 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
             <div className="p-4">
               <Notice tone="bad">Could not load the text: {content.error.message}</Notice>
             </div>
+          ) : viewShown ? (
+            <Scrolled label={`Pages of ${document.filename}`} className="min-h-0 flex-1 overflow-y-auto">
+              <PagesView pageUrl={(page) => pageImageUrl(document.id, page)} content={viewContent(viewPages)} focus={null} />
+            </Scrolled>
           ) : pages ? (
             <Scrolled label={`Pages of ${document.filename}`} className="min-h-0 flex-1 overflow-y-auto">
               <PagesView pageUrl={(page) => pageImageUrl(document.id, page)} content={content.data} focus={blockFocus} />
@@ -341,6 +381,29 @@ export function DocumentTab({ document, focus, onClearFocus }: DocumentTabProps)
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * Above the text of a document shown as it looks while its pages are not there: being made, or why they could
+ * not be, with the way to ask again.
+ */
+function ViewWaiting({ document, retrying, onRetry }: { document: Document; retrying: boolean; onRetry: () => void }) {
+  if (document.view_state === 'failed') {
+    return (
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-4 py-2 text-[13px] text-muted print:hidden">
+        <span>{document.view_error ?? 'This file could not be shown as it looks. Its text is below.'}</span>
+        <Button onClick={onRetry} disabled={retrying}>
+          Try again
+        </Button>
+      </div>
+    )
+  }
+  return (
+    <p role="status" className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-2 text-[13px] text-muted print:hidden">
+      <Spinner className="size-3.5" />
+      Making this file's pages, to show it as it looks. Its text is below meanwhile.
+    </p>
   )
 }
 

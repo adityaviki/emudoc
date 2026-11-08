@@ -70,6 +70,7 @@ from app.api.deps import (
 from app.api.v1.contract import published as published_contract
 from app.billing import BillingRefused
 from app.config import ROOT_DIR, get_settings
+from app.conversion import check_converter
 from app.costs import CostsWithheld
 from app.db import BUSY, TOO_SLOW, SessionLocal, canceled, engine
 from app.entitlements import PlanRefused
@@ -242,6 +243,7 @@ def status(services: ServicesDep, account: AccountDep, session: SessionDep):
             ),
             currency=settings.price_currency,
             uploads=upload_limits(settings),
+            views=services.converter is not None,
         )
     if problem:
         # The settings are read once, at the start: a key added to .env is used by the backend
@@ -262,6 +264,7 @@ def status(services: ServicesDep, account: AccountDep, session: SessionDep):
         workers=WorkerStatus(running=work.running, error=None if work.running else no_worker(work)),
         currency=settings.price_currency,
         uploads=upload_limits(settings),
+        views=services.converter is not None,
     )
 
 
@@ -508,6 +511,8 @@ def create_app(
         # (RUN_WORKER); without it, an upload waits for a worker elsewhere.
         app.state.worker = None
         if settings.run_worker:
+            # The worker makes the views; the API only queues them.
+            check_converter(app.state.services.converter)
             app.state.worker = Worker(
                 app.state.services,
                 settings.worker_concurrency,
