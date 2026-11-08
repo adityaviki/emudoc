@@ -61,6 +61,10 @@ SCANNER_URL_FORMS = (
     "this machine, clamd:///run/clamav/clamd.ctl; `off` runs without scanning"
 )
 SCANNER_OFF = "off"
+CONVERTER_URL_FORM = (
+    "CONVERTER_URL names the converter that shows Word, PowerPoint and Excel files as they look "
+    "as http://converter:8080, its address in the compose file; empty or `off` converts nothing"
+)
 # A host name of labels joined by dots, the last of letters or an IDN's punycode, as
 # app/invitations.py takes a domain.
 INBOUND_DOMAIN = re.compile(
@@ -158,6 +162,24 @@ def parse_scanner_url(value: str) -> tuple[str, int] | str | None:
         elif not parts.netloc and parts.path.startswith("/"):
             return parts.path
     raise ValueError(f"{SCANNER_URL_FORMS}; {value!r} is neither.")
+
+
+def parse_converter_url(value: str) -> str | None:
+    """The converter's address CONVERTER_URL names, without a slash at its end, or None for no
+    converter (empty or `off`). Raises `ValueError` naming the form for anything else."""
+    value = value.strip()
+    if not value or value.lower() == SCANNER_OFF:
+        return None
+    parts = urlsplit(value)
+    if (
+        parts.scheme in ("http", "https")
+        and parts.hostname
+        and not parts.query
+        and not parts.fragment
+        and parts.path in ("", "/")
+    ):
+        return value.rstrip("/")
+    raise ValueError(f"{CONVERTER_URL_FORM}; {value!r} is not one.")
 
 
 class ModelSetting(NamedTuple):
@@ -318,6 +340,11 @@ class Settings(BaseSettings):
     # machine. Empty, nothing is scanned and every document says so; `off` is the same choice
     # made on purpose, the only form production accepts besides a daemon.
     scanner_url: str = ""
+    # The converter (app/converter.py, the image run as a container of its own) that turns a
+    # Word, PowerPoint, Excel, RTF or HTML upload into the PDF the document pane shows it by,
+    # page by page, as it looks (app/conversion.py): http://converter:8080 in the compose file.
+    # Empty or `off`, nothing is converted, and the pane shows those documents by their text.
+    converter_url: str = ""
     # What one upload may bring: the size of a file, how many files one request carries and
     # their bytes together. A file over its size is rejected on its own while the others go
     # in; a request over the other two is refused whole with 413 (app/api/documents.py). The
@@ -785,6 +812,12 @@ class Settings(BaseSettings):
         parse_scanner_url(value)
         return value.strip()
 
+    @field_validator("converter_url")
+    @classmethod
+    def _names_a_converter_or_none(cls, value: str) -> str:
+        parse_converter_url(value)
+        return value.strip()
+
     @field_validator("model_prices")
     @classmethod
     def _lists_prices(cls, value: str) -> str:
@@ -1138,6 +1171,12 @@ class Settings(BaseSettings):
             "EMBEDDING_BASE_URL",
             self.embedding_base_url,
             "every passage as it is indexed and every search",
+        ):
+            problems.append(problem)
+        if problem := plain_http_problem(
+            "CONVERTER_URL",
+            self.converter_url,
+            "every Word, PowerPoint, Excel, RTF and HTML upload and the PDF made of it",
         ):
             problems.append(problem)
         if problem := plain_http_problem(

@@ -86,6 +86,7 @@ SUGGEST_QUESTIONS = "suggest_questions"
 RUN_QUESTION_SET = "run_question_set"
 WRITE_QUESTION_REPORT = "write_question_report"
 SEND_DIGESTS = "send_digests"
+CONVERT_DOCUMENT = "convert_document"
 # Lower runs first. An answer is work a user is watching for; an upload is work a user is
 # waiting for; a reprocess of a whole project, or of everything after a model change, is bulk
 # work that should not hold either up.

@@ -117,7 +117,8 @@ export function datesProblem(filter: Pick<DocumentFilter, 'after' | 'before'>): 
 }
 
 /** Whether the server draws the document a thumbnail: a PDF, a scan or an image, once its scan has passed. */
-export const hasThumbnail = (document: Document) => THUMBNAIL_TYPES.has(document.mime_type) && document.status !== 'quarantined' && scanPassed(document)
+export const hasThumbnail = (document: Document) =>
+  (THUMBNAIL_TYPES.has(document.mime_type) || document.view_state === 'ready') && document.status !== 'quarantined' && scanPassed(document)
 
 /**
  * Where a key moves the grid's cursor from `index`, of `count` tiles in rows of `columns`: the arrows by a tile and by a

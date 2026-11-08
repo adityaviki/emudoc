@@ -15,7 +15,7 @@ from string import Template
 
 from app.client import UPLOAD_CLIENT
 from app.client.emudoc_upload import EVERY, KEY_VARIABLE, OLDEST_PYTHON, STATE_NAME
-from app.config import Settings, parse_scanner_url
+from app.config import Settings, parse_converter_url, parse_scanner_url
 from app.entitlements import BY_THE_SEAT, CHARS_PER_PAGE, GB, MB, PLANS
 from app.export import EXPORT_DAYS
 from app.idempotency import KEPT as IDEMPOTENCY_KEPT
@@ -117,6 +117,13 @@ def _values(settings: Settings) -> dict[str, str]:
             "Every upload is first scanned for malware; a file that is flagged is kept apart, "
             "and is never read or served."
             if parse_scanner_url(settings.scanner_url)
+            else ""
+        ),
+        "views": (
+            " A Word file, a presentation, a spreadsheet, an RTF or an HTML file opens as it "
+            "looks, page by page; Original and Text above it switch to its text, with its outline "
+            "beside it, where a passage an answer cites is marked: a citation opens there."
+            if parse_converter_url(settings.converter_url)
             else ""
         ),
         "notice_minutes": str(round(NOTICE_AFTER.total_seconds() / 60)),

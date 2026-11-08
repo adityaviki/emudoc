@@ -336,7 +336,11 @@ def open_link(body: SharedOpenIn, request: Request, response: Response, session:
         organization=shared.organization.name,
         expires_at=link.expires_at,
         view_ends_at=ends,
-        content=DocumentContent(blocks=blocks, page_sizes=document.page_sizes or []),
+        content=DocumentContent(
+            blocks=blocks,
+            page_sizes=document.page_sizes or [],
+            view_page_sizes=document.view_page_sizes if document.view_state == "ready" else [],
+        ),
     )
     session.commit()
     set_view_cookie(response, request, link, token, ends)

@@ -571,7 +571,13 @@ turned against the rest of its page, such as a reference up the margin, is read 
 page's own text and heads no section. A page set in columns is read a column at a time, its
 headings, paragraphs and tables in the column they stand in, and a heading, a table or
 whitespace across the page starts the columns below it afresh; spreadsheets show one tab per
-sheet; images show the picture above the text read from it. A scanned page or a photo is read by
+sheet; images show the picture above the text read from it. Where the deployment runs the
+converter (`CONVERTER_URL`, below), a Word file, a presentation, a spreadsheet, an RTF or an HTML
+file opens as it looks, page by page: the worker sends the file, once parsed, to LibreOffice in a
+container of its own and keeps the PDF it makes beside the original (`backend/app/conversion.py`,
+its view), whose pages are drawn as a PDF's are. "Original" and "Text" above the tab switch to its
+text with the outline, where a cited passage is marked, so a citation opens there; a file
+uploaded before, or while the converter was away, has its view made when it is first opened. A scanned page or a photo is read by
 the model as it stands, turned sideways or upside down, in columns or in handwriting: a word it
 cannot read is written [illegible], a signature [signature] with the name where it can be read,
 a box [x] or [ ], and a table, ruled or not, comes out a table whose rows give facts like any
@@ -773,6 +779,7 @@ one checkout at a time.
 | Model API key    | Parsing, outlines from headings, search, the viewer   | Summaries, facts, scans and images, the Ask tab, suggested questions |
 | Embeddings       | Keyword search, everything else                       | Search by meaning                                 |
 | ClamAV           | Everything; each document says it was not scanned     | Malware scanning of uploads (off by choice only in production) |
+| Converter        | Everything; Office files are shown by their text      | Word, PowerPoint and Excel files shown as they look |
 
 The Ask tab says when the model is out of reach, and a search when it matched keywords only;
 the backend asks the embeddings endpoint at most once a minute, so an endpoint that comes back
@@ -854,6 +861,12 @@ Settings live in `.env`; `.env.example` lists them all with their defaults. The 
   production accepts besides a daemon. clamd's protocol has no encryption, so production
   takes a daemon on the deployment's own network only. `docker compose --profile clamav up -d
   --wait` runs one to try this with.
+- `CONVERTER_URL` names the converter that shows Word, PowerPoint, Excel, RTF and HTML documents
+  as they look: this app's image run as `python -m app.converter`, with LibreOffice, in a
+  container that holds no settings and reaches nothing but the worker (`http://converter:8080`
+  in `deploy/compose.yml`). Empty or `off`, those documents are shown by their text. `docker
+  compose --profile converter up -d --wait` builds the image and runs one on 127.0.0.1:8090 to
+  try this with.
 - `ALERT_EMAIL` is where the worker reports the jobs it gave up on, through the same mail
   settings as the sign-in links, as one digest every quarter of an hour, where it reports
   the uploads the malware scan quarantined the same way, where it warns once a day when

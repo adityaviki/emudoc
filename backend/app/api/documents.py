@@ -46,6 +46,7 @@ from app.api.deps import (
 from app.api.folders import resolve_folder
 from app.audit import audit
 from app.config import Settings, get_settings
+from app.conversion import converts, queue_view
 from app.costs import costs_shown
 from app.details import edit_details
 from app.entitlements import PlanRefused, check_upload, size_label
@@ -54,7 +55,7 @@ from app.folders import (
     folder_names,
 )
 from app.indexing.pipeline import OPTIONAL_STAGES, reset_stages, unfinished_stages, went_without
-from app.jobs import BULK, queue_index
+from app.jobs import BULK, LIVE, queue_index
 from app.languages import UNKNOWN_LANGUAGE, known_languages
 from app.mail import LISTED
 from app.metrics import UPLOAD_REJECTIONS
@@ -108,6 +109,18 @@ CHUNK = 1024 * 1024
 # The longer side of a thumbnail, in pixels: enough for a tile on a high-density screen.
 THUMBNAIL_SIZE = 320
 MISSING_FILE = "The original file is missing from the storage"
+# Why a document has no pages to draw, or no thumbnail, and why it has no view to make.
+NO_PAGES = (
+    "Only PDF documents, scans and the documents shown as they look have page images; this one "
+    "is shown by its text."
+)
+NO_THUMBNAIL = (
+    "Only PDF documents, scans, images and the documents shown as they look have thumbnails."
+)
+NOT_CONVERTED = (
+    "This document is shown by its text: this deployment shows no files as they look, or none "
+    "of its type."
+)
 # Why a file is not served (app/scanning.py): for good, or until its scan has passed.
 QUARANTINED_FILE = (
     "The malware scan flagged this file, so it cannot be opened or downloaded. Delete it."
@@ -758,16 +771,50 @@ async def page_response(
     """A page of the document as `page_image` sends it, drawn first when it is not kept, which
     is charged to the member `user_id` names; a share link's pages too, its maker's
     (app/api/share_links.py)."""
-    if document.mime_type not in PAGE_TYPES:
-        raise HTTPException(404, "Only PDF documents and scans have page images")
-    if not 1 <= page <= (document.page_count or 0):
+    drawn = drawn_from(document)
+    if drawn is None:
+        raise HTTPException(404, NO_PAGES)
+    source, pages = drawn
+    if not 1 <= page <= pages:
         raise HTTPException(404, "No such page")
     _scanned(document)
     key = document.page_image_key(page)
     if not await to_thread.run_sync(storage.exists, key):
-        await _drawn(request, session, partial(_draw_page, storage, document, page, key))
+        await _drawn(request, session, partial(_draw_page, storage, source, page, key))
         await to_thread.run_sync(_charge_render, session, org_id, user_id, document)
     return storage.response(key, media_type="image/png")
+
+
+def drawn_from(document: Document) -> tuple[str, int] | None:
+    """The file a document's pages are drawn from, by its key, and how many pages it has: a
+    PDF's or a scan's own, or the view of a Word, PowerPoint or Excel file once it is made
+    (app/conversion.py), which has no pages of its own; None for a document with none to draw."""
+    if document.mime_type in PAGE_TYPES:
+        return document.storage_key, document.page_count or 0
+    if document.view_state == "ready" and document.view_page_sizes:
+        return document.view_key, len(document.view_page_sizes)
+    return None
+
+
+@router.post("/documents/{document_id}/view", response_model=DocumentOut)
+def make_view(document: DocumentDep, services: ServicesDep, session: SessionDep) -> Document:
+    """Have the document's view made (app/conversion.py): one it never had, as a member opens it
+    (a document from before the converter answered), or one that failed, from "Try again". Any
+    member who reads the project may, a viewer too: it changes nothing of the project, only
+    how a document of it is shown. One queued or made already is left as it is. 409 when there is
+    none to make: a deployment without a converter, or a type that is not converted."""
+    if services.converter is None or not converts(document):
+        raise HTTPException(409, NOT_CONVERTED)
+    _scanned(document)
+    # Under the row's lock, so that two tabs opening the document at once queue one job.
+    document = session.get(Document, document.id, with_for_update=True, populate_existing=True)
+    if document.view_state == "failed":
+        document.view_state = None
+    if queue_view(session, document, services.converter, priority=LIVE):
+        session.commit()
+    else:
+        session.rollback()
+    return document
 
 
 @router.get("/documents/{document_id}/thumbnail.png")
@@ -778,10 +825,10 @@ async def thumbnail(
     session: SessionDep,
     account: AccountDep,
 ) -> Response:
-    """A small picture of the document for the library: a PDF's or a scan's first page, or the
-    image itself."""
-    if document.mime_type not in PAGE_TYPES and document.mime_type not in IMAGE_TYPES.values():
-        raise HTTPException(404, "Only PDF and image documents have thumbnails")
+    """A small picture of the document for the library: the first page of a PDF, a scan or a
+    document shown as it looks (app/conversion.py), or the image itself."""
+    if drawn_from(document) is None and document.mime_type not in IMAGE_TYPES.values():
+        raise HTTPException(404, NO_THUMBNAIL)
     _scanned(document)
     storage = services.storage
     if not await to_thread.run_sync(storage.exists, document.thumbnail_key):
@@ -813,16 +860,17 @@ async def _drawn(request: Request, session: Session, draw: Callable[[], None]) -
         raise HTTPException(404, str(error)) from error
 
 
-def _draw_page(storage: Storage, document: Document, page: int, key: str) -> None:
+def _draw_page(storage: Storage, source: str, page: int, key: str) -> None:
     # Kept, since the next page asked for is most likely of the same document: from a bucket
     # each page would otherwise download the whole original again.
-    with storage.kept(document.storage_key) as original:
+    with storage.kept(source) as original:
         storage.put(key, renderer().render(original, page, purpose=FOR_PANE), "image/png")
 
 
 def _draw_thumbnail(storage: Storage, document: Document) -> None:
-    with storage.kept(document.storage_key) as original:
-        if document.mime_type in PAGE_TYPES:
+    drawn = drawn_from(document)
+    with storage.kept(drawn[0] if drawn else document.storage_key) as original:
+        if drawn:
             image = renderer().render(
                 original, 1, purpose=FOR_THUMBNAIL, scale=None, edge=THUMBNAIL_SIZE
             )
@@ -890,7 +938,16 @@ def get_content(document: DocumentDep, session: SessionDep):
     blocks = session.scalars(
         select(Block).where(Block.document_id == document.id).order_by(Block.ordinal)
     ).all()
-    return DocumentContent(blocks=blocks, page_sizes=document.page_sizes or [])
+    return DocumentContent(
+        blocks=blocks,
+        page_sizes=document.page_sizes or [],
+        view_page_sizes=_view_pages(document),
+    )
+
+
+def _view_pages(document: Document) -> list[list[float]]:
+    """Its view's page sizes, once the view is made (app/conversion.py)."""
+    return document.view_page_sizes or [] if document.view_state == "ready" else []
 
 
 @router.get("/documents/{document_id}/facts", response_model=list[FactOut])

@@ -82,6 +82,7 @@ from app.bounces import read_ses_events
 from app.check_runs import abandon_run, run_automation, run_workflow
 from app.config import MAIL_THREADS, Settings, get_settings
 from app.connectors.sync import abandon_sync, queue_due_syncs, run_sync
+from app.conversion import abandon_view, check_converter, convert_document
 from app.db import SessionLocal, connection_lost
 from app.deadletters import alert_failed_jobs
 from app.digests import send_digests
@@ -99,6 +100,7 @@ from app.indexing.pipeline import (
 from app.jobs import (
     ANSWER_QUESTION,
     APPLY_LANGUAGE,
+    CONVERT_DOCUMENT,
     DELIVER_WEBHOOK,
     EXPORT_PROJECT,
     INDEX_DOCUMENT,
@@ -363,6 +365,14 @@ def _abandon_render(job: Job, services: Services) -> None:
     pass
 
 
+def _run_conversion(job: Job, services: Services) -> str | None:
+    return convert_document(job, services.converter, services.storage)
+
+
+def _abandon_conversion(job: Job, services: Services) -> None:
+    abandon_view(job)
+
+
 def _run_export(job: Job, services: Services) -> str | None:
     return make_export(job.payload["export_id"], services.storage, Lease(job.id, job.worker_id))
 
@@ -501,6 +511,7 @@ HANDLERS: dict[str, Handler] = {
     RUN_QUESTION_SET: Handler(_run_question_set, _abandon_question_set),
     WRITE_QUESTION_REPORT: Handler(_write_report, _abandon_report, _after_report),
     SEND_DIGESTS: Handler(_send_digests, _abandon_digests),
+    CONVERT_DOCUMENT: Handler(_run_conversion, _abandon_conversion),
 }
 LANE_KINDS = {
     ANSWERER: [
@@ -1004,6 +1015,9 @@ def main(argv: list[str] | None = None) -> None:
         services = prepare(settings)
     except (RuntimeError, StorageError, ScanError) as error:
         sys.exit(str(error))
+    # Here rather than in `prepare`: the worker makes the views, and only it reaches the
+    # converter, on a network the API is not on (deploy/compose.yml).
+    check_converter(services.converter)
     stopping = threading.Event()
     for signum in (signal.SIGINT, signal.SIGTERM):
         signal.signal(signum, lambda *_: stopping.set())

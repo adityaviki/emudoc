@@ -280,6 +280,11 @@ def _give(
     document.sha256 = sha256
     document.page_count = None
     document.page_sizes = []
+    # The earlier file's view went with its drawings; the new one's parse queues its own
+    # (app/conversion.py).
+    document.view_state = None
+    document.view_page_sizes = []
+    document.view_error = None
     # What the earlier file was read to be; a detail a member set holds (app/details.py), the
     # row being held already.
     document.read_title = None
@@ -299,11 +304,12 @@ def _give(
 
 
 def _discard_drawings(storage: Storage, prefix: str) -> None:
-    """Delete the pages and the thumbnail drawn from the earlier file, which nothing serves any
-    more. A storage that fails here leaves them for the walk that removes old drawings
-    (app/maintenance.py)."""
+    """Delete the pages, the thumbnail and the view drawn or made from the earlier file
+    (app/conversion.py), which nothing serves any more. A storage that fails here leaves the
+    drawings for the walk that removes old ones (app/maintenance.py), and the view with the
+    document, whose prefix holds it."""
     try:
         storage.delete_prefix(f"{prefix}pages/")
-        storage.delete([f"{prefix}thumbnail.png"])
+        storage.delete([f"{prefix}thumbnail.png", f"{prefix}view.pdf"])
     except StorageError as error:
         log.warning("Could not delete the drawings under %s: %s", prefix, error)

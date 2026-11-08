@@ -20,6 +20,7 @@ import tempfile
 from collections.abc import Mapping
 
 from app.config import AGENT, BUNDLED_LIBPQ, INDEX, Settings, export_env_file, model_provider
+from app.conversion import converter_from_settings
 from app.db import check_schema
 from app.embeddings import Embedder, EmbeddingError
 from app.encrypted import check_encrypted
@@ -84,6 +85,7 @@ def prepare(settings: Settings, services: Services | None = None) -> Services:
             storage_from_settings(settings),
             scanner_from_settings(settings),
             mailer_from_settings(settings),
+            converter_from_settings(settings),
         )
     # Before the first request to the bucket, which would already cross the network.
     check_transport(settings, services.storage, os.environ)

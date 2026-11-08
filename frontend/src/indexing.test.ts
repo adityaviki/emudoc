@@ -53,6 +53,8 @@ function doc(status: Document['status'], stages: Partial<Record<StageName, Parti
     assignee: null,
     review_changer: null,
     review_changed_at: null,
+    view_state: null,
+    view_error: null,
   }
 }
 
@@ -144,6 +146,7 @@ function status(llm: boolean, embeddings: boolean): SystemStatus {
     workers: { running: true, error: null },
     currency: 'EUR',
     uploads: { files: 50, request_bytes: 100, file_bytes: 50, extensions: ['.pdf'] },
+    views: false,
   }
 }
 

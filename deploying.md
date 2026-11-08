@@ -33,6 +33,10 @@ on one machine; this is what changes for a deployment. The processes below run f
   the image's `CLAMD_CONF_*` variables; an older image takes a mounted `clamd.conf`). A
   deployment that runs without a scanner says so with `SCANNER_URL=off`, and the worker
   warns at every start.
+- **The converter**, named in `CONVERTER_URL`, which turns each Word, PowerPoint, Excel, RTF and
+  HTML upload into the PDF the document pane shows it by, as it looks: the image run as
+  `python -m app.converter`, a container of its own that holds no settings and reaches nothing
+  but the workers. Without it those documents are shown by their text: "The converter", below.
 - **An embeddings endpoint** in `EMBEDDING_BASE_URL`, which turns every passage and every
   search into a vector for search by meaning: llama.cpp's server beside the app, as the
   compose file runs it, or a hosted one: "The embeddings endpoint", below.
@@ -228,8 +232,10 @@ network a subnet of its own, `10.73.0.0/24`, so that `FORWARDED_ALLOW_IPS` can n
 (change both if the subnet collides with one the machine reaches), and its project another name
 than the development file's, so one machine can run both. The database, the mail relay, a
 bucket and the proxy are the deployment's: the env file names them, with
-`SCANNER_URL=clamd://clamav:3310` for the daemon beside the app and
-`EMBEDDING_BASE_URL=http://embeddings:8080/v1` for the embeddings. Compose expands `$` in the
+`SCANNER_URL=clamd://clamav:3310` for the daemon beside the app,
+`EMBEDDING_BASE_URL=http://embeddings:8080/v1` for the embeddings and
+`CONVERTER_URL=http://converter:8080` for the converter, which the file runs from the same image
+on a network of its own that only the worker joins ("The converter"). Compose expands `$` in the
 env file's values unless they are in single quotes, which a password may need. Wherever this
 guide says `uv run …`, the image runs the same command through `docker compose … run --rm
 --no-deps worker`: without `--no-deps`, `run` runs the release step first, with whatever image
@@ -717,6 +723,55 @@ before, "Load"). A copy being drawn from is never removed, so an API holds at mo
 deleted through it loses its copy at once, and another API's copy goes within the five minutes,
 unread, since every request reads the document first; an API that stops removes its copies. A
 directory needs none of this: the pages are drawn from its file.
+
+## The converter
+
+A Word file, a presentation, a spreadsheet, an RTF or an HTML file is shown as it looks, page by
+page, where `CONVERTER_URL` names a converter (`app/conversion.py`). Once the parse stage has read
+such a file, a `convert_document` job sends it to the converter, which answers a PDF of it made by
+LibreOffice; the worker measures its pages with a render child, keeps it beside the original as
+the document's view (`view.pdf` under the version's prefix), and the pane, the library's
+thumbnail and a share link draw its pages as they draw a PDF's ("Drawing pages"), kept for
+`PAGE_IMAGE_DAYS`. The PDF never reaches a browser. The document is still searched, cited and
+asked about by its text, which "Text" above the pages shows with the outline: the view is no
+stage of the indexing, and nothing fails with it. A document uploaded before, or while no
+converter answered, has its view made when a member first opens it. A small Word file takes
+about half a second.
+
+The converter is this image run with another command, `python -m app.converter`
+(`app/converter.py`, the standard library alone, so that it needs none of the app's settings),
+as the compose file's `converter` service. LibreOffice reads every upload of those types through
+filters written in C++, and a document can name files and addresses for it to fetch: a linked
+picture, a section linked to another file, a spreadsheet's external data or `WEBSERVICE`.
+Tried on 2026-11-08 with LibreOffice's defaults, a .docx whose picture was linked to a path drew
+that file into its PDF. So the converter runs where nothing is worth reaching: no env file (no
+key, no database address), no volume, a read-only filesystem with a tmpfs at `/tmp`, no
+capabilities, and only the network `converter`, which is `internal` (no gateway: neither the
+internet, the instance's metadata nor the database) and which the worker alone joins. Within it,
+each conversion runs LibreOffice as a process group of its own, killed past `--timeout`, in a
+copy of a profile whose settings run no macro, follow no link a document makes to a file or an
+address, update no linked section or field, and recalculate no formula (a spreadsheet shows the
+values it was saved with), and reads the file with its type's import filter alone, so that a
+file of another format named as a .docx is refused rather than read by a filter nobody checked.
+
+Its limits are its command's options in the compose file: `--concurrency` conversions at once
+(2), `--timeout` seconds one may take (120), `--max-mb` the largest file it takes (100, as large
+as `MAX_UPLOAD_MB`: raise them together), and the container's memory (2 GB), past which the
+kernel ends the conversion. The image carries LibreOffice without its windows or Java, with the
+fonts documents name most (Carlito and Caladea for Calibri and Cambria, Liberation for Arial,
+Times New Roman and Courier New, Noto for the other scripts), about 400 MB more for every
+process's image; Debian's security updates reach it as the image is built again, which Audit
+does every week. CI's image check converts a Word file in a container with no network.
+
+A converter out of reach or busy is tried again three more times, after 2, 4 and 8 minutes; then
+the document says its pages could not be made, with "Try again", and the job is a dead letter
+mailed to `ALERT_EMAIL` ("What the worker mails"). A file LibreOffice cannot read, one past
+`--timeout`, and a PDF of more than `PARSE_MAX_PAGES` pages are the member's to know of: the
+document says so above its text, and the log has "Document … has no view: …". The worker says at
+its start which LibreOffice makes the views, or warns that the converter does not answer.
+Without `CONVERTER_URL` nothing is converted and those documents are shown by their text, as
+before. In development `docker compose --profile converter up -d --wait` builds the image and
+runs one on 127.0.0.1:8090, for `CONVERTER_URL=http://127.0.0.1:8090`.
 
 ## Large documents
 
@@ -4804,6 +4859,7 @@ the roots' `settings` the others ("The settings").
 | `MAX_UPLOAD_FILES` | `100` | | Files one request may carry |
 | `MAX_UPLOAD_REQUEST_MB` | `500` | | The bytes of one request's files together |
 | `SCANNER_URL` | none | required, `off` for none | The ClamAV daemon every upload is scanned by |
+| `CONVERTER_URL` | none | `http://converter:8080` beside the app | The converter that shows Word, PowerPoint, Excel, RTF and HTML documents as they look ("The converter"); none shows them by their text |
 | `PARSE_TIMEOUT` | `300` | | Seconds a parse may take |
 | `PARSE_MEMORY_MB` | `2048` | | The memory a parse may hold |
 | `PARSE_MAX_PAGES` | `5000` | | The pages of a PDF or a TIFF, the slides of a presentation |

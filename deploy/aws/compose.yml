@@ -37,6 +37,8 @@ services:
   migrate: *aws
   api: *aws
   worker: *aws
+  converter:
+    logging: *logging
   clamav:
     logging: *logging
   embedding-model:

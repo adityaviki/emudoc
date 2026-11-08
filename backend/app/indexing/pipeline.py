@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import audit_event
 from app.config import get_settings
+from app.conversion import Converter, queue_view
 from app.db import SessionLocal, connection_lost
 from app.details import hold_details, retitle, root_of, settle_details
 from app.embeddings import Embedder
@@ -164,6 +165,9 @@ class Services:
     # What the worker's mail lane sends the posted mail through (app/postbox.py), and the
     # worker's own reports; None in a process built for something else, which sends none.
     mailer: Mailer | None = None
+    # What makes the views of Word, PowerPoint and Excel files (app/conversion.py); None when
+    # CONVERTER_URL names none, and they are shown by their text.
+    converter: Converter | None = None
 
 
 class PipelineError(AppError):
@@ -675,6 +679,9 @@ def _parse(session: Session, document: Document, services: Services, meter: Mete
     document.read_language, document.read_language_code = detected or (None, None)
     settle_details(document)
     _queue_drawing_ahead(session, document)
+    # A Word, PowerPoint or Excel file's pages as they look, made beside the indexing
+    # (app/conversion.py); one made already for this file is kept.
+    queue_view(session, document, services.converter)
     return f"{len(blocks)} blocks{note}"
 
 

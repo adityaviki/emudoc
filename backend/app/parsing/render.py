@@ -18,9 +18,12 @@ parent writes one request a line on stdin, as JSON (`path`, `page`, `scale`, `ed
 `seconds`), and reads a reply on stdout, a line of JSON and then the bytes it announces:
 `{"png": n}` and the image, `{"error": sentence}` for a page that cannot be drawn, or
 `{"crashed": name, "frames": …}` for an error nobody expected, after which the parent replaces
-this process. It ends when stdin ends, which it does when the parent closes it or is gone, and
-with OUT_OF_MEMORY when a page needs more than the cap. The file's path comes in a request, never
-on the command line, which every user of the machine can read.
+this process. A request with `measure` (and `path` and `seconds`) asks for the size of each of
+a PDF's pages instead, `{"sizes": [[width, height], …]}` in points with no bytes after it: the
+pages of the PDF the converter made of an Office file (app/conversion.py), which the parent
+must not open with pdfium itself. It ends when stdin ends, which it does when the parent closes
+it or is gone, and with OUT_OF_MEMORY when a page needs more than the cap. The file's path comes
+in a request, never on the command line, which every user of the machine can read.
 """
 
 import argparse
@@ -61,6 +64,10 @@ UNDRAWABLE_SCAN = (
 )
 
 
+# What a PDF whose pages cannot be counted is told by.
+UNMEASURABLE = "The PDF could not be read: it is damaged in a way the viewer cannot read past."
+
+
 class NoSuchPage(Exception):
     """The request names a page the file does not have."""
 
@@ -96,6 +103,23 @@ def draw(path: Path, page_number: int, scale: float | None, edge: int) -> bytes:
     finally:
         pdf.close()
     return buffer.getvalue()
+
+
+def measure(path: Path) -> list[list[float]]:
+    """The size of each page of the PDF at `path`, [width, height] in points, rounded to 2 as
+    the parse stage keeps a PDF's own (`page_sizes`)."""
+    pdf = pdfium.PdfDocument(str(path))
+    try:
+        sizes = []
+        for index in range(len(pdf)):
+            page = pdf[index]
+            try:
+                sizes.append([round(side, 2) for side in page.get_size()])
+            finally:
+                page.close()
+        return sizes
+    finally:
+        pdf.close()
 
 
 def draw_scan(path: Path, page_number: int, edge: int) -> bytes:
@@ -140,14 +164,19 @@ def main(argv: list[str] | None = None) -> int:
         request = json.loads(line)
         _allow_cpu(request["seconds"])
         body = b""
+        measuring = bool(request.get("measure"))
         try:
-            body = draw(Path(request["path"]), request["page"], request["scale"], request["edge"])
-            reply: dict = {"png": len(body)}
+            if measuring:
+                reply: dict = {"sizes": measure(Path(request["path"]))}
+            else:
+                path = Path(request["path"])
+                body = draw(path, request["page"], request["scale"], request["edge"])
+                reply = {"png": len(body)}
         except MemoryError:
             # Making a reply would take memory this process no longer gets.
             os._exit(OUT_OF_MEMORY)
         except pdfium.PdfiumError:
-            reply = {"error": UNDRAWABLE}
+            reply = {"error": UNMEASURABLE if measuring else UNDRAWABLE}
         except (NoSuchPage, FileTooLarge, Undrawable) as error:
             reply = {"error": str(error)}
         except Exception as error:

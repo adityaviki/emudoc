@@ -132,4 +132,15 @@ describe('the grid', () => {
     expect(hasThumbnail({ ...scanned, mime_type: 'application/pdf', stages: {} })).toBe(false)
     expect(hasThumbnail({ ...scanned, mime_type: 'application/pdf', status: 'quarantined' })).toBe(false)
   })
+
+  it("draws a Word file's thumbnail from its view once the view is made", () => {
+    const word = {
+      stages: { scan: { status: 'done', detail: '' } },
+      status: 'ready',
+      mime_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    } as unknown as Document
+    expect(hasThumbnail({ ...word, view_state: 'ready' })).toBe(true)
+    expect(hasThumbnail({ ...word, view_state: 'queued' })).toBe(false)
+    expect(hasThumbnail({ ...word, view_state: null })).toBe(false)
+  })
 })

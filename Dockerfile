@@ -34,6 +34,20 @@ COPY backend/pyproject.toml backend/uv.lock backend/.python-version ./
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 
 FROM base
+# LibreOffice without its windows or Java, for the converter (app/converter.py): this image run
+# as a container of its own that turns a Word, PowerPoint or Excel file into the PDF the
+# document pane shows it by (deploy/compose.yml, `converter`). With the fonts documents name
+# most, so a page breaks where it did where it was written: Carlito and Caladea measure as
+# Calibri and Cambria, Liberation as Arial, Times New Roman and Courier New, and Noto draws the
+# other scripts, Chinese, Japanese and Korean among them. Debian's security updates reach it as
+# the image is built again. The font packages build fontconfig's cache as they install, since
+# the running image cannot write one.
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends \
+      libreoffice-writer-nogui libreoffice-calc-nogui libreoffice-impress-nogui \
+      fonts-liberation fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core \
+      fonts-noto-core fonts-noto-cjk \
+  && rm -rf /var/lib/apt/lists/*
 # A user of its own with a fixed id, for volumes and for runAsNonRoot, and the directory a
 # file:// storage keeps its files in, which a named volume mounted there takes over with its
 # owner and mode: the group may list it, as the restore drill does (deploying.md, "The drill").

@@ -15,10 +15,12 @@ import type { SharedAnswer, SharedDocument, Source } from '../api.ts'
 import { AuthCard, LegalLinks, PasswordField } from '../account/shared.tsx'
 import { ImagePreview, PagesView, SheetView, TextView } from '../components/DocumentViews.tsx'
 import { ThemeToggle } from '../components/ThemeToggle.tsx'
-import { Button, ButtonLink, Chip, Notice, Spinner } from '../components/ui.tsx'
+import { Button, ButtonLink, Chip, Notice, Segmented, Spinner } from '../components/ui.tsx'
 import { formatDate } from '../format.ts'
 import { usePrintTitle } from '../hooks.ts'
 import { sharedWords, tokenOf, viewLeft } from '../shareLinks.ts'
+import { SHOWN_CHOICES, viewContent } from '../views.ts'
+import type { Shown } from '../views.ts'
 import { CitedText } from '../workspace/CitedText.tsx'
 
 const NOT_A_LINK =
@@ -129,8 +131,15 @@ interface SharedViewProps {
 function SharedView({ shared, ended, opening, onOpenAgain }: SharedViewProps) {
   const { link_id: linkId, content } = shared
   usePrintTitle(shared.title || shared.filename)
+  // A Word, PowerPoint or Excel file whose view was made is shown as it looks, with a switch to its text
+  // (backend/app/conversion.py).
+  const [shown, setShown] = useState<Shown>('original')
+  const viewReady = content.view_page_sizes.length > 0
+  const viewShown = viewReady && shown === 'original'
   let view
-  if (hasPages(shared)) {
+  if (viewShown) {
+    view = <PagesView pageUrl={(page) => sharedPageUrl(linkId, page)} content={viewContent(content.view_page_sizes)} focus={null} />
+  } else if (hasPages(shared)) {
     view = <PagesView pageUrl={(page) => sharedPageUrl(linkId, page)} content={content} focus={null} />
   } else if (isImage(shared)) {
     view = (
@@ -148,7 +157,7 @@ function SharedView({ shared, ended, opening, onOpenAgain }: SharedViewProps) {
   return (
     <div data-print className="w-full max-w-4xl">
       {/* A PDF's pages say on themselves what it is; its first page starts the first sheet. */}
-      <div className={`flex flex-wrap items-start justify-between gap-3 ${hasPages(shared) ? 'print:hidden' : ''}`}>
+      <div className={`flex flex-wrap items-start justify-between gap-3 ${hasPages(shared) || viewShown ? 'print:hidden' : ''}`}>
         <div className="min-w-0">
           <h1 className="text-xl font-semibold tracking-tight break-words">{shared.title || shared.filename}</h1>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
@@ -163,7 +172,8 @@ function SharedView({ shared, ended, opening, onOpenAgain }: SharedViewProps) {
           </div>
           <p className="mt-1.5 text-[13px] text-muted print:hidden">{sharedWords(shared)}</p>
         </div>
-        <div className="flex flex-wrap gap-2 print:hidden">
+        <div className="flex flex-wrap items-center gap-2 print:hidden">
+          {viewReady && <Segmented label="Show the document as" value={shown} onChange={setShown} options={SHOWN_CHOICES} />}
           <Button icon={<Printer className="size-4" />} onClick={() => window.print()}>
             Print
           </Button>

@@ -17,8 +17,19 @@ newest entry first.
 
 Members:
 
+- Word files, presentations, spreadsheets, RTF and HTML files open as they look, page by page,
+  with their first page as their picture in the library's grid. "Text" above the document shows
+  its words with the outline beside them, where a passage an answer cites is marked.
 - A document's tab no longer shows the tokens and texts its indexing used, nor that it went
   without a malware scan.
+
+Operators:
+
+- The converter: the image run as `python -m app.converter`, with LibreOffice, which the image
+  now carries, turns each Word, PowerPoint, Excel, RTF and HTML upload into the PDF it is shown
+  by. `deploy/compose.yml` runs it as `converter`, with no settings, no volume and a network only
+  the worker shares, and the AWS module sets `CONVERTER_URL=http://converter:8080`; without the
+  setting those documents are shown by their text (deploying.md, "The converter").
 
 ## 2026-11-06
 

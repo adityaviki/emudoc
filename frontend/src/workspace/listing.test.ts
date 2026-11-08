@@ -35,6 +35,8 @@ function doc(id: number, filename: string, folderId: number | null = null): Docu
     assignee: null,
     review_changer: null,
     review_changed_at: null,
+    view_state: null,
+    view_error: null,
   }
 }
 
@@ -212,6 +214,11 @@ describe('refreshAfter', () => {
     expect(refreshAfter([{ ...a, status: 'queued' }], NOW)).toBe(REFRESH)
     expect(refreshAfter([a, { ...b, status: 'failed' }], NOW)).toBe(false)
     expect(refreshAfter([], NOW)).toBe(false)
+  })
+
+  it("asks every REFRESH while a ready document's view is made, whose pages and thumbnail come with it", () => {
+    expect(refreshAfter([a, { ...b, view_state: 'queued' }], NOW)).toBe(REFRESH)
+    expect(refreshAfter([{ ...a, view_state: 'ready' }, { ...b, view_state: 'failed' }], NOW)).toBe(false)
   })
 
   it('waits for the soonest retry to come due, ready documents among them, under a ceiling', () => {

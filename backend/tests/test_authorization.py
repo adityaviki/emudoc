@@ -442,6 +442,12 @@ def starts(w: World) -> list[Route]:
     return [("POST", f"/api/projects/{w.project_id}/chats", {})]
 
 
+def shows(w: World) -> list[Route]:
+    """Having a document's view made (app/conversion.py), which is reading too, and which the
+    suite, converting nothing, refuses with 409 to whoever may read the document."""
+    return [("POST", f"/api/documents/{w.document_id}/view", {})]
+
+
 def exports(w: World) -> list[Route]:
     """A project's exports, each its member's alone (test_exports.py): asking for one, which a
     viewer may not, the member's list, and the file."""
@@ -518,6 +524,7 @@ def scoped(w: World) -> list[Route]:
         + trashed_project(w)
         + chat_trash(w)
         + starts(w)
+        + shows(w)
         + exports(w)
         + switches(w)
         + invitations(w)
@@ -605,6 +612,7 @@ def test_a_private_project_is_found_by_nobody_else(client, world, account, make_
         + trash_reads(world)
         + trash_writes(world)
         + starts(world)
+        + shows(world)
         + links(world)
         + answer_links(world)
         + marks(world)
@@ -655,6 +663,10 @@ def test_a_viewer_can_read_but_not_change(client, world, account, make_account, 
     # Asking questions is reading: a viewer may start a chat of their own.
     chat = new_chat(client, world.project_id)
     assert chat["visibility"] == "private"
+    # So is having a document shown as it looks: refused only because the suite converts
+    # nothing (tests/test_conversion.py).
+    shown = statuses(client, shows(world))
+    assert set(shown.values()) == {409}, shown
 
 
 def test_a_member_can_change_things(client, world, account, make_account, act_as):
