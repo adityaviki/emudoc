@@ -171,7 +171,7 @@ services:
   # `export EMBEDDING_WEIGHTS_URL=… EMBEDDING_WEIGHTS_SHA256=…` beside EMUDOC_IMAGE, as well as
   # EMBEDDING_MODEL and the rest in the env file. The image is the server's, which has curl.
   embedding-model:
-    image: ghcr.io/ggml-org/llama.cpp:server@sha256:f41d47eee678c02656eefc9ed8cce76cab584aa7032805eeef0e6639fcfda485
+    image: ghcr.io/ggml-org/llama.cpp:server@sha256:30300ecfcb7ef05dc9413867dd7d03c9ce66eef00fec3576a6a15e9bf2b0bae7
     environment:
       EMBEDDING_WEIGHTS_URL: ${EMBEDDING_WEIGHTS_URL:-https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF/resolve/0f741b5a6585bd53aeb15cd1372c56f2a0f65e12/embeddinggemma-300M-Q8_0.gguf}
       EMBEDDING_WEIGHTS_SHA256: &weights ${EMBEDDING_WEIGHTS_SHA256:-b5ce9d77a3fc4b3b39ccb5643c36777911cc4eb46a66962eadfa3f5f60490d63}
@@ -201,7 +201,7 @@ services:
   # tag is the daily build (this digest is b11706), which Dependabot proposes each Monday and
   # CI checks against the vectors the deployments hold (.github/scripts/check-embeddings.sh).
   embeddings:
-    image: ghcr.io/ggml-org/llama.cpp:server@sha256:f41d47eee678c02656eefc9ed8cce76cab584aa7032805eeef0e6639fcfda485
+    image: ghcr.io/ggml-org/llama.cpp:server@sha256:30300ecfcb7ef05dc9413867dd7d03c9ce66eef00fec3576a6a15e9bf2b0bae7
     depends_on:
       embedding-model:
         condition: service_completed_successfully
