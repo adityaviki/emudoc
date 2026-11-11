@@ -2,8 +2,7 @@
 # The image's smoke test (CI, "Image"): the release step, the API and the worker start from the
 # image as a deployment runs them, on a read-only filesystem with a tmpfs at /tmp and the files
 # on a volume, and the API answers its probes with the commit the image was built from and
-# serves the page, the files it names and what's new from the changelog; and the converter,
-# with no network at all, turns a Word file into a PDF with the image's LibreOffice. The
+# serves the page and the files it names; and the converter, with no network at all, turns a Word file into a PDF with the image's LibreOffice. The
 # suite builds no image, so this is what finds a file the image lacks (.dockerignore is an
 # allowlist), a path that moved or something written outside /tmp. Development's settings,
 # since production's want a mail relay, a scanner, a model key and the rest: what is checked is
@@ -108,11 +107,6 @@ mapfile -t files < <(grep -oE '(src|href)="/[^/"][^"]*"' <<<"$page" | cut -d'"' 
 for file in "${files[@]}"; do
   curl -fsS -o /dev/null "$address$file"
 done
-# What's new, which the app reads from the changelog the image carries: without it, nothing.
-if [[ $(curl -fsS "$address/api/changelog") != *'"entries":["'* ]]; then
-  echo "The API serves nothing of what's new: the image lacks CHANGELOG.md." >&2
-  exit 1
-fi
 for ((tries = 30; ; tries--)); do
   running worker
   docker exec "$name-worker" test -f /tmp/worker.alive && break
@@ -168,4 +162,4 @@ grep -q '^emudoc_documents{' <<<"$(metrics worker)" || {
 }
 
 passed=true
-echo "The image $image ($revision) migrates, serves the page, its ${#files[@]} files, what's new and the probes, and runs the worker, and both serve their metrics; its converter turns a Word file into a PDF."
+echo "The image $image ($revision) migrates, serves the page, its ${#files[@]} files and the probes, and runs the worker, and both serve their metrics; its converter turns a Word file into a PDF."

@@ -31,7 +31,6 @@ import { ThemeToggle } from './components/ThemeToggle.tsx'
 import { Button, IconButton, Spinner } from './components/ui.tsx'
 import { useHelp, useLocalStorage, useOnline, useStatus } from './hooks.ts'
 import { HelpMenu } from './help/HelpMenu.tsx'
-import { WhatsNew } from './help/WhatsNew.tsx'
 import { AuditPage } from './organization/AuditPage.tsx'
 import { NewOrganizationPage, OrganizationPage } from './organization/OrganizationPage.tsx'
 import { OrganizationSwitcher } from './organization/OrganizationSwitcher.tsx'
@@ -121,7 +120,6 @@ function App() {
           <Route path="subprocessors" element={<SubprocessorsPage />} />
           <Route path="terms" element={<LegalPage document="terms" />} />
           <Route path="privacy" element={<LegalPage document="privacy" />} />
-          <Route path="whats-new" element={<WhatsNew />} />
         </Route>
         {/* A share link's page, for whoever holds the link, with a frame of its own. */}
         <Route path="shared" element={<SharedPage />} />

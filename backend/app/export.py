@@ -317,8 +317,6 @@ def account_export(session: Session, user: User) -> AccountExport:
             checklist_hidden_at=user.checklist_hidden_at,
             tour_seen_at=user.tour_seen_at,
             invite_hidden_at=user.invite_hidden_at,
-            changes_seen_on=user.changes_seen_on,
-            changes_seen_entries=user.changes_seen_entries,
             mail_spared=(
                 ExportedSpared(reason=spared.reason, recorded_at=spared.recorded_at)
                 if (spared := session.get(MailSuppression, address_hash(user.email)))

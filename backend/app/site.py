@@ -13,8 +13,9 @@ page, or a message to the support address (`booking` in app/signups.py). While s
 (SIGNUP_OPEN=false), as for a private beta, it says so, by the parts marked `signup_closed`;
 `signup_open` marks a part shown only while it is open.
 
-The plans' page, the help pages and the API reference are put away for now (the same day): their
-addresses send a visitor to /, and no search engine is told of them.
+The plans' page, the help pages and the API reference are put away for now (the same day), and
+the page of what's new is gone (the same day): their addresses send a visitor to /, and no search
+engine is told of them.
 
 A signed-in browser, or development's local account, gets the members' page at / as before;
 the session cookie alone tells them apart, so that the page asks the database nothing. Search
@@ -42,15 +43,15 @@ from app.signups import booking
 
 HOME_PAGE = "home.html"
 # The site's pages by the path they are served at, and the paths search engines may list beside
-# them: what's new, the terms, the privacy policy and the subprocessors, all pages anyone reads
-# without an account, and the ways in.
+# them: the terms, the privacy policy and the subprocessors, all pages anyone reads without an
+# account, and the ways in.
 PAGES = {"": HOME_PAGE}
-LISTED = ("", "whats-new", "terms", "privacy", "subprocessors")
+LISTED = ("", "terms", "privacy", "subprocessors")
 INDEXED = frozenset([*LISTED, "login", "signup"])
 NOT_LISTED = "noindex"
 # The pages put away for now, whose addresses send a visitor home: the plans, the API reference,
-# and the help with each of its articles.
-AWAY = re.compile(r"pricing|api-reference|help(?:/.*)?")
+# the help with each of its articles, and what's new, which is gone.
+AWAY = re.compile(r"pricing|api-reference|help(?:/.*)?|whats-new")
 # A part of a page shown only while its feature's flag is on for every organisation, or while
 # sign-up is open or closed (`SIGNUP`).
 _FLAGGED = re.compile(r"[ \t]*<!-- if (\w+) -->\n?(.*?)[ \t]*<!-- end \1 -->\n?", re.S)

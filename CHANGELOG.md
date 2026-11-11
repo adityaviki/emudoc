@@ -7,9 +7,8 @@ full SHA is the image's tag, the version `/api/health` reports and the user menu
 they change. A commit that changes what a member or an operator sees adds its line here, under
 its day, in the same commit.
 
-The **Members** entries are what the app's "What's new" shows (`backend/app/changelog.py`), so
-they are written for members, as Markdown. The file keeps one shape, which the suite holds it
-to: `## YYYY-MM-DD` a day (or `## YYYY-MM-DD to YYYY-MM-DD`), the newest first, then `Members:`
+The **Members** entries are written for members, as Markdown. The file keeps one shape, which
+the suite holds it to (`backend/tests/test_changelog.py`): `## YYYY-MM-DD` a day (or `## YYYY-MM-DD to YYYY-MM-DD`), the newest first, then `Members:`
 and `Operators:`, each a list of `- ` entries whose lines go on indented by two spaces, a day's
 newest entry first.
 
@@ -17,6 +16,9 @@ newest entry first.
 
 Members:
 
+- The page of what's new is gone, with its place in the help menu and the dot on the question
+  mark; its old address leads to the home page. The help menu keeps the service status and the
+  form to write to us.
 - A new chat no longer offers questions to start from, in the sample project or your own: ask in
   your own words. "Summarise this folder" and "Compare the two documents" stay in the library's
   menus.
@@ -33,6 +35,10 @@ Members:
 
 Operators:
 
+- `/whats-new` answers 302 to `/` and leaves the sitemap, and `GET /api/changelog` and `POST
+  /api/auth/changelog/read` are gone, with `MeOut.changes_unread`. The migration drops
+  `users.changes_seen_on` and `users.changes_seen_entries`, which the account's export no longer
+  carries. The image no longer holds `CHANGELOG.md`, and its smoke test no longer asks for it.
 - The indexing model no longer writes the questions an empty chat offered: no `suggest_questions`
   job is queued once a project's documents settle, and the migration deletes those jobs and drops
   `projects.suggestions` and `projects.suggested_at`. The usage kind `suggestions` stays for the

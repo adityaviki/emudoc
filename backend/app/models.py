@@ -401,12 +401,6 @@ class User(Base):
     """A person who signs in. What they may see follows from their organisation memberships."""
 
     __tablename__ = "users"
-    __table_args__ = (
-        CheckConstraint(
-            "(changes_seen_on IS NULL) = (changes_seen_entries IS NULL)",
-            name="ck_users_changes_seen",
-        ),
-    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     # Lower-cased before it is stored, so sign-in and invitations match however it was typed.
@@ -452,11 +446,6 @@ class User(Base):
     checklist_hidden_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     tour_seen_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     invite_hidden_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
-    # How far the user read what's new (app/changelog.py): the newest day of the changelog they
-    # read and how many entries for members it held then, since a day gains entries with each
-    # release made that day. Both null until they first open it.
-    changes_seen_on: Mapped[dt.date | None] = mapped_column(Date)
-    changes_seen_entries: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

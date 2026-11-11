@@ -137,10 +137,12 @@ def test_a_feature_behind_a_flag_is_shown_once_every_organisation_has_it(monkeyp
         assert words in shown and words not in hidden, words
 
 
-@pytest.mark.parametrize("path", ["/pricing", "/help", "/help/plans", "/api-reference"])
+@pytest.mark.parametrize(
+    "path", ["/pricing", "/help", "/help/plans", "/api-reference", "/whats-new"]
+)
 def test_the_pages_put_away_send_everyone_home(visitor, path):
-    # The plans, the help and the API reference are put away for now: an old link leads home,
-    # a member's to the projects, and no search engine is told of it.
+    # The plans, the help and the API reference are put away for now, and what's new is gone:
+    # an old link leads home, a member's to the projects, and no search engine is told of it.
     moved = visitor.get(path, follow_redirects=False)
     assert moved.status_code == 302 and moved.headers["location"] == "/"
     assert moved.headers["x-robots-tag"] == "noindex"
@@ -159,7 +161,7 @@ def test_the_home_page_offers_a_demo_and_no_sign_up(visitor, monkeypatch):
         # The booking page's address is written as an attribute should be.
         assert 'href="https://cal.com/emudoc/intro?a=1&amp;b=2"' in home
         # Nothing leads to the sign-up or to a page put away.
-        for path in ("/signup", "/pricing", "/help", "/api-reference"):
+        for path in ("/signup", "/pricing", "/help", "/api-reference", "/whats-new"):
             assert f'href="{path}' not in home, path
         assert 'href="/login"' in home
         assert ("Private beta" in shown) is not signup_open
@@ -190,11 +192,9 @@ def test_a_listed_deployment_names_its_public_pages_to_search_engines(visitor, m
     sitemap = visitor.get("/sitemap.xml")
     assert sitemap.headers["content-type"].startswith("application/xml")
     listed = re.findall(r"<loc>([^<]+)</loc>", sitemap.text)
-    assert listed == [f"{APP}/{path}" for path in ("", "whats-new", "terms", "privacy")] + [
-        f"{APP}/subprocessors"
-    ]
+    assert listed == [f"{APP}/{path}" for path in ("", "terms", "privacy", "subprocessors")]
     # The public pages may be listed; a member's page, a share link's and any other may not.
-    for path in ("/", "/whats-new", "/terms", "/login", "/signup"):
+    for path in ("/", "/terms", "/login", "/signup"):
         assert "x-robots-tag" not in visitor.get(path).headers, path
     for path in ("/projects/1", "/shared", "/organization", "/nowhere"):
         assert visitor.get(path).headers["x-robots-tag"] == "noindex", path
