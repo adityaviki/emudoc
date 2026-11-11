@@ -73,9 +73,6 @@ COPY backend/migrations migrations
 COPY backend/app app
 RUN .venv/bin/python -m compileall -q app migrations
 COPY --from=frontend /app/frontend/dist /app/frontend/dist
-# What's new, the members' entries of the changelog (app/changelog.py), read where a checkout
-# keeps it.
-COPY CHANGELOG.md /app/CHANGELOG.md
 # What a release on AWS runs on the instance (deploy/aws/host/release, taken out of the image by
 # emudoc-release): the compose files, Caddy's, the drill's scripts and the host's own, so that
 # a tag carries the deployment it was tested with. The app reads none of it.

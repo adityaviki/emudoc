@@ -640,7 +640,7 @@ def create_app(
 
         async def _page(path: str, request: Request) -> Response:
             if (elsewhere := moved(path)) is not None:
-                # A page put away for now: the plans, the help, the API reference (app/site.py).
+                # A page put away: the plans, the help, the API reference, what's new (app/site.py).
                 return RedirectResponse(elsewhere, status_code=302)
             if (site_page := page_at(path, request, settings)) is not None:
                 if served := await to_thread.run_sync(_site_page, site_page, request):

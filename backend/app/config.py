@@ -628,8 +628,8 @@ class Settings(BaseSettings):
     # Where the app is reached, for the links in emails and the OAuth redirect URI. Empty takes
     # the origin of the request that needs it, which is right in development.
     app_url: str = ""
-    # Whether search engines are asked to list the public pages (app/site.py): the home page,
-    # what's new and the terms, in robots.txt and the sitemap. Off,
+    # Whether search engines are asked to list the public pages (app/site.py): the home page
+    # and the terms, in robots.txt and the sitemap. Off,
     # robots.txt turns every crawler away and every page says not to be listed, as a staging
     # deployment or one on a machine of its own should, so it is on only where it is said to be.
     search_engines: bool = False

@@ -51,7 +51,7 @@ export function usePrintTitle(title: string) {
 }
 
 /**
- * Names a page anyone reads (the terms, what's new, the sign-in pages) in the browser's tab and to
+ * Names a page anyone reads (the terms, the sign-in pages) in the browser's tab and to
  * a search engine, which reads the title the page shows once its script ran. The page's own again
  * once it goes.
  */
