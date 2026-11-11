@@ -13,6 +13,7 @@ from pydantic_ai.usage import RequestUsage
 from sqlalchemy import func, select
 
 from app import maintenance
+from app.agent.tools import TOOLS
 from app.answers import ANSWER_PROMPT_VERSION
 from app.config import get_settings
 from app.db import SessionLocal
@@ -195,7 +196,7 @@ def test_a_run_asks_each_question_over_a_copy_of_the_sample_and_leaves_nothing(s
     assert run.failed == [] and run.by_words is None
     # Asked as a member's answer is, in the sample's own project.
     assert all(f"Project: {NAME}" in prompt for prompt in reader.agent_prompts)
-    assert all("suggest_follow_ups" in offered for offered in reader.agent_tools)
+    assert all(offered == list(TOOLS) for offered in reader.agent_tools)
     assert all(asked.usage.calls == 2 for asked in run.asked)
     # Each answer judged by the indexing model against its known answer, with where each
     # passage it cites is and its whole text, where a source carries its first 280 characters.

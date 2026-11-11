@@ -27,9 +27,7 @@ again, or its job still queued, writes no event into the later try and settles n
 An answer to a member who may have a draft written can offer one (`offers_drafts`; the agent's
 `create_draft`, app/agent/tools.py): the offer is an event like the rest and part of the row once
 it is settled, and the member's press has it written (app/api/drafts.py), never the run itself,
-so a run that starts over or is tried again writes no draft twice. An answer may also suggest
-questions to ask next (the agent's `suggest_follow_ups`), kept with the row in the same way, which
-the chat's starter asks with a press as if they had typed it.
+so a run that starts over or is tried again writes no draft twice.
 
 Whatever ends a run, the model calls it made are recorded as the organisation's usage
 (app/usage.py) before it returns: the loop counts them as they are answered, and the run
@@ -47,8 +45,8 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import Connection, Text, bindparam, func, select, text
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy import Connection, bindparam, func, select, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import Session
 
@@ -113,7 +111,7 @@ _SETTLE = text(
     """
     UPDATE chat_messages
     SET content = :content, steps = :steps, sources = :sources, draft_offer = :draft_offer,
-        follow_ups = :follow_ups, notice = :notice, error = :error, status = :status
+        notice = :notice, error = :error, status = :status
     WHERE id = :id AND status = 'streaming' AND attempt = :attempt
     """
 ).bindparams(
@@ -121,7 +119,6 @@ _SETTLE = text(
     bindparam("sources", type_=JSONB),
     # No offer is no value, not JSON's null.
     bindparam("draft_offer", type_=JSONB(none_as_null=True)),
-    bindparam("follow_ups", type_=ARRAY(Text)),
 )
 _EVENTS = text(
     "SELECT seq, event FROM chat_events WHERE message_id = :id AND seq > :after ORDER BY seq"
@@ -146,8 +143,6 @@ class Reply:
     sources: dict[int, dict[str, Any]] = field(default_factory=dict)
     # The draft the answer offers the member: its kind, instructions and documents.
     draft: dict[str, Any] | None = None
-    # The questions it suggests asking next.
-    follow_ups: list[str] = field(default_factory=list)
     notice: str | None = None
     error: str | None = None
     # Length of `content` when the current model turn began, to discard a turn that is retried
@@ -162,7 +157,7 @@ class Reply:
                 self.content = self.content[: self.turn_start]
             case "restart":
                 # The run that wrote the events so far was lost; this one starts over.
-                self.content, self.steps, self.sources, self.follow_ups = "", [], {}, []
+                self.content, self.steps, self.sources = "", [], {}
                 self.draft = self.notice = self.error = None
                 self.turn_start = 0
             case "tool_call":
@@ -187,8 +182,6 @@ class Reply:
                 self.sources.update((source["id"], source) for source in event["sources"])
             case "draft":
                 self.draft = {key: event[key] for key in ("kind", "instructions", "documents")}
-            case "follow_ups":
-                self.follow_ups = list(event["questions"])
             case "notice":
                 self.notice = event["message"]
             case "error":
@@ -201,7 +194,6 @@ class Reply:
             "steps": self.steps,
             "sources": list(self.sources.values()),
             "draft_offer": self.draft,
-            "follow_ups": self.follow_ups,
             "notice": self.notice,
             "error": self.error,
             "status": status,
@@ -439,7 +431,6 @@ def answer(
                 history,
                 usage,
                 drafting=drafting,
-                following=True,
                 scope=scope,
             )
         else:

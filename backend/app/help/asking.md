@@ -46,9 +46,8 @@ it and have it answered again in its place; each counts as a question.
 
 A question can be up to $question_chars characters; for more, upload the text as a document and
 ask about it. New chat starts afresh, and the empty chat suggests a few questions, which the AI
-model writes from the project's documents once they are indexed. Under the last answer of your
-chat, "Ask next" suggests two or three questions that take it further: click one to ask it, as if
-you had typed it. A suggestion is only asked when you click it, and counts as a question.
+model writes from the project's documents once they are indexed: click one to ask it, as if you
+had typed it. A suggestion is only asked when you click it, and counts as a question.
 
 The chat's title, at the top of the chat, opens the list of your chats. Pin chat, beside a chat
 there, keeps it at the top under "Pinned", one you started or one shared with the project; your

@@ -2618,9 +2618,6 @@ class ChatMessage(Base):
     draft_offer: Mapped[dict | None] = mapped_column(JSONB)
     # The draft written from the offer, until it is deleted.
     draft_id: Mapped[int | None] = mapped_column(ForeignKey("drafts.id", ondelete="SET NULL"))
-    # The questions the answer suggests asking next (`suggest_follow_ups`, app/agent/tools.py),
-    # which the chat's starter asks with a press; none for an answer that suggests none.
-    follow_ups: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default="{}")
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

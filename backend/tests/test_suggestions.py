@@ -1,28 +1,27 @@
 """Suggested questions: an empty chat offers questions the model wrote from the project's
 catalogue once its documents settled, at most once an hour and never the sample's
-(app/suggestions.py), and an answer suggests the questions to ask next before its last reply
-(`suggest_follow_ups` in app/agent/tools.py), or with its last words, which end it without
-another turn."""
+(app/suggestions.py)."""
 
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from pydantic_ai.messages import TextPart, ThinkingPart, ToolCallPart, ToolReturnPart
 from sqlalchemy import select, text
 
-from app.agent.loop import FOLLOWING, run_agent
-from app.agent.tools import SUGGESTED_CHARS, distinct_questions
-from app.answers import Reply, answer
 from app.config import get_settings
 from app.jobs import BULK, INDEX_DOCUMENT, SUGGEST_QUESTIONS, claim
 from app.llm import LLMUnavailable
 from app.models import Job, Organization, Project, UsageEvent
-from app.suggestions import AGAIN_AFTER, SUGGESTIONS_PROMPT_VERSION, write_suggestions
+from app.suggestions import (
+    AGAIN_AFTER,
+    SUGGESTED_CHARS,
+    SUGGESTIONS_PROMPT_VERSION,
+    distinct_questions,
+    write_suggestions,
+)
 from app.usage import SUGGESTIONS
 from app.worker import Worker
-from tests.conftest import SUGGESTED, FakeTurn, data_of
+from tests.conftest import SUGGESTED
 from tests.test_api import create_project, upload
-from tests.test_chats import ask, follow, new_chat
 from tests.test_spending import spend
 
 
@@ -244,105 +243,3 @@ def test_questions_are_offered_once_each_on_a_line_of_their_own():
         "Who signed the contract?",
         "What is the notice period?",
     ]
-
-
-FOLLOW_UPS = ["How is notice given?", "how is notice  given?", "Who pays the penalty?"]
-
-
-def test_an_answer_suggests_what_to_ask_next_with_its_last_words(client, services, indexed):
-    services.llm.agent_turns.extend(
-        [
-            FakeTurn(ToolCallPart("search", {"query": "notice period"}, "s1")),
-            FakeTurn(
-                TextPart("The notice period is 90 days."),
-                ToolCallPart("suggest_follow_ups", {"questions": FOLLOW_UPS}, "f1"),
-            ),
-        ]
-    )
-    chat = new_chat(client, indexed.project_id)
-    asked = ask(client, chat["id"], "What is the notice period?")
-    answer(asked["answer"]["id"], services)
-
-    # The tool was offered and said when to call; the reply that called it ended the answer.
-    assert "suggest_follow_ups" in services.llm.agent_tools[0]
-    assert FOLLOWING in services.llm.agent_prompts[0]
-    assert len(services.llm.agent_requests) == 2
-    events = follow(client, chat["id"], asked["answer"]["id"])
-    suggested = ["How is notice given?", "Who pays the penalty?"]
-    assert {"type": "follow_ups", "questions": suggested} in events
-    question, given = client.get(f"/api/chats/{chat['id']}").json()["messages"]
-    assert question["follow_ups"] == []
-    assert (given["content"], given["status"], given["follow_ups"]) == (
-        "The notice period is 90 days.",
-        "done",
-        suggested,
-    )
-    # They are no step taken to the answer.
-    assert [step["name"] for step in given["steps"]] == ["search"]
-
-
-def test_follow_ups_before_the_answer_are_kept_and_the_model_asked_for_it(
-    client, services, indexed
-):
-    services.llm.agent_turns.extend(
-        [
-            # Claude Opus 5.5 returns what a reply writes beside a tool call as an empty
-            # thinking part, so whatever it wrote there is asked for again.
-            FakeTurn(
-                ThinkingPart(""),
-                ToolCallPart("suggest_follow_ups", {"questions": FOLLOW_UPS[:1]}, "f1"),
-            ),
-            FakeTurn(TextPart("The notice period is 90 days.")),
-        ]
-    )
-    chat = new_chat(client, indexed.project_id)
-    asked = ask(client, chat["id"], "What is the notice period?")
-    answer(asked["answer"]["id"], services)
-
-    assert "before you write it" in services.llm.agent_prompts[0]
-    assert len(services.llm.agent_requests) == 2
-    returned = services.llm.agent_requests[1][-1].parts[0]
-    assert isinstance(returned, ToolReturnPart)
-    assert data_of(returned.content).startswith("The member sees these questions under your")
-    assert "Now write your whole answer as your last reply" in returned.content
-    given = client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]
-    assert (given["content"], given["follow_ups"]) == (
-        "The notice period is 90 days.",
-        FOLLOW_UPS[:1],
-    )
-
-
-def test_follow_ups_the_model_got_wrong_end_the_answer_without_them(client, services, indexed):
-    services.llm.agent_turns.append(
-        FakeTurn(
-            TextPart("The notice period is 90 days."),
-            ToolCallPart("suggest_follow_ups", {"questions": "How is notice given?"}, "f1"),
-        )
-    )
-    chat = new_chat(client, indexed.project_id)
-    asked = ask(client, chat["id"], "What is the notice period?")
-    answer(asked["answer"]["id"], services)
-
-    assert len(services.llm.agent_requests) == 1
-    given = client.get(f"/api/chats/{chat['id']}").json()["messages"][-1]
-    assert (given["content"], given["status"], given["follow_ups"]) == (
-        "The notice period is 90 days.",
-        "done",
-        [],
-    )
-
-
-def test_a_run_that_starts_over_drops_the_follow_ups_and_other_work_is_offered_none(
-    services, indexed
-):
-    reply = Reply()
-    reply.apply({"type": "follow_ups", "questions": ["Who signed it?"]})
-    assert reply.columns("done")["follow_ups"] == ["Who signed it?"]
-    reply.apply({"type": "restart"})
-    assert reply.columns("streaming")["follow_ups"] == []
-
-    # A report or a draft is not an answer: nothing is asked under it.
-    services.llm.agent_turns.append(FakeTurn(TextPart("A report.")))
-    list(run_agent(services, indexed.project_id, [{"role": "user", "content": "Report."}]))
-    assert "suggest_follow_ups" not in services.llm.agent_tools[0]
-    assert FOLLOWING not in services.llm.agent_prompts[0]

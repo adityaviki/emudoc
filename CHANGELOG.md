@@ -13,6 +13,18 @@ to: `## YYYY-MM-DD` a day (or `## YYYY-MM-DD to YYYY-MM-DD`), the newest first, 
 and `Operators:`, each a list of `- ` entries whose lines go on indented by two spaces, a day's
 newest entry first.
 
+## 2026-11-11
+
+Members:
+
+- Answers no longer suggest questions to ask next under them. A new chat still suggests questions
+  written from the project's documents.
+
+Operators:
+
+- The agent is no longer offered `suggest_follow_ups`, so the answers' prompt version moves. The
+  migration drops `chat_messages.follow_ups`.
+
 ## 2026-11-08
 
 Members:

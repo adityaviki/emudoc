@@ -15,7 +15,7 @@ the passages. It answers as a model would that does the least the app asks:
 - an agent turn whose conversation has no tool result yet calls `search` with the question,
   streamed as the app streams every turn;
 - an agent turn after a search answers with the first sentence of the best passage, cited by
-  its [P...] reference, and, offered `suggest_follow_ups`, suggests FOLLOW_UPS with those words;
+  its [P...] reference;
 - a request for a project's suggested questions (a schema of `questions`) asks what each of the
   first three documents its catalogue lists says;
 - an agent turn offered `create_draft`, for a question that begins "Draft ", offers after its
@@ -82,9 +82,8 @@ DRAFT_WORDS = (
     ("report", "report"),
 )
 OFFERED = "The member is offered a"
-# The questions an answer suggests asking next, and a document's line in the catalogue that a
-# request for a project's questions lists (`list_documents`, backend/app/agent/tools.py).
-FOLLOW_UPS = ["Which other documents mention it?", "What does the project say about payment?"]
+# A document's line in the catalogue that a request for a project's questions lists
+# (`list_documents`, backend/app/agent/tools.py).
 LISTED_DOCUMENT = re.compile(r"^doc \d+ · (.+?)(?: · |$)", re.MULTILINE)
 
 # Google Drive's tree under /google: each item by its id, its name, its type, its parent, and a
@@ -327,10 +326,7 @@ def agent_turn(messages: list[dict[str, Any]], tools: list[str]) -> dict[str, An
     ref, passage = found.groups()
     sentence = SENTENCE.match(passage.strip())
     said = (sentence.group(1) if sentence else passage).strip()
-    reply: dict[str, Any] = {"text": f"{said} {ref}"}
-    if "suggest_follow_ups" in tools:
-        reply.update(tool="suggest_follow_ups", arguments={"questions": FOLLOW_UPS})
-    return reply
+    return {"text": f"{said} {ref}"}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -563,17 +559,13 @@ class Handler(BaseHTTPRequestHandler):
             else []
         )
         deltas: list[dict[str, Any]]
-        if calls and not reply.get("text"):
+        if calls:
             deltas, finish = [{"role": "assistant", "tool_calls": calls}], "tool_calls"
         else:
             # Word by word, as a model streams, so the page shows an answer growing.
             words = re.findall(r"\S+\s*", reply["text"])
             deltas = [{"role": "assistant", "content": ""}] + [{"content": w} for w in words]
             finish = "stop"
-            if calls:
-                # Then the call made with the words, as an answer suggesting what to ask next.
-                deltas.append({"tool_calls": calls})
-                finish = "tool_calls"
         chunks = [{**base, "choices": [{"index": 0, "delta": d}]} for d in deltas]
         chunks.append({**base, "choices": [{"index": 0, "delta": {}, "finish_reason": finish}]})
         chunks.append({**base, "choices": [], "usage": usage()})
